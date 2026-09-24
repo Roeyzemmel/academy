@@ -33,7 +33,9 @@ if (-not $Script -and -not $Code) { throw "Give a script path or -Code." }
 if ($Script -and $Code) { throw "Give either a script path or -Code, not both." }
 
 $interp = if ($Sage) { "sage" } else { "python" }
-$runner = "$Prefix/bin/mamba run -n $EnvName $interp"
+# A sourced `conda activate`, not `mamba run` (which holds stdout until exit) and not
+# PATH alone (which skips the activate.d scripts, and cling under pyflatsurf segfaults).
+$runner = "set +u; . $Prefix/etc/profile.d/conda.sh && conda activate $EnvName && $interp"
 
 if ($Target -eq "wsl") {
   if ($Code) {

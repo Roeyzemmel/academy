@@ -18,7 +18,7 @@ all of them, the Sage recipes only in the last two.
 | Where | What is there | How to run |
 |---|---|---|
 | **Windows** (Roey's laptop, Claude Code in the desktop app or VS Code) | Python 3.10 via the `py` launcher only. No Sage. | `py scripts\origami_illumination.py` |
-| **WSL Ubuntu** on the same laptop | Miniforge at `~/miniforge3`, conda env `flatsurf` with sage-flatsurf + surface_dynamics (installed by `scripts/setup_env.sh`). | From Windows: `scripts\flatsurf-run.ps1 experiment.py`. From a WSL shell: `bash scripts/run.sh experiment.py`. |
+| **WSL Ubuntu** on the same laptop | Miniforge at `~/miniforge3`, conda env `flatsurf` with sage-flatsurf + surface_dynamics (installed by `scripts/setup_env.sh`). | From Windows: `scripts\flatsurf-run.ps1 experiment.py`. From a WSL shell: `. ~/miniforge3/etc/profile.d/conda.sh && conda activate flatsurf`, then `python experiment.py` (FlatSurfLab: `bash scripts/run.sh`). |
 | **Remote Linux server** | Same layout once `scripts/setup_env.sh` has been run there. | `scripts\flatsurf-run.ps1 experiment.py -Target ssh:<host>` pipes the script over ssh. |
 
 `scripts/flatsurf-run.ps1` also takes `-Code "…"` for one-liners and `-Sage` to
@@ -30,8 +30,10 @@ Two things that look like they should work and do not:
 
 - **`mamba run` is not usable here.** It captures the child's stdout until exit, so
   nothing streams and interactive tools are dead, and this build rejects
-  `--no-capture-output` ("exec: --: invalid option"). Activate by PATH instead —
-  which is what the runner scripts do.
+  `--no-capture-output` ("exec: --: invalid option"). Use a sourced `conda activate`
+  instead, which is what the runner scripts do. **Not PATH alone**: that skips the
+  compiler packages' `activate.d` scripts, and cling (under pyflatsurf, so under
+  `canonicalize()` and `GL2ROrbitClosure`) then segfaults.
 - **A project may forbid running experiments locally at all.** In FlatSurfLab every
   experiment run, validation included, goes through a job queue to a remote server,
   and WSL Sage is kept for unit tests and one-line API checks. Read the project's
