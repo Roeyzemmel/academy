@@ -15,22 +15,23 @@ proof discipline, **latex-paper-writing** for the manuscript.
 
 ## Use the reference sheet, not memory
 
-`references/theorems.md` (~1100 lines, 33 entries with sources) holds precise
-statements. **Read the relevant entry before stating or citing any theorem from
+`references/theorems/` (33 entries with sources, one file per section) holds precise
+statements. Start at `references/theorems/INDEX.md` (5 KB): it lists every entry,
+says how to read one, and fixes the standing notation. **Read the relevant entry before stating or citing any theorem from
 this area.** Memory reconstructs hypotheses plausibly and wrongly, and in this
 field the hypotheses are the content — "torus cover", "Veech", "primitive",
 "prelattice", and "square-tiled" are five different conditions that get conflated.
 
 Structure of the sheet:
 
-| § | Contents |
-|---|---|
-| 1 | Illumination & blocking — LMW, Wolecki, Tokarsky, Hubert–Schmoll–Troubetzkoy, Monteil, Apisa–Wright, periodic points |
-| 2 | Orbit closures — Eskin–Mirzakhani, EMM, Wright's cylinder deformation, field of definition, rank, Mirzakhani–Wright |
-| 3 | Veech surfaces — the dichotomy, Smillie–Weiss's eleven characterizations, coverings, Gutkin–Judge |
-| 4 | Strata, period coordinates, Kontsevich–Zorich, Masur–Veech, KMS, Masur's criterion |
-| 5 | Open problems and active directions |
-| 6 | **UNVERIFIED** — 14 items that could not be confirmed against a primary source |
+| File | § | Contents |
+|---|---|---|
+| `illumination.md` | 1 | Illumination & blocking — LMW, Wolecki, Tokarsky, Hubert–Schmoll–Troubetzkoy, Monteil, Apisa–Wright, periodic points |
+| `orbit-closures.md` | 2 | Orbit closures — Eskin–Mirzakhani, EMM, Wright's cylinder deformation, field of definition, rank, Mirzakhani–Wright |
+| `veech.md` | 3 | Veech surfaces — the dichotomy, Smillie–Weiss's eleven characterizations, coverings, Gutkin–Judge |
+| `strata.md` | 4 | Strata, period coordinates, Kontsevich–Zorich, Masur–Veech, KMS, Masur's criterion |
+| `open-problems.md` | 5 | Open problems and active directions |
+| `unverified.md` | 6 | **UNVERIFIED** — 14 items that could not be confirmed against a primary source |
 
 Each entry has **Statement / Notation used / Common misuse / Source**. The
 "Common misuse" lines are not padding; they are the errors that actually appear.
