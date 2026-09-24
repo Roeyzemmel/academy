@@ -124,6 +124,14 @@ CRLF-translating write doubles every carriage return. Beyond the skeleton in
 Then remove the label's line from the `## Verification queue` section of the roadmap,
 whatever the outcome; a repair filed in step 3 re-queues it once the repair lands.
 
+**The claim registry, if the project keeps one.** When the project's
+`.claude/flatsurf.json` names a `claims.py` registry, dispatch one
+`flatsurf:claim-keeper` with `paper:<label>`, the outcome, and the entry you just wrote as
+its grounds. It adds the verdict as evidence and a history line, and changes the status
+only as the outcome warrants: recoloured → `proved` / `proved-modulo`; disproved →
+`refuted` or `refuted-as-stated`; stays blue → evidence only. It never recolours the
+draft; that stays with `latex-fixer`. Name what it changed in the report.
+
 ## 6. Report
 
 Per `/paper:verify` step 5: both verdicts in the verifiers' own words, the decision the

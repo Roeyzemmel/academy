@@ -22,7 +22,7 @@ An agent here may assume, without being told:
 | bibliography | `references.bib` |
 | build | `latexmk -pdf main.tex`, artifacts in `.build/` (gitignored) |
 | mechanical gate | `py scripts/check_paper.py [--strict]`, `file:line: LABEL: message` output |
-| ledgers under `Drafts/`, line endings **not uniform — check each file and preserve what it has** | `comment_roadmap.md` (task queue), `sources.md` (citations), `related_work.md` (prior-art searches), `experiments.md` (computations), `statements.md` (generated registry), `verdicts.md` (verifier sign-offs), `referee_report.md` |
+| ledgers under `Drafts/`, line endings **not uniform — check each file and preserve what it has** | `comment_roadmap.md` (task queue), `sources.md` (citations), `related_work.md` (prior-art searches), `experiments.md` (computations; may be generated), `archive/` (frozen history), `statements.md` (generated registry), `verdicts.md` (verifier sign-offs), `referee_report.md` |
 | draft colours | `sketch` / `conjectural` / `meta` environments, `\Sketch{}` / `\Conjectural{}` / `\Meta{}` spans, uncoloured = established |
 | machine margin notes | `\Claude{…}`, inline `\cl{…}` |
 | roadmap tags | `[write] [apply] [lead] [verify] [needs Roey] [dropped] [done]` |

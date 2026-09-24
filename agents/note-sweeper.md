@@ -24,8 +24,9 @@ The five places an answer can live, checked in this order:
    block. Quote it into the roadmap item before deleting the machine note.
 3. `Drafts/sources.md` — a verified block for that (key, pinpoint) answers a note that
    asked whether a pinpoint was checked.
-4. `Drafts/experiments.md` — a `done` or `recorded` row with its outcome. `parked`,
-   `failed`, `queued` and `written` are **not** answers.
+4. `Drafts/experiments.md` — a row whose outcome the project's `.claude/rules/ledgers.md`
+   counts as settled ("Experiment statuses"). A queued, running, parked, failed or
+   merely written computation is **not** an answer.
 5. `Drafts/statements.md` together with a verifier sign-off in `Drafts/verdicts.md` —
    this answers "blue because unverified"; the recolouring itself is a separate edit,
    not part of this sweep.

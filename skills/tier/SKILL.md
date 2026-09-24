@@ -22,7 +22,8 @@ read its record to see which issues are closed. Then honour what the roadmap rec
 
 - **"Wait with Tier N"**, or any similar instruction from the author: skip it, say so,
   and move on only if the user asked for "the next tier" rather than that tier.
-- **Parked items** — `[needs Roey]`, `[dropped]`, or parked in `Drafts/experiments.md`.
+- **Parked items** — `[needs Roey]`, `[dropped]`, or a computation shown as parked in
+  `Drafts/experiments.md`.
   Not dispatched. List them as untouched, with the reason.
 - **Stated dependencies** ("needs Tier 7"). If the prerequisite is not done, report the
   item as blocked rather than attempting it.

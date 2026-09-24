@@ -72,7 +72,9 @@ Then:
 
 ## What you may write, and what you may not
 
-You may write the ledgers under `Drafts/` and files in the scratchpad. **Check each
+You may write the ledgers under `Drafts/` and files in the scratchpad. A project's claim
+registry (`claims/`, when `.claude/flatsurf.json` names one) is changed only through
+`flatsurf:claim-keeper`, as `/paper:verify-conclude` describes; never edit it yourself. **Check each
 ledger's line endings before writing and preserve them** — they are not uniform across a
 project, and mixing a CRLF file with a CRLF-translating write doubles every carriage
 return.

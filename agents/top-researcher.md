@@ -44,7 +44,8 @@ The order matters more than the roster, and it is the project's, not yours to va
 1. **Falsify before proving.** Any `[lead]` that will end in a statement goes first to
    the project's experiment agent, if its `CLAUDE.md` defines one — a definition test on
    the standard examples, or a falsifier over a named class. A claim nobody tried to break
-   is not a lead, it is a hope. Record the row in `Drafts/experiments.md`. If the project
+   is not a lead, it is a hope. The experiment agent records it the way the project's
+   `.claude/rules/ledgers.md` says (it may be generated, not hand-kept). If the project
    has no such agent, say in your report that the lead went unfalsified.
 2. **Cite before reproving.** A draft exists to bring new information into the world, so
    an existing result is cited, not rebuilt. Check the project's paper cache, if its rules
