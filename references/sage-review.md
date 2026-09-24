@@ -6,8 +6,8 @@ The checklist for any review of code that builds or measures translation surface
 `superpowers:requesting-code-review`; for a result, `flatsurf:result-auditor`).
 
 **The API traps are not repeated here.** They live in FlatSurfLab's `docs/api-traps.md`
-(the ones this project hit) and the `flatsurf-computation` skill's `api-recipes.md` (the
-general list). Read the first before reviewing; check each trap against the code.
+(the ones this project hit) and the `flatsurf-computation` skill's `references/api/` (the
+general list; `INDEX.md` routes, `quick-reference.md` has the removed API). Read the first before reviewing; check each trap against the code.
 
 ## The questions
 

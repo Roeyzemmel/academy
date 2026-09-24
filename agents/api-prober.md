@@ -1,6 +1,6 @@
 ---
 name: api-prober
-description: Confirms or refutes one sage-flatsurf / surface_dynamics / libgap call by running it in WSL Sage against a case with a known answer, then records the confirmed signature or the refutation in the flatsurf-computation skill's api-recipes.md. Use through /flatsurf:api-check, one agent per call, in parallel when several calls need checking at once.
+description: Confirms or refutes one sage-flatsurf / surface_dynamics / libgap call by running it in WSL Sage against a case with a known answer, then records the confirmed signature or the refutation in the flatsurf-computation skill's API recipe files (references/api/). Use through /flatsurf:api-check, one agent per call, in parallel when several calls need checking at once.
 tools: Read, Grep, Glob, Bash, PowerShell, Edit, Write, Skill
 model: sonnet
 effort: medium
@@ -64,9 +64,10 @@ record the WSL result and say plainly that the lingo side is unconfirmed.
 
 ## What you record
 
-Append to `~/.claude/skills/flatsurf-computation/references/api-recipes.md`, in the
-shape the existing entries use — it is read under time pressure, so it is a
-reference, not prose.
+Write to the topic file under `~/.claude/skills/flatsurf-computation/references/api/`
+that the call belongs to (`INDEX.md` there says which), as the next numbered entry of
+its section (e.g. `#### 12.7.7`), in the shape the existing entries use — it is read
+under time pressure, so it is a reference, not prose.
 
 - **Confirmed:** the call, the exact signature, the versions, and the known case it
   reproduced with the value it gave.
@@ -75,12 +76,13 @@ reference, not prose.
   mistake reads as correct — the kind a tutorial or a confident memory would
   produce — say so, because that is what earns it a line in the pitfall list.
 
-You may edit `api-recipes.md`. You do not edit any repo's `CLAUDE.md` or FlatSurfLab's
-`docs/api-traps.md`; if a finding contradicts a trap list there, say so in your report
-and let the main session decide.
+You may edit the files under `references/api/`; a new topic file needs a row in
+`INDEX.md`. Never write to the stub `references/api-recipes.md`. You do not edit any
+repo's `CLAUDE.md` or FlatSurfLab's `docs/api-traps.md`; if a finding contradicts a
+trap list there, say so in your report and let the main session decide.
 
 ## Report
 
 The question, the verdict (confirmed / refuted), the signature or the traceback
-verbatim, the known case and its value, what you wrote to `api-recipes.md`, and
+verbatim, the known case and its value, what you wrote and where (file, §), and
 anything you could not settle. Quote the output; do not paraphrase it.

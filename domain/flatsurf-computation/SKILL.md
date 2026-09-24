@@ -55,8 +55,8 @@ which sage && sage -c "import flatsurf; print(flatsurf.__version__)"
 python3 -c "import surface_dynamics; print(surface_dynamics.version.version)"
 ```
 
-**If Sage is present**, use `references/api-recipes.md` — the verified API guide
-below. **If it is not** and you cannot reach the WSL env, do not waste a long
+**If Sage is present**, use the recipe files under `references/api/`, the verified
+API guide below. **If it is not** and you cannot reach the WSL env, do not waste a long
 installation attempt in a sandbox (it is a large conda install and often blocked).
 Go straight to the bundled scripts, which are pure standard-library Python and
 cover the two questions that come up most.
@@ -93,23 +93,29 @@ Both files run their self-tests with `python3 <file>`; run them once after any
 edit, since they check real invariants (lattice-point counts on the torus, orbit
 closure of the slope-1 square trajectory, reversal symmetry of connections).
 
-## With Sage: use the recipe file
+## With Sage: use the recipe files
 
-`references/api-recipes.md` (~1500 lines) has version-checked, runnable recipes
-with upstream's own printed outputs. Read the relevant section rather than writing
-from memory — **this API changed substantially in recent versions and plausible-
-looking calls from older tutorials silently do not exist.**
+`references/api/` has version-checked, runnable recipes with upstream's own printed
+outputs, one file per topic. Read `references/api/INDEX.md` (2 KB), then the one
+file you need, rather than writing from memory — **this API changed substantially in
+recent versions and plausible-looking calls from older tutorials silently do not
+exist.**
 
-| § | Contents |
-|---|---|
-| 1 | Versions and installation (pixi / conda / into existing Sage); the no-Sage question |
-| 2 | Building surfaces: `MutableOrientedSimilaritySurface`, polygon constructors, strata, $\mathrm{GL}(2,\mathbb{R})$ action, Delaunay, deciding equality |
-| 3 | Billiard unfolding, and its two pitfalls |
-| 4 | Saddle connections, the `SaddleConnection` interface, holonomy vectors, straight-line flow, plotting |
-| 5 | Cylinder / flow decompositions, moduli, orbit closures, raw libflatsurf for Siegel–Veech |
-| 6 | `surface_dynamics`: origamis, Veech groups, strata, Lyapunov exponents, the origami database |
-| 8 | The pure-Python fallbacks (source of the bundled scripts) |
-| 9 | Using this responsibly; exact vs floating arithmetic; ranked pitfall list |
+| File | § | Contents |
+|---|---|---|
+| `setup.md` | 1, 12.1–12.4 | Versions, installation, imports; the pyflatsurf / cling crash |
+| `surfaces.md` | 2, 3 | Building surfaces: `MutableOrientedSimilaritySurface`, polygon constructors, strata, $\mathrm{GL}(2,\mathbb{R})$ action, Delaunay, deciding equality; billiard unfolding and its two pitfalls |
+| `saddle-connections.md` | 4 | Saddle connections, the `SaddleConnection` interface, holonomy vectors, straight-line flow, plotting |
+| `cylinders.md` | 5 | Cylinder / flow decompositions, moduli, orbit closures, raw libflatsurf for Siegel–Veech |
+| `origamis.md` | 6, 12.5 | `surface_dynamics`: origamis, Veech groups, strata, Lyapunov exponents, the origami database, `origamis.*` |
+| `libgap.md` | 12.2, 12.6–12.8 | `libgap` from Sage |
+| `illumination.md` | 7 | End-to-end illumination recipes |
+| `pure-python.md` | 8 | The pure-Python fallbacks (source of the bundled scripts) |
+| `practice.md` | 9 | Using this responsibly; exact vs floating arithmetic; ranked pitfall list |
+| `quick-reference.md` | 10, 11 | Removed API; the quick reference card |
+
+The § numbers are those of the former single `api-recipes.md`, so older citations
+("api-recipes §6.7.1") still resolve through the index.
 
 Verified against sage-flatsurf 0.8.0 and surface-dynamics 0.7.0. Sections tagged
 `[UNVERIFIED]` are composed rather than copied from docs — run them on a known

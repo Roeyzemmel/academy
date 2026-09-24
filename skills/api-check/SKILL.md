@@ -1,6 +1,6 @@
 ---
 name: api-check
-description: Confirm that a sage-flatsurf / surface_dynamics / libgap call actually exists and behaves as assumed, by running it in WSL Sage against a case with a known answer before it goes into an experiment — then record the confirmed signature, or the refutation, in the flatsurf-computation skill's api-recipes.md so the trap list grows. Use before writing any unfamiliar call, before a script with an unfamiliar call is queued, when a tutorial or memory suggests a method, and whenever a traceback says an attribute does not exist.
+description: Confirm that a sage-flatsurf / surface_dynamics / libgap call actually exists and behaves as assumed, by running it in WSL Sage against a case with a known answer before it goes into an experiment — then record the confirmed signature, or the refutation, in the flatsurf-computation skill's API recipe files (references/api/) so the trap list grows. Use before writing any unfamiliar call, before a script with an unfamiliar call is queued, when a tutorial or memory suggests a method, and whenever a traceback says an attribute does not exist.
 ---
 
 # Check the call before it goes in the script
@@ -14,7 +14,7 @@ in a 2019 tutorial, that a model remembers confidently, may simply not exist —
 `veech_group().gens()`. Each of those cost a debugging session before it was written
 down.
 
-**A call that has not been run in this session, and is not in `api-recipes.md`, is a
+**A call that has not been run in this session, and is not in the recipe files, is a
 guess.** A guess inside a queued experiment fails an hour later, on lingo, in a log —
 after the VPN window has closed. The cost of checking now is a minute.
 
@@ -23,12 +23,13 @@ after the VPN window has closed. The cost of checking now is a minute.
 Read `.claude/flatsurf.json`: `lab` is FlatSurfLab, where every probe runs, and
 `knownCases` lists this repo's cases with independently known answers.
 
-Look the call up in `~/.claude/skills/flatsurf-computation/references/api-recipes.md`
-first; a confirmed entry at the installed versions ends the question.
+Look the call up in `~/.claude/skills/flatsurf-computation/references/api/`
+first: `INDEX.md` names the one topic file to read, and a confirmed entry at the
+installed versions ends the question.
 
 Otherwise dispatch one `flatsurf:api-prober` agent **per call**, all in one message so
 they run concurrently. Each gets exactly one question. The agent answers by running
-the call, never by recalling it, and records the outcome in `api-recipes.md`. For a
+the call, never by recalling it, and records the outcome in the topic file. For a
 single one-line check you may run it yourself, in the same order:
 
 ```
@@ -53,8 +54,9 @@ and `libgap` import without `pyflatsurf` — is confirmed on lingo too
 
 ## Then write it down
 
-The point of the check is that it happens once. In `api-recipes.md`, in the shape of the
-existing entries:
+The point of the check is that it happens once. In the topic file the call belongs to
+(`references/api/INDEX.md` says which), as the next numbered entry of its
+section, in the shape of the existing entries:
 
 - **Confirmed** — the call, the exact signature, the versions (sage-flatsurf 0.8.0,
   surface_dynamics 0.7.0), and the known case it reproduced. A recipe with no worked
@@ -75,5 +77,5 @@ the cylinder decomposition, `surface_dynamics` origamis for Veech groups,
 ## Report
 
 Per call: the question, the verdict (confirmed or refuted), the signature or the
-traceback **verbatim**, the known case and the value it gave, what was written to
-`api-recipes.md`, and anything left unsettled. Quote the output; do not paraphrase it.
+traceback **verbatim**, the known case and the value it gave, what was written, to
+which file and §, and anything left unsettled. Quote the output; do not paraphrase it.
