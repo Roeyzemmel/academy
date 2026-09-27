@@ -1,0 +1,6 @@
+{
+  "name": "flatsurf",
+  "description": "Computational-experiment workflow for translation-surface research: experiment design gate, the lingo job queue, API checks in WSL Sage, adversarial result audits, and the federated claim registry.",
+  "version": "1.0.0",
+  "author": { "name": "Roey Zemmel" }
+}
