@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "about": "Who may call which academy MCP write tool, and who owns which ticket field. Agents are named bare (the namespace is stripped by agent_identity); bare names are unique across the five plugins. The human (the main session, no agent_type) may do everything. Read tools (claims_show/list/query/deps, library_*, queue_status/log, env_*, domain_get, config_get, workspace_get, tickets_list/get, packets_list/get) are open to every caller and are not listed. The server checks the substance of each call on top of this table (docs/protocol.md).",
+  "human": "*",
+  "roster": {
+    "academy": ["concierge", "explainer", "usage-analyst"],
+    "author": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper", "notation-auditor"],
+    "researcher": ["lead-researcher", "prover", "experiment-reviewer", "claim-keeper"],
+    "expert": ["clerk", "librarian", "related-work-scout", "review-chair", "rigor-reviewer", "referee"],
+    "scientist": ["experimenter", "developer", "test-engineer", "upstream-contributor", "api-prober"]
+  },
+  "groups": {
+    "graders": ["rigor-reviewer", "experiment-reviewer", "referee"],
+    "readonly": ["explainer", "clerk", "rigor-reviewer", "experiment-reviewer", "referee"],
+    "producers": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper", "notation-auditor", "lead-researcher", "prover", "librarian", "related-work-scout", "experimenter", "developer", "test-engineer", "upstream-contributor", "api-prober"],
+    "clerical": ["concierge", "usage-analyst", "claim-keeper", "review-chair"]
+  },
+  "tools": {
+    "claims_new": {
+      "allow": ["prover", "lead-researcher", "experimenter", "math-writer", "math-editor", "claim-keeper"],
+      "deny": ["@readonly"],
+      "substance": "Status must be unsettled (open, conjectured, sketch). The id must be in the caller's own instance namespace, except for claim-keeper. A claim created by researcher:generalize has status conjectured and bears_on the lab claim it generalizes."
+    },
+    "claims_attach_evidence": {
+      "allow": ["prover", "experimenter", "claim-keeper", "review-chair", "librarian"],
+      "deny": ["@readonly"],
+      "substance": "Append-only: an evidence row is never edited or removed. Grader verdicts reach the registry as files landed by a SubagentStop hook and are attached by claim-keeper or review-chair, never by the grader."
+    },
+    "claims_propose_status": {
+      "allow": ["lead-researcher", "prover", "experimenter", "review-chair", "math-editor"],
+      "deny": ["@readonly"],
+      "substance": "Files a ticket (kind decision) to the claim-keeper of the claim's namespace owner; changes nothing itself."
+    },
+    "claims_set_status": {
+      "allow": ["claim-keeper"],
+      "deny": ["@readonly"],
+      "substance": "The server re-checks the grounds per kind (plan section 8): proof -> two agreeing verdicts with distinct run ids and the same statement hash; computation -> two agreeing experiment verdicts, the result's commit hash and a passed validation case, and only supported/refuted/refuted-as-stated. Without grounds only the human may set a status."
+    },
+    "queue_add": {
+      "allow": ["experimenter", "developer"],
+      "deny": ["@readonly"],
+      "substance": "The script must be committed; the env profile defaults to the home's policy.run."
+    },
+    "tickets_create": {
+      "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst"],
+      "deny": ["@readonly"],
+      "substance": "from is the caller's instance (the human files as 'human', and the concierge files as 'human' only after Roey confirms); to must be a workspace instance or 'human'; the server allocates id and dates and writes status open."
+    },
+    "tickets_update": {
+      "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst"],
+      "deny": ["@readonly"],
+      "substance": "Field ownership and transitions per 'tickets' below; the caller's party (sender/receiver) is decided by its instance against the ticket's from/to. Appending to the thread is open to every non-readonly caller."
+    },
+    "packets_create": {
+      "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst"],
+      "deny": ["@readonly"],
+      "substance": "The packet's instance is the caller's instance; ## Summary, ## Established vs assumed and ## Decisions needed must be present and ## Decision empty. Read-only agents' packets (referee, rigor-reviewer) are landed by their SubagentStop hook, not through this tool."
+    },
+    "packets_decide": {
+      "allow": [],
+      "substance": "Only the human decides. /academy:review runs in the main session; the script writes the answer into the packet's ## Decision and a line into its ticket's thread."
+    }
+  },
+  "tickets": {
+    "fields": {
+      "system": ["id", "from", "created", "updated"],
+      "human_only": ["to"],
+      "sender": ["title", "kind", "ask", "deliverable", "refs", "priority", "budget", "parent", "blocks", "agenda", "domain"],
+      "receiver": ["status", "result", "waiting_on", "packets"]
+    },
+    "sections": {
+      "sender": ["Ask"],
+      "receiver": ["Result"],
+      "append_only_anyone": ["Thread"]
+    },
+    "transitions": {
+      "open": {"accepted": ["receiver"], "rejected": ["receiver"], "blocked": ["receiver"], "cancelled": ["sender"]},
+      "accepted": {"in-progress": ["receiver"], "blocked": ["receiver"], "rejected": ["receiver"], "cancelled": ["sender"]},
+      "in-progress": {"delivered": ["receiver"], "blocked": ["receiver"], "cancelled": ["sender"]},
+      "blocked": {"accepted": ["receiver"], "in-progress": ["receiver"], "cancelled": ["sender"]},
+      "delivered": {"closed": ["sender"], "in-progress": ["sender"]},
+      "closed": {},
+      "rejected": {},
+      "cancelled": {}
+    },
+    "human": "Any field, any transition between valid statuses, including re-opening a terminal ticket to open."
+  },
+  "files": {
+    "about": "Direct file edits guarded by hooks (not MCP). The hooks read this block.",
+    "bibliography": {"pattern": "references.bib", "writers": ["librarian"], "hook": "author:bib_gate"},
+    "registry_status_field": {"pattern": "status:", "writers": ["claim-keeper"], "hook": "researcher:status_guard"},
+    "generated_views": {"pattern": "files carrying the do-not-edit header", "writers": [], "hook": "academy:generated_view_guard", "note": "Regenerated by scripts only."},
+    "board": {"pattern": "<board>/**", "writers": [], "hook": "academy:ticket_edit_check", "note": "Agents change the board only through the MCP tools; the human may edit in VS Code, and ticket_edit_check validates the result."},
+    "library": {"pattern": "<expert home>/{index.md,cards/**,ledgers/**}", "writers": ["librarian"], "hook": "expert:library_edit_check", "note": "Warns only."}
+  }
+}

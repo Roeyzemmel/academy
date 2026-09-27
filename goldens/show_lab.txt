@@ -1,0 +1,76 @@
+### claims.py show lab:arith-dark-pairs-pm1
+---
+id: lab:arith-dark-pairs-pm1
+title: Search: a non-illuminable pair (x,y) on an arithmetic surface with pi(y) != +-pi(x) in R^2/Lambda_0 (five named surfaces, denominator <= 6, bound 2B = 24)
+status: open
+where: experiments/2026-09-18_illumination_chase.py
+bears_on:
+  - paper:lem:illumination-chase
+  - paper:cor:arith-relative-position
+  - paper:cor:arith-slope-pm-one
+evidence:
+history:
+  - 2026-09-24 | open | bears_on paper:lem:illumination-chase added: BI's experiments.md row named it
+  - 2026-09-24 | open | created; header rewritten in place into the search format (Roey's approval)
+open:
+  - NEXT (Roey 2026-09-24: non-periodic points unless stated): the class is rational grids on torus covers, i.e. periodic points only. Redesign for non-periodic x, y (coordinates in a number field) once the Sage origami core (C2) exists; not queued until then
+  - not yet run (queue job 20260919-102332 parked since 09-19, reason unrecorded)
+  - the old header's second refuting outcome ("a non-illuminable pair on a surface where the paper's conjectures predict none") named no surface and was dropped; restore it only with a named surface
+  - paper:lem:illumination-chase (closures of loci) is deliberately not in bears_on; the search tests only a pointwise necessary condition
+  - no known example of the full property exists; only the dark branch (marked 2x2 torus, y = -x) and the +-1 classifier (synthetic pi-values) are validated
+  - depends on fslab.origami_illumination (scheduled for replacement) and private helpers of fslab.relative_marking
+---
+
+cited by:
+  experiment experiments/2026-09-18_illumination_chase.py
+exit=0
+
+### claims.py show lab:descent-family-n-le-7
+---
+id: lab:descent-family-n-le-7
+title: At every J > 0 state where p is interior to cylinders of one direction d only, a power of the shear not preserving d lowers J, on reduced origamis with 3..7 squares
+status: supported
+where: experiments/2026-09-23_descent_family.py
+evidence:
+  - experiment | results/2026-09-23_descent_family/n3-7.json | not audited | 0 refutations; pure-type J > 0 states: 0/0/24/300/3760 for n = 3..7; V3 census match against parabolic_descent n3-6 and n7-7 (commit 556d98b)
+history:
+  - 2026-09-24 | supported | outcome read from the JSON, not from the header (its Result line says pending)
+open:
+  - NEXT (rescheduled 2026-09-24): n = 8 queued (job 20260924-173753) for more discriminating states
+  - weakly discriminating: at n = 7 both shears descend at 3716 of the 3760 pure-type states; only 44 (h:L 22, v:R 22) separate the predicted shear from the other
+  - nothing about n > 7, regular coarse targets, fine grids 1/N with N >= 3, or words mixing R and L
+  - no paper label in the header; the queue label lem:descent-family is not a \label; related to lab:parabolic-descent-n-le-7
+  - no /verify-result audit
+tags:
+  - vh
+  - descent
+---
+
+cited by:
+  experiment experiments/2026-09-23_descent_family.py
+exit=0
+
+### claims.py show lab:fact-compatible-half-translation-genus2
+---
+id: lab:fact-compatible-half-translation-genus2
+title: 3-square L tower X' -> X'/iota -> T2/+-1 (half-translation maps, not translation): with Sigma_Y != pi1(Sigma_X), compat(pi2 o pi1) <=> compat(pi1) and compat(pi2) fails for three Sigma_X; with the hypothesis it holds for three
+status: dropped
+where: experiments/2026-09-19_fact_compatible_L_counterexample.py
+bears_on:
+  - paper:fact:compatible
+evidence:
+history:
+  - 2026-09-24 | dropped | Roey: translation surfaces only for now; this example uses half-translation maps, so it is out of scope. The script stays in the repo, not queued
+  - 2026-09-24 | open | created; script rewritten in place to Kind: verify, never run
+open:
+  - not yet run (queue it; the script is standard library only)
+  - pi1 and pi2 are half-translation in charts, while paper:fact:compatible item 2 is stated for translation-in-charts maps; this does NOT refute the fact as stated. Roey to decide whether the fact should be read for any surjective flat morphism (its proof is set-theoretic plus surjectivity), in which case the example transfers
+  - is the example meant to be cited next to the fact, as the reason the hypothesis is there?
+  - one route only (exact grid enumeration); a second route (e.g. surface_dynamics Origami with the library's own hyperelliptic involution instead of the formula for iota) is needed before citing
+  - no /verify-result audit yet
+---
+
+cited by:
+  experiment experiments/2026-09-19_fact_compatible_L_counterexample.py
+exit=0
+

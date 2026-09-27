@@ -1,0 +1,47 @@
+## queue/pending
+## queue/running
+## queue/done
+20260919-102322_2026-09-18_relative_marking_standard_examples.json
+20260919-102332_2026-09-18_relative_marking_compatibility.json
+20260919-173310_2026-09-19_relative_marking_genus2_partial.json
+20260919-173317_2026-09-19_periodicity_invariance_preimages.json
+20260920-122209_2026-09-20_christoffel_regression.json
+20260920-123729_2026-09-20_gap_reverify_named.json
+20260920-161100_2026-09-20_christoffel_regression.json
+20260920-161100_2026-09-20_gap_reverify_named.json
+20260921-175900_2026-09-21_similarity_forced_by_rotation.json
+20260921-180914_2026-09-21_delaunay_ms91_standard_examples.json
+20260922-160438_2026-09-22_rhombus_kite_isosceles_double_pentagon.json
+20260922-170206_2026-09-22_rhombus_kite_isosceles_double_pentagon.json
+20260922-174820_2026-09-22_parking_garage_single_affine.json
+20260922-194443_2026-09-22_rhombus_kite_isosceles_double_pentagon.json
+20260922-200400_2026-09-20_christoffel_regression.json
+20260922-200400_2026-09-20_gap_reverify_named.json
+20260922-210229_2026-09-20_christoffel_regression.json
+20260923-110948_2026-09-23_fine_coarse_illumination_orbit.json
+20260923-110954_2026-09-23_fine_coarse_illumination_orbit.json
+20260923-122950_2026-09-23_parabolic_descent.json
+20260923-123615_2026-09-23_parabolic_descent.json
+20260923-123800_2026-09-23_ew_ornithorynque_record.json
+20260923-123801_2026-09-23_cyclic_covers_a.json
+20260923-123801_2026-09-23_cyclic_covers_b.json
+20260923-170638_2026-09-23_null_holonomy_origami_examples.json
+20260923-173306_2026-09-23_descent_family.json
+20260923-173309_2026-09-23_parabolic_descent.json
+20260923-173725_2026-09-23_null_holonomy_origami_examples.json
+20260924-172037_run_all.json
+20260924-173753_2026-09-23_descent_family.json
+20260924-175705_2026-09-18_relative_marking_standard_examples.json
+20260924-175705_2026-09-19_plug_unfolding_lift_count.json
+20260924-175705_2026-09-23_ew_ornithorynque_record.json
+20260924-175705_2026-09-24_torus_cover_periodic_growth.json
+## queue/parked
+20260919-102332_2026-09-18_illumination_chase.json
+## queue/config.json
+{
+  "target": "ssh:lingo",
+  "prefix": "/data/roeyzemmel/miniforge3",
+  "remoteRepo": "~/FlatSurfLab",
+  "fsqHome": "~/fsq",
+  "maxJobs": 1
+}

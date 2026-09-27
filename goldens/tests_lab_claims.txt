@@ -1,0 +1,27 @@
+test_colon_names_map_to_double_underscore (tests.test_claims.TestClaims) ... ok
+test_config_moves_the_root (tests.test_claims.TestClaims) ... ok
+test_depends_on_refuted_warns (tests.test_claims.TestClaims) ... ok
+test_good_claim_passes (tests.test_claims.TestClaims) ... ok
+test_history_must_match_status_and_be_newest_first (tests.test_claims.TestClaims) ... ok
+test_id_must_match_path (tests.test_claims.TestClaims) ... ok
+test_malformed_frontmatter (tests.test_claims.TestClaims) ... ok
+test_missing_evidence_file (tests.test_claims.TestClaims) ... ok
+test_refuted_as_stated_needs_successor (tests.test_claims.TestClaims) ... ok
+test_render (tests.test_claims.TestClaims) ... ok
+test_sql_and_backlinks (tests.test_claims.TestClaims) ... ok
+test_supported_needs_evidence (tests.test_claims.TestClaims) ... ok
+test_unknown_lab_link_is_error_other_namespaces_are_not (tests.test_claims.TestClaims) ... ok
+test_unknown_status (tests.test_claims.TestClaims) ... ok
+test_absent_sibling_is_unchecked (tests.test_claims.TestFederation) ... ok
+test_black_statement_needs_proved_and_is_flagged_unverified (tests.test_claims.TestFederation) ... ok
+test_depends_on_disproved_s1_warns (tests.test_claims.TestFederation) ... ok
+test_paper_claim_outside_its_home_is_error (tests.test_claims.TestFederation) ... ok
+test_paper_label_missing (tests.test_claims.TestFederation) ... ok
+test_paper_label_resolves (tests.test_claims.TestFederation) ... ok
+test_s1_id_resolves_and_alias_is_named (tests.test_claims.TestFederation) ... ok
+
+----------------------------------------------------------------------
+Ran 21 tests in 0.569s
+
+OK
+exit=0

@@ -1,0 +1,16 @@
+# Findings accepted as the draft's known open state.
+# Key: file|label|rule. Regenerate with commit_gate.py --write-baseline; shrinking this file is progress.
+sections/arithmetic.tex|(unlabelled)|W3
+sections/arithmetic.tex|lem:illumination-chase|R1
+sections/arithmetic.tex|prop:tc-class|W2
+sections/background.tex|lem:tok|W2
+sections/background.tex|prop:vorobets-veech-inclusion|W2
+sections/flat_structures.tex|defn:flat-morphism|R1
+sections/flat_structures.tex|prop:vorobets-lift|W2
+sections/markings.tex|(unlabelled)|W2
+sections/markings.tex|(unlabelled)|W3
+sections/markings.tex|cor:periodic-prim-relations|W2
+sections/markings.tex|thm:aw-finiteness|W2
+sections/markings.tex|thm:torus-periodic-points|W2
+sections/schreier_graphs.tex|ex:ppsg|R1
+sections/schreier_graphs.tex|thm:moeller-primitive|W2

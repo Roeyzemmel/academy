@@ -1,0 +1,38 @@
+test_lookup (test_kb.TestAliases) ... ok
+test_resolve_command (test_kb.TestAliases) ... ok
+test_reverse_edges (test_kb.TestAliases) ... ok
+test_build_aborts_on_error (test_kb.TestBuild) ... ok
+test_build_writes_views (test_kb.TestBuild) ... ok
+test_marker_fill_preserves_surroundings (test_kb.TestBuild) ... ok
+test_sql_builds_first (test_kb.TestBuild) ... ok
+test_view_contents (test_kb.TestBuild) ... ok
+test_alias_collides_with_id (test_kb.TestCheck) ... ok
+test_asymmetric_supersession (test_kb.TestCheck) ... ok
+test_bad_status (test_kb.TestCheck) ... ok
+test_clean (test_kb.TestCheck) ... ok
+test_cli_subprocess (test_kb.TestCheck) ... ok
+test_dangling_depends_on (test_kb.TestCheck) ... ok
+test_duplicate_alias (test_kb.TestCheck) ... ok
+test_incomparable_path (test_kb.TestCheck) ... ok
+test_parse_error_reported (test_kb.TestCheck) ... ok
+test_warnings (test_kb.TestCheck) ... ok
+test_error_names_line (test_kb.TestFrontmatter) ... ok
+test_normalize (test_kb.TestFrontmatter) ... ok
+test_parse_forms (test_kb.TestFrontmatter) ... ok
+test_rejects (test_kb.TestFrontmatter) ... ok
+test_round_trip (test_kb.TestFrontmatter) ... ok
+test_new_skips_retired_and_aliases (test_kb.TestMutations) ... ok
+test_set_status_block_list_and_missing_history (test_kb.TestMutations) ... ok
+test_set_status_edits_only_intended_lines (test_kb.TestMutations) ... ok
+test_set_status_rejects (test_kb.TestMutations) ... ok
+test_deps_usedby_transitive (test_kb.TestQueries) ... ok
+test_find (test_kb.TestQueries) ... ok
+test_show_brief (test_kb.TestQueries) ... ok
+test_show_example (test_kb.TestQueries) ... ok
+test_show_full_and_deps (test_kb.TestQueries) ... ok
+
+----------------------------------------------------------------------
+Ran 32 tests in 2.303s
+
+OK
+exit=0
