@@ -1,0 +1,8 @@
+{
+  "name": "academy",
+  "description": "Base plugin: generic mathematical best practices (rigor, status vocabulary, citation and notation discipline, honest reporting) and shared plumbing: the board, review packets, the registry engine and the MCP server.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Roey Zemmel"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "academy",
+  "owner": {
+    "name": "Roey Zemmel"
+  },
+  "description": "Role-based plugins for research mathematics: a base plugin, four role plugins (Author, Researcher, Expert, Scientist) and domain packs.",
+  "plugins": [
+    {
+      "name": "academy",
+      "source": "./academy",
+      "description": "Base plugin: generic mathematical best practices (rigor, status vocabulary, citation and notation discipline, honest reporting) and shared plumbing: the board, review packets, the registry engine and the MCP server."
+    },
+    {
+      "name": "author",
+      "source": "./author",
+      "description": "Author role: writes and maintains one research paper in LaTeX from established results, driven by a precedence-ordered agenda."
+    },
+    {
+      "name": "researcher",
+      "source": "./researcher",
+      "description": "Researcher role: owns a research domain's notebook of definitions, claims, conjectures and directions; proves, reviews experiments, and generalizes experiment conclusions into conjectures with falsifiers."
+    },
+    {
+      "name": "expert",
+      "source": "./expert",
+      "description": "Expert role: keeps the source library (cited papers, cards, bibliography) and runs independent proof review and refereeing."
+    },
+    {
+      "name": "scientist",
+      "source": "./scientist",
+      "description": "Scientist role: designs, codes, runs and reports computational experiments with provenance, across configurable environments."
+    },
+    {
+      "name": "ts-domain",
+      "source": "./domains/translation-surfaces",
+      "description": "Domain pack: translation surfaces and rational billiards."
+    }
+  ]
+}

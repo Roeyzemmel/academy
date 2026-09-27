@@ -1,0 +1,8 @@
+{
+  "name": "scientist",
+  "description": "Scientist role: designs, codes, runs and reports computational experiments with provenance, across configurable environments.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Roey Zemmel"
+  }
+}

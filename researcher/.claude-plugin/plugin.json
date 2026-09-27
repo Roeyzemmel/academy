@@ -1,0 +1,8 @@
+{
+  "name": "researcher",
+  "description": "Researcher role: owns a research domain's notebook of definitions, claims, conjectures and directions; proves, reviews experiments, and generalizes experiment conclusions into conjectures with falsifiers.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Roey Zemmel"
+  }
+}

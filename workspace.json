@@ -1,0 +1,6 @@
+{"instances": {
+  "expert@ts":          {"role":"expert",     "home":"C:/Work/Math/papers",                     "domains":["translation-surfaces"]},
+  "scientist@ts":       {"role":"scientist",  "home":"C:/Work/Math/FlatSurfLab",                "domains":["translation-surfaces"], "ns":"lab"},
+  "researcher@slope1":  {"role":"researcher", "home":"C:/Work/Math/Slope1illuminationResearch", "domains":["translation-surfaces"], "ns":"s1"},
+  "author@bi":          {"role":"author",     "home":"C:/Work/Math/BilliardIllumination",       "domains":["translation-surfaces"], "ns":"paper"}},
+ "board":"C:/Work/Math/board", "human":{"name":"Roey","noteMacro":"\\Roey"}}
