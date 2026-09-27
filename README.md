@@ -32,6 +32,12 @@ rather than restate it. The research-specific pieces of the retired `rigor` plug
 question first) and the rule that **a surprising result is a bug until shown otherwise**
 (`experiment`, `verify-result`, `queue`).
 
+**`domain/`: the four domain skills**, `flatsurf-computation`, `translation-surfaces`,
+`math-proof-writing` and `latex-paper-writing`. They sit outside `skills/`, so the plugin
+does not load them. Each one loads as a bare skill through a junction
+`~/.claude/skills/<name>` → `domain/<name>`. This is the only copy: none is kept on
+claude.ai, so edit them here and commit.
+
 ## The per-repo contract: `.claude/flatsurf.json`
 
 Every skill and agent reads this file first; nothing here hard-codes a repo path.
