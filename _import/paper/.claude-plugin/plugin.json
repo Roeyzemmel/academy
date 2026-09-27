@@ -1,0 +1,6 @@
+{
+  "name": "paper",
+  "description": "Multi-agent workflow for writing a research mathematics paper in LaTeX: writing, adversarial proof verification, citation checking, literature scouting, refereeing, build hygiene.",
+  "version": "1.0.0",
+  "author": { "name": "Roey Zemmel" }
+}
