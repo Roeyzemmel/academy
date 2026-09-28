@@ -5,7 +5,7 @@ tools: Read, Bash, Write
 model: haiku
 effort: low
 fallback: sonnet
-maxTurns: 12
+maxTurns: 30
 skills: [academy:honest-reporting]
 color: yellow
 ---
