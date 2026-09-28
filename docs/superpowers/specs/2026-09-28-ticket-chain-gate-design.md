@@ -158,8 +158,11 @@ relay of the matching crossing (the neighbour it came from, the direction of
 
 ### 5.3 Hop limit
 
-A ticket's `parent` chain may have at most `maxHops` (3) links, author to
-scientist. The check refuses a child that would exceed it.
+A relay chain may have at most `maxHops` (3) links, author to scientist. Only
+consecutive ancestors that carry `final_to` count: an ordinary `parent` link (a
+review-experiment ticket filed against the ticket that commissioned the
+experiment) is not a relay hop. The check refuses a relayed child that would
+exceed the limit.
 
 ## 6. Flows rerouted
 
