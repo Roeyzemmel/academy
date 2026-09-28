@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, PowerShell, Edit, Write, WebFetch, WebSearch, Ski
 model: sonnet
 effort: medium
 fallback: opus
-maxTurns: 25
+maxTurns: 45
 memory: project
 skills: [academy:citation-discipline, academy:notation-discipline, academy:honest-reporting, academy:status-vocabulary]
 color: green
