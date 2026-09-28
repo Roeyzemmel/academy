@@ -18,9 +18,8 @@ Layout:
 * ``migrate_v2.py``: the one-time R5 migration (``py -m registry.migrate_v2``) with its
   mapping report, the pre-migration snapshot and the proposed verdict moves.
 
-The old command lines keep working through shims: ``FlatSurfLab/scripts/claims.py``
-and ``Slope1illuminationResearch/tools/kb.py`` import the profiles from here (found
-through ``$ACADEMY_ROOT`` or ``C:/Work/Math/academy``). Standard library only.
+The command line is ``academy/scripts/registry.py`` (the lab's ``scripts/claims.py`` and
+Slope1's ``tools/kb.py`` shims were removed 2026-09-28). Standard library only.
 """
 from pathlib import Path
 

@@ -4,10 +4,11 @@ Every call goes to the registry engine ``academy/registry`` (Group D), in proces
 through :class:`RegistryBackend`: the namespaces are those of workspace.json, each
 served by its home's profile (fsl-claims for lab/paper rule sets, s1-kb for s1). Read
 commands return what the engine's command line prints (the same text as the old
-``claims.py`` / ``kb.py`` command lines, which are now shims onto the same engine).
+``claims.py`` / ``kb.py`` command lines, which were retired 2026-09-28 in favour of
+``scripts/registry.py``).
 
-The backend interface is :class:`ClaimsBackend`. :class:`LegacyCliBackend` (the old
-command lines by subprocess) is kept as a fallback only: ``$ACADEMY_CLAIMS_BACKEND=legacy``
+The backend interface is :class:`ClaimsBackend`. :class:`LegacyCliBackend` (the same
+engine through ``scripts/registry.py``, one subprocess per call) is kept as a fallback only: ``$ACADEMY_CLAIMS_BACKEND=legacy``
 selects it, and it cannot write.
 
 The grounds rule of plan section 8 is :func:`check_grounds`, the engine's
@@ -144,11 +145,12 @@ def _readonly_sql(sql):
 
 
 class LegacyCliBackend(ClaimsBackend):
-    """Wraps FlatSurfLab/scripts/claims.py and Slope1/tools/kb.py by subprocess.
+    """Runs ``scripts/registry.py`` by subprocess, one process per call.
 
     Fallback only (``$ACADEMY_CLAIMS_BACKEND=legacy``), read-only: the namespaces it
-    serves and the scripts' locations are those of the first three instances, so they
-    are named here and nowhere else in the plugin.
+    serves are those of the first three instances, so they are named here and nowhere
+    else in the plugin. (Before 2026-09-28 it wrapped the lab's ``claims.py`` and
+    Slope1's ``kb.py`` shims, which no longer exist.)
     """
 
     TIMEOUT = 120
@@ -178,22 +180,21 @@ class LegacyCliBackend(ClaimsBackend):
         return {"command": "py " + shown, "exit": p.returncode,
                 "stdout": out, "stderr": err}
 
+    LAUNCHER = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "scripts", "registry.py")
+
+    def _registry(self, ns, args):
+        """``registry.py --repo <home of ns> ARGS``, run in that home."""
+        if not os.path.isfile(self.LAUNCHER):
+            raise ToolError("registry.py not found at %s" % self.LAUNCHER)
+        home = self._home_for_ns(ns)
+        return self._run([self.LAUNCHER, "--repo", home] + args, home)
+
     def _claims_py(self, ns, args):
-        lab = self._home_for_ns("lab")
-        script = os.path.join(lab, "scripts", "claims.py")
-        if not os.path.isfile(script):
-            raise ToolError("claims.py not found at %s" % script)
-        argv = [script]
-        if ns != "lab":
-            argv += ["--repo", self._home_for_ns(ns)]
-        return self._run(argv + args, lab)
+        return self._registry(ns, args)
 
     def _kb_py(self, args):
-        home = self._home_for_ns("s1")
-        script = os.path.join(home, "tools", "kb.py")
-        if not os.path.isfile(script):
-            raise ToolError("kb.py not found at %s" % script)
-        return self._run([script] + args, home)
+        return self._registry("s1", args)
 
     def _route(self, ns, claims_args, kb_args):
         if ns in ("lab", "paper"):
@@ -231,7 +232,7 @@ class LegacyCliBackend(ClaimsBackend):
         if ns == "s1":
             db = os.path.join(self._home_for_ns("s1"), "kb", "kb.sqlite")
             if not os.path.isfile(db):
-                raise ToolError("s1: kb/kb.sqlite is not built; run 'py tools/kb.py build' "
+                raise ToolError("s1: kb/kb.sqlite is not built; run 'registry.py build' "
                                 "in the Slope1 home (the server does not rebuild it, "
                                 "because the build rewrites the views)")
         return self._route(ns, ["sql", sql], ["sql", sql])

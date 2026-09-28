@@ -37,7 +37,7 @@ What it does, mechanically:
 Machine checks (all must pass, or nothing is written): every record lands in the folder
 of its kind, no two files land on one path, every retargeted link resolves after the
 move, every id a direction names exists, and every rewritten evidence ref exists after
-the move. The views are not written here: run ``py tools/kb.py build`` in the s1 home
+the move. The views are not written here: run ``registry.py build`` in the s1 home
 and ``py scripts/claims.py render`` in the lab afterwards.
 """
 from __future__ import annotations
@@ -430,7 +430,7 @@ def run(math, date=DATE, apply_=False):
         return 1, ops
     if apply_:
         apply(ops)
-        print("migrate_r6: applied; now run `py tools/kb.py build` in the s1 home and "
+        print("migrate_r6: applied; now run `registry.py build` in the s1 home and "
               "`py scripts/claims.py render` in the lab")
     else:
         print("migrate_r6: plan only (give --apply to write)")

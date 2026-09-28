@@ -1,7 +1,7 @@
 Parsed 153 theorem-like statements.
 
 VIOLATIONS (2)
-  sections/arithmetic.tex:330: lem:illumination-chase: [R1] established lem has a sketched proof (inside a sketch environment)
+  sections/arithmetic.tex:321: lem:illumination-chase: [R1] established lem has a sketched proof (inside a sketch environment)
   sections/schreier_graphs.tex:112: ex:ppsg: [R1] established ex references sketch defn:delaunay (sections/appendix_thick_part.tex:305)
 
 WARNINGS (125)
@@ -19,7 +19,7 @@ WARNINGS (125)
   sections/arithmetic.tex:307: (margin): [R7] clipped text on p.55: "normalization as it is"
   sections/arithmetic.tex:307: (margin): [R7] clipped text on p.55: "assumed to have a specific"
   sections/arithmetic.tex:307: (margin): [R7] clipped text on p.55: "rotation group."
-  sections/arithmetic.tex:309: (unlabelled): [W3] unlabelled quest
+  sections/arithmetic.tex:300: (unlabelled): [W3] unlabelled quest
   sections/arithmetic.tex:320: (margin): [R7] clipped text on p.55: "(RZ125)Roey:"
   sections/arithmetic.tex:320: (margin): [R7] clipped text on p.55: "Separate to different"
   sections/arithmetic.tex:320: (margin): [R7] clipped text on p.55: "lemmas?"
@@ -29,7 +29,7 @@ WARNINGS (125)
   sections/billiards.tex:22: (margin): [R7] clipped text on p.57: "):"
   sections/flat_structures.tex:925: (margin): [R7] clipped text on p.17: ")."
   sections/flat_structures.tex:927: (margin): [R7] clipped text on p.17: ")."
-  sections/flat_structures.tex:1238: prop:vorobets-lift: [W2] established without proof or citation
+  sections/flat_structures.tex:1232: prop:vorobets-lift: [W2] established without proof or citation
   sections/flat_structures.tex:1288: (margin): [R7] clipped text on p.21: "that lemma."
   sections/flat_structures.tex:1289: (margin): [R7] clipped text on p.21: "(CL44)Claude:"
   sections/flat_structures.tex:1289: (margin): [R7] clipped text on p.21: "Moved"
