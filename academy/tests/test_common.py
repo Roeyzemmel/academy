@@ -210,7 +210,8 @@ class WorkspaceTests(TempDir):
     def test_repo_workspace(self):
         ws = ac.load_workspace(os.path.join(REPO, "workspace.json"))
         self.assertEqual(set(ws["instances"]), {"expert@ts", "scientist@ts",
-                                                "researcher@slope1", "author@bi"})
+                                                "researcher@slope1", "researcher@flat",
+                                                "author@bi"})
         self.assertEqual(ws["board"], "C:/Work/Math/board")
         self.assertEqual(ac.instance_for_home(ws, "C:\\Work\\Math\\BilliardIllumination"),
                          "author@bi")
