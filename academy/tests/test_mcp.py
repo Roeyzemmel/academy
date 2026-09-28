@@ -1064,8 +1064,11 @@ REAL_LAB = "C:/Work/Math/FlatSurfLab"
 REAL_S1 = "C:/Work/Math/Slope1illuminationResearch"
 
 
-@unittest.skipUnless(os.path.isfile(REAL_LAB + "/scripts/claims.py")
-                     and os.path.isfile(REAL_S1 + "/tools/kb.py"),
+REGISTRY_PY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "scripts", "registry.py")
+
+
+@unittest.skipUnless(os.path.isdir(REAL_LAB + "/claims") and os.path.isdir(REAL_S1 + "/objects"),
                      "the real registries are not on this machine")
 class TestRealRegistries(unittest.TestCase):
     """claims_show equals the legacy command line (read-only on the homes)."""
@@ -1084,12 +1087,12 @@ class TestRealRegistries(unittest.TestCase):
         self.addCleanup(s.close)
         s.request("initialize", {"protocolVersion": "2025-06-18"})
         cases = [
-            ("lab:descent-family-n-le-7", [REAL_LAB + "/scripts/claims.py", "show",
+            ("lab:descent-family-n-le-7", [REGISTRY_PY, "--repo", REAL_LAB, "show",
                                            "lab:descent-family-n-le-7"], REAL_LAB),
             ("paper:conj:origami-slope",
-             [REAL_LAB + "/scripts/claims.py", "--repo", "C:/Work/Math/BilliardIllumination",
+             [REGISTRY_PY, "--repo", "C:/Work/Math/BilliardIllumination",
               "show", "paper:conj:origami-slope"], REAL_LAB),
-            ("s1:BOUND-1", [REAL_S1 + "/tools/kb.py", "show", "BOUND-1"], REAL_S1),
+            ("s1:BOUND-1", [REGISTRY_PY, "--repo", REAL_S1, "show", "BOUND-1"], REAL_S1),
         ]
         for cid, argv, cwd in cases:
             err, res = s.call("claims_show", id=cid)

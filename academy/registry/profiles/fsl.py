@@ -235,7 +235,7 @@ def _resolve_foreign(cid, repo):
             return "missing", f"`{name}` is not the kb id; the kb id is `{rec.qid}`", None
         return "missing", f"`{name}` is not the id; the id is `{rec.qid}`", None
     if s.profile == "s1-kb":
-        return "missing", "no such id in Slope1's kb (py tools/kb.py resolve <text>)", None
+        return "missing", "no such id in Slope1's kb (registry.py resolve <text>)", None
     if workspace.rule_set(ns, s.home) == "paper":
         if name in paper_labels(s.home):
             return "ok", "", projection.NA
@@ -1217,7 +1217,7 @@ def main(argv=None):
                 return 0
             if st is not None and st.profile == "s1-kb" or (st is None and workspace.rule_set(ns) == "s1"):
                 print(f"`{a.id}` is Slope1's ({state}{': ' + detail if detail else ''}). "
-                      f"Run `py tools/kb.py show {a.id.split(':', 1)[1]}` in {where}.")
+                      f"Run `registry.py show {a.id.split(':', 1)[1]}` in {where}.")
             else:
                 print(f"`{a.id}` is owned by {where} ({state}{': ' + detail if detail else ''}). "
                       f"Run `py scripts\\claims.py --repo ..\\{where} show {a.id}`.")
