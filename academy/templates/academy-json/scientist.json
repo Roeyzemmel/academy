@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "role": "scientist",
+  "instance": "{{instance}}",
+  "domains": [
+    "{{domain}}"
+  ],
+  "ns": "{{ns}}",
+  "paths": {
+    "package": "src",
+    "experiments": "experiments/*.py",
+    "results": "results",
+    "queue": "queue",
+    "records": "claims",
+    "tests": "tests",
+    "docs": "docs",
+    "views": [
+      "claims/INDEX.md",
+      "claims/index.html"
+    ]
+  },
+  "registry": {
+    "profile": "lab",
+    "root": "claims",
+    "db": ".claude/academy.sqlite",
+    "statusKeeper": "claim-keeper"
+  },
+  "budget": {
+    "itemsPerRun": 3,
+    "serial": true,
+    "orchestratorModel": "sonnet",
+    "maxModel": "fable",
+    "ticketDefault": {
+      "runs": 1,
+      "max_model": "sonnet"
+    }
+  },
+  "gate": {
+    "commit": "normal",
+    "build": false,
+    "baseline": null,
+    "branches": {}
+  },
+  "scientist": {
+    "envs": {
+      "local": {
+        "kind": "local"
+      }
+    },
+    "policy": {
+      "probe": "local",
+      "test": "local",
+      "run": "local"
+    },
+    "queue": {
+      "dir": "queue",
+      "fsqHome": "~/fsq",
+      "maxJobs": 1
+    },
+    "experimentTypes": [
+      "search",
+      "measure",
+      "verify",
+      "probe"
+    ],
+    "reportTemplates": "${CLAUDE_PLUGIN_ROOT}/templates",
+    "knownCases": ""
+  }
+}

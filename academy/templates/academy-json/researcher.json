@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "role": "researcher",
+  "instance": "{{instance}}",
+  "domains": [
+    "{{domain}}"
+  ],
+  "ns": "{{ns}}",
+  "paths": {
+    "objects": "objects",
+    "proofs": "proofs",
+    "journal": "journal",
+    "audits": "audits",
+    "records": "objects",
+    "views": [
+      "views"
+    ]
+  },
+  "registry": {
+    "profile": "s1",
+    "root": "objects",
+    "db": ".claude/academy.sqlite",
+    "statusKeeper": "claim-keeper"
+  },
+  "budget": {
+    "itemsPerRun": 3,
+    "serial": true,
+    "orchestratorModel": "sonnet",
+    "maxModel": "fable",
+    "ticketDefault": {
+      "runs": 1,
+      "max_model": "sonnet"
+    }
+  },
+  "gate": {
+    "commit": "normal",
+    "build": false,
+    "baseline": null,
+    "branches": {}
+  },
+  "researcher": {
+    "objectKinds": [
+      "definition",
+      "claim",
+      "conjecture",
+      "question",
+      "example",
+      "assumption",
+      "direction"
+    ],
+    "statusField": "status",
+    "reviewsHome": "{{expert}}",
+    "lab": "{{scientist}}",
+    "generalize": {
+      "maxPerRun": 3,
+      "raiseAbove": "conjectured"
+    }
+  }
+}

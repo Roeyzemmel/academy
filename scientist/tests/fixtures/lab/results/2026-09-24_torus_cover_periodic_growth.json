@@ -1,0 +1,1297 @@
+{
+  "claims": [
+    "lab:torus-periodic-growth-standard"
+  ],
+  "outcome": {
+    "kind": "measure",
+    "status": "measured",
+    "class": {
+      "members": [
+        "square torus (basepoint)",
+        "square-table unfolding, 2x2 torus (4 corner images)",
+        "3-square L (H(2), its zero)",
+        "Eierlegende Wollmilchsau (its 4 zeros)"
+      ],
+      "R": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "brute_bound": 2,
+      "excluded": [
+        "double pentagon (Fraction-only module)",
+        "P(X) itself",
+        "irrational marks",
+        "non-square-tiled covers"
+      ]
+    },
+    "values": {
+      "square torus (basepoint)": {
+        "growth": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            3,
+            12
+          ],
+          [
+            4,
+            24
+          ],
+          [
+            5,
+            48
+          ],
+          [
+            6,
+            72
+          ]
+        ],
+        "strictly_increasing": true,
+        "s_v_by_N": {
+          "1": {
+            "formula": 1,
+            "observed": [
+              1
+            ],
+            "n_v": 1
+          },
+          "2": {
+            "formula": 4,
+            "observed": [
+              4
+            ],
+            "n_v": 1
+          },
+          "3": {
+            "formula": 9,
+            "observed": [
+              9
+            ],
+            "n_v": 1
+          },
+          "4": {
+            "formula": 16,
+            "observed": [
+              16
+            ],
+            "n_v": 1
+          },
+          "5": {
+            "formula": 25,
+            "observed": [
+              25
+            ],
+            "n_v": 1
+          },
+          "6": {
+            "formula": 36,
+            "observed": [
+              36
+            ],
+            "n_v": 1
+          }
+        },
+        "n_marks_in_F": 1,
+        "F": [
+          [
+            "0",
+            "0"
+          ]
+        ],
+        "L_X": "[(1, 0), (0, 1)]"
+      },
+      "square-table unfolding, 2x2 torus (4 corner images)": {
+        "growth": [
+          [
+            1,
+            48
+          ],
+          [
+            2,
+            480
+          ],
+          [
+            3,
+            1728
+          ],
+          [
+            4,
+            4128
+          ],
+          [
+            5,
+            8352
+          ],
+          [
+            6,
+            14592
+          ]
+        ],
+        "strictly_increasing": true,
+        "s_v_by_N": {
+          "1": {
+            "formula": 1,
+            "observed": [
+              1
+            ],
+            "n_v": 1456
+          },
+          "2": {
+            "formula": 4,
+            "observed": [
+              4
+            ],
+            "n_v": 1420
+          },
+          "3": {
+            "formula": 9,
+            "observed": [
+              9
+            ],
+            "n_v": 1364
+          },
+          "4": {
+            "formula": 16,
+            "observed": [
+              16
+            ],
+            "n_v": 1291
+          },
+          "5": {
+            "formula": 25,
+            "observed": [
+              25
+            ],
+            "n_v": 1204
+          },
+          "6": {
+            "formula": 36,
+            "observed": [
+              36
+            ],
+            "n_v": 1106
+          },
+          "7": {
+            "formula": 49,
+            "observed": [
+              49
+            ],
+            "n_v": 1000
+          },
+          "8": {
+            "formula": 64,
+            "observed": [
+              64
+            ],
+            "n_v": 889
+          },
+          "9": {
+            "formula": 81,
+            "observed": [
+              81
+            ],
+            "n_v": 776
+          },
+          "10": {
+            "formula": 100,
+            "observed": [
+              100
+            ],
+            "n_v": 664
+          },
+          "11": {
+            "formula": 121,
+            "observed": [
+              121
+            ],
+            "n_v": 556
+          },
+          "12": {
+            "formula": 144,
+            "observed": [
+              144
+            ],
+            "n_v": 455
+          },
+          "13": {
+            "formula": 169,
+            "observed": [
+              169
+            ],
+            "n_v": 364
+          },
+          "14": {
+            "formula": 196,
+            "observed": [
+              196
+            ],
+            "n_v": 286
+          },
+          "15": {
+            "formula": 225,
+            "observed": [
+              225
+            ],
+            "n_v": 220
+          },
+          "16": {
+            "formula": 256,
+            "observed": [
+              256
+            ],
+            "n_v": 165
+          },
+          "17": {
+            "formula": 289,
+            "observed": [
+              289
+            ],
+            "n_v": 120
+          },
+          "18": {
+            "formula": 324,
+            "observed": [
+              324
+            ],
+            "n_v": 84
+          },
+          "19": {
+            "formula": 361,
+            "observed": [
+              361
+            ],
+            "n_v": 56
+          },
+          "20": {
+            "formula": 400,
+            "observed": [
+              400
+            ],
+            "n_v": 35
+          },
+          "21": {
+            "formula": 441,
+            "observed": [
+              441
+            ],
+            "n_v": 20
+          },
+          "22": {
+            "formula": 484,
+            "observed": [
+              484
+            ],
+            "n_v": 10
+          },
+          "23": {
+            "formula": 529,
+            "observed": [
+              529
+            ],
+            "n_v": 4
+          },
+          "24": {
+            "formula": 576,
+            "observed": [
+              576
+            ],
+            "n_v": 1
+          }
+        },
+        "n_marks_in_F": 4,
+        "F": [
+          [
+            "0",
+            "0"
+          ],
+          [
+            "0",
+            "-1/2"
+          ],
+          [
+            "1/2",
+            "0"
+          ],
+          [
+            "1/2",
+            "-1/2"
+          ]
+        ],
+        "L_X": "[(2, 0), (0, 2)]"
+      },
+      "3-square L (H(2), its zero)": {
+        "growth": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            3,
+            12
+          ],
+          [
+            4,
+            24
+          ],
+          [
+            5,
+            48
+          ],
+          [
+            6,
+            72
+          ]
+        ],
+        "strictly_increasing": true,
+        "s_v_by_N": {
+          "1": {
+            "formula": 1,
+            "observed": [
+              1
+            ],
+            "n_v": 1
+          },
+          "2": {
+            "formula": 4,
+            "observed": [
+              4
+            ],
+            "n_v": 1
+          },
+          "3": {
+            "formula": 9,
+            "observed": [
+              9
+            ],
+            "n_v": 1
+          },
+          "4": {
+            "formula": 16,
+            "observed": [
+              16
+            ],
+            "n_v": 1
+          },
+          "5": {
+            "formula": 25,
+            "observed": [
+              25
+            ],
+            "n_v": 1
+          },
+          "6": {
+            "formula": 36,
+            "observed": [
+              36
+            ],
+            "n_v": 1
+          }
+        },
+        "n_marks_in_F": 1,
+        "F": [
+          [
+            "0",
+            "0"
+          ]
+        ],
+        "L_X": "[(1, 0), (0, 1)]"
+      },
+      "Eierlegende Wollmilchsau (its 4 zeros)": {
+        "growth": [
+          [
+            1,
+            48
+          ],
+          [
+            2,
+            480
+          ],
+          [
+            3,
+            1728
+          ],
+          [
+            4,
+            4128
+          ],
+          [
+            5,
+            8352
+          ],
+          [
+            6,
+            14592
+          ]
+        ],
+        "strictly_increasing": true,
+        "s_v_by_N": {
+          "1": {
+            "formula": 1,
+            "observed": [
+              1
+            ],
+            "n_v": 1456
+          },
+          "2": {
+            "formula": 4,
+            "observed": [
+              4
+            ],
+            "n_v": 1420
+          },
+          "3": {
+            "formula": 9,
+            "observed": [
+              9
+            ],
+            "n_v": 1364
+          },
+          "4": {
+            "formula": 16,
+            "observed": [
+              16
+            ],
+            "n_v": 1291
+          },
+          "5": {
+            "formula": 25,
+            "observed": [
+              25
+            ],
+            "n_v": 1204
+          },
+          "6": {
+            "formula": 36,
+            "observed": [
+              36
+            ],
+            "n_v": 1106
+          },
+          "7": {
+            "formula": 49,
+            "observed": [
+              49
+            ],
+            "n_v": 1000
+          },
+          "8": {
+            "formula": 64,
+            "observed": [
+              64
+            ],
+            "n_v": 889
+          },
+          "9": {
+            "formula": 81,
+            "observed": [
+              81
+            ],
+            "n_v": 776
+          },
+          "10": {
+            "formula": 100,
+            "observed": [
+              100
+            ],
+            "n_v": 664
+          },
+          "11": {
+            "formula": 121,
+            "observed": [
+              121
+            ],
+            "n_v": 556
+          },
+          "12": {
+            "formula": 144,
+            "observed": [
+              144
+            ],
+            "n_v": 455
+          },
+          "13": {
+            "formula": 169,
+            "observed": [
+              169
+            ],
+            "n_v": 364
+          },
+          "14": {
+            "formula": 196,
+            "observed": [
+              196
+            ],
+            "n_v": 286
+          },
+          "15": {
+            "formula": 225,
+            "observed": [
+              225
+            ],
+            "n_v": 220
+          },
+          "16": {
+            "formula": 256,
+            "observed": [
+              256
+            ],
+            "n_v": 165
+          },
+          "17": {
+            "formula": 289,
+            "observed": [
+              289
+            ],
+            "n_v": 120
+          },
+          "18": {
+            "formula": 324,
+            "observed": [
+              324
+            ],
+            "n_v": 84
+          },
+          "19": {
+            "formula": 361,
+            "observed": [
+              361
+            ],
+            "n_v": 56
+          },
+          "20": {
+            "formula": 400,
+            "observed": [
+              400
+            ],
+            "n_v": 35
+          },
+          "21": {
+            "formula": 441,
+            "observed": [
+              441
+            ],
+            "n_v": 20
+          },
+          "22": {
+            "formula": 484,
+            "observed": [
+              484
+            ],
+            "n_v": 10
+          },
+          "23": {
+            "formula": 529,
+            "observed": [
+              529
+            ],
+            "n_v": 4
+          },
+          "24": {
+            "formula": 576,
+            "observed": [
+              576
+            ],
+            "n_v": 1
+          }
+        },
+        "n_marks_in_F": 4,
+        "F": [
+          [
+            "0",
+            "0"
+          ],
+          [
+            "1/2",
+            "0"
+          ],
+          [
+            "1/2",
+            "1/2"
+          ],
+          [
+            "0",
+            "1/2"
+          ]
+        ],
+        "L_X": "[(2, 0), (0, 2)]"
+      }
+    }
+  },
+  "provenance": {
+    "date": "2026-09-24T18:37:56",
+    "script": "experiments/2026-09-24_torus_cover_periodic_growth.py",
+    "git": {
+      "commit": "a929eca",
+      "dirty": false
+    },
+    "argv": [],
+    "python": "3.12.14",
+    "platform": "Linux-5.14.0-570.26.1.el9_6.x86_64-x86_64-with-glibc2.34",
+    "sage": "10.7",
+    "sage_flatsurf": "0.8.0",
+    "surface_dynamics": "0.7.0"
+  },
+  "result": {
+    "bound": 6,
+    "result": {
+      "vbounds": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "brute_bound": 2,
+      "examples": [
+        {
+          "name": "square torus (basepoint)",
+          "stratum": "H(0)",
+          "n_squares": 1,
+          "n_sigma": 1,
+          "n_marks_in_F": 1,
+          "L_X": "[(1, 0), (0, 1)]",
+          "area_T": "1",
+          "trans_order": "1",
+          "F": [
+            [
+              "0",
+              "0"
+            ]
+          ],
+          "s_v_by_N": {
+            "1": {
+              "formula": 1,
+              "observed": [
+                1
+              ],
+              "n_v": 1
+            },
+            "2": {
+              "formula": 4,
+              "observed": [
+                4
+              ],
+              "n_v": 1
+            },
+            "3": {
+              "formula": 9,
+              "observed": [
+                9
+              ],
+              "n_v": 1
+            },
+            "4": {
+              "formula": 16,
+              "observed": [
+                16
+              ],
+              "n_v": 1
+            },
+            "5": {
+              "formula": 25,
+              "observed": [
+                25
+              ],
+              "n_v": 1
+            },
+            "6": {
+              "formula": 36,
+              "observed": [
+                36
+              ],
+              "n_v": 1
+            }
+          },
+          "n_v_checked": 6,
+          "n_v_brute_force": 2,
+          "growth": [
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              4
+            ],
+            [
+              3,
+              12
+            ],
+            [
+              4,
+              24
+            ],
+            [
+              5,
+              48
+            ],
+            [
+              6,
+              72
+            ]
+          ],
+          "strictly_increasing": true
+        },
+        {
+          "name": "square-table unfolding, 2x2 torus (4 corner images)",
+          "stratum": "H(0, 0, 0, 0)",
+          "n_squares": 4,
+          "n_sigma": 4,
+          "n_marks_in_F": 4,
+          "L_X": "[(2, 0), (0, 2)]",
+          "area_T": "4",
+          "trans_order": "4",
+          "F": [
+            [
+              "0",
+              "0"
+            ],
+            [
+              "0",
+              "-1/2"
+            ],
+            [
+              "1/2",
+              "0"
+            ],
+            [
+              "1/2",
+              "-1/2"
+            ]
+          ],
+          "s_v_by_N": {
+            "1": {
+              "formula": 1,
+              "observed": [
+                1
+              ],
+              "n_v": 1456
+            },
+            "2": {
+              "formula": 4,
+              "observed": [
+                4
+              ],
+              "n_v": 1420
+            },
+            "3": {
+              "formula": 9,
+              "observed": [
+                9
+              ],
+              "n_v": 1364
+            },
+            "4": {
+              "formula": 16,
+              "observed": [
+                16
+              ],
+              "n_v": 1291
+            },
+            "5": {
+              "formula": 25,
+              "observed": [
+                25
+              ],
+              "n_v": 1204
+            },
+            "6": {
+              "formula": 36,
+              "observed": [
+                36
+              ],
+              "n_v": 1106
+            },
+            "7": {
+              "formula": 49,
+              "observed": [
+                49
+              ],
+              "n_v": 1000
+            },
+            "8": {
+              "formula": 64,
+              "observed": [
+                64
+              ],
+              "n_v": 889
+            },
+            "9": {
+              "formula": 81,
+              "observed": [
+                81
+              ],
+              "n_v": 776
+            },
+            "10": {
+              "formula": 100,
+              "observed": [
+                100
+              ],
+              "n_v": 664
+            },
+            "11": {
+              "formula": 121,
+              "observed": [
+                121
+              ],
+              "n_v": 556
+            },
+            "12": {
+              "formula": 144,
+              "observed": [
+                144
+              ],
+              "n_v": 455
+            },
+            "13": {
+              "formula": 169,
+              "observed": [
+                169
+              ],
+              "n_v": 364
+            },
+            "14": {
+              "formula": 196,
+              "observed": [
+                196
+              ],
+              "n_v": 286
+            },
+            "15": {
+              "formula": 225,
+              "observed": [
+                225
+              ],
+              "n_v": 220
+            },
+            "16": {
+              "formula": 256,
+              "observed": [
+                256
+              ],
+              "n_v": 165
+            },
+            "17": {
+              "formula": 289,
+              "observed": [
+                289
+              ],
+              "n_v": 120
+            },
+            "18": {
+              "formula": 324,
+              "observed": [
+                324
+              ],
+              "n_v": 84
+            },
+            "19": {
+              "formula": 361,
+              "observed": [
+                361
+              ],
+              "n_v": 56
+            },
+            "20": {
+              "formula": 400,
+              "observed": [
+                400
+              ],
+              "n_v": 35
+            },
+            "21": {
+              "formula": 441,
+              "observed": [
+                441
+              ],
+              "n_v": 20
+            },
+            "22": {
+              "formula": 484,
+              "observed": [
+                484
+              ],
+              "n_v": 10
+            },
+            "23": {
+              "formula": 529,
+              "observed": [
+                529
+              ],
+              "n_v": 4
+            },
+            "24": {
+              "formula": 576,
+              "observed": [
+                576
+              ],
+              "n_v": 1
+            }
+          },
+          "n_v_checked": 13546,
+          "n_v_brute_force": 270,
+          "growth": [
+            [
+              1,
+              48
+            ],
+            [
+              2,
+              480
+            ],
+            [
+              3,
+              1728
+            ],
+            [
+              4,
+              4128
+            ],
+            [
+              5,
+              8352
+            ],
+            [
+              6,
+              14592
+            ]
+          ],
+          "strictly_increasing": true
+        },
+        {
+          "name": "3-square L (H(2), its zero)",
+          "stratum": "H(2)",
+          "n_squares": 3,
+          "n_sigma": 1,
+          "n_marks_in_F": 1,
+          "L_X": "[(1, 0), (0, 1)]",
+          "area_T": "1",
+          "trans_order": "1",
+          "F": [
+            [
+              "0",
+              "0"
+            ]
+          ],
+          "s_v_by_N": {
+            "1": {
+              "formula": 1,
+              "observed": [
+                1
+              ],
+              "n_v": 1
+            },
+            "2": {
+              "formula": 4,
+              "observed": [
+                4
+              ],
+              "n_v": 1
+            },
+            "3": {
+              "formula": 9,
+              "observed": [
+                9
+              ],
+              "n_v": 1
+            },
+            "4": {
+              "formula": 16,
+              "observed": [
+                16
+              ],
+              "n_v": 1
+            },
+            "5": {
+              "formula": 25,
+              "observed": [
+                25
+              ],
+              "n_v": 1
+            },
+            "6": {
+              "formula": 36,
+              "observed": [
+                36
+              ],
+              "n_v": 1
+            }
+          },
+          "n_v_checked": 6,
+          "n_v_brute_force": 2,
+          "growth": [
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              4
+            ],
+            [
+              3,
+              12
+            ],
+            [
+              4,
+              24
+            ],
+            [
+              5,
+              48
+            ],
+            [
+              6,
+              72
+            ]
+          ],
+          "strictly_increasing": true
+        },
+        {
+          "name": "Eierlegende Wollmilchsau (its 4 zeros)",
+          "stratum": "H(1, 1, 1, 1)",
+          "n_squares": 8,
+          "n_sigma": 4,
+          "n_marks_in_F": 4,
+          "L_X": "[(2, 0), (0, 2)]",
+          "area_T": "4",
+          "trans_order": "4",
+          "F": [
+            [
+              "0",
+              "0"
+            ],
+            [
+              "1/2",
+              "0"
+            ],
+            [
+              "1/2",
+              "1/2"
+            ],
+            [
+              "0",
+              "1/2"
+            ]
+          ],
+          "s_v_by_N": {
+            "1": {
+              "formula": 1,
+              "observed": [
+                1
+              ],
+              "n_v": 1456
+            },
+            "2": {
+              "formula": 4,
+              "observed": [
+                4
+              ],
+              "n_v": 1420
+            },
+            "3": {
+              "formula": 9,
+              "observed": [
+                9
+              ],
+              "n_v": 1364
+            },
+            "4": {
+              "formula": 16,
+              "observed": [
+                16
+              ],
+              "n_v": 1291
+            },
+            "5": {
+              "formula": 25,
+              "observed": [
+                25
+              ],
+              "n_v": 1204
+            },
+            "6": {
+              "formula": 36,
+              "observed": [
+                36
+              ],
+              "n_v": 1106
+            },
+            "7": {
+              "formula": 49,
+              "observed": [
+                49
+              ],
+              "n_v": 1000
+            },
+            "8": {
+              "formula": 64,
+              "observed": [
+                64
+              ],
+              "n_v": 889
+            },
+            "9": {
+              "formula": 81,
+              "observed": [
+                81
+              ],
+              "n_v": 776
+            },
+            "10": {
+              "formula": 100,
+              "observed": [
+                100
+              ],
+              "n_v": 664
+            },
+            "11": {
+              "formula": 121,
+              "observed": [
+                121
+              ],
+              "n_v": 556
+            },
+            "12": {
+              "formula": 144,
+              "observed": [
+                144
+              ],
+              "n_v": 455
+            },
+            "13": {
+              "formula": 169,
+              "observed": [
+                169
+              ],
+              "n_v": 364
+            },
+            "14": {
+              "formula": 196,
+              "observed": [
+                196
+              ],
+              "n_v": 286
+            },
+            "15": {
+              "formula": 225,
+              "observed": [
+                225
+              ],
+              "n_v": 220
+            },
+            "16": {
+              "formula": 256,
+              "observed": [
+                256
+              ],
+              "n_v": 165
+            },
+            "17": {
+              "formula": 289,
+              "observed": [
+                289
+              ],
+              "n_v": 120
+            },
+            "18": {
+              "formula": 324,
+              "observed": [
+                324
+              ],
+              "n_v": 84
+            },
+            "19": {
+              "formula": 361,
+              "observed": [
+                361
+              ],
+              "n_v": 56
+            },
+            "20": {
+              "formula": 400,
+              "observed": [
+                400
+              ],
+              "n_v": 35
+            },
+            "21": {
+              "formula": 441,
+              "observed": [
+                441
+              ],
+              "n_v": 20
+            },
+            "22": {
+              "formula": 484,
+              "observed": [
+                484
+              ],
+              "n_v": 10
+            },
+            "23": {
+              "formula": 529,
+              "observed": [
+                529
+              ],
+              "n_v": 4
+            },
+            "24": {
+              "formula": 576,
+              "observed": [
+                576
+              ],
+              "n_v": 1
+            }
+          },
+          "n_v_checked": 13546,
+          "n_v_brute_force": 270,
+          "growth": [
+            [
+              1,
+              48
+            ],
+            [
+              2,
+              480
+            ],
+            [
+              3,
+              1728
+            ],
+            [
+              4,
+              4128
+            ],
+            [
+              5,
+              8352
+            ],
+            [
+              6,
+              14592
+            ]
+          ],
+          "strictly_increasing": true
+        }
+      ],
+      "double_pentagon": "not built: fslab.ptranslation is Fraction-only"
+    }
+  }
+}

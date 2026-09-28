@@ -1,0 +1,47 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/review_blind_guard.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/library_edit_check.py\"",
+            "statusMessage": "expert: checking the library",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/land_verdict.py\"",
+            "statusMessage": "expert: landing the review verdict",
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/land_referee.py\"",
+            "statusMessage": "expert: landing the referee report",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

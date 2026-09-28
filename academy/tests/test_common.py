@@ -776,5 +776,38 @@ class HookIOTests(unittest.TestCase):
             self.assertFalse(ac.is_git_commit(c), c)
 
 
+
+class ShellParserTests(unittest.TestCase):
+    """The shared commit-target parser (author and scientist gates vendor it)."""
+    base = r"C:\Work\Math\paper" if os.name == "nt" else "/work/paper"
+
+    def t(self, cmd):
+        return [os.path.normcase(d) for d in ac.commit_targets_or_cwd(cmd, self.base)]
+
+    def at(self, *parts):
+        return os.path.normcase(os.path.normpath(os.path.join(self.base, *parts)))
+
+    def test_cd_git_C_and_work_tree(self):
+        self.assertEqual(self.t("cd ../lab && git commit -m x"), [self.at("..", "lab")])
+        self.assertEqual(self.t("git -C ../lab commit"), [self.at("..", "lab")])
+        self.assertEqual(self.t("git --work-tree=../lab commit"), [self.at("..", "lab")])
+
+    @unittest.skipUnless(os.name == "nt", "Git Bash drive paths are a Windows form")
+    def test_git_bash_drive(self):
+        self.assertEqual(self.t("cd /c/Work/Math/FlatSurfLab && git commit -m x"),
+                         [os.path.normcase(r"C:\Work\Math\FlatSurfLab")])
+
+    def test_heredoc_and_nested_shell(self):
+        self.assertEqual(self.t("git commit -F - <<EOF\ncd x\ngit commit\nEOF"),
+                         [self.at()])
+        self.assertEqual(self.t('bash -c "cd ../lab && git commit"'), [self.at("..", "lab")])
+
+    def test_parse_failure_falls_back(self):
+        with self.assertRaises(ac.ShellParseFailure):
+            ac.commit_targets('git commit -m "x', self.base)
+        self.assertEqual(self.t('git commit -m "x'), [self.at()])
+        self.assertEqual(self.t('echo "x'), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -101,6 +101,22 @@ Adding an instance means one row here plus one `academy.json` in its home
 | `db` | path | no, default `.claude/academy.sqlite` | Derived SQLite + FTS index (gitignored) |
 | `statusKeeper` | bare agent | no, default `claim-keeper` | The only agent that sets a status |
 | `legacy` | map | no | Old command lines kept alive by shims during migration |
+| `check` | command | no | Replaces the engine's `check <file>` in the record hook (`{file}` is the record); for tests |
+| `build` | bool | no, default from the profile (`s1`: true) | Whether the record hook follows an edit with a blocking `build` |
+
+The engine is `academy/registry` (`py -m registry --repo <home> <command>`, cwd
+`academy/academy`); `profile` picks its rule set (`lab`, `paper`: engine profile
+fsl-claims; `s1`: s1-kb). A home without academy.json gets the rule set named like its
+workspace `ns`. `db` is not used yet: the engine builds its SQLite in memory for every
+query, and s1-kb's `build` still writes `kb/kb.sqlite`.
+
+*R6 (Group D, 2026-09-28):* the s1-kb profile reads a home in the notebook layout when it
+has an `objects/` folder: records under `objects/<kind>/` (the record's `kind` must match
+its folder), directions with prefix `DIR`, experiment audits under `audits/<subject>/`
+beside `computation/verdicts/` (both accepted by `set-status --verdict`), and `build`
+writes `views/` (`assumptions.md`, `INDEX.md`, `directions.md`, `graph.md`,
+`rests-on.md`). Without `objects/` it reads the old layout (`claims/`, `assumptions/`,
+`examples/`). The lab and paper homes keep `claims/<ns>/`.
 
 **`budget`:**
 
@@ -158,7 +174,7 @@ Adding an instance means one row here plus one `academy.json` in its home
 | Key | Type | Meaning |
 |---|---|---|
 | `bibs` | list of `<instance>:<path>` | The bibliographies the librarian keeps |
-| `accessLog` | path | Clerk access log feeding `hot.md` |
+| `accessLog` | path | Clerk access log feeding `hot.md`: the MCP server appends one line per `library_*` call there, and `hot.py` reads it. Default `.academy/access.log` (derived state, ignored by git); keep it under `.academy/` |
 | `hotSize` | int | Entries kept in `hot.md` |
 | `web` | `{clerk, librarian}` | Whether each agent may fetch from the web (the clerk never does) |
 | `shards` | map domain → path | `papers/<domain>/cards` sharding when the library serves several packs |
@@ -171,7 +187,8 @@ Adding an instance means one row here plus one `academy.json` in its home
 |---|---|---|
 | `envs` | map profile → profile | Environment profiles, see below |
 | `policy` | `{probe, test, run}` → profile | Which profile each kind of work uses; "no laptop compute" is `run` pointing at a remote profile |
-| `queue` | `{dir, fsqHome, maxJobs}` | Local queue state and runner settings |
+| `queue` | `{dir, fsqHome, maxJobs, mcpAdd}` | Local queue state and runner settings; `mcpAdd` is `dry-run` (default: the MCP tool `queue_add` returns the job file it would write) or `on` (it writes it). Filing from the shell is unaffected |
+| `checker` | path | The experiment-header checker the hooks run (default: the home's `scripts/check_experiments.py`; the plugin's is `${CLAUDE_PLUGIN_ROOT}/scripts/check_experiments.py`) |
 | `experimentTypes` | list | `search measure verify probe` |
 | `reportTemplates` | path | Report templates by type (plugin-relative) |
 | `knownCases` | str | Validation cases in words, and where they live |
@@ -184,11 +201,22 @@ Adding an instance means one row here plus one `academy.json` in its home
 | `distro` | wsl | yes | The WSL distro |
 | `conda` | wsl, local | no | The conda env to activate |
 | `host` | ssh | yes | ssh host alias |
-| `prefix` | ssh | no | Remote conda prefix |
+| `prefix` | all | no | Conda (Miniforge) prefix on that machine; default `~/miniforge3` |
 | `env` | ssh | no | Remote conda env name |
 | `repo` | ssh | no | Remote clone of the home |
 | `maxJobs` | ssh, local | no | Runner concurrency cap, 1..3 |
 | `preflight` | all | no | Pluggable check, `<name>:<arg>`, e.g. `vpn:globalprotect`; a failing preflight on an ssh profile means "queued", not an error |
+| `pushUrl`, `remoteEnv` | ssh, wsl | no | Test stand-ins only (as in the legacy `queue/config.json`): the git URL the job commit is pushed to, and assignments prefixed to every runner call |
+
+The runner is `scientist/scripts/env.py` (`list`, `check <profile> [--live]`,
+`run <profile> ...`, `setup`, `vpn`, `queue ...`). Wherever it takes a profile it also
+takes a `policy` key (`probe`, `test`, `run`) or a legacy target (`wsl`,
+`wsl:<distro>`, `ssh:<host>`). A home with no academy.json yet gets its queue target
+from `queue/config.json` (profile `queue`) and a `laptop-wsl` profile.
+
+*Extensions (Group C, 2026-09-28):* `prefix` on every kind (was ssh only),
+`pushUrl` / `remoteEnv`, `queue.mcpAdd`, and the `checker` row above (read by
+`scientist/scripts/_common.py` since Group B, undocumented until now).
 
 **Required paths:** `package`, `experiments`, `results`, `queue`, `records`, `views`.
 
@@ -267,7 +295,8 @@ a shim until phase 8.
     "audits": "audits",
     "records": "objects",
     "library": "literature",
-    "views": ["views", "INDEX.md", "OPEN.md", "STATUS.md", "site/index.html"]
+    "views": ["views", "INDEX.md", "OPEN.md", "STATUS.md", "site/index.html",
+              "kb/claims.json", "computation/verdicts.md", "computation/runs.md"]
   },
   "registry": {"profile": "s1", "root": "objects", "db": ".claude/academy.sqlite",
                "statusKeeper": "claim-keeper",
@@ -310,7 +339,7 @@ a shim until phase 8.
   "gate": {"commit": "off", "build": false, "baseline": null, "branches": {}},
   "expert": {
     "bibs": ["author@bi:references.bib"],
-    "accessLog": "ledgers/access.log",
+    "accessLog": ".academy/access.log",
     "hotSize": 50,
     "web": {"clerk": false, "librarian": true},
     "shards": {}

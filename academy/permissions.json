@@ -34,12 +34,12 @@
     "claims_set_status": {
       "allow": ["claim-keeper"],
       "deny": ["@readonly"],
-      "substance": "The server re-checks the grounds per kind (plan section 8): proof -> two agreeing verdicts with distinct run ids and the same statement hash; computation -> two agreeing experiment verdicts, the result's commit hash and a passed validation case, and only supported/refuted/refuted-as-stated. Without grounds only the human may set a status."
+      "substance": "The server re-checks the grounds per kind (plan section 8, registry/core/grounds.py): proof -> two agreeing verdicts with distinct run ids, graders other than the producer (grader_role != producer_role), and the claim's current statement hash; computation -> two agreeing experiment verdicts with distinct run ids and graders other than the producer, the result's commit hash and a passed validation case, and only supported/refuted/refuted-as-stated; or the human's word, quoted verbatim (basis human). Without grounds only the human may set a status. The change is applied by the registry engine (line-preserving) and refused if the record would then fail its check."
     },
     "queue_add": {
       "allow": ["experimenter", "developer"],
       "deny": ["@readonly"],
-      "substance": "The script must be committed; the env profile defaults to the home's policy.run."
+      "substance": "The script must be committed; the env profile defaults to the home's policy.run. The job file is built by scientist/scripts/env.py. Dry run (nothing written, the job file returned) unless the lab's academy.json sets scientist.queue.mcpAdd to on."
     },
     "tickets_create": {
       "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst"],

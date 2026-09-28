@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "academy": {
+      "command": "py",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.py"],
+      "env": {"PYTHONUTF8": "1"}
+    }
+  }
+}

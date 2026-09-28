@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "role": "author",
+  "instance": "{{instance}}",
+  "domains": [
+    "{{domain}}"
+  ],
+  "ns": "{{ns}}",
+  "paths": {
+    "tex": [
+      "main.tex",
+      "sections/*.tex"
+    ],
+    "bib": "references.bib",
+    "drafts": "Drafts",
+    "agenda": "Drafts/agenda.md",
+    "roadmap": "Drafts/roadmap.md",
+    "records": "claims",
+    "figures": "figures",
+    "views": [
+      "Drafts/statements.md",
+      "claims/INDEX.md",
+      "claims/index.html"
+    ]
+  },
+  "registry": {
+    "profile": "paper",
+    "root": "claims",
+    "db": ".claude/academy.sqlite",
+    "statusKeeper": "claim-keeper"
+  },
+  "budget": {
+    "itemsPerRun": 3,
+    "serial": true,
+    "orchestratorModel": "sonnet",
+    "maxModel": "fable",
+    "ticketDefault": {
+      "runs": 1,
+      "max_model": "sonnet"
+    }
+  },
+  "gate": {
+    "commit": "normal",
+    "build": true,
+    "baseline": null,
+    "branches": {}
+  },
+  "author": {
+    "main": "main.tex",
+    "build": {
+      "dir": ".build",
+      "cmd": [
+        "latexmk",
+        "-pdf",
+        "main.tex"
+      ],
+      "lock": ".build/.lock"
+    },
+    "checker": {
+      "script": "${CLAUDE_PLUGIN_ROOT}/scripts/check_paper.py",
+      "args": [],
+      "strictArgs": [
+        "--strict"
+      ],
+      "statements": "Drafts/statements.md"
+    },
+    "theorems": {
+      "all": [
+        "thm",
+        "prop",
+        "lem",
+        "cor",
+        "conj",
+        "defn",
+        "rmk",
+        "ex",
+        "quest",
+        "claim"
+      ],
+      "provable": [
+        "thm",
+        "prop",
+        "lem",
+        "cor",
+        "claim"
+      ],
+      "commentary": [
+        "rmk",
+        "quest"
+      ]
+    },
+    "envs": {
+      "sketch": "sketch",
+      "conjectural": "conjectural",
+      "meta": "meta"
+    },
+    "colourCommands": {
+      "\\Sketch": "sketch",
+      "\\Conjectural": "conjectural",
+      "\\Meta": "meta"
+    },
+    "colours": {
+      "established": "black",
+      "sketch": "blue",
+      "conjectural": "red",
+      "meta": "brown"
+    },
+    "noteMacros": {
+      "human": [
+        "{{noteMacro}}"
+      ],
+      "coauthors": [],
+      "machine": [
+        "\\Claude"
+      ]
+    },
+    "crlf": [],
+    "writers": [
+      "math-writer",
+      "math-editor",
+      "tex-engineer",
+      "figure-maker",
+      "note-sweeper"
+    ],
+    "bibWriters": [
+      "librarian"
+    ]
+  }
+}

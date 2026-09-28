@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/experiment_edit_check.py\"",
+            "statusMessage": "scientist: checking the experiment header",
+            "timeout": 90
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/commit_gate.py\"",
+            "statusMessage": "scientist: checking experiments before the commit",
+            "timeout": 90
+          }
+        ]
+      }
+    ]
+  }
+}

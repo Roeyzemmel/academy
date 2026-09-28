@@ -1,0 +1,30 @@
+C:\Work\Math\BilliardIllumination\claims\paper\cor__periodic-prim-relations.md: ERROR: black in the draft, but status is `open`
+C:\Work\Math\BilliardIllumination\claims\paper\cor__relative-marking-invariance-preimage.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\cor__short-path-geodesic.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\defn__flat-equivalence.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\defn__flat-structure.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\defn__unfolding.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\ex__periodicity-coex.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\ex__ppsg.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\fact__aw-closed-markings.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\fact__aw-slope-pm-one.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\fact__flat-structure-charts.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\fact__flat-structure-invariants.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\fact__positive-systole.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\lem__illumination-chase.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\lem__saddle-homotopy.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\lem__straightline-invariance.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\lem__tok.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\lem__trans-auth-effect.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\prop__corners-finite.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\prop__delaunay-isometry-permutation.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\prop__tc-class.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\prop__vorobets-lift.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\prop__vorobets-veech-inclusion.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\prop__Voronoi-invariance.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\rmk__best-converse.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\rmk__nonempty-marking.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\thm__aw-finiteness.md: WARN: black in the draft with no verdict or citation behind it
+C:\Work\Math\BilliardIllumination\claims\paper\thm__moeller-primitive.md: WARN: black in the draft with no verdict or citation behind it
+115 claims: 1 error(s), 27 warning(s)
+exit=1

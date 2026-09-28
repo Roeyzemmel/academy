@@ -1,0 +1,32 @@
+{
+  "name": "translation-surfaces",
+  "version": "0.1.0",
+  "summary": "Translation surfaces, rational billiards, illumination and finite blocking: notation, theorem sheet with real hypotheses, standard examples, traps, figure conventions and sage-flatsurf / surface_dynamics computation recipes. Domain content only; no plugin logic.",
+  "keywords": [
+    "translation surface", "flat surface", "abelian differential", "stratum",
+    "Veech surface", "Veech group", "lattice surface", "saddle connection",
+    "cylinder decomposition", "holonomy", "orbit closure", "affine invariant submanifold",
+    "square-tiled surface", "origami", "rational billiard", "unfolding",
+    "illumination", "finite blocking", "periodic point", "marked point",
+    "sage-flatsurf", "surface_dynamics"
+  ],
+  "files": {
+    "skill": "skills/translation-surfaces/SKILL.md",
+    "notation": "notation.md",
+    "theorems": "theorems/INDEX.md",
+    "theorems/illumination": "theorems/illumination.md",
+    "theorems/orbit-closures": "theorems/orbit-closures.md",
+    "theorems/veech": "theorems/veech.md",
+    "theorems/strata": "theorems/strata.md",
+    "theorems/unverified": "theorems/unverified.md",
+    "open-problems": "open-problems.md",
+    "examples": "examples.md",
+    "traps": "traps.md",
+    "figures": "figures.md",
+    "computation": "computation/README.md",
+    "computation/api": "computation/api/INDEX.md",
+    "computation/scripts/billiard_trace": "computation/scripts/billiard_trace.py",
+    "computation/scripts/origami_illumination": "computation/scripts/origami_illumination.py",
+    "changelog": "CHANGELOG.md"
+  }
+}

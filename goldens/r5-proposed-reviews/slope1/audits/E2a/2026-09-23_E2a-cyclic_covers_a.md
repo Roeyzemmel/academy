@@ -1,0 +1,28 @@
+---
+id: "2026-09-23_E2a-cyclic_covers_a"
+date: "2026-09-23"
+kind: "result"
+subjects: ["E2a"]
+clears: []
+decision: "cleared, conditional on citing: `Result:` is empty (checker W3) and must be filled; header line 2's \"states-vs-|G| probe\" must say it did not run in this range; the result JSON mus"
+source: "computation/verdicts.md:1141-1158 (HEAD 2026-09-24)"
+---
+
+## 2026-09-23 — 2026-09-23_cyclic_covers_a
+
+Kind: result. Claim it bears on: audited against its own header — (Q2) over the square-tiled cyclic covers M_N(a), N ≤ 12 (E2a of the family hunt).
+Commit audited: 34552b0 (job 20260923-123801_2026-09-23_cyclic_covers_a, dirty false, default arguments, exit 0, lingo, SageMath 10.7 / surface_dynamics 0.7.0, sweep 28 s). The work is in its parent 3bb691c; both runs confirmed the script and `fslab/` are unchanged at 34552b0 and HEAD.
+
+Run A: SOUND — "the twelve FALSE verdicts are cap-free, complete-W computations of the defining relation of (Q2) that two in-run implementations (pure Python and the GAP-language raw BFS + `Orbits(G, pairs, OnTuples)`) agree on, and that a third implementation I wrote from scratch for this audit reproduces on all twelve, under both composition conventions; nothing in the header's class description misstates what ran."   [Fable 5.1, primary]
+Run B: SOUND — "The script decides (Q2) exactly — a complete |G|² BFS for W and coverage of the G-orbitals by cycle pairs, all in integer permutation arithmetic — on exactly the class its header names, and an independent route I wrote from scratch (no `fslab` import) reproduces the enumeration, W, the raw state counts, the verdict and the uncovered orbitals on the members I sampled."   [Fable 5.1, primary]
+
+Runs were sequential (B only after A positive); both on the primary model. Run B was interrupted once by an API session limit and resumed with its context intact.
+
+Findings both runs share: 117 members = 116 for 4 ≤ N ≤ 12 (the U count) plus M_2(1,1,1,1), recounted independently by both; one member per unit orbit, the unit action free on every valid quadruple; proper divisors of sum(a) included (the six {1,5,7,11} FALSE members have sum 24 = 2N); `W_complete` true, `stopped_by` null, `raw_agrees` true on all 117 (max |G| 500, so the raw pass ran everywhere and **no FALSE rests on N2**); 0 failed, NOT RUN or UNDECIDED; FALSE only under `search.complete`. `raw_agrees` tests only the conjugacy pruning; `gap_compare_status` and `normal_agrees` are genuinely independent routes. `conj_test_on_this_machine`: all three flags true — the first lingo execution of `RepresentativeAction … OnTuples`, with a real negative case. The S_4 action is correctly not quotiented (Sage: M_12(1,5,7,11) ≁ M_12(1,5,11,7), M_12(1,3,3,5) ≁ M_12(1,3,5,3)). Run B: at N = 12 no member has a regular corner (gcd(12, a_i) ∈ {1, 3}), so the marked-point caveat cannot be raised against any N = 12 candidate; 29 members at N ∈ {2, 6, 10} do have regular corners.
+
+Findings from one run: run A — the states-vs-|G| probe never ran (its guard `row["W_complete"] is None`, `cyclic_sweep.py:229`, is unreachable once the raw cross-check fills `W_complete`); the counts E2c needs are in `probe_table` with source `decide`. Run B concurs that the probe did not trigger and that the data is present. Run A: header line 45's "116 members if the U count holds" should read 117 = 116 + the N = 2 member; "asserted tuple-equal" is recorded, not raised (cosmetic).
+
+Decision: **cleared**, conditional on citing: `Result:` is empty (checker W3) and must be filled; header line 2's "states-vs-|G| probe" must say it did not run in this range; the result JSON must be committed with it.
+Allowed wording: "Job 20260923-123801_2026-09-23_cyclic_covers_a, lingo, commit 34552b0 (dirty false), all defaults, 28 s. Class C: every valid (N, a) with N even, 2 ≤ N ≤ 12, one representative per unit orbit of Z/N — 117 members (116 for 4 ≤ N ≤ 12, matching families.md's U count, plus the N = 2 torus), S_4 class recorded and not quotiented, every corner marked, G-orbital labels, W complete on every member (max |G| 500; no cap or budget reached; 0 failed, 0 NOT RUN, 0 UNDECIDED). No counterexample over C at N ≤ 10, nor on 40 of the 52 members at N = 12. Twelve members at N = 12 are recorded in the JSON's `candidates` — the six unit-orbit representatives of each of the S_4 classes {1,3,3,5} (|G| = 72, not normal) and {1,5,7,11} (|G| = 24, normal), each with W complete and compare_with_python AGREE; one representative of each is cleared as a refutation (entries above), the other ten are not independently verified. C structurally excludes N > 12; non-cyclic abelian and non-pillowcase covers; (Q1); illumination; exact (A4)–(A6) levels. The identification of unit multiples as isomorphic at N ∈ {10, 12} rests on Forni–Matheus–Zorich duality (checked by is_isomorphic in-run for N ≤ 8, and by run A for the twelve FALSE orbits). The states-vs-|G| probe branch did not execute; state and wall-time counts come from the deciding searches." Never "true", "counterexample" or "(Q2) fails" in the `Result:` line itself — per-case verdicts stay in the JSON.
+Amended 2026-09-23 (main session, owner of this ledger): the allowed wording's per-case sentence "Twelve members at N = 12 report (Q2) failing …" was replaced by "… are recorded in the JSON's `candidates` …", because `.claude/rules/computation.md` keeps per-case (Q2) values in the JSON, never in the `Result:` line, and this entry's own closing sentence forbade it. Wording only; no finding of either run changed.
+Open: FMZ duality at N ∈ {10, 12} beyond the FALSE orbits; that `CyclicCover` is FMZ's M_N(a) (strata and Lyapunov sums consistent); lingo's worktree beyond `dirty: false`.
