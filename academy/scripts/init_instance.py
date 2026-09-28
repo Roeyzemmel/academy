@@ -15,6 +15,8 @@ Steps (each reported on stdout, nothing committed):
    pass ``validate_config``. An existing academy.json is refused unless ``--force``.
 2. Register the instance in ``workspace.json`` (role, home, domains, ns). An
    existing row with a different home is refused; the same row is left alone.
+   Write ``<home>/.gitattributes`` (LF everywhere; for an author, LF only for the
+   ledgers and the registry) unless the home already has one.
 3. For a researcher, scaffold the notebook of plan section 3.3:
    ``objects/<kind>/`` for every object kind, ``proofs/``, ``journal/``,
    ``audits/``, ``views/``, each with a ``.gitkeep``, plus a short
@@ -53,6 +55,22 @@ bears_on, domain, tags, evidence[], history[] (status only for claim, conjecture
 question). Proof attempts live in `proofs/<id>/attempt-<n>.md`; failed attempts are
 kept. `journal/YYYY-MM-DD.md` is working memory and is never graded. `views/` is
 generated; do not edit it. Only claim-keeper changes a status.
+"""
+# Git for Windows ships core.autocrlf=true; without these, files are committed with
+# whatever endings the writer used (a stray CR even makes git call a .md binary).
+GITATTRIBUTES = """# Store and check out text files with LF line endings on every platform.
+* text=auto eol=lf
+# Windows scripts keep CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+"""
+# An Author home's tex may come from Overleaf or a coauthor: leave its endings alone.
+GITATTRIBUTES_AUTHOR = """* text=auto
+# The ledgers are LF; without this, core.autocrlf=true checks them out as CRLF.
+Drafts/*.md text eol=lf
+# The claim registry is LF (academy registry engine).
+claims/** text eol=lf
 """
 
 
@@ -168,6 +186,8 @@ def init_instance(instance, home, domains, ns=None, workspace_path=None, board=T
         lines.append("would write %s:" % cfg_path.replace("\\", "/"))
         lines.append(json.dumps(cfg, indent=2))
         lines.append("would register %s in %s" % (instance, ws["_path"]))
+        if not os.path.exists(os.path.join(home, ".gitattributes")):
+            lines.append("would write %s/.gitattributes" % home)
         if role == "researcher":
             lines.append("would scaffold the notebook under %s" % home)
         if board:
@@ -179,6 +199,11 @@ def init_instance(instance, home, domains, ns=None, workspace_path=None, board=T
     lines.append("wrote %s" % cfg_path.replace("\\", "/"))
     state = register(ws["_path"], instance, home, cfg["domains"], cfg.get("ns"))
     lines.append("workspace: %s %s" % (instance, state))
+    attrs = GITATTRIBUTES_AUTHOR if role == "author" else GITATTRIBUTES
+    if _touch(os.path.join(home, ".gitattributes"), attrs):
+        lines.append("wrote %s/.gitattributes" % home)
+    else:
+        lines.append(".gitattributes: present, left alone")
     if role == "researcher":
         made = scaffold_notebook(home)
         lines.append("notebook: %d file(s) created" % len(made))

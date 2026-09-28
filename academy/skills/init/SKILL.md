@@ -1,6 +1,6 @@
 ---
 name: init
-description: Create a new academy instance — scaffold the home's .claude/academy.json from the role template (docs/config.md), register the instance in workspace.json, create its board folder, and for a Researcher scaffold the notebook layout (objects/<kind>/, proofs/, journal/, audits/, views/). Use for "/academy:init researcher@<domain>", "set up a new paper as an author instance", "add a research domain", "register this repo with the academy".
+description: Create a new academy instance — scaffold the home's .claude/academy.json from the role template (docs/config.md), register the instance in workspace.json, write the home's .gitattributes (line endings) when it has none, create its board folder, and for a Researcher scaffold the notebook layout (objects/<kind>/, proofs/, journal/, audits/, views/). Use for "/academy:init researcher@<domain>", "set up a new paper as an author instance", "add a research domain", "register this repo with the academy".
 ---
 
 # Initialise an instance
@@ -25,7 +25,9 @@ config fields are `docs/config.md`; the notebook layout is plan section 3.3.
    generic (an Author's coauthor note macros, CRLF files, checker baseline; a
    Scientist's environment profiles and `knownCases`; an Expert's `bibs`), editing
    the home's `CLAUDE.md` to point at `.claude/academy.json`, and committing the new
-   files in the home (he commits).
+   files in the home (he commits). If the home already had files before the new
+   `.gitattributes`, run `git add --renormalize .` there first, and check
+   `git ls-files --eol` for anything listed as `-text` that should be text.
 
 Nothing is committed by this skill. The workspace.json change is in the academy repo
 and the board folder is in the board repo; both show up as uncommitted changes.

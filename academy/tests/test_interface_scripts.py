@@ -285,6 +285,33 @@ class InitInstanceTest(Sandbox):
                                             workspace_path=self.ws_path, force=True)
         self.assertTrue(any("present" in l for l in lines))
 
+    def test_gitattributes(self):
+        home = os.path.join(self.tmp, "Attrs")
+        os.makedirs(home)
+        lines = init_instance.init_instance("researcher@at", home, ["dom"], ns="at",
+                                            workspace_path=self.ws_path)
+        text = read(os.path.join(home, ".gitattributes"))
+        self.assertIn("* text=auto eol=lf", text)
+        self.assertIn("*.ps1 text eol=crlf", text)
+        self.assertTrue(any(".gitattributes" in l for l in lines))
+        # an Author home keeps its tex endings; only the ledgers and registry are LF
+        paper = os.path.join(self.tmp, "Paper")
+        os.makedirs(paper)
+        init_instance.init_instance("author@pp", paper, ["dom"], ns="pp",
+                                    workspace_path=self.ws_path)
+        text = read(os.path.join(paper, ".gitattributes"))
+        self.assertNotIn("eol=lf\n*.ps1", text)
+        self.assertIn("claims/** text eol=lf", text)
+        self.assertIn("Drafts/*.md text eol=lf", text)
+        # an existing .gitattributes is never overwritten, even with --force
+        mine = os.path.join(self.tmp, "Mine")
+        os.makedirs(mine)
+        with open(os.path.join(mine, ".gitattributes"), "w") as fh:
+            fh.write("*.tex -text\n")
+        init_instance.init_instance("scientist@mine", mine, ["dom"],
+                                    workspace_path=self.ws_path, force=True)
+        self.assertEqual(read(os.path.join(mine, ".gitattributes")), "*.tex -text\n")
+
     def test_conflicting_registration(self):
         other = os.path.join(self.tmp, "Other")
         os.makedirs(other)
