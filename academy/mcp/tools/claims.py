@@ -642,8 +642,17 @@ def _attach(ctx, a):
 
 
 def _keeper_instance(ctx, ns):
+    """The instance whose claim-keeper owns ``ns``.
+
+    A namespace owned by a researcher is kept by that researcher: its notebook is
+    where the objects live. Only for a namespace owned by another role (paper:,
+    lab:) does the keeper fall to a researcher sharing the owner's domains.
+    """
     owner = ctx.instance_by_ns(ns)
-    doms = ctx.instances().get(owner or "", {}).get("domains")
+    insts = ctx.instances()
+    if owner and insts.get(owner, {}).get("role") == "researcher":
+        return owner
+    doms = insts.get(owner or "", {}).get("domains")
     cands = ctx.instances_by_role("researcher", doms) or ctx.instances_by_role("researcher")
     if not cands:
         raise ToolError("no researcher instance (claim-keeper) in workspace.json")

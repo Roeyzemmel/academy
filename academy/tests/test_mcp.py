@@ -527,6 +527,74 @@ class TestOtherTools(McpTestBase):
         self.assertIn("no grounds", msg)
 
 
+class TestKeeperRouting(unittest.TestCase):
+    """claims_propose_status must file the decision to the namespace's OWN researcher.
+
+    The bug: _keeper_instance looked up the owning instance, then used only its
+    domains to build a candidate list and returned cands[0]. With two researcher
+    instances sharing a domain, a proposal about the second one's namespace was
+    filed to the first -- researcher@flat's `flat:` decisions went to
+    researcher@slope1, whose notebook does not hold those objects.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="academy-keeper-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        t = self.tmp.replace("\\", "/")
+        self.board = t + "/board"
+        os.makedirs(self.board)
+        # two researchers sharing one domain, registered first-to-last as in the
+        # real workspace: the s1 notebook predates the flat one.
+        self.homes = {"researcher@s1": t + "/s1", "researcher@flat": t + "/flat",
+                      "author@t": t + "/paper"}
+        for h in self.homes.values():
+            os.makedirs(h)
+        ws = {"instances": {
+            "researcher@s1": {"role": "researcher", "home": self.homes["researcher@s1"],
+                              "domains": ["test-pack"], "ns": "s1"},
+            "researcher@flat": {"role": "researcher", "home": self.homes["researcher@flat"],
+                                "domains": ["test-pack"], "ns": "flat"},
+            "author@t": {"role": "author", "home": self.homes["author@t"],
+                         "domains": ["test-pack"], "ns": "paper"}},
+            "board": self.board, "human": {"name": "Roey"}}
+        self.ws_path = os.path.join(self.tmp, "workspace.json")
+        write(self.ws_path, json.dumps(ws, indent=2))
+        self.env = dict(os.environ, ACADEMY_WORKSPACE=self.ws_path, PYTHONUTF8="1",
+                        ACADEMY_CALLER_DIR=os.path.join(self.tmp, "callers"))
+        self.env.pop("ACADEMY_CWD", None)
+
+    def server(self, instance=None):
+        cwd = self.homes[instance] if instance else self.tmp
+        s = Server(cwd, self.env)
+        self.addCleanup(s.close)
+        s.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                 "clientInfo": {"name": "test", "version": "0"}})
+        s.request("notifications/initialized", notify=True)
+        return s
+
+    def test_proposal_goes_to_the_namespace_owner(self):
+        s = self.server()
+        err, res = s.call("claims_propose_status", id="flat:some-claim", status="sketch",
+                          reason="complete attempt")
+        self.assertFalse(err, res)
+        self.assertEqual(res["to"], "researcher@flat")
+
+    def test_the_other_researcher_still_gets_its_own(self):
+        s = self.server()
+        err, res = s.call("claims_propose_status", id="s1:OBS-22", status="sketch",
+                          reason="complete attempt")
+        self.assertFalse(err, res)
+        self.assertEqual(res["to"], "researcher@s1")
+
+    def test_a_namespace_owned_by_a_non_researcher_still_falls_back(self):
+        # paper: belongs to an author; its keeper is a researcher sharing the domain.
+        s = self.server()
+        err, res = s.call("claims_propose_status", id="paper:lem:x", status="sketch",
+                          reason="complete attempt")
+        self.assertFalse(err, res)
+        self.assertIn(res["to"], ("researcher@s1", "researcher@flat"))
+
+
 class TestCallerHandshake(McpTestBase):
     def test_write_without_hook_record_refused(self):
         s = self.server("author@t")
