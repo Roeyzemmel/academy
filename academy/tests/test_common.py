@@ -272,11 +272,11 @@ class PermissionTests(unittest.TestCase):
 
     def test_roster_matches_plan(self):
         ros = ac.roster(self.p)
-        self.assertEqual(len(ros), 24)
+        self.assertEqual(len(ros), 25)
         count = {}
         for plugin in self.p["roster"]:
             count[plugin] = len(self.p["roster"][plugin])
-        self.assertEqual(count, {"academy": 3, "author": 6, "researcher": 4, "expert": 6,
+        self.assertEqual(count, {"academy": 4, "author": 6, "researcher": 4, "expert": 6,
                                  "scientist": 5})
         all_names = [a for v in self.p["roster"].values() for a in v]
         self.assertEqual(len(all_names), len(set(all_names)), "bare names must be unique")

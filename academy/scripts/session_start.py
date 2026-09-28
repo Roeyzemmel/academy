@@ -11,7 +11,9 @@ silent no-op. Inside one it
   4. prints ONE line as additionalContext:
        academy: <instance> — N open tickets to you, M packets awaiting <human>
      followed, only when there are any, by the blocked tickets whose awaited tickets
-     are all terminal ("; freed: T-0003") and by config problems.
+     are all terminal ("; freed: T-0003"), by the board-wide pending-decision count
+     from decisions.py ("; D decisions waiting — /academy:decide"), and by config
+     problems.
 """
 
 import os
@@ -167,6 +169,43 @@ def raw_instance(home):
     return os.path.basename(os.path.normpath(home))
 
 
+def decisions_waiting(board, all_tickets):
+    """Count of pending decisions on ``board``: the same three sources as
+    ``scripts/decisions.py`` ``list`` (open packet decisions with no ``## Decision``
+    line yet, tickets to human that are ``open``, tickets anywhere ``blocked`` with
+    ``human`` in ``waiting_on``), counted here directly against the vendored module so
+    this hook stays self-contained rather than importing the scripts that sit beside
+    it. Never raises: a SessionStart hook never breaks a session over an advisory
+    count.
+    """
+    try:
+        n = 0
+        proot = os.path.join(board, "packets")
+        for dirpath, _dirnames, filenames in os.walk(proot):
+            for name in filenames:
+                if not RE_PACKET_FILE.match(name):
+                    continue
+                meta = None
+                try:
+                    with open(os.path.join(dirpath, name), "r", encoding="utf-8") as fh:
+                        meta, body = ac.read_frontmatter(fh.read())
+                except (OSError, ac.FrontmatterError):
+                    continue
+                if meta.get("state") != "open":
+                    continue
+                asked, answers = ac.packet_decisions(body), ac.packet_answers(body)
+                n += len([k for k in asked if k not in answers])
+        for _folder, m in all_tickets:
+            waits = [str(w) for w in (m.get("waiting_on") or [])]
+            if m.get("to") == ac.HUMAN and m.get("status") == "open":
+                n += 1
+            elif m.get("status") == "blocked" and ac.HUMAN in waits:
+                n += 1
+        return n
+    except Exception:
+        return None
+
+
 def status_line(event):
     """The one line to print, or None outside an academy home."""
     home = ac.find_home(ac.event_cwd(event))
@@ -199,6 +238,9 @@ def status_line(event):
         fr = freed(all_t, instance)
         if fr:
             line += "; freed: %s" % ", ".join(fr)
+        d = decisions_waiting(board, all_t)
+        if d:
+            line += "; %d decision%s waiting — /academy:decide" % (d, "" if d == 1 else "s")
     if probs:
         line += "; config: %s" % "; ".join(probs)
     return line

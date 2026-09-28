@@ -174,6 +174,9 @@ def _copy_tree_files(src_repo, dst, only=None):
 
 
 R6 = GOLD / "r6"
+#: Roey's decisions of 2026-09-28 on top of R6 (P-0004 D1, D2, D9; P-0005 D6, D8): the
+#: files they removed, added (sha256) and changed (sha256), and the s1 check output
+DECIDED = GOLD / "r6-decisions"
 PRE6 = GOLD / "r6-pre-migration"
 #: R6 (the notebook layout) is applied: Slope1's records are under objects/<kind>/
 R6_APPLIED = HAVE and (S1 / "objects").is_dir()
@@ -294,14 +297,21 @@ class TestR6(unittest.TestCase):
     journal; the run audits -> audits/<run>/; two directions (``migrate_r6.py``)."""
 
     def test_check_outputs(self):
-        cases = [("registry_lab.txt", ["scripts/claims.py", "check"], LAB),
-                 ("registry_paper.txt", ["scripts/claims.py", "--repo", str(BI), "check"], LAB),
-                 ("registry_s1.txt", ["tools/kb.py", "check"], S1)]
-        for name, argv, cwd in cases:
+        cases = [("registry_lab.txt", ["scripts/claims.py", "check"], LAB, R6),
+                 ("registry_paper.txt", ["scripts/claims.py", "--repo", str(BI), "check"], LAB,
+                  R6),
+                 ("registry_s1.txt", ["tools/kb.py", "check"], S1, DECIDED)]
+        for name, argv, cwd, where in cases:
             with self.subTest(name):
                 rc, out = sh(argv, cwd)
                 self.assertEqual(norm(out) + "exit=%d\n" % rc,
-                                 (R6 / name).read_text(encoding="utf-8"))
+                                 (where / name).read_text(encoding="utf-8"))
+        # the decisions against R6: CRIT-20's free-text modulo became OPEN-14 (P-0004 D2),
+        # so its warning is the only line gone; STR-6 out and OPEN-14 in keep 188 entities
+        r6s1 = [ln for ln in (R6 / "registry_s1.txt").read_text(encoding="utf-8").split("\n")
+                if "objects/claim/CRIT-20.md: modulo:" not in ln]
+        self.assertEqual("\n".join(r6s1).replace("5 warnings", "4 warnings"),
+                         (DECIDED / "registry_s1.txt").read_text(encoding="utf-8"))
         # against R5: lab and paper identical; s1 only the two directions, and the
         # modulo-is-not-an-id warnings added by the Group D review (P-0004 D2/D4)
         r5 = lambda n: (R5 / n).read_text(encoding="utf-8")  # noqa: E731
@@ -364,13 +374,26 @@ class TestR6(unittest.TestCase):
         for sub in ("claims", "assumptions", "examples", "notes"):
             self.assertFalse((s1 / sub).exists(), sub)
             self.assertFalse((S1 / sub).exists(), sub)
+        import hashlib
+        import json
+        dec = json.loads((DECIDED / "MANIFEST.json").read_text(encoding="utf-8"))
+        sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()  # noqa: E731
         for top in ("objects", "audits", "journal", "proofs"):
-            want = sorted(p.relative_to(s1).as_posix() for p in (s1 / top).rglob("*.md"))
+            made = {p.relative_to(s1).as_posix() for p in (s1 / top).rglob("*.md")}
+            want = sorted((made - set(dec["removed"]))
+                          | {r for r in dec["added"] if r.startswith(top + "/")})
             have = sorted(p.relative_to(S1).as_posix() for p in (S1 / top).rglob("*.md"))
             self.assertEqual(have, want, top)
             for rel in want:
                 with self.subTest(rel):
-                    self.assertEqual((S1 / rel).read_bytes(), (s1 / rel).read_bytes())
+                    pinned = dec["added"].get(rel) or dec["modified"].get(rel)
+                    if pinned:              # a decision's edit, pinned by its hash
+                        self.assertEqual(sha(S1 / rel), pinned)
+                        if rel in dec["modified"]:
+                            self.assertNotEqual((S1 / rel).read_bytes(),
+                                                (s1 / rel).read_bytes())
+                    else:
+                        self.assertEqual((S1 / rel).read_bytes(), (s1 / rel).read_bytes())
         self.assertEqual((S1 / "kb" / "r6-path-map.md").read_bytes(),
                          (s1 / "kb" / "r6-path-map.md").read_bytes())
         for f in sorted((lab / "claims" / "lab").glob("*.md")):

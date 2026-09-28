@@ -121,6 +121,23 @@ class TestTickets(BoardCase):
                          [(DATE, "author@bi/math-writer", "opened")])
         self.assertEqual(ac.write_frontmatter(meta, body), text)   # canonical
 
+    def test_namespaced_agent_is_written_bare(self):
+        # agents carry plugin-namespaced names; the speaker is the bare one (protocol 1)
+        p = self.new(agent="author:math-writer")
+        _, body = ac.read_frontmatter(self.read(p))
+        self.assertEqual(ac.thread_lines(body), [(DATE, "author@bi/math-writer", "opened")])
+        tid = bd.read_ticket(p)[0]["id"]
+        bd.append_to_ticket(self.board, tid, "a note", as_instance="expert@ts",
+                            agent="expert:librarian", date=DATE)
+        bd.transition_ticket(self.board, tid, "accepted", as_instance="expert@ts",
+                             agent="expert:librarian", date=DATE)
+        _, body = ac.read_frontmatter(self.read(p))
+        self.assertEqual([w for _d, w, _t in ac.thread_lines(body)],
+                         ["author@bi/math-writer", "expert@ts/librarian",
+                          "expert@ts/librarian"])
+        self.assertEqual(bd.bare_agent(" scientist:test-engineer "), "test-engineer")
+        self.assertEqual(bd.bare_agent(""), "")
+
     def test_ids_increase_and_default_budget(self):
         self.new()
         p2 = self.new(title="Second", budget=None)

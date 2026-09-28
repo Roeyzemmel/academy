@@ -320,10 +320,27 @@ def latex_macros(home):
     return macros
 
 
+#: kinds that carry no status in schema v2 (a definition is not true or false): their
+#: statements get this badge instead of none, so the page renders (render_packets
+#: refuses a statement with no status)
+NO_STATUS_KINDS = {"definition": "definition", "def": "definition", "example": "example",
+                   "direction": "direction"}
+
+
+def status_of(meta):
+    """The record's status, or ``n/a — <kind>`` for a kind that has none."""
+    st = meta.get("status")
+    if st in (None, ""):
+        kind = NO_STATUS_KINDS.get(str(meta.get("kind") or "").strip().lower())
+        if kind:
+            return "n/a — " + kind
+    return st
+
+
 def stmt(rec, role, depth=1):
     meta = rec["meta"]
     out = {"id": rec["id"], "title": meta.get("title") or rec["id"],
-           "status": meta.get("status"), "kind": meta.get("kind"),
+           "status": status_of(meta), "kind": meta.get("kind"),
            "statement": "", "role": role, "depth": depth,
            "where": str(meta.get("where") or os.path.relpath(rec["path"], rec["home"].path)
                         ).replace("\\", "/"),

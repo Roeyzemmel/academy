@@ -564,6 +564,24 @@ class SessionStartTests(Fixture):
                          "academy: author@t — 0 open tickets to you, "
                          "0 packets awaiting Roey")
 
+    def test_decisions_waiting_line(self):
+        self.write(os.path.join(self.board, "human", "T-0020-x.md"),
+                   ticket_text("T-0020", "expert@t", "human"))
+        self.write(os.path.join(self.board, "expert@t", "T-0021-y.md"),
+                   ticket_text("T-0021", "author@t", "expert@t", status="blocked",
+                               waiting_on=["human"]))
+        body = ("\n## Summary\n\nA fixture.\n\n## Produced\n\nNothing.\n\n"
+               "## Established vs assumed\n\nNothing.\n\n## Evidence\n\nNone.\n\n"
+               "## Decisions needed\n\n### D1. Proceed?\n\n- (a) Yes.\n- (b) No.\n"
+               "- Recommendation: (a), it is safe.\n\n## Machine notes\n\nNone.\n\n"
+               "## Decision\n\n")
+        meta = {"packet": "P-0099", "title": "Fixture P-0099", "instance": "expert@t",
+               "kind": "other", "by": "expert@t", "state": "open", "created": "2026-09-27"}
+        self.write(os.path.join(self.board, "packets", "expert@t", "P-0099-z.md"),
+                   ac.write_frontmatter(meta, body))
+        line = self.start(self.author_home)
+        self.assertIn("3 decisions waiting — /academy:decide", line)
+
     def test_missing_board(self):
         shutil.rmtree(self.board)
         self.assertIn("not found", self.start(self.author_home))

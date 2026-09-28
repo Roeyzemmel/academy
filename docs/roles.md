@@ -2,7 +2,11 @@
 
 Plan section 3. The roster that the code enforces is `academy/permissions.json`
 (`roster`, `groups`, `tools`); this page explains it. Model notation: a primary
-model, then "→" the fallback the launching session applies and names.
+model, then "→" the fallback the launching session applies and names. For the graders
+(`experiment-reviewer`, `rigor-reviewer`, `referee`) Fable and Opus 5.5 are equal
+primaries (Roey, 2026-09-24, reconfirmed 2026-09-28): "Fable → Opus" there means the
+substitution keeps full authority; only a verdict on another model (Sonnet, Haiku, an
+older Opus) is capped (roster-rules.md, "Model fallback").
 
 ## academy (base plugin)
 
@@ -14,9 +18,10 @@ for the home they run in.
 | `concierge` | Sonnet | Behind `/academy:desk`: routes Roey's requests |
 | `explainer` | Opus → Sonnet | Behind `/academy:deep-dive`: read-only, grades nothing |
 | `usage-analyst` | Haiku → Sonnet | The weekly usage packet |
+| `secretary` | Sonnet → Haiku | Behind `/academy:decide`: phrases pending-decision batches in plain language; read-only, records nothing |
 
-Skills: `desk`, `board`, `review`, `deep-dive`, `status`, `init`, `usage`, and the
-best-practice skills `rigor`, `status-vocabulary`, `citation-discipline`,
+Skills: `desk`, `board`, `review`, `decide`, `deep-dive`, `status`, `init`, `usage`,
+and the best-practice skills `rigor`, `status-vocabulary`, `citation-discipline`,
 `notation-discipline`, `honest-reporting`.
 
 ## Author (one per paper)
@@ -64,8 +69,10 @@ best-practice skills `rigor`, `status-vocabulary`, `citation-discipline`,
 
 - The producer never grades its own work; the grader never edits what it grades;
   the commissioning agent never grades.
-- The read-only group (`explainer`, `clerk`, and the graders) calls no write tool.
-  A grader's verdict reaches the files through a SubagentStop hook.
+- The read-only group (`explainer`, `clerk`, `secretary`, and the graders) calls no
+  write tool. A grader's verdict reaches the files through a SubagentStop hook;
+  `secretary` never writes at all, and `/academy:decide` is the only caller of
+  `AskUserQuestion` and the only one that records an answer.
 - Proofs reach `proved` / `proved-modulo` only through two agreeing proof reviews;
   computations reach `supported` / `refuted` / `refuted-as-stated` only, never
   `proved`.

@@ -35,6 +35,15 @@ class VendoredTests(unittest.TestCase):
     def test_check_mode_agrees(self):
         self.assertEqual(sync_common.drifted(REPO), [])
 
+    def test_no_stray_debug_output_in_scripts(self):
+        # verification Group G: out.txt / out2.txt were committed into expert/scripts/
+        import glob
+        stray = []
+        for plugin in sync_common.PLUGINS:
+            for pat in ("out*.txt", "*.out", "debug*.txt"):
+                stray += glob.glob(os.path.join(REPO, plugin, "scripts", pat))
+        self.assertEqual([os.path.relpath(p, REPO) for p in stray], [])
+
 
 if __name__ == "__main__":
     unittest.main()

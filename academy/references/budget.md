@@ -29,7 +29,9 @@ happen again.
    `AskUserQuestion`, at a decision point.
 6. **The lightest agent that can do the work.** Orchestration runs on
    `budget.orchestratorModel` (sonnet). No agent runs heavier than `budget.maxModel`
-   or than the ticket's `budget.max_model`.
+   or than the ticket's `budget.max_model`. Graders run on a primary, Fable or
+   Opus 5.5, which count equally (roster-rules.md, "Model fallback"); a grader run on
+   a lighter model spends a run for a verdict that cannot count.
 7. **A ticket spends at most its own `budget.runs` agent runs.** If it needs more,
    the receiver moves it to `blocked` with `waiting_on: [human]` and a thread line
    asking for more budget (docs/protocol.md section 4).

@@ -127,6 +127,10 @@ OBJECT_FOLDERS = {"definition": "claim", "claim": "claim", "conjecture": "claim"
                   "direction": "direction"}
 #: where a verdict file may live (``set-status --verdict``, the evidence refs)
 VERDICT_DIRS = ("computation/verdicts/", "audits/")
+#: ... or a proof review in an Expert's library, written as the protocol's ref
+#: ``file:expert@<name>/reviews/<ns>/<id>/<file>.md`` (phase 7: the claim verdicts moved
+#: to ``papers/reviews/s1/``, Roey's P-0004 D9 / P-0005 D8, 2026-09-28)
+RE_REVIEW_REF = re.compile(r"^file:(expert@[a-z0-9][a-z0-9-]*)/(reviews/[^#\s]+\.md)$")
 #: the views of the objects layout (the assumption chart moves out of assumptions/)
 VIEWS_DIR = "views"
 
@@ -172,6 +176,7 @@ from ..core.fm import (FrontmatterError, _fail, _is_skippable, _expect_end, ESCA
 from ..core.model import Record, Store, statement_hash_of  # noqa: E402
 from ..core import projection as _projection  # noqa: E402
 from ..core import schema as _schema  # noqa: E402
+from ..core import workspace as _workspace  # noqa: E402
 from ..core.edit import Doc as _Doc  # noqa: E402
 
 #: s1's own fields, kept beside the core ones in schema v2 (the home's data: the
@@ -650,7 +655,11 @@ def _check_v2(kb, e):
                 _check_ref(kb, e, key, ref)
     for row in v.get("evidence") or []:
         t, ref = _schema.evidence_cells(row)[:2]
-        if t in ("verdict", "experiment", "audit") and ref and "://" not in ref \
+        if t in ("verdict", "experiment", "audit") and ref and RE_REVIEW_REF.match(ref):
+            p = review_ref_path(kb.root, ref)
+            if p is not None and not p.is_file():   # None: the library is not beside us
+                kb.error(e.path, f"evidence ref '{ref}' is not a file")
+        elif t in ("verdict", "experiment", "audit") and ref and "://" not in ref \
                 and ":" not in ref.split("/")[0] and not (kb.root / ref).is_file():
             kb.error(e.path, f"evidence ref '{ref}' is not a file")
 
@@ -699,7 +708,11 @@ def _check_refs(kb, e):
     if isinstance(m.get("level"), str) and m["level"]:
         _check_ref(kb, e, "level", m["level"], {"assumption"})
     for p in m.get("cleared_by", []) if isinstance(m.get("cleared_by"), list) else []:
-        if not (kb.root / p).is_file():
+        if RE_REVIEW_REF.match(str(p)):
+            full = review_ref_path(kb.root, p)
+            if full is not None and not full.is_file():
+                kb.error(e.path, f"cleared_by: '{p}' is not a file")
+        elif not (kb.root / p).is_file():
             kb.error(e.path, f"cleared_by: '{p}' is not a file")
     for key in m.get("cites", []) if isinstance(m.get("cites"), list) else []:
         if key not in papers_index(kb):
@@ -978,7 +991,7 @@ def iter_edges(kb):
             for ref in e.meta.get(key, []) if isinstance(e.meta.get(key), list) else []:
                 yield e.id, lookup(kb, ref)[0] or ref, key
         for p in e.meta.get("cleared_by", []) if isinstance(e.meta.get("cleared_by"), list) else []:
-            yield e.id, kb.path_to_id.get(p, p), "cleared_by"
+            yield e.id, verdict_id(kb, p), "cleared_by"
         lvl = e.meta.get("level")
         if isinstance(lvl, str) and lvl:
             yield e.id, lookup(kb, lvl)[0] or lvl, "level"
@@ -1611,13 +1624,67 @@ def _append_history(lines, close, entry, eol):
     lines.insert(last + 1, entry + eol)
 
 
+def review_ref_path(root, ref):
+    """The file named by an Expert review ref ``file:expert@<name>/reviews/...md``, as seen
+    from the home at ``root`` (the library beside it, worktree suffix first). None when
+    ``ref`` is no such ref, or workspace.json names no home for that instance."""
+    m = RE_REVIEW_REF.match(str(ref or "").strip())
+    if not m:
+        return None
+    home = _workspace.instance_home(m.group(1), root)
+    return None if home is None else Path(home) / m.group(2)
+
+
+def _review_ref_of(root, full):
+    """The review ref of an absolute path inside an Expert home's ``reviews/``, else None."""
+    for inst in _workspace.instances_of_role("expert"):
+        home = _workspace.instance_home(inst, root)
+        if home is None:
+            continue
+        try:
+            rel = Path(full).resolve().relative_to(Path(home).resolve()).as_posix()
+        except ValueError:
+            continue
+        ref = f"file:{inst}/{rel}"
+        if RE_REVIEW_REF.match(ref):
+            return ref
+    return None
+
+
+def verdict_path(root, vrel) -> Path:
+    """The file of a verdict reference: a home-relative path, or an Expert review ref."""
+    p = review_ref_path(root, vrel)
+    return p if p is not None else Path(root) / vrel
+
+
+def verdict_id(kb, ref):
+    """The verdict entity a ``cleared_by`` ref names (its ledger id), else the ref. An
+    Expert review ref names the verdict its file id does, while the home still holds that
+    verdict's old copy (until phase 8)."""
+    if ref in kb.path_to_id:
+        return kb.path_to_id[ref]
+    if RE_REVIEW_REF.match(str(ref)):
+        stem = Path(str(ref)).stem
+        if stem in kb.entities and kb.entities[stem].etype == "verdict":
+            return stem
+    return ref
+
+
 def _verdict_relpath(root: Path, verdict: str):
+    """The verdict reference ``set-status --verdict`` records: a path under
+    VERDICT_DIRS relative to the home, or an Expert review ref (given as the ref or as
+    a path into the library's ``reviews/``). None when it is neither, or no such file."""
+    text = str(verdict).strip().replace("\\", "/")
+    if RE_REVIEW_REF.match(text):
+        p = review_ref_path(root, text)
+        return text if p is not None and p.is_file() else None
     p = Path(verdict)
     full = p if p.is_absolute() else root / p
     try:
         rel = full.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
-        return None
+        ref = _review_ref_of(root, full) if full.is_file() else None
+        return ref
     if not rel.startswith(VERDICT_DIRS) or not full.is_file():
         return None
     if rel.startswith("audits/") and not objects_layout(root):
@@ -1629,7 +1696,7 @@ def _verdict_row(root: Path, vrel, tag=CLEARED_NOTE):
     """The v2 evidence row of verdict file ``vrel``: its decision and id."""
     vid, decision = Path(vrel).stem, ""
     try:
-        vmeta, _ = split_document((root / vrel).read_text(encoding="utf-8"), vrel)
+        vmeta, _ = split_document(verdict_path(root, vrel).read_text(encoding="utf-8"), vrel)
         vid = str(vmeta.get("id") or vid)
         decision = str(vmeta.get("decision") or "")
     except (OSError, FrontmatterError):
@@ -1683,7 +1750,12 @@ def _fits(word, need):
 
 
 def _verdict_meta(root: Path, vrel):
-    text = (root / vrel).read_text(encoding="utf-8")
+    return _meta_of_file(verdict_path(root, vrel), vrel)
+
+
+def _meta_of_file(path: Path, name):
+    text = Path(path).read_text(encoding="utf-8")
+    vrel = name
     try:
         meta, body = split_document(text, vrel)
     except FrontmatterError:
@@ -1723,9 +1795,10 @@ def verdict_file_problems(kb, vrel, eid, label, human=False):
         if not need:
             return []
         runs = {}
-        for f in sorted((kb.root / vrel).parent.glob("*.md")):
+        folder = verdict_path(kb.root, vrel).parent
+        for f in sorted(folder.glob("*.md")):
             try:
-                m, _ = _verdict_meta(kb.root, f.relative_to(kb.root).as_posix())
+                m, _ = _meta_of_file(f, f.name)
             except (OSError, ValueError):
                 continue
             if m.get("run_id") and eid in _ids(kb, m.get("subject")):
@@ -1735,7 +1808,7 @@ def verdict_file_problems(kb, vrel, eid, label, human=False):
         probs = []
         if len(good) < 2 and not human:
             probs.append(f"{label} needs two landed runs giving {need} on {eid}; "
-                         f"{(kb.root / vrel).parent.relative_to(kb.root).as_posix()}/ has "
+                         f"{vrel.rsplit('/', 1)[0]}/ has "
                          f"{len(good)}")
         if bad and not human:
             probs.append(f"runs landed beside {vrel} disagree: " + ", ".join(bad))
@@ -1812,7 +1885,9 @@ def cmd_set_status(args) -> int:
         if vrel is None:
             print(f"set-status: '{args.verdict}' is not an existing file under "
                   + ("computation/verdicts/ or audits/" if kb.layout == "objects"
-                     else "computation/verdicts/"), file=sys.stderr)
+                     else "computation/verdicts/")
+                  + ", nor an Expert review ref (file:expert@<name>/reviews/...)",
+                  file=sys.stderr)
             return 1
     eid, _ = _resolve_or_complain(kb, args.id)
     if eid is None:
@@ -2405,7 +2480,7 @@ def _edges_of(kb, e):
             if isinstance(ref, str) and lookup(kb, ref)[0]:
                 yield lookup(kb, ref)[0], "modulo"
     for p in e.meta.get("cleared_by", []) if isinstance(e.meta.get("cleared_by"), list) else []:
-        yield kb.path_to_id.get(p, p), "cleared_by"
+        yield verdict_id(kb, p), "cleared_by"
     lvl = e.meta.get("level")
     if isinstance(lvl, str) and lvl:
         yield lookup(kb, lvl)[0] or lvl, "level"

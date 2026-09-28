@@ -147,11 +147,65 @@ class TableTests(unittest.TestCase):
     # --- fallback and degraded verdicts ---------------------------------------------
 
     def test_confirmed_on_fallback_reads_as_plausible(self):
-        a = rec("CONFIRMED", model="claude-opus-5-5")
+        a = rec("CONFIRMED", model="claude-sonnet-4-5")
         self.assertFalse(dt.should_launch_b(a))
         r = dt.decide(a)
         self.assertEqual(r["outcome"], "degraded")
         self.assertTrue(r["anomalies"])
+        self.assertEqual(r["runs"][0]["model"], "claude-sonnet-4-5")
+        self.assertEqual(r["runs"][0]["effective"], "PLAUSIBLE")
+
+    def test_sonnet_confirmed_pair_is_degraded(self):
+        r = dt.decide(rec("CONFIRMED"), rec("CONFIRMED", run="B", model="claude-sonnet-4-5"))
+        self.assertEqual(r["outcome"], "degraded")
+        self.assertIsNone(r["proposed_status"])
+        self.assertEqual([x["effective"] for x in r["runs"]], ["CONFIRMED", "PLAUSIBLE"])
+
+    def test_older_opus_and_haiku_are_fallbacks(self):
+        for m in ("claude-opus-4-1", "claude-haiku-4-5", "opus-5-50", ""):
+            with self.subTest(model=m):
+                self.assertFalse(dt.should_launch_b(rec("CONFIRMED", model=m)))
+
+    # --- Opus 5.5 is an equal primary (Roey 2026-09-24, reconfirmed 2026-09-28) ------
+
+    def test_opus_55_confirmed_counts(self):
+        for m in ("claude-opus-5-5", "claude-opus-5-5[1m]", "Opus 5.5", "opus-5.5"):
+            with self.subTest(model=m):
+                a = rec("CONFIRMED", model=m)
+                self.assertTrue(dt.should_launch_b(a))
+                r = dt.decide(a)
+                self.assertEqual(r["outcome"], "awaiting-b")
+                self.assertEqual(r["anomalies"], [])
+
+    def test_opus_55_pair_proposes_proved(self):
+        r = dt.decide(rec("CONFIRMED", model="claude-opus-5-5"),
+                      rec("CONFIRMED", run="B", model="claude-opus-5-5"))
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertEqual(r["proposed_status"], "proved")
+        self.assertEqual([x["model"] for x in r["runs"]],
+                         ["claude-opus-5-5", "claude-opus-5-5"])
+        ok, why = ex.mcp_module("claims").check_grounds("proved", r["grounds"], "abc123")
+        self.assertTrue(ok, why)
+
+    def test_fable_and_opus_55_mix(self):
+        r = dt.decide(rec("CONFIRMED", model="claude-opus-5-5"), rec("CONFIRMED", run="B"))
+        self.assertEqual(r["outcome"], "confirmed")
+
+    def test_primary_option_narrows_the_set(self):
+        a = rec("CONFIRMED", model="claude-opus-5-5")
+        self.assertFalse(dt.should_launch_b(a, primary="fable"))
+        self.assertTrue(dt.should_launch_b(a, primary="fable, opus-5.5"))
+        self.assertEqual(dt.decide(a, primary="fable")["outcome"], "degraded")
+
+    def test_model_label(self):
+        cases = {"claude-fable-5-1": "fable", "claude-opus-5-5": "opus-5.5",
+                 "claude-opus-5-5[1m]": "opus-5.5", "Opus 5.5": "opus-5.5",
+                 "opus": "opus", "claude-opus-4-1": "opus",
+                 "claude-sonnet-4-5": "sonnet", "": ""}
+        for name, want in cases.items():
+            with self.subTest(name=name):
+                self.assertEqual(dt.model_label(name), want)
+        self.assertEqual(dt.PRIMARY_MODELS, ("fable", "opus-5.5"))
 
     def test_plausible_b_never_counts(self):
         r = dt.decide(rec("CONFIRMED"), rec("PLAUSIBLE", run="B"))
@@ -159,6 +213,7 @@ class TableTests(unittest.TestCase):
         self.assertIsNone(r["proposed_status"])
 
     def test_fallback_b(self):
+        # a bare "opus" names no version: not provably Opus 5.5, so a fallback
         r = dt.decide(rec("CONFIRMED"), rec("CONFIRMED", run="B", model="opus"))
         self.assertEqual(r["outcome"], "degraded")
 
@@ -236,6 +291,15 @@ class CliTests(unittest.TestCase):
             self.assertEqual(out["outcome"], "confirmed")
             code, out, err = fixtures.run_script("decision_table.py", None, [a])
             self.assertIn("outcome: awaiting-b", out)
+            with open(b, "w", encoding="utf-8") as fh:
+                fh.write("VERDICT\nsubject: paper:lem:x\nrun: B\nverdict: CONFIRMED\n"
+                         "model: claude-opus-5-5\nstatement_hash: h\nrun_id: rv-b\n")
+            code, out, err = fixtures.run_script("decision_table.py", None,
+                                                 [a, b, "--json"])
+            self.assertEqual(out["outcome"], "confirmed")
+            code, out, err = fixtures.run_script("decision_table.py", None,
+                                                 [a, b, "--json", "--primary", "fable"])
+            self.assertEqual(out["outcome"], "degraded")
         finally:
             import shutil
             shutil.rmtree(d, ignore_errors=True)

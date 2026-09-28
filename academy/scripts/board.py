@@ -145,6 +145,12 @@ def get_ticket(board, tid):
 # Writing tickets
 # ----------------------------------------------------------------------------
 
+def bare_agent(agent):
+    """An agent named as a speaker is its bare name: ``expert:librarian`` (the name an
+    agent carries, plugin-namespaced) is written ``librarian`` (docs/protocol.md 1)."""
+    return str(agent or "").strip().rsplit(":", 1)[-1].strip()
+
+
 def _check_party(name, workspace, what):
     if not ac.is_party(name):
         raise ac.AcademyError("%s must be an instance name or 'human', not %r" % (what, name))
@@ -179,7 +185,7 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     meta["id"] = tid
     text = ac.new_ticket(meta, detail)
     fm, body = ac.read_frontmatter(text)
-    body = ac.append_thread(body, ac.format_who(as_instance, agent), "opened", date)
+    body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent)), "opened", date)
     path = os.path.join(board, to, ac.ticket_filename(tid, title))
     write_ticket(path, fm, body)
     return path
@@ -189,7 +195,7 @@ def append_to_ticket(board, tid, text, as_instance=ac.HUMAN, agent="", date=None
     """Append one entry to the ticket's thread. Returns the path."""
     path, meta, body = get_ticket(board, tid)
     date = date or ac.today()
-    body = ac.append_thread(body, ac.format_who(as_instance, agent), text, date)
+    body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent)), text, date)
     meta["updated"] = date
     write_ticket(path, meta, body)
     return path
@@ -234,7 +240,7 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
                                                                       "in-progress")
     if needs_reason and not (reason or "").strip():
         raise ac.AcademyError("%s: %s -> %s needs a reason" % (tid, old, new))
-    who = ac.format_who(as_instance, agent)
+    who = ac.format_who(as_instance, bare_agent(agent))
     if result is not None and str(result).strip():
         meta["result"] = " ".join(str(result).split())
         body = ac.append_thread(body, who, "set result: %s" % meta["result"], date)

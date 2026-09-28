@@ -12,6 +12,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `academy_status.py` | desk (no arg), status | `py $S/academy_status.py [--since last\|YYYY-MM-DD] [--mark-visit] [--usage] [--instances-only] [--json]` |
 | `board.py` | board, desk | `list [--to X] [--from X] [--status S] [--all] [--json]` · `show T-NNNN` · `new --to X --title T --ask A --deliverable D [--kind K] [--priority P] [--refs a,b] [--agenda ID] [--parent T-NNNN] [--runs N] [--max-model M] [--detail TEXT]` · `transition T-NNNN STATUS [--reason R] [--result R] [--waiting-on a,b]` · `append T-NNNN --text TEXT` |
 | `packets.py` | review, desk | `list [--open] [--instance X] [--json]` · `show P-NNNN` · `decide P-NNNN --choice a\|b\|c\|d\|other\|ack [--decision K] [--comment TEXT]` |
+| `decisions.py` | decide, secretary | `list [--json] [--instance X]` · `batches [--size 4] [--json] [--instance X]` · `record <id> --choice <letter\|proceed\|decline> [--comment TEXT]` · `accept-recommended [--mechanical-only] [--dry-run] [--json]` |
 | `render_packets.py` | review, deep-dive | `[--out FILE] [--all]` (dashboard; default `<board>/.render/review.html`) · `--deep-dive BUNDLE.json [--kind K] [--out FILE]` (default `<board>/deep-dives/<id>.html`) |
 | `gather_deep_dive.py` | deep-dive | `SUBJECT [--kind K] [--out FILE] [--depth N]` |
 | `deep_dive_index.py` | deep-dive, review | `id SUBJECT` · `get ID` (exit 1 if none) · `set ID --url U [--kind K] [--title T] [--subject S]` · `path ID` · `list` |

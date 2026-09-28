@@ -218,5 +218,16 @@ class NextWriteTests(unittest.TestCase):
             nx.file_ticket(self.ctx(), "R-0001", dry_run=True)
 
 
+class AskLineTests(unittest.TestCase):
+
+    def test_a_leading_list_marker_is_dropped(self):
+        it = al.Item("R-0001", "verify", "Verify lem:x", {}, "- `lem:x` -- check it\n")
+        self.assertEqual(nx._ask_line(it), "Verify lem:x -- `lem:x` -- check it")
+
+    def test_plain_first_paragraph_is_kept(self):
+        it = al.Item("R-0001", "cite", "Cite X", {}, "Pinpoint X.\n\nMore.")
+        self.assertEqual(nx._ask_line(it), "Cite X -- Pinpoint X.")
+
+
 if __name__ == "__main__":
     unittest.main()

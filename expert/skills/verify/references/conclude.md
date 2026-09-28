@@ -41,9 +41,9 @@ returns, the `land_verdict` hook has written `<pass dir>/A.md`. Then
 
     py $E/decision_table.py "<pass dir>/A.md" --json
 
-- `launch_b: true` (A CONFIRMED on the primary): re-hash the statement; if the hash
-  changed, stop — the statement moved under the review; record that and conclude
-  nothing. Otherwise launch run B with the identical brief and `run: B`, telling it
+- `launch_b: true` (A CONFIRMED on a primary, Fable or Opus 5.5): re-hash the
+  statement; if the hash changed, stop — the statement moved under the review; record
+  that and conclude nothing. Otherwise launch run B with the identical brief and `run: B`, telling it
   nothing of A.
 - Otherwise conclude on A alone (`single-negative`, `degraded`, `disproved`,
   `incomplete`) and say in the record that B was **skipped by design**, not lost.
@@ -55,7 +55,9 @@ relaunch. A second failure: conclude on what you have — the protocol needs two
 
 **A fallback.** Pass no `model` override while Fable is available. If it is genuinely
 unavailable, relaunch with `model: opus`, name the substitution in the ticket thread
-and the record; the table reads that run as PLAUSIBLE, so nothing is proposed.
+and the record. Opus 5.5 is an equal primary (roster-rules.md), so that run counts in
+full; a run on any other model (Sonnet, Haiku, an older Opus) the table reads as
+PLAUSIBLE, so nothing is proposed on it.
 
 ## 2. The table, input by input
 

@@ -32,3 +32,9 @@ runs this skill: only the human decides.
 
 Writing a decision starts no work: the ticket's owner picks it up in its next inbox
 run (`references/budget.md` rule 3).
+
+This skill renders the dashboard and answers packet decisions only. For a
+question-only pass with no dashboard — and one that also covers tickets addressed to
+human and tickets blocked waiting on human, which are not packets — use
+`/academy:decide` instead. Together: review is the dashboard plus decisions,
+`/academy:decide` is decisions alone.

@@ -229,5 +229,113 @@ class TestForeignRefsPreferTheWorktree(Homes):
         self.assertTrue(p.exists())
 
 
+CEX2 = """---
+id: CEX-2
+kind: claim
+form: prop
+title: t2
+status: sketch
+lifecycle: active
+summary: s
+evidence: []
+history:
+  - 2026-09-24 | sketch | created
+---
+## Statement
+It fails too.
+"""
+
+OLD_VERDICT = """---
+id: 2026-09-23_N8
+date: 2026-09-23
+kind: claim
+subjects: [CEX-2]
+clears: [CEX-2]
+decision: "Proved / Proved"
+---
+Run A: CONFIRMED
+Run B: CONFIRMED
+"""
+
+
+class TestExpertReviewRefs(Homes):
+    """Phase 7 (P-0004 D9, P-0005 D8): s1 set-status anchored on a review in the Expert's
+    library, written as the protocol ref ``file:expert@<name>/reviews/s1/<id>/<file>``."""
+
+    def setUp(self):
+        super().setUp()
+        import json
+        from registry.core import workspace as ws_mod
+        ws = json.loads(self.ws.read_text(encoding="utf-8"))
+        self.papers = self.tmp / "papers"
+        ws["instances"]["expert@t"] = {"role": "expert", "home": str(self.papers),
+                                       "domains": ["d"]}
+        write(self.ws, json.dumps(ws))
+        ws_mod._ws_cache.clear()
+        # the notebook layout: the legacy fixture's records and its ledger verdict go
+        shutil.rmtree(str(self.s1 / "claims"))
+        shutil.rmtree(str(self.s1 / "assumptions"))
+        (self.s1 / "computation" / "verdicts" / "2026-09-24_G8.md").unlink()
+        write(self.s1 / "objects" / "claim" / "CEX-2.md", CEX2)
+        self.review = self.papers / "reviews" / "s1" / "CEX-2" / "2026-09-23_N8.md"
+        write(self.review, OLD_VERDICT)
+        self.ref = "file:expert@t/reviews/s1/CEX-2/2026-09-23_N8.md"
+
+    def test_the_ref_resolves_in_the_library(self):
+        self.assertEqual(s1kb.review_ref_path(self.s1, self.ref), self.review)
+        self.assertEqual(fsl.resolve_ref(self.ref, self.s1), self.review)
+        self.assertEqual(s1kb._verdict_relpath(self.s1, self.ref), self.ref)
+        # an absolute path into the library's reviews/ is recorded as the ref
+        self.assertEqual(s1kb._verdict_relpath(self.s1, str(self.review)), self.ref)
+        self.assertIsNone(s1kb._verdict_relpath(self.s1, self.ref.replace("N8", "N9")))
+        self.assertIsNone(s1kb.review_ref_path(self.s1, "computation/verdicts/x.md"))
+
+    def test_set_status_takes_an_expert_review_ref(self):
+        rc, out = run_kb(self.s1, "set-status", "CEX-2", "proved", "--verdict", self.ref)
+        self.assertEqual(rc, 0, out)
+        text = (self.s1 / "objects" / "claim" / "CEX-2.md").read_text(encoding="utf-8")
+        self.assertIn("status: proved", text)
+        self.assertIn("verdict | %s | Proved / Proved | 2026-09-23_N8 | cleared_by" % self.ref,
+                      text)
+        rc, out = run_kb(self.s1, "check")
+        self.assertEqual(rc, 0, out)
+
+    def test_the_review_must_clear_the_claim(self):
+        write(self.review, OLD_VERDICT.replace("clears: [CEX-2]", "clears: []"))
+        rc, out = run_kb(self.s1, "set-status", "CEX-2", "proved", "--verdict", self.ref)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("does not clear CEX-2", out)
+
+    def test_landed_review_runs_in_the_library_count_as_a_pair(self):
+        run = ("---\nsubject: s1:CEX-2\nrun: {r}\nrun_id: rv-{r}\nverdict: CONFIRMED\n"
+               "landed_by: expert/land_verdict\n---\nreport\n")
+        d = self.papers / "reviews" / "s1" / "CEX-2" / "p1"
+        write(d / "A.md", run.format(r="A"))
+        ref_a = "file:expert@t/reviews/s1/CEX-2/p1/A.md"
+        rc, out = run_kb(self.s1, "set-status", "CEX-2", "proved", "--verdict", ref_a)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("two landed runs", out)
+        write(d / "B.md", run.format(r="B"))
+        rc, out = run_kb(self.s1, "set-status", "CEX-2", "proved", "--verdict", ref_a)
+        self.assertEqual(rc, 0, out)
+
+    def test_check_reports_a_missing_review(self):
+        text = CEX2.replace("evidence: []", "evidence:\n  - verdict | %s | x | y | z"
+                            % self.ref.replace("N8", "N9"))
+        write(self.s1 / "objects" / "claim" / "CEX-2.md", text)
+        errors, _ = s1kb.run_check(s1kb.load_kb(self.s1))
+        self.assertTrue(any("evidence ref 'file:expert@t/reviews/s1/CEX-2/2026-09-23_N9.md' "
+                            "is not a file" in e for e in errors), errors)
+
+    def test_a_cleared_by_ref_keeps_its_ledger_edge(self):
+        write(self.s1 / "computation" / "verdicts" / "2026-09-23_N8.md", OLD_VERDICT)
+        text = CEX2.replace("evidence: []", "evidence:\n  - verdict | %s | d | 2026-09-23_N8"
+                            " | cleared_by" % self.ref)
+        write(self.s1 / "objects" / "claim" / "CEX-2.md", text)
+        kb = s1kb.load_kb(self.s1)
+        self.assertEqual(kb.entities["CEX-2"].meta["cleared_by"], [self.ref])
+        self.assertIn(("CEX-2", "2026-09-23_N8", "cleared_by"), list(s1kb.iter_edges(kb)))
+
+
 if __name__ == "__main__":
     unittest.main()

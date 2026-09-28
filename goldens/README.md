@@ -212,3 +212,17 @@ The old-to-new path table of every moved Slope1 file is in the worktree,
   every Group D file) and `?? .claude/paper-gate.json` (mtime 10:14, inside the Group D
   window, provenance unknown). Group D wrote to neither as far as its own records show,
   but cannot certify the checkout untouched.
+
+## r6-decisions/ (2026-09-28, Roey's decisions applied)
+
+What Roey's decisions of 2026-09-28 changed in the Slope1 worktree on top of the R6
+migration output, so `TestR6` still gates it: `MANIFEST.json` lists the files removed
+(`objects/claim/STR-6.md`, P-0004 D1 (b)), added (`objects/question/OPEN-14.md`, P-0004
+D2 (a); 44 `proofs/<id>/attempt-1.md`, P-0005 D6 (b)) and modified (CRIT-20, OPEN-4, DIR-1;
+the 44 objects whose `## Proof` became a pointer; the 24 records whose verdict evidence
+refs moved to `file:expert@ts/reviews/s1/...`, P-0004 D9 / P-0005 D8; `proofs/README.md`),
+each added or modified file pinned by its sha256. Every other file under `objects/`,
+`audits/`, `journal/` and `proofs/` is still byte-compared with the migration.
+`registry_s1.txt` is the s1 check output after the decisions (R6's minus CRIT-20's
+modulo warning). No statement hash changed. Regenerate only for a deliberate change to
+the Slope1 records, and say which decision it applies.

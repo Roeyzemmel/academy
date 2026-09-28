@@ -376,6 +376,42 @@ class TestDeepDive(unittest.TestCase, PageContract):
 # gather_deep_dive on a fixture workspace
 # ----------------------------------------------------------------------------
 
+DEF2 = """---
+id: DEF-2
+title: A definition
+kind: definition
+---
+
+## Statement
+
+A thing is *nice* when it is.
+"""
+
+BOUND2 = """---
+id: BOUND-2
+title: A bound
+kind: claim
+status: proved
+depends_on: [DEF-2]
+---
+
+## Statement
+
+Nice things are bounded.
+"""
+
+
+class TestReportCard(unittest.TestCase):
+    def test_a_report_without_a_proposed_status_shows_its_kind(self):
+        item = {"packet": "P-0002", "title": "EW report", "kind": "experiment-report",
+                "status_proposed": None, "text": "x", "path": "p.md"}
+        html_ = rp._text_block([item], rp.Ctx(), "report")
+        self.assertIn('<span class="pill">experiment-report</span>', html_)
+        self.assertNotIn("no status recorded", html_)
+        html_ = rp._text_block([dict(item, status_proposed="supported")], rp.Ctx(), "report")
+        self.assertIn('class="badge st-supported">supported<', html_)
+
+
 class TestGather(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="academy-gather-")
@@ -478,6 +514,22 @@ class TestGather(unittest.TestCase):
         page = rp.render_deep_dive(json.loads(json.dumps(b, default=str)))
         self.assertNotIn("{{", page)
         self.assert_read_only()
+
+    def test_a_definition_gets_an_na_badge_and_renders(self):
+        # verification Group G: a claim resting on a definition object (schema v2 gives
+        # definitions no status) could not get a deep-dive page
+        nb = self.homes["nb"]
+        write(os.path.join(nb, "claims", "DEF-2.md"), DEF2)
+        write(os.path.join(nb, "claims", "BOUND-2.md"), BOUND2)
+        b = gd.gather("s1:BOUND-2", self.ws)
+        dep = {s["id"]: s for s in b["statements"]}
+        self.assertEqual(dep["s1:DEF-2"]["status"], "n/a — definition")
+        self.assertEqual(rp.check_deep_dive(json.loads(json.dumps(b, default=str))), [])
+        page = rp.render_deep_dive(json.loads(json.dumps(b, default=str)))
+        self.assertIn('class="badge st-na">n/a — definition<', page)
+        self.assertEqual(gd.status_of({"kind": "example"}), "n/a — example")
+        self.assertEqual(gd.status_of({"kind": "claim"}), None)
+        self.assertEqual(gd.status_of({"kind": "definition", "status": "open"}), "open")
 
     def test_depth_limits_closure(self):
         b = gd.gather("paper:lem:x", self.ws, depth=1)

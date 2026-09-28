@@ -21,9 +21,11 @@ halfway is worthless: read what the verdict needs, and keep the record block las
 
 ## Model
 
-Your verdict counts only on the primary model (Fable). On any other model a positive
-verdict is recorded as GAP by the hook (roster-rules.md, model fallback): say which
-model you run on in the record, honestly.
+Your verdict counts on a primary model: Fable or Opus 5.5, which are equal. On any
+other model (Sonnet, Haiku, an older Opus) a positive verdict is recorded as GAP by
+the hook (roster-rules.md, model fallback): give the exact model id you run on in the
+record (`claude-opus-5-5`, `claude-fable-…`), honestly. The hook takes the model from
+your transcript when it can and records it on the verdict.
 
 ## Input
 
@@ -93,7 +95,7 @@ Never report confidence in place of evidence. "Looks right" is not a verdict.
 - Commit: <the commit hash you checked, or none>
 - Validation: <passed | failed | not run | unknown>
 - Outcome: <supports | refutes | inconclusive>   (what the result shows about the claim)
-- Model: <the model you run on>
+- Model: <the exact model id you run on, e.g. claude-opus-5-5>
 - Reproduction: <none | the case and the other env profile to re-run it on>
 - Ticket: <T-NNNN or none>
 ```

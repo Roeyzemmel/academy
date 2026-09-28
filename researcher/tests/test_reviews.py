@@ -48,13 +48,40 @@ class LandReviewTests(Workspace):
 
     def test_fallback_model_caps_a_positive_verdict(self):
         tr = write(os.path.join(self.tmp, "t.jsonl"), json.dumps(
-            {"type": "assistant", "message": {"model": "claude-opus-5-5",
+            {"type": "assistant", "message": {"model": "claude-sonnet-4-5",
                                               "content": [{"type": "text", "text": "x"}]}}) + "\n")
         ev = self.event(report(model="fable"), agent_transcript_path=tr)
         action, path = land_review.land(ev, date="2026-09-28")
         meta, _ = ac.read_frontmatter(rs.read_text(path))
-        self.assertEqual((meta["verdict"], meta["verdict_given"], meta["capped"], meta["model"]),
-                         ("GAP", "SOUND", True, "opus"))
+        self.assertEqual((meta["verdict"], meta["verdict_given"], meta["capped"], meta["model"],
+                          meta["model_id"]),
+                         ("GAP", "SOUND", True, "sonnet", "claude-sonnet-4-5"))
+
+    def test_opus_55_is_an_equal_primary(self):
+        tr = write(os.path.join(self.tmp, "t.jsonl"), json.dumps(
+            {"type": "assistant", "message": {"model": "claude-opus-5-5",
+                                              "content": [{"type": "text", "text": "x"}]}}) + "\n")
+        ev = self.event(report(), agent_transcript_path=tr)
+        action, path = land_review.land(ev, date="2026-09-28")
+        meta, _ = ac.read_frontmatter(rs.read_text(path))
+        self.assertEqual((meta["verdict"], meta["verdict_given"], meta["capped"], meta["model"],
+                          meta["model_id"]),
+                         ("SOUND", "SOUND", False, "opus-5.5", "claude-opus-5-5"))
+
+    def test_older_opus_is_capped(self):
+        action, path = land_review.land(self.event(report(model="claude-opus-4-1")),
+                                        date="2026-09-28")
+        meta, _ = ac.read_frontmatter(rs.read_text(path))
+        self.assertEqual((meta["verdict"], meta["capped"], meta["model"]), ("GAP", True, "opus"))
+
+    def test_primary_models(self):
+        self.assertEqual(rs.PRIMARY_MODELS, ("fable", "opus-5.5"))
+        for name, want in (("claude-fable-5-1", True), ("claude-opus-5-5[1m]", True),
+                           ("Opus 5.5", True), ("opus", False), ("claude-opus-4-1", False),
+                           ("claude-sonnet-4-5", False), ("claude-haiku-4-5", False),
+                           ("", False)):
+            with self.subTest(name=name):
+                self.assertEqual(rs.is_primary(name), want)
 
     def test_report_taken_from_transcript_when_event_lacks_it(self):
         tr = write(os.path.join(self.tmp, "t.jsonl"), json.dumps(
@@ -217,6 +244,15 @@ class SettleTests(Workspace):
             ([("A", "CONFIRMED", f), ("B", "CONFIRMED", f)], "REFUTATION CLEARED"),
             ([("A", "CONFIRMED", f), ("B", "GAP", f)], "UNRESOLVED"),
             ([("A", "CONFIRMED", f), ("B", "CONFIRMED", "opus")], "NOT CLEARED"),
+            # Opus 5.5 is an equal primary; Sonnet and older Opus are fallbacks
+            ([("A", "CONFIRMED", "claude-opus-5-5")], "PENDING"),
+            ([("A", "CONFIRMED", "claude-opus-5-5"), ("B", "CONFIRMED", f)],
+             "REFUTATION CLEARED"),
+            ([("A", "CONFIRMED", "opus-5.5"), ("B", "CONFIRMED", "claude-opus-5-5")],
+             "REFUTATION CLEARED"),
+            ([("A", "CONFIRMED", "claude-sonnet-4-5")], "NOT CLEARED"),
+            ([("A", "CONFIRMED", f), ("B", "CONFIRMED", "claude-sonnet-4-5")], "NOT CLEARED"),
+            ([("A", "CONFIRMED", "claude-opus-4-1")], "NOT CLEARED"),
         ]
         for vs, want in cases:
             with self.subTest(vs=vs):

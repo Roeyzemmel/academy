@@ -3,7 +3,7 @@
   "about": "Who may call which academy MCP write tool, and who owns which ticket field. Agents are named bare (the namespace is stripped by agent_identity); bare names are unique across the five plugins. The human (the main session, no agent_type) may do everything. Read tools (claims_show/list/query/deps, library_*, queue_status/log, env_*, domain_get, config_get, workspace_get, tickets_list/get, packets_list/get) are open to every caller and are not listed. The server checks the substance of each call on top of this table (docs/protocol.md).",
   "human": "*",
   "roster": {
-    "academy": ["concierge", "explainer", "usage-analyst"],
+    "academy": ["concierge", "explainer", "usage-analyst", "secretary"],
     "author": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper", "notation-auditor"],
     "researcher": ["lead-researcher", "prover", "experiment-reviewer", "claim-keeper"],
     "expert": ["clerk", "librarian", "related-work-scout", "review-chair", "rigor-reviewer", "referee"],
@@ -11,7 +11,7 @@
   },
   "groups": {
     "graders": ["rigor-reviewer", "experiment-reviewer", "referee"],
-    "readonly": ["explainer", "clerk", "rigor-reviewer", "experiment-reviewer", "referee"],
+    "readonly": ["explainer", "clerk", "rigor-reviewer", "experiment-reviewer", "referee", "secretary"],
     "producers": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper", "notation-auditor", "lead-researcher", "prover", "librarian", "related-work-scout", "experimenter", "developer", "test-engineer", "upstream-contributor", "api-prober"],
     "clerical": ["concierge", "usage-analyst", "claim-keeper", "review-chair"]
   },

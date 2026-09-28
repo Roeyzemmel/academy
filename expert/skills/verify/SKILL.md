@@ -40,7 +40,9 @@ report that the pass ran by hand.
 `proved` (recolour earned); CONFIRMED modulo X x2 → propose `proved-modulo`, recolour
 only when every input is established; CONFIRMED vs GAP, or different inputs →
 disagreement; any DISPROVED → the counterexample to Roey, no status; a GAP run A →
-single negative, B skipped by design; any PLAUSIBLE → degraded, never counts.
+single negative, B skipped by design; any PLAUSIBLE → degraded, never counts. A
+CONFIRMED counts on Fable or Opus 5.5 (equal primaries); on any other model it reads
+as PLAUSIBLE.
 
 ## 3. After the chair returns
 

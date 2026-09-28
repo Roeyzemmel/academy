@@ -89,6 +89,8 @@ def status_class(status):
     s = LEGACY_STATUS.get(s, s)
     if s == "cited":
         return "cited"
+    if s.startswith("n/a"):
+        return "na"
     return STATUS_CLASS.get(s, "other")
 
 
@@ -341,6 +343,7 @@ blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(
 .st-supported { color: var(--st-supported); } .st-open { color: var(--st-open); }
 .st-refuted { color: var(--st-refuted); } .st-cited { color: var(--st-cited); }
 .st-unknown { color: var(--st-unknown); border-style: dotted; } .st-other { color: var(--st-other); }
+.st-na { color: var(--st-other); border-style: dashed; }
 .pill { display: inline-block; font: 500 0.72rem/1.3 var(--mono); padding: 1px 7px;
         border-radius: 4px; background: var(--surface-2); color: var(--muted); }
 .pill.warn { background: var(--warn-weak); color: var(--warn); }
@@ -447,6 +450,8 @@ def legend_html(open_=False):
                    for s, _c, m in STATUS_LEGEND)
     rows += "<dt>%s</dt><dd>%s</dd>" % (badge("cited"), "A published result, quoted from "
                                         "its source")
+    rows += "<dt>%s</dt><dd>%s</dd>" % (badge("n/a — definition"), "A definition (or an "
+                                        "example, a direction): a kind with no status")
     rows += "<dt>%s</dt><dd>%s</dd>" % (badge(None), "The record carries no status; treat "
                                         "it as unsettled")
     return ('<details class="legend"%s><summary>Status legend</summary><dl>%s</dl>'
@@ -720,7 +725,12 @@ def _text_block(items, ctx, kind):
             if it.get("pinpoint"):
                 label = "%s#%s" % (label, it["pinpoint"])
         elif kind == "report":
-            extra = badge(it.get("status_proposed")) if "status_proposed" in it else ""
+            # a report proposes a status only sometimes; otherwise say what it is (its
+            # packet kind), not "no status recorded"
+            if it.get("status_proposed"):
+                extra = badge(it["status_proposed"])
+            elif it.get("kind"):
+                extra = '<span class="pill">%s</span>' % html.escape(str(it["kind"]))
             if it.get("title"):
                 label = "%s %s" % (label, it["title"])
         text = str(it.get("text") or "")

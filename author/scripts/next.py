@@ -240,7 +240,8 @@ def _one_line(text, limit=240):
 
 def _ask_line(it, limit=240):
     """``<title> -- <first paragraph>``, one line; the full body goes to ``## Ask``."""
-    first = _one_line(it.body, limit)
+    # a body that opens with a list item would give "<title> -- - <text>"
+    first = re.sub(r"^(?:[-*+]|\d+\.)\s+", "", _one_line(it.body, limit))
     if not first or first == it.title:
         return it.title
     s = "%s -- %s" % (it.title, first)

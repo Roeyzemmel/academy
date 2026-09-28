@@ -11,13 +11,19 @@ description: Roey's front desk for the whole academy. With a plain-language requ
 ## No argument: the one-screen summary
 
 1. Run `py $S/academy_status.py --since last --usage --mark-visit`.
-2. Show its output as it is, in one block. Below it, at most three lines: the most
-   urgent thing that needs Roey and the command that handles it
-   (`/academy:review` for packets, `/academy:board show T-NNNN` for a ticket).
+2. Show its output as it is, in one block. Its `NEEDS YOU (N)` line is the
+   pending-decision count — every ticket to human, every ticket blocked on human, and
+   every open packet, the same three sources `/academy:decide` works from. Below the
+   block, at most three lines: the most urgent thing that needs Roey and the command
+   that handles it (`/academy:decide` when `NEEDS YOU` is non-zero, `/academy:review`
+   for the packet dashboard specifically, `/academy:board show T-NNNN` for one ticket).
 3. Stop. Start nothing.
 
 ## With a request
 
+0. **A request that is plainly about decisions** ("what needs my decision", "ask me",
+   "decisions", "what's waiting on me") skips the concierge entirely: run
+   `/academy:decide` directly and stop. Everything else goes through routing below.
 1. **Route.** Dispatch one `concierge` subagent with the request verbatim, the cwd,
    and nothing else. It returns a routing card (`references/desk-routing.md`): the
    class (`answered`, `explain`, `action`, `ticket`, `unclear`), the target and, for

@@ -190,7 +190,7 @@ class LandRefereeTests(unittest.TestCase):
 
     def test_wraps_a_report_not_in_packet_shape(self):
         text = "# My report\n\nThe paper is fine.\n\n## Findings\n\n- one\n\n" \
-               "REFEREE\nsubject: author@bi\nticket: none\nmodel: claude-opus-5-5\n"
+               "REFEREE\nsubject: author@bi\nticket: none\nmodel: claude-sonnet-4-5\n"
         code, out, err = fixtures.run_script("land_referee.py",
                                              stop_event("expert:referee", text))
         pk = self.packets()
@@ -204,6 +204,26 @@ class LandRefereeTests(unittest.TestCase):
         self.assertIn("reduced-strength", body)
         self.assertIn("reduced strength", meta["title"])
         self.assertIsNone(meta["ticket"])
+
+    def test_opus_55_report_is_full_strength(self):
+        text = REFEREE_REPORT.replace("claude-fable-5-1", "claude-opus-5-5")
+        code, out, err = fixtures.run_script("land_referee.py",
+                                             stop_event("expert:referee", text))
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(self.sb.board, "packets", "expert@ts", self.packets()[0]),
+                  encoding="utf-8") as fh:
+            meta, body = ac.read_frontmatter(fh.read())
+        self.assertNotIn("reduced-strength", body)
+        self.assertNotIn("reduced strength", meta["title"])
+
+    def test_sonnet_report_is_reduced_strength(self):
+        text = REFEREE_REPORT.replace("claude-fable-5-1", "claude-sonnet-4-5")
+        fixtures.run_script("land_referee.py", stop_event("expert:referee", text))
+        with open(os.path.join(self.sb.board, "packets", "expert@ts", self.packets()[0]),
+                  encoding="utf-8") as fh:
+            meta, body = ac.read_frontmatter(fh.read())
+        self.assertIn("reduced-strength", body)
+        self.assertIn("reduced strength", meta["title"])
 
     def test_unknown_ticket_is_noted(self):
         text = REFEREE_REPORT.replace("T-0003", "T-0999")

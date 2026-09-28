@@ -383,11 +383,21 @@ def load(root):
 
 # ---------------------------------------------------------------------- checks
 
+#: `file:<instance>/<path>`, a file in another instance's home (docs/protocol.md, ref forms)
+RE_INSTANCE_FILE = re.compile(r"^file:([a-z]+@[a-z0-9][a-z0-9-]*)/(.+)$")
+
+
 def resolve_ref(ref, repo=None):
-    """`path` or `Repo:path`. Returns a Path to test, or None when it cannot be checked."""
+    """`path`, `Repo:path` or `file:<instance>/path` (the protocol's form, e.g. an
+    expert review `file:expert@ts/reviews/...`). Returns a Path to test, or None when it
+    cannot be checked."""
     repo = _repo(repo)
     if ref.startswith(("http://", "https://")):
         return None
+    m = RE_INSTANCE_FILE.match(ref)
+    if m:
+        home = workspace.instance_home(m.group(1), repo)
+        return None if home is None else home / m.group(2).split("#")[0]
     m = re.match(r"^([A-Za-z0-9_\-]+):(.+)$", ref)
     if m and not re.match(r"^[A-Za-z]:[\\/]", ref):
         name, rest = m.group(1), m.group(2)

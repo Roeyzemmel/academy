@@ -1,6 +1,6 @@
 ---
 name: settle
-description: Settle a returned result that reports candidate counterexamples before anything is recorded — the script is reviewed by the experiment-review pair (as in /researcher:review-experiment), each candidate (at most three per run, by likelihood rank) goes to the Expert as a `verify` ticket whose rigor-reviewer pair re-derives it independently, and settle.py applies the decision table; a candidate is recordable only when the audit cleared and both of its verdicts are CONFIRMED. Replaces the first notebook's settle-candidates workflow. Use on every returned search that reports a counterexample, and on any surprising outcome.
+description: Settle a returned result that reports candidate counterexamples before anything is recorded — the script is reviewed by the experiment-review pair (as in /researcher:review-experiment), each candidate (at most three per run, by likelihood rank) is re-derived independently by a Scientist `verify` experiment and then goes to the Expert as a `verify` ticket whose rigor-reviewer pair reviews it against the home's verification checklist rule, and settle.py applies the decision table; a candidate is recordable only when the audit cleared and both of its verdicts are CONFIRMED. Replaces the first notebook's settle-candidates workflow. Use on every returned search that reports a counterexample, and on any surprising outcome.
 ---
 
 # Settle a result with candidates
@@ -21,16 +21,30 @@ is the most dangerous kind. Nothing is recorded until it clears.
    --candidates <file>` shows where things stand.
 3. **Candidates.** Only when the audit has cleared (the plan says so; a failed audit
    makes every candidate unrecordable, and filing their tickets would spend budget for
-   nothing). For each candidate the plan lists under `file_now`: one `verify` ticket to
-   the Expert instance (`py $A/board.py new --to <expert> --kind verify --title "Is
-   <name> a counterexample to <claim>?" --ask ... --refs <lab-id>,<claim> --detail
-   "<detail>" --as <instance>`), asking the review-chair for the rigor-reviewer pair in
-   refutation mode: completeness of the enumeration first, then an independent
-   re-derivation by a route the pipeline did not use, then the witnesses. Record each
-   ticket id in the candidates file. The rest are reported as deferred.
+   nothing). For each candidate the plan lists under `file_now`, two tickets:
+   - **Re-derivation (Scientist).** One `experiment` ticket to the Scientist instance
+     (`py $A/board.py new --to <scientist> --kind experiment --title "Re-derive <name>
+     independently" --ask ... --refs <lab-id>,<claim> --detail "<detail>" --as
+     <instance>`) for a `verify`-kind experiment: rebuild the candidate's decisive data
+     from its defining input alone, by a route the pipeline did not use (a second
+     implementation, another library), small cases only, and report whether it agrees.
+     The reviewers cannot compute, so this run is the independent re-derivation.
+   - **Review (Expert).** One `verify` ticket to the Expert instance (`py $A/board.py new
+     --to <expert> --kind verify --title "Is <name> a counterexample to <claim>?" --ask
+     ... --refs <lab-id>,<claim>,<re-derivation ticket> --detail "<detail>" --as
+     <instance>`), asking the review-chair for the rigor-reviewer pair in refutation
+     mode: completeness of the enumeration first, then the re-derivation's report (it
+     must exist, use another route and agree), then the witnesses. When this home has a
+     verification checklist rule (`.claude/rules/verification-checklist.md`), the ticket
+     names it: the reviewers work every item of it. File the review ticket only once the
+     re-derivation report is back (a later run; nothing waits in a loop).
+
+   Record both ticket ids in the candidates file. The rest are reported as deferred.
 4. **Collect.** When the Expert's verification packets come back (a later run: nothing
    waits in a loop), copy each candidate's verdicts into the file (`run`, `verdict`,
-   `model`, `run_id`, `packet`).
+   `model`, `run_id`, `packet`). Give `model` as the exact id each run reports
+   (`claude-opus-5-5`, `claude-fable-…`): Fable and Opus 5.5 are equal primaries, and a
+   run on any other model (Sonnet, Haiku, an older Opus) counts as not positive.
 5. **Decide and record.** `py $R/settle.py decide <lab-id> --candidates <file>`, then
    `py $R/settle.py record <lab-id> --candidates <file>`, which writes the decision
    record `audits/<lab-id>/<date>-settle.md` (never rewritten; a new pass is a new file).

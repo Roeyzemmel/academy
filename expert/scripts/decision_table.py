@@ -1,6 +1,6 @@
 """decision_table.py -- the proof-review decision table, applied mechanically.
 
-    py decision_table.py A.md [B.md|-] [--established id1,id2] [--primary fable] [--json]
+    py decision_table.py A.md [B.md|-] [--established id1,id2] [--primary fable,opus-5.5] [--json]
 
 Takes the verdict records of run A and (optionally) run B -- files landed by
 ``land_verdict.py`` under ``<expert home>/reviews/<ns>/<id>/<pass>/`` or any text
@@ -18,15 +18,19 @@ The table (from the old /paper:verify, in the academy's verdict words):
 | CONFIRMED | GAP | ``disagreement``: no status; file the weaker run's blocking step |
 | DISPROVED (either run) | any | ``disproved``: no status; the counterexample goes to Roey at once |
 | GAP | not run | ``single-negative``: no status; A's blocking step is the repair item; B skipped by design |
-| PLAUSIBLE (either run) | any non-DISPROVED | ``degraded``: a fallback verdict never counts; re-run that run on the primary |
+| PLAUSIBLE (either run) | any non-DISPROVED | ``degraded``: a fallback verdict never counts; re-run that run on a primary |
 | two CONFIRMED with a shared run id, differing statement hashes or subjects | | ``invalid-pair``: no status; the pair is not two independent reviews of one statement |
 | anything else | | ``no-change``: report the union of the findings (a fallback: with the four verdict words and the sequencing rule no input reaches it) |
 | run A missing or unreadable | | ``incomplete`` |
 
 Mechanical rules applied before the table:
 
-* A CONFIRMED given on a model other than the primary (``--primary``, default
-  ``fable``) is read as PLAUSIBLE (roster-rules.md, "Graders degrade").
+* The primaries are ``PRIMARY_MODELS`` = Fable and Opus 5.5, equal in authority
+  (Roey, 2026-09-24, reconfirmed 2026-09-28); ``--primary`` takes a comma-separated
+  list and defaults to both. A CONFIRMED given on any other model (Sonnet, Haiku, an
+  older Opus, a bare ``opus`` that names no version, or no model at all) is read as
+  PLAUSIBLE (roster-rules.md, "Graders degrade"). Every run's recorded model is kept
+  in ``runs[].model``.
 * B present after a non-CONFIRMED A is a process anomaly (B should not have run);
   it is reported, and the outcome is taken from A alone.
 
@@ -206,22 +210,58 @@ def read_record(path):
 # The table
 # ----------------------------------------------------------------------------
 
-def is_primary(model, primary="fable"):
-    return primary.lower() in str(model or "").lower()
+PRIMARY_MODELS = ("fable", "opus-5.5")
+
+RE_OPUS_55 = re.compile(r"opus-?5-5(?![0-9])")
 
 
-def effective(rec, primary="fable"):
+def model_label(name):
+    """A model name reduced to the label the roster rules use: ``fable``, ``opus-5.5``,
+    or the family (``opus``, ``sonnet``, ``haiku``) of any other model; the name itself
+    (lower-cased) when it names no known family, '' when empty.
+
+    ``claude-opus-5-5``, ``claude-opus-5-5[1m]``, ``Opus 5.5`` and ``opus-5.5`` all
+    read as ``opus-5.5``; a bare ``opus`` names no version and reads as ``opus``."""
+    n = str(name or "").strip().lower()
+    if not n:
+        return ""
+    k = re.sub(r"[\s_.]+", "-", n)
+    if "fable" in k:
+        return "fable"
+    if RE_OPUS_55.search(k):
+        return "opus-5.5"
+    for fam in ("opus", "sonnet", "haiku"):
+        if fam in k:
+            return fam
+    return n
+
+
+def _primaries(primary=None):
+    if primary is None:
+        primary = PRIMARY_MODELS
+    if isinstance(primary, str):
+        primary = [p for p in re.split(r"[,;]", primary) if p.strip()]
+    return tuple(sorted({model_label(p) for p in primary if model_label(p)}))
+
+
+def is_primary(model, primary=None):
+    """True when ``model`` is one of the primaries (default ``PRIMARY_MODELS``)."""
+    lab = model_label(model)
+    return bool(lab) and lab in _primaries(primary)
+
+
+def effective(rec, primary=None):
     """(verdict, note): CONFIRMED on a non-primary model reads as PLAUSIBLE."""
     v = rec["verdict"]
     if v == "CONFIRMED" and not is_primary(rec.get("model"), primary):
-        return "PLAUSIBLE", ("run %s: CONFIRMED on %r, not the primary %s: read as "
+        return "PLAUSIBLE", ("run %s: CONFIRMED on %r, not a primary (%s): read as "
                              "PLAUSIBLE" % (rec.get("run") or "?", rec.get("model") or "an "
-                                            "unnamed model", primary))
+                                            "unnamed model", ", ".join(_primaries(primary))))
     return v, ""
 
 
-def should_launch_b(rec_a, primary="fable"):
-    """Run B is launched only after a positive run A (CONFIRMED on the primary)."""
+def should_launch_b(rec_a, primary=None):
+    """Run B is launched only after a positive run A (CONFIRMED on a primary)."""
     if not rec_a or rec_a["problems"]:
         return False
     return effective(rec_a, primary)[0] == "CONFIRMED"
@@ -266,7 +306,7 @@ def _grounds(recs, modulo, note, producer_role=""):
     return g
 
 
-def decide(rec_a, rec_b=None, established=(), primary="fable", producer_role=None):
+def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
     """Apply the table. ``rec_a`` / ``rec_b`` come from ``parse_record``; ``rec_b``
     may be None (not launched). ``established`` lists the modulo inputs known to be
     established (registry ``proved`` or a verified citation card). ``producer_role``
@@ -339,7 +379,8 @@ def decide(rec_a, rec_b=None, established=(), primary="fable", producer_role=Non
         if a == "PLAUSIBLE":
             res["outcome"] = "degraded"
             res["summary"] = ("A is PLAUSIBLE (fallback or reduced strength): it never "
-                              "counts; re-run A on the primary model")
+                              "counts; re-run A on a primary model (%s)"
+                              % ", ".join(_primaries(primary)))
             return res
         res["outcome"] = "single-negative"
         res["file_items"] = [{"run": rec_a.get("run") or "A", "kind": "repair",
@@ -350,7 +391,8 @@ def decide(rec_a, rec_b=None, established=(), primary="fable", producer_role=Non
     if "PLAUSIBLE" in (a, b):
         res["outcome"] = "degraded"
         res["summary"] = ("a PLAUSIBLE verdict never counts toward two agreeing verdicts: "
-                          "re-run the PLAUSIBLE run on the primary model")
+                          "re-run the PLAUSIBLE run on a primary model (%s)"
+                          % ", ".join(_primaries(primary)))
         return res
 
     if a == b == "CONFIRMED":
@@ -458,7 +500,8 @@ def main(argv=None):
     ap.add_argument("b", nargs="?", default=None, help="run B's verdict file, or - / omitted")
     ap.add_argument("--established", default="",
                     help="comma-separated modulo inputs known to be established")
-    ap.add_argument("--primary", default="fable", help="the reviewer's primary model")
+    ap.add_argument("--primary", default=",".join(PRIMARY_MODELS),
+                    help="comma-separated primary models (default: fable,opus-5.5)")
     ap.add_argument("--producer-role", default=None,
                     help="override the namespace-owner lookup for grounds.producer_role")
     ap.add_argument("--json", action="store_true")

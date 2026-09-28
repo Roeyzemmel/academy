@@ -21,6 +21,10 @@ Review records (the experiment-reviewer's final message)
     parse_review(text)                  the '## Review record' fields and problems
     norm_verdict(v)                     'sound-modulo x' -> ('SOUND MODULO', 'x')
     subject_slug(ref)                   'lab:ew-check' -> 'ew-check'
+Models (roster-rules.md, "Graders degrade")
+    PRIMARY_MODELS                      ('fable', 'opus-5.5'): equal primaries
+    model_label(name)                   'claude-opus-5-5' -> 'opus-5.5', else the family
+    is_primary(name)                    the name is one of PRIMARY_MODELS
 """
 
 import os
@@ -63,6 +67,35 @@ STATUS_KINDS = ("claim", "conjecture", "question")
 
 EXPERIMENT_VERDICTS = ("SOUND", "SOUND MODULO", "GAP", "BROKEN")
 POSITIVE = ("SOUND", "SOUND MODULO")
+
+#: the grader primaries, equal in authority (Roey, 2026-09-24, reconfirmed 2026-09-28).
+#: A positive verdict on any other model (Sonnet, Haiku, an older Opus, a bare "opus"
+#: that names no version) is capped. Kept in step with expert decision_table.py.
+PRIMARY_MODELS = ("fable", "opus-5.5")
+RE_OPUS_55 = re.compile(r"opus-?5-5(?![0-9])")
+
+
+def model_label(name):
+    """``fable``, ``opus-5.5``, or the family (``opus``/``sonnet``/``haiku``) of any
+    other model; the lower-cased name when it names no known family; '' when empty.
+    ``claude-opus-5-5[1m]``, ``Opus 5.5`` and ``opus-5.5`` all read as ``opus-5.5``."""
+    n = str(name or "").strip().lower()
+    if not n:
+        return ""
+    k = re.sub(r"[\s_.]+", "-", n)
+    if "fable" in k:
+        return "fable"
+    if RE_OPUS_55.search(k):
+        return "opus-5.5"
+    for fam in ("opus", "sonnet", "haiku"):
+        if fam in k:
+            return fam
+    return n
+
+
+def is_primary(name):
+    """True when ``name`` is one of ``PRIMARY_MODELS``."""
+    return model_label(name) in PRIMARY_MODELS
 
 
 # ----------------------------------------------------------------------------

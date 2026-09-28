@@ -186,6 +186,35 @@ def home_of(ns, repo):
     return None
 
 
+def instance_home(instance, repo=None):
+    """The home of workspace instance ``instance`` (``expert@ts``: instances with no
+    namespace too) as seen from ``repo``, or None when workspace.json does not name it
+    or no candidate exists. As for ``home_of``: the sibling carrying ``repo``'s worktree
+    suffix first, then the registered home, then a sibling of the same name."""
+    ws = load_workspace()
+    info = ((ws or {}).get("instances") or {}).get(instance) or {}
+    if not info.get("home"):
+        return None
+    home = Path(info["home"])
+    cands = []
+    if repo is not None:
+        repo = Path(repo)
+        _, suffix = _by_name(repo)
+        if suffix:
+            cands.append(repo.parent / (home.name + suffix))
+    cands.append(home)
+    if repo is not None:
+        cands.append(Path(repo).parent / home.name)
+    return next((c for c in cands if c.exists()), None)
+
+
+def instances_of_role(role):
+    """The workspace instance names whose role is ``role``."""
+    ws = load_workspace()
+    return [n for n, i in ((ws or {}).get("instances") or {}).items()
+            if (i or {}).get("role") == role]
+
+
 def rule_set(ns, home=None):
     """The rule set (``lab``, ``paper``, ``s1``) of namespace ``ns``."""
     if home is not None:

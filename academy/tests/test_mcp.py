@@ -1017,6 +1017,36 @@ class TestRegistryBackend(McpTestBase):
         self.assertIn("cleared_by: [%s]" % vfile, text)
         self.assertIn("status Not settled → Proved (verdict %s)" % vfile, text)
 
+    def test_s1_set_status_on_an_expert_review(self):
+        # phase 7 (P-0004 D9, P-0005 D8): the claim verdicts live in the Expert's library
+        # and the grounds name them by the protocol ref file:expert@<name>/reviews/...
+        lib = self.homes["expert@t"]
+        self.addCleanup(shutil.rmtree, os.path.join(lib, "reviews"), True)
+        src = os.path.join(self.homes["researcher@t"], "computation", "verdicts",
+                           "2026-09-28_GEO-1.md")
+        with open(src, encoding="utf-8") as fh:
+            write(os.path.join(lib, "reviews", "s1", "GEO-1", "2026-09-28_GEO-1.md"), fh.read())
+        os.remove(src)                                     # only the library copy is left
+        ref = "file:expert@t/reviews/s1/GEO-1/2026-09-28_GEO-1.md"
+        s = self.server("researcher@t")
+        err, t = self.server().call("tickets_create", title="GEO-1", kind="decision",
+                                    to="researcher@t", ask="GEO-1 is proved, see the review",
+                                    deliverable="d")
+        word = {"basis": "human", "quote": "GEO-1 is proved, see the review", "where": t["id"]}
+        err, msg = s.call("claims_set_status", caller="researcher:claim-keeper",
+                          id="s1:GEO-1", status="proved",
+                          grounds=dict(word, verdict_file=ref.replace("GEO-1.md", "GEO-2.md")))
+        self.assertTrue(err)
+        self.assertIn("nor an Expert review ref", msg)
+        err, res = s.call("claims_set_status", caller="researcher:claim-keeper",
+                          id="s1:GEO-1", status="proved", grounds=dict(word, verdict_file=ref))
+        self.assertFalse(err, res)
+        with open(os.path.join(self.homes["researcher@t"], "claims", "GEO-1.md"),
+                  encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: Proved", text)
+        self.assertIn("cleared_by: [%s]" % ref, text)
+
     def test_deps_across_namespaces(self):
         lab = self.homes["scientist@t"]
         write(os.path.join(lab, "claims", "lab", "ew.md"),

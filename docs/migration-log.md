@@ -687,3 +687,187 @@ Group D window, provenance unknown); Group D cannot certify it untouched. The ac
 repo's index holds staged changes from earlier groups (808 files in `git diff --cached`,
 among them the `session_usage.py` rename and the plugins' added files); nothing was
 staged or unstaged here.
+
+## Opus 5.5 as an equal primary for graders (2026-09-28)
+
+Roey's rule (2026-09-24, reconfirmed 2026-09-28): **Opus 5.5 counts as an equal primary
+to Fable for verifiers.** Before this pass the plugins capped every non-Fable positive
+(proof CONFIRMED read as PLAUSIBLE, experiment SOUND recorded as GAP, referee report
+reduced-strength), which also caught the graders' own frontmatter fallback `opus`.
+
+**Changed.**
+- `expert/scripts/decision_table.py`: `PRIMARY_MODELS = ("fable", "opus-5.5")`,
+  `model_label()` (`claude-opus-5-5`, `claude-opus-5-5[1m]`, `Opus 5.5`, `opus-5.5` ->
+  `opus-5.5`; any other model -> its family), `is_primary()` against the set;
+  `--primary` now takes a comma-separated list, default `fable,opus-5.5` (passing
+  `fable` alone restores the old behaviour). Messages name the primaries. Every run's
+  recorded `model` stays in `runs[]`.
+- `expert/scripts/land_referee.py`: reduced strength via `decision_table.is_primary`.
+- `researcher/scripts/_researcher.py`: the same `PRIMARY_MODELS` / `model_label` /
+  `is_primary` (kept in step by hand: the vendored `_academy.py` is not touched, since
+  changing it would force a change to `author/`'s copy, out of scope for this pass).
+  `land_review.py` caps a positive verdict only off the set; the landed file now
+  records `model` (the roster label, e.g. `opus-5.5`, where it used to collapse every
+  Opus to `opus`) and `model_id` (the name as given). `settle.py` counts a candidate
+  run positive on either primary.
+- Text: `academy/references/roster-rules.md` ("Model fallback": two equal primaries,
+  exact model ids, what is still capped), `budget.md` rule 6,
+  `academy/skills/status-vocabulary`, `expert/agents/{rigor-reviewer,referee,review-chair}.md`,
+  `expert/skills/verify/{SKILL.md,references/conclude.md}`, `expert/skills/referee`,
+  `researcher/agents/experiment-reviewer.md`, `researcher/skills/{review-experiment,settle}`,
+  `docs/roles.md`. Agent frontmatter (`model: fable`, `fallback: opus`) unchanged.
+- Tests: expert 117 (+9: Opus 5.5 CONFIRMED counts alone and in pairs, Sonnet / older
+  Opus / Haiku CONFIRMED -> PLAUSIBLE, `--primary fable` narrows, `model_label`, the
+  referee on Opus 5.5 full strength and on Sonnet reduced); researcher 82 (+3: Opus 5.5
+  SOUND not capped, older Opus capped, `is_primary`; settle cases for Opus 5.5 and
+  Sonnet). academy 309 (9 skipped), author 79, scientist 97 (1 skip): all OK.
+
+**Judgement calls.**
+- A bare `opus` (no version) is read as a fallback, not as Opus 5.5: it cannot be told
+  from an older Opus. The graders' briefs now ask for the exact model id; the
+  experiment-review hook takes it from the transcript when it can. A reviewer that
+  writes only `opus` in a VERDICT block therefore still gets PLAUSIBLE.
+- `settle.py` keeps its old leniency: a candidate verdict with no `model` at all counts
+  as on a primary (it did before; `fallback: true` still overrides).
+- `academy/permissions.json` carries no model or verdict-cap text; nothing changed
+  there. `docs/config.md` / `protocol.md` model names (`fable|opus|sonnet|haiku`) are
+  budget ceilings, not grader rules; unchanged. `usage_report.model_family` (usage
+  accounting) still collapses to families.
+- Historical records (goldens, `_import/`, landed reviews) are not rewritten.
+
+## Group E: phase 5 (Author switch-over in BilliardIllumination)
+
+**Switched over** in the worktree `C:\Work\Math\BilliardIllumination-academy` (branch
+`academy-migration`, base 698b0c7; nothing staged or committed). `.claude/academy.json`
+is the config.md example for author@bi (plus `paths.archive`, the coauthors' inline
+macros, `crlf` incl. `main.tex`, the old `flatsurf.json` notes in `notes`);
+`flatsurf.json` deleted; no `paper-gate.json`. `scripts/check_paper.py` is a shim onto the
+plugin checker (`$ACADEMY_AUTHOR`, `~/.claude/skills/author`, else the vendored byte copy
+`scripts/_check_paper_impl.py`).
+
+**Agenda.** `agenda_migrate.py` gave `Drafts/agenda.md` (142 entries, `\input` order). The
+live items were built from a hand-checked, line-keyed spec (the script missed the Tier 6-7
+bullets, read Tier 9b item 4 as dropped, kept four done items open, and skips 'Open from'
+paragraphs): `Drafts/roadmap.md`, 81 items with `tags: [tier-...]`; 47 tickets from
+author@bi (T-0002..T-0048: 26 verify + 8 cite to expert@ts, 5 prove to researcher@slope1,
+1 experiment to scientist@ts, 7 decisions to human), each with a hold line until the
+handover packet's D3. Mapping: `Drafts/archive/comment_roadmap-mapping.md` (166 lines, 0
+unmapped); the old roadmap and margin notes moved verbatim to `Drafts/archive/`.
+
+**Views, roster, rules.** sources/related_work/verdicts are the Expert's generated views
+(identical after the marker line). Local roster removed; coverage in
+`goldens/bi-roster-coverage.md`. CLAUDE.md and the rules rewritten (tex-conventions kept,
+with the CRLF-write fix).
+
+**R7.** 29 `\Claude` notes shortened/merged/removed (originals in
+`Drafts/archive/claude-notes-2026-09-28.md`); R7 outside the baseline 7 files -> 2
+(`introduction.tex:58`, `billiards.tex:22`: Roey's own pointers, left).
+
+**Gate.** Checker R1-R6 = `goldens/check_paper.txt`; build clean; registry check =
+`goldens/r6/registry_paper.txt`; author tests 79 OK. Handover packet
+`board/packets/author@bi/P-0006-...`. **Still open:** the old-plugin guard in
+`claude-paper/scripts/_common.py` (packet D6); a fix to `agenda_migrate.py`'s heuristics.
+
+### Group E review fixes
+
+An independent review of the switch-over found the verification order lost. Eight
+verify tickets were cancelled (sender, reason in thread) and their items set back to
+`open` with `depends_on`: T-0024/T-0036 (after R-0057), T-0035 (after R-0058, a blue
+input), T-0037 (after R-0062), T-0041 (after R-0068..R-0070), T-0044 (after R-0063),
+T-0048 (after R-0079, R-0083), and T-0046 (Roey's never-filed note at
+`markings.tex:829` asks to replace the lemma: R-0082). T-0047 stays, with its Ask
+scoped to the stabiliser Sketch it covers. New items R-0082..R-0085 (two unfiled Roey
+notes, the Delaunay follow-up, the repair flags of two shortened machine notes). The
+`ar-92` note is back in the tex (one line), `ar-282` folded into `ar-269`; R7 still 2
+(Roey's pointers), R1-R6 = golden, build clean. `next.py` `_ask_line` drops a leading
+list marker (the doubled `-- -` in 32 ticket asks, fixed in place); author tests 81 OK.
+Not changed, left for the plugin owner: `land_verdict.py`/`land_referee.py` trust
+the self-reported `model:` line (`land_review.py` reads the transcript);
+`settle._primary` treats a missing model as primary while `decision_table.effective`
+caps it; `_academy.MODELS`, `usage_report.MODEL_RANK` and scientist `inbox.WEIGHT`
+rank `opus` below `fable` as budget ceilings.
+
+## Decisions applied 2026-09-28
+
+Roey's answers of 2026-09-28 (terminal session; recorded by the orchestrator), applied
+on the branches and in the plugin repo. Nothing committed, staged, pushed or run on
+lingo; no reviewer, verifier or prover ran; no ticket executed.
+
+**Packets.** `packets.py decide` (as human, comment "Roey 2026-09-28, recorded by
+orchestrator") for every decision: P-0001 D1 other (moot: papers committed as a whole,
+c539d6b), D2 (b), D3 (a), D4 (a); P-0003 D1 (b), D2 (a), D3 (a), D4 (c) retire the old
+links at merge, D5 (a); P-0004 D1 (b), D2-D10 (a); P-0005 D1-D3 (a), D4 (b) (already
+implemented), D5 (b), D6 (b), D7 (a), D8 (a) (done now), D9 (b); P-0006 D1 (b), D2 (b),
+D3 other (hold all), D4 (b), D5 (a), D6 other (no guard; retire links at merge), D7
+(a). All five are `decided`. P-0002 acknowledged (D0) and set `withdrawn` by hand
+(`packets.py` has no withdraw command); T-0001 was already cancelled.
+
+**Board: everything held.** The 32 open non-human tickets got the thread line "held by
+Roey 2026-09-28: do not run until Roey's command" and moved `open -> blocked` with
+`waiting_on: [human]` (as human). Filed and held likewise: T-0049 (expert@ts ->
+expert@ts, cite: re-check the 31 not-found/partial card quotes, P-0001 D2), T-0050
+(researcher@slope1 -> expert@ts, cite: bib keys for the modulo inputs of GEO-3, GEO-15,
+GEO-30, P-0004 D5), T-0051 (human -> author@bi: the agenda pass lowering `required` for
+sketch-kept results and adding a first milestone, P-0006 D2). The seven decision
+tickets in `human/` stay open (they are Roey's).
+
+**Slope1 worktree.** P-0004 D1 (b): `objects/claim/STR-6.md` removed, OPEN-4's
+`depends_on` is `[STR-4, CRIT-19, STR-7, STR-8]` with a history row, DIR-1 updated. D2
+(a): `objects/question/OPEN-14.md` ("fixed-point-free θ with all row segments of length
+≤2", CRIT-20's own words quoted verbatim), CRIT-20 `modulo: [OPEN-14]`. P-0005 D6 (b):
+the 44 `## Proof` sections extracted verbatim to `proofs/<id>/attempt-1.md` (outcome
+mirrors the status: complete for proved / proved-modulo, else in-progress), each object
+keeping its `## Proof` heading with a pointer and a `proof:` field; no statement hash
+changed (188 hashes compared before and after: a claim hashes its `## Statement` only,
+and no assumption or example had a `## Proof`), so nothing needed re-pinning. P-0005 D5
+(b): `.claude/rules/verification-checklist.md` (refutation-verifier's (Q2) checklist,
+with the verdict mapping), family-scout's brief as the last section of
+`.claude/rules/families.md`, both agents deleted; `CLAUDE.md` and
+`computation.md` updated; the Opus 5.5 paragraph now records D4 (b). Check: 188
+entities, 0 errors, 4 warnings (the GEO-3/15/30 free-text modulo, kept by D5 (a)).
+
+**Plugins.** `expert/agents/rigor-reviewer.md` reads "the home's verification
+checklist rule (`.claude/rules/verification-checklist.md`) if present" (generic);
+`researcher/skills/settle` step 3 files the independent re-derivation as a Scientist
+`verify` experiment and the Expert `verify` ticket names the checklist rule; the
+roster-coverage golden marks both agents retired.
+
+**Verdict move (P-0004 D9, P-0005 D8, phase 7).** The 19 claim verdicts copied verbatim
+from `goldens/r5-proposed-reviews/` (identical to Slope1's `computation/verdicts/`) to
+`papers/reviews/s1/<claim>/`, with `reviews/s1/_moved-from-slope1.md`. The 30 evidence
+rows in 24 Slope1 records now point at `file:expert@ts/reviews/s1/<claim>/<file>.md`
+(history row each). Engine: `workspace.instance_home` / `instances_of_role`;
+`fsl.resolve_ref` resolves `file:<instance>/<path>`; s1kb accepts an Expert review ref
+(or a path into the library's `reviews/`) as `set-status --verdict`, reads it for
+`verdict_file_problems` (old-style files and landed run pairs), checks that an evidence
+or `cleared_by` review ref exists, and keeps the `cleared_by` edge to the ledger
+verdict while its old copy exists; MCP `claims_set_status` takes it as
+`grounds.verdict_file`. Tests: `test_layout_r6.TestExpertReviewRefs` (6),
+`test_mcp.TestRegistryBackend.test_s1_set_status_on_an_expert_review`. The old
+`computation/verdicts/` files stay as they are until phase 8.
+`goldens/r6-decisions/` (MANIFEST.json with sha256 pins, the s1 check output) keeps
+`TestR6` a byte gate over the decided worktree.
+
+**BI worktree.** P-0006 D4 (b): the keys in Roey's two `\Roey{Moved to ...}` pointers
+break (`\texttt{thm:main-parking-}\allowbreak\texttt{garage-note-a}`,
+`\texttt{conj:unfolding-}\allowbreak\texttt{characterization}`), pointer text only,
+CRLF kept. `latexmk -pdf main.tex` clean; checker: R7 0 (was 2), everything else inside
+the baseline. P-0006 D7 (a): the source-checker's four notes and index moved verbatim
+to `papers/.claude/agent-memory/expert-librarian/` (MEMORY.md gains a provenance
+header) with a "Librarian notes" section in `papers/README.md`; deleted from BI.
+`Drafts/sources.md` (a generated view) still names the old memory path in one line.
+
+**Verification fixes.** `gather_deep_dive.status_of`: a definition (also an example or
+direction) with no status gets `n/a — definition`, so s1:BOUND-2-style pages render;
+report cards show their packet kind rather than "no status recorded"; `board.py`
+strips a namespaced `--agent` to the bare name (`bare_agent`); `expert/scripts/out.txt`
+and `out2.txt` deleted, with a test against stray debug output.
+
+**Gate.** validate 7/7; academy 353 OK (9 skipped); registry 79 OK (9 skipped);
+author 81, researcher 82, expert 117, scientist 97 (1 skipped), domain pack 6; Slope1
+test_kb 32; FlatSurfLab run_all 323 (116 Sage skips). Registry checks: lab 0/0, paper
+1 error / 27 warnings (as golden), s1 0 errors / 4 warnings.
+
+**Left for phase 8 / merge (Roey):** remove the old computation/verdicts copies and
+the shims; retire the old paper/flatsurf links at merge (no guard); delete BI main's
+`.claude/paper-gate.json` after merge; release the held tickets on Roey's command.

@@ -40,8 +40,9 @@ server opens every `ref`: it must be a landed review record whose own `verdict`,
 `run_id`, `subject` and `statement_hash` match the row, written by a reviewer of the
 basis; made-up run ids or refs are refused. It appends an evidence row for each verdict,
 and one for Roey's word. An `s1:` claim also needs `verdict_file` (its verdict file under
-`computation/verdicts/` or `audits/` of the s1 home, one of the verdicts' refs when they
-are given): the file must clear the claim and record two runs giving the target's
+`computation/verdicts/` or `audits/` of the s1 home, or a proof review in the Expert's
+library written `file:expert@<name>/reviews/s1/<id>/<file>.md` (phase 7); one of the
+verdicts' refs when they are given): the file must clear the claim and record two runs giving the target's
 verdict word (Roey's word stands in for the runs, not for the file). An unsettled or
 lifecycle target on an s1 record needs only a `note`. Its records are schema v2 (R5), so
 every status word applies.

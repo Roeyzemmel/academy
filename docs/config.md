@@ -118,6 +118,15 @@ writes `views/` (`assumptions.md`, `INDEX.md`, `directions.md`, `graph.md`,
 `rests-on.md`). Without `objects/` it reads the old layout (`claims/`, `assumptions/`,
 `examples/`). The lab and paper homes keep `claims/<ns>/`.
 
+*Phase 7 (2026-09-28, P-0004 D9 / P-0005 D8):* the 19 s1 claim verdicts are in the
+Expert's library, `papers/reviews/s1/<claim>/`, and s1 records cite them as
+`file:expert@ts/reviews/s1/<claim>/<file>.md`. `set-status --verdict` (and MCP
+`claims_set_status`, `grounds.verdict_file`) accepts such a ref, or a path into the
+library's `reviews/`, as the verdict anchor; the instance's home comes from
+workspace.json (`registry/core/workspace.instance_home`, a worktree sibling first).
+`check` reports a review ref whose file is missing. The old copies in Slope1's
+`computation/verdicts/` stay until phase 8.
+
 **`budget`:**
 
 | Key | Type | Default | Meaning |

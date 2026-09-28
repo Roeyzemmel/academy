@@ -1,1 +1,0 @@
-'Define an $n$-point marking over $\\cM$ to be an affine invariant submanifold $\\cN$ of $\\cH^{*n}$.'

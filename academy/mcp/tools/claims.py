@@ -490,8 +490,9 @@ class RegistryBackend(ClaimsBackend):
 
 
     def _s1_verdict_refs(self, home, grounds):
-        """The s1-home paths of the grounds' verdict refs (``audits/...`` or
-        ``computation/verdicts/...``, bare or as ``<home dir>:path``)."""
+        """The s1 verdict refs of the grounds: home paths (``audits/...`` or
+        ``computation/verdicts/...``, bare or as ``<home dir>:path``) and Expert review
+        refs (``file:expert@<name>/reviews/...``, phase 7)."""
         out = []
         name = os.path.basename(os.path.normpath(home))
         for v in (grounds or {}).get("verdicts") or []:
@@ -500,7 +501,7 @@ class RegistryBackend(ClaimsBackend):
             m = re.match(r"^([A-Za-z0-9_\-]+):(?![\\/])(.+)$", ref)
             if m and (m.group(1) == name or name.startswith(m.group(1) + "-")):
                 ref = m.group(2)
-            if ref.startswith(("computation/verdicts/", "audits/")):
+            if ref.startswith(("computation/verdicts/", "audits/"))                     or self.s1kb.RE_REVIEW_REF.match(ref):
                 out.append(ref)
         return out
 
@@ -525,7 +526,8 @@ class RegistryBackend(ClaimsBackend):
         if not vfile and (settling or not self._s1_is_v2(home, rest)):
             raise ToolError("refused: the s1 profile records a status change against "
                             "a verdict file: give grounds.verdict_file (a file under "
-                            "computation/verdicts/ or audits/ of the s1 home)")
+                            "computation/verdicts/ or audits/ of the s1 home, or an "
+                            "Expert review ref file:expert@<name>/reviews/...)")
         kb = self.s1kb.load_kb(home)
         eid, _ = self.s1kb.lookup(kb, rest)
         if eid is None:
@@ -534,7 +536,8 @@ class RegistryBackend(ClaimsBackend):
             vrel = self.s1kb._verdict_relpath(kb.root, vfile)
             if vrel is None:
                 raise ToolError("refused: %r is not an existing file under "
-                                "computation/verdicts/ or audits/ of the s1 home" % vfile)
+                                "computation/verdicts/ or audits/ of the s1 home, nor an "
+                                "Expert review ref (file:expert@<name>/reviews/...)" % vfile)
             probs = self.s1kb.verdict_file_problems(kb, vrel, eid, label, human=human)
             if probs:
                 raise ToolError("refused: the verdict file does not carry %s to %s:\n- %s"
