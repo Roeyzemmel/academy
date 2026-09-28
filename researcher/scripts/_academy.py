@@ -1506,14 +1506,19 @@ def packet_is_decided(body):
 # because of its own bug: malformed events read as {}.
 
 def read_event(stream=None):
-    """Parse the hook event from ``stream`` (default stdin). Never raises; bad input -> {}."""
+    """Parse the hook event from ``stream`` (default stdin). Never raises; bad input -> {}.
+
+    Claude Code writes the event as UTF-8. A text stream's own decoding is bypassed
+    (its ``buffer`` is read): on Windows, Python decodes a piped stdin with the ANSI
+    codepage, which mangles non-ASCII arguments (T-0070). A leading BOM is dropped.
+    """
     stream = stream or sys.stdin
     try:
-        raw = stream.read()
+        raw = getattr(stream, "buffer", stream).read()
     except Exception:
         return {}
     if isinstance(raw, bytes):
-        raw = raw.decode("utf-8", "replace")
+        raw = raw.decode("utf-8-sig", "replace")
     if not raw or not raw.strip():
         return {}
     try:

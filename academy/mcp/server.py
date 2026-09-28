@@ -80,12 +80,10 @@ def call_tool(name, args, cwd=None, caller=None):
             if tool.write:
                 why = ("identical calls from different callers are in flight; retry "
                        "shortly" if caller == ac.AMBIGUOUS else
-                       "no mcp_write_gate record for this call. If any argument "
-                       "contains a non-ASCII character (e.g. ±, —, é), "
-                       "that is the cause: rewrite every argument in plain ASCII and "
-                       "call again (docs/protocol.md section 1, known issue). "
-                       "Otherwise, check that the academy plugin's PreToolUse hook "
-                       "is loaded")
+                       "no mcp_write_gate record for this call (is the academy "
+                       "plugin's PreToolUse hook loaded? If an argument contains a "
+                       "non-ASCII character, retrying it in plain ASCII tells an "
+                       "encoding fault apart: docs/protocol.md section 1)")
                 return _result("refused: the caller of %s could not be identified: %s"
                                % (name, why), True)
             verified, caller = False, None
@@ -126,12 +124,7 @@ def handle(msg):
                    "capabilities": {"tools": {"listChanged": False}},
                    "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
                    "instructions": "Academy board, registry, library and queue tools. "
-                                   "Writes are gated by permissions.json. "
-                                   "Write every argument of a write tool in plain "
-                                   "ASCII (+/- not ±, -- not —, LaTeX for "
-                                   "maths): on Windows a non-ASCII character breaks "
-                                   "the caller handshake and the write is refused "
-                                   "(docs/protocol.md section 1)."}
+                                   "Writes are gated by permissions.json."}
         elif method == "ping":
             res = {}
         elif method == "tools/list":

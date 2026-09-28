@@ -5,6 +5,7 @@ throw-away workspace (``ACADEMY_WORKSPACE``), homes and board in a temp director
 Run from the repo root:  py -m unittest discover academy/tests
 """
 
+import io
 import json
 import os
 import shutil
@@ -222,6 +223,78 @@ class McpWriteGateTests(Fixture):
                              input=b"not json", capture_output=True, timeout=60)
         self.assertEqual(res.returncode, 0)
         self.assertEqual(res.stdout.strip(), b"")
+
+    def test_non_ascii_argument_record_matches_the_server_key(self):
+        """T-0070: Claude Code writes the event as UTF-8 bytes. The hook must record it
+        under the key the server computes (``call_key`` via ``claim_caller``) even when
+        Python's stdin text layer uses the ANSI codepage (cp1255 on the lab laptop)."""
+        tool = "tickets_update"
+        args = {"id": "T-0001", "result_detail": "n = 3 ± 1 — café"}
+        event = {"hook_event_name": "PreToolUse",
+                 "tool_name": "mcp__plugin_academy_academy__" + tool,
+                 "tool_input": args, "cwd": self.author_home}
+        payload = json.dumps(event, ensure_ascii=False).encode("utf-8")
+        self.assertIn(b"\xc2\xb1", payload)         # raw UTF-8, not a \u escape
+        cases = {"stdin text layer in cp1255": ({"PYTHONIOENCODING": "cp1255"},
+                                                ("PYTHONUTF8",)),
+                 "no encoding variables (as launched)": ({}, ("PYTHONIOENCODING",
+                                                              "PYTHONUTF8"))}
+        for label, (extra, drop) in cases.items():
+            with self.subTest(label):
+                shutil.rmtree(self.callers, ignore_errors=True)
+                env = dict(os.environ)
+                env.update(self.env)
+                env.update(extra)
+                for name in drop:
+                    env.pop(name, None)
+                res = subprocess.run(
+                    [sys.executable, os.path.join(SCRIPTS, "mcp_write_gate.py")],
+                    input=payload, capture_output=True, env=env, timeout=60)
+                self.assertEqual(res.returncode, 0, res.stderr.decode("utf-8", "replace"))
+                names = os.listdir(self.callers) if os.path.isdir(self.callers) else []
+                self.assertEqual([n.split("-", 1)[0] for n in names],
+                                 [ac.call_key(tool, args)])
+                self.assertEqual(ac.claim_caller(tool, args, folder=self.callers), "human")
+
+
+class ReadEventEncodingTests(unittest.TestCase):
+    """``read_event`` decodes the hook event as UTF-8 whatever the stdin text layer's
+    encoding (T-0070), and still never raises."""
+
+    RAW = json.dumps({"a": "± — é"}, ensure_ascii=False).encode("utf-8")
+
+    @staticmethod
+    def ansi_stdin(raw):
+        """A text stream like Windows ``sys.stdin``: bytes underneath, cp1255 on top."""
+        return io.TextIOWrapper(io.BytesIO(raw), encoding="cp1255")
+
+    def test_text_stream_in_ansi_codepage_is_read_as_utf8(self):
+        self.assertEqual(ac.read_event(self.ansi_stdin(self.RAW)),
+                         {"a": "± — é"})
+
+    def test_utf8_bom_is_tolerated(self):
+        raw = b"\xef\xbb\xbf" + self.RAW
+        self.assertEqual(ac.read_event(io.BytesIO(raw)), {"a": "± — é"})
+        self.assertEqual(ac.read_event(self.ansi_stdin(raw)),
+                         {"a": "± — é"})
+
+    def test_invalid_utf8_is_replaced_not_raised(self):
+        self.assertEqual(ac.read_event(self.ansi_stdin(b'{"a": "\xff"}')),
+                         {"a": "�"})
+
+    def test_unreadable_streams_give_empty_event(self):
+        class Broken:
+            def read(self):
+                raise OSError("closed")
+
+        class BrokenBuffer:
+            buffer = Broken()
+
+            def read(self):
+                raise AssertionError("the text layer must not be read")
+
+        self.assertEqual(ac.read_event(Broken()), {})
+        self.assertEqual(ac.read_event(BrokenBuffer()), {})
 
 
 # ---------------------------------------------------------------------------
