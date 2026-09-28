@@ -37,18 +37,19 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   reserved: the hook denies it and the server refuses it, so no agent can name
   itself. Residual trust: an agent with a shell could forge a record by writing the
   directory directly (Edit and Write to it are denied by `generated_view_guard`), so the read-only agents must be given no shell (a requirement on the role plugins).
-- **Known issue: non-ASCII characters in the arguments break the handshake on
-  Windows.** The hook reads its event from stdin in text mode, and unless
-  `PYTHONIOENCODING` or `PYTHONUTF8` is set, Python decodes a piped stdin with the
-  ANSI codepage (cp1255 here), not UTF-8. A character such as `±`, `—` or `é`
-  therefore reaches the hook mangled (`±` becomes `ֲ\xb1`), the hook's key
-  differs from the server's, and the server refuses the write with "the caller of
-  <tool> could not be identified: no mcp_write_gate record for this call". Retrying
-  does not help. Until the hook reads `sys.stdin.buffer` as UTF-8, **write every
-  argument of an academy write tool in plain ASCII**: `+/-` for `±`, `--` for `—`,
-  LaTeX (`\pm`, `\'e`) in mathematical text. Seen 2026-09-28 on `tickets_update`
-  (T-0007): the call with `±` was refused twice, and the same call in ASCII
-  succeeded.
+- **The hook reads its event as UTF-8, and the key must match byte for byte.**
+  Claude Code writes the event as UTF-8; the server reads its stdin as UTF-8 too.
+  `read_event` therefore reads `sys.stdin.buffer` and decodes it as UTF-8 (a BOM is
+  dropped), bypassing the text layer: on Windows, unless `PYTHONIOENCODING` or
+  `PYTHONUTF8` is set, Python decodes a piped stdin with the ANSI codepage (cp1255
+  here), so a character such as `±` reached the hook mangled (`ֲ\xb1`), the
+  hook's key differed from the server's, and the server refused the write with "the
+  caller of <tool> could not be identified: no mcp_write_gate record for this call".
+  That was seen on 2026-09-28 on `tickets_update` (T-0007) and fixed by T-0070
+  (regression test in `academy/tests/test_hooks.py`). Non-ASCII arguments are
+  therefore fine. If that refusal ever recurs on a call with a non-ASCII argument,
+  retry it in plain ASCII (`+/-`, `--`, LaTeX); if the ASCII call passes, the
+  encoding fault is back, so file a ticket.
 - **A speaker** in a thread is written `human`, `<instance>` or
   `<instance>/<bare-agent>`, for example `researcher@slope1/prover`. It contains no
   colon and no space.
@@ -419,8 +420,8 @@ academy: <instance> — N open tickets to you, M packets awaiting <human name>[;
   carries the reserved `caller` argument. It stays silent otherwise, so Claude
   Code's own permission prompts still apply, and records the caller for the server
   (section 1). The human, and read tools, always pass. An agent outside the roster
-  may read but not write. Arguments must be plain ASCII for now: see the known issue
-  in section 1.
+  may read but not write. It reads its event as UTF-8 whatever the console codepage
+  (section 1), so non-ASCII arguments get the same key as on the server.
 - **`ticket_edit_check`** (PostToolUse, `Edit|Write|MultiEdit`) looks only at files
   under the board.
   - For a ticket, it reports `validate_ticket` problems, an `id` that differs from
