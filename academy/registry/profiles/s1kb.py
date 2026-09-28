@@ -717,7 +717,7 @@ def _check_refs(kb, e):
     for key in m.get("cites", []) if isinstance(m.get("cites"), list) else []:
         if key not in papers_index(kb):
             kb.warn(e.path, f"cites: '{key}' is not in the shared library {PAPERS_REL}/index.md "
-                            "(add it there with /paper:cite, or fix the key)")
+                            "(add it there with /expert:cite, or fix the key)")
     if e.etype == "example" and isinstance(m.get("runs"), list):
         for r in m["runs"]:
             if lookup(kb, r)[0] is None:
