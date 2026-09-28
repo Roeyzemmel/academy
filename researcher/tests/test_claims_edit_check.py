@@ -119,5 +119,17 @@ class S1ProfileHookTests(Workspace):
         self.assertIn("build failed", err)
         self.assertFalse(os.path.isfile(os.path.join(self.O, "STATUS.md")))
 
+    def test_objects_layout_edit_builds_the_views(self):
+        # R6: records live in objects/<kind>/; an edit there must rebuild the views too
+        cfg = researcher_config(instance="researcher@old", ns="s8")
+        cfg["registry"] = {"profile": "s1", "root": "objects", "statusKeeper": "claim-keeper"}
+        cfg["paths"]["records"] = "objects"
+        write(os.path.join(self.O, ".claude", "academy.json"), json.dumps(cfg))
+        p = write(os.path.join(self.O, "objects", "claim", "GEO-1.md"),
+                  S1_CLAIM.format(status="Proved"))
+        rc, out = self.run_hook("claims_edit_check.py", self.ev(p))
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(os.path.isfile(os.path.join(self.O, "STATUS.md")))
+
 if __name__ == "__main__":
     unittest.main()

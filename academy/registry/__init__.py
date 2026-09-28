@@ -59,7 +59,7 @@ def hook_policy(home, ns=None):
     reg = cfg.get("registry") or {}
     if prof == "s1-kb":
         from .profiles import s1kb
-        watched = [d for d, _ in s1kb.ENTITY_DIRS]
+        watched = [d for d, _, _ in s1kb.entity_dirs(home)]  # objects/<kind>/ after R6
         build = True
     else:
         from .profiles import fsl
