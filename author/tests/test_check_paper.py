@@ -108,8 +108,10 @@ class ConfigTests(unittest.TestCase):
 
 
 def _without_r7(text):
-    return [ln for ln in text.splitlines() if "[R7]" not in ln
-            and not ln.startswith("WARNINGS (")]
+    """Drop the R7 lines and the tex line numbers: findings are compared by file, label and
+    rule, because line numbers move with every edit."""
+    return [re.sub(r"\.tex:\d+:", ".tex:", ln) for ln in text.splitlines()
+            if "[R7]" not in ln and not ln.startswith("WARNINGS (")]
 
 
 @unittest.skipUnless(os.path.isfile(os.path.join(BI, "main.tex")) and os.path.isfile(GOLDEN),
