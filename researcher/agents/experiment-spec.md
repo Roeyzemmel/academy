@@ -27,9 +27,9 @@ You never write mathematics, never grade, never search the web, never ask a ques
    results file, and move the ticket `delivered`. Stop.
 3. **Sharpen.** Write the **experiment spec** in the lab's header vocabulary: the claim
    id, the kind (search / measure / verify), the class and bounds, what refutes the
-   claim, a suggested validation case, and the scope defaults (translation surfaces,
-   non-periodic points unless stated). It is the child's `ask_detail`, under the heading
-   `## Experiment spec`.
+   claim, a suggested validation case, and the scope (which objects and which points,
+   naming every default assumed where the ticket leaves it open). It is the child's
+   `ask_detail`, under the heading `## Experiment spec`.
 4. **Forward.** `tickets_create` to the Scientist instance only, kind `experiment` (kind
    `test` for a test spec), with `parent` set to this ticket and the same `final_to`.
    Then move this ticket `blocked` with `waiting_on: [<child id>]`. You never file to any

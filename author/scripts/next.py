@@ -29,8 +29,9 @@ The plan
 Routing (references in skills/next/references/routing.md): ``apply`` -> math-editor,
 ``write`` -> math-writer (or the item's ``route``), ``figure`` -> figure-maker,
 ``build`` -> tex-engineer, ``notation`` -> notation-auditor, ``sweep`` -> note-sweeper;
-``lead``/``verify``/``cite``/``experiment``/``referee`` -> a ticket to the Researcher,
-Expert or Scientist instance sharing a domain; a ticketed item whose ticket came
+``lead``/``verify``/``cite``/``experiment``/``referee`` -> a ticket to the Expert
+instance sharing a domain (``lead`` and ``experiment`` as a ``research`` ticket with
+``final_to`` researcher or scientist, relayed on by the Expert); a ticketed item whose ticket came
 back -> ``land`` (math-writer for a proof or experiment, math-editor for a verdict or
 citation, /author:notes for a referee packet).
 

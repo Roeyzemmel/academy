@@ -83,6 +83,7 @@ usage packet flags overruns.
 
 ## What is checked by machine
 
-The hooks and the MCP server enforce who may call which tool, ticket field ownership
-and transitions, append-only threads, generated views, and the grounds for a status
-change (two agreeing verdicts, or your word). See `docs/protocol.md`.
+The hooks and the MCP server enforce who may call which tool, who may file a ticket to
+whom (across roles, only to a neighbour and by a liaison; `docs/protocol.md` 5.1),
+ticket field ownership and transitions, append-only threads, generated views, and the
+grounds for a status change (two agreeing verdicts, or your word). See `docs/protocol.md`.

@@ -1,6 +1,6 @@
 ---
 name: prove
-description: Take one claim of the notebook to a reviewable proof and file its review — prover writes the next attempt under proofs/<id>/ (inputs with their statuses, gaps marked, failed attempts kept), and a complete attempt becomes a `verify` ticket to the Expert, whose review-chair runs the two rigor-reviewer runs. Never verifies here and never sets a status. Use for "/researcher:prove <claim>", on a `prove` ticket (including one from an Author that may not invent an argument), and for a generalization that survived its test.
+description: Take one claim of the notebook to a reviewable proof and file its review — prover writes the next attempt under proofs/<id>/ (inputs with their statuses, gaps marked, failed attempts kept), and a complete attempt becomes a `verify` ticket to the Expert, whose review-chair runs the two rigor-reviewer runs. Never verifies here and never sets a status. Use for "/researcher:prove <claim>", on a `prove` ticket, for a `research` ticket (an Author's request for an argument, relayed by the Expert) once lead-researcher brings it here, and for a generalization that survived its test.
 ---
 
 # Prove a claim

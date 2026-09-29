@@ -23,9 +23,9 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   roster in `permissions.json`).
 - **The caller's instance** is the instance whose home contains the session's `cwd`
   (`find_home` + `instance_for_home`). An agent running in the BI home acts for
-  `author@bi`. The base plugin's agents (`concierge`, `explainer`, `usage-analyst`)
-  act for the instance of the home they run in. From no home at all, they act as
-  `human` only when they file something Roey has confirmed. An agent of a role
+  `author@bi`. The base plugin's agents (`concierge`, `explainer`, `usage-analyst`,
+  `secretary`) act for the instance of the home they run in. From no home at all,
+  they act as `human` only when they file something Roey has confirmed. An agent of a role
   plugin acts only for an instance of its own role: `expert:librarian` running in
   the BI home is refused by the server rather than filing as `author@bi`.
 - **How the server learns the caller (the caller handshake).** An MCP server does
@@ -185,27 +185,32 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 
 An empty value is written `key:` and reads as null. An empty list is written `[]`.
 
-**`kind`** takes one of these values (`TICKET_KINDS`); anything else is `other`:
+**`kind`** takes one of these values (`TICKET_KINDS`); anything else is `other`. The
+route is required: `to` is the role named. "Filed by" is the sending role, which
+section 5.1 restricts to the receiver's neighbours in the chain (or the same role, or
+`human`) and, across roles, to the liaisons of that direction:
 
-| kind | Route (required) | Asks for |
-|---|---|---|
-| `verify` | → expert | a proof review (two rigor-reviewer runs, decision table) |
-| `cite` | → expert | a bibliography entry plus a card with a verbatim quote |
-| `lookup` | → expert | a quick answer from the clerk |
-| `referee` | → expert | a whole-paper referee packet |
-| `prove` | → researcher | a proof, or a new argument the Author may not invent (an Author asks through `research`) |
-| `research` | Author → Expert, relayed with `final_to` | a research request (a new argument, an experiment) the Author may not invent; research-intake prepares it and relays it toward `final_to` (5.1) |
-| `note` | Expert → Author, informational | a literature result the Author should know, unsolicited; lands with math-writer as a roadmap item |
-| `review-experiment` | → researcher | two experiment-reviewer runs on a finished report |
-| `generalize` | → researcher | conjectured generalizations of a reviewed experiment's `## Conclusion` (see 6.2) |
-| `experiment` | → scientist | a new experiment and its report |
-| `test` | → scientist | a test of one conjectured generalization, starting from its falsifier |
-| `code` | → scientist | developer or test-engineer work, including academy scripts |
-| `notation` | → expert / author | a domain-notation change or a project notation decision |
-| `build` / `figure` | → author | toolchain or figure work |
-| `decision` | → human, or → the claim-keeper via `claims_propose_status` | a choice only the receiver may make |
-| `question` | any | a question that needs more than a lookup |
-| `other` | any | anything else |
+| kind | Route (required) | Filed by | Asks for |
+|---|---|---|---|
+| `verify` | → expert | the Author, the Researcher, or the Expert itself (an input that is itself a proof) | a proof review (two rigor-reviewer runs, decision table) |
+| `cite` | → expert | the Author, the Researcher (for the Scientist, its `lit-request` relay), or the Expert itself | a bibliography entry plus a card with a verbatim quote |
+| `lookup` | → expert | the Author, the Researcher, or the Expert itself | a quick answer from the clerk |
+| `referee` | → expert | the Author | a whole-paper referee packet |
+| `prove` | → researcher | the Expert (a repair after a review), or the Researcher itself | a proof, or a new argument the Author may not invent (an Author asks through `research`) |
+| `research` | → expert, then → researcher, relayed with `final_to` | the Author to the Expert; the Expert's research-intake to the Researcher | a research request (a new argument, an experiment) the Author may not invent; research-intake prepares it and relays it toward `final_to` (5.1) |
+| `note` | → author, informational | the Expert | a literature result the Author should know, unsolicited; lands with math-writer as a roadmap item |
+| `review-experiment` | → researcher | the Scientist | two experiment-reviewer runs on a finished report |
+| `generalize` | → researcher | the Researcher itself | conjectured generalizations of a reviewed experiment's `## Conclusion` (see 6.2) |
+| `experiment` | → scientist | only the Researcher, from its researcher -> scientist liaisons (5.1); the Scientist also to itself | a new experiment and its report |
+| `test` | → scientist | only the Researcher, from its researcher -> scientist liaisons (5.1); the Scientist also to itself | a test of one conjectured generalization, starting from its falsifier |
+| `code` | → scientist | only the Researcher, from its researcher -> scientist liaisons (5.1); the Scientist also to itself (an "Upstream:" ticket) | developer or test-engineer work, including academy scripts |
+| `notation` | → expert / author | the Author to the Expert (a domain-notation change; the Scientist's goes through the Researcher with `final_to: expert`); the Expert or the Author itself to an Author | a domain-notation change or a project notation decision |
+| `build` / `figure` | → author | the Author itself, or the Expert | toolchain or figure work |
+| `decision` | → human, or → the claim-keeper via `claims_propose_status` | any role (`claims_propose_status` is exempt from the chain) | a choice only the receiver may make |
+| `question` | → a neighbour, or the same role | any role, within 5.1 | a question that needs more than a lookup |
+| `other` | → a neighbour, or the same role | any role, within 5.1 | anything else |
+
+`human` is outside the chain and may file to any instance (5.1, rule 1).
 
 **Ref forms** (in `refs`, in packets, and in thread text):
 
@@ -374,12 +379,14 @@ filing as its instance):
 relays. A relay checks, sharpens and forwards; it writes no mathematics, grades
 nothing, uses no web and no shell, and makes one pass.
 
-| Relay | Crossing | Model |
-|---|---|---|
-| `expert:research-intake` | author -> (expert) -> researcher | sonnet |
-| `expert:paper-liaison` | researcher side -> (expert) -> author | haiku |
-| `researcher:experiment-spec` | expert -> (researcher) -> scientist | sonnet |
-| `researcher:lit-request` | scientist -> (researcher) -> expert / author | haiku |
+| Relay | Crossing |
+|---|---|
+| `expert:research-intake` | author -> (expert) -> researcher |
+| `expert:paper-liaison` | researcher side -> (expert) -> author |
+| `researcher:experiment-spec` | expert -> (researcher) -> scientist |
+| `researcher:lit-request` | scientist -> (researcher) -> expert / author |
+
+Their models are in the agent files' frontmatter.
 
 **Recognising a relay ticket.** The check requires `to` to be a neighbour; `final_to`
 may be any role further along the same direction. When a receiver's role is not

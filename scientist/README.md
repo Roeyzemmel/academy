@@ -11,13 +11,16 @@ academy MCP tool `domain_get`.
 
 ## Agents
 
-| Agent | Model → fallback | Job |
-|---|---|---|
-| `experimenter` | sonnet (high) → opus | Designs and writes experiments; the report draft |
-| `developer` | opus → sonnet | The lab's code, the runner and env profiles, academy scripts; TDD in a worktree |
-| `test-engineer` | sonnet → opus | Tests written independently; reviews the developer's diffs |
-| `upstream-contributor` | sonnet → opus | Drafts upstream issues and patches; Roey files them |
-| `api-prober` | sonnet → opus | Confirms one library call; records it in the pack's `computation/api/` + CHANGELOG |
+Each agent's model, effort and fallback are in its file's frontmatter (the fallback
+rule: `academy/references/roster-rules.md`, "Model fallback").
+
+| Agent | Job |
+|---|---|
+| `experimenter` | Designs and writes experiments; the report draft |
+| `developer` | The lab's code, the runner and env profiles, academy scripts; TDD in a worktree |
+| `test-engineer` | Tests written independently; reviews the developer's diffs |
+| `upstream-contributor` | Drafts upstream issues and patches; Roey files them |
+| `api-prober` | Confirms one library call; records it in the pack's `computation/api/` + CHANGELOG |
 
 ## Skills
 

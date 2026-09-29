@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: Work this Researcher instance's board inbox — take at most three open or accepted tickets (by priority, agenda, id), serially, and route each by kind to the skill or agent that handles it (prove, review-experiment or settle, generalize, a decision to claim-keeper, a question to explore, anything else to lead-researcher), within each ticket's own run budget. Use for "/researcher:inbox", "what's waiting for the researcher", and when the SessionStart line reports open tickets.
+description: Work this Researcher instance's board inbox — take at most three open or accepted tickets (by priority, agenda, id), serially, and route each by kind to the skill or agent that handles it (prove, review-experiment or settle, generalize, a decision to claim-keeper, a question to explore, a ticket whose final_to lies beyond the Researcher to its relay experiment-spec or lit-request, anything else to lead-researcher), within each ticket's own run budget. Use for "/researcher:inbox", "what's waiting for the researcher", and when the SessionStart line reports open tickets.
 ---
 
 # The Researcher inbox

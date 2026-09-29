@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Work one research direction forward — direction -> questions -> claims — taking at most three unsettled items per run and moving each one step, in the fixed order falsify, prior art, prove - a single-example probe or a search over a family goes to the Scientist as a ticket with its falsifier (the old hunt and classify), prior art goes to prover's scout and the Expert, an argument goes to prover. Commissioned by lead-researcher; grades nothing. Use for "/researcher:explore <direction>", "work on this direction", "hunt this family", "check this one example", "what should we try next on X", and on a `question` ticket.
+description: Work one research direction forward — direction -> questions -> claims — taking at most three unsettled items per run and moving each one step, in the fixed order falsify, prior art, prove - a single-example probe or a search over a family goes to the Scientist as an `experiment` ticket with its falsifier, filed by lead-researcher (the old hunt and classify), prior art goes to prover's scout and the Expert, an argument goes to prover. Commissioned by lead-researcher; grades nothing. Use for "/researcher:explore <direction>", "work on this direction", "hunt this family", "check this one example", "what should we try next on X", and on a `question` ticket.
 ---
 
 # Explore a direction
@@ -22,8 +22,9 @@ experiment script, and decides no truth.
 3. **Brief one `lead-researcher`** with the direction id and the picked item ids, and
    nothing pasted in. It moves each item one step, in this order:
    - **Falsify.** A candidate claim gets a falsifier: the smallest case where it could
-     fail. One named example is a `probe` (`experiment` ticket asking for the probe
-     type); a family, a parameter range or a bound is a search (`experiment` ticket).
+     fail. `lead-researcher` files the ticket to the Scientist, as a researcher ->
+     scientist liaison (docs/protocol.md 5.1); `prover` may not. One named example is
+     a `probe` (`experiment` ticket asking for the probe type); a family, a parameter range or a bound is a search (`experiment` ticket).
      The ticket carries the claim id, what output would refute it, the validation case
      with an independently known answer, and which inputs are still unsettled (a code
      path resting on an unsettled claim may validate but not refute). The Scientist's
