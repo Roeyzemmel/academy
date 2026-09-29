@@ -9,6 +9,7 @@ import datetime as _dt
 import glob
 import io
 import json
+import re
 import os
 import shutil
 import sys
@@ -328,6 +329,33 @@ class AcademyStatusTest(Sandbox):
     def test_last_visit_default(self):
         d = academy_status.last_visit(default_days=7, today=_dt.date(2026, 9, 27))
         self.assertTrue(ac.RE_DATE.match(d))
+
+
+class AsHumanLintTests(unittest.TestCase):
+    ALLOWED = {os.path.join("academy", "skills", s, "SKILL.md")
+               for s in ("board", "desk", "decide")}
+    PATTERN = re.compile(r"as_human|--as\s+human")
+
+    def test_only_board_desk_decide_file_as_human(self):
+        repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        bad, seen = [], set()
+        for plugin in ("academy", "author", "expert", "researcher", "scientist"):
+            for sub in ("skills", "agents", "scripts", "hooks"):
+                root = os.path.join(repo, plugin, sub)
+                for dp, _dn, fns in os.walk(root):
+                    for fn in fns:
+                        if not fn.endswith((".md", ".py", ".json")) or fn == "_academy.py":
+                            continue
+                        rel = os.path.relpath(os.path.join(dp, fn), repo)
+                        with open(os.path.join(dp, fn), encoding="utf-8") as fh:
+                            text = fh.read()
+                        if self.PATTERN.search(text):
+                            seen.add(rel)
+                            if rel not in self.ALLOWED and rel != os.path.join(
+                                    "academy", "scripts", "board.py"):
+                                bad.append(rel)
+        self.assertEqual(bad, [], "only /academy:board, desk and decide file as human")
+        self.assertTrue(self.ALLOWED <= seen, "the three skills must say --as human")
 
 
 if __name__ == "__main__":
