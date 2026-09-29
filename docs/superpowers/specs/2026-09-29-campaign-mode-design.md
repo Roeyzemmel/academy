@@ -259,6 +259,52 @@ solved, which also keeps them independent. The lead makes the single
 target-level prior-art check at seeding, through the Expert, and records it.
 Outside campaign mode the scout is unchanged.
 
+## 7. Tests and order of work
+
+Tests first (TDD) within each phase. Three phases, each its own plan, in order:
+
+**Phase 1, shared inbox and `/author:inbox` (sections 8, 10).** Vendored core and its
+tests; the three role wrappers ported; `/academy:inbox`; the Author's inbox,
+self-tickets and sweep-first; `next` retired; docs and skill tables.
+
+**Phase 2, ticket blocking (section 9).** `validate_ticket`, `transition_ticket`,
+`docs/protocol.md`, the MCP `tickets_update`; the core's dead-route filter.
+
+**Phase 3, campaign (sections 3-6, 4.1-4.3).**
+
+1. `researcher/tests/test_notebook.py`: the approach kind parses; membership is
+   computed from directions' `approach:`; `next` skips blocked approaches;
+   `blocked` without `blocked_by` fails; reopening without a history row fails.
+2. `notebook.py` and the object template: the `approach` kind, `approach:` on
+   directions.
+3. Shared rules: `rigor`, `honest-reporting`, `budget.md`, `roster-rules.md`.
+4. `researcher/skills/campaign/SKILL.md` (round loop, the serial dispatch step of
+   4.1, caps, pause, report), and `SKILLS` in `test_plugin.py` (size limit and
+   no-domain-words checks apply). Tests: the skill mentions `--rounds`,
+   `--agents` and `--runs`, states the K=0 default and that dispatch is serial, and
+   names no agent outside the existing set. If the 120-line limit binds, the
+   dispatch table moves to `researcher/references/campaign-dispatch.md` and the
+   skill points to it.
+5. One-line pointers in `explore`, `lead-researcher`, `prover`; one line each in
+   `researcher/README.md` and `docs/roles.md`.
+6. `py -m unittest discover researcher/tests`.
+
+Open risks: (a) the dispatch step assumes the Agent tool is available to the main
+session and that a role's ticket route can run as a subagent; the plan verifies
+this on one Scientist and one Expert ticket before the skill is written.
+(b) Auto-launch multiplies spend; `--agents`, per-ticket `budget.runs` and the
+limit-error stop are the only brakes, and `/academy:usage` is how Roey checks.
+Serial dispatch bounds loss, not cost, and makes a campaign slower.
+(d) `academy/lib/academy_common.py` and the MCP files have uncommitted edits in
+Roey's checkout; phases 1-2 touch the same files, so they are rebased onto whatever
+Roey merges first. (e) Retiring `/author:next` changes a habit and the skill
+listing; the plan keeps a one-line redirect for one release.
+(c) the registry check (`claims_check`) must accept the new kind. If that
+lives in the MCP server (`academy/mcp/`), it is a second change and is flagged in
+the plan before it is touched. `test_vendored_lib_is_in_sync` requires
+`researcher/scripts/_academy.py` to equal `academy/lib/academy_common.py`, so any
+change to the shared library is made there and re-vendored.
+
 ## 8. The shared inbox core
 
 **Today** the researcher, expert and scientist `scripts/inbox.py` are three copies
@@ -363,49 +409,3 @@ own work. The Author has no `inbox`.
 - **Tests:** `author/tests/test_next.py` is ported to the inbox; a new
   `author/tests/test_plugin.py` lists the Author's skills; the generated skill
   tables in `author/README.md` are regenerated with `skill_index.py`.
-
-## 7. Tests and order of work
-
-Tests first (TDD) within each phase. Three phases, each its own plan, in order:
-
-**Phase 1, shared inbox and `/author:inbox` (sections 8, 10).** Vendored core and its
-tests; the three role wrappers ported; `/academy:inbox`; the Author's inbox,
-self-tickets and sweep-first; `next` retired; docs and skill tables.
-
-**Phase 2, ticket blocking (section 9).** `validate_ticket`, `transition_ticket`,
-`docs/protocol.md`, the MCP `tickets_update`; the core's dead-route filter.
-
-**Phase 3, campaign (sections 3-6, 4.1-4.3).**
-
-1. `researcher/tests/test_notebook.py`: the approach kind parses; membership is
-   computed from directions' `approach:`; `next` skips blocked approaches;
-   `blocked` without `blocked_by` fails; reopening without a history row fails.
-2. `notebook.py` and the object template: the `approach` kind, `approach:` on
-   directions.
-3. Shared rules: `rigor`, `honest-reporting`, `budget.md`, `roster-rules.md`.
-4. `researcher/skills/campaign/SKILL.md` (round loop, the serial dispatch step of
-   4.1, caps, pause, report), and `SKILLS` in `test_plugin.py` (size limit and
-   no-domain-words checks apply). Tests: the skill mentions `--rounds`,
-   `--agents` and `--runs`, states the K=0 default and that dispatch is serial, and
-   names no agent outside the existing set. If the 120-line limit binds, the
-   dispatch table moves to `researcher/references/campaign-dispatch.md` and the
-   skill points to it.
-5. One-line pointers in `explore`, `lead-researcher`, `prover`; one line each in
-   `researcher/README.md` and `docs/roles.md`.
-6. `py -m unittest discover researcher/tests`.
-
-Open risks: (a) the dispatch step assumes the Agent tool is available to the main
-session and that a role's ticket route can run as a subagent; the plan verifies
-this on one Scientist and one Expert ticket before the skill is written.
-(b) Auto-launch multiplies spend; `--agents`, per-ticket `budget.runs` and the
-limit-error stop are the only brakes, and `/academy:usage` is how Roey checks.
-Serial dispatch bounds loss, not cost, and makes a campaign slower.
-(d) `academy/lib/academy_common.py` and the MCP files have uncommitted edits in
-Roey's checkout; phases 1-2 touch the same files, so they are rebased onto whatever
-Roey merges first. (e) Retiring `/author:next` changes a habit and the skill
-listing; the plan keeps a one-line redirect for one release.
-(c) the registry check (`claims_check`) must accept the new kind. If that
-lives in the MCP server (`academy/mcp/`), it is a second change and is flagged in
-the plan before it is touched. `test_vendored_lib_is_in_sync` requires
-`researcher/scripts/_academy.py` to equal `academy/lib/academy_common.py`, so any
-change to the shared library is made there and re-vendored.
