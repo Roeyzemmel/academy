@@ -16,7 +16,7 @@ from ``--config``: ``theorems.all/provable/commentary`` replace ``THEOREM_ENVS``
 ``COLOUR_COMMANDS``; ``noteMacros.machine`` gives the machine-note macros;
 ``main``, ``build.dir`` and ``checker.statements`` give the root file, the build
 directory and the default registry path. A missing file or key keeps the value
-below, which is BilliardIllumination's, so the output is unchanged there.
+below, which is the first paper's, so the output is unchanged there.
 
 What it does
 ------------

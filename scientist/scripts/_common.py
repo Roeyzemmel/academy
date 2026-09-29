@@ -1,7 +1,7 @@
 """Shared helpers for the Scientist plugin's hooks and scripts.
 
 Adapted from the old flatsurf plugin's ``_common.py``. The difference is scoping:
-the old gates recognised FlatSurfLab by its files (``scripts/check_experiments.py``
+the old gates recognised the lab by its files (``scripts/check_experiments.py``
 plus ``fslab/``); these recognise a **Scientist home** by its
 ``.claude/academy.json`` (``role: scientist``), cross-checked against
 ``workspace.json`` (the config's ``instance`` must be a scientist instance there).
@@ -12,7 +12,7 @@ repo and is recorded as a hand-off in ``docs/migration-log.md`` (Group B); it mu
 land before any lab home gets ``.claude/academy.json``.
 
 The workspace check compares the instance *name*, not the home path, so a
-worktree of the lab (``../FlatSurfLab-academy`` on the ``academy-migration``
+worktree of the lab (``../<lab>-academy`` on the ``academy-migration``
 branch, plan section 9b) is recognised as the lab too.
 
 Exit-code contract (Claude Code hooks):
@@ -33,7 +33,7 @@ import _academy as ac  # noqa: E402
 EXEMPT = {"_template.py", "smoke_sage.py", "__init__.py"}
 #: the lab's own checker, relative to the home (a switched-over lab has a shim there that
 #: forwards to the plugin's parameterised scripts/check_experiments.py; a home can name
-#: the plugin's copy directly with scientist.checker, as FlatSurfLab's academy.json does).
+#: the plugin's copy directly with scientist.checker, as the lab's academy.json does).
 DEFAULT_CHECKER = "scripts/check_experiments.py"
 
 
@@ -76,7 +76,7 @@ def lab_config(path, workspace=None):
 
 
 #: what the scripts assume of a lab home that has no academy.json yet (before its
-#: switch-over): the FlatSurfLab layout of docs/config.md, and no env profiles
+#: switch-over): the lab layout of docs/config.md, and no env profiles
 PRE_SWITCH_DEFAULTS = {
     "paths": {"experiments": "experiments/*.py", "results": "results", "queue": "queue"},
     "scientist": {"envs": {}, "policy": {},

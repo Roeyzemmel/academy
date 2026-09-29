@@ -56,7 +56,7 @@ class Lab(object):
         self.write("experiments/_template.py", "\n")
         self.write(".gitignore", "queue/pending/\nqueue/running/\nqueue/done/\nqueue/parked/\n")
         self.cfg = {
-            "schema": 1, "role": "scientist", "instance": "scientist@ts",
+            "schema": 1, "role": "scientist", "instance": "scientist@main",
             "domains": ["translation-surfaces"], "ns": "lab",
             "paths": {"package": "fslab", "experiments": "experiments/*.py",
                       "results": "results", "queue": "queue", "records": "claims",
@@ -68,7 +68,7 @@ class Lab(object):
                     "local": {"kind": "local", "conda": "flatsurf"},
                     "lingo": {"kind": "ssh", "host": "lingo",
                               "prefix": "/data/u/miniforge3", "env": "flatsurf",
-                              "repo": "~/FlatSurfLab", "maxJobs": 1,
+                              "repo": "~/SciLab", "maxJobs": 1,
                               "preflight": "vpn:globalprotect",
                               "pushUrl": self.bare}},
                 "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "lingo"},
@@ -202,7 +202,7 @@ class TestProfiles(EnvCase):
         lab = Lab(with_config=False)
         self.addCleanup(lab.close)
         lab.write("queue/config.json", json.dumps(
-            {"target": "ssh:lingo", "prefix": "/p", "remoteRepo": "~/FlatSurfLab",
+            {"target": "ssh:lingo", "prefix": "/p", "remoteRepo": "~/SciLab",
              "fsqHome": "~/fsq", "maxJobs": 1}))
         import env
         l = env.load_lab(lab.home)

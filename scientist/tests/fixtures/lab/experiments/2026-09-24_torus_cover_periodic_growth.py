@@ -9,7 +9,7 @@ Goal:           on the maximal torus T(X) = R^2/L(X) (defn:maximal-torus,
                 thm:torus-periodic-points item 1 (sections/markings.tex), for every v
                 in the box, and (2) the truncated periodic set |union S_v| as the box
                 grows, to see growth rather than a plateau on torus covers. Context:
-                BilliardIllumination Tier 4 issue 5 (Drafts/comment_roadmap.md), Roey's
+                PaperHome Tier 4 issue 5 (Drafts/comment_roadmap.md), Roey's
                 question at sections/slope_blocking.tex:27 on AW21 Lemma 2.13 (bears on
                 paper:thm:torus-periodic-points and paper:rmk:slope-values).
 Class:          four square-tiled torus covers, built in fslab.pslit_covers:
@@ -69,5 +69,5 @@ Result:         Measured at commit a929eca (job 20260924-175705, lingo, dirty fa
                 non-square-tiled covers.
 """
 
-# Test fixture: the module docstring (header) of FlatSurfLab's
+# Test fixture: the module docstring (header) of SciLab's
 # experiments/2026-09-24_torus_cover_periodic_growth.py, copied 2026-09-28; the body is omitted.

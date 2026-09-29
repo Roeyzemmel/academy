@@ -1,5 +1,5 @@
 """academy/registry: one engine for every claim registry (plan section 6; the merge
-proposal FlatSurfLab/docs/design/2026-09-27-claim-registry-merge.md).
+proposal <lab>/docs/design/2026-09-27-claim-registry-merge.md).
 
 Layout:
 
@@ -7,7 +7,7 @@ Layout:
   stores (``model``), homes and profiles from workspace.json (``workspace``),
   federation, the status projection, the cross-namespace graph, line-preserving edits
   (``edit``) and the grounds rules of plan section 8 (``grounds``);
-* ``profiles/``: ``fsl-claims`` (``fsl.py``: lab and paper, FlatSurfLab's claims.py)
+* ``profiles/``: ``fsl-claims`` (``fsl.py``: lab and paper, the lab's claims.py)
   and ``s1-kb`` (``s1kb.py``: Slope1's kb.py);
 * ``cli.py``: ``py -m registry`` (run from ``academy/academy``, or with that directory
   on ``PYTHONPATH``), the union of both command lines, dispatched by the repo's profile;

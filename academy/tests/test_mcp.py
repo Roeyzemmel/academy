@@ -533,8 +533,8 @@ class TestKeeperRouting(unittest.TestCase):
     The bug: _keeper_instance looked up the owning instance, then used only its
     domains to build a candidate list and returned cands[0]. With two researcher
     instances sharing a domain, a proposal about the second one's namespace was
-    filed to the first -- researcher@flat's `flat:` decisions went to
-    researcher@slope1, whose notebook does not hold those objects.
+    filed to the first -- researcher@beta's `flat:` decisions went to
+    researcher@alpha, whose notebook does not hold those objects.
     """
 
     def setUp(self):
@@ -545,14 +545,14 @@ class TestKeeperRouting(unittest.TestCase):
         os.makedirs(self.board)
         # two researchers sharing one domain, registered first-to-last as in the
         # real workspace: the s1 notebook predates the flat one.
-        self.homes = {"researcher@s1": t + "/s1", "researcher@flat": t + "/flat",
+        self.homes = {"researcher@s1": t + "/s1", "researcher@beta": t + "/flat",
                       "author@t": t + "/paper"}
         for h in self.homes.values():
             os.makedirs(h)
         ws = {"instances": {
             "researcher@s1": {"role": "researcher", "home": self.homes["researcher@s1"],
                               "domains": ["test-pack"], "ns": "s1"},
-            "researcher@flat": {"role": "researcher", "home": self.homes["researcher@flat"],
+            "researcher@beta": {"role": "researcher", "home": self.homes["researcher@beta"],
                                 "domains": ["test-pack"], "ns": "flat"},
             "author@t": {"role": "author", "home": self.homes["author@t"],
                          "domains": ["test-pack"], "ns": "paper"}},
@@ -577,7 +577,7 @@ class TestKeeperRouting(unittest.TestCase):
         err, res = s.call("claims_propose_status", id="flat:some-claim", status="sketch",
                           reason="complete attempt")
         self.assertFalse(err, res)
-        self.assertEqual(res["to"], "researcher@flat")
+        self.assertEqual(res["to"], "researcher@beta")
 
     def test_the_other_researcher_still_gets_its_own(self):
         s = self.server()
@@ -592,7 +592,7 @@ class TestKeeperRouting(unittest.TestCase):
         err, res = s.call("claims_propose_status", id="paper:lem:x", status="sketch",
                           reason="complete attempt")
         self.assertFalse(err, res)
-        self.assertIn(res["to"], ("researcher@s1", "researcher@flat"))
+        self.assertIn(res["to"], ("researcher@s1", "researcher@beta"))
 
 
 class TestCallerHandshake(McpTestBase):

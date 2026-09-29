@@ -15,7 +15,7 @@ and walked in order while tracking the directory:
 Each ``git ... commit`` found this way is gated only when its directory lies in an
 Author home (``.claude/academy.json`` with ``role: author``). Commits to any other
 repo pass silently, whatever the session's cwd is (the misfire of the old gate, which
-ran BI's checker for a commit to FlatSurfLab made from a BI session).
+ran the Author's checker for a commit to the lab made from a paper session).
 ``bash -c "..."`` and ``powershell -Command "..."`` are parsed recursively; bash
 heredocs and PowerShell here-strings are skipped as data.
 

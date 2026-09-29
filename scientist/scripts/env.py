@@ -584,7 +584,7 @@ def cmd_setup(lab, name, dry_run=False):
             return 0
         return subprocess.call(argv)
     t = Transport(prof)
-    repo = prof.get("repo") or "~/FlatSurfLab"
+    repo = prof.get("repo") or "~/" + os.path.basename(os.path.abspath(lab.home))
     rel = re.sub(r"^~/", "", repo)
     rc, head = git(lab.home, "rev-parse", "HEAD")
     head = head.strip()
@@ -628,7 +628,7 @@ class Queue(object):
         self.t = Transport(self.prof)
         self.host = self.t.host
         self.qdir = lab.qdir
-        self.remote_repo = self.prof.get("repo") or "~/FlatSurfLab"
+        self.remote_repo = self.prof.get("repo") or "~/" + os.path.basename(os.path.abspath(lab.home))
         self.remote_rel = re.sub(r"^~/", "", self.remote_repo)
         self.fsq_home = lab.queue_cfg.get("fsqHome") or "~/fsq"
         self.fsq_bin = "%s/bin/fsq" % self.fsq_home

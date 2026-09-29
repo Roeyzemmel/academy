@@ -178,19 +178,19 @@ class BoardFixture(unittest.TestCase):
 
 class TestDashboard(BoardFixture, PageContract):
     def test_groups_open_packets_by_instance(self):
-        self.packet("scientist@ts", "Report on the <search>", kind="experiment-report")
-        self.packet("expert@ts", "Verify lem x", kind="verification",
+        self.packet("scientist@main", "Report on the <search>", kind="experiment-report")
+        self.packet("expert@main", "Verify lem x", kind="verification",
                     status_before="sketch", status_proposed="proved")
-        self.packet("author@bi", "Informational", body=INFO_BODY)
-        self.packet("expert@ts", "Already decided")
+        self.packet("author@main", "Informational", body=INFO_BODY)
+        self.packet("expert@main", "Already decided")
         pk.decide_packet(self.board, "P-0004", "a", 1, date=DATE)
         pk.decide_packet(self.board, "P-0004", "a", 2, date=DATE)
-        ws = {"instances": {"expert@ts": {}, "author@bi": {}, "scientist@ts": {}}}
+        ws = {"instances": {"expert@main": {}, "author@main": {}, "scientist@main": {}}}
         page = rp.render_dashboard(self.board, ws, date=DATE)
         self.check_contract(page)
         # grouped in workspace order; decided packets left out
         heads = re.findall(r'<section class="group" id="([^"]+)"', page)
-        self.assertEqual(heads, ["expert@ts", "author@bi", "scientist@ts"])
+        self.assertEqual(heads, ["expert@main", "author@main", "scientist@main"])
         self.assertNotIn("Already decided", page)
         self.assertIn('id="P-0002"', page)
         self.assertIn("Report on the &lt;search&gt;", page)
@@ -207,7 +207,7 @@ class TestDashboard(BoardFixture, PageContract):
         self.assertIn("Already decided", with_all)
 
     def test_answered_decision_shown(self):
-        self.packet("expert@ts", "Half answered")
+        self.packet("expert@main", "Half answered")
         pk.decide_packet(self.board, "P-0001", "b", 1, comment="later", date=DATE)
         page = rp.render_dashboard(self.board, None, date=DATE)
         self.assertIn("answered %s" % DATE, page)
@@ -220,14 +220,14 @@ class TestDashboard(BoardFixture, PageContract):
         self.assertIn("No open packets", page)
 
     def test_malformed_packet_is_flagged_not_fatal(self):
-        write(os.path.join(self.board, "packets", "expert@ts", "P-0007-bad.md"),
-              "---\npacket: P-0007\ntitle: Bad\ninstance: expert@ts\nkind: other\nby: x y\n"
+        write(os.path.join(self.board, "packets", "expert@main", "P-0007-bad.md"),
+              "---\npacket: P-0007\ntitle: Bad\ninstance: expert@main\nkind: other\nby: x y\n"
               "state: open\ncreated: 2026-09-28\n---\n\n## Summary\n\nshort\n")
         page = rp.render_dashboard(self.board, None)
         self.assertIn("Packet format:", page)
 
     def test_cli_writes_default_path(self):
-        self.packet("expert@ts", "One")
+        self.packet("expert@main", "One")
         with redirect_stdout(io.StringIO()):
             rc = rp.main(["--board", self.board, "--workspace",
                           os.path.join(self.tmp, "missing.json")])
@@ -416,36 +416,36 @@ class TestGather(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="academy-gather-")
         t = self.tmp
-        self.homes = {n: os.path.join(t, n) for n in ("bi", "lab", "nb", "lib")}
+        self.homes = {n: os.path.join(t, n) for n in ("paperhome", "lab", "nb", "lib")}
         ws = {"instances": {
-            "author@bi": {"role": "author", "home": self.homes["bi"], "domains": ["dom"],
+            "author@main": {"role": "author", "home": self.homes["paperhome"], "domains": ["dom"],
                           "ns": "paper"},
-            "scientist@ts": {"role": "scientist", "home": self.homes["lab"],
+            "scientist@main": {"role": "scientist", "home": self.homes["lab"],
                              "domains": ["dom"], "ns": "lab"},
             "researcher@nb": {"role": "researcher", "home": self.homes["nb"],
                               "domains": ["dom"], "ns": "s1"},
-            "expert@ts": {"role": "expert", "home": self.homes["lib"], "domains": ["dom"]}},
+            "expert@main": {"role": "expert", "home": self.homes["lib"], "domains": ["dom"]}},
             "board": os.path.join(t, "board")}
         write(os.path.join(t, "workspace.json"), json.dumps(ws))
         self.ws = ac.load_workspace(os.path.join(t, "workspace.json"))
-        bi = self.homes["bi"]
-        write(os.path.join(bi, "main.tex"),
+        paperhome = self.homes["paperhome"]
+        write(os.path.join(paperhome, "main.tex"),
               "\\newcommand{\\R}{\\mathbb{R}}\n\\DeclareMathOperator{\\Aut}{Aut}\n")
-        write(os.path.join(bi, "sections", "a.tex"),
+        write(os.path.join(paperhome, "sections", "a.tex"),
               "\\begin{lem}\\label{lem:x}\n  For $x \\in \\R$ we have \\emph{this},\n"
               "  by \\cite[Thm 1.3]{LMW16}.\n\\end{lem}\n"
               "\\begin{thm}\\label{thm:main}\n  Main.\n\\end{thm}\n")
-        write(os.path.join(bi, "references.bib"),
+        write(os.path.join(paperhome, "references.bib"),
               "@article{LMW16,\n  title={Something},\n  year={2016}\n}\n")
-        write(os.path.join(bi, "claims", "paper", "lem__x.md"),
+        write(os.path.join(paperhome, "claims", "paper", "lem__x.md"),
               "---\nid: paper:lem:x\ntitle: lem:x\nstatus: sketch\nwhere: sections/a.tex\n"
               "depends_on: [paper:lem:y, s1:Q2]\n---\n")
-        write(os.path.join(bi, "claims", "paper", "lem__y.md"),
+        write(os.path.join(paperhome, "claims", "paper", "lem__y.md"),
               "---\nid: paper:lem:y\ntitle: lem:y\nstatus: proved\ndepends_on: [lem:w]\n---\n")
-        write(os.path.join(bi, "claims", "paper", "thm__main.md"),
+        write(os.path.join(paperhome, "claims", "paper", "thm__main.md"),
               "---\nid: paper:thm:main\ntitle: thm:main\nstatus: conjectured\n"
               "where: sections/a.tex\ndepends_on:\n  - paper:lem:x\n---\n")
-        write(os.path.join(bi, "claims", "paper", "defn__marking.md"),
+        write(os.path.join(paperhome, "claims", "paper", "defn__marking.md"),
               "---\nid: paper:defn:marking\ntitle: Marking of a surface\nstatus: proved\n---\n")
         lab = self.homes["lab"]
         write(os.path.join(lab, "claims", "lab", "ew.md"),
@@ -469,7 +469,7 @@ class TestGather(unittest.TestCase):
         write(os.path.join(lib, "index.md"), "| LMW16 | Lelievre-Monteil-Weiss | cached |\n")
         write(os.path.join(lib, "LMW16.txt"), "Page one of the extraction.\n")
         write(os.path.join(lib, "reviews", "paper", "lem-x", "A.md"), "CONFIRMED (run A)\n")
-        pk.create_packet(os.path.join(t, "board"), "scientist@ts", "EW report",
+        pk.create_packet(os.path.join(t, "board"), "scientist@main", "EW report",
                          kind="experiment-report", subject=["lab:ew"], body=DECISION_BODY,
                          date=DATE)
         self.snapshot = self._snapshot()

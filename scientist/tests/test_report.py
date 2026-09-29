@@ -1,4 +1,4 @@
-"""report.py: the refusals, a rendered example from real FlatSurfLab results, and
+"""report.py: the refusals, a rendered example from real SciLab results, and
 filing the packet plus the review ticket on a temporary board."""
 
 import os
@@ -160,8 +160,8 @@ class ReportTest(unittest.TestCase):
         summary = body.split("## Produced")[0]
         self.assertIn("Measure experiment on four torus covers", summary)
         probs = validate_packet({"packet": "P-0001", "title": meta["title"],
-                                 "instance": "scientist@ts", "kind": meta["kind"],
-                                 "by": "scientist@ts", "state": "open",
+                                 "instance": "scientist@main", "kind": meta["kind"],
+                                 "by": "scientist@main", "state": "open",
                                  "created": "2026-09-28", "subject": meta["subject"],
                                  "status_proposed": meta["status_proposed"]}, body)
         self.assertEqual(probs, [])
@@ -201,25 +201,25 @@ class ReportTest(unittest.TestCase):
         meta, body = report.render(ctx)
         res = report.file_report(ctx, meta, body, board=self.sb.board,
                                  workspace=self.sb.workspace)
-        self.assertEqual(res["reviewer"], "researcher@slope1")
+        self.assertEqual(res["reviewer"], "researcher@alpha")
         self.assertIn("s1:Q2", res["reviewer_because"])
         with open(res["packet_path"], encoding="utf-8") as fh:
             pm, pb = read_frontmatter(fh.read())
         self.assertEqual(pm["kind"], "experiment-report")
-        self.assertEqual(pm["by"], "scientist@ts/experimenter")
+        self.assertEqual(pm["by"], "scientist@main/experimenter")
         self.assertEqual(validate_packet(pm, pb), [])
-        self.assertIn(os.path.join("packets", "scientist@ts"), os.path.normpath(
+        self.assertIn(os.path.join("packets", "scientist@main"), os.path.normpath(
             res["packet_path"]))
         with open(res["ticket_path"], encoding="utf-8") as fh:
             tm, tb = read_frontmatter(fh.read())
         self.assertEqual(validate_ticket(tm, tb), [])
         self.assertEqual(tm["kind"], "review-experiment")
-        self.assertEqual(tm["from"], "scientist@ts")
-        self.assertEqual(tm["to"], "researcher@slope1")
+        self.assertEqual(tm["from"], "scientist@main")
+        self.assertEqual(tm["to"], "researcher@alpha")
         self.assertIn(res["packet"], tm["refs"])
         self.assertIn("lab:q2-ew-ornithorynque", tm["refs"])
         self.assertEqual(tm["budget"], {"runs": 2, "max_model": "fable"})
-        self.assertIn("scientist@ts/experimenter: opened", tb)
+        self.assertIn("scientist@main/experimenter: opened", tb)
 
     def test_route_by_lab_config_when_no_namespace_matches(self):
         ctx = self.gather(TORUS)                   # only lab: claims
@@ -227,21 +227,21 @@ class ReportTest(unittest.TestCase):
         res = report.file_report(ctx, meta, body, board=self.sb.board,
                                  workspace=self.sb.workspace, dry_run=True)
         self.assertTrue(res["dry_run"])
-        self.assertEqual(res["reviewer"], "researcher@slope1")
-        self.assertIn("names scientist@ts as its lab", res["reviewer_because"])
-        self.assertEqual(os.listdir(os.path.join(self.sb.board, "researcher@slope1")), [])
+        self.assertEqual(res["reviewer"], "researcher@alpha")
+        self.assertIn("names scientist@main as its lab", res["reviewer_because"])
+        self.assertEqual(os.listdir(os.path.join(self.sb.board, "researcher@alpha")), [])
 
     def test_route_refuses_non_researcher(self):
         from _academy import load_workspace
         with self.assertRaises(report.Refused):
-            report.route_reviewer(load_workspace(self.sb.workspace), "scientist@ts",
-                                  ["lab:x"], to="author@bi")
+            report.route_reviewer(load_workspace(self.sb.workspace), "scientist@main",
+                                  ["lab:x"], to="author@main")
 
     def test_cli_file_links_commissioning_ticket(self):
         boardlib = report._academy_module("board")    # academy's board.py
-        tpath = boardlib.create_ticket(self.sb.board, "scientist@ts", "Run the EW record",
+        tpath = boardlib.create_ticket(self.sb.board, "scientist@main", "Run the EW record",
                                        "Record (Q2) on the EW", "A report packet",
-                                       kind="experiment", as_instance="researcher@slope1")
+                                       kind="experiment", as_instance="researcher@alpha")
         tid = os.path.basename(tpath)[:6]
         code, out, err = self.sb.run("report.py", [
             "file", "experiments/%s.py" % EW, "--home", self.sb.lab, "--board",
@@ -250,9 +250,9 @@ class ReportTest(unittest.TestCase):
         with open(tpath, encoding="utf-8") as fh:
             tm, tb = read_frontmatter(fh.read())
         self.assertEqual(len(tm["packets"]), 1)
-        rev = os.listdir(os.path.join(self.sb.board, "researcher@slope1"))
+        rev = os.listdir(os.path.join(self.sb.board, "researcher@alpha"))
         self.assertEqual(len(rev), 1)
-        with open(os.path.join(self.sb.board, "researcher@slope1", rev[0]),
+        with open(os.path.join(self.sb.board, "researcher@alpha", rev[0]),
                   encoding="utf-8") as fh:
             rm, _ = read_frontmatter(fh.read())
         self.assertEqual(rm["parent"], tid)
@@ -262,8 +262,8 @@ class ReportTest(unittest.TestCase):
             "file", "experiments/%s.py" % EW, "--home", self.sb.lab, "--board",
             self.sb.board, "--ask-prefix", "dry-run: migration test"])
         self.assertEqual(code, 0, err)
-        rev = os.listdir(os.path.join(self.sb.board, "researcher@slope1"))
-        with open(os.path.join(self.sb.board, "researcher@slope1", rev[0]),
+        rev = os.listdir(os.path.join(self.sb.board, "researcher@alpha"))
+        with open(os.path.join(self.sb.board, "researcher@alpha", rev[0]),
                   encoding="utf-8") as fh:
             rm, rb = read_frontmatter(fh.read())
         self.assertTrue(rm["ask"].startswith("dry-run: migration test -- Review experiment"),

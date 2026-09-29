@@ -909,7 +909,7 @@ def atomic_write(path, text, newline="\n"):
     """Write ``text`` (UTF-8, no BOM) to ``path`` atomically.
 
     Line endings are normalised to LF and then written as ``newline`` ('\\n' for
-    every academy file; '\\r\\n' only for a home file that is CRLF, e.g. BI's
+    every academy file; '\\r\\n' only for a home file that is CRLF, e.g. a paper's
     sections). The data goes to a temporary file in the same directory which then
     replaces ``path``; the replace is retried briefly because Windows refuses it
     while an editor or indexer holds the target open.
@@ -1101,7 +1101,7 @@ MAIN_AGENT = "main"
 
 
 def role_of(party, workspace=None):
-    """The role of an instance name ('author@bi' -> 'author'); None for 'human'."""
+    """The role of an instance name ('author@main' -> 'author'); None for 'human'."""
     if not party or party == HUMAN:
         return None
     inst = (workspace or {}).get("instances", {}).get(party)

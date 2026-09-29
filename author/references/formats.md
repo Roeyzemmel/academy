@@ -8,7 +8,7 @@ too; the scripts keep his text.
 ## agenda.md: the paper's results in paper order
 
 ```markdown
-# Agenda: author@bi
+# Agenda: author@main
 
 <!-- academy agenda v1 ... -->
 
@@ -20,7 +20,7 @@ too; the scripts keep his text.
 
 | # | label | claim | required | depends_on | owner | status |
 |---|---|---|---|---|---|---|
-| 1 | thm:main | paper:thm:main | proved | lem:strip, prop:x | author@bi | sketch |
+| 1 | thm:main | paper:thm:main | proved | lem:strip, prop:x | author@main | sketch |
 ```
 
 | Column | Meaning | Who edits |

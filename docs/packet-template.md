@@ -130,9 +130,9 @@ There is one line per answered decision, appended in answer order:
 ---
 packet: P-0012
 title: Verification of paper:lem:strip-bound
-instance: expert@ts
+instance: expert@main
 kind: verification
-by: expert@ts/review-chair
+by: expert@main/review-chair
 ticket: T-0007
 agenda: paper:thm:main
 subject: [paper:lem:strip-bound]
@@ -150,7 +150,7 @@ Recolouring to black is proposed; one cited hypothesis needs Roey's word.
 
 ## Produced
 
-- Verdict records A and B: `file:expert@ts/reviews/paper/lem-strip-bound/`.
+- Verdict records A and B: `file:expert@main/reviews/paper/lem-strip-bound/`.
 
 ## Established vs assumed
 

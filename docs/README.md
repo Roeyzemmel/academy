@@ -49,10 +49,10 @@ a Slope1 definition object is refused, because definitions carry no status; see
 
 | Role (instance, home) | Start with | Also |
 |---|---|---|
-| Author (`author@bi`, BilliardIllumination) | `/author:status`, `/author:next` (at most 3 items, chosen by script from `Drafts/agenda.md`, `Drafts/roadmap.md` and the board) | `/author:notes` (files your `\Roey` notes), `/author:agenda`, `/author:sweep`, `/author:audit-notation`, `/author:presync` |
-| Researcher (`researcher@slope1`, Slope1illuminationResearch) | `/researcher:status`, `/researcher:inbox` | `/researcher:explore <DIR-n>`, `/researcher:prove <id>`, `/researcher:corollaries`, `/researcher:generalize`, `/researcher:review-experiment`, `/researcher:settle`, `/researcher:claims` |
-| Expert (`expert@ts`, papers) | `/expert:lookup <question>` (the clerk, answered inline), `/expert:inbox` | `/expert:cite`, `/expert:verify <id>`, `/expert:referee`, `/expert:litwatch`, `/expert:library-index`, `/expert:domain`, `/expert:status` |
-| Scientist (`scientist@ts`, FlatSurfLab) | `/scientist:status`, `/scientist:inbox` | `/scientist:experiment`, `/scientist:queue`, `/scientist:env check lingo`, `/scientist:api-check`, `/scientist:examples-audit` |
+| Author (`author@<name>`) | `/author:status`, `/author:next` (at most 3 items, chosen by script from `Drafts/agenda.md`, `Drafts/roadmap.md` and the board) | `/author:notes` (files your `\Roey` notes), `/author:agenda`, `/author:sweep`, `/author:audit-notation`, `/author:presync` |
+| Researcher (`researcher@<name>`) | `/researcher:status`, `/researcher:inbox` | `/researcher:explore <DIR-n>`, `/researcher:prove <id>`, `/researcher:corollaries`, `/researcher:generalize`, `/researcher:review-experiment`, `/researcher:settle`, `/researcher:claims` |
+| Expert (`expert@<name>`) | `/expert:lookup <question>` (the clerk, answered inline), `/expert:inbox` | `/expert:cite`, `/expert:verify <id>`, `/expert:referee`, `/expert:litwatch`, `/expert:library-index`, `/expert:domain`, `/expert:status` |
+| Scientist (`scientist@<name>`) | `/scientist:status`, `/scientist:inbox` | `/scientist:experiment`, `/scientist:queue`, `/scientist:env check lingo`, `/scientist:api-check`, `/scientist:examples-audit` |
 | All roles | `/academy:desk`, `/academy:review` | `/academy:board`, `/academy:status`, `/academy:usage`, `/academy:deep-dive`, `/academy:init` |
 
 Only a status keeper changes a status: the Researcher's `claim-keeper`, or you. Without
@@ -65,7 +65,7 @@ quoted from a ticket or packet.
   domain's notebook, Expert keeps the library and reviews proofs, Scientist runs
   the computations.
 - **Instances** (`workspace.json`): a role bound to one home and its domains, for
-  example `author@bi` in BilliardIllumination. A second paper is a second Author
+  example `author@<name>`. A second paper is a second Author
   instance, not a new plugin.
 - **The board** (`$ACADEMY_BOARD`): one Markdown file per ticket, in the
   receiver's folder, with an append-only thread. Your own inbox is `human/`.

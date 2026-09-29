@@ -1,6 +1,6 @@
 """Profile ``s1-kb``: Slope1's knowledge base (``s1:``), kb.py on the engine core.
 
-This is Slope1illuminationResearch's ``tools/kb.py`` (merge proposal, phase 1): the
+This is the first notebook's ``tools/kb.py`` (merge proposal, phase 1): the
 schema, checks, views (STATUS.md, INDEX.md, OPEN.md, assumptions/README.md, the
 ledgers, kb/claims.json, kb/kb.sqlite, site/index.html, the notes/ lists), the
 commands and ``set-status`` are unchanged; the command line is ``scripts/registry.py``
@@ -129,7 +129,7 @@ OBJECT_FOLDERS = {"definition": "claim", "claim": "claim", "conjecture": "claim"
 VERDICT_DIRS = ("computation/verdicts/", "audits/")
 #: ... or a proof review in an Expert's library, written as the protocol's ref
 #: ``file:expert@<name>/reviews/<ns>/<id>/<file>.md`` (phase 7: the claim verdicts moved
-#: to ``papers/reviews/s1/``, Roey's P-0004 D9 / P-0005 D8, 2026-09-28)
+#: to ``<library>/reviews/s1/``, Roey's P-0004 D9 / P-0005 D8, 2026-09-28)
 RE_REVIEW_REF = re.compile(r"^file:(expert@[a-z0-9][a-z0-9-]*)/(reviews/[^#\s]+\.md)$")
 #: the views of the objects layout (the assumption chart moves out of assumptions/)
 VIEWS_DIR = "views"

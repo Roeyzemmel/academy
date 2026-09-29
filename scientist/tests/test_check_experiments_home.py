@@ -2,7 +2,7 @@
 the cwd, and reads the experiments and results directories from academy.json
 (docs/config.md: paths.experiments, paths.results), instead of from its own location.
 The rules themselves are the lab's (legacy/check_experiments.py) and are tested there
-(FlatSurfLab tests/test_check_experiments.py, which loads the lab's shim)."""
+(SciLab tests/test_check_experiments.py, which loads the lab's shim)."""
 
 import json
 import os
@@ -47,7 +47,7 @@ class CheckerHomeTest(unittest.TestCase):
         os.makedirs(os.path.join(self.home, "out"))
         os.makedirs(os.path.join(self.home, ".claude"))
         with open(os.path.join(self.home, ".claude", "academy.json"), "w") as fh:
-            json.dump({"schema": 1, "role": "scientist", "instance": "scientist@ts",
+            json.dump({"schema": 1, "role": "scientist", "instance": "scientist@main",
                        "domains": ["translation-surfaces"], "ns": "lab",
                        "paths": {"package": "fslab", "experiments": "exps/*.py",
                                  "results": "out", "queue": "queue", "records": "claims",

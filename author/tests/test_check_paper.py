@@ -130,7 +130,7 @@ def _without_r7(text):
 
 
 @unittest.skipUnless(os.path.isfile(os.path.join(PAPER_HOME, "main.tex")) and os.path.isfile(GOLDEN),
-                     "BilliardIllumination or the golden is not present")
+                     "PaperHome or the golden is not present")
 class GoldenEquivalenceTests(unittest.TestCase):
     """plan 3.6 / 9.0: the plugin copy reproduces the phase-0 golden (modulo R7)."""
 

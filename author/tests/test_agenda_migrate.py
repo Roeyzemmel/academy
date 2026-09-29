@@ -1,6 +1,6 @@
 """agenda_migrate.py: legacy comment_roadmap.md -> agenda.md + roadmap.md.
 
-A synthetic legacy roadmap pins the rules; the real BilliardIllumination roadmap is
+A synthetic legacy roadmap pins the rules; the real PaperHome roadmap is
 migrated from a copy in a temp dir (read-only on the home; skipped if absent).
 """
 
@@ -134,12 +134,12 @@ def _digest(path):
 
 
 @unittest.skipUnless(os.path.isfile(os.path.join(PAPER_HOME, "Drafts", "comment_roadmap.md")),
-                     "BilliardIllumination not present")
+                     "PaperHome not present")
 class MigrateBiCopyTests(unittest.TestCase):
     """The real roadmap, from a copy; the paper is read in place (read-only)."""
 
-    def test_bi_copy(self):
-        tmp = tempfile.mkdtemp(prefix="bi-migrate-")
+    def test_paper_copy(self):
+        tmp = tempfile.mkdtemp(prefix="paper-migrate-")
         try:
             src = os.path.join(tmp, "comment_roadmap.md")
             shutil.copyfile(os.path.join(PAPER_HOME, "Drafts", "comment_roadmap.md"), src)

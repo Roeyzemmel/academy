@@ -10,8 +10,8 @@ tables. Where this text and the code disagree, fix one of them in the same commi
 - An **instance** is a role bound to a home and one or more domains. Its name is
   `<role>@<name>`, where `<role>` is one of `author researcher expert scientist` and
   `<name>` matches `[a-z0-9][a-z0-9-]*`. The name must be a key of `workspace.json`
-  `instances`. Examples: `author@bi`, `researcher@slope1`, `expert@ts`,
-  `scientist@ts`.
+  `instances`. Examples: `author@main`, `researcher@alpha`, `expert@main`,
+  `scientist@main`.
 - **`human`** is Roey. The main session has no `agent_type`.
   The main session inside a role home files tickets as that home's instance, speaker
   `<instance>/main`. Only `/academy:board`, `/academy:desk` and `/academy:decide` file
@@ -22,12 +22,12 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   `(namespace, bare_name)`. Bare names are unique across the five plugins (see the
   roster in `permissions.json`).
 - **The caller's instance** is the instance whose home contains the session's `cwd`
-  (`find_home` + `instance_for_home`). An agent running in the BI home acts for
-  `author@bi`. The base plugin's agents (`concierge`, `explainer`, `usage-analyst`,
+  (`find_home` + `instance_for_home`). An agent running in the paper home acts for
+  `author@main`. The base plugin's agents (`concierge`, `explainer`, `usage-analyst`,
   `secretary`) act for the instance of the home they run in. From no home at all,
   they act as `human` only when they file something Roey has confirmed. An agent of a role
   plugin acts only for an instance of its own role: `expert:librarian` running in
-  the BI home is refused by the server rather than filing as `author@bi`.
+  the paper home is refused by the server rather than filing as `author@main`.
 - **How the server learns the caller (the caller handshake).** An MCP server does
   not see which agent called it, and a PreToolUse hook can rewrite a call's
   arguments only by also auto-approving it. So `mcp_write_gate` records, for every
@@ -54,7 +54,7 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   retry it in plain ASCII (`+/-`, `--`, LaTeX); if the ASCII call passes, the
   encoding fault is back, so file a ticket.
 - **A speaker** in a thread is written `human`, `<instance>` or
-  `<instance>/<bare-agent>`, for example `researcher@slope1/prover`. It contains no
+  `<instance>/<bare-agent>`, for example `researcher@alpha/prover`. It contains no
   colon and no space.
 
 ## 2. The board
@@ -66,9 +66,9 @@ board/
   .ids/next-ticket        next free ticket number: one integer, then "\n"
   .ids/next-packet        next free packet number
   .ids/lock               exclusive lock; exists only while an id is being allocated
-  author@bi/              tickets addressed TO author@bi
+  author@main/              tickets addressed TO author@main
     T-0007-check-lemma-4-2.md
-  researcher@slope1/  expert@ts/  scientist@ts/
+  researcher@alpha/  expert@main/  scientist@main/
   human/                  tickets addressed TO human, plus RESUME.md and SUMMARY.md
   packets/<instance>/     review packets produced BY <instance>, P-NNNN-<slug>.md
   deep-dives/<id>.html    local copies of /academy:deep-dive artifacts
@@ -119,13 +119,13 @@ the ticket or packet file with `atomic_write`, outside the lock.
 id: T-0007
 title: Check whether Lemma 4.2 is needed
 kind: verify
-from: author@bi
-to: expert@ts
+from: author@main
+to: expert@main
 status: open
 priority: normal
 ask: Verify paper:lem:strip-bound and say whether Theorem 1.3 still needs it.
 deliverable: A review packet with two verdicts; the ticket result names the verdict.
-refs: [paper:lem:strip-bound, paper:thm:main, file:author@bi/sections/billiards.tex]
+refs: [paper:lem:strip-bound, paper:thm:main, file:author@main/sections/billiards.tex]
 agenda: paper:thm:main
 domain: translation-surfaces
 parent:
@@ -150,9 +150,9 @@ Free Markdown detail of the result (receiver-owned). Empty until delivered.
 
 ## Thread
 
-- 2026-09-27 author@bi/math-writer: opened; the proof of 4.2 uses the strip bound twice.
-- 2026-09-27 expert@ts/review-chair: status open -> accepted
-- 2026-09-28 expert@ts/review-chair: status accepted -> in-progress
+- 2026-09-27 author@main/math-writer: opened; the proof of 4.2 uses the strip bound twice.
+- 2026-09-27 expert@main/review-chair: status open -> accepted
+- 2026-09-28 expert@main/review-chair: status accepted -> in-progress
   Run A dispatched; B follows only if A is positive.
 ```
 
@@ -423,7 +423,7 @@ confirms).
 
 ### 6.1 Verify
 
-1. `author@bi` files a `verify` ticket to `expert@ts`.
+1. `author@main` files a `verify` ticket to `expert@main`.
 2. review-chair moves it `accepted`, then `in-progress`, and runs the two
    rigor-reviewer runs.
 3. review-chair creates packet `P-NNNN` (kind `verification`), sets `packets`, then
@@ -432,9 +432,9 @@ confirms).
 
 ### 6.2 Generalize from an experiment conclusion (Researcher)
 
-1. `scientist@ts` finishes an experiment. `/scientist:experiment` writes a report
+1. `scientist@main` finishes an experiment. `/scientist:experiment` writes a report
    packet (kind `experiment-report`, with a mandatory `## Conclusion`), then files a
-   `review-experiment` ticket to `researcher@slope1`.
+   `review-experiment` ticket to `researcher@alpha`.
 2. The two experiment-reviewer runs land. claim-keeper attaches the verdicts, and
    the review ticket is delivered and closed.
 3. Researcher opens a `generalize` ticket to itself, or the human asks through the
@@ -444,7 +444,7 @@ confirms).
    the data, or the governing invariant. Each one is created with `claims_new` as a
    `conjectured` object, with `bears_on: [lab:<claim>]` and a falsifier (the smallest
    case where it could fail).
-5. One `test` ticket per generalization goes to `scientist@ts`:
+5. One `test` ticket per generalization goes to `scientist@main`:
    - `parent` is the generalize ticket;
    - `refs` are `[s1:<new id>, lab:<claim>]`;
    - `ask` is "test the falsifier first".

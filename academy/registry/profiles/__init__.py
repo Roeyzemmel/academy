@@ -1,6 +1,6 @@
 """The registry profiles: one per rule set, chosen per namespace (core.workspace).
 
-``fsl-claims`` (rule sets ``lab`` and ``paper``) is FlatSurfLab's claims.py on the core;
+``fsl-claims`` (rule sets ``lab`` and ``paper``) is the lab's claims.py on the core;
 ``s1-kb`` (rule set ``s1``) is Slope1's kb.py on the core.
 """
 from pathlib import Path

@@ -1,6 +1,6 @@
 """inbox.py -- the Expert's inbox: which tickets to take this run, and where each goes.
 
-    py inbox.py [--instance expert@ts] [--limit N] [--json]
+    py inbox.py [--instance expert@main] [--limit N] [--json]
 
 Lists the tickets addressed to the Expert instance with status ``open`` or
 ``accepted`` (docs/protocol.md section 4, "Execution"), and the ``blocked`` relay

@@ -1,6 +1,6 @@
 """expert_status.py -- one screen on an Expert instance. Read-only.
 
-    py expert_status.py [--instance expert@ts] [--no-quotes] [--json]
+    py expert_status.py [--instance expert@main] [--no-quotes] [--json]
 
 Reports: the home and whether its ``.claude/academy.json`` is valid; the library
 (cached keys, index rows, keys without a row); the cards (count, errors, warnings,

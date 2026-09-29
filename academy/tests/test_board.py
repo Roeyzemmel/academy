@@ -29,7 +29,7 @@ Two runs CONFIRMED $|h| \\le 2$.
 
 ## Produced
 
-- Verdicts: `file:expert@ts/reviews/paper/x/`.
+- Verdicts: `file:expert@main/reviews/paper/x/`.
 
 ## Established vs assumed
 
@@ -67,9 +67,9 @@ INFO_BODY = DECISION_BODY.split("## Decisions needed")[0] + \
 
 def make_workspace(root):
     ws = {"instances": {
-        "expert@ts": {"role": "expert", "home": os.path.join(root, "papers"),
+        "expert@main": {"role": "expert", "home": os.path.join(root, "papers"),
                       "domains": ["dom-a"]},
-        "author@bi": {"role": "author", "home": os.path.join(root, "bi"),
+        "author@main": {"role": "author", "home": os.path.join(root, "paperhome"),
                       "domains": ["dom-a"], "ns": "paper"},
         "researcher@r1": {"role": "researcher", "home": os.path.join(root, "r1"),
                           "domains": ["dom-b"], "ns": "s1"}},
@@ -91,9 +91,9 @@ class BoardCase(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def new(self, **kw):
-        args = dict(to="expert@ts", title="Check Lemma 4.2", ask="Verify paper:lem:x",
+        args = dict(to="expert@main", title="Check Lemma 4.2", ask="Verify paper:lem:x",
                     deliverable="A verification packet", kind="verify",
-                    as_instance="author@bi", agent="math-writer", workspace=self.ws,
+                    as_instance="author@main", agent="math-writer", workspace=self.ws,
                     date=DATE, budget={"runs": 2, "max_model": "opus"})
         args.update(kw)
         return bd.create_ticket(self.board, **args)
@@ -106,52 +106,52 @@ class BoardCase(unittest.TestCase):
 class TestTickets(BoardCase):
     def test_create_writes_valid_ticket_in_receiver_folder(self):
         p = self.new()
-        self.assertEqual(os.path.dirname(p), os.path.join(self.board, "expert@ts"))
+        self.assertEqual(os.path.dirname(p), os.path.join(self.board, "expert@main"))
         self.assertEqual(os.path.basename(p), "T-0001-check-lemma-4-2.md")
         text = self.read(p)
         self.assertNotIn("\r", text)
         meta, body = ac.read_frontmatter(text)
         self.assertEqual(ac.validate_ticket(meta, body), [])
         self.assertEqual(list(meta), [k for k in ac.TICKET_KEY_ORDER if k in meta])
-        self.assertEqual(meta["from"], "author@bi")
+        self.assertEqual(meta["from"], "author@main")
         self.assertEqual(meta["status"], "open")
         self.assertEqual(meta["domain"], "dom-a")          # receiver's first domain
         self.assertEqual(meta["budget"], {"runs": 2, "max_model": "opus"})
         self.assertEqual(ac.thread_lines(body),
-                         [(DATE, "author@bi/math-writer", "opened")])
+                         [(DATE, "author@main/math-writer", "opened")])
         self.assertEqual(ac.write_frontmatter(meta, body), text)   # canonical
 
     def test_new_requires_as(self):
         with self.assertRaises(ac.AcademyError) as cm:
-            bd.create_ticket(self.board, "expert@ts", "T", "a", "d", workspace=self.ws)
+            bd.create_ticket(self.board, "expert@main", "T", "a", "d", workspace=self.ws)
         self.assertIn("--as", str(cm.exception))
 
     def test_new_applies_the_chain(self):
         with self.assertRaises(ac.AcademyError) as cm:
             bd.create_ticket(self.board, "researcher@r1", "T", "a", "d",
-                             as_instance="author@bi", workspace=self.ws)
+                             as_instance="author@main", workspace=self.ws)
         self.assertIn("final_to researcher", str(cm.exception))
-        path = bd.create_ticket(self.board, "expert@ts", "T", "a", "d", kind="research",
-                                as_instance="author@bi", workspace=self.ws,
+        path = bd.create_ticket(self.board, "expert@main", "T", "a", "d", kind="research",
+                                as_instance="author@main", workspace=self.ws,
                                 final_to="researcher")
         meta, body = bd.read_ticket(path)
         self.assertEqual(meta["final_to"], "researcher")
-        self.assertIn("author@bi/main: opened", body)
+        self.assertIn("author@main/main: opened", body)
 
     def test_namespaced_agent_is_written_bare(self):
         # agents carry plugin-namespaced names; the speaker is the bare one (protocol 1)
         p = self.new(agent="author:math-writer")
         _, body = ac.read_frontmatter(self.read(p))
-        self.assertEqual(ac.thread_lines(body), [(DATE, "author@bi/math-writer", "opened")])
+        self.assertEqual(ac.thread_lines(body), [(DATE, "author@main/math-writer", "opened")])
         tid = bd.read_ticket(p)[0]["id"]
-        bd.append_to_ticket(self.board, tid, "a note", as_instance="expert@ts",
+        bd.append_to_ticket(self.board, tid, "a note", as_instance="expert@main",
                             agent="expert:librarian", date=DATE)
-        bd.transition_ticket(self.board, tid, "accepted", as_instance="expert@ts",
+        bd.transition_ticket(self.board, tid, "accepted", as_instance="expert@main",
                              agent="expert:librarian", date=DATE)
         _, body = ac.read_frontmatter(self.read(p))
         self.assertEqual([w for _d, w, _t in ac.thread_lines(body)],
-                         ["author@bi/math-writer", "expert@ts/librarian",
-                          "expert@ts/librarian"])
+                         ["author@main/math-writer", "expert@main/librarian",
+                          "expert@main/librarian"])
         self.assertEqual(bd.bare_agent(" scientist:test-engineer "), "test-engineer")
         self.assertEqual(bd.bare_agent(""), "")
 
@@ -170,18 +170,18 @@ class TestTickets(BoardCase):
         self.assertFalse(os.path.exists(os.path.join(self.board, ".ids", "next-ticket")))
 
     def test_human_ticket_goes_to_human_folder(self):
-        p = self.new(to="human", as_instance="expert@ts", agent="librarian")
+        p = self.new(to="human", as_instance="expert@main", agent="librarian")
         self.assertEqual(os.path.basename(os.path.dirname(p)), "human")
 
     def test_list_filters_and_order(self):
         self.new(title="A", priority="low")
         self.new(title="B", priority="high")
         self.new(title="C", to="researcher@r1", as_instance="human", agent="")
-        rows = bd.list_tickets(self.board, to="expert@ts")
+        rows = bd.list_tickets(self.board, to="expert@main")
         self.assertEqual([r["title"] for r in rows], ["B", "A"])
         self.assertEqual(len(bd.list_tickets(self.board)), 3)
         bd.transition_ticket(self.board, "T-0001", "cancelled", reason="not needed",
-                             as_instance="author@bi", date=DATE)
+                             as_instance="author@main", date=DATE)
         self.assertEqual(len(bd.list_tickets(self.board)), 2)
         self.assertEqual(len(bd.list_tickets(self.board, include_terminal=True)), 3)
         self.assertEqual([r["id"] for r in bd.list_tickets(self.board, status="cancelled")],
@@ -201,22 +201,22 @@ class TestTickets(BoardCase):
     def test_lifecycle_by_parties(self):
         self.new()
         with self.assertRaises(ac.AcademyError):      # the sender cannot accept
-            bd.transition_ticket(self.board, "T-0001", "accepted", as_instance="author@bi")
+            bd.transition_ticket(self.board, "T-0001", "accepted", as_instance="author@main")
         with self.assertRaises(ac.AcademyError):      # a stranger cannot either
             bd.transition_ticket(self.board, "T-0001", "accepted",
                                  as_instance="researcher@r1")
-        bd.transition_ticket(self.board, "T-0001", "accepted", as_instance="expert@ts",
+        bd.transition_ticket(self.board, "T-0001", "accepted", as_instance="expert@main",
                              agent="review-chair", date=DATE)
-        bd.transition_ticket(self.board, "T-0001", "in-progress", as_instance="expert@ts",
+        bd.transition_ticket(self.board, "T-0001", "in-progress", as_instance="expert@main",
                              date=DATE)
         with self.assertRaises(ac.AcademyError):      # delivered needs a result
-            bd.transition_ticket(self.board, "T-0001", "delivered", as_instance="expert@ts")
+            bd.transition_ticket(self.board, "T-0001", "delivered", as_instance="expert@main")
         bd.transition_ticket(self.board, "T-0001", "delivered", result="CONFIRMED x2",
-                             as_instance="expert@ts", date=DATE)
+                             as_instance="expert@main", date=DATE)
         with self.assertRaises(ac.AcademyError):      # a return needs a reason
             bd.transition_ticket(self.board, "T-0001", "in-progress",
-                                 as_instance="author@bi")
-        p = bd.transition_ticket(self.board, "T-0001", "closed", as_instance="author@bi",
+                                 as_instance="author@main")
+        p = bd.transition_ticket(self.board, "T-0001", "closed", as_instance="author@main",
                                  date=DATE)
         meta, body = bd.read_ticket(p)
         self.assertEqual(meta["status"], "closed")
@@ -229,21 +229,21 @@ class TestTickets(BoardCase):
                                  "status in-progress -> delivered",
                                  "status delivered -> closed"])
         whos = [w for _d, w, _t in ac.thread_lines(body)]
-        self.assertEqual(whos[1], "expert@ts/review-chair")
+        self.assertEqual(whos[1], "expert@main/review-chair")
 
     def test_reason_required_for_reject_and_cancel(self):
         self.new()
         with self.assertRaises(ac.AcademyError):
-            bd.transition_ticket(self.board, "T-0001", "rejected", as_instance="expert@ts")
+            bd.transition_ticket(self.board, "T-0001", "rejected", as_instance="expert@main")
         bd.transition_ticket(self.board, "T-0001", "rejected", reason="out of scope",
-                             as_instance="expert@ts", date=DATE)
+                             as_instance="expert@main", date=DATE)
         meta, body = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
         self.assertEqual(ac.thread_lines(body)[-1][2], "status open -> rejected: out of scope")
 
     def test_human_may_reopen_terminal(self):
         self.new()
         bd.transition_ticket(self.board, "T-0001", "cancelled", reason="x",
-                             as_instance="author@bi")
+                             as_instance="author@main")
         bd.transition_ticket(self.board, "T-0001", "open")      # human, no party
         meta, _ = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
         self.assertEqual(meta["status"], "open")
@@ -252,15 +252,15 @@ class TestTickets(BoardCase):
         self.new(title="first")
         self.new(title="second", to="researcher@r1", as_instance="human", agent="")
         with self.assertRaises(ac.AcademyError):      # blocked needs waiting_on
-            bd.transition_ticket(self.board, "T-0001", "blocked", as_instance="expert@ts")
+            bd.transition_ticket(self.board, "T-0001", "blocked", as_instance="expert@main")
         bd.transition_ticket(self.board, "T-0001", "blocked", waiting_on=["T-0002"],
-                             as_instance="expert@ts", date=DATE)
+                             as_instance="expert@main", date=DATE)
         m1, b1 = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
         m2, _ = bd.read_ticket(ac.find_ticket(self.board, "T-0002"))
         self.assertEqual(m1["waiting_on"], ["T-0002"])
         self.assertEqual(m2["blocks"], ["T-0001"])
         self.assertEqual(ac.validate_ticket(m1, b1), [])
-        bd.transition_ticket(self.board, "T-0001", "accepted", as_instance="expert@ts")
+        bd.transition_ticket(self.board, "T-0001", "accepted", as_instance="expert@main")
         m1, b1 = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
         self.assertEqual(m1["waiting_on"], [])
         self.assertEqual(ac.validate_ticket(m1, b1), [])
@@ -269,17 +269,17 @@ class TestTickets(BoardCase):
         p = self.new()
         old = bd.read_ticket(p)[1]
         bd.append_to_ticket(self.board, "T-0001", "first line\nsecond line",
-                            as_instance="expert@ts", agent="clerk", date=DATE)
+                            as_instance="expert@main", agent="clerk", date=DATE)
         new = bd.read_ticket(p)[1]
         self.assertTrue(ac.thread_is_append_only(old, new))
         self.assertEqual(ac.thread_lines(new)[-1],
-                         (DATE, "expert@ts/clerk", "first line\nsecond line"))
+                         (DATE, "expert@main/clerk", "first line\nsecond line"))
 
     def test_cli_roundtrip(self):
         base = ["--board", self.board, "--workspace", self.ws_path]
         out = io.StringIO()
         with redirect_stdout(out):
-            rc = bd.main(base + ["new", "--to", "expert@ts", "--title", "CLI ticket",
+            rc = bd.main(base + ["new", "--to", "expert@main", "--title", "CLI ticket",
                                  "--ask", "ask", "--deliverable", "done",
                                  "--as", "human", "--refs", "paper:lem:x, bib:LMW16",
                                  "--runs", "2"])
@@ -294,7 +294,7 @@ class TestTickets(BoardCase):
         self.assertEqual(json.loads(out.getvalue())[0]["id"], "T-0001")
         err = io.StringIO()
         with redirect_stderr(err), redirect_stdout(io.StringIO()):
-            rc = bd.main(base + ["transition", "T-0001", "accepted", "--as", "author@bi"])
+            rc = bd.main(base + ["transition", "T-0001", "accepted", "--as", "author@main"])
         self.assertEqual(rc, 1)
         self.assertIn("receiver", err.getvalue())
         with redirect_stdout(io.StringIO()):
@@ -304,21 +304,21 @@ class TestTickets(BoardCase):
 
 class TestPackets(BoardCase):
     def packet(self, body=DECISION_BODY, ticket=None, **kw):
-        return pk.create_packet(self.board, "expert@ts", kw.pop("title", "Verify lem x"),
-                                kind="verification", by="expert@ts/review-chair",
+        return pk.create_packet(self.board, "expert@main", kw.pop("title", "Verify lem x"),
+                                kind="verification", by="expert@main/review-chair",
                                 ticket=ticket, subject=["paper:lem:x"],
                                 status_before="sketch", status_proposed="proved",
                                 body=body, workspace=self.ws, date=DATE, **kw)
 
     def test_new_from_template_is_valid(self):
-        p = pk.create_packet(self.board, "author@bi", "From the template", date=DATE,
+        p = pk.create_packet(self.board, "author@main", "From the template", date=DATE,
                              workspace=self.ws)
-        self.assertEqual(p, os.path.join(self.board, "packets", "author@bi",
+        self.assertEqual(p, os.path.join(self.board, "packets", "author@main",
                                          "P-0001-from-the-template.md"))
         meta, body = pk.read_packet(p)
         self.assertEqual(ac.validate_packet(meta, body), [])
         self.assertEqual(meta["state"], "open")
-        self.assertEqual(meta["by"], "author@bi")
+        self.assertEqual(meta["by"], "author@main")
         self.assertEqual(list(meta), list(ac.PACKET_KEY_ORDER))
         self.assertNotIn("\r", self.read(p))
 
@@ -333,18 +333,18 @@ class TestPackets(BoardCase):
             self.packet(ticket="T-0042")
 
     def test_new_links_ticket(self):
-        bd.create_ticket(self.board, "expert@ts", "Check", "ask", "done", "verify",
-                         as_instance="author@bi", workspace=self.ws, date=DATE)
+        bd.create_ticket(self.board, "expert@main", "Check", "ask", "done", "verify",
+                         as_instance="author@main", workspace=self.ws, date=DATE)
         self.packet(ticket="T-0001")
         meta, body = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
         self.assertEqual(meta["packets"], ["P-0001"])
         self.assertEqual(ac.thread_lines(body)[-1],
-                         (DATE, "expert@ts/review-chair", "packet P-0001 filed: Verify lem x"))
+                         (DATE, "expert@main/review-chair", "packet P-0001 filed: Verify lem x"))
         self.assertEqual(ac.validate_ticket(meta, body), [])
 
     def test_ticket_and_packet_ids_are_independent(self):
-        bd.create_ticket(self.board, "expert@ts", "Check", "ask", "done",
-                         as_instance="author@bi", workspace=self.ws)
+        bd.create_ticket(self.board, "expert@main", "Check", "ask", "done",
+                         as_instance="author@main", workspace=self.ws)
         p = self.packet()
         self.assertTrue(os.path.basename(p).startswith("P-0001-"))
 
@@ -357,11 +357,11 @@ class TestPackets(BoardCase):
         self.assertEqual([r["packet"] for r in rows], ["P-0001"])
         self.assertEqual(rows[0]["_pending"], [1, 2])
         self.assertEqual(len(pk.list_packets(self.board)), 2)
-        self.assertEqual(pk.list_packets(self.board, instance="author@bi"), [])
+        self.assertEqual(pk.list_packets(self.board, instance="author@main"), [])
 
     def test_decide_writes_back_and_echoes(self):
-        bd.create_ticket(self.board, "expert@ts", "Check", "ask", "done", "verify",
-                         as_instance="author@bi", workspace=self.ws, date=DATE)
+        bd.create_ticket(self.board, "expert@main", "Check", "ask", "done", "verify",
+                         as_instance="author@main", workspace=self.ws, date=DATE)
         self.packet(ticket="T-0001")
         path, k, decided = pk.decide_packet(self.board, "P-0001", "1", comment="go ahead",
                                             date=DATE)
@@ -436,7 +436,7 @@ class TestPackets(BoardCase):
         with open(bodyfile, "w", encoding="utf-8") as fh:
             fh.write(DECISION_BODY)
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(pk.main(base + ["new", "--instance", "expert@ts", "--title",
+            self.assertEqual(pk.main(base + ["new", "--instance", "expert@main", "--title",
                                              "CLI", "--kind", "verification",
                                              "--subject", "paper:lem:x",
                                              "--body", bodyfile]), 0)

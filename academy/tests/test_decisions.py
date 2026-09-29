@@ -31,7 +31,7 @@ One run confirms.
 
 ## Produced
 
-- Verdict: `file:expert@ts/reviews/paper/x/`.
+- Verdict: `file:expert@main/reviews/paper/x/`.
 
 ## Established vs assumed
 
@@ -97,9 +97,9 @@ None.
 
 def make_workspace(root):
     ws = {"instances": {
-        "expert@ts": {"role": "expert", "home": os.path.join(root, "papers"),
+        "expert@main": {"role": "expert", "home": os.path.join(root, "papers"),
                       "domains": ["dom-a"]},
-        "author@bi": {"role": "author", "home": os.path.join(root, "bi"),
+        "author@main": {"role": "author", "home": os.path.join(root, "paperhome"),
                       "domains": ["dom-a"], "ns": "paper"},
         "researcher@r1": {"role": "researcher", "home": os.path.join(root, "r1"),
                           "domains": ["dom-b"], "ns": "s1"}},
@@ -121,13 +121,13 @@ class DecisionsCase(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def ticket(self, **kw):
-        args = dict(to="expert@ts", title="Check something", ask="Check it",
-                    deliverable="an answer", kind="verify", as_instance="author@bi",
+        args = dict(to="expert@main", title="Check something", ask="Check it",
+                    deliverable="an answer", kind="verify", as_instance="author@main",
                     workspace=self.ws, date=DATE, budget={"runs": 1, "max_model": "sonnet"})
         args.update(kw)
         return bd.create_ticket(self.board, **args)
 
-    def packet(self, body=ONE_DECISION_BODY, instance="expert@ts", ticket=None, **kw):
+    def packet(self, body=ONE_DECISION_BODY, instance="expert@main", ticket=None, **kw):
         kw.setdefault("title", "Verify lem x")
         kw.setdefault("kind", "verification")
         kw.setdefault("subject", ["paper:lem:x"])
@@ -176,7 +176,7 @@ class TestPendingDecisions(DecisionsCase):
         self.assertEqual(len(items), 1)
         it = items[0]
         self.assertEqual(it["id"], "P-0001/D1")
-        self.assertEqual(it["instance"], "expert@ts")
+        self.assertEqual(it["instance"], "expert@main")
         self.assertEqual(it["source"], "packet")
         self.assertEqual(it["kind"], "substantive")          # status_proposed: proved
         self.assertTrue(it["question"].endswith("?"))
@@ -203,49 +203,49 @@ class TestPendingDecisions(DecisionsCase):
 
     def test_human_open_ticket_is_pending(self):
         self.ticket(to="human", kind="decision", ask="Spend a second run on this?",
-                   as_instance="expert@ts")
+                   as_instance="expert@main")
         items = dc.pending_decisions(self.board)
         self.assertEqual(len(items), 1)
         it = items[0]
         self.assertEqual(it["id"], "T-0001")
         self.assertEqual(it["source"], "ticket-human")
-        self.assertEqual(it["instance"], "expert@ts")        # the sender, waiting on human
+        self.assertEqual(it["instance"], "expert@main")        # the sender, waiting on human
         self.assertEqual(it["kind"], "substantive")          # kind: decision
         self.assertIsNone(it["recommendation"])
 
     def test_human_ticket_not_yet_open_is_excluded(self):
-        self.ticket(to="human", as_instance="expert@ts")
+        self.ticket(to="human", as_instance="expert@main")
         bd.transition_ticket(self.board, "T-0001", "cancelled", reason="moot",
-                             as_instance="expert@ts", date=DATE)
+                             as_instance="expert@main", date=DATE)
         self.assertEqual(dc.pending_decisions(self.board), [])
 
     def test_blocked_waiting_on_human_ticket_is_pending_regardless_of_folder(self):
-        self.ticket(to="expert@ts", kind="other")            # any receiver folder
+        self.ticket(to="expert@main", kind="other")            # any receiver folder
         bd.transition_ticket(self.board, "T-0001", "blocked", waiting_on=["human"],
-                             as_instance="expert@ts", date=DATE)
+                             as_instance="expert@main", date=DATE)
         items = dc.pending_decisions(self.board)
         self.assertEqual(len(items), 1)
         it = items[0]
         self.assertEqual(it["source"], "ticket-blocked")
-        self.assertEqual(it["instance"], "expert@ts")        # the stuck receiver
+        self.assertEqual(it["instance"], "expert@main")        # the stuck receiver
         self.assertEqual(it["kind"], "mechanical")           # kind: other
 
     def test_blocked_waiting_on_a_ticket_not_human_is_excluded(self):
         self.ticket(title="first")
         self.ticket(title="second", to="researcher@r1", as_instance="human")
         bd.transition_ticket(self.board, "T-0001", "blocked", waiting_on=["T-0002"],
-                             as_instance="expert@ts", date=DATE)
+                             as_instance="expert@main", date=DATE)
         self.assertEqual(dc.pending_decisions(self.board), [])
 
     def test_instance_filter(self):
-        self.packet(instance="expert@ts")
-        self.ticket(to="human", as_instance="author@bi", title="other")
-        self.assertEqual(len(dc.pending_decisions(self.board, instance="expert@ts")), 1)
-        self.assertEqual(len(dc.pending_decisions(self.board, instance="author@bi")), 1)
+        self.packet(instance="expert@main")
+        self.ticket(to="human", as_instance="author@main", title="other")
+        self.assertEqual(len(dc.pending_decisions(self.board, instance="expert@main")), 1)
+        self.assertEqual(len(dc.pending_decisions(self.board, instance="author@main")), 1)
         self.assertEqual(dc.pending_decisions(self.board, instance="researcher@r1"), [])
 
     def test_unblocks_names_the_linked_ticket_and_what_it_blocks(self):
-        self.ticket(title="verify", to="expert@ts")               # T-0001
+        self.ticket(title="verify", to="expert@main")               # T-0001
         self.ticket(title="downstream", to="researcher@r1", as_instance="human")       # T-0002
         bd.transition_ticket(self.board, "T-0002", "blocked", waiting_on=["T-0001"],
                              as_instance="researcher@r1", date=DATE)
@@ -269,7 +269,7 @@ class TestBatches(DecisionsCase):
     def test_order_and_size(self):
         self.packet(kind="notation", subject=[], status_before=None, status_proposed=None,
                    title="mech")
-        self.ticket(to="human", kind="decision", as_instance="expert@ts", title="subst")
+        self.ticket(to="human", kind="decision", as_instance="expert@main", title="subst")
         items = dc.pending_decisions(self.board)
         bs = dc.batches(items, size=1)
         self.assertEqual(len(bs), 2)
@@ -280,7 +280,7 @@ class TestBatches(DecisionsCase):
 
     def test_batch_size_default_four(self):
         for i in range(6):
-            self.ticket(to="human", as_instance="expert@ts", title="t%d" % i)
+            self.ticket(to="human", as_instance="expert@main", title="t%d" % i)
         bs = dc.batches(dc.pending_decisions(self.board))
         self.assertEqual([len(b) for b in bs], [4, 2])
 
@@ -302,7 +302,7 @@ class TestRecord(DecisionsCase):
         self.assertEqual(out["decision"], 2)
 
     def test_record_human_ticket_proceed_transitions_to_accepted(self):
-        self.ticket(to="human", as_instance="expert@ts")
+        self.ticket(to="human", as_instance="expert@main")
         out = dc.record(self.board, "T-0001", "a", comment="go ahead", date=DATE)
         self.assertEqual(out["status"], "accepted")
         meta, body = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
@@ -311,16 +311,16 @@ class TestRecord(DecisionsCase):
         self.assertTrue(any("go ahead" in t for t in texts))
 
     def test_record_human_ticket_decline_transitions_to_rejected(self):
-        self.ticket(to="human", as_instance="expert@ts")
+        self.ticket(to="human", as_instance="expert@main")
         out = dc.record(self.board, "T-0001", "decline", date=DATE)
         self.assertEqual(out["status"], "rejected")
         meta, _b = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
         self.assertEqual(meta["status"], "rejected")
 
     def test_record_blocked_ticket_proceed_clears_waiting_on(self):
-        self.ticket(to="expert@ts")
+        self.ticket(to="expert@main")
         bd.transition_ticket(self.board, "T-0001", "blocked", waiting_on=["human"],
-                             as_instance="expert@ts", date=DATE)
+                             as_instance="expert@main", date=DATE)
         dc.record(self.board, "T-0001", "proceed", date=DATE)
         meta, body = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
         self.assertEqual(meta["status"], "accepted")
@@ -332,13 +332,13 @@ class TestRecord(DecisionsCase):
             dc.record(self.board, "not-an-id", "a")
 
     def test_record_ticket_rejects_bad_choice(self):
-        self.ticket(to="human", as_instance="expert@ts")
+        self.ticket(to="human", as_instance="expert@main")
         with self.assertRaises(ac.AcademyError):
             dc.record(self.board, "T-0001", "maybe")
 
     def test_record_never_touches_other_tickets(self):
         """Recording a decision starts no work (budget.md rule 3): only its own file changes."""
-        self.ticket(to="human", as_instance="expert@ts", title="first")
+        self.ticket(to="human", as_instance="expert@main", title="first")
         p2 = self.ticket(to="researcher@r1", title="second", as_instance="human")
         dc.record(self.board, "T-0001", "a", date=DATE)
         meta2, _b2 = bd.read_ticket(p2)
@@ -363,7 +363,7 @@ class TestAcceptRecommended(DecisionsCase):
         self.assertEqual(ac.packet_answers(body1), {})
 
     def test_never_accepts_a_ticket_decision(self):
-        self.ticket(to="human", kind="decision", as_instance="expert@ts")
+        self.ticket(to="human", kind="decision", as_instance="expert@main")
         out = dc.accept_recommended(self.board, date=DATE)
         self.assertEqual(out, [])
         meta, _b = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
@@ -396,7 +396,7 @@ class TestCLI(DecisionsCase):
         self.assertEqual(json.loads(out.getvalue())["decided"], True)
 
     def test_batches_cli(self):
-        self.ticket(to="human", as_instance="expert@ts")
+        self.ticket(to="human", as_instance="expert@main")
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(dc.main(self._base() + ["batches", "--json", "--size", "1"]), 0)
