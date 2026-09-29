@@ -10,6 +10,9 @@ Usage:
     py inbox.py [--instance researcher@x] [--n N] [--all] [--json]
 
 ``--all`` lists every open/accepted/in-progress/blocked ticket without taking any.
+Without it, a ``blocked`` relay parent is taken too once its return leg is ready
+(``final_to`` routes it to a relay, ``waiting_on`` holds only ticket ids, every child
+is ``delivered`` or terminal); its row carries ``"return": true`` and the same relay.
 Without ``--instance`` the instance is the Researcher home containing the cwd.
 
 Routing by ticket kind (the skill or agent that handles it):
@@ -92,6 +95,31 @@ def route(t):
     return ROUTES.get(t.get("kind"), DEFAULT_ROUTE)
 
 
+def _status(board, tid):
+    path = ac.find_ticket(board, tid)
+    if not path:
+        return None
+    try:
+        return ac.read_frontmatter(rs.read_text(path) or "")[0].get("status")
+    except ac.AcademyError:
+        return None
+
+
+def return_legs(board, instance):
+    """Blocked relay parents ready for their return leg, each marked ``_return``.
+
+    ``final_to`` routes the ticket to a relay, ``waiting_on`` holds only ticket ids,
+    and every child is ``delivered`` or terminal (docs/protocol.md section 5.2).
+    """
+    out = []
+    for t in tickets_for(board, instance, ("blocked",)):
+        ready = ac.relay_return_ready(t, lambda tid: _status(board, tid))
+        if route(t) in RELAYS.values() and ready:
+            t["_return"] = True
+            out.append(t)
+    return out
+
+
 def take(tickets, n):
     return sorted(tickets, key=order_key)[:n]
 
@@ -119,10 +147,13 @@ def main(argv=None):
         limit = min(int(((cfg or {}).get("budget") or {}).get("itemsPerRun", 3)), 3)
         n = max(1, min(args.n or limit, limit))
         pool = tickets_for(board, inst, SHOW if args.all else TAKE)
+        if not args.all:
+            pool += return_legs(board, inst)
         chosen = sorted(pool, key=order_key) if args.all else take(pool, n)
         rows = [{"id": t["id"], "kind": t.get("kind"), "status": t.get("status"),
                  "priority": t.get("priority"), "from": t.get("from"),
                  "title": t.get("title"), "route": route(t),
+                 "return": bool(t.get("_return")),
                  "budget": t.get("budget"), "path": t["path"]} for t in chosen]
         left = max(0, len(pool) - len(rows)) if not args.all else 0
         if args.json:
@@ -132,7 +163,8 @@ def main(argv=None):
             for r in rows:
                 print("%s  %-17s %-11s %-6s from %-18s -> %-30s %s"
                       % (r["id"], r["kind"], r["status"], r["priority"], r["from"],
-                         r["route"], r["title"]))
+                         r["route"] + (" (return)" if r["return"] else ""),
+                         r["title"]))
             if not rows:
                 print("(inbox of %s is empty)" % inst)
             elif left:

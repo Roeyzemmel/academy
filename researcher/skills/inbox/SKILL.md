@@ -12,21 +12,27 @@ most `budget.itemsPerRun` tickets, one after another, each within its own
 `budget.runs` and `budget.max_model`.
 
 1. **Take.** `py $R/inbox.py` (or `--all` to list without taking). It prints the
-   tickets to handle and the route of each, and how many more wait.
+   tickets to handle and the route of each, and how many more wait. Besides `open` and
+   `accepted` tickets it takes a relay ticket ready for its **return leg**: `blocked`,
+   routed to a relay by its `final_to`, waiting only on ticket ids (never `human`),
+   every one of them `delivered` or terminal; it is marked `(return)` (`"return": true`
+   in `--json`).
 2. **For each ticket, in order:**
    - Read it (`$A/board.py show T-NNNN`). A ticket outside this role's work — asking for
      prose in a paper, a citation card, an experiment script — is `rejected` with the
      reason and the instance it belongs to (`$A/board.py transition T-NNNN rejected
      --reason "..." --as <instance>`).
-   - Move it `accepted` (`--as <instance>`), then run its route with the ticket id:
+   - A return-leg ticket goes straight to the same relay with the ticket id; make no
+     transition yourself (the relay closes the child and delivers the ticket).
+   - Otherwise move it `accepted` (`--as <instance>`), then run its route with the
+     ticket id:
      `/researcher:prove`, `/researcher:review-experiment` (or `/researcher:settle`
      when the report lists candidates), `/researcher:generalize`,
      `/researcher:explore` for a `question`, `claim-keeper` for a `decision` (a status
      proposal), and `lead-researcher` for everything else. A ticket whose `final_to`
      lies beyond the Researcher goes to its relay (`experiment-spec` toward the
      Scientist, `lit-request` toward the Expert or the Author), whatever its kind; a
-     `research` ticket without `final_to` goes to `lead-researcher`. A relay ticket
-     comes back to you when its child is delivered: run the same relay again to deliver it.
+     `research` ticket without `final_to` goes to `lead-researcher`.
    - If the work needs more runs or a heavier model than `budget` allows, move it
      `blocked` with `--waiting-on human` and a thread line asking for more budget.
    - The route delivers the ticket with a one-line result. Check it did before taking

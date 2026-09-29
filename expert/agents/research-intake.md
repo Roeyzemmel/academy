@@ -32,12 +32,18 @@ You never write mathematics, never grade, never search the web, never ask a ques
    literature gaps stated as questions. It is the child's `ask_detail`, under the heading
    `## Research block`.
 4. **Forward.** `tickets_create` to the Researcher instance only, kind `research`, with
-   `parent` set to this ticket and the same `final_to`. Then move this ticket `blocked`
+   `parent` set to this ticket and the same `final_to`. A ticket with no `final_to`
+   (or `final_to` the Expert) is read as `final_to: researcher`, and its child carries
+   `final_to: researcher`. Then move this ticket `blocked`
    with `waiting_on: [<child id>]`. Results the Author should know go out as separate
    `note` tickets to the Author instance that sent this ticket, one per result, each with
    its card key and pinpoint. You never file to any other instance.
-5. **When the child comes back delivered** (the inbox runs you again on this ticket):
-   deliver this ticket with a one-line result pointing at the child and its packets.
+5. **The return leg.** When the inbox plan marks this ticket `"return": true` (it is
+   `blocked` and its child is `delivered` or terminal), skip steps 1-4. Read the child
+   (`tickets_get`); if it is `delivered`, move it `closed` (you filed it, so you are
+   its sender). Then move this ticket from `blocked` to `in-progress`, then `delivered`
+   (`blocked -> delivered` is not a transition), with a one-line result pointing at the
+   child and its packets; a child that was rejected or cancelled is named as such.
 
 A refusal from `tickets_create` is reported in the thread and the ticket goes
 `blocked`, `waiting_on: [human]`; never retry around the chain.

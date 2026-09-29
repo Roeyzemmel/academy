@@ -11,9 +11,9 @@ silent no-op. Inside one it
   4. prints ONE line as additionalContext:
        academy: <instance> — N open tickets to you, M packets awaiting <human>
      followed, only when there are any, by the blocked tickets whose awaited tickets
-     are all terminal ("; freed: T-0003"), by the board-wide pending-decision count
-     from decisions.py ("; D decisions waiting — /academy:decide"), and by config
-     problems.
+     are all terminal, or all delivered for a relay parent ("; freed: T-0003"), by
+     the board-wide pending-decision count from decisions.py ("; D decisions waiting
+     — /academy:decide"), and by config problems.
 """
 
 import os
@@ -73,7 +73,11 @@ def open_packets(board):
 
 
 def freed(all_tickets, instance):
-    """Ids of ``instance``'s blocked tickets whose awaited tickets are all terminal."""
+    """Ids of ``instance``'s blocked tickets whose awaited tickets are all terminal.
+
+    A relay parent (``final_to`` beyond its receiver) is also freed when its children
+    are merely ``delivered``: its return leg is ready (``ac.relay_return_ready``).
+    """
     status = {str(m.get("id")): m.get("status") for _, m in all_tickets}
     out = []
     for folder, m in all_tickets:
@@ -81,8 +85,9 @@ def freed(all_tickets, instance):
             continue
         waits = [str(w) for w in (m.get("waiting_on") or [])]
         tids = [w for w in waits if ac.RE_TICKET_ID.match(w)]
-        if tids and len(tids) == len(waits) and \
-                all(status.get(t) in ac.TERMINAL for t in tids):
+        if (tids and len(tids) == len(waits) and
+                all(status.get(t) in ac.TERMINAL for t in tids)) or \
+                ac.relay_return_ready(m, status.get):
             out.append(str(m.get("id")))
     return out
 

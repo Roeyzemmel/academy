@@ -917,6 +917,26 @@ class TicketEdgeTests(unittest.TestCase):
         self.assertEqual(ac.relay_depth(board, "T-0004"), 0)
         self.assertEqual(ac.relay_depth(board, None), 0)
 
+    def test_relay_return_ready(self):
+        parent = {"id": "T-0001", "to": "expert@ts", "status": "blocked",
+                  "final_to": "researcher", "waiting_on": ["T-0002"]}
+        st = {"T-0002": "delivered"}.get
+        self.assertTrue(ac.relay_return_ready(parent, st))
+        self.assertTrue(ac.relay_return_ready(parent, {"T-0002": "closed"}.get))
+        self.assertFalse(ac.relay_return_ready(parent, {"T-0002": "open"}.get))
+        self.assertFalse(ac.relay_return_ready(parent, {}.get))         # child not found
+        self.assertFalse(ac.relay_return_ready(dict(parent, waiting_on=["T-0002", "human"]),
+                                               st))
+        self.assertFalse(ac.relay_return_ready(dict(parent, waiting_on=[]), st))
+        self.assertFalse(ac.relay_return_ready(dict(parent, status="open"), st))
+        self.assertFalse(ac.relay_return_ready(dict(parent, final_to=None), st))
+        self.assertFalse(ac.relay_return_ready(dict(parent, final_to="expert"), st))
+        self.assertTrue(ac.relay_return_ready(dict(parent, final_to="researcher@s1"), st))
+        research = dict(parent, kind="research", final_to=None)   # read as researcher
+        self.assertTrue(ac.relay_return_ready(research, st))
+        self.assertTrue(ac.relay_return_ready(dict(research, final_to="expert"), st))
+        self.assertFalse(ac.relay_return_ready(dict(research, to="researcher@s1"), st))
+
 
 if __name__ == "__main__":
     unittest.main()

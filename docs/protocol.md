@@ -387,8 +387,12 @@ may be any role further along the same direction. When a receiver's role is not
 the kind. The relay fails fast (delivers back with the reason), sharpens (a research
 block or an experiment spec), then forwards a child ticket with `parent` = the received
 ticket and `final_to` kept, and sets the received ticket `blocked`, `waiting_on` the
-child. When the child is delivered, the same relay delivers the parent with a short
-result pointing at the child.
+child. **The return leg**: once every awaited child is `delivered` or terminal (and the
+parent waits on no `human`), the receiver's inbox takes the blocked parent again and
+hands it to the same relay, which closes a delivered child (it is the child's sender),
+moves the parent `blocked` -> `in-progress` -> `delivered` (`blocked -> delivered` is
+not a transition), and writes a short result pointing at the child. A `research`
+ticket to the Expert with no `final_to` reads as `final_to: researcher`.
 
 **Hop limit.** A relay chain has at most `maxHops` (3) links. Only consecutive
 ancestors that carry `final_to` count; an ordinary `parent` link is not a relay hop.

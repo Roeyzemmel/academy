@@ -401,6 +401,31 @@ class ChainDocsTests(unittest.TestCase):
                         bad.append("%s:%d" % (os.path.relpath(path, self.REPO), n))
         self.assertEqual(bad, [])
 
+    def read(self, *parts):
+        with open(os.path.join(self.REPO, *parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    RELAYS = (("expert", "research-intake"), ("expert", "paper-liaison"),
+              ("researcher", "experiment-spec"), ("researcher", "lit-request"))
+
+    def test_relays_describe_the_return_leg(self):
+        """F1: close the child, then blocked -> in-progress -> delivered."""
+        for plugin, name in self.RELAYS:
+            text = self.read(plugin, "agents", name + ".md")
+            self.assertIn("return leg", text, name)
+            self.assertRegex(text, r"`closed`", name)
+            self.assertRegex(text, r"`blocked` to `in-progress`,? then `delivered`", name)
+
+    def test_inbox_skills_take_the_return_leg(self):
+        for plugin in ("expert", "researcher"):
+            text = self.read(plugin, "skills", "inbox", "SKILL.md")
+            self.assertIn("return leg", text, plugin)
+            self.assertIn("`delivered` or terminal", text, plugin)
+
+    def test_research_intake_reads_a_missing_final_to_as_researcher(self):
+        text = self.read("expert", "agents", "research-intake.md")
+        self.assertRegex(text, r"(?i)no `final_to`[^.]*final_to: researcher`")
+
 
 if __name__ == "__main__":
     unittest.main()

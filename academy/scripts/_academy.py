@@ -1119,6 +1119,32 @@ def relay_depth(board, parent):
     return n
 
 
+def relay_return_ready(meta, status_of, workspace=None):
+    """Whether a blocked relay parent is ready for its return leg (protocol section 5.2).
+
+    True when ``meta`` is ``blocked``, carries a ``final_to`` beyond its receiver's own
+    role, waits on ticket ids only (no ``human``), and every one of them is
+    ``delivered`` or terminal. ``status_of`` maps a ticket id to its status (None when
+    the ticket is not found). A ``research`` ticket to an Expert with no ``final_to``
+    (or ``final_to`` the Expert) reads as ``final_to: researcher``, as research-intake
+    reads it.
+    """
+    if meta.get("status") != "blocked":
+        return False
+    ft = meta.get("final_to")
+    final = (ft if ft in ROLES else role_of(ft, workspace)) if ft else None
+    receiver = role_of(meta.get("to"), workspace)
+    if meta.get("kind") == "research" and receiver == "expert" and \
+            final in (None, "expert"):
+        final = "researcher"
+    if final is None or final == receiver:
+        return False
+    waits = [str(w) for w in (meta.get("waiting_on") or [])]
+    if not waits or not all(RE_TICKET_ID.match(w) for w in waits):
+        return False
+    return all(status_of(w) in ("delivered",) + TERMINAL for w in waits)
+
+
 def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, depth=0,
                         clerical=False):
     """Whether ``agent`` of instance ``frm`` may file a ticket to ``to``.
