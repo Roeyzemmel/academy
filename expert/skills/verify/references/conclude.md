@@ -106,7 +106,9 @@ LF, Markdown, written by you:
 3. **Follow-ups**, from the script's `file_items`: for each `repair` or
    `verify-input`, one ticket to the instance that owns the statement or input
    (`tickets_create`, kind `prove` for a repair to a notebook claim or `question` to
-   an Author for a write-up repair; kind `verify` back to the Expert for an input that
+   an Author for a write-up repair; a `paper:` claim goes to the Author, a neighbour,
+   an `s1:`-type claim to its Researcher, and a `lab:` claim to the Researcher with
+   `final_to: scientist`, since the Scientist is not a neighbour of the Expert; kind `verify` back to the Expert for an input that
    is itself a proof to review; kind `cite` for a missing card). Each says where the
    defect lives, what exactly is missing, the repair both runs propose, and whether a
    citation must come first.

@@ -358,5 +358,30 @@ class AsHumanLintTests(unittest.TestCase):
         self.assertTrue(self.ALLOWED <= seen, "the three skills must say --as human")
 
 
+class ChainDocsTests(unittest.TestCase):
+    """No skill or agent tells a role to file to a non-neighbour."""
+    REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    CASES = {
+        os.path.join("author", "agents", "math-writer.md"): "final_to",
+        os.path.join("author", "agents", "figure-maker.md"): "final_to",
+        os.path.join("author", "skills", "next", "references", "routing.md"): "final_to",
+        os.path.join("expert", "skills", "verify", "references", "conclude.md"): "final_to",
+        os.path.join("expert", "agents", "review-chair.md"): "final_to",
+        os.path.join("scientist", "skills", "examples-audit", "SKILL.md"): "final_to",
+        os.path.join("academy", "skills", "citation-discipline", "SKILL.md"): "neighbour",
+    }
+
+    def test_rerouted_docs_mention_the_relay(self):
+        for rel, word in self.CASES.items():
+            with open(os.path.join(self.REPO, rel), encoding="utf-8") as fh:
+                self.assertIn(word, fh.read(), rel)
+
+    def test_prover_no_longer_files_experiments(self):
+        with open(os.path.join(self.REPO, "researcher", "agents", "prover.md"),
+                  encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertNotRegex(text, r"(?i)ticket[^.\n]*to (the )?scientist")
+
+
 if __name__ == "__main__":
     unittest.main()

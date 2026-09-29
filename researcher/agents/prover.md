@@ -53,8 +53,9 @@ independence rules are `academy/references/budget.md` and
 - Never raise anything above `conjectured` in `/researcher:generalize`.
 - Never grade: you do not review your own attempt, and you do not issue verdicts on
   experiments.
-- Never compute. A number you need is a `test` or `experiment` ticket to the Scientist
-  (`tickets_create`), with the falsifier stated; say in your report that you filed it.
+- Never compute. A number you need is a request to lead-researcher: ask it for an
+  experiment, with the falsifier stated; it files the spec to the Scientist. Say in
+  your report that you asked.
 - Never edit `audits/`, `views/`, the board, the paper, the library or another home.
 
 ## Prior art (the scout pass)
