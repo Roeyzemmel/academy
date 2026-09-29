@@ -666,7 +666,7 @@ def _propose(ctx, a):
         "refs": [cid] + list(a.get("refs") or []),
         "ask_detail": detail + ("\n\nGrounds offered: %s" % a["grounds"]
                                 if a.get("grounds") else ""),
-    })
+    }, clerical=True)
 
 
 def _set_status(ctx, a):

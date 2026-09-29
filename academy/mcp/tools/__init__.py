@@ -15,6 +15,7 @@ arguments. The server exposes the caller as ``ctx.agent`` (bare name, '' for the
 human), ``ctx.agent_ns`` (its plugin namespace) and ``ctx.instance`` (the
 instance of the home containing the server's cwd, or ``'human'``); an agent of a
 role plugin running in another role's home has no instance there and is refused.
+A new ticket's sender comes from ctx.filer(): the main session inside a home files as that home (agent 'main').
 """
 
 import os
@@ -171,6 +172,23 @@ class Context(object):
             raise ToolError("agent %r runs outside every academy home; it has no instance"
                             % self.agent)
         return ac.format_who(inst, self.agent)
+
+    def filer(self, as_human=False):
+        """``(instance, agent)`` a new ticket is filed as (docs/protocol.md section 5).
+
+        An agent files as its instance. The main session files as the home it runs in,
+        with agent ``main`` -- a role skill such as /author:next is its role -- unless
+        ``as_human`` (only /academy:board, desk and decide pass it, after Roey
+        confirms); outside every home it is the human.
+        """
+        if self.is_human:
+            if as_human:
+                return ac.HUMAN, ""
+            name = self.home_instance()
+            return (name, ac.MAIN_AGENT) if name else (ac.HUMAN, "")
+        if as_human:
+            raise ToolError("as_human is for the main session only (Roey's own tickets)")
+        return self.instance, self.agent
 
     def my_domains(self):
         inst = self.instances().get(self.home_instance() or "", {})

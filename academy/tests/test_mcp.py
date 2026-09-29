@@ -1103,3 +1103,67 @@ class TestRealRegistries(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestChainGate(McpTestBase):
+    def create(self, s, caller=None, **kw):
+        args = dict(title="t", kind="question", ask="a", deliverable="d")
+        args.update(kw)
+        return s.call("tickets_create", caller=caller, **args)
+
+    def test_main_session_in_a_home_files_as_the_home(self):
+        err, t = self.create(self.server("author@t"), to="expert@t")
+        self.assertFalse(err, t)
+        self.assertEqual(t["from"], "author@t")
+        err, g = self.server().call("tickets_get", id=t["id"])
+        self.assertIn("author@t/main: opened", g["body"])
+
+    def test_main_session_outside_homes_is_human(self):
+        err, t = self.create(self.server(), to="scientist@t")
+        self.assertFalse(err, t)
+        self.assertEqual(t["from"], "human")
+
+    def test_as_human_from_a_home(self):
+        err, t = self.create(self.server("author@t"), to="scientist@t", as_human=True)
+        self.assertFalse(err, t)
+        self.assertEqual(t["from"], "human")
+
+    def test_as_human_refused_to_agents(self):
+        err, msg = self.create(self.server("author@t"), caller="author:math-writer",
+                               to="expert@t", as_human=True)
+        self.assertTrue(err)
+        self.assertIn("as_human", msg)
+
+    def test_non_neighbour_refused(self):
+        err, msg = self.create(self.server("author@t"), to="researcher@t", kind="prove")
+        self.assertTrue(err)
+        self.assertIn("final_to researcher", msg)
+
+    def test_non_liaison_refused(self):
+        err, msg = self.create(self.server("author@t"), caller="author:tex-engineer",
+                               to="expert@t")
+        self.assertTrue(err)
+        self.assertIn("liaison", msg)
+
+    def test_research_with_final_to(self):
+        err, t = self.create(self.server("author@t"), to="expert@t", kind="research",
+                             final_to="researcher")
+        self.assertFalse(err, t)
+        err, g = self.server().call("tickets_get", id=t["id"])
+        self.assertEqual(g["meta"]["final_to"], "researcher")
+
+    def test_propose_status_is_clerical(self):
+        err, res = self.server("author@t").call(
+            "claims_propose_status", caller="author:math-editor", id="paper:lem:x",
+            status="proved", reason="r")
+        # the claim may not exist in this fixture; the refusal must not be the chain's
+        if err:
+            self.assertNotIn("liaison", str(res))
+            self.assertNotIn("may not file", str(res))
+
+    def test_main_session_updates_stay_human(self):
+        err, t = self.create(self.server("author@t"), to="expert@t")
+        self.assertFalse(err, t)
+        err, res = self.server("author@t").call("tickets_update", id=t["id"],
+                                                fields={"to": "researcher@t"})
+        self.assertFalse(err, res)            # only the human re-routes; still allowed
