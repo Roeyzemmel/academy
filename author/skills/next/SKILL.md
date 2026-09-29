@@ -1,6 +1,6 @@
 ---
 name: next
-description: 'Run the next batch (at most three items) of the paper''s work, chosen from the agenda, roadmap and board: route items to the Author''s agents or file tickets to other roles, and land returned tickets. Use for "next", "continue the paper", "run the agenda".'
+description: 'Run the next batch (at most three items) of the paper''s work from the agenda, roadmap and board: route items to the Author''s agents, file lead/verify/cite/experiment items as tickets (research ones with final_to), land returned tickets. Use for "next", "run the agenda".'
 ---
 
 # /author:next

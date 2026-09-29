@@ -1,6 +1,6 @@
 {
   "name": "translation-surfaces",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "summary": "Translation surfaces, rational billiards, illumination and finite blocking: notation, theorem sheet with real hypotheses, standard examples, traps, figure conventions and sage-flatsurf / surface_dynamics computation recipes. Domain content only; no plugin logic.",
   "keywords": [
     "translation surface", "flat surface", "abelian differential", "stratum",

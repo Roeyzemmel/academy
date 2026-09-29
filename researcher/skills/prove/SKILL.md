@@ -1,6 +1,6 @@
 ---
 name: prove
-description: 'Take one notebook claim to a reviewable proof: prover writes the next attempt under proofs/<id>/, and a complete attempt becomes a verify ticket to the Expert. Never sets a status. Use for "/researcher:prove <claim>" and on prove tickets.'
+description: 'Take one notebook claim to a reviewable proof: prover writes the next attempt under proofs/<id>/, and a complete attempt becomes a verify ticket to the Expert. Never sets a status. Use for "/researcher:prove <claim>", prove tickets, research tickets brought by lead-researcher.'
 ---
 
 # Prove a claim

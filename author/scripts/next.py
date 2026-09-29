@@ -29,8 +29,9 @@ The plan
 Routing (references in skills/next/references/routing.md): ``apply`` -> math-editor,
 ``write`` -> math-writer (or the item's ``route``), ``figure`` -> figure-maker,
 ``build`` -> tex-engineer, ``notation`` -> notation-auditor, ``sweep`` -> note-sweeper;
-``lead``/``verify``/``cite``/``experiment``/``referee`` -> a ticket to the Researcher,
-Expert or Scientist instance sharing a domain; a ticketed item whose ticket came
+``lead``/``verify``/``cite``/``experiment``/``referee`` -> a ticket to the Expert
+instance sharing a domain (``lead`` and ``experiment`` as a ``research`` ticket with
+``final_to`` researcher or scientist, relayed on by the Expert); a ticketed item whose ticket came
 back -> ``land`` (math-writer for a proof or experiment, math-editor for a verdict or
 citation, /author:notes for a referee packet).
 
@@ -53,13 +54,17 @@ import agenda_lib as al  # noqa: E402
 AGENT_ROUTES = {"write": "math-writer", "apply": "math-editor", "figure": "figure-maker",
                 "build": "tex-engineer", "notation": "notation-auditor",
                 "sweep": "note-sweeper"}
-ASK_ROUTES = {"lead": ("researcher", "prove"), "verify": ("expert", "verify"),
-              "cite": ("expert", "cite"), "experiment": ("scientist", "experiment"),
+ASK_ROUTES = {"lead": ("expert", "research"), "verify": ("expert", "verify"),
+              "cite": ("expert", "cite"), "experiment": ("expert", "research"),
               "referee": ("expert", "referee")}
+#: the role a relayed ask is really for (docs/protocol.md section 5)
+FINAL_TO = {"lead": "researcher", "experiment": "scientist"}
+#: the deliverable of a relayed ask is the final receiver's
+DELIVERABLE_OF = {"lead": "prove", "experiment": "experiment"}
 LAND_ROUTES = {"lead": "math-writer", "verify": "math-editor", "cite": "math-editor",
                "experiment": "math-writer", "referee": "notes"}
 TICKET_KIND_ROUTES = {"build": "tex-engineer", "figure": "figure-maker",
-                      "notation": "notation-auditor"}
+                      "notation": "notation-auditor", "note": "math-writer"}
 DELIVERABLES = {
     "prove": "A proof (or a refutation) of the statement, as a proof object with its "
              "status proposed; the ticket result names it.",
@@ -263,10 +268,11 @@ def ticket_draft(ctx, it):
             refs.append(d)
     return {
         "to": to, "kind": kind, "title": it.title,
-        "ask": _ask_line(it), "deliverable": DELIVERABLES[kind],
+        "ask": _ask_line(it), "deliverable": DELIVERABLES[DELIVERABLE_OF.get(it.tag, kind)],
         "refs": refs, "agenda": claim or (it.agenda or "global"),
         "priority": it.priority, "domain": (ctx.domains or [None])[0],
         "detail": it.body.strip(), "note": note,
+        "final_to": FINAL_TO.get(it.tag),
     }
 
 
@@ -497,6 +503,7 @@ def file_ticket(ctx, iid, dry_run=False):
                             priority=draft["priority"], refs=draft["refs"],
                             agenda=draft["agenda"], domain=draft["domain"],
                             detail=draft["detail"], as_instance=ctx.instance,
+                            agent=ac.MAIN_AGENT, final_to=draft.get("final_to"),
                             workspace=ctx.workspace if ctx.workspace.get("instances") else None)
     tid = re.match(r"^(T-\d{4,})", os.path.basename(path)).group(1)
     mark(ctx, iid, "ticketed", "ticket %s filed to %s" % (tid, draft["to"]), ticket=tid)

@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "about": "Who may call which academy MCP write tool, and who owns which ticket field. Agents are named bare (the namespace is stripped by agent_identity); bare names are unique across the five plugins. The human (the main session, no agent_type) may do everything. Read tools (claims_show/list/query/deps, library_*, queue_status/log, env_*, domain_get, config_get, workspace_get, tickets_list/get, packets_list/get) are open to every caller and are not listed. The server checks the substance of each call on top of this table (docs/protocol.md).",
+  "about": "Who may call which academy MCP write tool, and who owns which ticket field. Agents are named bare (the namespace is stripped by agent_identity); bare names are unique across the five plugins. The human (the main session, no agent_type) may do everything. Read tools (claims_show/list/query/deps, library_*, queue_status/log, env_*, domain_get, config_get, workspace_get, tickets_list/get, packets_list/get) are open to every caller and are not listed. The server checks the substance of each call on top of this table (docs/protocol.md). tickets.edges is the ticket chain: who may file to whom (docs/protocol.md section 5).",
   "human": "*",
   "roster": {
     "academy": ["concierge", "explainer", "usage-analyst", "secretary"],
     "author": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper", "notation-auditor"],
-    "researcher": ["lead-researcher", "prover", "experiment-reviewer", "claim-keeper"],
-    "expert": ["clerk", "librarian", "related-work-scout", "review-chair", "rigor-reviewer", "referee"],
+    "researcher": ["lead-researcher", "prover", "experiment-reviewer", "claim-keeper", "experiment-spec", "lit-request"],
+    "expert": ["clerk", "librarian", "related-work-scout", "review-chair", "rigor-reviewer", "referee", "research-intake", "paper-liaison"],
     "scientist": ["experimenter", "developer", "test-engineer", "upstream-contributor", "api-prober"]
   },
   "groups": {
@@ -42,12 +42,12 @@
       "substance": "The script must be committed; the env profile defaults to the home's policy.run. The job file is built by scientist/scripts/env.py. Dry run (nothing written, the job file returned) unless the lab's academy.json sets scientist.queue.mcpAdd to on."
     },
     "tickets_create": {
-      "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst"],
+      "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst", "research-intake", "paper-liaison", "experiment-spec", "lit-request"],
       "deny": ["@readonly"],
-      "substance": "from is the caller's instance (the human files as 'human', and the concierge files as 'human' only after Roey confirms); to must be a workspace instance or 'human'; the server allocates id and dates and writes status open."
+      "substance": "from is the caller's filing instance: an agent's home, the main session's home (agent main) unless as_human, which only /academy:board, desk and decide pass after Roey confirms; to must be a workspace instance or 'human'; the pair must pass tickets.edges (docs/protocol.md section 5); the server allocates id and dates and writes status open."
     },
     "tickets_update": {
-      "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst"],
+      "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst", "research-intake", "paper-liaison", "experiment-spec", "lit-request"],
       "deny": ["@readonly"],
       "substance": "Field ownership and transitions per 'tickets' below; the caller's party (sender/receiver) is decided by its instance against the ticket's from/to. Appending to the thread is open to every non-readonly caller."
     },
@@ -62,10 +62,23 @@
     }
   },
   "tickets": {
+    "edges": {
+      "chain": ["author", "expert", "researcher", "scientist"],
+      "maxHops": 3,
+      "liaisons": {
+        "author->expert": ["main", "math-writer", "notation-auditor", "figure-maker"],
+        "expert->author": ["librarian", "review-chair", "research-intake", "paper-liaison"],
+        "expert->researcher": ["research-intake", "review-chair"],
+        "researcher->expert": ["main", "lead-researcher", "prover", "lit-request"],
+        "researcher->scientist": ["main", "lead-researcher", "experiment-spec"],
+        "scientist->researcher": ["main", "experimenter"]
+      },
+      "exempt": ["claim-keeper", "usage-analyst", "concierge"]
+    },
     "fields": {
       "system": ["id", "from", "created", "updated"],
       "human_only": ["to"],
-      "sender": ["title", "kind", "ask", "deliverable", "refs", "priority", "budget", "parent", "blocks", "agenda", "domain"],
+      "sender": ["title", "kind", "ask", "deliverable", "refs", "priority", "budget", "parent", "blocks", "agenda", "domain", "final_to"],
       "receiver": ["status", "result", "waiting_on", "packets"]
     },
     "sections": {

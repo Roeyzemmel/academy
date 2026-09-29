@@ -94,7 +94,8 @@ conventions the domain pack's `figures.md`. Check the result in grayscale.
   cannot catch, because the prose looks finished.
 - **Say what changed.** When handing back a rewritten section, distinguish
   transcription (same argument, better prose), repair (you changed the mathematics:
-  not yours in the academy, it goes back to the Researcher) and replacement (a
+  not yours in the academy, it becomes a `research` ticket to the Expert with
+  `final_to: researcher`) and replacement (a
   different proof: likewise). Name the places, so the author can check exactly those.
 
 ## Before sending anything out

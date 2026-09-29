@@ -5,7 +5,7 @@ Role-based Claude Code plugins for research mathematics, as one local marketplac
 | Folder | What it is |
 |---|---|
 | `academy/` | The base plugin: generic best-practice skills, the board and packet plumbing, the MCP server, hooks, and the front desk |
-| `author/`, `researcher/`, `expert/`, `scientist/` | The four role plugins. Each can run as several instances |
+| `author/`, `researcher/`, `expert/`, `scientist/` | The four role plugins. Each can run as several instances, and each has a `README.md` covering its agents, skills, scripts, hooks and place in the ticket chain |
 | `domains/<name>/` | Domain packs: knowledge only, no plugin logic |
 | `workspace.json` | The instance map: which role runs in which home, for which domains |
 | `docs/` | The contracts and the guides (start with `docs/README.md`) |

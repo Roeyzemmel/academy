@@ -35,9 +35,10 @@ line-ending rule (`crlf`). The standing rules are
 3. **Overfull boxes**: only those that visibly cross the margin (check the page): rewrap
    a display, allow a hyphenation point, break a long formula; never reword prose. A
    margin note that falls off the page is split into two notes, verbatim.
-4. **Bibliography**: a missing-field warning is fixed only by the Expert's librarian
-   (file a `cite` ticket with the key and the warning); the bib gate refuses your
-   edit.
+4. **Bibliography**: a missing-field warning is fixed only by the Expert's librarian,
+   and the bib gate refuses your edit. Hand it back in your report as a `[cite]`
+   roadmap item with the key and the warning, which `/author:next` files; you are not
+   the Author's liaison to the Expert.
 
 ## The toolchain
 

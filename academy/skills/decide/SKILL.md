@@ -56,6 +56,7 @@ phrases the questions. Neither one asks Roey or records on its own.
 
 ## Notes
 
+- File as the human (`--as human`) only after Roey confirmed any ticket it files through AskUserQuestion; this is the one sanctioned way to file as Roey from inside a home (docs/protocol.md section 5). This skill files no new tickets itself; it records answers.
 - `decisions.py accept-recommended` (used above only in the mechanical-only shortcut)
   never touches a ticket-sourced decision: a raw ticket carries no recorded
   recommendation, so it is always answered explicitly with `record`.

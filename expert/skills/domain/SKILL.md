@@ -1,6 +1,6 @@
 ---
 name: domain
-description: 'Edit a domain pack from a ticket through the librarian, one change per ticket, logged in CHANGELOG.md: notation, theorem entry, trap, example, figure convention, computation recipe. Use for notation tickets and "add this theorem to the pack".'
+description: 'Edit a domain pack from a ticket through the librarian, one change per ticket, logged in CHANGELOG.md: notation, theorem entry, trap, example, figure convention, recipe. Use for notation tickets (incl. final_to: expert) and "add this theorem to the pack".'
 ---
 
 # Edit a domain pack

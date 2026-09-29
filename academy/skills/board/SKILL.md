@@ -14,7 +14,7 @@ transition.
 |---|---|
 | `list [filters]` | `py $S/board.py list [--to X] [--from X] [--status S] [--all]` |
 | `show T-NNNN` | `py $S/board.py show T-NNNN` |
-| `new ...` | Draft it, show the draft, confirm with `AskUserQuestion`, then `py $S/board.py new ...` |
+| `new ...` | Draft it, show the draft, confirm with `AskUserQuestion`, then `py $S/board.py new --as human ...` |
 | `close` / `cancel` / `reopen` / any status | `py $S/board.py transition T-NNNN <status> [--reason R] [--result R] [--waiting-on a,b]` |
 | `note T-NNNN <text>` | `py $S/board.py append T-NNNN --text "<text>"` |
 | `sync` | Commit pending board changes (below) |
@@ -26,6 +26,7 @@ Rules:
 - Re-routing a ticket is a change of `to`, which only the human makes; the script
   moves the file. Confirm the new receiver first.
 - Print the script's output as it is. On exit 2, show the error line and stop.
+- File as the human (`--as human`) only after Roey confirmed this ticket through AskUserQuestion; this is the one sanctioned way to file as Roey from inside a home (docs/protocol.md section 5).
 - Changing a ticket starts no work (`references/budget.md` rule 3).
 
 **sync.** In the board repo (`workspace.json` `board`): `git -C <board> status

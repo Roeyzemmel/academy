@@ -1,6 +1,6 @@
 ---
 name: generalize
-description: 'Turn a reviewed experiment''s Conclusion into conjectures: prover proposes generalizations, each with a falsifier, one test ticket each to the Scientist. Use for "/researcher:generalize <report>", generalize tickets, after an experiment review clears.'
+description: 'Turn a reviewed experiment''s Conclusion into conjectures: prover proposes generalizations, each with a falsifier, one test ticket each to the Scientist, never above conjectured. Use for "/researcher:generalize <report>", generalize tickets, after an experiment review clears.'
 ---
 
 # Generalize from an experiment
@@ -34,7 +34,9 @@ Scripts: `$R`, `$A` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Budget:
    `bears_on` the lab claim, with its `## Falsifier` section.
 5. **Tickets.** `py $R/generalize.py tickets <file> --lab-claim <lab-id> --parent
    <generalize ticket>` prints one `test` ticket per proposal (to the lab instance,
-   "test the falsifier first"); check them, then run it again with `--apply`.
+   "test the falsifier first"); check them, then run it again with `--apply`. This
+   main session files them, as the agent `main` (a researcher -> scientist liaison,
+   docs/protocol.md 5.1); `prover` files no ticket to the Scientist.
 6. **Packet.** `py $R/generalize.py packet-body <file> --lab-claim <lab-id> --report
    <P-NNNN> --out <scratchpad>/generalize-body.md`, then `py $A/packets.py new
    --instance <instance> --kind generalization --title "Generalizations of <lab-id>"

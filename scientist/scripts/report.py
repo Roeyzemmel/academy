@@ -777,7 +777,8 @@ def file_report(ctx, meta, body, board=None, workspace=None, ticket=None, to=Non
             "BROKEN); the ticket result names them.",
             kind="review-experiment", priority="normal", refs=refs, parent=ticket,
             budget={"runs": 2, "max_model": "fable"}, detail=detail, as_instance=inst,
-            agent=by.split("/", 1)[1] if "/" in by else "", workspace=ws)
+            agent=(by.split("/", 1)[1] if "/" in by else ac.MAIN_AGENT),
+            workspace=ws)
     except ac.AcademyError as exc:
         raise ac.AcademyError("packet %s was written (%s) but the review ticket was not: %s"
                               % (pid, ppath, exc))

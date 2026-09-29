@@ -35,7 +35,11 @@ its concluder belong in one agent. Pass no `model` override.
 
 **By hand**, only if `review-chair` cannot be launched: follow
 `references/conclude.md` in this seat, launching the runs yourself, and say in the
-report that the pass ran by hand.
+report that the pass ran by hand. This seat files as the agent `main`, and
+`main` is not a liaison for expert->author or expert->researcher: the follow-up repair
+tickets of `conclude.md` are not filed from here. Leave them to a `review-chair` run once one
+can be launched, or list each (receiver, claim, ask) in the report for Roey. The
+status proposal (`claims_propose_status`) is exempt and still goes out.
 
 ## 2. The decision table
 

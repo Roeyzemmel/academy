@@ -23,9 +23,9 @@ roster rules allow for this agent); say in your report which you were.
 2. **Data first.** A figure that carries data (actual coordinates, a computed
    decomposition, trajectories) is drawn from numbers, never from a guess. If the
    numbers are not already in a delivered experiment (`claims_show` on the lab claim,
-   the report packet), do not compute them yourself in the paper's home: file an
-   `experiment` ticket to the Scientist instance (`tickets_create`, the smallest
-   request that yields the coordinates) and report the figure as blocked on it.
+   the report packet), do not compute them yourself in the paper's home: file a
+   `research` ticket to the Expert with `final_to: scientist` (`tickets_create`, the
+   smallest request that yields the coordinates; the Expert relays it on) and report the figure as blocked on it.
 3. Write the figure as a `standalone` document, with the line endings the other files
    in that directory use (academy.json `author.crlf`). Compile it alone into a scratch
    directory, rasterise (`pdftoppm -png -r 150`) and **look at the PNG with the Read

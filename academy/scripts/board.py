@@ -5,14 +5,16 @@ Usage (from anywhere; the board comes from workspace.json unless --board is give
     py board.py list [--to X] [--from X] [--status S] [--all] [--json]
     py board.py new --to X --title T --ask A --deliverable D [--kind K] [--priority P]
                     [--refs a,b] [--agenda ID] [--domain D] [--parent T-NNNN]
-                    [--runs N] [--max-model M] [--detail TEXT] [--as INSTANCE] [--agent NAME]
+                    [--runs N] [--max-model M] [--detail TEXT] --as INSTANCE [--agent NAME]
+                    [--final-to ROLE]
     py board.py show T-NNNN [--json]
     py board.py transition T-NNNN STATUS [--reason R] [--result R] [--waiting-on a,b]
                     [--as INSTANCE] [--agent NAME]
     py board.py append T-NNNN --text TEXT [--as INSTANCE] [--agent NAME]
 
-``--as`` names the caller's instance; without it the caller is the human (the main
-session), who may make any transition. The functions below are the implementation
+``--as`` names the caller's instance; ``new`` requires it (``--as human`` only from
+/academy:board, desk and decide); for ``transition`` and ``append``, without it the
+caller is the human. The functions below are the implementation
 and may be imported (the MCP server and the tests do); the CLI is a thin wrapper.
 Nothing here commits: board commits are made by session_start / board sync.
 """
@@ -160,12 +162,22 @@ def _check_party(name, workspace, what):
 
 def create_ticket(board, to, title, ask, deliverable, kind="other", priority="normal",
                   refs=None, agenda=None, domain=None, parent=None, budget=None,
-                  detail="", as_instance=ac.HUMAN, agent="", workspace=None, date=None):
+                  detail="", as_instance=None, agent="", workspace=None, date=None,
+                  final_to=None, perms=None):
     """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path."""
     ws = workspace if workspace is not None else _workspace_or_none()
-    as_instance = as_instance or ac.HUMAN
+    if not as_instance:
+        raise ac.AcademyError("--as is required: the filing instance ('human' only from "
+                              "/academy:board, desk or decide, after Roey confirms)")
     _check_party(to, ws, "to")
     _check_party(as_instance, ws, "from")
+    who = bare_agent(agent) or (ac.MAIN_AGENT if as_instance != ac.HUMAN else "")
+    depth = ac.relay_depth(board, parent) if final_to and parent else 0
+    ok, why = ac.ticket_edge_allowed(as_instance, to, who,
+                                     perms if perms is not None else ac.load_permissions(),
+                                     ws, final_to, depth)
+    if not ok:
+        raise ac.AcademyError("refused: " + why)
     if kind not in ac.TICKET_KINDS:
         kind = "other"
     if domain is None and ws is not None and to in ws["instances"]:
@@ -175,6 +187,7 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
         "id": "T-0000", "title": title, "kind": kind, "from": as_instance, "to": to,
         "status": "open", "priority": priority, "ask": ask, "deliverable": deliverable,
         "refs": list(refs or []), "agenda": agenda, "domain": domain, "parent": parent,
+        "final_to": final_to,
         "blocks": [], "waiting_on": [], "budget": dict(budget or _default_budget()),
         "result": None, "packets": [], "created": date, "updated": date,
     }
@@ -185,7 +198,7 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     meta["id"] = tid
     text = ac.new_ticket(meta, detail)
     fm, body = ac.read_frontmatter(text)
-    body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent)), "opened", date)
+    body = ac.append_thread(body, ac.format_who(as_instance, who), "opened", date)
     path = os.path.join(board, to, ac.ticket_filename(tid, title))
     write_ticket(path, fm, body)
     return path
@@ -306,7 +319,8 @@ def main(argv=None):
     p.add_argument("--refs"); p.add_argument("--agenda"); p.add_argument("--domain")
     p.add_argument("--parent"); p.add_argument("--runs", type=int)
     p.add_argument("--max-model", choices=ac.MODELS); p.add_argument("--detail", default="")
-    p.add_argument("--as", dest="as_instance", default=ac.HUMAN)
+    p.add_argument("--as", dest="as_instance", required=True)
+    p.add_argument("--final-to", dest="final_to")
     p.add_argument("--agent", default="")
 
     p = sub.add_parser("show", help="print one ticket")
@@ -345,7 +359,8 @@ def main(argv=None):
                 budget["max_model"] = a.max_model
             path = create_ticket(board, a.to, a.title, a.ask, a.deliverable, a.kind,
                                  a.priority, _split(a.refs), a.agenda, a.domain, a.parent,
-                                 budget, a.detail, a.as_instance, a.agent, ws)
+                                 budget, a.detail, a.as_instance, a.agent, ws,
+                                 final_to=a.final_to)
             print(path)
         elif a.cmd == "show":
             path, meta, body = get_ticket(board, a.id)

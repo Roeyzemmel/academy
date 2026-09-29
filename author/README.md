@@ -7,14 +7,17 @@ contracts it codes against are the academy repo's `docs/protocol.md`,
 `docs/config.md` and `docs/packet-template.md`; the standing rules are
 `academy/references/budget.md` and `roster-rules.md`.
 
-| Agent | Model (fallback) | Job |
-|---|---|---|
-| `math-writer` | opus (sonnet) | Exposition from established results; a new argument becomes a prove ticket |
-| `math-editor` | sonnet (opus) | Decided edits, `[copy]` mode (was copy-editor), landing verdicts and the recolour |
-| `tex-engineer` | sonnet (opus) | The LaTeX toolchain, the build, `check_paper.py` and its tests (was latex-fixer) |
-| `figure-maker` | sonnet (opus; opus for data figures) | Figures, after the pack's `figures.md` |
-| `note-sweeper` | sonnet (opus) | The machine-note sweep |
-| `notation-auditor` | sonnet (opus) | The home's notation decisions; domain notation goes to the Expert as a ticket |
+Each agent's model, effort and fallback are in its file's frontmatter (the fallback
+rule: `academy/references/roster-rules.md`, "Model fallback").
+
+| Agent | Job |
+|---|---|
+| `math-writer` | Exposition from established results; a new argument becomes a `research` ticket to the Expert (`final_to: researcher`) |
+| `math-editor` | Decided edits, `[copy]` mode (was copy-editor), landing verdicts and the recolour |
+| `tex-engineer` | The LaTeX toolchain, the build, `check_paper.py` and its tests (was latex-fixer) |
+| `figure-maker` | Figures, after the pack's `figures.md` |
+| `note-sweeper` | The machine-note sweep |
+| `notation-auditor` | The home's notation decisions; domain notation goes to the Expert as a ticket |
 
 Skills: `/author:next` (replaces `tier`), `/author:agenda`, `/author:notes` (was BI's
 `roadmap`), `/author:sweep`, `/author:audit-notation`, `/author:presync`,
@@ -22,9 +25,16 @@ Skills: `/author:next` (replaces `tier`), `/author:agenda`, `/author:notes` (was
 
 Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home:
 `tex_edit_check` (PostToolUse edits: checker + dirty marker), `bib_gate` (only
-`expert:librarian` edits the bibliography), `commit_gate` (Bash|PowerShell, scoped by
+`expert:librarian` edits the bibliography), `notation_scope_guard` (PreToolUse edits:
+the notation-auditor edits only the home's `notation-decisions.md`; scoped by agent),
+`commit_gate` (Bash|PowerShell, scoped by
 the repo actually committed), `build_gate` (SubagentStop of a writer, namespace-stripped,
 under `.build/.lock`).
+
+Ticket chain: the Author's only neighbour is the Expert. A request for the Researcher or
+the Scientist is a `research` ticket to the Expert with `final_to`, which the Expert's
+`research-intake` relays. Which agents may file to the Expert is `academy/permissions.json`
+`tickets.edges`, described in `docs/protocol.md` section 5.1.
 
 Scripts and formats: `references/scripts.md`, `references/formats.md`. Tests:
 `py -m unittest discover -s author/tests -t author/tests` from the academy repo.
@@ -37,7 +47,7 @@ Scripts and formats: `references/scripts.md`, `references/formats.md`. Tests:
 |---|---|
 | /author:agenda | Maintain the paper's agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into roadmap items or tickets. Use for "update the agenda", "what does the paper need". |
 | /author:audit-notation | Audit the paper's notation against the home's notation decisions and the domain pack, report clashes, sync notation-decisions.md to the draft, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round. |
-| /author:next | Run the next batch (at most three items) of the paper's work, chosen from the agenda, roadmap and board: route items to the Author's agents or file tickets to other roles, and land returned tickets. Use for "next", "continue the paper", "run the agenda". |
+| /author:next | Run the next batch (at most three items) of the paper's work from the agenda, roadmap and board: route items to the Author's agents, file lead/verify/cite/experiment items as tickets (research ones with final_to), land returned tickets. Use for "next", "run the agenda". |
 | /author:notes | File the human's new margin notes as roadmap items on the agenda entry they concern (or tickets for other roles), and referee-packet points. Use when Roey has left notes in the PDF, after an Overleaf sync, or when a referee packet comes back. |
 | /author:paper-method | How to write a research mathematics paper in LaTeX so a reader one field over can follow it: structure, prose, labels, macros, bibliography, exposition from proofs, pre-send checklist. Use whenever writing, restructuring or cleaning up a paper. |
 | /author:presync | The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone. |

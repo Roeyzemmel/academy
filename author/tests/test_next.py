@@ -196,6 +196,13 @@ class NextWriteTests(unittest.TestCase):
         with self.assertRaises(nx.NextError):
             nx.mark(self.ctx(), "R-0013", "finished")
 
+    def test_lead_goes_to_the_expert_for_the_researcher(self):
+        c = self.ctx()
+        draft = nx.ticket_draft(c, c.roadmap.get("R-0006"))
+        self.assertEqual((draft["to"], draft["kind"], draft["final_to"]),
+                         ("expert@t", "research", "researcher"))
+        self.assertEqual(draft["deliverable"], nx.DELIVERABLES["prove"])
+
     def test_file_ticket_marks_the_item_ticketed(self):
         draft, dry = nx.file_ticket(self.ctx(), "R-0005", dry_run=True)
         self.assertIsNone(dry)

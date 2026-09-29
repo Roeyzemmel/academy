@@ -1024,7 +1024,7 @@ TICKET_STATUSES = ("open", "accepted", "in-progress", "delivered", "closed",
 TERMINAL = ("closed", "rejected", "cancelled")
 TICKET_KINDS = ("verify", "cite", "lookup", "prove", "review-experiment", "generalize",
                 "experiment", "test", "code", "notation", "referee", "build", "figure",
-                "decision", "question", "other")
+                "decision", "question", "research", "note", "other")
 PRIORITIES = ("high", "normal", "low")
 
 #: (from, to) -> parties who may make the transition; 'human' may make any, always.
@@ -1053,11 +1053,11 @@ TICKET_FIELDS = {
     "system": ("id", "from", "created", "updated"),
     "human_only": ("to",),
     "sender": ("title", "kind", "ask", "deliverable", "refs", "priority", "budget",
-               "parent", "blocks", "agenda", "domain"),
+               "parent", "blocks", "agenda", "domain", "final_to"),
     "receiver": ("status", "result", "waiting_on", "packets"),
 }
 TICKET_KEY_ORDER = ("id", "title", "kind", "from", "to", "status", "priority", "ask",
-                    "deliverable", "refs", "agenda", "domain", "parent", "blocks",
+                    "deliverable", "refs", "agenda", "domain", "parent", "final_to", "blocks",
                     "waiting_on", "budget", "result", "packets", "created", "updated")
 REQUIRED_TICKET_FIELDS = ("id", "title", "kind", "from", "to", "status", "ask",
                           "deliverable", "priority", "budget", "created", "updated")
@@ -1070,6 +1070,133 @@ RE_WHO = re.compile(r"^(human|(author|researcher|expert|scientist)@[a-z0-9][a-z0
 def is_party(name):
     """True for a valid 'from'/'to' value: an instance name or 'human'."""
     return name == HUMAN or (isinstance(name, str) and RE_INSTANCE.match(name) is not None)
+
+
+#: the ticket chain (docs/protocol.md section 5); permissions.json tickets.edges overrides
+CHAIN_DEFAULT = ("author", "expert", "researcher", "scientist")
+#: the directional relay of a crossing: (from role, middle role, "down" or "up") -> agent
+RELAYS = {("author", "expert", "down"): "research-intake",
+          ("researcher", "expert", "up"): "paper-liaison",
+          ("expert", "researcher", "down"): "experiment-spec",
+          ("scientist", "researcher", "up"): "lit-request"}
+#: the agent name of a role skill running in the main session inside a home
+MAIN_AGENT = "main"
+
+
+def role_of(party, workspace=None):
+    """The role of an instance name ('author@bi' -> 'author'); None for 'human'."""
+    if not party or party == HUMAN:
+        return None
+    inst = (workspace or {}).get("instances", {}).get(party)
+    if inst and inst.get("role"):
+        return inst["role"]
+    m = RE_INSTANCE.match(str(party))
+    return m.group(1) if m else None
+
+
+def ticket_edges(perms):
+    """permissions.json tickets.edges with defaults: chain, maxHops, liaisons, exempt."""
+    e = ((perms or {}).get("tickets") or {}).get("edges") or {}
+    return {"chain": list(e.get("chain") or CHAIN_DEFAULT),
+            "maxHops": int(e.get("maxHops", 3)),
+            "liaisons": dict(e.get("liaisons") or {}),
+            "exempt": list(e.get("exempt") or [])}
+
+
+def relay_depth(board, parent):
+    """How many consecutive ancestors, starting at ``parent``, carry ``final_to``.
+
+    Only relay links count toward the hop limit; an ordinary ``parent`` (a review
+    ticket filed against the ticket that commissioned the experiment) stops the count.
+    """
+    n, seen, tid = 0, set(), parent
+    while tid and tid not in seen:
+        seen.add(tid)
+        path = find_ticket(board, tid)
+        if not path:
+            break
+        with open(path, "r", encoding="utf-8") as fh:
+            meta, _ = read_frontmatter(fh.read())
+        if not meta.get("final_to"):
+            break
+        n += 1
+        tid = meta.get("parent")
+    return n
+
+
+def relay_return_ready(meta, status_of, workspace=None):
+    """Whether a blocked relay parent is ready for its return leg (protocol section 5.2).
+
+    True when ``meta`` is ``blocked``, carries a ``final_to`` beyond its receiver's own
+    role, waits on ticket ids only (no ``human``), and every one of them is
+    ``delivered`` or terminal. ``status_of`` maps a ticket id to its status (None when
+    the ticket is not found). A ``research`` ticket to an Expert with no ``final_to``
+    (or ``final_to`` the Expert) reads as ``final_to: researcher``, as research-intake
+    reads it.
+    """
+    if meta.get("status") != "blocked":
+        return False
+    ft = meta.get("final_to")
+    final = (ft if ft in ROLES else role_of(ft, workspace)) if ft else None
+    receiver = role_of(meta.get("to"), workspace)
+    if meta.get("kind") == "research" and receiver == "expert" and \
+            final in (None, "expert"):
+        final = "researcher"
+    if final is None or final == receiver:
+        return False
+    waits = [str(w) for w in (meta.get("waiting_on") or [])]
+    if not waits or not all(RE_TICKET_ID.match(w) for w in waits):
+        return False
+    return all(status_of(w) in ("delivered",) + TERMINAL for w in waits)
+
+
+def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, depth=0,
+                        clerical=False):
+    """Whether ``agent`` of instance ``frm`` may file a ticket to ``to``.
+
+    Rules (docs/protocol.md section 5): 'human' at either end is allowed; a clerical
+    ticket or an exempt agent is allowed; the same role is allowed; otherwise the roles
+    must be adjacent in the chain and ``agent`` a liaison of that direction.
+    ``final_to`` (a role or instance) must lie beyond ``to`` as seen from ``frm``, and
+    ``depth`` (relay_depth of the parent) + 1 may not exceed maxHops.
+    Returns ``(allowed, reason)``.
+    """
+    edges = ticket_edges(perms)
+    chain = edges["chain"]
+    rf, rt = role_of(frm, workspace), role_of(to, workspace)
+    if final_to:
+        rF = final_to if final_to in chain else role_of(final_to, workspace)
+        if rF not in chain:
+            return False, "final_to must be a chain role or an instance, not %r" % final_to
+        if rt is None:
+            return False, "final_to needs a receiver with a role, not 'human'"
+        if rF != rt and rf in chain and rt in chain:
+            i, j, k = chain.index(rf), chain.index(rt), chain.index(rF)
+            if not (min(i, k) < j < max(i, k)):
+                return False, ("final_to %s does not lie beyond %s as seen from %s"
+                               % (rF, rt, rf))
+        if depth + 1 > edges["maxHops"]:
+            return False, "the relay chain would exceed %d hops" % edges["maxHops"]
+    if frm == HUMAN or to == HUMAN:
+        return True, "human"
+    if clerical or agent in edges["exempt"]:
+        return True, "clerical"
+    if rf == rt:
+        return True, "same role"
+    if rf not in chain or rt not in chain:
+        return False, "unknown role for %r or %r" % (frm, to)
+    i, j = chain.index(rf), chain.index(rt)
+    if abs(i - j) != 1:
+        step = chain[i + (1 if j > i else -1)]
+        relay = RELAYS.get((rf, step, "down" if j > i else "up"), "its relay")
+        return False, ("%s may not file to %s: file to the %s with final_to %s; "
+                       "%s relays it" % (rf, rt, step, rt, relay))
+    names = edges["liaisons"].get("%s->%s" % (rf, rt), [])
+    who = agent or MAIN_AGENT
+    if who in names:
+        return True, "liaison"
+    return False, ("%s is not a liaison for %s->%s (liaisons: %s)"
+                   % (who, rf, rt, ", ".join(names) or "none"))
 
 
 def parties(meta, instance):
@@ -1154,6 +1281,9 @@ def validate_ticket(meta, body=None):
             probs.append("packets entry %r is not a packet id" % p)
     if meta.get("parent") and not RE_TICKET_ID.match(str(meta["parent"])):
         probs.append("parent must be a ticket id")
+    ft = meta.get("final_to")
+    if ft and ft not in ROLES and not RE_INSTANCE.match(str(ft)):
+        probs.append("final_to must be a role or an instance name, not %r" % ft)
     b = meta.get("budget")
     if b is not None:
         if not isinstance(b, dict):

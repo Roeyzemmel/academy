@@ -9,6 +9,7 @@ import datetime as _dt
 import glob
 import io
 import json
+import re
 import os
 import shutil
 import sys
@@ -355,6 +356,139 @@ class AcademyStatusTest(Sandbox):
     def test_last_visit_default(self):
         d = academy_status.last_visit(default_days=7, today=_dt.date(2026, 9, 27))
         self.assertTrue(ac.RE_DATE.match(d))
+
+
+class AsHumanLintTests(unittest.TestCase):
+    ALLOWED = {os.path.join("academy", "skills", s, "SKILL.md")
+               for s in ("board", "desk", "decide")}
+    PATTERN = re.compile(r"as_human|--as\s+human")
+
+    def test_only_board_desk_decide_file_as_human(self):
+        repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        bad, seen = [], set()
+        for plugin in ("academy", "author", "expert", "researcher", "scientist"):
+            for sub in ("skills", "agents", "scripts", "hooks"):
+                root = os.path.join(repo, plugin, sub)
+                for dp, _dn, fns in os.walk(root):
+                    for fn in fns:
+                        if not fn.endswith((".md", ".py", ".json")) or fn == "_academy.py":
+                            continue
+                        rel = os.path.relpath(os.path.join(dp, fn), repo)
+                        with open(os.path.join(dp, fn), encoding="utf-8") as fh:
+                            text = fh.read()
+                        if self.PATTERN.search(text):
+                            seen.add(rel)
+                            if rel not in self.ALLOWED and rel != os.path.join(
+                                    "academy", "scripts", "board.py"):
+                                bad.append(rel)
+        self.assertEqual(bad, [], "only /academy:board, desk and decide file as human")
+        self.assertTrue(self.ALLOWED <= seen, "the three skills must say --as human")
+
+
+class ChainDocsTests(unittest.TestCase):
+    """No skill or agent tells a role to file to a non-neighbour."""
+    REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    CASES = {
+        os.path.join("author", "agents", "math-writer.md"): "final_to",
+        os.path.join("author", "agents", "figure-maker.md"): "final_to",
+        os.path.join("author", "skills", "next", "references", "routing.md"): "final_to",
+        os.path.join("expert", "skills", "verify", "references", "conclude.md"): "final_to",
+        os.path.join("expert", "agents", "review-chair.md"): "final_to",
+        os.path.join("scientist", "skills", "examples-audit", "SKILL.md"): "final_to",
+        os.path.join("academy", "skills", "citation-discipline", "SKILL.md"): "neighbour",
+    }
+
+    def test_rerouted_docs_mention_the_relay(self):
+        for rel, word in self.CASES.items():
+            with open(os.path.join(self.REPO, rel), encoding="utf-8") as fh:
+                self.assertIn(word, fh.read(), rel)
+
+    def test_prover_no_longer_files_experiments(self):
+        with open(os.path.join(self.REPO, "researcher", "agents", "prover.md"),
+                  encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertNotRegex(text, r"(?i)ticket[^.\n]*to (the )?scientist")
+
+    OLD_ROUTE = re.compile(r"(?i)prove ticket|Researcher ticket|"
+                           r"ticket[^.\n]*to (the )?(Researcher|Scientist)")
+
+    def test_author_plugin_files_nothing_past_the_expert(self):
+        """A line that files to the Researcher or Scientist must say final_to."""
+        author = os.path.join(self.REPO, "author")
+        paths = [os.path.join(author, "README.md")]
+        for sub in ("agents", "skills"):
+            for dp, _dn, fns in os.walk(os.path.join(author, sub)):
+                paths += [os.path.join(dp, f) for f in fns if f.endswith(".md")]
+        self.assertGreater(len(paths), 10)
+        bad = []
+        for path in paths:
+            with open(path, encoding="utf-8") as fh:
+                for n, line in enumerate(fh, 1):
+                    if self.OLD_ROUTE.search(line) and "final_to" not in line:
+                        bad.append("%s:%d" % (os.path.relpath(path, self.REPO), n))
+        self.assertEqual(bad, [])
+
+    def read(self, *parts):
+        with open(os.path.join(self.REPO, *parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    RELAYS = (("expert", "research-intake"), ("expert", "paper-liaison"),
+              ("researcher", "experiment-spec"), ("researcher", "lit-request"))
+
+    def test_relays_describe_the_return_leg(self):
+        """F1: close the child, then blocked -> in-progress -> delivered."""
+        for plugin, name in self.RELAYS:
+            text = self.read(plugin, "agents", name + ".md")
+            self.assertIn("return leg", text, name)
+            self.assertRegex(text, r"`closed`", name)
+            self.assertRegex(text, r"`blocked` to `in-progress`,? then `delivered`", name)
+
+    def test_inbox_skills_take_the_return_leg(self):
+        for plugin in ("expert", "researcher"):
+            text = self.read(plugin, "skills", "inbox", "SKILL.md")
+            self.assertIn("return leg", text, plugin)
+            self.assertIn("`delivered` or terminal", text, plugin)
+
+    def test_research_intake_reads_a_missing_final_to_as_researcher(self):
+        text = self.read("expert", "agents", "research-intake.md")
+        self.assertRegex(text, r"(?i)no `final_to`[^.]*final_to: researcher`")
+
+    def test_tex_engineer_hands_citations_back(self):
+        """F2: tex-engineer is no author->expert liaison."""
+        text = self.read("author", "agents", "tex-engineer.md")
+        self.assertNotRegex(text, r"(?i)file a `cite` ticket")
+        self.assertIn("`[cite]`", text)
+
+    def test_lead_researcher_reaches_paper_owners_through_the_expert(self):
+        text = self.read("researcher", "agents", "lead-researcher.md")
+        self.assertIn("final_to: author", text)
+
+    def test_verify_by_hand_leaves_repairs_to_review_chair(self):
+        """M9: the Expert main session is no expert->author/researcher liaison."""
+        text = self.read("expert", "skills", "verify", "SKILL.md")
+        self.assertRegex(text, r"(?i)`main` is not a liaison")
+
+    def section(self, text, start, end):
+        return text[text.index(start):text.index(end)]
+
+    def test_protocol_research_flow_names_the_research_kind(self):
+        """M4: research-intake forwards a `research` child; /author:next files as main."""
+        flow = self.section(self.read("docs", "protocol.md"),
+                            "### 6.4", "### 6.5")
+        self.assertNotIn("`lead`", flow)
+        self.assertIn("child `research` ticket", flow)
+        self.assertIn("`main`", flow)
+
+    def test_protocol_chain_section_warns_about_nesting_and_the_cli(self):
+        """M6, M7: relay-within-relay and the self-declared CLI identity."""
+        chain = self.section(self.read("docs", "protocol.md"), "### 5.1", "## 6.")
+        self.assertIn("fresh chain", chain)
+        self.assertIn("self-declared", chain)
+        self.assertIn("advisory", chain)
+        self.assertIn("return leg", chain)
+        scripts = self.read("academy", "references", "scripts.md")
+        self.assertIn("self-declared", scripts)
+        self.assertIn("advisory", scripts)
 
 
 if __name__ == "__main__":

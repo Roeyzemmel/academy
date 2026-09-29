@@ -35,7 +35,8 @@ description: 'Roey''s front desk: classifies a plain-language request and routes
    - `action`: name the skill and its arguments, then invoke it (one skill, once).
    - `ticket`: show the draft and ask Roey with `AskUserQuestion`: file as drafted,
      change the receiver or priority, or drop it. Only on a yes, file it with
-     `py $S/board.py new ...` (as `human`), and print the ticket id and its folder.
+     `py $S/board.py new --as human ...`, and print the ticket id and its folder.
+     File as the human (`--as human`) only after Roey confirmed this ticket through AskUserQuestion; this is the one sanctioned way to file as Roey from inside a home (docs/protocol.md section 5).
    - `unclear`: ask Roey the card's one question with `AskUserQuestion`, then route
      again (once).
 3. If the concierge returns a limit error or nothing, report that and stop

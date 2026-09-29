@@ -104,12 +104,19 @@ LF, Markdown, written by you:
    decision ticket to the claim-keeper; it sets nothing. Never call
    `claims_set_status`.
 3. **Follow-ups**, from the script's `file_items`: for each `repair` or
-   `verify-input`, one ticket to the instance that owns the statement or input
-   (`tickets_create`, kind `prove` for a repair to a notebook claim or `question` to
-   an Author for a write-up repair; kind `verify` back to the Expert for an input that
-   is itself a proof to review; kind `cite` for a missing card). Each says where the
-   defect lives, what exactly is missing, the repair both runs propose, and whether a
-   citation must come first.
+   `verify-input`, one ticket (`tickets_create`) to the instance that owns the
+   statement or input:
+   - a repair to a notebook claim (an `s1:`-type claim): kind `prove`, to its
+     Researcher;
+   - a write-up repair to a `paper:` claim: kind `question`, to the Author, a
+     neighbour;
+   - a `lab:` claim: to the Researcher with `final_to: scientist`, since the
+     Scientist is not a neighbour of the Expert;
+   - an input that is itself a proof to review: kind `verify`, back to the Expert;
+   - a missing card: kind `cite`.
+
+   Each ticket says where the defect lives, what exactly is missing, the repair both
+   runs propose, and whether a citation must come first.
 4. **The packet**: `packets_create` kind `verification`, subject `[<id>]`,
    `status_before` from `claims_show`, `status_proposed` from the script, ticket set.
    `## Established vs assumed` names every input with its status; `## Evidence` the

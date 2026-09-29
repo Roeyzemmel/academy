@@ -25,18 +25,20 @@ is the most dangerous kind. Nothing is recorded until it clears.
    --candidates <file>` shows where things stand.
 3. **Candidates.** Only when the audit has cleared (the plan says so; a failed audit
    makes every candidate unrecordable, and filing their tickets would spend budget for
-   nothing). For each candidate the plan lists under `file_now`, two tickets:
+   nothing). For each candidate the plan lists under `file_now`, two tickets, both
+   filed by this main session as the agent `main` (a liaison toward the Scientist and
+   toward the Expert; `prover` may not file to the Scientist):
    - **Re-derivation (Scientist).** One `experiment` ticket to the Scientist instance
      (`py $A/board.py new --to <scientist> --kind experiment --title "Re-derive <name>
-     independently" --ask ... --refs <lab-id>,<claim> --detail "<detail>" --as
-     <instance>`) for a `verify`-kind experiment: rebuild the candidate's decisive data
+     independently" --ask ... --deliverable ... --refs <lab-id>,<claim> --detail
+     "<detail>" --as <instance>`) for a `verify`-kind experiment: rebuild the candidate's decisive data
      from its defining input alone, by a route the pipeline did not use (a second
      implementation, another library), small cases only, and report whether it agrees.
      The reviewers cannot compute, so this run is the independent re-derivation.
    - **Review (Expert).** One `verify` ticket to the Expert instance (`py $A/board.py new
      --to <expert> --kind verify --title "Is <name> a counterexample to <claim>?" --ask
-     ... --refs <lab-id>,<claim>,<re-derivation ticket> --detail "<detail>" --as
-     <instance>`), asking the review-chair for the rigor-reviewer pair in refutation
+     ... --deliverable ... --refs <lab-id>,<claim>,<re-derivation ticket> --detail
+     "<detail>" --as <instance>`), asking the review-chair for the rigor-reviewer pair in refutation
      mode: completeness of the enumeration first, then the re-derivation's report (it
      must exist, use another route and agree), then the witnesses. When this home has a
      verification checklist rule (`.claude/rules/verification-checklist.md`), the ticket
