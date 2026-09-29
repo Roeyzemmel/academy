@@ -1101,10 +1101,6 @@ class TestRealRegistries(unittest.TestCase):
             self.assertEqual(res["stdout"], self.run_cli(argv, cwd), cid)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestChainGate(McpTestBase):
     def create(self, s, caller=None, **kw):
         args = dict(title="t", kind="question", ask="a", deliverable="d")
@@ -1153,13 +1149,15 @@ class TestChainGate(McpTestBase):
         self.assertEqual(g["meta"]["final_to"], "researcher")
 
     def test_propose_status_is_clerical(self):
+        # author@t -> researcher@t is not a neighbour edge; a proposal is clerical
         err, res = self.server("author@t").call(
             "claims_propose_status", caller="author:math-editor", id="paper:lem:x",
             status="proved", reason="r")
-        # the claim may not exist in this fixture; the refusal must not be the chain's
-        if err:
-            self.assertNotIn("liaison", str(res))
-            self.assertNotIn("may not file", str(res))
+        self.assertFalse(err, res)
+        self.assertEqual(res["from"], "author@t")
+        self.assertEqual(res["to"], "researcher@t")
+        err, g = self.server().call("tickets_get", id=res["id"])
+        self.assertEqual(g["meta"]["kind"], "decision")
 
     def test_main_session_updates_stay_human(self):
         err, t = self.create(self.server("author@t"), to="expert@t")
@@ -1167,3 +1165,7 @@ class TestChainGate(McpTestBase):
         err, res = self.server("author@t").call("tickets_update", id=t["id"],
                                                 fields={"to": "researcher@t"})
         self.assertFalse(err, res)            # only the human re-routes; still allowed
+
+
+if __name__ == "__main__":
+    unittest.main()
