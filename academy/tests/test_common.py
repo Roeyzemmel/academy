@@ -212,8 +212,8 @@ class WorkspaceTests(TempDir):
         self.assertEqual(set(ws["instances"]), {"expert@ts", "scientist@ts",
                                                 "researcher@slope1", "researcher@flat",
                                                 "author@bi"})
-        self.assertEqual(ws["board"], "C:/Work/Math/board")
-        self.assertEqual(ac.instance_for_home(ws, "C:\\Work\\Math\\BilliardIllumination"),
+        self.assertEqual(ws["board"], "C:/Work/Math/BilliardIlluminationWorkspace/board")
+        self.assertEqual(ac.instance_for_home(ws, "C:\\Work\\Math\\BilliardIlluminationWorkspace\\BilliardIllumination"),
                          "author@bi")
         self.assertIsNone(ac.instance_for_home(ws, self.tmp))
 

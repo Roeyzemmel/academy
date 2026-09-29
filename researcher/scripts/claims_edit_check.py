@@ -24,7 +24,7 @@ hook (``LEGACY_LOCAL_HOOK``, named in the home's ``.claude/settings.json`` or
 ``settings.local.json``). Once a home drops its legacy hook, this one fires there.
 
 The engine is found at ``$ACADEMY_ROOT/academy``, then beside this plugin
-(``<academy repo>/academy``), then ``C:/Work/Math/academy/academy``. A home's
+(``<academy repo>/academy``), then ``C:/Work/Math/BilliardIlluminationWorkspace/academy/academy``. A home's
 academy.json may name its own command as ``registry.check`` (``{file}`` is replaced by
 the record's path, else the path is appended); it then replaces step 1 and step 2 is
 skipped. A missing engine, a timeout or a hook bug is silent.
@@ -55,7 +55,7 @@ def engine_dir():
     cands = []
     if os.environ.get("ACADEMY_ROOT"):
         cands.append(os.path.join(os.environ["ACADEMY_ROOT"], "academy"))
-    cands += [os.path.join(os.path.dirname(PLUGIN), "academy"), "C:/Work/Math/academy/academy"]
+    cands += [os.path.join(os.path.dirname(PLUGIN), "academy"), "C:/Work/Math/BilliardIlluminationWorkspace/academy/academy"]
     for c in cands:
         if os.path.isfile(os.path.join(c, "registry", "__init__.py")):
             return os.path.abspath(c)

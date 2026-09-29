@@ -69,7 +69,7 @@ RE_TICKET_ID = re.compile(r"^T-\d{4,}$")
 RE_PACKET_ID = re.compile(r"^P-\d{4,}$")
 
 CONFIG_REL = os.path.join(".claude", "academy.json")
-DEFAULT_WORKSPACE = "C:/Work/Math/academy/workspace.json"
+DEFAULT_WORKSPACE = "C:/Work/Math/BilliardIlluminationWorkspace/workspace.json"
 
 
 class AcademyError(Exception):
@@ -308,7 +308,7 @@ def load_workspace(path=None):
     """Load workspace.json: ``{"instances": {...}, "board": ..., "human": {...}}``.
 
     Lookup order: ``path``; ``$ACADEMY_WORKSPACE``; ``<repo_root()>/workspace.json``;
-    ``C:/Work/Math/academy/workspace.json``. Raises ConfigError if none is readable
+    ``C:/Work/Math/BilliardIlluminationWorkspace/workspace.json``. Raises ConfigError if none is readable
     or the file is malformed.
     """
     candidates = [path, os.environ.get("ACADEMY_WORKSPACE"),

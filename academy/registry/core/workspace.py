@@ -32,7 +32,7 @@ import json
 import os
 from pathlib import Path
 
-DEFAULT_ACADEMY = "C:/Work/Math/academy"
+DEFAULT_ACADEMY = "C:/Work/Math/BilliardIlluminationWorkspace/academy"
 
 #: only when workspace.json cannot be read at all (a lab clone on a server)
 FALLBACK_NAMESPACES = {"lab": "FlatSurfLab", "paper": "BilliardIllumination",

@@ -2,14 +2,14 @@
   "instances": {
     "expert@ts": {
       "role": "expert",
-      "home": "C:/Work/Math/papers",
+      "home": "C:/Work/Math/BilliardIlluminationWorkspace/library",
       "domains": [
         "translation-surfaces"
       ]
     },
     "scientist@ts": {
       "role": "scientist",
-      "home": "C:/Work/Math/FlatSurfLab",
+      "home": "C:/Work/Math/BilliardIlluminationWorkspace/FlatSurfLab",
       "domains": [
         "translation-surfaces"
       ],
@@ -17,7 +17,7 @@
     },
     "researcher@slope1": {
       "role": "researcher",
-      "home": "C:/Work/Math/Slope1illuminationResearch",
+      "home": "C:/Work/Math/BilliardIlluminationWorkspace/Slope1illuminationResearch",
       "domains": [
         "translation-surfaces"
       ],
@@ -25,7 +25,7 @@
     },
     "author@bi": {
       "role": "author",
-      "home": "C:/Work/Math/BilliardIllumination",
+      "home": "C:/Work/Math/BilliardIlluminationWorkspace/BilliardIllumination",
       "domains": [
         "translation-surfaces"
       ],
@@ -33,14 +33,14 @@
     },
     "researcher@flat": {
       "role": "researcher",
-      "home": "C:/Work/Math/FlatStructuresResearch",
+      "home": "C:/Work/Math/BilliardIlluminationWorkspace/FlatStructuresResearch",
       "domains": [
         "translation-surfaces"
       ],
       "ns": "flat"
     }
   },
-  "board": "C:/Work/Math/board",
+  "board": "C:/Work/Math/BilliardIlluminationWorkspace/board",
   "human": {
     "name": "Roey",
     "noteMacro": "\\Roey"
