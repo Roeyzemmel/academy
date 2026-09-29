@@ -1128,15 +1128,17 @@ class TestRegistryBackend(McpTestBase):
         self.assertEqual(res["edges"][0]["status"], "open")
 
 
-REAL_LAB = "C:/Work/Math/FlatSurfLab"
-REAL_S1 = "C:/Work/Math/Slope1illuminationResearch"
+REAL_LAB = os.environ.get("ACADEMY_HOME_SCIENTIST_TS", "")      # set by the workspace bootstrap
+REAL_S1 = os.environ.get("ACADEMY_HOME_RESEARCHER_SLOPE1", "")
+REAL_BI = os.environ.get("ACADEMY_HOME_AUTHOR_BI", "")
 
 
 REGISTRY_PY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "scripts", "registry.py")
 
 
-@unittest.skipUnless(os.path.isdir(REAL_LAB + "/claims") and os.path.isdir(REAL_S1 + "/objects"),
+@unittest.skipUnless(REAL_LAB and REAL_S1 and REAL_BI and os.path.isdir(REAL_LAB + "/claims")
+                     and os.path.isdir(REAL_S1 + "/objects"),
                      "the real registries are not on this machine")
 class TestRealRegistries(unittest.TestCase):
     """claims_show equals the legacy command line (read-only on the homes)."""
@@ -1158,7 +1160,7 @@ class TestRealRegistries(unittest.TestCase):
             ("lab:descent-family-n-le-7", [REGISTRY_PY, "--repo", REAL_LAB, "show",
                                            "lab:descent-family-n-le-7"], REAL_LAB),
             ("paper:conj:origami-slope",
-             [REGISTRY_PY, "--repo", "C:/Work/Math/BilliardIllumination",
+             [REGISTRY_PY, "--repo", REAL_BI,
               "show", "paper:conj:origami-slope"], REAL_LAB),
             ("s1:BOUND-1", [REGISTRY_PY, "--repo", REAL_S1, "show", "BOUND-1"], REAL_S1),
         ]

@@ -678,14 +678,22 @@ def _check_ref(kb, e, key, ref, want=None):
     return rid
 
 
-PAPERS_REL = "../papers"  # the library shared with BilliardIllumination, relative to the repo root
+def library_dir(root) -> Path:
+    """The Expert's library as seen from the home at ``root``: the home of the first
+    Expert instance of workspace.json ($ACADEMY_HOME_<INSTANCE> overrides it); a ``papers``
+    directory beside ``root`` only when the workspace names none."""
+    for inst in _workspace.instances_of_role("expert"):
+        home = _workspace.instance_home(inst, root)
+        if home is not None:
+            return Path(home)
+    return Path(root).parent / "papers"
 
 
 def papers_index(kb) -> dict:
-    """bibkey -> 'authors, short title' from ../papers/index.md (empty if the library is absent)."""
+    """bibkey -> 'authors, short title' from the library's index.md (empty if it is absent)."""
     if getattr(kb, "_papers", None) is None:
         kb._papers = {}
-        idx = (kb.root / PAPERS_REL / "index.md")
+        idx = library_dir(kb.root) / "index.md"
         if idx.is_file():
             for line in idx.read_text(encoding="utf-8").splitlines():
                 cells = [c.strip() for c in line.strip().strip("|").split("|")]
@@ -716,7 +724,7 @@ def _check_refs(kb, e):
             kb.error(e.path, f"cleared_by: '{p}' is not a file")
     for key in m.get("cites", []) if isinstance(m.get("cites"), list) else []:
         if key not in papers_index(kb):
-            kb.warn(e.path, f"cites: '{key}' is not in the shared library {PAPERS_REL}/index.md "
+            kb.warn(e.path, f"cites: '{key}' is not in the shared library {library_dir(kb.root)}/index.md "
                             "(add it there with /expert:cite, or fix the key)")
     if e.etype == "example" and isinstance(m.get("runs"), list):
         for r in m["runs"]:
@@ -1274,7 +1282,8 @@ def do_build(kb, quiet=False) -> int:
                json.dumps(data, ensure_ascii=False, indent=1) + "\n", written)
     write_sqlite(kb, root / "kb" / "kb.sqlite")
     written.append("kb/kb.sqlite")
-    write_view(root, "site/index.html", render_site(data), written)
+    href = os.path.relpath(library_dir(root), root / "site").replace(os.sep, "/") + "/"
+    write_view(root, "site/index.html", render_site(dict(data, papers_href=href)), written)
     fill_topic_pages(kb, written)
     if not quiet:
         print("build: wrote " + (", ".join(written) if written else "nothing (all up to date)"))
@@ -1324,7 +1333,7 @@ def _print_deps(kb, e):
         print("implied_by: " + fmt_line(kb, a))
     for key in e.meta.get("cites", []) if isinstance(e.meta.get("cites"), list) else []:
         title = papers_index(kb).get(key, "NOT IN LIBRARY")
-        print(f"cites: {key} · {title} · {PAPERS_REL}/{key}.src/ or .txt")
+        print(f"cites: {key} · {title} · {library_dir(kb.root)}/{key}.src/ or .txt")
 
 
 def cmd_show(args) -> int:
@@ -2388,7 +2397,7 @@ function renderEntity(raw) {
   add("depends on", links(list(e, "depends_on")));
   add("used by", links(e.usedby));
   add("examples", links(list(e, "examples")));
-  add("cites", list(e, "cites").map(k => '<a href="../../papers/' + esc(k) + '.pdf">' + esc(k) + "</a>").join(", "));
+  add("cites", list(e, "cites").map(k => '<a href="' + KB.papers_href + esc(k) + '.pdf">' + esc(k) + "</a>").join(", "));
   add("claims", links(e.example_claims));
   add("implies", links(list(e, "implies")));
   add("implied by", links(e.implied_by));

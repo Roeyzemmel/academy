@@ -59,7 +59,7 @@ tables. Where this text and the code disagree, fix one of them in the same commi
 
 ## 2. The board
 
-`C:\Work\Math\board\` (from `workspace.json` `board`) is a git repo, LF only.
+`$ACADEMY_BOARD` (`workspace.json` `board`) is a git repo, LF only.
 
 ```
 board/

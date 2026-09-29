@@ -36,7 +36,7 @@ them valid.
       "ns": "<registry namespace, omitted when the instance has no registry>"
     }
   },
-  "board": "C:/Work/Math/board",
+  "board": "C:/absolute/path/of/the/board",
   "human": {"name": "Roey", "noteMacro": "\\Roey"}
 }
 ```
@@ -52,16 +52,23 @@ them valid.
 | `human` | map | no | `name` for display, `noteMacro` for the human's margin-note macro |
 
 `load_workspace` finds it at `$ACADEMY_WORKSPACE`, then `<academy repo>/workspace.json`,
-then `C:/Work/Math/academy/workspace.json`. It adds `_path`. The current file:
+then `<academy repo>/../workspace.json` (the academy checked out inside the workspace). It
+adds `_path`. The workspace repo generates the file (`scripts/bootstrap.py`, from its
+`workspace.template.json`, with this machine's absolute paths) and exports where everything is
+as environment variables, so no code or document needs a literal path:
 
-```json
-{"instances": {
-  "expert@ts":          {"role":"expert",     "home":"C:/Work/Math/papers",                     "domains":["translation-surfaces"]},
-  "scientist@ts":       {"role":"scientist",  "home":"C:/Work/Math/FlatSurfLab",                "domains":["translation-surfaces"], "ns":"lab"},
-  "researcher@slope1":  {"role":"researcher", "home":"C:/Work/Math/Slope1illuminationResearch", "domains":["translation-surfaces"], "ns":"s1"},
-  "author@bi":          {"role":"author",     "home":"C:/Work/Math/BilliardIllumination",       "domains":["translation-surfaces"], "ns":"paper"}},
- "board":"C:/Work/Math/board", "human":{"name":"Roey","noteMacro":"\\Roey"}}
-```
+| Variable | Meaning |
+|---|---|
+| `ACADEMY_ROOT` | the academy repo (plugins, scripts) |
+| `ACADEMY_WORKSPACE` | the `workspace.json` above |
+| `ACADEMY_BOARD` | the board repo (overrides `board`) |
+| `ACADEMY_HOME_<INSTANCE>` | the home of an instance, `author@bi` -> `ACADEMY_HOME_AUTHOR_BI` (overrides `home`) |
+| `ACADEMY_LIBRARY` | the Expert's home (`ACADEMY_HOME_EXPERT_TS` here) |
+| `ACADEMY_ENV_WORKSPACE` | the file the variables were derived from; the overrides apply to that file only |
+
+They are set in `.claude/settings.local.json` of the workspace and of every home, and in the
+workspace's `workspace.env` for plain shells (`set -a; . ./workspace.env`). To move a home,
+change the variable (or `home`) and nothing else.
 
 Adding an instance means one row here plus one `academy.json` in its home
 (`/academy:init`). The two must agree on `role`, `instance`, `domains` and `ns`;

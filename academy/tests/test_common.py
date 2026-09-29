@@ -46,6 +46,36 @@ class TempDir(unittest.TestCase):
             fh.write(text)
         return path
 
+    def fixture_workspace(self):
+        """A workspace.json for the five standard instances, homes under the temp dir."""
+        spec = {"expert@ts": ("library", None), "scientist@ts": ("lab", "lab"),
+                "researcher@slope1": ("slope1", "s1"), "researcher@flat": ("flat", "flat"),
+                "author@bi": ("paper", "paper")}
+        inst = {}
+        for name, (home, ns) in spec.items():
+            inst[name] = {"role": name.split("@")[0], "home": os.path.join(self.tmp, home),
+                          "domains": ["translation-surfaces"]}
+            if ns:
+                inst[name]["ns"] = ns
+        return self.write("fixture/workspace.json", json.dumps(
+            {"instances": inst, "board": os.path.join(self.tmp, "board"),
+             "human": {"name": "Roey"}}))
+
+    def fixture_workspace(self):
+        """A workspace.json for the five standard instances, homes under the temp dir."""
+        spec = {"expert@ts": ("library", None), "scientist@ts": ("lab", "lab"),
+                "researcher@slope1": ("slope1", "s1"), "researcher@flat": ("flat", "flat"),
+                "author@bi": ("paper", "paper")}
+        inst = {}
+        for name, (home, ns) in spec.items():
+            inst[name] = {"role": name.split("@")[0], "home": os.path.join(self.tmp, home),
+                          "domains": ["translation-surfaces"]}
+            if ns:
+                inst[name]["ns"] = ns
+        return self.write("fixture/workspace.json", json.dumps(
+            {"instances": inst, "board": os.path.join(self.tmp, "board"),
+             "human": {"name": "Roey"}}))
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -78,7 +108,7 @@ class ConfigTests(TempDir):
             self.assertEqual(cfg["instance"], name)
 
     def test_docs_examples_agree_with_workspace(self):
-        ws = ac.load_workspace(os.path.join(REPO, "workspace.json"))
+        ws = ac.load_workspace(self.fixture_workspace())
         for name, cfg in config_examples().items():
             inst = ws["instances"][name]
             self.assertEqual(inst["role"], cfg["role"])
@@ -208,23 +238,55 @@ class ConfigTests(TempDir):
 
 class WorkspaceTests(TempDir):
     def test_repo_workspace(self):
-        ws = ac.load_workspace(os.path.join(REPO, "workspace.json"))
+        ws = ac.load_workspace(self.fixture_workspace())
         self.assertEqual(set(ws["instances"]), {"expert@ts", "scientist@ts",
                                                 "researcher@slope1", "researcher@flat",
                                                 "author@bi"})
-        self.assertEqual(ws["board"], "C:/Work/Math/board")
-        self.assertEqual(ac.instance_for_home(ws, "C:\\Work\\Math\\BilliardIllumination"),
-                         "author@bi")
+        self.assertEqual(ac.instance_for_home(ws, os.path.join(self.tmp, "paper")), "author@bi")
         self.assertIsNone(ac.instance_for_home(ws, self.tmp))
 
-    def test_default_lookup_is_repo_root(self):
-        saved = os.environ.pop("ACADEMY_WORKSPACE", None)
+    def test_env_overrides_homes_and_board(self):
+        path = self.fixture_workspace()
+        other = os.path.join(self.tmp, "elsewhere")
+        env = {"ACADEMY_HOME_AUTHOR_BI": other, "ACADEMY_BOARD": os.path.join(self.tmp, "b2")}
+        saved = {k: os.environ.get(k) for k in list(env) + ["ACADEMY_ENV_WORKSPACE"]}
+        os.environ.update(env)
+
+        def load(env_ws):
+            os.environ["ACADEMY_ENV_WORKSPACE"] = env_ws
+            return ac.load_workspace(path)
+        try:
+            ws = load(path)
+            unrelated = load(path + ".other")     # the variables belong to another file
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        self.assertEqual(ws["instances"]["author@bi"]["home"], other)
+        self.assertEqual(ws["board"], env["ACADEMY_BOARD"])
+        self.assertEqual(unrelated["instances"]["author@bi"]["home"],
+                         os.path.join(self.tmp, "paper"))
+        self.assertEqual(ac.env_home_name("researcher@slope1"), "ACADEMY_HOME_RESEARCHER_SLOPE1")
+
+    def test_default_lookup_is_beside_the_academy(self):
+        # the workspace layout: <workspace>/workspace.json and <workspace>/academy
+        os.makedirs(os.path.join(self.tmp, "academy"))
+        with open(self.fixture_workspace(), encoding="utf-8") as fh:
+            self.write("workspace.json", fh.read())
+        saved = {k: os.environ.get(k) for k in ("ACADEMY_WORKSPACE", "ACADEMY_ROOT")}
+        os.environ.pop("ACADEMY_WORKSPACE", None)
+        os.environ["ACADEMY_ROOT"] = os.path.join(self.tmp, "academy")
         try:
             ws = ac.load_workspace()
-            self.assertTrue(ws["_path"].lower().endswith("workspace.json"))
+            self.assertEqual(ws["_path"], os.path.join(self.tmp, "workspace.json").replace("\\", "/"))
         finally:
-            if saved is not None:
-                os.environ["ACADEMY_WORKSPACE"] = saved
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
     def test_bad_workspace(self):
         for text in ('{"instances": {}}',

@@ -18,7 +18,7 @@ sys.path.insert(0, SCRIPTS)
 import agenda_lib as al  # noqa: E402
 import agenda_migrate as am  # noqa: E402
 
-BI = "C:/Work/Math/BilliardIllumination"
+BI = os.environ.get("ACADEMY_HOME_AUTHOR_BI", "")   # set by the workspace bootstrap
 
 LEGACY = """# Roadmap for the open margin notes
 

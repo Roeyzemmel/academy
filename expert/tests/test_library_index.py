@@ -9,7 +9,7 @@ import unittest
 import fixtures
 import library_index as li
 
-REAL = "C:/Work/Math/papers"
+REAL = os.environ.get("ACADEMY_LIBRARY", "")   # set by the workspace bootstrap
 
 
 class FixtureLibraryTests(unittest.TestCase):

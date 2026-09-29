@@ -15,7 +15,7 @@ from fixtures import SCRIPTS, REPO
 sys.path.insert(0, SCRIPTS)
 import check_paper as cp  # noqa: E402
 
-BI = "C:/Work/Math/BilliardIllumination"
+BI = os.environ.get("ACADEMY_HOME_AUTHOR_BI", "")   # set by the workspace bootstrap
 GOLDEN = os.path.join(REPO, "goldens", "check_paper.txt")
 ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
 ENV.pop("PYTHONIOENCODING", None)          # the script must be UTF-8-safe on its own
