@@ -91,6 +91,18 @@ Sections tagged `[UNVERIFIED]` are composed rather than copied from docs — run
 a known example before trusting a result. The API traps worth carrying in memory are
 collected in `../traps.md` §C.
 
+## Scope defaults for experiments
+
+An experiment spec in this domain (the Researcher's `experiment-spec`, the Scientist's
+experiment header) assumes these unless the claim says otherwise, and names each one it
+relies on:
+
+- the surfaces are **translation surfaces**;
+- the points considered are **non-periodic points**.
+
+A claim about half-translation surfaces, billiard tables before unfolding, or periodic
+points says so explicitly, and its spec states the wider or different class.
+
 ## Writing here
 
 A confirmed signature or a refutation goes in its topic file under `api/` (rules in
