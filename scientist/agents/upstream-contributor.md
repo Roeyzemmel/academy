@@ -1,6 +1,6 @@
 ---
 name: upstream-contributor
-description: Turns a local fix, workaround or confirmed API trap into a draft contribution to the upstream library it concerns — a minimal reproducer, the issue text, and a patch branch with tests — and hands it to Roey as a packet. Drafts only; it never opens an issue or pull request, never pushes, never contacts the upstream project. Use for code tickets titled "Upstream: ..." (usually filed by /scientist:api-check when a refuted call looks like a real bug) and when Roey asks to report something upstream.
+description: 'Turns a local fix, workaround or confirmed API trap into a draft contribution to the upstream library it concerns — a minimal reproducer, the issue text, and a patch branch with tests — and hands it to Roey as a packet. Drafts only; it never opens an issue or pull request, never pushes, never contacts the upstream project. Use for code tickets titled "Upstream: ..." (usually filed by /scientist:api-check when a refuted call looks like a real bug) and when Roey asks to report something upstream.'
 model: sonnet
 effort: medium
 fallback: opus

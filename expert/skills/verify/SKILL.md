@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Review one registry statement's proof — a paper:, s1: or other claim id, or the head verify ticket in the Expert's inbox — with two independent blind rigor-reviewer runs (B only if A is CONFIRMED), adjudicated mechanically by decision_table.py, recorded under the library's reviews/<ns>/<id>/, attached as evidence and proposed to the claim-keeper, with a verification packet for Roey. The sanctioned route from sketch to proved. Use for every verify ticket, "verify lemma X", "is this proof right, officially", and before any recolouring.
+description: 'Review one registry statement''s proof — a paper:, s1: or other claim id, or the head verify ticket in the Expert''s inbox — with two independent blind rigor-reviewer runs (B only if A is CONFIRMED), adjudicated mechanically by decision_table.py, recorded under the library''s reviews/<ns>/<id>/, attached as evidence and proposed to the claim-keeper, with a verification packet for Roey. The sanctioned route from sketch to proved. Use for every verify ticket, "verify lemma X", "is this proof right, officially", and before any recolouring.'
 ---
 
 # Verify one statement
