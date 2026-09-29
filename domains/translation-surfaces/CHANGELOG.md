@@ -3,6 +3,13 @@
 Newest first. One line per change to a pack file; a theorem entry or an API finding
 names its section.
 
+## 0.1.1 — 2026-09-29: scope defaults for experiments
+
+- `computation/README.md`: new section "Scope defaults for experiments" (translation
+  surfaces; non-periodic points unless the claim says otherwise), moved here from the
+  ticket-chain design (spec 5.2) so that `researcher:experiment-spec` reads it through
+  `domain_get` instead of naming domain objects in the role plugin.
+
 ## 0.1.0 — 2026-09-28: the pack is created (academy migration, Group B)
 
 Built from the four old `domain/` skills of claude-flatsurf, as imported under

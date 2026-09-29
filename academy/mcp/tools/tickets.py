@@ -75,15 +75,24 @@ def replace_section(body, heading, text):
     return "\n".join(lines[:start] + block + lines[end:])
 
 
-def create_ticket(ctx, a):
+def create_ticket(ctx, a, clerical=False):
     """Create a ticket from ``a`` (title, kind, to, ask, deliverable, ...)."""
-    sender = ctx.instance
+    sender, agent = ctx.filer(bool(a.get("as_human")))
     if not sender:
         raise ToolError("agent %r runs outside every academy home; it cannot file tickets"
                         % ctx.agent)
     to = _one_line("to", a.get("to"))
     if to != ac.HUMAN and to not in ctx.instances():
         raise ToolError("to must be a workspace instance or 'human', got %r" % to)
+    final_to = _one_line("final_to", a.get("final_to"), required=False)
+    parent = a.get("parent") or None
+    if parent and not ac.find_ticket(ctx.board, parent):
+        raise ToolError("parent %s is not on the board" % parent)
+    depth = ac.relay_depth(ctx.board, parent) if final_to and parent else 0
+    ok, why = ac.ticket_edge_allowed(sender, to, agent, ctx.perms, ctx.workspace,
+                                     final_to, depth, clerical=clerical)
+    if not ok:
+        raise ToolError("refused: " + why)
     kind = a.get("kind") or "other"
     if kind not in ac.TICKET_KINDS:
         kind = "other"
@@ -108,7 +117,8 @@ def create_ticket(ctx, a):
         "refs": list(a.get("refs") or []),
         "agenda": a.get("agenda") or None,
         "domain": domain or None,
-        "parent": a.get("parent") or None,
+        "parent": parent,
+        "final_to": final_to,
         "blocks": [],
         "waiting_on": [],
         "budget": budget,
@@ -117,13 +127,11 @@ def create_ticket(ctx, a):
         "created": today,
         "updated": today,
     }
-    if meta["parent"] and not ac.find_ticket(ctx.board, meta["parent"]):
-        raise ToolError("parent %s is not on the board" % meta["parent"])
     meta["id"] = "T-0000"                           # placeholder for validation
     probs = ac.validate_ticket(meta)
     if probs:
         raise ToolError("invalid ticket: " + "; ".join(probs))
-    speaker = ctx.speaker
+    speaker = ac.format_who(sender, agent)
     tid = ac.allocate_id(ctx.board, "ticket")
     meta["id"] = tid
     text = ac.new_ticket(meta, a.get("ask_detail") or "")
@@ -325,12 +333,14 @@ TOOLS = [
     Tool("tickets_get", "Read one ticket (frontmatter, body, validation problems).",
          obj({"id": S}, ["id"]), _get),
     Tool("tickets_create", "File a ticket from the caller's instance (the human files "
-         "as 'human'). The server allocates the id and dates; status is open.",
+         "as 'human'). The server allocates the id and dates; status is open. A ticket must pass the chain "
+         "(docs/protocol.md section 5): to a neighbouring role, by a liaison; final_to "
+         "names the role a relay forwards it to.",
          obj({"title": S, "kind": {"type": "string", "enum": list(ac.TICKET_KINDS)},
               "to": S, "ask": S, "deliverable": S, "ask_detail": S,
               "priority": {"type": "string", "enum": list(ac.PRIORITIES)},
               "refs": L, "agenda": S, "domain": S, "parent": S,
-              "budget": {"type": "object"}, "note": S},
+              "budget": {"type": "object"}, "note": S, "final_to": S, "as_human": B},
              ["title", "kind", "to", "ask", "deliverable"]),
          lambda ctx, a: create_ticket(ctx, a), write=True),
     Tool("tickets_update", "Change a ticket: a status transition (with reason where the "

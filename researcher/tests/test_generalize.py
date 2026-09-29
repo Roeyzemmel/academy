@@ -127,6 +127,12 @@ class GeneralizeTests(Workspace):
         self.assertEqual(rs.frontmatter_field(text, "bears_on")[1], "[lab:ew-check]")
         self.assertIn("## Falsifier", text)
 
+    def test_ticket_commands_name_the_agent(self):
+        cmds = generalize.ticket_commands([proposal(1)], "lab:x", "T-0001",
+                                          "scientist@t", "researcher@t")
+        self.assertIn("--agent", cmds[0])
+        self.assertEqual(cmds[0][cmds[0].index("--agent") + 1], "main")
+
     def test_ticket_commands(self):
         cmds = generalize.ticket_commands([proposal(1)], "lab:ew-check", "T-0004",
                                           "scientist@t", "researcher@t")

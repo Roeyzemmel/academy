@@ -36,7 +36,8 @@ project, the project wins in that home and the pack stays as it is.
 
 - A change to the project's decisions goes to that home's notation owner (Author:
   `notation-auditor`, which edits only the decisions file) or to Roey.
-- A change to the domain's standard notation goes to Expert as a `notation` ticket;
-  the librarian curates the pack.
+- A change to the domain's standard notation goes to the Expert as a `notation`
+  ticket (the Scientist, not a neighbour of the Expert, files it to the Researcher
+  with `final_to: expert`); the librarian curates the pack.
 - Never change a symbol across a draft as a side effect of other work. A rename is its
   own item, with a machine note at each changed site.

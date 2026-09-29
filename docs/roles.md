@@ -1,69 +1,56 @@
 # Roles and rosters
 
 Plan section 3. The roster that the code enforces is `academy/permissions.json`
-(`roster`, `groups`, `tools`); this page explains it. Model notation: a primary
-model, then "→" the fallback the launching session applies and names. For the graders
-(`experiment-reviewer`, `rigor-reviewer`, `referee`) Fable and Opus 5.5 are equal
-primaries (Roey, 2026-09-24, reconfirmed 2026-09-28): "Fable → Opus" there means the
-substitution keeps full authority; only a verdict on another model (Sonnet, Haiku, an
-older Opus) is capped (roster-rules.md, "Model fallback").
+(`roster`, `groups`, `tools`); this page explains it. Each role plugin's `README.md`
+lists its agents with their jobs, its skills, scripts and hooks; each agent's model,
+effort and fallback are in its file's frontmatter, and the fallback rule (with the
+graders' two equal primaries, Fable and Opus 5.5) is
+`academy/references/roster-rules.md`, "Model fallback".
+
+**The ticket chain.** Tickets between role plugins go only to a neighbour in
+`[author, expert, researcher, scientist]`, filed by a liaison of that direction; a
+request that crosses a middle plugin carries `final_to` and is forwarded by that
+plugin's relay. The liaisons, the relays, the hop limit and the exemptions are
+`academy/permissions.json` `tickets.edges`, described in `docs/protocol.md`
+section 5.1.
 
 ## academy (base plugin)
 
 Generic best practice and shared plumbing. No instances of its own: its agents act
-for the home they run in.
+for the home they run in. It has no README; its agents are:
 
-| Agent | Model | Job |
-|---|---|---|
-| `concierge` | Sonnet | Behind `/academy:desk`: routes Roey's requests |
-| `explainer` | Opus → Sonnet | Behind `/academy:deep-dive`: read-only, grades nothing |
-| `usage-analyst` | Haiku → Sonnet | The weekly usage packet |
-| `secretary` | Sonnet → Haiku | Behind `/academy:decide`: phrases pending-decision batches in plain language; read-only, records nothing |
+| Agent | Job |
+|---|---|
+| `concierge` | Behind `/academy:desk`: routes Roey's requests |
+| `explainer` | Behind `/academy:deep-dive`: read-only, grades nothing |
+| `usage-analyst` | The weekly usage packet |
+| `secretary` | Behind `/academy:decide`: phrases pending-decision batches in plain language; read-only, records nothing |
 
 Skills: `desk`, `board`, `review`, `decide`, `deep-dive`, `status`, `init`, `usage`,
 and the best-practice skills `rigor`, `status-vocabulary`, `citation-discipline`,
 `notation-discipline`, `honest-reporting`.
 
-## Author (one per paper)
+## Author (one per paper): `author/README.md`
 
-| Agent | Model | Job |
-|---|---|---|
-| `math-writer` | Opus → Sonnet | Exposition from established results; a new argument becomes a ticket to Researcher |
-| `math-editor` | Sonnet → Opus | Editing, copy-editing, the recolouring edit |
-| `tex-engineer` | Sonnet → Opus | The LaTeX toolchain, the build, the checker and its tests |
-| `figure-maker` | Sonnet → Opus | Figures, following the pack's figure conventions |
-| `note-sweeper` | Sonnet → Opus | Machine-note sweeps |
-| `notation-auditor` | Sonnet → Opus | The home's notation decisions; domain notation goes to Expert as a ticket |
+Writes the paper. Its only neighbour is the Expert; a request for the Researcher or
+the Scientist is a `research` ticket to the Expert with `final_to`.
 
-## Researcher (one per research domain)
+## Expert (the library): `expert/README.md`
 
-| Agent | Model | Job |
-|---|---|---|
-| `lead-researcher` | Sonnet → Opus | Owns a direction and commissions work; grades nothing |
-| `prover` | Fable → Opus | Definitions, proofs, corollaries, generalizations |
-| `experiment-reviewer` | Fable → Opus | Reviews experiments (verdicts SOUND / SOUND MODULO / GAP / BROKEN) |
-| `claim-keeper` | Haiku → Sonnet | The only agent that changes a status, in any namespace; the server re-checks its grounds |
+Keeps the library, reviews proofs, referees papers. Neighbours: the Author and the
+Researcher. Relays: `research-intake` (author -> researcher) and `paper-liaison`
+(researcher side -> author).
 
-## Expert (the library)
+## Researcher (one per research domain): `researcher/README.md`
 
-| Agent | Model | Job |
-|---|---|---|
-| `clerk` | Haiku | Fast answers from the cache and index; escalates misses to the librarian |
-| `librarian` | Sonnet → Opus | The only editor of the bibliography, the cards and the index |
-| `related-work-scout` | Sonnet → Opus | Literature watch |
-| `review-chair` | Sonnet → Opus | Runs proof review and applies the decision table; grades nothing |
-| `rigor-reviewer` | Fable → Opus | Proof review (CONFIRMED / PLAUSIBLE / GAP / DISPROVED); read-only |
-| `referee` | Fable → Opus | Whole-paper referee report; read-only |
+Owns the research notebook and the claim statuses (`claim-keeper`). Neighbours: the
+Expert and the Scientist. Relays: `experiment-spec` (expert -> scientist) and
+`lit-request` (scientist -> expert / author).
 
-## Scientist (the lab)
+## Scientist (the lab): `scientist/README.md`
 
-| Agent | Model | Job |
-|---|---|---|
-| `experimenter` | Sonnet → Opus | Designs and writes experiments |
-| `developer` | Opus → Sonnet | The lab's code, the runner and the environments, test-first |
-| `test-engineer` | Sonnet → Opus | Tests written independently of the developer; reviews its diffs |
-| `upstream-contributor` | Sonnet → Opus | Drafts upstream issues and patches; Roey files them |
-| `api-prober` | Sonnet → Opus | Confirms library calls before they are used |
+Runs the computations and keeps the lab's code. Its only neighbour is the Researcher;
+a request for the Expert or the Author goes to the Researcher with `final_to`.
 
 ## Rules that hold across roles
 

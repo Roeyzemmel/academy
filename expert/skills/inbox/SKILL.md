@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: Work the Expert instance's inbox — take at most three open or accepted tickets addressed to it, in priority order, serially, and route each by kind (verify to the review-chair, cite to the librarian, lookup and question to the clerk, referee to the referee, notation to the domain skill), recording every step in the ticket thread. Use for "work the expert inbox", "what's waiting for the library", and when the SessionStart line reports open tickets to the Expert.
+description: Work the Expert instance's inbox — take at most three open or accepted tickets addressed to it, in priority order, serially, and route each by kind (verify to the review-chair, cite to the librarian, lookup and question to the clerk, referee to the referee, notation to the domain skill, research and any ticket whose `final_to` lies beyond the Expert to a relay agent, note to the Author only), recording every step in the ticket thread. Use for "work the expert inbox", "what's waiting for the library", and when the SessionStart line reports open tickets to the Expert.
 ---
 
 # The Expert's inbox
@@ -11,8 +11,11 @@ tools act for the Expert instance. The budget rules are `academy/references/budg
 the ticket lifecycle is `docs/protocol.md` section 4.
 
 1. **Plan**: `py $E/inbox.py --json [--limit N]`. It lists what waits, takes at most
-   `budget.itemsPerRun` (never more than 3), and gives each ticket its route. Say how
-   many are taken and how many wait.
+   `budget.itemsPerRun` (never more than 3), and gives each ticket its route. Besides
+   `open` and `accepted` tickets it takes a relay ticket ready for its **return leg**:
+   `blocked`, routed to a relay by its `final_to`, waiting only on ticket ids (never
+   `human`), every one of them `delivered` or terminal; its route carries
+   `"return": true`. Say how many are taken and how many wait.
 2. **One ticket at a time**, each finished and checkpointed in its thread before the
    next starts (`budget.md` rules 1–2):
 
@@ -23,8 +26,10 @@ the ticket lifecycle is `docs/protocol.md` section 4.
    | `clerk` | `open -> accepted -> in-progress`; one `clerk` run with the ask; its answer becomes the `result` and `## Result`, then `delivered`. An `ESCALATE` answer: append it to the thread and, if the ticket's `budget.runs` allows a second run, dispatch one `librarian` with the escalated ask; otherwise `blocked`, `waiting_on: [human]`, asking for the budget |
    | `expert:referee` | run the `referee` skill with the ticket id |
    | `expert:domain` | run the `domain` skill with the ticket id |
+   | `research-intake` | one `research-intake` run on the ticket (a `final_to` toward the Researcher or the Scientist, whatever the kind, or a `research` ticket with no `final_to`); with `"return": true`, the same agent's return leg: it closes the child and delivers the ticket. Make no transition yourself |
+   | `paper-liaison` | one `paper-liaison` run on the ticket (a `final_to` toward an Author, whatever the kind); with `"return": true`, the same agent's return leg: it closes the child and delivers the ticket. Make no transition yourself |
    | `human` | `blocked`, `waiting_on: [human]`, with a thread line naming the decision needed |
-   | `reject` | `rejected`, with the script's reason in the same write |
+   | `reject` | `rejected`, with the script's reason in the same write (for Researcher or Scientist work it tells the sender to ask through a `research` ticket to the Expert with `final_to`) |
 
    Each transition goes through `tickets_update`; never edit a ticket file.
 3. **Stop at once** on a limit error: record in the current ticket's thread what was

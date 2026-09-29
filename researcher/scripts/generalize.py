@@ -232,7 +232,8 @@ def ticket_commands(proposals, lab_claim, parent, to, as_instance):
                      "--deliverable", "An experiment-report packet whose ## Conclusion "
                      "says whether the falsifier (and then the class) refutes %s." % p["id"],
                      "--refs", "%s,%s" % (p["id"], lab_claim),
-                     "--parent", parent, "--detail", detail, "--as", as_instance])
+                     "--parent", parent, "--detail", detail, "--as", as_instance,
+                     "--agent", "main"])
     return cmds
 
 

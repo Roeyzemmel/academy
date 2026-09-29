@@ -617,6 +617,22 @@ class SessionStartTests(Fixture):
         self.assertEqual(line, "academy: expert@t — 1 open ticket to you, "
                                "1 packet awaiting Roey")
 
+    def test_relay_parent_freed_by_a_delivered_child(self):
+        b = self.board
+        self.write(os.path.join(b, "expert@t", "T-0030-p.md"),
+                   ticket_text("T-0030", "author@t", "expert@t", status="blocked",
+                               kind="research", final_to="researcher",
+                               waiting_on=["T-0031"]))
+        self.write(os.path.join(b, "researcher@t", "T-0031-c.md"),
+                   ticket_text("T-0031", "expert@t", "researcher@t", status="delivered",
+                               kind="research", final_to="researcher", parent="T-0030",
+                               result="done"))
+        self.write(os.path.join(b, "expert@t", "T-0032-q.md"),     # not a relay parent
+                   ticket_text("T-0032", "author@t", "expert@t", status="blocked",
+                               waiting_on=["T-0031"]))
+        line = self.start(self.expert_home)
+        self.assertTrue(line.endswith("; freed: T-0030"), line)
+
     def test_ids_reconciled(self):
         self.populate()
         self.write(os.path.join(self.board, ".ids", "next-packet"), "3\n")

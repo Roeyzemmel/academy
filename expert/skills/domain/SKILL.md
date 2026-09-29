@@ -1,6 +1,6 @@
 ---
 name: domain
-description: Edit a domain pack from a ticket — a notation change, a theorem-sheet entry with its real hypotheses and a card-backed pinpoint, a trap, an example, a figure convention, a computation recipe — through the librarian, one change per ticket, logged in the pack's CHANGELOG.md. Use for notation tickets to the Expert, "add this theorem to the pack", "the pack's notation is wrong", and when an Author's notation-auditor or a Scientist's api-prober routes a pack change here.
+description: Edit a domain pack from a ticket — a notation change, a theorem-sheet entry with its real hypotheses and a card-backed pinpoint, a trap, an example, a figure convention, a computation recipe — through the librarian, one change per ticket, logged in the pack's CHANGELOG.md. Use for notation tickets to the Expert, "add this theorem to the pack", "the pack's notation is wrong", and when an Author's notation-auditor or a Scientist's pack change arrives through the Researcher (`final_to: expert`).
 ---
 
 # Edit a domain pack

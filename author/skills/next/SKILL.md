@@ -1,6 +1,6 @@
 ---
 name: next
-description: Run the next batch of the paper's work — at most three items, serially, chosen by script from the agenda, the roadmap and the board (dependencies met, earliest agenda position unblocked first, then priority). Routes [write]/[apply]/[figure]/[build]/[notation] items to the Author's agents, files [lead]/[verify]/[cite]/[experiment] items as tickets to the Researcher, Expert or Scientist, and lands tickets that came back. Replaces the old tier pass. Use for "next", "continue the paper", "do the next items", "run the agenda".
+description: Run the next batch of the paper's work — at most three items, serially, chosen by script from the agenda, the roadmap and the board (dependencies met, earliest agenda position unblocked first, then priority). Routes [write]/[apply]/[figure]/[build]/[notation] items to the Author's agents, files [lead]/[verify]/[cite]/[experiment] items as tickets to the Expert ([lead] and [experiment] as `research` tickets relayed with `final_to`), and lands tickets that came back. Replaces the old tier pass. Use for "next", "continue the paper", "do the next items", "run the agenda".
 ---
 
 # /author:next

@@ -32,7 +32,7 @@ only for mechanical ones (a renamed label), and ask Roey about the rest.
 item or ticket is attached to, with a proposed tag:
 
 - `verify`: an argument exists (`sketch`); the paper needs two agreeing verdicts.
-- `lead`: no argument yet; a proof must come from the Researcher.
+- `lead`: no argument yet; a proof must come from the Researcher, asked through the Expert (`final_to: researcher`).
 - `apply`: no registry record; create one (math-editor, `claims_new` at an unsettled
   status).
 

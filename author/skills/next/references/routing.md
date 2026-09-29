@@ -14,14 +14,16 @@ table the script implements, and keeps the lessons of the tier pass that still b
 | `[build]` | agent | `tex-engineer` |
 | `[notation]` | agent | `notation-auditor` |
 | `[sweep]` | agent | `note-sweeper` |
-| `[lead]` | ticket `prove` | the Researcher instance sharing the paper's domain |
+| `[lead]` | ticket `research`, `final_to: researcher` | the Expert instance (research-intake prepares it and relays it to the Researcher) |
 | `[verify]` | ticket `verify` | the Expert instance (review-chair, two rigor-reviewer runs) |
 | `[cite]` | ticket `cite` | the Expert instance (librarian) |
-| `[experiment]` | ticket `experiment` | the Scientist instance |
+| `[experiment]` | ticket `research`, `final_to: scientist` | the Expert instance (relayed to the Researcher, whose experiment-spec files it to the Scientist) |
 | `[referee]` | ticket `referee` | the Expert instance (referee) |
 | ticketed item, ticket `delivered`/`closed` | land | `math-writer` (lead, experiment), `math-editor` (verify, cite), `/author:notes` (referee) |
 | inbox ticket `build` / `figure` / `notation` | agent | `tex-engineer` / `figure-maker` / `notation-auditor` |
 | inbox ticket of another kind | triage | Roey decides, in the main session |
+
+Delivered `note` tickets from the Expert land with math-writer as roadmap items.
 
 An item's `route:` field overrides the agent. Where several instances of a role share
 the domain, the first by name is taken and the plan says so in `note`; re-route by
@@ -46,8 +48,8 @@ proved-modulo < proved. `refuted` meets only a `refuted` requirement.
 ## Lessons kept from the tier pass
 
 - **Nothing is proved that the author has not asked for or sketched**, and the Author
-  never proves anything itself: a `[lead]` is a ticket to the Researcher, whose
-  `prove` flow commissions the proof and sends it for review. The old tier's
+  never proves anything itself: a `[lead]` is a `research` ticket to the Expert with `final_to: researcher`, relayed
+  to the Researcher, whose `prove` flow commissions the proof and sends it for review. The old tier's
   `top-researcher` inside the paper repo is gone.
 - **No verification inside a run.** A writer files a `[verify]` item for every argument
   that could be recoloured; `/author:next` turns it into a ticket; the Expert runs the

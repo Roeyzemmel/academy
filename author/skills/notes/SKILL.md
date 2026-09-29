@@ -41,7 +41,7 @@ below. `$ARGUMENTS` may name a base commit, or `referee P-NNNN` for a referee pa
 >    global> --source "<macro> note <file>:<line>" --body "<the note quoted, lightly;
 >    file:line and enough words to find it again>"`, with `--depends-on` when one note
 >    builds on another. Tag from that vocabulary only. A note asking for a proof is
->    `[lead]` (it becomes a Researcher ticket when `/author:next` reaches it), never
+>    `[lead]` (it becomes a `research` ticket to the Expert with `final_to: researcher` when `/author:next` reaches it), never
 >    `[write]`. A decision only the human can make: add the item, then
 >    `next.py mark R-NNNN --status needs-human`.
 > 5. **Referee packet** (`referee P-NNNN`): read the packet (`packets_get`); file each

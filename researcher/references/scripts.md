@@ -20,8 +20,8 @@ message on stderr; a skill reports a non-zero exit as it is and does not retry.
 | `land_review.py` | hook, SubagentStop | lands an experiment-reviewer report as `audits/<lab-id>/<date>-<A\|B>.md` |
 
 The base plugin's `board.py` and `packets.py` (under `$A`) file tickets and packets
-from the main session: pass `--as <this instance>` so the ticket is from the instance,
-not from `human`. Agents use the MCP tools (`tickets_create`, `packets_create`) instead.
+from the main session: `board.py new` requires `--as <this instance>`, and the ticket
+chain applies (`academy/references/scripts.md`). Agents use the MCP tools (`tickets_create`, `packets_create`) instead.
 
 The MCP tools appear as `mcp__plugin_academy_academy__<tool>` when the base plugin's
 `.mcp.json` loads, and as `mcp__academy__<tool>` when the server is registered with

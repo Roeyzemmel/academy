@@ -21,8 +21,11 @@ PLAN = {
     "review-chair": ("sonnet", "opus"),
     "rigor-reviewer": ("fable", "opus"),
     "referee": ("fable", "opus"),
+    "research-intake": ("sonnet", "opus"),
+    "paper-liaison": ("haiku", "sonnet"),
 }
-EFFORT = {"rigor-reviewer": "xhigh", "referee": "high"}
+EFFORT = {"rigor-reviewer": "xhigh", "referee": "high", "research-intake": "medium",
+          "paper-liaison": "low"}
 READ_ONLY = ("clerk", "rigor-reviewer", "referee")
 FORBIDDEN = ("Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit")
 MCP_WRITES = ("claims_new", "claims_attach_evidence", "claims_propose_status",
@@ -200,12 +203,109 @@ class InboxTests(unittest.TestCase):
         self.assertIn("researcher", res["take"][2]["route"]["why"])
         self.assertEqual(res["left"], 2)
 
+    def test_final_to_beats_kind(self):
+        r = inbox.route({"kind": "cite", "final_to": "researcher"})
+        self.assertEqual((r["how"], r["target"]), ("agent", "research-intake"))
+        r = inbox.route({"kind": "research", "final_to": "scientist"})
+        self.assertEqual(r["target"], "research-intake")
+        r = inbox.route({"kind": "question", "final_to": "author"})
+        self.assertEqual(r["target"], "paper-liaison")
+        r = inbox.route({"kind": "cite", "final_to": "expert"})
+        self.assertEqual(r["target"], "expert:cite")          # final_to is the receiver
+
+    def test_research_without_final_to_goes_to_intake(self):
+        for meta in ({"kind": "research"}, {"kind": "research", "final_to": "expert"},
+                     {"kind": "research", "final_to": "expert@ts"}):
+            r = inbox.route(meta)
+            self.assertEqual((r["how"], r["target"]), ("agent", "research-intake"), meta)
+
+    def test_misrouted_kinds_are_told_to_ask_through_research(self):
+        for kind, final in (("prove", "researcher"), ("generalize", "researcher"),
+                            ("review-experiment", "researcher"),
+                            ("experiment", "scientist"), ("test", "scientist"),
+                            ("code", "scientist")):
+            r = inbox.route({"kind": kind})
+            self.assertEqual(r["how"], "reject", kind)
+            self.assertIn("research ticket to the Expert", r["why"], kind)
+            self.assertIn("final_to %s" % final, r["why"], kind)
+        r = inbox.route({"kind": "figure"})                  # the Author is a neighbour
+        self.assertEqual(r["how"], "reject")
+        self.assertIn("author", r["why"])
+        self.assertNotIn("final_to", r["why"])
+
     def test_cli_caps_at_three(self):
         code, out, err = fixtures.run_script("inbox.py", None, ["--instance", "expert@ts",
                                                                 "--limit", "9", "--json"])
         self.assertEqual(code, 0, err)
         self.assertEqual(out["limit"], 3)
         self.assertEqual(len(out["take"]), 3)
+
+
+
+class ReturnLegTests(unittest.TestCase):
+    """F1: a blocked relay parent is planned back to its relay once its child is done."""
+
+    def put(self, tid, frm, to, status, **extra):
+        meta = {"id": tid, "title": "t" + tid, "kind": "research", "from": frm, "to": to,
+                "status": status, "priority": "normal", "ask": "a", "deliverable": "d",
+                "refs": [], "blocks": [], "waiting_on": [],
+                "budget": {"runs": 2, "max_model": "sonnet"}, "packets": [],
+                "created": "2026-09-28", "updated": "2026-09-28"}
+        meta.update(extra)
+        if status in ("delivered", "closed"):
+            meta["result"] = "done"
+        folder = os.path.join(self.sb.board, to)
+        os.makedirs(folder, exist_ok=True)
+        ac.atomic_write(os.path.join(folder, "%s-t.md" % tid), ac.new_ticket(meta))
+
+    def setUp(self):
+        self.sb = fixtures.Sandbox()
+
+    def tearDown(self):
+        self.sb.close()
+
+    def parent(self, tid, child, child_status, waiting=None, final_to="researcher"):
+        self.put(child, "expert@ts", "researcher@s1", child_status, final_to=final_to,
+                 parent=tid)
+        self.put(tid, "author@bi", "expert@ts", "blocked", final_to=final_to,
+                 waiting_on=waiting or [child])
+
+    def test_parent_with_delivered_child_goes_back_to_the_relay(self):
+        self.parent("T-0001", "T-0002", "delivered")
+        res = inbox.plan(self.sb.board, "expert@ts", 3)
+        self.assertEqual([t["id"] for t in res["take"]], ["T-0001"])
+        r = res["take"][0]["route"]
+        self.assertEqual((r["how"], r["target"]), ("agent", "research-intake"))
+        self.assertTrue(r["return"])
+        self.assertIn("return leg", r["why"])
+
+    def test_parent_toward_the_author_goes_back_to_paper_liaison(self):
+        self.put("T-0002", "expert@ts", "author@bi", "closed", final_to="author",
+                 parent="T-0001")
+        self.put("T-0001", "researcher@s1", "expert@ts", "blocked", final_to="author",
+                 waiting_on=["T-0002"])
+        r = inbox.plan(self.sb.board, "expert@ts", 3)["take"][0]["route"]
+        self.assertEqual((r["target"], r["return"]), ("paper-liaison", True))
+
+    def test_research_parent_without_final_to_takes_its_return_leg(self):
+        self.put("T-0002", "expert@ts", "researcher@s1", "delivered",
+                 final_to="researcher", parent="T-0001")
+        self.put("T-0001", "author@bi", "expert@ts", "blocked", waiting_on=["T-0002"])
+        r = inbox.plan(self.sb.board, "expert@ts", 3)["take"][0]["route"]
+        self.assertEqual((r["target"], r["return"]), ("research-intake", True))
+
+    def test_parent_with_open_child_is_not_taken(self):
+        self.parent("T-0001", "T-0002", "in-progress")
+        self.assertEqual(inbox.plan(self.sb.board, "expert@ts", 3)["take"], [])
+
+    def test_parent_waiting_on_human_is_not_taken(self):
+        self.parent("T-0001", "T-0002", "delivered", waiting=["T-0002", "human"])
+        self.assertEqual(inbox.plan(self.sb.board, "expert@ts", 3)["take"], [])
+
+    def test_ordinary_tickets_carry_no_return_mark(self):
+        self.put("T-0003", "author@bi", "expert@ts", "open", kind="verify")
+        r = inbox.plan(self.sb.board, "expert@ts", 3)["take"][0]["route"]
+        self.assertFalse(r.get("return", False))
 
 
 if __name__ == "__main__":

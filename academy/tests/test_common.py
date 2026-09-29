@@ -273,11 +273,11 @@ class PermissionTests(unittest.TestCase):
 
     def test_roster_matches_plan(self):
         ros = ac.roster(self.p)
-        self.assertEqual(len(ros), 25)
+        self.assertEqual(len(ros), 29)
         count = {}
         for plugin in self.p["roster"]:
             count[plugin] = len(self.p["roster"][plugin])
-        self.assertEqual(count, {"academy": 4, "author": 6, "researcher": 4, "expert": 6,
+        self.assertEqual(count, {"academy": 4, "author": 6, "researcher": 6, "expert": 8,
                                  "scientist": 5})
         all_names = [a for v in self.p["roster"].values() for a in v]
         self.assertEqual(len(all_names), len(set(all_names)), "bare names must be unique")
@@ -808,6 +808,147 @@ class ShellParserTests(unittest.TestCase):
             ac.commit_targets('git commit -m "x', self.base)
         self.assertEqual(self.t('git commit -m "x'), [self.at()])
         self.assertEqual(self.t('echo "x'), [])
+
+
+EDGE_PERMS = {
+    "roster": {}, "tools": {},
+    "tickets": {"edges": {
+        "chain": ["author", "expert", "researcher", "scientist"],
+        "maxHops": 3,
+        "liaisons": {
+            "author->expert": ["main", "math-writer", "notation-auditor", "figure-maker"],
+            "expert->author": ["librarian", "review-chair", "research-intake", "paper-liaison"],
+            "expert->researcher": ["research-intake", "review-chair"],
+            "researcher->expert": ["main", "lead-researcher", "prover", "lit-request"],
+            "researcher->scientist": ["main", "lead-researcher", "experiment-spec"],
+            "scientist->researcher": ["main", "experimenter"]},
+        "exempt": ["claim-keeper", "usage-analyst", "concierge"]}}}
+
+
+class TicketEdgeTests(unittest.TestCase):
+    def ok(self, frm, to, agent, **kw):
+        return ac.ticket_edge_allowed(frm, to, agent, EDGE_PERMS, **kw)[0]
+
+    def test_human_either_end(self):
+        self.assertTrue(self.ok("human", "scientist@ts", ""))
+        self.assertTrue(self.ok("author@bi", "human", "math-writer"))
+
+    def test_same_role(self):
+        self.assertTrue(self.ok("researcher@a", "researcher@b", "prover"))
+        self.assertTrue(self.ok("expert@ts", "expert@ts", "clerk"))
+
+    def test_neighbour_needs_liaison(self):
+        self.assertTrue(self.ok("author@bi", "expert@ts", "math-writer"))
+        self.assertTrue(self.ok("author@bi", "expert@ts", "main"))
+        self.assertFalse(self.ok("author@bi", "expert@ts", "tex-engineer"))
+        self.assertTrue(self.ok("researcher@s1", "scientist@ts", "lead-researcher"))
+        self.assertFalse(self.ok("researcher@s1", "scientist@ts", "prover"))
+
+    def test_directions_differ(self):
+        self.assertTrue(self.ok("expert@ts", "researcher@s1", "research-intake"))
+        self.assertFalse(self.ok("expert@ts", "researcher@s1", "paper-liaison"))
+        self.assertTrue(self.ok("expert@ts", "author@bi", "paper-liaison"))
+
+    def test_non_neighbour_refused_with_next_hop(self):
+        ok, why = ac.ticket_edge_allowed("author@bi", "researcher@s1", "main", EDGE_PERMS)
+        self.assertFalse(ok)
+        self.assertIn("expert", why)
+        self.assertIn("final_to researcher", why)
+        ok, why = ac.ticket_edge_allowed("scientist@ts", "author@bi", "main", EDGE_PERMS)
+        self.assertFalse(ok)
+        self.assertIn("researcher", why)
+
+    def test_non_neighbour_refusal_names_the_relay(self):
+        cases = {("author@bi", "researcher@s1"): "research-intake",
+                 ("author@bi", "scientist@ts"): "research-intake",
+                 ("expert@ts", "scientist@ts"): "experiment-spec",
+                 ("scientist@ts", "expert@ts"): "lit-request",
+                 ("scientist@ts", "author@bi"): "lit-request",
+                 ("researcher@s1", "author@bi"): "paper-liaison"}
+        for (frm, to), relay in cases.items():
+            ok, why = ac.ticket_edge_allowed(frm, to, "main", EDGE_PERMS)
+            self.assertFalse(ok)
+            self.assertIn("%s relays it" % relay, why, (frm, to))
+
+    def test_exempt_and_clerical(self):
+        self.assertTrue(self.ok("author@bi", "researcher@s1", "claim-keeper"))
+        self.assertTrue(self.ok("author@bi", "researcher@s1", "math-editor", clerical=True))
+
+    def test_final_to_must_lie_beyond_to(self):
+        self.assertTrue(self.ok("author@bi", "expert@ts", "main", final_to="researcher"))
+        self.assertTrue(self.ok("author@bi", "expert@ts", "main", final_to="scientist"))
+        self.assertFalse(self.ok("author@bi", "expert@ts", "main", final_to="author"))
+        self.assertFalse(self.ok("author@bi", "expert@ts", "main", final_to="nobody"))
+        self.assertTrue(self.ok("scientist@ts", "researcher@s1", "main", final_to="author"))
+        self.assertTrue(self.ok("human", "expert@ts", "", final_to="researcher"))
+
+    def test_hop_limit(self):
+        self.assertTrue(self.ok("researcher@s1", "scientist@ts", "experiment-spec",
+                                final_to="scientist", depth=2))
+        self.assertFalse(self.ok("researcher@s1", "scientist@ts", "experiment-spec",
+                                 final_to="scientist", depth=3))
+
+    def test_role_of(self):
+        ws = {"instances": {"lab@x": {"role": "scientist"}}}
+        self.assertEqual(ac.role_of("author@bi"), "author")
+        self.assertEqual(ac.role_of("lab@x", ws), "scientist")
+        self.assertIsNone(ac.role_of("human"))
+
+    def test_defaults_without_edges_block(self):
+        e = ac.ticket_edges({"roster": {}, "tools": {}})
+        self.assertEqual(e["chain"], list(ac.CHAIN_DEFAULT))
+        self.assertEqual(e["maxHops"], 3)
+
+    def test_final_to_field_validated(self):
+        meta = {"id": "T-0001", "title": "t", "kind": "research", "from": "author@bi",
+                "to": "expert@ts", "status": "open", "ask": "a", "deliverable": "d",
+                "priority": "normal", "budget": {"runs": 1, "max_model": "sonnet"},
+                "created": "2026-09-28", "updated": "2026-09-28", "final_to": "researcher"}
+        self.assertEqual(ac.validate_ticket(meta), [])
+        meta["final_to"] = "nowhere"
+        self.assertTrue(any("final_to" in p for p in ac.validate_ticket(meta)))
+        meta["final_to"] = "researcher"
+        meta["kind"] = "note"
+        self.assertEqual(ac.validate_ticket(meta), [])
+
+    def test_hop_limit_counts_only_relay_ancestors(self):
+        board = tempfile.mkdtemp(prefix="edges-")
+        def put(tid, parent, final_to):
+            meta = {"id": tid, "title": "t", "kind": "other", "from": "author@bi",
+                    "to": "expert@ts", "status": "open", "ask": "a", "deliverable": "d",
+                    "priority": "normal", "budget": {"runs": 1, "max_model": "sonnet"},
+                    "created": "2026-09-28", "updated": "2026-09-28",
+                    "parent": parent, "final_to": final_to}
+            os.makedirs(os.path.join(board, "expert@ts"), exist_ok=True)
+            ac.atomic_write(os.path.join(board, "expert@ts", ac.ticket_filename(tid, "t")),
+                            ac.new_ticket(meta))
+        put("T-0001", None, "scientist")
+        put("T-0002", "T-0001", "scientist")
+        put("T-0003", "T-0002", "scientist")
+        put("T-0004", "T-0003", None)          # the experiment's own ticket, no final_to
+        self.assertEqual(ac.relay_depth(board, "T-0003"), 3)
+        self.assertEqual(ac.relay_depth(board, "T-0004"), 0)
+        self.assertEqual(ac.relay_depth(board, None), 0)
+
+    def test_relay_return_ready(self):
+        parent = {"id": "T-0001", "to": "expert@ts", "status": "blocked",
+                  "final_to": "researcher", "waiting_on": ["T-0002"]}
+        st = {"T-0002": "delivered"}.get
+        self.assertTrue(ac.relay_return_ready(parent, st))
+        self.assertTrue(ac.relay_return_ready(parent, {"T-0002": "closed"}.get))
+        self.assertFalse(ac.relay_return_ready(parent, {"T-0002": "open"}.get))
+        self.assertFalse(ac.relay_return_ready(parent, {}.get))         # child not found
+        self.assertFalse(ac.relay_return_ready(dict(parent, waiting_on=["T-0002", "human"]),
+                                               st))
+        self.assertFalse(ac.relay_return_ready(dict(parent, waiting_on=[]), st))
+        self.assertFalse(ac.relay_return_ready(dict(parent, status="open"), st))
+        self.assertFalse(ac.relay_return_ready(dict(parent, final_to=None), st))
+        self.assertFalse(ac.relay_return_ready(dict(parent, final_to="expert"), st))
+        self.assertTrue(ac.relay_return_ready(dict(parent, final_to="researcher@s1"), st))
+        research = dict(parent, kind="research", final_to=None)   # read as researcher
+        self.assertTrue(ac.relay_return_ready(research, st))
+        self.assertTrue(ac.relay_return_ready(dict(research, final_to="expert"), st))
+        self.assertFalse(ac.relay_return_ready(dict(research, to="researcher@s1"), st))
 
 
 if __name__ == "__main__":

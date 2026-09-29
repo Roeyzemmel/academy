@@ -19,7 +19,7 @@ more than one clerk lookup.
 - By the work: proofs, verification, citations, the library → Expert; new arguments,
   directions, experiment reviews, generalizations → Researcher; computations and code
   → Scientist; the paper's text, build, figures, notation decisions → Author. The
-  ticket kinds and their usual routes are in `docs/protocol.md` section 3.
+  ticket kinds and their required routes are in `docs/protocol.md` section 3.
 - By the domain: among instances of that role, the one whose `domains` contain the
   request's domain. If several match, prefer the one whose home the request names or
   whose registry holds the ids it mentions; otherwise pick the first and say so.

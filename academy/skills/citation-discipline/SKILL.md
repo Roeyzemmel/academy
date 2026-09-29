@@ -19,7 +19,8 @@ a bibliography entry. If you need a result and are not certain of its exact stat
 and source, do one of two things:
 
 - look it up (Expert: `/expert:lookup`, the clerk; the card or the cached text), or
-- state it as a labelled assumption and file a `cite` ticket to Expert.
+- state it as a labelled assumption and file a `cite` ticket to the Expert if it is your neighbour (Author, Researcher). The
+  Scientist files it to the Researcher with `final_to: expert`.
 
 Bibliography entries are added only by the Expert's `librarian`, from a record fetched
 in the same run (Crossref, arXiv, the journal page). Hooks refuse any other editor.
