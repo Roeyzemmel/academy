@@ -1,9 +1,7 @@
 # Campaign mode: portfolio of approaches, blocked routes, concrete artifacts
 
-Status: base design agreed with Roey, 2026-09-29, section by section. Revision 2
-(same day) makes the campaign autonomous and lets it launch the other plugins
-itself (decisions 6-8, sections 4.1-4.3). Next: Roey reviews this file, then the
-implementation plan.
+Status: design agreed with Roey, 2026-09-29, section by section. Next: Roey reviews
+this file, then the implementation plan.
 
 ## 1. Purpose
 
@@ -37,15 +35,6 @@ the informal phrase in `academy/skills/rigor/SKILL.md` §4.
    concrete directions.
 3. **Campaigns are asynchronous.** They use the Scientist and the Expert through
    tickets and keep working other directions while tickets are open.
-6. **Autonomous to the stop condition.** Once invoked with its caps, a campaign
-   runs rounds, relaunches after a failed wave and reseeds without asking Roey. It
-   stops only at the stop conditions of section 4 or when nothing but a human-only
-   decision remains (parked as a packet, section 4.3).
-7. **The campaign launches the other roles itself.** It dispatches one subagent per
-   ticket to the receiving role and lands the result, instead of leaving the other
-   inboxes to Roey (section 4.1). This suspends board rule 3 ("nothing starts
-   itself") inside a campaign only.
-8. **Lab runs are preapproved by a cap**, not run by default (section 4.2).
 4. **Discipline rules are shared and stated once** (`rigor`, `honest-reporting`,
    `budget.md`, `roster-rules.md`); everything else points to them.
 5. **Search discipline deviates from the CDC prompt on purpose** (section 6).
@@ -82,14 +71,11 @@ A thin skill (under the 120-line limit). The main session briefs and relays; the
 lead-researcher and prover do the work; no new agent (the agent set in
 `researcher/tests/test_plugin.py` is unchanged).
 
-**Caps.** `--rounds` and `--agents` are required; `--runs K` (lab runs, 0 if
-omitted) and `--profile <env>` (the only lab profile the campaign may queue on)
-are optional. The skill stops and asks if a required cap is missing. A suggested
-starting point is 3 rounds and 4 agents, never applied silently. `budget.md` gets
-one rule: a campaign's caps are set by Roey per invocation, and its rules 1-3
-(three items, serial, nothing starts itself) are suspended only inside them.
-Rule 4 holds: a limit error ends the campaign with a report. Rules 5-9 hold for
-every dispatched subagent.
+**Caps.** Both are required; the skill stops and asks if one is missing. A
+suggested starting point is 3 rounds and 4 agents, never applied silently.
+`budget.md` gets one rule: a campaign's caps are set by Roey per invocation,
+and its rules 2 and 3 (three items, serial) are suspended only inside them.
+Rule 4 holds: a limit error ends the campaign with a report.
 `--agents M` caps parallel provers; tickets filed do not count against it but are
 counted in the report. Each ticket keeps its own `budget.runs`.
 
@@ -131,12 +117,11 @@ rounds, and only when the lead calls it.
 is followed by a reseeding round: fresh formulations, plus any approach whose
 `reopen_if` now holds.
 
-**Pause, not spin.** When every remaining direction waits on a ticket that no
-dispatch can move (blocked on a lab run beyond `--runs`, an unreachable profile,
-or a human), the campaign stops with "paused, waiting on T-a, T-b". It resumes from
-the registry and the board on the next invocation; the approach objects carry all
-the state. Waiting on a ticket that section 4.1 can dispatch is not a pause: the
-campaign dispatches it.
+**Pause, not spin.** When every remaining direction waits on a ticket, the
+campaign stops with "paused, waiting on T-a, T-b". It resumes from the registry
+and the board on the next invocation; the approach objects carry all the state.
+The board rule that nothing starts itself is unchanged: the other roles' inboxes
+must still be worked by Roey or a session he starts, so a campaign runs in bursts.
 
 **Stop conditions, only these:** the target has two agreeing verify reviews (then
 claim-keeper sets the status); the round or agent cap; a limit error.
@@ -145,62 +130,6 @@ claim-keeper sets the status); the round or agent cap; a limit error.
 proved derivation plus the exact remaining gap as a claim id; the approach table
 (lifecycle, `blocked_by`, `reopen_if`); open tickets and what each waits for.
 No "best effort" summary, no explanation of why the problem is hard.
-
-### 4.1 Launching the other roles
-
-Inside a campaign the main session is the driver. After filing tickets it runs a
-**dispatch step** and lands what comes back before the next round:
-
-1. List open tickets addressed to the Scientist, the Expert and the Researcher's own
-   relays that carry this campaign's approach tag (`board.py list`, filtered).
-2. For each, dispatch **one subagent** for the receiving role, briefed with the
-   ticket id only (budget rule 9), through that role's existing route:
-   Scientist tickets via `scientist:experimenter` (experiments) or
-   `scientist:developer` / `test-engineer` (code); Expert tickets via
-   `expert:librarian` (cite, lookup), `expert:review-chair` (verify) and the two
-   relays (`research-intake`, `paper-liaison`); Researcher relays via
-   `experiment-spec` and `lit-request`; returned tickets via `claim-keeper` and
-   `experiment-reviewer`. Independent tickets go in one message, in parallel, up to
-   `--agents M` in flight across provers and dispatched subagents together.
-3. Each dispatched subagent works as the role's inbox would: it moves the ticket
-   `accepted`, then delivers or blocks it with a thread line, under its own
-   `budget.runs` and `max_model`. The driver checks the ticket state afterwards; a
-   ticket left `accepted` with no delivery is logged as a wasted slot and not
-   redispatched in the same round.
-4. Relays whose child tickets delivered get their return leg the same way.
-
-No new agent is added: subagents cannot themselves spawn subagents, so the driver
-stays in the main session and the role agents are the existing ones (the agent set
-in `researcher/tests/test_plugin.py` is unchanged). Roles that nest in their own
-definitions (`review-chair` launching rigor-reviewers, `lead-researcher` launching
-provers) keep doing so; where nesting is unavailable in a session, the driver runs
-that level itself, one step at a time.
-
-The ticket chain gate is untouched: the driver files tickets as the Researcher and
-never as another role, and each receiving role files only its own neighbour
-tickets. The driver grants no permissions.
-
-### 4.2 Lab runs
-
-`--runs K` is a preapproval of at most K queued lab runs on `--profile`, in place
-of a per-run header approval by Roey. Inside the cap the Scientist's experimenter
-still writes the header and the validation case and files the run, and the header
-is still recorded in the ticket, but it is not held for a human. Preflight,
-provenance and the environment policy are unchanged. A failed preflight, an
-experiment that needs a different profile, or the K+1st run parks its ticket as
-waiting on human. K=0 (the default) means every experiment ticket pauses at its
-header, as today. In a cloud session the workspace CLAUDE.md rule against heavy
-environments still applies: K is forced to 0 there.
-
-### 4.3 Decisions and unattended operation
-
-The campaign never records a human decision and never applies a recommended
-option. A packet or ticket that needs Roey is created or left `blocked` with
-`waiting_on: [human]`, and the approach it concerns is marked `waiting on
-decision`; other approaches continue. If every approach waits on a human, the
-campaign pauses. The report lists them and points at `/academy:decide`. An
-unattended run writes `board/human/RESUME.md` as budget rule 4 describes. Status
-changes still go only through claim-keeper on two agreeing reviews.
 
 ## 5. Shared discipline (stated once, pointed to elsewhere)
 
@@ -221,9 +150,7 @@ In `academy/skills/rigor/SKILL.md`:
 In `academy/skills/honest-reporting/SKILL.md`: the final-report shape of §4.
 
 In `academy/references/roster-rules.md`: the independence rule for blind provers.
-In `academy/references/budget.md`: the campaign-caps rule, which also states that
-inside a campaign rule 3 is suspended for dispatching tickets and for lab runs up
-to `--runs`, and for nothing else.
+In `academy/references/budget.md`: the campaign-caps rule.
 
 `explore`, `lead-researcher` and `prover` get one-line pointers, not copies.
 The rigor-reviewer's VERDICT block is untouched (the Expert's hooks read it).
@@ -254,22 +181,13 @@ Tests first (TDD), then code:
 2. `notebook.py` and the object template: the `approach` kind, `approach:` on
    directions.
 3. Shared rules: `rigor`, `honest-reporting`, `budget.md`, `roster-rules.md`.
-4. `researcher/skills/campaign/SKILL.md` (round loop, the dispatch step of 4.1,
-   caps, pause, report), and `SKILLS` in `test_plugin.py` (size limit and
-   no-domain-words checks apply). Tests: the skill mentions `--rounds`,
-   `--agents` and `--runs`, states the K=0 default, and names no agent outside the
-   existing set. If the 120-line limit binds, the dispatch table moves to
-   `researcher/references/campaign-dispatch.md` and the skill points to it.
+4. `researcher/skills/campaign/SKILL.md`, and `SKILLS` in `test_plugin.py`
+   (size limit and no-domain-words checks apply).
 5. One-line pointers in `explore`, `lead-researcher`, `prover`; one line each in
    `researcher/README.md` and `docs/roles.md`.
 6. `py -m unittest discover researcher/tests`.
 
-Open risks: (a) the dispatch step assumes the Agent tool is available to the main
-session and that a role's ticket route can run as a subagent; the plan verifies
-this on one Scientist and one Expert ticket before the skill is written.
-(b) Auto-launch multiplies spend; `--agents`, per-ticket `budget.runs` and the
-limit-error stop are the only brakes, and `/academy:usage` is how Roey checks.
-(c) the registry check (`claims_check`) must accept the new kind. If that
+Open risk: the registry check (`claims_check`) must accept the new kind. If that
 lives in the MCP server (`academy/mcp/`), it is a second change and is flagged in
 the plan before it is touched. `test_vendored_lib_is_in_sync` requires
 `researcher/scripts/_academy.py` to equal `academy/lib/academy_common.py`, so any
