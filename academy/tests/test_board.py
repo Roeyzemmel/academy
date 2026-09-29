@@ -121,6 +121,23 @@ class TestTickets(BoardCase):
                          [(DATE, "author@bi/math-writer", "opened")])
         self.assertEqual(ac.write_frontmatter(meta, body), text)   # canonical
 
+    def test_new_requires_as(self):
+        with self.assertRaises(ac.AcademyError) as cm:
+            bd.create_ticket(self.board, "expert@ts", "T", "a", "d", workspace=self.ws)
+        self.assertIn("--as", str(cm.exception))
+
+    def test_new_applies_the_chain(self):
+        with self.assertRaises(ac.AcademyError) as cm:
+            bd.create_ticket(self.board, "researcher@r1", "T", "a", "d",
+                             as_instance="author@bi", workspace=self.ws)
+        self.assertIn("final_to researcher", str(cm.exception))
+        path = bd.create_ticket(self.board, "expert@ts", "T", "a", "d", kind="research",
+                                as_instance="author@bi", workspace=self.ws,
+                                final_to="researcher")
+        meta, body = bd.read_ticket(path)
+        self.assertEqual(meta["final_to"], "researcher")
+        self.assertIn("author@bi/main: opened", body)
+
     def test_namespaced_agent_is_written_bare(self):
         # agents carry plugin-namespaced names; the speaker is the bare one (protocol 1)
         p = self.new(agent="author:math-writer")
@@ -159,7 +176,7 @@ class TestTickets(BoardCase):
     def test_list_filters_and_order(self):
         self.new(title="A", priority="low")
         self.new(title="B", priority="high")
-        self.new(title="C", to="researcher@r1")
+        self.new(title="C", to="researcher@r1", as_instance="human", agent="")
         rows = bd.list_tickets(self.board, to="expert@ts")
         self.assertEqual([r["title"] for r in rows], ["B", "A"])
         self.assertEqual(len(bd.list_tickets(self.board)), 3)
@@ -233,7 +250,7 @@ class TestTickets(BoardCase):
 
     def test_blocked_mirrors_blocks_and_clears_waiting_on(self):
         self.new(title="first")
-        self.new(title="second", to="researcher@r1")
+        self.new(title="second", to="researcher@r1", as_instance="human", agent="")
         with self.assertRaises(ac.AcademyError):      # blocked needs waiting_on
             bd.transition_ticket(self.board, "T-0001", "blocked", as_instance="expert@ts")
         bd.transition_ticket(self.board, "T-0001", "blocked", waiting_on=["T-0002"],
@@ -264,7 +281,8 @@ class TestTickets(BoardCase):
         with redirect_stdout(out):
             rc = bd.main(base + ["new", "--to", "expert@ts", "--title", "CLI ticket",
                                  "--ask", "ask", "--deliverable", "done",
-                                 "--refs", "paper:lem:x, bib:LMW16", "--runs", "2"])
+                                 "--as", "human", "--refs", "paper:lem:x, bib:LMW16",
+                                 "--runs", "2"])
         self.assertEqual(rc, 0)
         meta, _ = bd.read_ticket(out.getvalue().strip())
         self.assertEqual(meta["from"], "human")

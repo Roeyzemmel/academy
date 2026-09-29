@@ -232,7 +232,7 @@ class TestPendingDecisions(DecisionsCase):
 
     def test_blocked_waiting_on_a_ticket_not_human_is_excluded(self):
         self.ticket(title="first")
-        self.ticket(title="second", to="researcher@r1")
+        self.ticket(title="second", to="researcher@r1", as_instance="human")
         bd.transition_ticket(self.board, "T-0001", "blocked", waiting_on=["T-0002"],
                              as_instance="expert@ts", date=DATE)
         self.assertEqual(dc.pending_decisions(self.board), [])
@@ -246,7 +246,7 @@ class TestPendingDecisions(DecisionsCase):
 
     def test_unblocks_names_the_linked_ticket_and_what_it_blocks(self):
         self.ticket(title="verify", to="expert@ts")               # T-0001
-        self.ticket(title="downstream", to="researcher@r1")       # T-0002
+        self.ticket(title="downstream", to="researcher@r1", as_instance="human")       # T-0002
         bd.transition_ticket(self.board, "T-0002", "blocked", waiting_on=["T-0001"],
                              as_instance="researcher@r1", date=DATE)
         self.packet(ticket="T-0001")
@@ -339,7 +339,7 @@ class TestRecord(DecisionsCase):
     def test_record_never_touches_other_tickets(self):
         """Recording a decision starts no work (budget.md rule 3): only its own file changes."""
         self.ticket(to="human", as_instance="expert@ts", title="first")
-        p2 = self.ticket(to="researcher@r1", title="second")
+        p2 = self.ticket(to="researcher@r1", title="second", as_instance="human")
         dc.record(self.board, "T-0001", "a", date=DATE)
         meta2, _b2 = bd.read_ticket(p2)
         self.assertEqual(meta2["status"], "open")
