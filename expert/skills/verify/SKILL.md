@@ -5,6 +5,10 @@ description: 'Review one registry statement''s proof with two independent blind 
 
 # Verify one statement
 
+## Scope notes
+
+- This is the sanctioned route from `sketch` to `proved`; use it before any recolouring.
+
 `$ARGUMENTS` is a claim id (`paper:lem:strip-bound`), optionally a ticket id
 (`T-NNNN`) and the question asked; or empty, meaning the first `verify` ticket that
 `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py` lists. **One statement per invocation**:

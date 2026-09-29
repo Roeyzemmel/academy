@@ -5,6 +5,10 @@ description: 'Add or verify a citation through the librarian, the only route int
 
 # Add a citation, properly
 
+## Scope notes
+
+- Records not yet cached are fetched from Crossref, arXiv, MathSciNet or the journal page; a source is cached once.
+
 `$ARGUMENTS` is a DOI, an arXiv id, a bib key or a paper's title, optionally with the
 pinpoint wanted and the sentence of the paper (or the claim id) that will rely on it;
 or a `cite` ticket id (`T-NNNN`). Budget: one librarian run

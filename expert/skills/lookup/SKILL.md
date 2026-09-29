@@ -5,6 +5,10 @@ description: 'Answer a quick question about the library or registry via the Expe
 
 # Look it up
 
+## Scope notes
+
+- The clerk answers from `hot.md`, the cards and the MCP read tools only, with no web access.
+
 `$ARGUMENTS` is the question in plain words (a key, a pinpoint, a claim id or a
 phrase). Budget: one clerk run (`academy/references/budget.md`).
 

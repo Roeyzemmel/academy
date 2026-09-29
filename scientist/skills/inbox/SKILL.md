@@ -5,6 +5,10 @@ description: 'Work the lab''s board inbox: take at most three open or accepted t
 
 # The lab's inbox
 
+## Scope notes
+
+- Routes by kind: `experiment`, `test` and `question` tickets to the experimenter (a `question` is answered from the lab's records, no new compute); `code` tickets to the developer with test-engineer review; a `code` ticket titled "Upstream: ..." to upstream-contributor.
+
 `$ARGUMENTS`: nothing (take the next ones), or ticket ids to take in that order.
 
 ## 1. Select (script, not judgement)

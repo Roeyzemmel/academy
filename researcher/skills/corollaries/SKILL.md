@@ -1,6 +1,6 @@
 ---
 name: corollaries
-description: 'Derive corollaries of one established claim: prover writes each as a new unsettled object (sketch at most) depending on the source, with a short proof attempt. Use for "/researcher:corollaries <claim>" and after a claim turns proved.'
+description: 'Derive corollaries of one claim (any non-refuted status; conditional if unsettled): prover writes each as a new unsettled object (sketch at most) depending on the source, with a short proof attempt. Use for "/researcher:corollaries <claim>" and after a claim turns proved.'
 ---
 
 # Corollaries of a claim

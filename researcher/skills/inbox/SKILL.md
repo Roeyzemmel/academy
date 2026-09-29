@@ -5,6 +5,10 @@ description: 'Work this Researcher''s board inbox: take at most three open or ac
 
 # The Researcher inbox
 
+## Scope notes
+
+- Tickets are taken in order of priority, then agenda position, then id (`inbox.py`).
+
 `$ARGUMENTS` is empty (take the next items) or `--all` (list only). Scripts: `$R`,
 `$A` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. The ticket lifecycle is
 docs/protocol.md section 4; the budget rules are `academy/references/budget.md` — at

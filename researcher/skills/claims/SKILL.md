@@ -5,6 +5,10 @@ description: 'Answer "what is known about X" from the claim registry: show, list
 
 # The claim registry
 
+## Scope notes
+
+- Covers every namespace (this instance's own, `paper:`, `lab:` and future instances) through the same MCP tools; also use it when an experiment needs a claim id.
+
 `$ARGUMENTS` is an id (`<ns>:<id>`), a text to search, or what to do. The MCP tools
 are `mcp__plugin_academy_academy__claims_*` (or `mcp__academy__claims_*`, see
 `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`); the status words are the

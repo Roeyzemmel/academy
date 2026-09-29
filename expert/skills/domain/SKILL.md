@@ -5,6 +5,10 @@ description: 'Edit a domain pack from a ticket through the librarian, one change
 
 # Edit a domain pack
 
+## Scope notes
+
+- Pack changes also arrive from an Author's `notation-auditor` or a Scientist's `api-prober`, which route them here as a ticket.
+
 `$ARGUMENTS` is a ticket id (`T-NNNN`), or a pack name and a one-line change for Roey
 to confirm as a ticket first. Budget: one librarian run
 (`academy/references/budget.md`).

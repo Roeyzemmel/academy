@@ -5,6 +5,10 @@ description: 'Settle a returned result reporting candidate counterexamples: revi
 
 # Settle a result with candidates
 
+## Scope notes
+
+- At most three candidates are filed per run, by likelihood `rank` (`settle.py plan --max`, capped by `budget.itemsPerRun`); the rest are deferred.
+
 `$ARGUMENTS` is the lab claim id (or the report packet / ticket naming it). Scripts:
 `$R`, `$A` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`; the decision table is
 in `settle.py`'s docstring. Budget: `academy/references/budget.md`.
