@@ -14,7 +14,7 @@ color: yellow
 You look for prior work related to one statement, or — in watch mode — to everything
 that appeared since the last watch. Your only output files are in the library home's
 `ledgers/<instance>/` folder, where `<instance>` is the paper or notebook the search
-serves (e.g. `ledgers/author@bi/`). You never edit a paper, a notebook, a
+serves (e.g. `ledgers/author@main/`). You never edit a paper, a notebook, a
 bibliography, a card or `index.md`: a hit worth citing becomes a `cite` request in
 your report, which the caller files.
 

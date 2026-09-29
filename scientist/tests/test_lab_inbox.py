@@ -20,7 +20,7 @@ class LabTest(unittest.TestCase):
 
     def test_resolve_from_cwd_and_workspace(self):
         lab = c.resolve_lab(None, os.path.join(self.sb.lab, "experiments"))
-        self.assertEqual((lab["instance"], lab["switched"]), ("scientist@ts", True))
+        self.assertEqual((lab["instance"], lab["switched"]), ("scientist@main", True))
         lab = c.resolve_lab(None, self.sb.other)       # not a lab: falls back to workspace
         self.assertEqual(os.path.normcase(lab["home"]), os.path.normcase(self.sb.lab))
 
@@ -28,7 +28,7 @@ class LabTest(unittest.TestCase):
         os.remove(os.path.join(self.sb.lab, ".claude", "academy.json"))
         lab = c.resolve_lab(self.sb.lab)
         self.assertFalse(lab["switched"])
-        self.assertEqual(lab["instance"], "scientist@ts")
+        self.assertEqual(lab["instance"], "scientist@main")
         self.assertEqual(c.results_dir(lab["cfg"]), "results")
 
     def test_command_legacy_then_env_py(self):
@@ -73,28 +73,28 @@ class InboxTest(unittest.TestCase):
         self.sb.close()
 
     def ticket(self, kind, title, priority="normal", max_model="sonnet"):
-        return self.board.create_ticket(self.sb.board, "scientist@ts", title, "ask", "done",
+        return self.board.create_ticket(self.sb.board, "scientist@main", title, "ask", "done",
                                         kind=kind, priority=priority,
                                         budget={"runs": 1, "max_model": max_model},
-                                        as_instance="researcher@slope1")
+                                        as_instance="researcher@alpha")
 
     def test_order_cut_and_routes(self):
         self.ticket("code", "refactor the runner", max_model="sonnet")
         self.ticket("experiment", "run EW")
         self.ticket("verify", "not ours")
         self.ticket("test", "falsifier", priority="high")
-        rows, total = inbox.select(self.sb.board, "scientist@ts", 3)
+        rows, total = inbox.select(self.sb.board, "scientist@main", 3)
         self.assertEqual(total, 4)
         self.assertEqual([r["kind"] for r in rows], ["test", "code", "experiment"])
         self.assertEqual(rows[0]["route"], "experimenter")
         self.assertEqual(rows[1]["route"], "developer")
         self.assertIn("over_budget", rows[1])                  # developer is opus
-        rows, _ = inbox.select(self.sb.board, "scientist@ts", 3, take_all=True)
+        rows, _ = inbox.select(self.sb.board, "scientist@main", 3, take_all=True)
         self.assertEqual(rows[-1]["route"], "reject")
 
     def test_upstream_code_ticket_goes_to_upstream_contributor(self):
         self.ticket("code", "Upstream: saddle_connections ignores the bound")
-        rows, _ = inbox.select(self.sb.board, "scientist@ts", 3)
+        rows, _ = inbox.select(self.sb.board, "scientist@main", 3)
         self.assertEqual(rows[0]["route"], "upstream-contributor")
         self.assertNotIn("over_budget", rows[0])
 

@@ -134,7 +134,7 @@ class CommitGateHookTests(unittest.TestCase):
         self.assertEqual(self.gate("git commit -m x", self.sb.home)[0], 0)
 
     def test_commit_to_other_repo_from_author_cwd_is_not_gated(self):
-        # the misfire: a BI session committing to FlatSurfLab ran BI's checker
+        # the misfire: a BI session committing to SciLab ran BI's checker
         code, _out, err = self.gate("git -C %s commit -m x" % self.sb.other, self.sb.home)
         self.assertEqual(code, 0, err)
         self.assertEqual(self.sb.calls("checker_calls.txt"), [])

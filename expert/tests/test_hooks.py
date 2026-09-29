@@ -30,7 +30,7 @@ Two blocking findings.
 
 ## Produced
 
-- The referee report on author@bi: this packet.
+- The referee report on author@main: this packet.
 
 ## Established vs assumed
 
@@ -61,7 +61,7 @@ None.
 ## Decision
 
 REFEREE
-subject: author@bi
+subject: author@main
 ticket: T-0003
 model: claude-fable-5-1
 strength: full
@@ -151,9 +151,9 @@ class LandVerdictTests(unittest.TestCase):
 class LandRefereeTests(unittest.TestCase):
     def setUp(self):
         self.sb = fixtures.Sandbox()
-        tpath = os.path.join(self.sb.board, "expert@ts", "T-0003-referee-the-paper.md")
+        tpath = os.path.join(self.sb.board, "expert@main", "T-0003-referee-the-paper.md")
         meta = {"id": "T-0003", "title": "Referee the paper", "kind": "referee",
-                "from": "author@bi", "to": "expert@ts", "status": "in-progress",
+                "from": "author@main", "to": "expert@main", "status": "in-progress",
                 "priority": "normal", "ask": "Referee it.", "deliverable": "A packet.",
                 "refs": [], "blocks": [], "waiting_on": [],
                 "budget": {"runs": 1, "max_model": "fable"}, "packets": [],
@@ -165,7 +165,7 @@ class LandRefereeTests(unittest.TestCase):
         self.sb.close()
 
     def packets(self):
-        d = os.path.join(self.sb.board, "packets", "expert@ts")
+        d = os.path.join(self.sb.board, "packets", "expert@main")
         return sorted(os.listdir(d)) if os.path.isdir(d) else []
 
     def test_lands_packet_and_copy(self):
@@ -174,15 +174,15 @@ class LandRefereeTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         pk = self.packets()
         self.assertEqual(len(pk), 1, (out, err))
-        with open(os.path.join(self.sb.board, "packets", "expert@ts", pk[0]),
+        with open(os.path.join(self.sb.board, "packets", "expert@main", pk[0]),
                   encoding="utf-8") as fh:
             meta, body = ac.read_frontmatter(fh.read())
         self.assertEqual(ac.validate_packet(meta, body), [])
         self.assertEqual((meta["kind"], meta["by"], meta["ticket"]),
-                         ("referee", "expert@ts/referee", "T-0003"))
+                         ("referee", "expert@main/referee", "T-0003"))
         self.assertIn("## Objective findings", body)
         self.assertNotIn("REFEREE", body)
-        copies = os.listdir(os.path.join(self.sb.lib, "reviews", "referee", "author-bi"))
+        copies = os.listdir(os.path.join(self.sb.lib, "reviews", "referee", "author-main"))
         self.assertEqual(len(copies), 1)
         with open(self.tpath, encoding="utf-8") as fh:
             tmeta, _ = ac.read_frontmatter(fh.read())
@@ -190,12 +190,12 @@ class LandRefereeTests(unittest.TestCase):
 
     def test_wraps_a_report_not_in_packet_shape(self):
         text = "# My report\n\nThe paper is fine.\n\n## Findings\n\n- one\n\n" \
-               "REFEREE\nsubject: author@bi\nticket: none\nmodel: claude-sonnet-4-5\n"
+               "REFEREE\nsubject: author@main\nticket: none\nmodel: claude-sonnet-4-5\n"
         code, out, err = fixtures.run_script("land_referee.py",
                                              stop_event("expert:referee", text))
         pk = self.packets()
         self.assertEqual(len(pk), 1, err)
-        with open(os.path.join(self.sb.board, "packets", "expert@ts", pk[0]),
+        with open(os.path.join(self.sb.board, "packets", "expert@main", pk[0]),
                   encoding="utf-8") as fh:
             meta, body = ac.read_frontmatter(fh.read())
         self.assertEqual(ac.validate_packet(meta, body), [])
@@ -210,7 +210,7 @@ class LandRefereeTests(unittest.TestCase):
         code, out, err = fixtures.run_script("land_referee.py",
                                              stop_event("expert:referee", text))
         self.assertEqual(code, 0, err)
-        with open(os.path.join(self.sb.board, "packets", "expert@ts", self.packets()[0]),
+        with open(os.path.join(self.sb.board, "packets", "expert@main", self.packets()[0]),
                   encoding="utf-8") as fh:
             meta, body = ac.read_frontmatter(fh.read())
         self.assertNotIn("reduced-strength", body)
@@ -219,7 +219,7 @@ class LandRefereeTests(unittest.TestCase):
     def test_sonnet_report_is_reduced_strength(self):
         text = REFEREE_REPORT.replace("claude-fable-5-1", "claude-sonnet-4-5")
         fixtures.run_script("land_referee.py", stop_event("expert:referee", text))
-        with open(os.path.join(self.sb.board, "packets", "expert@ts", self.packets()[0]),
+        with open(os.path.join(self.sb.board, "packets", "expert@main", self.packets()[0]),
                   encoding="utf-8") as fh:
             meta, body = ac.read_frontmatter(fh.read())
         self.assertIn("reduced-strength", body)
@@ -228,7 +228,7 @@ class LandRefereeTests(unittest.TestCase):
     def test_unknown_ticket_is_noted(self):
         text = REFEREE_REPORT.replace("T-0003", "T-0999")
         fixtures.run_script("land_referee.py", stop_event("expert:referee", text))
-        with open(os.path.join(self.sb.board, "packets", "expert@ts", self.packets()[0]),
+        with open(os.path.join(self.sb.board, "packets", "expert@main", self.packets()[0]),
                   encoding="utf-8") as fh:
             meta, body = ac.read_frontmatter(fh.read())
         self.assertIn("T-0999", body)
@@ -254,7 +254,7 @@ class BlindGuardTests(unittest.TestCase):
 
     def ev(self, tool, agent="expert:rigor-reviewer", **ti):
         return {"hook_event_name": "PreToolUse", "tool_name": tool, "agent_type": agent,
-                "tool_input": ti, "cwd": self.sb.bi}
+                "tool_input": ti, "cwd": self.sb.paperhome}
 
     def decision(self, ev):
         code, out, err = fixtures.run_script("review_blind_guard.py", ev)
@@ -314,7 +314,7 @@ class LibraryEditCheckTests(unittest.TestCase):
         self.assertIn("NEW22", self.ctx(self.edit(p)))
 
     def test_outside_the_library_silent(self):
-        p = self.sb.write("bi/cards/ABC21/x.md", "not a card")
+        p = self.sb.write("paperhome/cards/ABC21/x.md", "not a card")
         self.assertIsNone(self.ctx(self.edit(p)))
 
     def test_shell_in_library_reports_fresh_gaps_only(self):
@@ -325,7 +325,7 @@ class LibraryEditCheckTests(unittest.TestCase):
         old = os.path.join(self.sb.lib, "NEW22.pdf")
         os.utime(old, (1, 1))
         self.assertIsNone(self.ctx(ev))
-        ev["cwd"] = self.sb.bi
+        ev["cwd"] = self.sb.paperhome
         os.utime(old, None)
         self.assertIsNone(self.ctx(ev))           # not in the library, not named
 

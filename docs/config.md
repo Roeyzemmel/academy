@@ -36,7 +36,7 @@ them valid.
       "ns": "<registry namespace, omitted when the instance has no registry>"
     }
   },
-  "board": "C:/Work/Math/board",
+  "board": "C:/absolute/path/of/the/board",
   "human": {"name": "Roey", "noteMacro": "\\Roey"}
 }
 ```
@@ -52,16 +52,23 @@ them valid.
 | `human` | map | no | `name` for display, `noteMacro` for the human's margin-note macro |
 
 `load_workspace` finds it at `$ACADEMY_WORKSPACE`, then `<academy repo>/workspace.json`,
-then `C:/Work/Math/academy/workspace.json`. It adds `_path`. The current file:
+then `<academy repo>/../workspace.json` (the academy checked out inside the workspace). It
+adds `_path`. The workspace repo generates the file (`scripts/bootstrap.py`, from its
+`workspace.template.json`, with this machine's absolute paths) and exports where everything is
+as environment variables, so no code or document needs a literal path:
 
-```json
-{"instances": {
-  "expert@ts":          {"role":"expert",     "home":"C:/Work/Math/papers",                     "domains":["translation-surfaces"]},
-  "scientist@ts":       {"role":"scientist",  "home":"C:/Work/Math/FlatSurfLab",                "domains":["translation-surfaces"], "ns":"lab"},
-  "researcher@slope1":  {"role":"researcher", "home":"C:/Work/Math/Slope1illuminationResearch", "domains":["translation-surfaces"], "ns":"s1"},
-  "author@bi":          {"role":"author",     "home":"C:/Work/Math/BilliardIllumination",       "domains":["translation-surfaces"], "ns":"paper"}},
- "board":"C:/Work/Math/board", "human":{"name":"Roey","noteMacro":"\\Roey"}}
-```
+| Variable | Meaning |
+|---|---|
+| `ACADEMY_ROOT` | the academy repo (plugins, scripts) |
+| `ACADEMY_WORKSPACE` | the `workspace.json` above |
+| `ACADEMY_BOARD` | the board repo (overrides `board`) |
+| `ACADEMY_HOME_<ROLE>_<NAME>` | the home of instance `<role>@<name>` (overrides its `home`) |
+| `ACADEMY_LIBRARY` | the home of the first Expert instance |
+| `ACADEMY_ENV_WORKSPACE` | the file the variables were derived from; the overrides apply to that file only |
+
+They are set in `.claude/settings.local.json` of the workspace and of every home, and in the
+workspace's `workspace.env` for plain shells (`set -a; . ./workspace.env`). To move a home,
+change the variable (or `home`) and nothing else.
 
 Adding an instance means one row here plus one `academy.json` in its home
 (`/academy:init`). The two must agree on `role`, `instance`, `domains` and `ns`;
@@ -119,8 +126,8 @@ writes `views/` (`assumptions.md`, `INDEX.md`, `directions.md`, `graph.md`,
 `examples/`). The lab and paper homes keep `claims/<ns>/`.
 
 *Phase 7 (2026-09-28, P-0004 D9 / P-0005 D8):* the 19 s1 claim verdicts are in the
-Expert's library, `papers/reviews/s1/<claim>/`, and s1 records cite them as
-`file:expert@ts/reviews/s1/<claim>/<file>.md`. `set-status --verdict` (and MCP
+Expert's library, `<library>/reviews/s1/<claim>/`, and s1 records cite them as
+`file:expert@main/reviews/s1/<claim>/<file>.md`. `set-status --verdict` (and MCP
 `claims_set_status`, `grounds.verdict_file`) accepts such a ref, or a path into the
 library's `reviews/`, as the verdict anchor; the instance's home comes from
 workspace.json (`registry/core/workspace.instance_home`, a worktree sibling first).
@@ -172,7 +179,7 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 |---|---|---|
 | `objectKinds` | list | `definition claim conjecture question example assumption direction` |
 | `statusField` | str | The frontmatter key guarded by `status_guard` (`status`) |
-| `reviewsHome` | instance | Where proof reviews live (`expert@ts`) |
+| `reviewsHome` | instance | Where proof reviews live (`expert@main`) |
 | `lab` | instance | The Scientist instance experiments go to |
 | `generalize` | `{maxPerRun, raiseAbove}` | Most generalizations per `/researcher:generalize` run, and the highest status it may set (`conjectured`) |
 
@@ -186,7 +193,7 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 | `accessLog` | path | Clerk access log feeding `hot.md`: the MCP server appends one line per `library_*` call there, and `hot.py` reads it. Default `.academy/access.log` (derived state, ignored by git); keep it under `.academy/` |
 | `hotSize` | int | Entries kept in `hot.md` |
 | `web` | `{clerk, librarian}` | Whether each agent may fetch from the web (the clerk never does) |
-| `shards` | map domain → path | `papers/<domain>/cards` sharding when the library serves several packs |
+| `shards` | map domain → path | `<library>/<domain>/cards` sharding when the library serves several packs |
 
 **Required paths:** `index`, `cards`, `ledgers`, `reviews`, `hot`, `cache`, `views`.
 
@@ -235,13 +242,13 @@ These are the target configs after each home's switch-over. Paths that do not ex
 yet are created by that phase. A `legacy` entry names the old command kept alive by
 a shim until phase 8.
 
-### Example: author@bi
+### Example: author@main
 
 ```json
 {
   "schema": 1,
   "role": "author",
-  "instance": "author@bi",
+  "instance": "author@main",
   "domains": ["translation-surfaces"],
   "ns": "paper",
   "paths": {
@@ -258,7 +265,7 @@ a shim until phase 8.
   },
   "registry": {"profile": "paper", "root": "claims", "db": ".claude/academy.sqlite",
                "statusKeeper": "claim-keeper",
-               "legacy": {"claims": "py ../FlatSurfLab/scripts/claims.py --repo ."}},
+               "legacy": {"claims": "py ../<lab>/scripts/claims.py --repo ."}},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
              "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
   "gate": {"commit": "normal", "build": true,
@@ -288,13 +295,13 @@ a shim until phase 8.
 }
 ```
 
-### Example: researcher@slope1
+### Example: researcher@alpha
 
 ```json
 {
   "schema": 1,
   "role": "researcher",
-  "instance": "researcher@slope1",
+  "instance": "researcher@alpha",
   "domains": ["translation-surfaces"],
   "ns": "s1",
   "paths": {
@@ -318,20 +325,20 @@ a shim until phase 8.
     "objectKinds": ["definition", "claim", "conjecture", "question", "example",
                     "assumption", "direction"],
     "statusField": "status",
-    "reviewsHome": "expert@ts",
-    "lab": "scientist@ts",
+    "reviewsHome": "expert@main",
+    "lab": "scientist@main",
     "generalize": {"maxPerRun": 3, "raiseAbove": "conjectured"}
   }
 }
 ```
 
-### Example: expert@ts
+### Example: expert@main
 
 ```json
 {
   "schema": 1,
   "role": "expert",
-  "instance": "expert@ts",
+  "instance": "expert@main",
   "domains": ["translation-surfaces"],
   "paths": {
     "index": "index.md",
@@ -347,7 +354,7 @@ a shim until phase 8.
              "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
   "gate": {"commit": "off", "build": false, "baseline": null, "branches": {}},
   "expert": {
-    "bibs": ["author@bi:references.bib"],
+    "bibs": ["author@main:references.bib"],
     "accessLog": ".academy/access.log",
     "hotSize": 50,
     "web": {"clerk": false, "librarian": true},
@@ -356,13 +363,13 @@ a shim until phase 8.
 }
 ```
 
-### Example: scientist@ts
+### Example: scientist@main
 
 ```json
 {
   "schema": 1,
   "role": "scientist",
-  "instance": "scientist@ts",
+  "instance": "scientist@main",
   "domains": ["translation-surfaces"],
   "ns": "lab",
   "paths": {
@@ -387,7 +394,7 @@ a shim until phase 8.
       "laptop-wsl": {"kind": "wsl", "distro": "Ubuntu", "conda": "flatsurf"},
       "local": {"kind": "local", "conda": "flatsurf"},
       "lingo": {"kind": "ssh", "host": "lingo", "prefix": "/data/roeyzemmel/miniforge3",
-                "env": "flatsurf", "repo": "~/FlatSurfLab", "maxJobs": 1,
+                "env": "flatsurf", "repo": "~/<lab>", "maxJobs": 1,
                 "preflight": "vpn:globalprotect"}
     },
     "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "lingo"},

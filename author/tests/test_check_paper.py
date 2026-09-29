@@ -1,5 +1,5 @@
 """check_paper.py in the plugin: the self-test, the academy.json parameterisation, and
-the phase-0 equivalence against goldens/check_paper.txt (read-only on BI)."""
+the phase-0 equivalence against goldens/check_paper.txt (read-only on PAPER_HOME)."""
 
 import json
 import os
@@ -15,7 +15,22 @@ from fixtures import SCRIPTS, REPO
 sys.path.insert(0, SCRIPTS)
 import check_paper as cp  # noqa: E402
 
-BI = "C:/Work/Math/BilliardIllumination"
+
+def _real_home(**want):
+    """The home of the first workspace.json instance matching ``want`` (role=..., ns=...), or ''
+    when there is no workspace: these tests run against real homes only where they exist."""
+    try:
+        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8-sig") as fh:
+            ws = json.load(fh)
+    except (KeyError, OSError, ValueError):
+        return ""
+    for inst in ws.get("instances", {}).values():
+        if all(inst.get(k) == v for k, v in want.items()):
+            return inst["home"]
+    return ""
+
+
+PAPER_HOME = _real_home(role="author")
 GOLDEN = os.path.join(REPO, "goldens", "check_paper.txt")
 ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
 ENV.pop("PYTHONIOENCODING", None)          # the script must be UTF-8-safe on its own
@@ -114,13 +129,13 @@ def _without_r7(text):
             if "[R7]" not in ln and not ln.startswith("WARNINGS (")]
 
 
-@unittest.skipUnless(os.path.isfile(os.path.join(BI, "main.tex")) and os.path.isfile(GOLDEN),
-                     "BilliardIllumination or the golden is not present")
+@unittest.skipUnless(os.path.isfile(os.path.join(PAPER_HOME, "main.tex")) and os.path.isfile(GOLDEN),
+                     "PaperHome or the golden is not present")
 class GoldenEquivalenceTests(unittest.TestCase):
     """plan 3.6 / 9.0: the plugin copy reproduces the phase-0 golden (modulo R7)."""
 
     def test_matches_golden_modulo_r7(self):
-        code, out, err = run("--root", BI, "--no-log", "--no-registry")
+        code, out, err = run("--root", PAPER_HOME, "--no-log", "--no-registry")
         with open(GOLDEN, encoding="utf-8") as fh:
             golden = fh.read().replace("\r\n", "\n")
         self.assertTrue(golden.rstrip().endswith("exit=%d" % code), (code, err))

@@ -46,6 +46,36 @@ class TempDir(unittest.TestCase):
             fh.write(text)
         return path
 
+    def fixture_workspace(self):
+        """A workspace.json for the five standard instances, homes under the temp dir."""
+        spec = {"expert@main": ("library", None), "scientist@main": ("lab", "lab"),
+                "researcher@alpha": ("slope1", "s1"), "researcher@beta": ("flat", "flat"),
+                "author@main": ("paper", "paper")}
+        inst = {}
+        for name, (home, ns) in spec.items():
+            inst[name] = {"role": name.split("@")[0], "home": os.path.join(self.tmp, home),
+                          "domains": ["translation-surfaces"]}
+            if ns:
+                inst[name]["ns"] = ns
+        return self.write("fixture/workspace.json", json.dumps(
+            {"instances": inst, "board": os.path.join(self.tmp, "board"),
+             "human": {"name": "Roey"}}))
+
+    def fixture_workspace(self):
+        """A workspace.json for the five standard instances, homes under the temp dir."""
+        spec = {"expert@main": ("library", None), "scientist@main": ("lab", "lab"),
+                "researcher@alpha": ("slope1", "s1"), "researcher@beta": ("flat", "flat"),
+                "author@main": ("paper", "paper")}
+        inst = {}
+        for name, (home, ns) in spec.items():
+            inst[name] = {"role": name.split("@")[0], "home": os.path.join(self.tmp, home),
+                          "domains": ["translation-surfaces"]}
+            if ns:
+                inst[name]["ns"] = ns
+        return self.write("fixture/workspace.json", json.dumps(
+            {"instances": inst, "board": os.path.join(self.tmp, "board"),
+             "human": {"name": "Roey"}}))
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -70,15 +100,15 @@ class ConfigTests(TempDir):
 
     def test_docs_examples_are_the_four_homes_and_valid(self):
         ex = config_examples()
-        self.assertEqual(sorted(ex), ["author@bi", "expert@ts", "researcher@slope1",
-                                      "scientist@ts"])
+        self.assertEqual(sorted(ex), ["author@main", "expert@main", "researcher@alpha",
+                                      "scientist@main"])
         for name, cfg in ex.items():
             merged = ac._deep_merge(ac.CONFIG_DEFAULTS, cfg)
             self.assertEqual(ac.validate_config(merged), [], name)
             self.assertEqual(cfg["instance"], name)
 
     def test_docs_examples_agree_with_workspace(self):
-        ws = ac.load_workspace(os.path.join(REPO, "workspace.json"))
+        ws = ac.load_workspace(self.fixture_workspace())
         for name, cfg in config_examples().items():
             inst = ws["instances"][name]
             self.assertEqual(inst["role"], cfg["role"])
@@ -86,7 +116,7 @@ class ConfigTests(TempDir):
             self.assertEqual(inst.get("ns"), cfg.get("ns"))
 
     def test_load_config_merges_defaults_and_sets_home(self):
-        cfg = dict(config_examples()["expert@ts"])
+        cfg = dict(config_examples()["expert@main"])
         del cfg["budget"]
         del cfg["gate"]
         home = self.make_home(cfg)
@@ -98,7 +128,7 @@ class ConfigTests(TempDir):
     def test_load_config_errors(self):
         with self.assertRaises(ac.ConfigError):
             ac.load_config(os.path.join(self.tmp, "nowhere"))
-        bad = dict(config_examples()["scientist@ts"])
+        bad = dict(config_examples()["scientist@main"])
         bad["scientist"] = dict(bad["scientist"], policy={"probe": "laptop-wsl",
                                                           "test": "laptop-wsl",
                                                           "run": "mars"})
@@ -115,10 +145,10 @@ class ConfigTests(TempDir):
             ac.load_config(home3)
 
     def test_validate_config_catches_each_rule(self):
-        base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["author@bi"])
+        base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["author@main"])
         cases = [
             ({"role": "poet"}, "role"),
-            ({"instance": "researcher@bi"}, "does not start with role"),
+            ({"instance": "researcher@other"}, "does not start with role"),
             ({"instance": "Author@BI"}, "instance must look like"),
             ({"domains": []}, "domains"),
             ({"ns": None}, "ns is required"),
@@ -136,7 +166,7 @@ class ConfigTests(TempDir):
             self.assertTrue(any(needle in p for p in probs), (patch, probs))
 
     def test_scientist_env_kinds(self):
-        base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["scientist@ts"])
+        base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["scientist@main"])
         sci = dict(base["scientist"])
         sci["envs"] = dict(sci["envs"], cloud={"kind": "k8s"}, bad={"kind": "ssh"},
                            w={"kind": "wsl"})
@@ -147,13 +177,13 @@ class ConfigTests(TempDir):
         self.assertIn("w: kind wsl needs distro", probs)
 
     def test_gate_mode_branch_override(self):
-        cfg = config_examples()["author@bi"]
+        cfg = config_examples()["author@main"]
         self.assertEqual(ac.gate_mode(cfg, "main"), "normal")
         self.assertEqual(ac.gate_mode(cfg, "academy-migration"), "off")
         self.assertEqual(ac.gate_mode(cfg), "normal")
 
     def test_find_home(self):
-        home = self.make_home(config_examples()["expert@ts"])
+        home = self.make_home(config_examples()["expert@main"])
         deep = os.path.join(home, "a", "b")
         os.makedirs(deep)
         self.assertEqual(ac.find_home(deep), home)
@@ -181,7 +211,7 @@ class ConfigTests(TempDir):
                     os.environ[k] = v
 
     def test_path_in_role(self):
-        home = self.make_home(config_examples()["author@bi"])
+        home = self.make_home(config_examples()["author@main"])
         cfg = ac.load_config(home)
         j = lambda *p: os.path.join(home, *p)  # noqa: E731
         self.assertTrue(ac.path_in_role(j("sections", "billiards.tex"), cfg, "tex"))
@@ -208,23 +238,55 @@ class ConfigTests(TempDir):
 
 class WorkspaceTests(TempDir):
     def test_repo_workspace(self):
-        ws = ac.load_workspace(os.path.join(REPO, "workspace.json"))
-        self.assertEqual(set(ws["instances"]), {"expert@ts", "scientist@ts",
-                                                "researcher@slope1", "researcher@flat",
-                                                "author@bi"})
-        self.assertEqual(ws["board"], "C:/Work/Math/board")
-        self.assertEqual(ac.instance_for_home(ws, "C:\\Work\\Math\\BilliardIllumination"),
-                         "author@bi")
+        ws = ac.load_workspace(self.fixture_workspace())
+        self.assertEqual(set(ws["instances"]), {"expert@main", "scientist@main",
+                                                "researcher@alpha", "researcher@beta",
+                                                "author@main"})
+        self.assertEqual(ac.instance_for_home(ws, os.path.join(self.tmp, "paper")), "author@main")
         self.assertIsNone(ac.instance_for_home(ws, self.tmp))
 
-    def test_default_lookup_is_repo_root(self):
-        saved = os.environ.pop("ACADEMY_WORKSPACE", None)
+    def test_env_overrides_homes_and_board(self):
+        path = self.fixture_workspace()
+        other = os.path.join(self.tmp, "elsewhere")
+        env = {"ACADEMY_HOME_AUTHOR_MAIN": other, "ACADEMY_BOARD": os.path.join(self.tmp, "b2")}
+        saved = {k: os.environ.get(k) for k in list(env) + ["ACADEMY_ENV_WORKSPACE"]}
+        os.environ.update(env)
+
+        def load(env_ws):
+            os.environ["ACADEMY_ENV_WORKSPACE"] = env_ws
+            return ac.load_workspace(path)
+        try:
+            ws = load(path)
+            unrelated = load(path + ".other")     # the variables belong to another file
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        self.assertEqual(ws["instances"]["author@main"]["home"], other)
+        self.assertEqual(ws["board"], env["ACADEMY_BOARD"])
+        self.assertEqual(unrelated["instances"]["author@main"]["home"],
+                         os.path.join(self.tmp, "paper"))
+        self.assertEqual(ac.env_home_name("researcher@alpha"), "ACADEMY_HOME_RESEARCHER_ALPHA")
+
+    def test_default_lookup_is_beside_the_academy(self):
+        # the workspace layout: <workspace>/workspace.json and <workspace>/academy
+        os.makedirs(os.path.join(self.tmp, "academy"))
+        with open(self.fixture_workspace(), encoding="utf-8") as fh:
+            self.write("workspace.json", fh.read())
+        saved = {k: os.environ.get(k) for k in ("ACADEMY_WORKSPACE", "ACADEMY_ROOT")}
+        os.environ.pop("ACADEMY_WORKSPACE", None)
+        os.environ["ACADEMY_ROOT"] = os.path.join(self.tmp, "academy")
         try:
             ws = ac.load_workspace()
-            self.assertTrue(ws["_path"].lower().endswith("workspace.json"))
+            self.assertEqual(ws["_path"], os.path.join(self.tmp, "workspace.json").replace("\\", "/"))
         finally:
-            if saved is not None:
-                os.environ["ACADEMY_WORKSPACE"] = saved
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
     def test_bad_workspace(self):
         for text in ('{"instances": {}}',
@@ -391,7 +453,7 @@ class FrontmatterTests(unittest.TestCase):
                   "-dash", "- item", "true", "False", "null", "~", "12", "-3", "1.5",
                   "it's", "say \"hi\"", "comma, here", "@at", "*star", "!bang", "|pipe",
                   ">gt", "%pct", "`tick`", "?q", "&amp", "π unicode", "back\\slash",
-                  "line\nbreak", "tab\there", "paper:lem:x", "file:author@bi/a b.tex",
+                  "line\nbreak", "tab\there", "paper:lem:x", "file:author@main/a b.tex",
                   "2026-09-27", "T-0001"]
         for s in tricky:
             meta = {"k": s, "l": [s, "x"], "m": {"v": s}}
@@ -442,8 +504,8 @@ class FileTests(TempDir):
             ac.allocate_id(board, "verdict")
 
     def test_allocate_never_reissues_ids_on_disk(self):
-        self.write("author@bi/T-0041-x.md", "")
-        self.write("packets/expert@ts/P-0009-y.md", "")
+        self.write("author@main/T-0041-x.md", "")
+        self.write("packets/expert@main/P-0009-y.md", "")
         self.write(".ids/next-ticket", "5\n")
         self.assertEqual(ac.allocate_id(self.tmp, "ticket"), "T-0042")
         self.assertEqual(ac.allocate_id(self.tmp, "packet"), "P-0010")
@@ -504,7 +566,7 @@ class TicketTests(TempDir):
         self.assertEqual(list(meta), [k for k in ac.TICKET_KEY_ORDER if k in meta])
         th = ac.thread_lines(body)
         self.assertEqual(len(th), 3)
-        self.assertEqual(th[2][1], "expert@ts/review-chair")
+        self.assertEqual(th[2][1], "expert@main/review-chair")
         self.assertIn("\nRun A dispatched", th[2][2])
 
     def test_validate_catches(self):
@@ -559,10 +621,10 @@ class TicketTests(TempDir):
             self.assertFalse(any(o == term for o, _ in ac.TRANSITIONS))
 
     def test_parties_and_fields(self):
-        meta = {"from": "author@bi", "to": "expert@ts"}
-        self.assertEqual(ac.parties(meta, "author@bi"), {"sender"})
-        self.assertEqual(ac.parties(meta, "expert@ts"), {"receiver"})
-        self.assertEqual(ac.parties(meta, "scientist@ts"), set())
+        meta = {"from": "author@main", "to": "expert@main"}
+        self.assertEqual(ac.parties(meta, "author@main"), {"sender"})
+        self.assertEqual(ac.parties(meta, "expert@main"), {"receiver"})
+        self.assertEqual(ac.parties(meta, "scientist@main"), set())
         self.assertEqual(ac.parties({"from": "a@x", "to": "a@x"}, "a@x"),
                          {"sender", "receiver"})
         self.assertIn("ask", ac.editable_fields({"sender"}))
@@ -579,13 +641,13 @@ class TicketTests(TempDir):
         self.assertEqual(ac.ticket_filename("T-0007", "Hi there"), "T-0007-hi-there.md")
         self.assertEqual(ac.packet_filename("P-0001", ""), "P-0001-packet.md")
         self.assertEqual(ac.format_who("human", "concierge"), "human")
-        self.assertEqual(ac.format_who("author@bi", "math-writer"), "author@bi/math-writer")
-        self.assertEqual(ac.format_who("author@bi"), "author@bi")
+        self.assertEqual(ac.format_who("author@main", "math-writer"), "author@main/math-writer")
+        self.assertEqual(ac.format_who("author@main"), "author@main")
 
     def test_find(self):
-        p = self.write("expert@ts/T-0007-check.md", "x")
-        self.write("expert@ts/T-00070-other.md", "x")
-        q = self.write("packets/author@bi/P-0003-z.md", "x")
+        p = self.write("expert@main/T-0007-check.md", "x")
+        self.write("expert@main/T-00070-other.md", "x")
+        q = self.write("packets/author@main/P-0003-z.md", "x")
         self.assertEqual(os.path.normcase(ac.find_ticket(self.tmp, "T-0007")),
                          os.path.normcase(p))
         self.assertEqual(os.path.normcase(ac.find_packet(self.tmp, "P-0003")),
@@ -594,7 +656,7 @@ class TicketTests(TempDir):
 
     def test_new_ticket_and_thread(self):
         meta = {"updated": "2026-09-27", "id": "T-0001", "title": "Test a generalization",
-                "kind": "test", "from": "researcher@slope1", "to": "scientist@ts",
+                "kind": "test", "from": "researcher@alpha", "to": "scientist@main",
                 "status": "open", "priority": "normal",
                 "ask": "Test s1:G-3 on its falsifier first.",
                 "deliverable": "An experiment report packet.",
@@ -605,12 +667,12 @@ class TicketTests(TempDir):
         self.assertEqual(list(m)[0], "id")
         self.assertEqual(ac.validate_ticket(m, body), [])
         self.assertEqual(ac.thread_lines(body), [])
-        b1 = ac.append_thread(body, "researcher@slope1/prover", "opened", "2026-09-27")
-        b2 = ac.append_thread(b1, "scientist@ts/experimenter", "status open -> accepted\n"
+        b1 = ac.append_thread(body, "researcher@alpha/prover", "opened", "2026-09-27")
+        b2 = ac.append_thread(b1, "scientist@main/experimenter", "status open -> accepted\n"
                               "falsifier first", "2026-09-28")
         self.assertEqual(ac.thread_lines(b2), [
-            ("2026-09-27", "researcher@slope1/prover", "opened"),
-            ("2026-09-28", "scientist@ts/experimenter",
+            ("2026-09-27", "researcher@alpha/prover", "opened"),
+            ("2026-09-28", "scientist@main/experimenter",
              "status open -> accepted\nfalsifier first")])
         self.assertIn("\n  falsifier first\n", b2)
         self.assertTrue(b2.endswith("\n"))
@@ -795,8 +857,8 @@ class ShellParserTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "Git Bash drive paths are a Windows form")
     def test_git_bash_drive(self):
-        self.assertEqual(self.t("cd /c/Work/Math/FlatSurfLab && git commit -m x"),
-                         [os.path.normcase(r"C:\Work\Math\FlatSurfLab")])
+        self.assertEqual(self.t("cd /c/Work/Math/SciLab && git commit -m x"),
+                         [os.path.normcase(r"C:\Work\Math\SciLab")])
 
     def test_heredoc_and_nested_shell(self):
         self.assertEqual(self.t("git commit -F - <<EOF\ncd x\ngit commit\nEOF"),
@@ -830,67 +892,67 @@ class TicketEdgeTests(unittest.TestCase):
         return ac.ticket_edge_allowed(frm, to, agent, EDGE_PERMS, **kw)[0]
 
     def test_human_either_end(self):
-        self.assertTrue(self.ok("human", "scientist@ts", ""))
-        self.assertTrue(self.ok("author@bi", "human", "math-writer"))
+        self.assertTrue(self.ok("human", "scientist@main", ""))
+        self.assertTrue(self.ok("author@main", "human", "math-writer"))
 
     def test_same_role(self):
         self.assertTrue(self.ok("researcher@a", "researcher@b", "prover"))
-        self.assertTrue(self.ok("expert@ts", "expert@ts", "clerk"))
+        self.assertTrue(self.ok("expert@main", "expert@main", "clerk"))
 
     def test_neighbour_needs_liaison(self):
-        self.assertTrue(self.ok("author@bi", "expert@ts", "math-writer"))
-        self.assertTrue(self.ok("author@bi", "expert@ts", "main"))
-        self.assertFalse(self.ok("author@bi", "expert@ts", "tex-engineer"))
-        self.assertTrue(self.ok("researcher@s1", "scientist@ts", "lead-researcher"))
-        self.assertFalse(self.ok("researcher@s1", "scientist@ts", "prover"))
+        self.assertTrue(self.ok("author@main", "expert@main", "math-writer"))
+        self.assertTrue(self.ok("author@main", "expert@main", "main"))
+        self.assertFalse(self.ok("author@main", "expert@main", "tex-engineer"))
+        self.assertTrue(self.ok("researcher@s1", "scientist@main", "lead-researcher"))
+        self.assertFalse(self.ok("researcher@s1", "scientist@main", "prover"))
 
     def test_directions_differ(self):
-        self.assertTrue(self.ok("expert@ts", "researcher@s1", "research-intake"))
-        self.assertFalse(self.ok("expert@ts", "researcher@s1", "paper-liaison"))
-        self.assertTrue(self.ok("expert@ts", "author@bi", "paper-liaison"))
+        self.assertTrue(self.ok("expert@main", "researcher@s1", "research-intake"))
+        self.assertFalse(self.ok("expert@main", "researcher@s1", "paper-liaison"))
+        self.assertTrue(self.ok("expert@main", "author@main", "paper-liaison"))
 
     def test_non_neighbour_refused_with_next_hop(self):
-        ok, why = ac.ticket_edge_allowed("author@bi", "researcher@s1", "main", EDGE_PERMS)
+        ok, why = ac.ticket_edge_allowed("author@main", "researcher@s1", "main", EDGE_PERMS)
         self.assertFalse(ok)
         self.assertIn("expert", why)
         self.assertIn("final_to researcher", why)
-        ok, why = ac.ticket_edge_allowed("scientist@ts", "author@bi", "main", EDGE_PERMS)
+        ok, why = ac.ticket_edge_allowed("scientist@main", "author@main", "main", EDGE_PERMS)
         self.assertFalse(ok)
         self.assertIn("researcher", why)
 
     def test_non_neighbour_refusal_names_the_relay(self):
-        cases = {("author@bi", "researcher@s1"): "research-intake",
-                 ("author@bi", "scientist@ts"): "research-intake",
-                 ("expert@ts", "scientist@ts"): "experiment-spec",
-                 ("scientist@ts", "expert@ts"): "lit-request",
-                 ("scientist@ts", "author@bi"): "lit-request",
-                 ("researcher@s1", "author@bi"): "paper-liaison"}
+        cases = {("author@main", "researcher@s1"): "research-intake",
+                 ("author@main", "scientist@main"): "research-intake",
+                 ("expert@main", "scientist@main"): "experiment-spec",
+                 ("scientist@main", "expert@main"): "lit-request",
+                 ("scientist@main", "author@main"): "lit-request",
+                 ("researcher@s1", "author@main"): "paper-liaison"}
         for (frm, to), relay in cases.items():
             ok, why = ac.ticket_edge_allowed(frm, to, "main", EDGE_PERMS)
             self.assertFalse(ok)
             self.assertIn("%s relays it" % relay, why, (frm, to))
 
     def test_exempt_and_clerical(self):
-        self.assertTrue(self.ok("author@bi", "researcher@s1", "claim-keeper"))
-        self.assertTrue(self.ok("author@bi", "researcher@s1", "math-editor", clerical=True))
+        self.assertTrue(self.ok("author@main", "researcher@s1", "claim-keeper"))
+        self.assertTrue(self.ok("author@main", "researcher@s1", "math-editor", clerical=True))
 
     def test_final_to_must_lie_beyond_to(self):
-        self.assertTrue(self.ok("author@bi", "expert@ts", "main", final_to="researcher"))
-        self.assertTrue(self.ok("author@bi", "expert@ts", "main", final_to="scientist"))
-        self.assertFalse(self.ok("author@bi", "expert@ts", "main", final_to="author"))
-        self.assertFalse(self.ok("author@bi", "expert@ts", "main", final_to="nobody"))
-        self.assertTrue(self.ok("scientist@ts", "researcher@s1", "main", final_to="author"))
-        self.assertTrue(self.ok("human", "expert@ts", "", final_to="researcher"))
+        self.assertTrue(self.ok("author@main", "expert@main", "main", final_to="researcher"))
+        self.assertTrue(self.ok("author@main", "expert@main", "main", final_to="scientist"))
+        self.assertFalse(self.ok("author@main", "expert@main", "main", final_to="author"))
+        self.assertFalse(self.ok("author@main", "expert@main", "main", final_to="nobody"))
+        self.assertTrue(self.ok("scientist@main", "researcher@s1", "main", final_to="author"))
+        self.assertTrue(self.ok("human", "expert@main", "", final_to="researcher"))
 
     def test_hop_limit(self):
-        self.assertTrue(self.ok("researcher@s1", "scientist@ts", "experiment-spec",
+        self.assertTrue(self.ok("researcher@s1", "scientist@main", "experiment-spec",
                                 final_to="scientist", depth=2))
-        self.assertFalse(self.ok("researcher@s1", "scientist@ts", "experiment-spec",
+        self.assertFalse(self.ok("researcher@s1", "scientist@main", "experiment-spec",
                                  final_to="scientist", depth=3))
 
     def test_role_of(self):
         ws = {"instances": {"lab@x": {"role": "scientist"}}}
-        self.assertEqual(ac.role_of("author@bi"), "author")
+        self.assertEqual(ac.role_of("author@main"), "author")
         self.assertEqual(ac.role_of("lab@x", ws), "scientist")
         self.assertIsNone(ac.role_of("human"))
 
@@ -900,8 +962,8 @@ class TicketEdgeTests(unittest.TestCase):
         self.assertEqual(e["maxHops"], 3)
 
     def test_final_to_field_validated(self):
-        meta = {"id": "T-0001", "title": "t", "kind": "research", "from": "author@bi",
-                "to": "expert@ts", "status": "open", "ask": "a", "deliverable": "d",
+        meta = {"id": "T-0001", "title": "t", "kind": "research", "from": "author@main",
+                "to": "expert@main", "status": "open", "ask": "a", "deliverable": "d",
                 "priority": "normal", "budget": {"runs": 1, "max_model": "sonnet"},
                 "created": "2026-09-28", "updated": "2026-09-28", "final_to": "researcher"}
         self.assertEqual(ac.validate_ticket(meta), [])
@@ -914,13 +976,13 @@ class TicketEdgeTests(unittest.TestCase):
     def test_hop_limit_counts_only_relay_ancestors(self):
         board = tempfile.mkdtemp(prefix="edges-")
         def put(tid, parent, final_to):
-            meta = {"id": tid, "title": "t", "kind": "other", "from": "author@bi",
-                    "to": "expert@ts", "status": "open", "ask": "a", "deliverable": "d",
+            meta = {"id": tid, "title": "t", "kind": "other", "from": "author@main",
+                    "to": "expert@main", "status": "open", "ask": "a", "deliverable": "d",
                     "priority": "normal", "budget": {"runs": 1, "max_model": "sonnet"},
                     "created": "2026-09-28", "updated": "2026-09-28",
                     "parent": parent, "final_to": final_to}
-            os.makedirs(os.path.join(board, "expert@ts"), exist_ok=True)
-            ac.atomic_write(os.path.join(board, "expert@ts", ac.ticket_filename(tid, "t")),
+            os.makedirs(os.path.join(board, "expert@main"), exist_ok=True)
+            ac.atomic_write(os.path.join(board, "expert@main", ac.ticket_filename(tid, "t")),
                             ac.new_ticket(meta))
         put("T-0001", None, "scientist")
         put("T-0002", "T-0001", "scientist")
@@ -931,7 +993,7 @@ class TicketEdgeTests(unittest.TestCase):
         self.assertEqual(ac.relay_depth(board, None), 0)
 
     def test_relay_return_ready(self):
-        parent = {"id": "T-0001", "to": "expert@ts", "status": "blocked",
+        parent = {"id": "T-0001", "to": "expert@main", "status": "blocked",
                   "final_to": "researcher", "waiting_on": ["T-0002"]}
         st = {"T-0002": "delivered"}.get
         self.assertTrue(ac.relay_return_ready(parent, st))

@@ -30,9 +30,9 @@ instance, with the status legend), then asks you each pending decision in the
 terminal. Each answer is written into the packet's `## Decision` section and appended
 to its ticket's thread. From a shell, the same is:
 
-    py C:\Work\Math\academy\academy\scripts\packets.py list --open
-    py C:\Work\Math\academy\academy\scripts\packets.py show P-0006
-    py C:\Work\Math\academy\academy\scripts\packets.py decide P-0006 --decision 1 --choice a --comment "..."
+    py $ACADEMY_ROOT/academy/scripts/packets.py list --open
+    py $ACADEMY_ROOT/academy/scripts/packets.py show P-0006
+    py $ACADEMY_ROOT/academy/scripts/packets.py decide P-0006 --decision 1 --choice a --comment "..."
 
 ## Deep-dives
 
@@ -40,7 +40,7 @@ to its ticket's thread. From a shell, the same is:
 `bib:MS91` (or `MS91`), `concept:<term>` or a direction id. A script gathers the input
 (`gather_deep_dive.py`), the read-only explainer writes the prose, and
 `render_packets.py --deep-dive` renders it. The renderer refuses a page on which any
-statement lacks a status. A copy stays at `C:\Work\Math\board\deep-dives\`, and a
+statement lacks a status. A copy stays at `$ACADEMY_BOARD/deep-dives/`, and a
 re-run updates the same page. Known gap (2026-09-28): a claim whose dependencies include
 a Slope1 definition object is refused, because definitions carry no status; see
 `board/human/SUMMARY.md`.
@@ -49,10 +49,10 @@ a Slope1 definition object is refused, because definitions carry no status; see
 
 | Role (instance, home) | Start with | Also |
 |---|---|---|
-| Author (`author@bi`, BilliardIllumination) | `/author:status`, `/author:next` (at most 3 items, chosen by script from `Drafts/agenda.md`, `Drafts/roadmap.md` and the board) | `/author:notes` (files your `\Roey` notes), `/author:agenda`, `/author:sweep`, `/author:audit-notation`, `/author:presync` |
-| Researcher (`researcher@slope1`, Slope1illuminationResearch) | `/researcher:status`, `/researcher:inbox` | `/researcher:explore <DIR-n>`, `/researcher:prove <id>`, `/researcher:corollaries`, `/researcher:generalize`, `/researcher:review-experiment`, `/researcher:settle`, `/researcher:claims` |
-| Expert (`expert@ts`, papers) | `/expert:lookup <question>` (the clerk, answered inline), `/expert:inbox` | `/expert:cite`, `/expert:verify <id>`, `/expert:referee`, `/expert:litwatch`, `/expert:library-index`, `/expert:domain`, `/expert:status` |
-| Scientist (`scientist@ts`, FlatSurfLab) | `/scientist:status`, `/scientist:inbox` | `/scientist:experiment`, `/scientist:queue`, `/scientist:env check lingo`, `/scientist:api-check`, `/scientist:examples-audit` |
+| Author (`author@<name>`) | `/author:status`, `/author:next` (at most 3 items, chosen by script from `Drafts/agenda.md`, `Drafts/roadmap.md` and the board) | `/author:notes` (files your `\Roey` notes), `/author:agenda`, `/author:sweep`, `/author:audit-notation`, `/author:presync` |
+| Researcher (`researcher@<name>`) | `/researcher:status`, `/researcher:inbox` | `/researcher:explore <DIR-n>`, `/researcher:prove <id>`, `/researcher:corollaries`, `/researcher:generalize`, `/researcher:review-experiment`, `/researcher:settle`, `/researcher:claims` |
+| Expert (`expert@<name>`) | `/expert:lookup <question>` (the clerk, answered inline), `/expert:inbox` | `/expert:cite`, `/expert:verify <id>`, `/expert:referee`, `/expert:litwatch`, `/expert:library-index`, `/expert:domain`, `/expert:status` |
+| Scientist (`scientist@<name>`) | `/scientist:status`, `/scientist:inbox` | `/scientist:experiment`, `/scientist:queue`, `/scientist:env check lingo`, `/scientist:api-check`, `/scientist:examples-audit` |
 | All roles | `/academy:desk`, `/academy:review` | `/academy:board`, `/academy:status`, `/academy:usage`, `/academy:deep-dive`, `/academy:init` |
 
 Only a status keeper changes a status: the Researcher's `claim-keeper`, or you. Without
@@ -65,9 +65,9 @@ quoted from a ticket or packet.
   domain's notebook, Expert keeps the library and reviews proofs, Scientist runs
   the computations.
 - **Instances** (`workspace.json`): a role bound to one home and its domains, for
-  example `author@bi` in BilliardIllumination. A second paper is a second Author
+  example `author@<name>`. A second paper is a second Author
   instance, not a new plugin.
-- **The board** (`C:\Work\Math\board`): one Markdown file per ticket, in the
+- **The board** (`$ACADEMY_BOARD`): one Markdown file per ticket, in the
   receiver's folder, with an append-only thread. Your own inbox is `human/`.
 - **Packets**: what a role hands back for review, with a summary, what is
   established versus assumed, and numbered decisions for you.

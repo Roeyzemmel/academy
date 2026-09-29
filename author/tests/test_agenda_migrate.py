@@ -1,10 +1,11 @@
 """agenda_migrate.py: legacy comment_roadmap.md -> agenda.md + roadmap.md.
 
-A synthetic legacy roadmap pins the rules; the real BilliardIllumination roadmap is
+A synthetic legacy roadmap pins the rules; the real PaperHome roadmap is
 migrated from a copy in a temp dir (read-only on the home; skipped if absent).
 """
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -18,7 +19,22 @@ sys.path.insert(0, SCRIPTS)
 import agenda_lib as al  # noqa: E402
 import agenda_migrate as am  # noqa: E402
 
-BI = "C:/Work/Math/BilliardIllumination"
+
+def _real_home(**want):
+    """The home of the first workspace.json instance matching ``want`` (role=..., ns=...), or ''
+    when there is no workspace: these tests run against real homes only where they exist."""
+    try:
+        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8-sig") as fh:
+            ws = json.load(fh)
+    except (KeyError, OSError, ValueError):
+        return ""
+    for inst in ws.get("instances", {}).values():
+        if all(inst.get(k) == v for k, v in want.items()):
+            return inst["home"]
+    return ""
+
+
+PAPER_HOME = _real_home(role="author")
 
 LEGACY = """# Roadmap for the open margin notes
 
@@ -117,24 +133,24 @@ def _digest(path):
     return h.hexdigest()
 
 
-@unittest.skipUnless(os.path.isfile(os.path.join(BI, "Drafts", "comment_roadmap.md")),
-                     "BilliardIllumination not present")
+@unittest.skipUnless(os.path.isfile(os.path.join(PAPER_HOME, "Drafts", "comment_roadmap.md")),
+                     "PaperHome not present")
 class MigrateBiCopyTests(unittest.TestCase):
     """The real roadmap, from a copy; the paper is read in place (read-only)."""
 
-    def test_bi_copy(self):
-        tmp = tempfile.mkdtemp(prefix="bi-migrate-")
+    def test_paper_copy(self):
+        tmp = tempfile.mkdtemp(prefix="paper-migrate-")
         try:
             src = os.path.join(tmp, "comment_roadmap.md")
-            shutil.copyfile(os.path.join(BI, "Drafts", "comment_roadmap.md"), src)
-            before = _digest(os.path.join(BI, "sections")), _digest(os.path.join(BI, "Drafts"))
+            shutil.copyfile(os.path.join(PAPER_HOME, "Drafts", "comment_roadmap.md"), src)
+            before = _digest(os.path.join(PAPER_HOME, "sections")), _digest(os.path.join(PAPER_HOME, "Drafts"))
             out = os.path.join(tmp, "out")
             env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")
             res = subprocess.run([sys.executable, os.path.join(SCRIPTS, "agenda_migrate.py"),
-                                  "--roadmap", src, "--paper-root", BI, "--out", out],
+                                  "--roadmap", src, "--paper-root", PAPER_HOME, "--out", out],
                                  capture_output=True, env=env, timeout=300)
             self.assertEqual(res.returncode, 0, res.stderr.decode("utf-8", "replace"))
-            after = _digest(os.path.join(BI, "sections")), _digest(os.path.join(BI, "Drafts"))
+            after = _digest(os.path.join(PAPER_HOME, "sections")), _digest(os.path.join(PAPER_HOME, "Drafts"))
             self.assertEqual(before, after, "the migration wrote into the home")
             ag = al.parse_agenda(al.read_text(os.path.join(out, "agenda.md")))
             rm = al.parse_roadmap(al.read_text(os.path.join(out, "roadmap.md")))

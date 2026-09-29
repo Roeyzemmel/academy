@@ -1,6 +1,6 @@
 """library_* tools: the Expert's paper cache (plan sections 3.4, 5, 6 and 8).
 
-The library home is the Expert instance's home (``C:/Work/Math/papers``): files
+The library home is the Expert instance's home (the ``expert@...`` home of workspace.json): files
 named by bibliography key (``<key>.txt`` extraction, ``<key>.pdf``, ``<key>.src/``,
 ``<key>.meta``), ``index.md`` (one table row per cached source) and, once they
 exist, ``cards/<key>/<pinpoint>.md``.

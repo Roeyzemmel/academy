@@ -12,7 +12,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 |---|---|---|
 | `next.py` | next, status, notes, agenda, the agents | `plan [--json] [--items N]` (exit 1: nothing ready) · `file R-NNNN [--dry-run]` · `mark R-NNNN [--status S] [--note T] [--ticket T-NNNN]` · `add --tag T --title T [--attach ID] [--priority P] [--depends-on a,b] [--route AGENT] [--source S] [--body T]` |
 | `agenda.py` | agenda, status, presync | `check` · `status [--statuses FILE]` · `gaps [--json]` · `milestones [--json]` · `show [--json]` |
-| `agenda_migrate.py` | the BI switch-over (phase 5) | `--roadmap OLD --out DIR [--paper-root HOME] [--statuses FILE \| --claims-cmd CMD] [--instance I] [--ns NS] [--date D]` |
+| `agenda_migrate.py` | the first paper's switch-over (phase 5) | `--roadmap OLD --out DIR [--paper-root HOME] [--statuses FILE \| --claims-cmd CMD] [--instance I] [--ns NS] [--date D]` |
 | `check_paper.py` | tex_edit_check, commit_gate, build_gate, next, presync, status | `[--root HOME] [--strict] [--registry PATH] [--no-registry] [--no-log] [--config FILE] [--defaults] [--self-test]` |
 | `commit_gate.py` | the PreToolUse hook; tex-engineer | (hook) · `--write-baseline [--root HOME]` |
 | `build_gate.py` | the SubagentStop hook | (hook) |

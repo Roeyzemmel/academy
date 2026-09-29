@@ -69,7 +69,15 @@ RE_TICKET_ID = re.compile(r"^T-\d{4,}$")
 RE_PACKET_ID = re.compile(r"^P-\d{4,}$")
 
 CONFIG_REL = os.path.join(".claude", "academy.json")
-DEFAULT_WORKSPACE = "C:/Work/Math/academy/workspace.json"
+
+def _same_file(a, b):
+    return bool(a and b) and os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def env_home_name(instance):
+    """The environment variable that overrides an instance's home: ``<role>@<name>`` ->
+    ``ACADEMY_HOME_<ROLE>_<NAME>`` (scripts/bootstrap.py of the workspace sets them all)."""
+    return "ACADEMY_HOME_" + re.sub(r"[^A-Za-z0-9]+", "_", instance).strip("_").upper()
 
 
 class AcademyError(Exception):
@@ -308,17 +316,26 @@ def load_workspace(path=None):
     """Load workspace.json: ``{"instances": {...}, "board": ..., "human": {...}}``.
 
     Lookup order: ``path``; ``$ACADEMY_WORKSPACE``; ``<repo_root()>/workspace.json``;
-    ``C:/Work/Math/academy/workspace.json``. Raises ConfigError if none is readable
-    or the file is malformed.
+    ``<repo_root()>/../workspace.json`` (the academy checked out inside the workspace).
+    ``$ACADEMY_BOARD`` and ``$ACADEMY_HOME_<INSTANCE>`` override the file's ``board`` and
+    instance homes, but only for the file ``$ACADEMY_ENV_WORKSPACE`` names (the one the
+    workspace bootstrap derived them from), never for a fixture. Raises ConfigError if none is readable or the file is malformed.
     """
     candidates = [path, os.environ.get("ACADEMY_WORKSPACE"),
-                  os.path.join(repo_root(), "workspace.json"), DEFAULT_WORKSPACE]
+                  os.path.join(repo_root(), "workspace.json"),
+                  os.path.join(repo_root(), os.pardir, "workspace.json")]
     chosen = next((c for c in candidates if c and os.path.isfile(c)), None)
     if not chosen:
         raise ConfigError("workspace.json not found")
     ws = _read_json(chosen)
     if not isinstance(ws, dict) or not isinstance(ws.get("instances"), dict):
         raise ConfigError("%s: 'instances' object missing" % chosen)
+    if _same_file(chosen, os.environ.get("ACADEMY_ENV_WORKSPACE")):
+        if os.environ.get("ACADEMY_BOARD"):
+            ws["board"] = os.environ["ACADEMY_BOARD"]
+        for name, inst in ws["instances"].items():
+            if isinstance(inst, dict) and os.environ.get(env_home_name(name)):
+                inst["home"] = os.environ[env_home_name(name)]
     if not isinstance(ws.get("board"), str) or not ws["board"]:
         raise ConfigError("%s: 'board' path missing" % chosen)
     for name, inst in ws["instances"].items():
@@ -892,7 +909,7 @@ def atomic_write(path, text, newline="\n"):
     """Write ``text`` (UTF-8, no BOM) to ``path`` atomically.
 
     Line endings are normalised to LF and then written as ``newline`` ('\\n' for
-    every academy file; '\\r\\n' only for a home file that is CRLF, e.g. BI's
+    every academy file; '\\r\\n' only for a home file that is CRLF, e.g. a paper's
     sections). The data goes to a temporary file in the same directory which then
     replaces ``path``; the replace is retried briefly because Windows refuses it
     while an editor or indexer holds the target open.
@@ -1084,7 +1101,7 @@ MAIN_AGENT = "main"
 
 
 def role_of(party, workspace=None):
-    """The role of an instance name ('author@bi' -> 'author'); None for 'human'."""
+    """The role of an instance name ('author@main' -> 'author'); None for 'human'."""
     if not party or party == HUMAN:
         return None
     inst = (workspace or {}).get("instances", {}).get(party)

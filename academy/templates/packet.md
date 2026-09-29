@@ -1,9 +1,9 @@
 ---
 packet: P-0000
 title: One-line name of what is being reviewed
-instance: author@bi
+instance: author@main
 kind: other
-by: author@bi/math-editor
+by: author@main/math-editor
 ticket:
 agenda:
 subject: []

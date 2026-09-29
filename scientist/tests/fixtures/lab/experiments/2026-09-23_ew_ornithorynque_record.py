@@ -88,7 +88,7 @@ Needs Sage:     yes -- the generators, stratum_component, veech_group, Lyapunov 
                 libgap through gapinv / gap_reverify.
 
 Result:         Previous run (legacy format, before the verify header):
-                No counterexample to (Q2) over class C at FlatSurfLab commit 34552b0
+                No counterexample to (Q2) over class C at SciLab commit 34552b0
                 (job 20260923-123800, lingo, clean per-job worktree, dirty false, exit
                 0, Sage 10.7 / surface_dynamics 0.7.0, defaults). C: exactly three
                 labelled records of two origamis, every square corner marked — EW =
@@ -119,5 +119,5 @@ Result:         Previous run (legacy format, before the verify header):
                 exclusions.
 """
 
-# Test fixture: the module docstring (header) of FlatSurfLab's
+# Test fixture: the module docstring (header) of SciLab's
 # experiments/2026-09-23_ew_ornithorynque_record.py, copied 2026-09-28; the body is omitted.

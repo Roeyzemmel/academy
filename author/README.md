@@ -1,7 +1,7 @@
 # author: the Author role plugin
 
-One Author instance per paper (plan section 3.2); the first is `author@bi`
-(BilliardIllumination). The instance's home holds the paper, `Drafts/agenda.md`,
+One Author instance per paper (plan section 3.2); the first is `author@main`
+(the paper home). The instance's home holds the paper, `Drafts/agenda.md`,
 `Drafts/roadmap.md` and `.claude/academy.json`; this plugin holds the logic. The
 contracts it codes against are the academy repo's `docs/protocol.md`,
 `docs/config.md` and `docs/packet-template.md`; the standing rules are
@@ -19,7 +19,7 @@ rule: `academy/references/roster-rules.md`, "Model fallback").
 | `note-sweeper` | The machine-note sweep |
 | `notation-auditor` | The home's notation decisions; domain notation goes to the Expert as a ticket |
 
-Skills: `/author:next` (replaces `tier`), `/author:agenda`, `/author:notes` (was BI's
+Skills: `/author:next` (replaces `tier`), `/author:agenda`, `/author:notes` (was the paper's
 `roadmap`), `/author:sweep`, `/author:audit-notation`, `/author:presync`,
 `/author:status`, and `paper-method` (preloaded by the writing agents).
 

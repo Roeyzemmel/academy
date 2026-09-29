@@ -81,7 +81,7 @@ Then, as the last thing:
 
 ```
 REFEREE
-subject: <the Author instance, e.g. author@bi>
+subject: <the Author instance, e.g. author@main>
 ticket: <T-NNNN from the brief, or none>
 model: <the exact model id you ran on, e.g. claude-opus-5-5>
 strength: full | reduced

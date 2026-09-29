@@ -1,13 +1,13 @@
 """agenda_migrate.py -- a legacy comment_roadmap.md -> agenda.md + roadmap.md (plan 4, 9.5).
 
     py agenda_migrate.py --roadmap OLD.md --out DIR [--paper-root HOME]
-        [--statuses FILE.json | --claims-cmd "py ../FlatSurfLab/scripts/claims.py --repo ."]
-        [--instance author@bi] [--ns paper] [--date YYYY-MM-DD]
+        [--statuses FILE.json | --claims-cmd "py ../<lab>/scripts/claims.py --repo ."]
+        [--instance author@main] [--ns paper] [--date YYYY-MM-DD]
 
 Writes ``DIR/agenda.md``, ``DIR/roadmap.md`` and ``DIR/migration-report.md``. Reads
 only: the old roadmap, the paper sources (through check_paper's parser) and the
 registry. It never writes into the home; the output is for Roey's review (plan 9b:
-"BI roadmap -> agenda" is a review-gated step).
+"paper roadmap -> agenda" is a review-gated step).
 
 The agenda
 ----------
@@ -407,7 +407,7 @@ def main(argv=None):
     p.add_argument("--statuses", default=None)
     p.add_argument("--claims-cmd", default=None)
     p.add_argument("--claims-cwd", default=None)
-    p.add_argument("--instance", default="author@bi")
+    p.add_argument("--instance", default="author@main")
     p.add_argument("--ns", default="paper")
     p.add_argument("--date", default="")
     a = p.parse_args(argv)

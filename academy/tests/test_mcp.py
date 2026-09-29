@@ -533,8 +533,8 @@ class TestKeeperRouting(unittest.TestCase):
     The bug: _keeper_instance looked up the owning instance, then used only its
     domains to build a candidate list and returned cands[0]. With two researcher
     instances sharing a domain, a proposal about the second one's namespace was
-    filed to the first -- researcher@flat's `flat:` decisions went to
-    researcher@slope1, whose notebook does not hold those objects.
+    filed to the first -- researcher@beta's `flat:` decisions went to
+    researcher@alpha, whose notebook does not hold those objects.
     """
 
     def setUp(self):
@@ -545,14 +545,14 @@ class TestKeeperRouting(unittest.TestCase):
         os.makedirs(self.board)
         # two researchers sharing one domain, registered first-to-last as in the
         # real workspace: the s1 notebook predates the flat one.
-        self.homes = {"researcher@s1": t + "/s1", "researcher@flat": t + "/flat",
+        self.homes = {"researcher@s1": t + "/s1", "researcher@beta": t + "/flat",
                       "author@t": t + "/paper"}
         for h in self.homes.values():
             os.makedirs(h)
         ws = {"instances": {
             "researcher@s1": {"role": "researcher", "home": self.homes["researcher@s1"],
                               "domains": ["test-pack"], "ns": "s1"},
-            "researcher@flat": {"role": "researcher", "home": self.homes["researcher@flat"],
+            "researcher@beta": {"role": "researcher", "home": self.homes["researcher@beta"],
                                 "domains": ["test-pack"], "ns": "flat"},
             "author@t": {"role": "author", "home": self.homes["author@t"],
                          "domains": ["test-pack"], "ns": "paper"}},
@@ -577,7 +577,7 @@ class TestKeeperRouting(unittest.TestCase):
         err, res = s.call("claims_propose_status", id="flat:some-claim", status="sketch",
                           reason="complete attempt")
         self.assertFalse(err, res)
-        self.assertEqual(res["to"], "researcher@flat")
+        self.assertEqual(res["to"], "researcher@beta")
 
     def test_the_other_researcher_still_gets_its_own(self):
         s = self.server()
@@ -592,7 +592,7 @@ class TestKeeperRouting(unittest.TestCase):
         err, res = s.call("claims_propose_status", id="paper:lem:x", status="sketch",
                           reason="complete attempt")
         self.assertFalse(err, res)
-        self.assertIn(res["to"], ("researcher@s1", "researcher@flat"))
+        self.assertIn(res["to"], ("researcher@s1", "researcher@beta"))
 
 
 class TestCallerHandshake(McpTestBase):
@@ -1128,15 +1128,32 @@ class TestRegistryBackend(McpTestBase):
         self.assertEqual(res["edges"][0]["status"], "open")
 
 
-REAL_LAB = "C:/Work/Math/FlatSurfLab"
-REAL_S1 = "C:/Work/Math/Slope1illuminationResearch"
+
+def _real_home(**want):
+    """The home of the first workspace.json instance matching ``want`` (role=..., ns=...), or ''
+    when there is no workspace: these tests run against real homes only where they exist."""
+    try:
+        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8-sig") as fh:
+            ws = json.load(fh)
+    except (KeyError, OSError, ValueError):
+        return ""
+    for inst in ws.get("instances", {}).values():
+        if all(inst.get(k) == v for k, v in want.items()):
+            return inst["home"]
+    return ""
+
+
+REAL_LAB = _real_home(ns="lab")
+REAL_S1 = _real_home(ns="s1")
+REAL_PAPER = _real_home(ns="paper")
 
 
 REGISTRY_PY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "scripts", "registry.py")
 
 
-@unittest.skipUnless(os.path.isdir(REAL_LAB + "/claims") and os.path.isdir(REAL_S1 + "/objects"),
+@unittest.skipUnless(REAL_LAB and REAL_S1 and REAL_PAPER and os.path.isdir(REAL_LAB + "/claims")
+                     and os.path.isdir(REAL_S1 + "/objects"),
                      "the real registries are not on this machine")
 class TestRealRegistries(unittest.TestCase):
     """claims_show equals the legacy command line (read-only on the homes)."""
@@ -1158,7 +1175,7 @@ class TestRealRegistries(unittest.TestCase):
             ("lab:descent-family-n-le-7", [REGISTRY_PY, "--repo", REAL_LAB, "show",
                                            "lab:descent-family-n-le-7"], REAL_LAB),
             ("paper:conj:origami-slope",
-             [REGISTRY_PY, "--repo", "C:/Work/Math/BilliardIllumination",
+             [REGISTRY_PY, "--repo", REAL_PAPER,
               "show", "paper:conj:origami-slope"], REAL_LAB),
             ("s1:BOUND-1", [REGISTRY_PY, "--repo", REAL_S1, "show", "BOUND-1"], REAL_S1),
         ]

@@ -15,7 +15,7 @@ Where ``status`` gets the statuses, in this order:
 1. ``--statuses FILE``: a JSON object ``{claim id or label: status}``. The skill
    writes it from the MCP tool ``claims_list`` when it has the server.
 2. The home's registry command, ``registry.legacy.claims`` in academy.json (today
-   ``py ../FlatSurfLab/scripts/claims.py --repo .``), run as
+   ``py ../<lab>/scripts/claims.py --repo .``), run as
    ``<cmd> sql "select id, status from claims"`` in the home. Read-only.
 
 A claim id the registry does not know is written as ``missing`` (a gap: the claim

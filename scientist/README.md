@@ -2,7 +2,7 @@
 
 The academy's coding department (plan sections 3.5 and 3.6): experiments with
 provenance, the lab's code, its tests, upstream drafts, and API checks. One instance
-per lab home; the first is `scientist@ts` in `C:\Work\Math\FlatSurfLab`. Generic
+per lab home. Generic
 programming habits come from the `superpowers` plugin, preloaded by name; this plugin
 adds the maths-specific layer (`experiment-method`, provenance, reports). It carries
 no domain mathematics: the subject comes from the domain pack, by the pack

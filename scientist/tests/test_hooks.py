@@ -72,9 +72,9 @@ class CommitTargetsTest(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Git Bash drive paths are a Windows form")
     def test_git_bash_drive_paths(self):
         # the Group B review's reproducer: these used to resolve to C:\c\Work\...
-        want = [os.path.normcase("C:\\Work\\Math\\FlatSurfLab")]
-        self.assertEqual(self.t("cd /c/Work/Math/FlatSurfLab && git commit -m x"), want)
-        self.assertEqual(self.t("git -C /c/Work/Math/FlatSurfLab commit -m x"), want)
+        want = [os.path.normcase("C:\\Work\\Math\\SciLab")]
+        self.assertEqual(self.t("cd /c/Work/Math/SciLab && git commit -m x"), want)
+        self.assertEqual(self.t("git -C /c/Work/Math/SciLab commit -m x"), want)
 
     def test_work_tree_and_heredoc(self):
         self.assertEqual(self.t("git --work-tree=lab --git-dir=lab/.git commit -m x"),
@@ -93,7 +93,7 @@ class HookTest(unittest.TestCase):
         for repo in (self.sb.lab, self.sb.other):
             self.sb.git("init", "-q", "-b", "main", cwd=repo)
         self.sb.write(".claude/academy.json", json.dumps({
-            "schema": 1, "role": "author", "instance": "author@bi",
+            "schema": 1, "role": "author", "instance": "author@main",
             "domains": ["translation-surfaces"], "ns": "paper",
             "paths": {"tex": "x", "bib": "b", "drafts": "d", "agenda": "a", "roadmap": "r",
                       "records": "c", "views": []},
@@ -159,7 +159,7 @@ class HookTest(unittest.TestCase):
         self.stage_orphan()
         with open(self.sb.workspace, encoding="utf-8") as fh:
             ws = json.load(fh)
-        del ws["instances"]["scientist@ts"]
+        del ws["instances"]["scientist@main"]
         self.sb.write_json(self.sb.workspace, ws)
         code, out, err = self.gate(bash("git commit -m x", self.sb.lab))
         self.assertEqual((code, err), (0, ""))

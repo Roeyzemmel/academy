@@ -1,8 +1,8 @@
 """ledger_views.py -- rebuild an author's ledgers as generated views from the library's records.
 
-    py ledger_views.py [--home H] [--instance author@bi] [--out DIR] [--check DIR]
+    py ledger_views.py [--home H] [--instance author@main] [--out DIR] [--check DIR]
 
-After ``ledger_split.py`` (plan section 6, phase 7) the truth of BI's three ledgers
+After ``ledger_split.py`` (plan section 6, phase 7) the truth of a paper's three ledgers
 lives in the library home: cards (``cards/<key>/*.md``), the related-work files
 (``ledgers/<instance>/``) and the review records (``reviews/<ns>/<id>/<pass>/``).
 Each ledger's ``ledgers/<instance>/_manifest-<name>.json`` records the order: the
@@ -126,7 +126,7 @@ def main(argv=None):
     ex.utf8_stdout()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--home")
-    ap.add_argument("--instance", default="author@bi")
+    ap.add_argument("--instance", default="author@main")
     ap.add_argument("--out")
     ap.add_argument("--check", help="directory holding the original ledgers to compare")
     args = ap.parse_args(argv)

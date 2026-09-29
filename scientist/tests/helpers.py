@@ -1,5 +1,5 @@
 """Shared fixtures for the Scientist plugin's tests: a temporary lab home, workspace
-and board, built from ``tests/fixtures/lab`` (real FlatSurfLab result JSONs and
+and board, built from ``tests/fixtures/lab`` (real SciLab result JSONs and
 headers, copied 2026-09-28)."""
 
 import json
@@ -20,7 +20,7 @@ EW = "2026-09-23_ew_ornithorynque_record"
 TORUS = "2026-09-24_torus_cover_periodic_growth"
 
 LAB_CONFIG = {
-    "schema": 1, "role": "scientist", "instance": "scientist@ts",
+    "schema": 1, "role": "scientist", "instance": "scientist@main",
     "domains": ["translation-surfaces"], "ns": "lab",
     "paths": {"package": "fslab", "experiments": "experiments/*.py", "results": "results",
               "queue": "queue", "records": "claims", "tests": "tests",
@@ -38,12 +38,12 @@ LAB_CONFIG = {
 }
 
 RESEARCHER_CONFIG = {
-    "schema": 1, "role": "researcher", "instance": "researcher@slope1",
+    "schema": 1, "role": "researcher", "instance": "researcher@alpha",
     "domains": ["translation-surfaces"], "ns": "s1",
     "paths": {"objects": "objects", "proofs": "proofs", "journal": "journal",
               "audits": "audits", "records": "objects", "views": ["views"]},
     "registry": {"profile": "s1", "root": "objects"},
-    "researcher": {"lab": "scientist@ts"},
+    "researcher": {"lab": "scientist@main"},
 }
 
 
@@ -64,17 +64,17 @@ class Sandbox(object):
         self.other = os.path.join(self.root, "other")
         os.makedirs(self.other)
         self.board = os.path.join(self.root, "board")
-        for d in ("scientist@ts", "researcher@slope1", "author@bi", "human", "packets"):
+        for d in ("scientist@main", "researcher@alpha", "author@main", "human", "packets"):
             os.makedirs(os.path.join(self.board, d))
         self.workspace = os.path.join(self.root, "workspace.json")
         self.write_json(self.workspace, {
             "instances": {
-                "scientist@ts": {"role": "scientist", "home": self.lab,
+                "scientist@main": {"role": "scientist", "home": self.lab,
                                  "domains": ["translation-surfaces"], "ns": "lab"},
-                "researcher@slope1": {"role": "researcher", "home": self.notebook,
+                "researcher@alpha": {"role": "researcher", "home": self.notebook,
                                       "domains": ["translation-surfaces"],
                                       "ns": researcher_ns},
-                "author@bi": {"role": "author", "home": self.other,
+                "author@main": {"role": "author", "home": self.other,
                               "domains": ["translation-surfaces"], "ns": "paper"}},
             "board": self.board, "human": {"name": "Roey"}})
         self.env = dict(os.environ, ACADEMY_WORKSPACE=self.workspace,

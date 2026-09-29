@@ -1,7 +1,7 @@
-"""ledger_split.py -- turn BI's ledgers into library records (plan sections 6, 9 phase 7).
+"""ledger_split.py -- turn a paper's ledgers into library records (plan sections 6, 9 phase 7).
 
     py ledger_split.py --sources SOURCES.md [--related RELATED.md] [--verdicts VERDICTS.md] --out DIR
-                       [--library HOME] [--bib BIB] [--instance author@bi] [--report-dir D] [--force]
+                       [--library HOME] [--bib BIB] [--instance author@main] [--report-dir D] [--force]
 
 * ``Drafts/sources.md``: one ``## <KEY> — ...`` block per source, one bullet per
   pinpoint. Each bullet becomes a card ``DIR/cards/<key>/<pinpoint-slug>.md``
@@ -314,7 +314,7 @@ def _free_card_path(path, written):
     return "%s-%d.md" % (base, n), True
 
 
-def convert_sources(text, out, library=None, bib_keys=(), instance="author@bi",
+def convert_sources(text, out, library=None, bib_keys=(), instance="author@main",
                     pieces=None):
     """Cards from ``Drafts/sources.md``. ``pieces``, when a list, receives the verbatim
     pieces in document order as ``(ref, text)`` for the manifest (``build_manifest``)."""
@@ -421,7 +421,7 @@ def raw_blocks(text):
     return out
 
 
-def convert_related(text, out, instance="author@bi", pieces=None):
+def convert_related(text, out, instance="author@main", pieces=None):
     pre, blocks = split_blocks(text)
     pieces = pieces if pieces is not None else []
     folder = os.path.join(out, "ledgers", instance)
@@ -491,7 +491,7 @@ def parse_run(bullet):
             "blocking": m.group(6).strip() or None}
 
 
-def convert_verdicts(text, out, instance="author@bi", ns_default="paper", pieces=None):
+def convert_verdicts(text, out, instance="author@main", ns_default="paper", pieces=None):
     """Review records from ``Drafts/verdicts.md``: per entry (a ``## <label> -- date``
     block, or a ``### `` pair inside one) ``reviews/<ns>/<id>/<pass>/A.md``, ``B.md``
     and ``decision.md`` (the rest of the entry, verbatim), plus ``_context.md`` for
@@ -813,7 +813,7 @@ def main(argv=None):
     ap.add_argument("--library", help="library home for version lookups and quote checks "
                                       "(read-only)")
     ap.add_argument("--bib", help="references.bib, to recognise keys in headings")
-    ap.add_argument("--instance", default="author@bi")
+    ap.add_argument("--instance", default="author@main")
     ap.add_argument("--report-dir", help="where stats.json, stats.md and "
                                          "ledger-split-report.md go (default: --out)")
     ap.add_argument("--force", action="store_true")

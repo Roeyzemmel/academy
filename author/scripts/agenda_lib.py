@@ -7,7 +7,7 @@ agenda.md
 ---------
 ::
 
-    # Agenda: author@bi
+    # Agenda: author@main
 
     <!-- academy agenda v1. ... -->
 
@@ -19,7 +19,7 @@ agenda.md
 
     | # | label | claim | required | depends_on | owner | status |
     |---|---|---|---|---|---|---|
-    | 1 | thm:main | paper:thm:main | proved | lem:strip, prop:x | author@bi | sketch |
+    | 1 | thm:main | paper:thm:main | proved | lem:strip, prop:x | author@main | sketch |
 
 * Row order is the precedence (paper order by default); ``#`` is renumbered on write.
 * ``label`` is the LaTeX label; ``claim`` the registry id (``-`` if none yet).

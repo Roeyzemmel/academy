@@ -1,7 +1,7 @@
 """queue_status / queue_log / queue_add and env_list / env_check: the Scientist's queue.
 
 The queue state is ``<scientist home>/<queue dir>/{pending,running,done,parked}/
-<id>.json`` (FlatSurfLab's ``queue.ps1`` layout; the dir is ``scientist.queue.dir``
+<id>.json`` (the lab's ``queue.ps1`` layout; the dir is ``scientist.queue.dir``
 or ``paths.queue`` from academy.json, default ``queue``). The server never uses
 ssh and never contacts a remote host: a log that exists only remotely is
 reported with the command that fetches it.

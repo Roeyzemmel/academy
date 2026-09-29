@@ -18,7 +18,7 @@ import re
 
 
 def parse(text, list_fields):
-    """``(fields, body)`` as FlatSurfLab/scripts/claims.py's ``parse_text`` read them
+    """``(fields, body)`` as <lab>/scripts/claims.py's ``parse_text`` read them
     (body stripped). Raises ValueError with the old messages."""
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":

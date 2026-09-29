@@ -7,7 +7,7 @@ description: 'Literature watch for one paper or notebook: related-work-scout run
 
 `$ARGUMENTS` is an instance (default: the only Author instance in `workspace.json`),
 or an instance and a statement id for a one-statement prior-art search
-(`author@bi paper:thm:main`). Budget: one scout run (`academy/references/budget.md`).
+(`author@main paper:thm:main`). Budget: one scout run (`academy/references/budget.md`).
 The scout writes only in the library home's `ledgers/<instance>/`.
 
 The watch answers "what appeared since last time", so a paper that scoops part of the

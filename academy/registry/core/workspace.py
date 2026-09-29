@@ -12,9 +12,9 @@ repo that is not beside this one, on lingo say, is not checked"):
 2. when the repo is a registered home (its path is a ``home`` in workspace.json), the
    registered home of the other namespace;
 3. otherwise a sibling directory named like the other home, carrying the repo's own
-   suffix first: from ``FlatSurfLab-academy`` (a worktree of ``FlatSurfLab``), the
-   ``paper`` home is ``BilliardIllumination-academy`` if it exists, else
-   ``BilliardIllumination``. A temp directory named ``FlatSurfLab`` (the tests) sees its
+   suffix first: from ``<lab>-academy`` (a worktree of ``<lab>``), the
+   ``paper`` home is ``<paper>-academy`` if it exists, else
+   ``<paper>``. A temp directory named like the lab (the tests) sees its
    temp siblings.
 
 **Which namespace a repo is.** Its ``.claude/academy.json`` ``ns``; else the registered
@@ -30,13 +30,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
-DEFAULT_ACADEMY = "C:/Work/Math/academy"
-
-#: only when workspace.json cannot be read at all (a lab clone on a server)
-FALLBACK_NAMESPACES = {"lab": "FlatSurfLab", "paper": "BilliardIllumination",
-                       "s1": "Slope1illuminationResearch"}
+#: only when workspace.json cannot be read at all (a lab clone on a server): none, a home
+#: then names its own namespace in its academy.json or by its layout (``sniff_ns``)
+FALLBACK_NAMESPACES = {}
 
 #: rule set (academy.json registry.profile) -> engine profile
 ENGINE_PROFILE = {"lab": "fsl-claims", "paper": "fsl-claims", "s1": "s1-kb"}
@@ -57,7 +56,8 @@ def workspace_path():
     env = os.environ.get("ACADEMY_WORKSPACE")
     if env:
         return Path(env)
-    for cand in (academy_root() / "workspace.json", Path(DEFAULT_ACADEMY) / "workspace.json"):
+    # the academy checked out inside the workspace: workspace.json is beside it
+    for cand in (academy_root() / "workspace.json", academy_root().parent / "workspace.json"):
         if cand.is_file():
             return cand
     return None
@@ -78,7 +78,28 @@ def load_workspace():
             _ws_cache[key] = json.loads(p.read_text(encoding="utf-8-sig"))
         except (OSError, ValueError):
             return None
-    return _ws_cache[key]
+    ws = _ws_cache[key]
+    env_ws = os.environ.get("ACADEMY_ENV_WORKSPACE")
+    if env_ws and os.path.normcase(os.path.abspath(env_ws)) == os.path.normcase(os.path.abspath(str(p))):
+        return _with_env(ws)
+    return ws
+
+
+def env_home_name(instance) -> str:
+    """``<role>@<name>`` -> ``ACADEMY_HOME_<ROLE>_<NAME>`` (set by the workspace's bootstrap)."""
+    return "ACADEMY_HOME_" + re.sub(r"[^A-Za-z0-9]+", "_", instance).strip("_").upper()
+
+
+def _with_env(ws):
+    """A copy of ``ws`` with ``$ACADEMY_BOARD`` and ``$ACADEMY_HOME_<INSTANCE>`` applied (only
+    for the file ``$ACADEMY_ENV_WORKSPACE`` names: the one the bootstrap derived them from)."""
+    ws = json.loads(json.dumps(ws))
+    if os.environ.get("ACADEMY_BOARD"):
+        ws["board"] = os.environ["ACADEMY_BOARD"]
+    for name, inst in (ws.get("instances") or {}).items():
+        if isinstance(inst, dict) and os.environ.get(env_home_name(name)):
+            inst["home"] = os.environ[env_home_name(name)]
+    return ws
 
 
 def _norm(p) -> str:
@@ -187,7 +208,7 @@ def home_of(ns, repo):
 
 
 def instance_home(instance, repo=None):
-    """The home of workspace instance ``instance`` (``expert@ts``: instances with no
+    """The home of workspace instance ``instance`` (``expert@main``: instances with no
     namespace too) as seen from ``repo``, or None when workspace.json does not name it
     or no candidate exists. As for ``home_of``: the sibling carrying ``repo``'s worktree
     suffix first, then the registered home, then a sibling of the same name."""

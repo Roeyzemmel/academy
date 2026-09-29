@@ -180,21 +180,21 @@ class InboxTests(unittest.TestCase):
                 ("lookup", "open", "low"), ("prove", "open", "normal"),
                 ("referee", "closed", "high"), ("notation", "open", "normal")], 1):
             meta = {"id": "T-%04d" % i, "title": "t%d" % i, "kind": kind,
-                    "from": "author@bi", "to": "expert@ts", "status": status,
+                    "from": "author@main", "to": "expert@main", "status": status,
                     "priority": prio, "ask": "a", "deliverable": "d", "refs": [],
                     "blocks": [], "waiting_on": [],
                     "budget": {"runs": 2, "max_model": "fable"}, "packets": [],
                     "created": "2026-09-28", "updated": "2026-09-28"}
             if status == "closed":
                 meta["result"] = "done"
-            ac.atomic_write(os.path.join(self.sb.board, "expert@ts", "T-%04d-t.md" % i),
+            ac.atomic_write(os.path.join(self.sb.board, "expert@main", "T-%04d-t.md" % i),
                             ac.new_ticket(meta))
 
     def tearDown(self):
         self.sb.close()
 
     def test_plan_orders_limits_and_routes(self):
-        res = inbox.plan(self.sb.board, "expert@ts", 3)
+        res = inbox.plan(self.sb.board, "expert@main", 3)
         self.assertEqual(res["waiting"], 5)
         self.assertEqual([t["id"] for t in res["take"]], ["T-0002", "T-0001", "T-0004"])
         self.assertEqual(res["take"][0]["route"]["target"], "expert:cite")
@@ -215,7 +215,7 @@ class InboxTests(unittest.TestCase):
 
     def test_research_without_final_to_goes_to_intake(self):
         for meta in ({"kind": "research"}, {"kind": "research", "final_to": "expert"},
-                     {"kind": "research", "final_to": "expert@ts"}):
+                     {"kind": "research", "final_to": "expert@main"}):
             r = inbox.route(meta)
             self.assertEqual((r["how"], r["target"]), ("agent", "research-intake"), meta)
 
@@ -234,7 +234,7 @@ class InboxTests(unittest.TestCase):
         self.assertNotIn("final_to", r["why"])
 
     def test_cli_caps_at_three(self):
-        code, out, err = fixtures.run_script("inbox.py", None, ["--instance", "expert@ts",
+        code, out, err = fixtures.run_script("inbox.py", None, ["--instance", "expert@main",
                                                                 "--limit", "9", "--json"])
         self.assertEqual(code, 0, err)
         self.assertEqual(out["limit"], 3)
@@ -265,14 +265,14 @@ class ReturnLegTests(unittest.TestCase):
         self.sb.close()
 
     def parent(self, tid, child, child_status, waiting=None, final_to="researcher"):
-        self.put(child, "expert@ts", "researcher@s1", child_status, final_to=final_to,
+        self.put(child, "expert@main", "researcher@s1", child_status, final_to=final_to,
                  parent=tid)
-        self.put(tid, "author@bi", "expert@ts", "blocked", final_to=final_to,
+        self.put(tid, "author@main", "expert@main", "blocked", final_to=final_to,
                  waiting_on=waiting or [child])
 
     def test_parent_with_delivered_child_goes_back_to_the_relay(self):
         self.parent("T-0001", "T-0002", "delivered")
-        res = inbox.plan(self.sb.board, "expert@ts", 3)
+        res = inbox.plan(self.sb.board, "expert@main", 3)
         self.assertEqual([t["id"] for t in res["take"]], ["T-0001"])
         r = res["take"][0]["route"]
         self.assertEqual((r["how"], r["target"]), ("agent", "research-intake"))
@@ -280,31 +280,31 @@ class ReturnLegTests(unittest.TestCase):
         self.assertIn("return leg", r["why"])
 
     def test_parent_toward_the_author_goes_back_to_paper_liaison(self):
-        self.put("T-0002", "expert@ts", "author@bi", "closed", final_to="author",
+        self.put("T-0002", "expert@main", "author@main", "closed", final_to="author",
                  parent="T-0001")
-        self.put("T-0001", "researcher@s1", "expert@ts", "blocked", final_to="author",
+        self.put("T-0001", "researcher@s1", "expert@main", "blocked", final_to="author",
                  waiting_on=["T-0002"])
-        r = inbox.plan(self.sb.board, "expert@ts", 3)["take"][0]["route"]
+        r = inbox.plan(self.sb.board, "expert@main", 3)["take"][0]["route"]
         self.assertEqual((r["target"], r["return"]), ("paper-liaison", True))
 
     def test_research_parent_without_final_to_takes_its_return_leg(self):
-        self.put("T-0002", "expert@ts", "researcher@s1", "delivered",
+        self.put("T-0002", "expert@main", "researcher@s1", "delivered",
                  final_to="researcher", parent="T-0001")
-        self.put("T-0001", "author@bi", "expert@ts", "blocked", waiting_on=["T-0002"])
-        r = inbox.plan(self.sb.board, "expert@ts", 3)["take"][0]["route"]
+        self.put("T-0001", "author@main", "expert@main", "blocked", waiting_on=["T-0002"])
+        r = inbox.plan(self.sb.board, "expert@main", 3)["take"][0]["route"]
         self.assertEqual((r["target"], r["return"]), ("research-intake", True))
 
     def test_parent_with_open_child_is_not_taken(self):
         self.parent("T-0001", "T-0002", "in-progress")
-        self.assertEqual(inbox.plan(self.sb.board, "expert@ts", 3)["take"], [])
+        self.assertEqual(inbox.plan(self.sb.board, "expert@main", 3)["take"], [])
 
     def test_parent_waiting_on_human_is_not_taken(self):
         self.parent("T-0001", "T-0002", "delivered", waiting=["T-0002", "human"])
-        self.assertEqual(inbox.plan(self.sb.board, "expert@ts", 3)["take"], [])
+        self.assertEqual(inbox.plan(self.sb.board, "expert@main", 3)["take"], [])
 
     def test_ordinary_tickets_carry_no_return_mark(self):
-        self.put("T-0003", "author@bi", "expert@ts", "open", kind="verify")
-        r = inbox.plan(self.sb.board, "expert@ts", 3)["take"][0]["route"]
+        self.put("T-0003", "author@main", "expert@main", "open", kind="verify")
+        r = inbox.plan(self.sb.board, "expert@main", 3)["take"][0]["route"]
         self.assertFalse(r.get("return", False))
 
 

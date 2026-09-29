@@ -9,7 +9,7 @@ note-sweeper, figure-maker and librarian (a bib edit is owed a build too).
 Scope: an Author home with a dirty marker (``<build.dir>/.dirty``, left by
 tex_edit_check after an edit to the home's tex or bib). The home is the one holding
 the session's cwd; failing that, the Author homes of workspace.json are looked at, so
-a librarian that edited BI's bibliography from the Expert's home is still covered.
+a librarian that edited a paper's bibliography from the Expert's home is still covered.
 No dirty marker, no build: silent.
 
 The build runs under ``author.build.lock`` (default ``.build/.lock``), so two gates

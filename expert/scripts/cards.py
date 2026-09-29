@@ -7,7 +7,7 @@ are notes, not cards.
 
     py cards.py validate [PATH ...] [--home H] [--json] [--strict]
     py cards.py new KEY "PINPOINT" --version V --read-from R [--home H] [--quote-file F]
-                  [--used-by paper:lem:x,...] [--by expert@ts/librarian] [--dry-run]
+                  [--used-by paper:lem:x,...] [--by expert@main/librarian] [--dry-run]
     py cards.py path KEY "PINPOINT"
     py cards.py list [--home H] [--key K]
 
@@ -22,7 +22,7 @@ The card format::
     used_by: [paper:fact:forgetful-props]
     source_label: L:FiberDim
     checked: 2026-09-19
-    by: expert@ts/librarian
+    by: expert@main/librarian
     status: verified
     status_reason: quote found in AW21.src/ (source) (MCP normaliser)
     ---

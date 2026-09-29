@@ -1,7 +1,7 @@
 """Shared fixtures for the Expert plugin's tests: a throw-away academy.
 
-``Sandbox`` builds, in a temp directory, a workspace.json (``expert@ts`` with a
-library home, ``author@bi`` with a paper home), an empty board, and a small library
+``Sandbox`` builds, in a temp directory, a workspace.json (``expert@main`` with a
+library home, ``author@main`` with a paper home), an empty board, and a small library
 (index.md, cached .txt/.meta/.src files). Scripts run as subprocesses exactly as
 Claude Code runs a hook, with ``ACADEMY_WORKSPACE`` pointing at the sandbox.
 Run from the repo root:  py -m unittest discover expert/tests
@@ -52,7 +52,7 @@ def card_text(key="ABC21", pinpoint="Lemma 2.1", quote="Let M be a translation s
     import cards
     meta = {"key": key, "pinpoint": pinpoint, "version": "arXiv v2", "read_from": read_from,
             "verdict": "match", "used_by": ["paper:lem:x"], "checked": "2026-09-28",
-            "by": "expert@ts/librarian"}
+            "by": "expert@main/librarian"}
     meta.update(extra)
     return cards.render_card(meta, statement, list(hypotheses), quote)
 
@@ -61,16 +61,16 @@ class Sandbox(object):
     def __init__(self):
         self.root = tempfile.mkdtemp(prefix="expert-test-")
         self.lib = os.path.join(self.root, "papers")
-        self.bi = os.path.join(self.root, "bi")
+        self.paperhome = os.path.join(self.root, "paperhome")
         self.board = os.path.join(self.root, "board")
-        for d in (self.lib, self.bi, self.board, os.path.join(self.board, "expert@ts"),
-                  os.path.join(self.board, "author@bi"), os.path.join(self.board, "human")):
+        for d in (self.lib, self.paperhome, self.board, os.path.join(self.board, "expert@main"),
+                  os.path.join(self.board, "author@main"), os.path.join(self.board, "human")):
             os.makedirs(d, exist_ok=True)
         self.ws_path = os.path.join(self.root, "workspace.json")
         ws = {"instances": {
-            "expert@ts": {"role": "expert", "home": self.lib.replace("\\", "/"),
+            "expert@main": {"role": "expert", "home": self.lib.replace("\\", "/"),
                           "domains": ["translation-surfaces"]},
-            "author@bi": {"role": "author", "home": self.bi.replace("\\", "/"),
+            "author@main": {"role": "author", "home": self.paperhome.replace("\\", "/"),
                           "domains": ["translation-surfaces"], "ns": "paper"}},
             "board": self.board.replace("\\", "/"), "human": {"name": "Roey"}}
         with open(self.ws_path, "w", encoding="utf-8") as fh:
