@@ -30,7 +30,7 @@ Liaisons: files to the Expert as `main`, `math-writer`, `notation-auditor` and `
 
 | Agent | Model | Job |
 |---|---|---|
-| `math-writer` | Opus → Sonnet | Exposition from established results; a new argument becomes a ticket to Researcher |
+| `math-writer` | Opus → Sonnet | Exposition from established results; a new argument becomes a `research` ticket to the Expert with `final_to: researcher` |
 | `math-editor` | Sonnet → Opus | Editing, copy-editing, the recolouring edit |
 | `tex-engineer` | Sonnet → Opus | The LaTeX toolchain, the build, the checker and its tests |
 | `figure-maker` | Sonnet → Opus | Figures, following the pack's figure conventions |

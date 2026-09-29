@@ -9,7 +9,7 @@ contracts it codes against are the academy repo's `docs/protocol.md`,
 
 | Agent | Model (fallback) | Job |
 |---|---|---|
-| `math-writer` | opus (sonnet) | Exposition from established results; a new argument becomes a prove ticket |
+| `math-writer` | opus (sonnet) | Exposition from established results; a new argument becomes a `research` ticket to the Expert (`final_to: researcher`) |
 | `math-editor` | sonnet (opus) | Decided edits, `[copy]` mode (was copy-editor), landing verdicts and the recolour |
 | `tex-engineer` | sonnet (opus) | The LaTeX toolchain, the build, `check_paper.py` and its tests (was latex-fixer) |
 | `figure-maker` | sonnet (opus; opus for data figures) | Figures, after the pack's `figures.md` |

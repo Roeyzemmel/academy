@@ -382,6 +382,25 @@ class ChainDocsTests(unittest.TestCase):
             text = fh.read()
         self.assertNotRegex(text, r"(?i)ticket[^.\n]*to (the )?scientist")
 
+    OLD_ROUTE = re.compile(r"(?i)prove ticket|Researcher ticket|"
+                           r"ticket[^.\n]*to (the )?(Researcher|Scientist)")
+
+    def test_author_plugin_files_nothing_past_the_expert(self):
+        """A line that files to the Researcher or Scientist must say final_to."""
+        author = os.path.join(self.REPO, "author")
+        paths = [os.path.join(author, "README.md")]
+        for sub in ("agents", "skills"):
+            for dp, _dn, fns in os.walk(os.path.join(author, sub)):
+                paths += [os.path.join(dp, f) for f in fns if f.endswith(".md")]
+        self.assertGreater(len(paths), 10)
+        bad = []
+        for path in paths:
+            with open(path, encoding="utf-8") as fh:
+                for n, line in enumerate(fh, 1):
+                    if self.OLD_ROUTE.search(line) and "final_to" not in line:
+                        bad.append("%s:%d" % (os.path.relpath(path, self.REPO), n))
+        self.assertEqual(bad, [])
+
 
 if __name__ == "__main__":
     unittest.main()
