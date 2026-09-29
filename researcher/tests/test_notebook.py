@@ -166,6 +166,15 @@ class InboxTests(Workspace):
         self.assertEqual((data["instance"], len(data["take"]), data["remaining"]),
                          (inst, 3, 2))
 
+    def test_final_to_routes_to_the_relay(self):
+        self.assertEqual(inbox.route({"kind": "research", "final_to": "scientist"}),
+                         "experiment-spec")
+        self.assertEqual(inbox.route({"kind": "cite", "final_to": "expert"}), "lit-request")
+        self.assertEqual(inbox.route({"kind": "question", "final_to": "author"}),
+                         "lit-request")
+        self.assertEqual(inbox.route({"kind": "prove", "final_to": "researcher"}),
+                         "/researcher:prove")
+
     def test_empty_inbox(self):
         rc, out, _ = self.run_script("inbox.py")
         self.assertEqual(rc, 1)

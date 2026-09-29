@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: Work the Expert instance's inbox — take at most three open or accepted tickets addressed to it, in priority order, serially, and route each by kind (verify to the review-chair, cite to the librarian, lookup and question to the clerk, referee to the referee, notation to the domain skill), recording every step in the ticket thread. Use for "work the expert inbox", "what's waiting for the library", and when the SessionStart line reports open tickets to the Expert.
+description: Work the Expert instance's inbox — take at most three open or accepted tickets addressed to it, in priority order, serially, and route each by kind (verify to the review-chair, cite to the librarian, lookup and question to the clerk, referee to the referee, notation to the domain skill, research and any ticket whose `final_to` lies beyond the Expert to a relay agent, note to the Author only), recording every step in the ticket thread. Use for "work the expert inbox", "what's waiting for the library", and when the SessionStart line reports open tickets to the Expert.
 ---
 
 # The Expert's inbox
@@ -23,6 +23,8 @@ the ticket lifecycle is `docs/protocol.md` section 4.
    | `clerk` | `open -> accepted -> in-progress`; one `clerk` run with the ask; its answer becomes the `result` and `## Result`, then `delivered`. An `ESCALATE` answer: append it to the thread and, if the ticket's `budget.runs` allows a second run, dispatch one `librarian` with the escalated ask; otherwise `blocked`, `waiting_on: [human]`, asking for the budget |
    | `expert:referee` | run the `referee` skill with the ticket id |
    | `expert:domain` | run the `domain` skill with the ticket id |
+   | `research-intake` | one `research-intake` run on the ticket (a `final_to` toward the Researcher or the Scientist, whatever the kind); on a later run, when its child is delivered, the same agent delivers the parent |
+   | `paper-liaison` | one `paper-liaison` run on the ticket (a `final_to` toward an Author, whatever the kind); on a later run, when its child is delivered, the same agent delivers the parent |
    | `human` | `blocked`, `waiting_on: [human]`, with a thread line naming the decision needed |
    | `reject` | `rejected`, with the script's reason in the same write |
 

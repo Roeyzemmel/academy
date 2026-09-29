@@ -15,6 +15,8 @@ more than 3) and gives each its route by ticket kind:
 | lookup, question | agent ``clerk``; a miss escalates to ``librarian`` |
 | referee | skill ``expert:referee`` |
 | notation | skill ``expert:domain`` (librarian) |
+| research, or any kind with ``final_to`` beyond the Expert | agent ``research-intake`` (toward the Researcher or Scientist) or ``paper-liaison`` (toward an Author): a relay |
+| note | ``human``: a note is for the Author; block with ``waiting_on [human]`` |
 | decision, other | ``human``: block the ticket with ``waiting_on: [human]`` |
 | any other kind | ``reject``: not Expert work; the reason names the role it belongs to |
 
@@ -41,18 +43,33 @@ ROUTES = {
     "question": ("agent", "clerk", "the clerk first; a miss escalates to the librarian"),
     "referee": ("skill", "expert:referee", "cold whole-paper read, landed as a packet"),
     "notation": ("skill", "expert:domain", "librarian edits the domain pack"),
+    "note": ("human", "human", "a note is for the Author; block with waiting_on [human]"),
     "decision": ("human", "human", "only the human decides: block with waiting_on [human]"),
     "other": ("human", "human", "no Expert route: block with waiting_on [human]"),
 }
 BELONGS = {
     "prove": "researcher", "review-experiment": "researcher", "generalize": "researcher",
     "experiment": "scientist", "test": "scientist", "code": "scientist",
-    "build": "author", "figure": "author",
+    "build": "author", "figure": "author", "research": "researcher",
 }
 TAKE = ("open", "accepted")
 
 
+#: relay tickets (final_to beyond the Expert) go to the relay of their crossing
+RELAYS = {"researcher": "research-intake", "scientist": "research-intake",
+          "author": "paper-liaison"}
+
+
+def _final_role(meta):
+    ft = meta.get("final_to")
+    return ac.role_of(ft) if ft and ft not in ac.ROLES else ft
+
+
 def route(meta):
+    final = _final_role(meta)
+    if final and final != "expert" and final in RELAYS:
+        return {"how": "agent", "target": RELAYS[final],
+                "why": "relay toward %s: check, sharpen, forward (final_to)" % final}
     kind = meta.get("kind") or "other"
     if kind in ROUTES:
         how, target, why = ROUTES[kind]

@@ -15,6 +15,8 @@ AGENTS = {
     "prover": ("fable", "opus", False),
     "experiment-reviewer": ("fable", "opus", True),
     "claim-keeper": ("haiku", "sonnet", False),
+    "experiment-spec": ("sonnet", "opus", False),
+    "lit-request": ("haiku", "sonnet", False),
 }
 SKILLS = ("explore", "prove", "corollaries", "generalize", "claims", "review-experiment",
           "settle", "inbox", "status")

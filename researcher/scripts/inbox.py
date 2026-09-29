@@ -20,6 +20,9 @@ Routing by ticket kind (the skill or agent that handles it):
     generalize          /researcher:generalize
     decision            claim-keeper (a status proposal from claims_propose_status)
     question            /researcher:explore (as a question) or lead-researcher
+    research            lead-researcher
+    final_to beyond the Researcher (whatever the kind): experiment-spec (toward the
+                        Scientist) or lit-request (toward the Expert or the Author)
     everything else     lead-researcher, which may reject with a reason
 
 Agenda position: a ticket's ``agenda`` field names an Author agenda entry; tickets with
@@ -45,7 +48,10 @@ ROUTES = {
     "generalize": "/researcher:generalize",
     "decision": "claim-keeper",
     "question": "/researcher:explore",
+    "research": "lead-researcher",
 }
+#: a ticket whose final_to lies beyond the Researcher goes to the relay of its direction
+RELAYS = {"scientist": "experiment-spec", "expert": "lit-request", "author": "lit-request"}
 DEFAULT_ROUTE = "lead-researcher"
 TAKE = ("open", "accepted")
 SHOW = ("open", "accepted", "in-progress", "blocked")
@@ -79,6 +85,10 @@ def order_key(t):
 
 
 def route(t):
+    ft = t.get("final_to")
+    final = ac.role_of(ft) if ft and ft not in ac.ROLES else ft
+    if final and final != "researcher" and final in RELAYS:
+        return RELAYS[final]
     return ROUTES.get(t.get("kind"), DEFAULT_ROUTE)
 
 

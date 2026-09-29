@@ -21,8 +21,11 @@ PLAN = {
     "review-chair": ("sonnet", "opus"),
     "rigor-reviewer": ("fable", "opus"),
     "referee": ("fable", "opus"),
+    "research-intake": ("sonnet", "opus"),
+    "paper-liaison": ("haiku", "sonnet"),
 }
-EFFORT = {"rigor-reviewer": "xhigh", "referee": "high"}
+EFFORT = {"rigor-reviewer": "xhigh", "referee": "high", "research-intake": "medium",
+          "paper-liaison": "low"}
 READ_ONLY = ("clerk", "rigor-reviewer", "referee")
 FORBIDDEN = ("Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit")
 MCP_WRITES = ("claims_new", "claims_attach_evidence", "claims_propose_status",
@@ -199,6 +202,16 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(res["take"][2]["route"]["how"], "reject")
         self.assertIn("researcher", res["take"][2]["route"]["why"])
         self.assertEqual(res["left"], 2)
+
+    def test_final_to_beats_kind(self):
+        r = inbox.route({"kind": "cite", "final_to": "researcher"})
+        self.assertEqual((r["how"], r["target"]), ("agent", "research-intake"))
+        r = inbox.route({"kind": "research", "final_to": "scientist"})
+        self.assertEqual(r["target"], "research-intake")
+        r = inbox.route({"kind": "question", "final_to": "author"})
+        self.assertEqual(r["target"], "paper-liaison")
+        r = inbox.route({"kind": "cite", "final_to": "expert"})
+        self.assertEqual(r["target"], "expert:cite")          # final_to is the receiver
 
     def test_cli_caps_at_three(self):
         code, out, err = fixtures.run_script("inbox.py", None, ["--instance", "expert@ts",

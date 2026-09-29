@@ -22,7 +22,11 @@ most `budget.itemsPerRun` tickets, one after another, each within its own
      `/researcher:prove`, `/researcher:review-experiment` (or `/researcher:settle`
      when the report lists candidates), `/researcher:generalize`,
      `/researcher:explore` for a `question`, `claim-keeper` for a `decision` (a status
-     proposal), and `lead-researcher` for everything else.
+     proposal), and `lead-researcher` for everything else. A ticket whose `final_to`
+     lies beyond the Researcher goes to its relay (`experiment-spec` toward the
+     Scientist, `lit-request` toward the Expert or the Author), whatever its kind; a
+     `research` ticket without `final_to` goes to `lead-researcher`. A relay ticket
+     comes back to you when its child is delivered: run the same relay again to deliver it.
    - If the work needs more runs or a heavier model than `budget` allows, move it
      `blocked` with `--waiting-on human` and a thread line asking for more budget.
    - The route delivers the ticket with a one-line result. Check it did before taking
