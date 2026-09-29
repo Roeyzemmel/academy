@@ -21,6 +21,7 @@ contracts that the code implements.
 ```
 py -m unittest discover academy/tests       # from the repo root; stdlib only
 py academy/scripts/sync_common.py --check    # the vendored copies of the shared lib
+py academy/scripts/skill_index.py --check    # skill descriptions: form, length, total budget
 ```
 
 `academy/lib/academy_common.py` is the one shared library. Each plugin carries a
