@@ -1,6 +1,6 @@
 ---
 name: board
-description: Look at and handle the academy's ticket board as Roey — list tickets by receiver, sender or status, show one ticket with its thread, file a ticket, move a ticket through its lifecycle, append to a thread, and commit pending board changes (sync). Use for "show the board", "what's open for the expert", "show T-0007", "close that ticket", "cancel it", "file a ticket to …", "sync the board", and whenever a ticket id is mentioned.
+description: 'List, show, file, move and sync tickets on the academy board as Roey. Use for "show the board", "what''s open for the expert", "show T-0007", "close that ticket", "file a ticket to ...", "sync the board", or any ticket id.'
 ---
 
 # The board

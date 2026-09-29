@@ -1,6 +1,6 @@
 ---
 name: litwatch
-description: The literature watch for one paper or notebook instance — run related-work-scout over the instance's keyword list against the newest arXiv listings and record the hits in the library's ledgers/<instance>/watch-YYYY-MM-DD.md; also a per-statement prior-art search with an id argument. Explains how to schedule it. Use weekly, before a coauthor round, before submission, and when asked "has anyone done this".
+description: 'Literature watch for one paper or notebook: related-work-scout runs its keywords over the newest arXiv listings and logs hits in the library ledger; with an id, a prior-art search. Use weekly, before a coauthor round or submission, "has anyone done this".'
 ---
 
 # Literature watch

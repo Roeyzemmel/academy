@@ -1,6 +1,6 @@
 ---
 name: init
-description: Create a new academy instance — scaffold the home's .claude/academy.json from the role template (docs/config.md), register the instance in workspace.json, write the home's .gitattributes (line endings) when it has none, create its board folder, and for a Researcher scaffold the notebook layout (objects/<kind>/, proofs/, journal/, audits/, views/). Use for "/academy:init researcher@<domain>", "set up a new paper as an author instance", "add a research domain", "register this repo with the academy".
+description: 'Create a new academy instance: scaffold the home''s .claude/academy.json, register it in workspace.json, add .gitattributes and a board folder, and for a Researcher the notebook layout. Use for "/academy:init researcher@<domain>", "add a research domain".'
 ---
 
 # Initialise an instance

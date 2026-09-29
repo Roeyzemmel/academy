@@ -1,6 +1,6 @@
 ---
 name: usage
-description: Report Claude Code usage by instance, role and agent — turns, cache volume, models seen versus declared, limit failures, fan-out — for one session or a window of days, and with --weekly have the usage-analyst turn the week into a usage packet with budget overruns and model-downgrade suggestions. Use for "how much did that run cost", "usage this week", "which agents are expensive", "did we hit the limit", after a heavy pass, and from the weekly scheduled job.
+description: 'Report Claude Code usage by instance, role and agent (turns, cache, models, limit failures) for a session or window; --weekly files a usage packet. Use for "usage this week", "how much did that run cost", "did we hit the limit".'
 ---
 
 # Usage

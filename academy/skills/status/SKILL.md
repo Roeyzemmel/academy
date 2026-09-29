@@ -1,6 +1,6 @@
 ---
 name: status
-description: Health and state of the academy as a whole — for every instance, whether its home exists and its .claude/academy.json is present, valid and in agreement with workspace.json; plus ticket and packet counts across the board. Use for "academy status", "is everything configured", "which homes are switched over", after /academy:init, and when a SessionStart line reports a config problem. For one role's own view use /<role>:status instead.
+description: 'Health of the academy as a whole: per instance, whether its home exists and .claude/academy.json is valid and matches workspace.json, plus ticket and packet counts. Use for "academy status", "is everything configured". Per role: /<role>:status.'
 ---
 
 # Academy status

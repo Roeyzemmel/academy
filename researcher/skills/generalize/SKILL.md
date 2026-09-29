@@ -1,6 +1,6 @@
 ---
 name: generalize
-description: Turn a reviewed experiment's Conclusion into conjectures — prover proposes generalizations (a wider class, a relaxed hypothesis, the pattern behind the data, the invariant that seems to govern the outcome), each created as a conjectured object with bears_on the lab claim and a falsifier (the smallest case where it could fail); one `test` ticket per generalization goes to the Scientist, and a generalization packet lists them. Never raises anything above conjectured. Use for "/researcher:generalize <report|lab-claim>", on a `generalize` ticket, and after an experiment review clears.
+description: 'Turn a reviewed experiment''s Conclusion into conjectures: prover proposes generalizations, each with a falsifier, one test ticket each to the Scientist. Use for "/researcher:generalize <report>", generalize tickets, after an experiment review clears.'
 ---
 
 # Generalize from an experiment

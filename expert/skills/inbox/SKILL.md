@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: Work the Expert instance's inbox — take at most three open or accepted tickets addressed to it, in priority order, serially, and route each by kind (verify to the review-chair, cite to the librarian, lookup and question to the clerk, referee to the referee, notation to the domain skill), recording every step in the ticket thread. Use for "work the expert inbox", "what's waiting for the library", and when the SessionStart line reports open tickets to the Expert.
+description: 'Work the Expert''s inbox: take at most three open or accepted tickets and route each by kind (verify, cite, lookup, question, referee, notation), logging each in the thread. Use for "work the expert inbox" or when SessionStart reports tickets.'
 ---
 
 # The Expert's inbox

@@ -1,6 +1,6 @@
 ---
 name: notes
-description: File the human's new margin notes (the note macro from workspace.json human.noteMacro, plus the coauthors' macros) into the paper's work — collect them from the git diff and a full inventory, decide which are already covered, read the tex they answer, detect notes that announce a tex change nobody made, and file each as a roadmap item on the agenda entry it concerns (or as a ticket for another role). Also files the points of a referee packet. Use whenever Roey has been through the PDF and left notes, after an Overleaf sync, or when a referee packet comes back.
+description: 'File the human''s new margin notes as roadmap items on the agenda entry they concern (or tickets for other roles), and referee-packet points. Use when Roey has left notes in the PDF, after an Overleaf sync, or when a referee packet comes back.'
 ---
 
 # /author:notes

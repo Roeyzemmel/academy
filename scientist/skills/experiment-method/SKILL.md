@@ -1,6 +1,6 @@
 ---
 name: experiment-method
-description: The discipline for computational experiments in research mathematics — numerics refute and suggest, they never prove; say what would refute the claim before computing; validate the pipeline on cases with independently known answers; prefer exact arithmetic; watch the invariants that silently change; report the bound and the class searched and what the class structurally cannot contain; check whether a short argument settles it first; keep a rerunnable script with provenance. Use whenever a claim is about to be tested numerically, an experiment is designed, reviewed or reported, or a computed result is about to be quoted. The domain pack's examples.md, traps.md and computation/ add the subject's cases and pitfalls.
+description: 'Discipline for computational experiments in mathematics: numerics refute and suggest, never prove; state the refutation first, validate on known cases, prefer exact arithmetic, keep provenance. Use whenever a claim is tested numerically or a result is quoted.'
 ---
 
 # Experiment method

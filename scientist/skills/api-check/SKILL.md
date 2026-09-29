@@ -1,6 +1,6 @@
 ---
 name: api-check
-description: Confirm that a library call the lab relies on (the libraries the domain pack's computation/README.md names) actually exists and behaves as assumed, by running it on the probe profile against a case with a known answer before it goes into an experiment — then record the confirmed signature, or the refutation, in the domain pack's computation/api/ recipe files and CHANGELOG, so the trap list grows; a real upstream bug becomes a draft for upstream-contributor. Use before writing any unfamiliar call, before a script with an unfamiliar call is queued, when a tutorial or memory suggests a method, and whenever a traceback says an attribute does not exist.
+description: 'Confirm a library call the lab relies on exists and behaves as assumed, by running it on the probe profile against a known answer, and record the result in the domain pack. Use before writing or queuing any unfamiliar call.'
 ---
 
 # Check the call before it goes in the script

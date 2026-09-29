@@ -1,6 +1,6 @@
 ---
 name: rigor
-description: Discipline for doing research mathematics honestly — pinning a statement down, testing it before proving it, hunting for gaps, spending real effort before flagging, and reporting what was established versus assumed. Use whenever the task is to prove, disprove, verify or repair a claim; to check whether a step is justified; to turn a sketch into an argument; to decide whether a conjecture is even true; or to review someone else's proof. Trigger on "is this proof correct", "prove that", "does this argument work", "fill in the details", "why is this step justified", "check my lemma", "find the gap", "is this true". Applies to all of mathematics; the active domain pack's traps.md adds the subject-specific failure modes.
+description: 'Discipline for honest research mathematics: pin the statement down, test before proving, hunt for gaps, report established versus assumed. Use whenever asked to prove, disprove, verify or repair a claim or review a proof ("is this proof correct").'
 ---
 
 # Doing mathematics honestly

@@ -1,6 +1,6 @@
 ---
 name: decide
-description: Ask Roey about every decision the academy is waiting on — open packet decisions, tickets addressed to human, and tickets anywhere blocked on human — in plain-language batches, then record each answer. Use for "what needs my decision", "ask me", "decisions", "let's go through what's waiting on me", and when the desk or a SessionStart line reports decisions waiting.
+description: 'Ask Roey about every pending decision (packet decisions, tickets to or blocked on human) in plain-language batches and record each answer. Use for "what needs my decision", "ask me", "decisions", or when the desk reports decisions waiting.'
 ---
 
 # Decide

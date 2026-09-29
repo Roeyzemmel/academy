@@ -1,6 +1,6 @@
 ---
 name: examples-audit
-description: The standard-examples audit — for every definition an Author or Researcher instance states, have the experimenter write a definition test that evaluates it on each standard example of the domain pack's examples.md, queue it on the run profile, and record one lab claim per definition bearing on the definition's id. Definitions that cannot be computed get a lab claim with a one-line reason instead. Use after work that added definitions, before any definition is raised to established, or when a ticket asks for a definition test.
+description: 'Standard-examples audit: for each definition an Author or Researcher states, the experimenter queues a definition test on the domain pack''s standard examples and records a lab claim. Use after new definitions, before one is raised to established.'
 ---
 
 # Standard-examples audit

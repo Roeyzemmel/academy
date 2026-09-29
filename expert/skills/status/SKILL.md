@@ -1,6 +1,6 @@
 ---
 name: status
-description: One screen on the Expert instance — whether its home is switched over, the library (cached keys, index rows, keys with no row), the cards (errors, warnings, quotes verified against the cached text), review passes awaiting run B or a decision record, the age of hot.md, and the tickets and open packets on the board. Read-only. Use for "expert status", "how is the library", "what's pending in reviews", and before /expert:inbox or /expert:library-index.
+description: 'One screen on the Expert instance: switch-over state, library (cached keys, index rows, cards), reviews awaiting run B, hot.md age, tickets and packets. Read-only. Use for "expert status", "how is the library", before /expert:inbox.'
 ---
 
 # Expert status

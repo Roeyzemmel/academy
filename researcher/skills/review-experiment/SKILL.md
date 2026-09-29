@@ -1,6 +1,6 @@
 ---
 name: review-experiment
-description: Review a computed result before it counts — two fresh experiment-reviewer runs (B only after a positive A, neither seeing the other) over the script, its header, the result JSON, the environment provenance and the report's Conclusion; the verdicts are landed by a hook into audits/<lab-id>/, the decision table is applied by script, and claim-keeper sets supported/refuted only on a cleared pair. Use on a `review-experiment` ticket from the Scientist, on any result about to be cited, on a surprising result, and before a result is handed to a paper. For a result that reports candidate counterexamples use /researcher:settle.
+description: 'Review a computed result before it counts: two fresh experiment-reviewer runs (B only after a positive A), decision table by script. Use on review-experiment tickets and before a result is cited. Counterexample candidates: /researcher:settle.'
 ---
 
 # Review an experiment

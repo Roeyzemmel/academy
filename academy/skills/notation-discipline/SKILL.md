@@ -1,6 +1,6 @@
 ---
 name: notation-discipline
-description: Which notation wins and how to introduce symbols — the precedence domain pack < project decisions < the draft itself, one symbol per object and one meaning per symbol, every symbol introduced before use, and notation changes routed to their owner rather than made silently. Use whenever a formula, symbol, macro or named term is written or changed, when two documents disagree on notation, when a symbol seems overloaded, and before proposing a notation change.
+description: 'Which notation wins (domain pack < project decisions < the draft) and how to introduce symbols: one symbol per object, introduced before use, changes routed to their owner. Use whenever a symbol is written or changed, or documents disagree on notation.'
 ---
 
 # Notation discipline

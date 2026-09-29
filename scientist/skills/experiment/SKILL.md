@@ -1,6 +1,6 @@
 ---
 name: experiment
-description: Take a mathematical claim from words to a queued, provenance-stamped experiment in the lab (the Scientist home) and, when the result is back, to a report packet — classify the work (two-line argument / probe / experiment), get the header approved before any compute, have the experimenter scaffold it with a validation case and a lab claim, file the run on the policy's run profile, then generate the experiment report (search / measure / verify / probe) with its mandatory ## Conclusion and file a review ticket to the Researcher. Use on "let's check this", "can we test", "find a counterexample to", "measure ...", before any new experiment script, and when a finished run needs its report.
+description: 'Take a mathematical claim from words to a queued, provenance-stamped lab experiment and then to a report packet; header approved before any compute. Use for "let''s check this", "can we test", "find a counterexample to", or a finished run''s report.'
 ---
 
 # An experiment, from a claim to a reviewed report

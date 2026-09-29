@@ -1,6 +1,6 @@
 ---
 name: status
-description: One screen on the lab (the Scientist instance) — its home and whether it is switched over, the env profiles and policy, the job queue by state, the tickets addressed to it, its open packets, and the results that have come back with no experiment-report packet yet. Use for "lab status", "what's running", "what came back", "which results still need a report", and after a queue tick.
+description: 'One screen on the lab: switch-over state, env profiles and policy, job queue by state, tickets and packets, results back with no report packet yet. Use for "lab status", "what''s running", "what came back", and after a queue tick.'
 ---
 
 # Lab status

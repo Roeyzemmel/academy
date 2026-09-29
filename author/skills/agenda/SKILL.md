@@ -1,6 +1,6 @@
 ---
 name: agenda
-description: Maintain the paper's agenda (Drafts/agenda.md) — the results in paper order, each with its claim id, required status, dependencies and owner — refresh its generated status column from the registry, check it against the roadmap, show milestone progress, and turn gaps (an entry below its required status that nothing is working on) into roadmap items or tickets. Use for "update the agenda", "what does the paper still need", "add a milestone", "reorder the agenda", after tickets came back, and before /author:next when statuses may be stale.
+description: 'Maintain the paper''s agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into roadmap items or tickets. Use for "update the agenda", "what does the paper need".'
 ---
 
 # /author:agenda

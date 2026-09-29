@@ -1,6 +1,6 @@
 ---
 name: presync
-description: The bundle to run at a milestone — before a coauthor round, an Overleaf sync or a submission — the checker, the note sweep, the notation audit, a literature-watch ticket and a referee ticket to the Expert, a clean build, and a one-page summary of what the coauthors are being handed. Use when the author says they are about to share, sync or send the paper, or a milestone in the agenda is reached.
+description: 'The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone.'
 ---
 
 # /author:presync

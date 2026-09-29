@@ -1,6 +1,6 @@
 ---
 name: paper-method
-description: 'How to write a research mathematics paper in LaTeX so a reader one field over can follow it — structure (abstract, introduction, preliminaries, body, appendices), prose habits, cross-referencing and labels, macros, bibliography mechanics, turning scratchwork and delivered proofs into exposition, and the pre-send checklist; with a reference on modern LaTeX practice. Generic: the paper''s own conventions live in its home''s rules. Preloaded by the Author''s writing agents; use whenever writing, restructuring or cleaning up a paper''s prose or LaTeX.'
+description: 'How to write a research mathematics paper in LaTeX so a reader one field over can follow it: structure, prose, labels, macros, bibliography, exposition from proofs, pre-send checklist. Use whenever writing, restructuring or cleaning up a paper.'
 ---
 
 # Writing the paper

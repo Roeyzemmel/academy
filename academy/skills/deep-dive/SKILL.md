@@ -1,6 +1,6 @@
 ---
 name: deep-dive
-description: Build an explainer page for any subject — a concept, a definition, a claim with its proof, a paper (ours or a cited one), an experiment with its result, or a research direction — gathered from the registry, the library and the lab by script, written by the read-only explainer agent with the status of every statement shown, rendered with KaTeX, and published as a private artifact that is updated in place on every re-run. Use for "explain X", "walk me through", "deep dive on", "give me an overview of", "what is the story of this lemma / paper / experiment", and when the desk routes an explain request here.
+description: 'Build an explainer page for any subject (concept, claim and proof, paper, experiment, direction) showing every statement''s status, published as a private artifact updated in place. Use for "explain X", "walk me through", "deep dive on".'
 ---
 
 # Deep-dive

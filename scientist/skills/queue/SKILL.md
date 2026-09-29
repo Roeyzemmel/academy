@@ -1,6 +1,6 @@
 ---
 name: queue
-description: Drive the lab's job queue — file a run on an env profile, check the profile's preflight (the VPN for a remote one), tick it, poll while jobs are pending, read a log, settle finished jobs and report what came back. Handles the preflight-gated remote target, the uncommitted-script skip, and the remote runner that caps concurrency and never starts a job twice. Use for anything about running an experiment, checking on a run, "is it done yet", "start the jobs", or when a session has pending jobs and should keep watching them.
+description: 'Drive the lab''s job queue: file a run on an env profile, check preflight, tick, poll, read logs, settle finished jobs and report results. Use for anything about running an experiment, "is it done yet", "start the jobs", or watching pending jobs.'
 ---
 
 # The job queue

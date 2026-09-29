@@ -1,6 +1,6 @@
 ---
 name: honest-reporting
-description: How to report finished work so nothing unverified passes as established — the status in the first sentence, checked versus assumed kept apart, a machine note on every judgement call or unverified step, failures and partial results reported plainly, and never claiming a check, run, commit or publication that did not happen. Use at the end of every task that produces a report, a packet, a ticket result, a machine note or a summary for Roey, and whenever an agent is tempted to round a partial result up.
+description: 'How to report finished work so nothing unverified passes as established: status first, checked versus assumed kept apart, machine notes on judgement calls, failures stated plainly. Use at the end of any task that produces a report, packet or summary.'
 ---
 
 # Honest reporting

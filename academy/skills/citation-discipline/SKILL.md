@@ -1,6 +1,6 @@
 ---
 name: citation-discipline
-description: How to rely on published work — cite before reproving, quote the relied-on statement verbatim with its source version, check the cited result's real hypotheses for your objects, never invent an author, title, year, numbering, pinpoint or bibliography entry, and never treat a text extraction as the text. Use whenever a result from the literature is stated, cited, applied, looked up or added to a bibliography, whenever a pinpoint ("Theorem 1.3 of X") is written, and before reproving anything that might already be published.
+description: 'How to rely on published work: cite before reproving, quote verbatim with the source version, check the real hypotheses, never invent references or pinpoints. Use whenever a literature result is stated, cited, applied or added to a bibliography.'
 ---
 
 # Citation discipline

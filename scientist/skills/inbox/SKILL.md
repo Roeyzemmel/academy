@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: Work the lab's board inbox — take at most three open or accepted tickets addressed to this Scientist instance, in priority order, route each by kind (experiment and test tickets to the experimenter, code tickets to the developer with test-engineer review, "Upstream:" code tickets to upstream-contributor, questions to the experimenter), run them one after another within each ticket's budget, and move each through its lifecycle with a thread note. Use for "work the inbox", "what does the lab have to do", "handle T-NNNN", and when the SessionStart line says tickets are waiting.
+description: 'Work the lab''s board inbox: take at most three open or accepted tickets and route each by kind (experiment/test, code, Upstream, question). Use for "work the inbox", "handle T-NNNN", or when SessionStart reports tickets.'
 ---
 
 # The lab's inbox

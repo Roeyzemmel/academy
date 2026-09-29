@@ -1,6 +1,6 @@
 ---
 name: sweep
-description: The machine-note sweep — inventory every machine margin note in the paper's tex, decide from the roadmap, the board, the human's later notes and the registry whether each is answered (fold the answer into a roadmap item and delete the note) or still open (leave it), and report counts per file before and after. Use after /author:next runs that closed items, before /author:presync, or when the margins have filled up with machine notes.
+description: 'The machine-note sweep: inventory machine margin notes in the tex, fold answered ones into roadmap items and delete them, leave open ones, report counts. Use after /author:next runs, before /author:presync, or when margins are full of machine notes.'
 ---
 
 # /author:sweep

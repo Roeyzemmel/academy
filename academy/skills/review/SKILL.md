@@ -1,6 +1,6 @@
 ---
 name: review
-description: Review the open packets across all instances — render them into one private HTML dashboard artifact grouped by instance with the status legend, then put each pending decision to Roey with AskUserQuestion and write every answer back into the packet's Decision section and its ticket's thread. Use for "review", "what needs my decision", "show me the packets", "let's go through the decisions", after a run that produced packets, and when the desk says packets are waiting.
+description: 'Review open packets across all instances: render one private HTML dashboard, put each pending decision to Roey, and write each answer back to the packet and its ticket. Use for "review", "show me the packets", "let''s go through the decisions".'
 ---
 
 # Review packets

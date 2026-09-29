@@ -1,6 +1,6 @@
 ---
 name: status
-description: The state of this Researcher instance at a glance — notebook objects by kind and status, proof attempts and their latest outcome, experiment reviews waiting for run B, the inbox, and the registry check. Read-only. Use for "/researcher:status", "where is the notebook", "what is open in this direction", before an inbox run, and after a switch-over. For the academy as a whole use /academy:status.
+description: 'State of this Researcher instance at a glance: notebook objects by kind and status, proof attempts, experiment reviews awaiting run B, inbox, registry check. Read-only. Use for "/researcher:status", "where is the notebook". Academy-wide: /academy:status.'
 ---
 
 # Researcher status

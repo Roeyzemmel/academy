@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Work one research direction forward — direction -> questions -> claims — taking at most three unsettled items per run and moving each one step, in the fixed order falsify, prior art, prove - a single-example probe or a search over a family goes to the Scientist as a ticket with its falsifier (the old hunt and classify), prior art goes to prover's scout and the Expert, an argument goes to prover. Commissioned by lead-researcher; grades nothing. Use for "/researcher:explore <direction>", "work on this direction", "hunt this family", "check this one example", "what should we try next on X", and on a `question` ticket.
+description: 'Work one research direction forward, at most three unsettled items per run, in the order falsify, prior art, prove (probes to the Scientist, arguments to prover). Use for "/researcher:explore <direction>", "what should we try next on X", question tickets.'
 ---
 
 # Explore a direction

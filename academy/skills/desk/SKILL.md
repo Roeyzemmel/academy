@@ -1,6 +1,6 @@
 ---
 name: desk
-description: Roey's front desk for the whole academy. With a plain-language request ("check whether Lemma 4.2 is really needed", "run that example on the server", "what does Theorem 1.3 of that paper assume?", "explain this definition"), the concierge classifies it and routes it — a quick question to the Expert's clerk, "explain X" to a deep-dive, a single action to that role's skill, anything larger to a ticket Roey confirms before it is filed. With no argument, prints one screen across all instances — what needs Roey, what is in flight, what came back since the last visit, and the week's usage. Use as the default entry point whenever Roey asks for anything across roles, or asks "what's going on", "what needs me", "where are we".
+description: 'Roey''s front desk: classifies a plain-language request and routes it (clerk answer, deep-dive, role skill or confirmed ticket); with no argument prints one screen of what needs Roey. Use as the default cross-role entry point, or for "what''s going on".'
 ---
 
 # The front desk

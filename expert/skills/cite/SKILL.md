@@ -1,6 +1,6 @@
 ---
 name: cite
-description: Add or verify a citation through the librarian — the only route into any Author's references.bib and into the library's cards. Fetches the record from Crossref, arXiv, MathSciNet or the journal page when it is not cached, caches the source once, writes the card (statement, hypotheses, version, verbatim quote checked against the cached text) and the index row, and reports the key and pinpoint to use. Use before adding any citation, for every cite ticket, and when the clerk escalates a miss as cite.
+description: 'Add or verify a citation through the librarian, the only route into references.bib and the library''s cards: fetch, cache once, write the card and index row, report key and pinpoint. Use before adding any citation and for every cite ticket.'
 ---
 
 # Add a citation, properly

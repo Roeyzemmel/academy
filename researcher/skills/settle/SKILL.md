@@ -1,6 +1,6 @@
 ---
 name: settle
-description: Settle a returned result that reports candidate counterexamples before anything is recorded — the script is reviewed by the experiment-review pair (as in /researcher:review-experiment), each candidate (at most three per run, by likelihood rank) is re-derived independently by a Scientist `verify` experiment and then goes to the Expert as a `verify` ticket whose rigor-reviewer pair reviews it against the home's verification checklist rule, and settle.py applies the decision table; a candidate is recordable only when the audit cleared and both of its verdicts are CONFIRMED. Replaces the first notebook's settle-candidates workflow. Use on every returned search that reports a counterexample, and on any surprising outcome.
+description: 'Settle a returned result reporting candidate counterexamples: review the script, independently re-derive each candidate (at most three) via Scientist and Expert verify, apply the decision table. Use on every search result that reports a counterexample.'
 ---
 
 # Settle a result with candidates

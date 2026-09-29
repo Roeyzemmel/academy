@@ -1,6 +1,6 @@
 ---
 name: claims
-description: 'Answer "what is known about X" from the claim registry instead of from prose — show an object with its status, evidence and back-links, list by status or kind, search, query the derived tables, follow what rests on a claim, create an unsettled object, and route every status change through claim-keeper. Covers every namespace (the Researcher''s own, paper:, lab: and future instances) through the academy MCP tools. Use whenever the status of a statement, lemma, conjecture or computation is asked, before citing or relying on a result, and when an experiment needs a claim id.'
+description: 'Answer "what is known about X" from the claim registry: show, list, search and query objects with status and evidence, follow dependents, route status changes to claim-keeper. Use whenever a statement''s status is asked or before relying on a result.'
 ---
 
 # The claim registry

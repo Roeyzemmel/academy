@@ -1,6 +1,6 @@
 ---
 name: env
-description: Manage the lab's environment profiles — list them, check one (its preflight and reachability), set one up, switch which profile each kind of work uses (probe / test / run), and add a new profile of kind wsl, local or ssh. Profiles and the policy live in the Scientist home's .claude/academy.json; the runner (env.py) dispatches on the kind. Use for "which machine does this run on", "is the server reachable", "set up the environment on the new workstation", "add a profile", "run tests locally instead", "switch runs to <profile>".
+description: 'Manage the lab''s environment profiles: list, check, set up, switch which profile probe / test / run work uses, add a wsl, local or ssh profile. Use for "which machine does this run on", "is the server reachable", "add a profile".'
 ---
 
 # Environment profiles

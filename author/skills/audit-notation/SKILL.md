@@ -1,6 +1,6 @@
 ---
 name: audit-notation
-description: Audit the notation the paper actually uses against the home's notation decisions and the domain pack's notation sheet — report every clash (one object with two symbols, one symbol with two meanings, a symbol used before it is introduced), bring the home's .claude/rules/notation-decisions.md in line with the draft (the draft wins), and send domain-notation changes to the Expert as a ticket. Read-only on the tex. Use after work that introduced notation, before a coauthor round, or when a symbol feels overloaded.
+description: 'Audit the paper''s notation against the home''s notation decisions and the domain pack, report clashes, sync notation-decisions.md to the draft, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round.'
 ---
 
 # /author:audit-notation

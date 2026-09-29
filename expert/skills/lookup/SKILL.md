@@ -1,6 +1,6 @@
 ---
 name: lookup
-description: Answer a quick question about the library or the registry through the Expert's clerk — "what does LMW16 Theorem 11 assume", "what's the status of paper:lem:x", "where is Y proved", "do we have Z cached" — from hot.md, the cards and the MCP read tools, with no web access; a miss comes back as an escalation for the librarian. Use for any quick factual question about a cited source or a claim's status, and when the desk or another agent asks one.
+description: 'Answer a quick question about the library or registry via the Expert''s clerk (hot.md, cards, MCP read tools, no web); a miss escalates to the librarian. Use for "what does LMW16 Theorem 11 assume", "what''s the status of paper:lem:x", "do we have Z cached".'
 ---
 
 # Look it up

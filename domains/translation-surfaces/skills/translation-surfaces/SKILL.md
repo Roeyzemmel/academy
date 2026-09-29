@@ -1,6 +1,6 @@
 ---
 name: translation-surfaces
-description: Domain expertise for research on translation surfaces, rational billiards, and the illumination and finite-blocking problems — fixed notation, precisely-stated theorems with their real hypotheses, the standard traps, and TikZ conventions for polygon figures. Use this whenever the work involves translation surfaces, flat surfaces, abelian differentials, strata H(k_1,...,k_n), Veech surfaces or Veech groups, saddle connections, cylinder decompositions, holonomy, orbit closures and affine invariant submanifolds, square-tiled surfaces or origamis, rational polygonal billiards, unfolding, or the illumination / unilluminable-room / finite-blocking problems. Trigger on any of those terms, on author names like Veech, Eskin–Mirzakhani–Mohammadi, Wright, Lelièvre–Monteil–Weiss, Apisa, Tokarsky, Hubert–Schmoll–Troubetzkoy, and on requests to state, check, cite, or apply results in this area — even when the request looks like generic math help.
+description: 'Domain expertise on translation surfaces, rational billiards and illumination / finite blocking: notation, theorems, traps, TikZ conventions. Use for flat or translation surfaces, strata, Veech surfaces, saddle connections, origamis, illumination.'
 ---
 
 # Translation surfaces and illumination

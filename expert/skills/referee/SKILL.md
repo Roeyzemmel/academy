@@ -1,6 +1,6 @@
 ---
 name: referee
-description: The whole-paper referee report for one Author instance — the read-only referee agent reads the built PDF cold, as a referee who has never seen the draft, and its report (unstated standing assumptions, hypotheses used but not stated, terms before definition, notation introduced twice, results a neighbouring field cannot place, introduction versus body) is landed by hook as a referee packet for Roey. Use for a referee ticket (from an Author's presync), before a coauthor round or submission, or when the paper has drifted.
+description: 'Whole-paper referee report for one Author instance: the read-only referee agent reads the built PDF cold, and its report lands as a referee packet for Roey. Use for a referee ticket (from presync), before a coauthor round or submission.'
 ---
 
 # Referee the whole paper

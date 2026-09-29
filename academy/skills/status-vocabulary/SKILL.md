@@ -1,6 +1,6 @@
 ---
 name: status-vocabulary
-description: The one mapping between draft colours (sketch / conjectural / meta / established), registry claim statuses (open, conjectured, sketch, supported, proved-modulo, proved, refuted, refuted-as-stated) with their lifecycle and projection classes, and the verdict words of proof reviews (CONFIRMED / PLAUSIBLE / GAP / DISPROVED) and experiment reviews (SOUND / SOUND MODULO / GAP / BROKEN). Use whenever a status, colour or verdict is written, read, proposed or explained — in a packet, a ticket result, a claim file, a deep-dive, a recolouring, or a report — and whenever old words (Reduced, Partial, Disproved, Not settled, blue, red) need translating.
+description: 'The one mapping between draft colours, registry claim statuses, and review verdict words (CONFIRMED / PLAUSIBLE / GAP / DISPROVED; SOUND / SOUND MODULO / GAP / BROKEN). Use whenever a status, colour or verdict is written, read or proposed.'
 ---
 
 # One status vocabulary

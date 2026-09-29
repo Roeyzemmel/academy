@@ -1,6 +1,6 @@
 ---
 name: library-index
-description: Keep the library's index.md in step with its cached files — list cached keys with no index row, draft rows from their .meta files, have the librarian fill and add them, and validate every card's schema and verbatim quote against the cached text. Use for "fill the index", "what's cached but not indexed", after fetching papers by hand, when the library_edit_check hook warns, and in the phase-7 library migration.
+description: 'Keep the library''s index.md in step with its cached files: find cached keys with no index row, draft and add rows via the librarian, validate every card''s schema and quote. Use for "fill the index", "what''s cached but not indexed".'
 ---
 
 # The library index

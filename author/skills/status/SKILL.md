@@ -1,6 +1,6 @@
 ---
 name: status
-description: The paper's state at a glance — agenda progress and milestones, what /author:next would run now, what waits on which ticket, the tickets addressed to this Author instance, and the checker's summary. Read-only. Use for "where is the paper", "author status", "how far is the milestone", before deciding what to run next. For the academy as a whole use /academy:status.
+description: 'The paper''s state at a glance: agenda progress, what /author:next would run, what waits on which ticket, tickets to this Author, checker summary. Read-only. Use for "where is the paper", "author status", "how far is the milestone".'
 ---
 
 # /author:status
