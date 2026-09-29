@@ -436,6 +436,33 @@ class ChainDocsTests(unittest.TestCase):
         text = self.read("researcher", "agents", "lead-researcher.md")
         self.assertIn("final_to: author", text)
 
+    def test_verify_by_hand_leaves_repairs_to_review_chair(self):
+        """M9: the Expert main session is no expert->author/researcher liaison."""
+        text = self.read("expert", "skills", "verify", "SKILL.md")
+        self.assertRegex(text, r"(?i)`main` is not a liaison")
+
+    def section(self, text, start, end):
+        return text[text.index(start):text.index(end)]
+
+    def test_protocol_research_flow_names_the_research_kind(self):
+        """M4: research-intake forwards a `research` child; /author:next files as main."""
+        flow = self.section(self.read("docs", "protocol.md"),
+                            "### 6.4", "### 6.5")
+        self.assertNotIn("`lead`", flow)
+        self.assertIn("child `research` ticket", flow)
+        self.assertIn("`main`", flow)
+
+    def test_protocol_chain_section_warns_about_nesting_and_the_cli(self):
+        """M6, M7: relay-within-relay and the self-declared CLI identity."""
+        chain = self.section(self.read("docs", "protocol.md"), "### 5.1", "## 6.")
+        self.assertIn("fresh chain", chain)
+        self.assertIn("self-declared", chain)
+        self.assertIn("advisory", chain)
+        self.assertIn("return leg", chain)
+        scripts = self.read("academy", "references", "scripts.md")
+        self.assertIn("self-declared", scripts)
+        self.assertIn("advisory", scripts)
+
 
 if __name__ == "__main__":
     unittest.main()

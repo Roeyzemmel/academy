@@ -365,7 +365,7 @@ filing as its instance):
 |---|---|---|
 | author -> expert | `main`, `math-writer`, `notation-auditor`, `figure-maker` | verify, cite, referee, litwatch, notation, and `research` |
 | expert -> author | `librarian`, `review-chair`, `research-intake`, `paper-liaison` | `note`, repair questions on `paper:` claims, forwarded questions and results |
-| expert -> researcher | `research-intake`, `review-chair` | the prepared `lead` ticket with its research block; prove/repair after a review |
+| expert -> researcher | `research-intake`, `review-chair` | the prepared `research` ticket with its research block; prove/repair after a review |
 | researcher -> expert | `main`, `lead-researcher`, `prover`, `lit-request` | verify, cite, literature asks; forwarded lab cite asks |
 | researcher -> scientist | `main`, `lead-researcher`, `experiment-spec` | exact experiment and test specs |
 | scientist -> researcher | `main`, `experimenter` | review-experiment, questions, results bearing on a claim |
@@ -396,6 +396,15 @@ ticket to the Expert with no `final_to` reads as `final_to: researcher`.
 
 **Hop limit.** A relay chain has at most `maxHops` (3) links. Only consecutive
 ancestors that carry `final_to` count; an ordinary `parent` link is not a relay hop.
+A relay within a relay can exceed it: a Scientist question with `final_to: author`
+filed with `parent` set to an experiment-spec child already sits under three relay
+links, and the check refuses the next hop. A new question starts a fresh chain: file
+it with no `parent` and name the earlier ticket in `refs`.
+
+**Caller identity.** The MCP tool `tickets_create` is the enforced path: the server
+knows the calling agent. The CLI identity (`board.py new --as <instance> --agent
+<name>`) is self-declared, and without `--agent` it records `main`, so the CLI half of
+the gate is advisory: it catches a wrong edge, not a wrong agent.
 
 **Exempt** (clerical, not requests): claim-keeper `decision` tickets from
 `claims_propose_status` (still checked to go to the keeper of the claim's namespace),
@@ -444,17 +453,20 @@ the packet's ticket: `- <date> human: decision on P-NNNN D<k>: (<letter>) <optio
 
 ### 6.4 A research request from the Author
 
-1. An Author agent (math-writer, figure-maker) files a `research` ticket to the Expert
-   with `final_to: researcher`.
+1. The Author's main session (`/author:next` files as `main`) or an Author agent
+   (math-writer, figure-maker) files a `research` ticket to the Expert with
+   `final_to: researcher`.
 2. The Expert's inbox sees that `final_to` is not the Expert and hands it to
    research-intake, which either fails fast (delivers back with the reason: not pinned
    down, already answered by the library, settled by a registry claim) or writes the
    research block (cards with pinpoints, related claims with statuses, known results,
-   open literature gaps) into a child `lead` ticket to the Researcher, and blocks the
-   parent on it.
-3. The Researcher's lead-researcher does the `lead` work.
-4. The delivery goes back up hop by hop: the Researcher delivers the child, the Expert's
-   research-intake delivers the parent to the Author, and math-writer lands it.
+   open literature gaps) into a child `research` ticket to the Researcher, and blocks
+   the parent on it.
+3. The Researcher's inbox routes the `research` child to lead-researcher, which does
+   the work.
+4. The delivery goes back up hop by hop: the Researcher delivers the child; the
+   Expert's inbox takes the blocked parent for its return leg, and research-intake
+   closes the child and delivers the parent to the Author; math-writer lands it.
    Literature results the Author should know arrive as `note` tickets.
 
 ### 6.5 An experiment for the paper

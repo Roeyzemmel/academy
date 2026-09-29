@@ -23,7 +23,9 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 
 `board.py new` requires `--as <instance>` (the main session inside a home files as
 `<instance>`, agent `main`; `--agent <name>` names another agent) and applies the
-ticket-chain check. `--final-to <role>` sets `final_to` on a relayed ticket. Only
+ticket-chain check. The identity is self-declared: without `--agent` it records
+`main`, so this half of the gate is advisory; the MCP tool `tickets_create` is the
+enforced path. `--final-to <role>` sets `final_to` on a relayed ticket. Only
 /academy:board, /academy:desk and /academy:decide pass `--as human`, after Roey
 confirms. For `transition` and `append`, `--as` is optional and the caller is the human
 without it; `packets.py` acts as `human` unless `--as <instance>` is given. Only the

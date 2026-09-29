@@ -1074,6 +1074,11 @@ def is_party(name):
 
 #: the ticket chain (docs/protocol.md section 5); permissions.json tickets.edges overrides
 CHAIN_DEFAULT = ("author", "expert", "researcher", "scientist")
+#: the directional relay of a crossing: (from role, middle role, "down" or "up") -> agent
+RELAYS = {("author", "expert", "down"): "research-intake",
+          ("researcher", "expert", "up"): "paper-liaison",
+          ("expert", "researcher", "down"): "experiment-spec",
+          ("scientist", "researcher", "up"): "lit-request"}
 #: the agent name of a role skill running in the main session inside a home
 MAIN_AGENT = "main"
 
@@ -1183,8 +1188,9 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
     i, j = chain.index(rf), chain.index(rt)
     if abs(i - j) != 1:
         step = chain[i + (1 if j > i else -1)]
+        relay = RELAYS.get((rf, step, "down" if j > i else "up"), "its relay")
         return False, ("%s may not file to %s: file to the %s with final_to %s; "
-                       "its relay forwards it" % (rf, rt, step, rt))
+                       "%s relays it" % (rf, rt, step, rt, relay))
     names = edges["liaisons"].get("%s->%s" % (rf, rt), [])
     who = agent or MAIN_AGENT
     if who in names:

@@ -857,6 +857,18 @@ class TicketEdgeTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("researcher", why)
 
+    def test_non_neighbour_refusal_names_the_relay(self):
+        cases = {("author@bi", "researcher@s1"): "research-intake",
+                 ("author@bi", "scientist@ts"): "research-intake",
+                 ("expert@ts", "scientist@ts"): "experiment-spec",
+                 ("scientist@ts", "expert@ts"): "lit-request",
+                 ("scientist@ts", "author@bi"): "lit-request",
+                 ("researcher@s1", "author@bi"): "paper-liaison"}
+        for (frm, to), relay in cases.items():
+            ok, why = ac.ticket_edge_allowed(frm, to, "main", EDGE_PERMS)
+            self.assertFalse(ok)
+            self.assertIn("%s relays it" % relay, why, (frm, to))
+
     def test_exempt_and_clerical(self):
         self.assertTrue(self.ok("author@bi", "researcher@s1", "claim-keeper"))
         self.assertTrue(self.ok("author@bi", "researcher@s1", "math-editor", clerical=True))
