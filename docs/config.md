@@ -62,8 +62,8 @@ as environment variables, so no code or document needs a literal path:
 | `ACADEMY_ROOT` | the academy repo (plugins, scripts) |
 | `ACADEMY_WORKSPACE` | the `workspace.json` above |
 | `ACADEMY_BOARD` | the board repo (overrides `board`) |
-| `ACADEMY_HOME_<INSTANCE>` | the home of an instance, `author@bi` -> `ACADEMY_HOME_AUTHOR_BI` (overrides `home`) |
-| `ACADEMY_LIBRARY` | the Expert's home (`ACADEMY_HOME_EXPERT_TS` here) |
+| `ACADEMY_HOME_<ROLE>_<NAME>` | the home of instance `<role>@<name>` (overrides its `home`) |
+| `ACADEMY_LIBRARY` | the home of the first Expert instance |
 | `ACADEMY_ENV_WORKSPACE` | the file the variables were derived from; the overrides apply to that file only |
 
 They are set in `.claude/settings.local.json` of the workspace and of every home, and in the

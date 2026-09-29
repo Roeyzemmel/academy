@@ -680,13 +680,13 @@ def _check_ref(kb, e, key, ref, want=None):
 
 def library_dir(root) -> Path:
     """The Expert's library as seen from the home at ``root``: the home of the first
-    Expert instance of workspace.json ($ACADEMY_HOME_<INSTANCE> overrides it); a ``papers``
-    directory beside ``root`` only when the workspace names none."""
+    Expert instance of workspace.json ($ACADEMY_HOME_<INSTANCE> overrides it); a
+    nonexistent path (so the index is empty) when the workspace names none."""
     for inst in _workspace.instances_of_role("expert"):
         home = _workspace.instance_home(inst, root)
         if home is not None:
             return Path(home)
-    return Path(root).parent / "papers"
+    return Path(root).parent / "no-library"
 
 
 def papers_index(kb) -> dict:
@@ -724,7 +724,7 @@ def _check_refs(kb, e):
             kb.error(e.path, f"cleared_by: '{p}' is not a file")
     for key in m.get("cites", []) if isinstance(m.get("cites"), list) else []:
         if key not in papers_index(kb):
-            kb.warn(e.path, f"cites: '{key}' is not in the shared library {library_dir(kb.root)}/index.md "
+            kb.warn(e.path, f"cites: '{key}' is not in the shared library ({library_dir(kb.root)}/index.md) "
                             "(add it there with /expert:cite, or fix the key)")
     if e.etype == "example" and isinstance(m.get("runs"), list):
         for r in m["runs"]:

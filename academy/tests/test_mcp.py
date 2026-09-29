@@ -1128,16 +1128,31 @@ class TestRegistryBackend(McpTestBase):
         self.assertEqual(res["edges"][0]["status"], "open")
 
 
-REAL_LAB = os.environ.get("ACADEMY_HOME_SCIENTIST_TS", "")      # set by the workspace bootstrap
-REAL_S1 = os.environ.get("ACADEMY_HOME_RESEARCHER_SLOPE1", "")
-REAL_BI = os.environ.get("ACADEMY_HOME_AUTHOR_BI", "")
+
+def _real_home(**want):
+    """The home of the first workspace.json instance matching ``want`` (role=..., ns=...), or ''
+    when there is no workspace: these tests run against real homes only where they exist."""
+    try:
+        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8-sig") as fh:
+            ws = json.load(fh)
+    except (KeyError, OSError, ValueError):
+        return ""
+    for inst in ws.get("instances", {}).values():
+        if all(inst.get(k) == v for k, v in want.items()):
+            return inst["home"]
+    return ""
+
+
+REAL_LAB = _real_home(ns="lab")
+REAL_S1 = _real_home(ns="s1")
+REAL_PAPER = _real_home(ns="paper")
 
 
 REGISTRY_PY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "scripts", "registry.py")
 
 
-@unittest.skipUnless(REAL_LAB and REAL_S1 and REAL_BI and os.path.isdir(REAL_LAB + "/claims")
+@unittest.skipUnless(REAL_LAB and REAL_S1 and REAL_PAPER and os.path.isdir(REAL_LAB + "/claims")
                      and os.path.isdir(REAL_S1 + "/objects"),
                      "the real registries are not on this machine")
 class TestRealRegistries(unittest.TestCase):
@@ -1160,7 +1175,7 @@ class TestRealRegistries(unittest.TestCase):
             ("lab:descent-family-n-le-7", [REGISTRY_PY, "--repo", REAL_LAB, "show",
                                            "lab:descent-family-n-le-7"], REAL_LAB),
             ("paper:conj:origami-slope",
-             [REGISTRY_PY, "--repo", REAL_BI,
+             [REGISTRY_PY, "--repo", REAL_PAPER,
               "show", "paper:conj:origami-slope"], REAL_LAB),
             ("s1:BOUND-1", [REGISTRY_PY, "--repo", REAL_S1, "show", "BOUND-1"], REAL_S1),
         ]

@@ -75,8 +75,8 @@ def _same_file(a, b):
 
 
 def env_home_name(instance):
-    """The environment variable that overrides an instance's home: ``author@bi`` ->
-    ``ACADEMY_HOME_AUTHOR_BI`` (scripts/bootstrap.py of the workspace sets them all)."""
+    """The environment variable that overrides an instance's home: ``<role>@<name>`` ->
+    ``ACADEMY_HOME_<ROLE>_<NAME>`` (scripts/bootstrap.py of the workspace sets them all)."""
     return "ACADEMY_HOME_" + re.sub(r"[^A-Za-z0-9]+", "_", instance).strip("_").upper()
 
 

@@ -1,6 +1,7 @@
 """library_index.py: cached files without index rows, drafted rows, apply -- on a
 fixture library and on a temp copy of the real library's index (never on the real one)."""
 
+import json
 import os
 import shutil
 import tempfile
@@ -9,7 +10,22 @@ import unittest
 import fixtures
 import library_index as li
 
-REAL = os.environ.get("ACADEMY_LIBRARY", "")   # set by the workspace bootstrap
+
+def _real_home(**want):
+    """The home of the first workspace.json instance matching ``want`` (role=..., ns=...), or ''
+    when there is no workspace: these tests run against real homes only where they exist."""
+    try:
+        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8-sig") as fh:
+            ws = json.load(fh)
+    except (KeyError, OSError, ValueError):
+        return ""
+    for inst in ws.get("instances", {}).values():
+        if all(inst.get(k) == v for k, v in want.items()):
+            return inst["home"]
+    return ""
+
+
+REAL = _real_home(role="expert")
 
 
 class FixtureLibraryTests(unittest.TestCase):

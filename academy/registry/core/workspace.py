@@ -86,7 +86,7 @@ def load_workspace():
 
 
 def env_home_name(instance) -> str:
-    """``author@bi`` -> ``ACADEMY_HOME_AUTHOR_BI`` (set by the workspace's bootstrap)."""
+    """``<role>@<name>`` -> ``ACADEMY_HOME_<ROLE>_<NAME>`` (set by the workspace's bootstrap)."""
     return "ACADEMY_HOME_" + re.sub(r"[^A-Za-z0-9]+", "_", instance).strip("_").upper()
 
 
