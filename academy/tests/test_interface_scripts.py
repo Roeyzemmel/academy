@@ -426,6 +426,16 @@ class ChainDocsTests(unittest.TestCase):
         text = self.read("expert", "agents", "research-intake.md")
         self.assertRegex(text, r"(?i)no `final_to`[^.]*final_to: researcher`")
 
+    def test_tex_engineer_hands_citations_back(self):
+        """F2: tex-engineer is no author->expert liaison."""
+        text = self.read("author", "agents", "tex-engineer.md")
+        self.assertNotRegex(text, r"(?i)file a `cite` ticket")
+        self.assertIn("`[cite]`", text)
+
+    def test_lead_researcher_reaches_paper_owners_through_the_expert(self):
+        text = self.read("researcher", "agents", "lead-researcher.md")
+        self.assertIn("final_to: author", text)
+
 
 if __name__ == "__main__":
     unittest.main()

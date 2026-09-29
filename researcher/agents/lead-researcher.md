@@ -70,7 +70,10 @@ When a commissioned result shows a defect in something *other* than the item —
 definition used elsewhere, a hypothesis silently inherited, a citation that does not
 say what it was taken to say — check what rests on it (`claims_deps` with
 `reverse: true, transitive: true`), say whether the repair is local, and file it: a
-`prove` ticket to this instance, or a ticket to the instance that owns the object.
+`prove` ticket to this instance, or a ticket to the instance that owns the object when
+it is a neighbour (a Researcher, the Expert, the Scientist). A `paper:` object belongs
+to an Author, which is no neighbour: file to the Expert with `final_to: author`, and
+its `paper-liaison` relays it.
 
 ## Report
 
