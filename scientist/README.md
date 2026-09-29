@@ -58,3 +58,12 @@ by the edited path (`paths.experiments`), the commit gate by the repository each
 `git -C`), for Bash and PowerShell alike. The mode is the home's `gate` block with
 its per-branch override (`academy-migration` is `off`). Before a home is switched
 over (no `academy.json`) both hooks are silent and the old plugin's hooks still run.
+
+## The ticket chain
+
+The Scientist's only neighbour is the Researcher. A request for the Expert or the Author
+(a citation, a question on a paper's definition) goes to the Researcher with `final_to`,
+and the Researcher's `lit-request` relays it; experiments and tests arrive from the
+Researcher, whose `experiment-spec` relays those sent on from the Expert. Which lab
+agents may file to the Researcher is `academy/permissions.json` `tickets.edges`,
+described in `docs/protocol.md` section 5.1.

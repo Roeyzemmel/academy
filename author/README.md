@@ -26,5 +26,10 @@ Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home:
 the repo actually committed), `build_gate` (SubagentStop of a writer, namespace-stripped,
 under `.build/.lock`).
 
+Ticket chain: the Author's only neighbour is the Expert. A request for the Researcher or
+the Scientist is a `research` ticket to the Expert with `final_to`, which the Expert's
+`research-intake` relays. Which agents may file to the Expert is `academy/permissions.json`
+`tickets.edges`, described in `docs/protocol.md` section 5.1.
+
 Scripts and formats: `references/scripts.md`, `references/formats.md`. Tests:
 `py -m unittest discover -s author/tests -t author/tests` from the academy repo.
