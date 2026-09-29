@@ -26,6 +26,8 @@ and the best-practice skills `rigor`, `status-vocabulary`, `citation-discipline`
 
 ## Author (one per paper)
 
+Liaisons: files to the Expert as `main`, `math-writer`, `notation-auditor` and `figure-maker`. A request that must reach the Researcher or the Scientist is a `research` ticket to the Expert with `final_to`.
+
 | Agent | Model | Job |
 |---|---|---|
 | `math-writer` | Opus → Sonnet | Exposition from established results; a new argument becomes a ticket to Researcher |
@@ -37,14 +39,20 @@ and the best-practice skills `rigor`, `status-vocabulary`, `citation-discipline`
 
 ## Researcher (one per research domain)
 
+Liaisons: to the Expert `main`, `lead-researcher`, `prover`, `lit-request`; to the Scientist `main`, `lead-researcher`, `experiment-spec`. Relays: `experiment-spec` (expert -> scientist) and `lit-request` (scientist -> expert / author).
+
 | Agent | Model | Job |
 |---|---|---|
 | `lead-researcher` | Sonnet → Opus | Owns a direction and commissions work; grades nothing |
 | `prover` | Fable → Opus | Definitions, proofs, corollaries, generalizations |
 | `experiment-reviewer` | Fable → Opus | Reviews experiments (verdicts SOUND / SOUND MODULO / GAP / BROKEN) |
 | `claim-keeper` | Haiku → Sonnet | The only agent that changes a status, in any namespace; the server re-checks its grounds |
+| `experiment-spec` | Sonnet | Relay, expert -> (researcher) -> scientist: fails fast or writes the experiment spec and forwards it |
+| `lit-request` | Haiku | Relay, scientist -> (researcher) -> expert / author: states the cite or literature ask and forwards it |
 
 ## Expert (the library)
+
+Liaisons: to the Author `librarian`, `review-chair`, `research-intake`, `paper-liaison`; to the Researcher `research-intake`, `review-chair`. Relays: `research-intake` (author -> researcher) and `paper-liaison` (researcher side -> author).
 
 | Agent | Model | Job |
 |---|---|---|
@@ -54,8 +62,12 @@ and the best-practice skills `rigor`, `status-vocabulary`, `citation-discipline`
 | `review-chair` | Sonnet → Opus | Runs proof review and applies the decision table; grades nothing |
 | `rigor-reviewer` | Fable → Opus | Proof review (CONFIRMED / PLAUSIBLE / GAP / DISPROVED); read-only |
 | `referee` | Fable → Opus | Whole-paper referee report; read-only |
+| `research-intake` | Sonnet | Relay, author -> (expert) -> researcher: fails fast or writes the research block and forwards it |
+| `paper-liaison` | Haiku | Relay, researcher side -> (expert) -> author: restates a question or result in the paper's terms and forwards it |
 
 ## Scientist (the lab)
+
+Liaisons: to the Researcher `main` and `experimenter`; the other lab agents file only inside the lab.
 
 | Agent | Model | Job |
 |---|---|---|

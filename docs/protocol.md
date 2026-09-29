@@ -12,8 +12,11 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   `<name>` matches `[a-z0-9][a-z0-9-]*`. The name must be a key of `workspace.json`
   `instances`. Examples: `author@bi`, `researcher@slope1`, `expert@ts`,
   `scientist@ts`.
-- **`human`** is Roey. The main session has no `agent_type`, so it always acts as
-  `human`, whatever home it runs in.
+- **`human`** is Roey. The main session has no `agent_type`.
+  The main session inside a role home files tickets as that home's instance, speaker
+  `<instance>/main`. Only `/academy:board`, `/academy:desk` and `/academy:decide` file
+  as `human` from a home (`--as human` / `as_human`), after Roey confirms. Every other
+  write by the main session is still the human's.
 - **An agent** is named by its bare name, with the plugin namespace stripped:
   `author:math-writer` is read as `math-writer`. `agent_identity(event)` returns
   `(namespace, bare_name)`. Bare names are unique across the five plugins (see the
@@ -171,6 +174,7 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 | `agenda` | claim id \| `global` \| empty | no | sender | The Author agenda entry this unblocks, which sets precedence |
 | `domain` | pack name | no | sender | Routing record; defaults to the receiver's first domain |
 | `parent` | ticket id \| empty | no | sender | The ticket this one was spawned from |
+| `final_to` | role \| instance \| empty | no | sender | The role (or instance) the request is really for; set on relayed tickets; a receiver whose role is not `final_to` hands the ticket to its relay |
 | `blocks` | list of ticket ids | no | sender (server mirrors) | Tickets waiting on this one |
 | `waiting_on` | list of ticket ids, instances or `human` | iff `blocked` | receiver | What the receiver waits for |
 | `budget` | map `{runs: int >= 1, max_model: fable\|opus\|sonnet\|haiku}` | yes | sender | Agent runs allowed and the heaviest model; default from `academy.json` `budget.ticketDefault` |
@@ -183,13 +187,15 @@ An empty value is written `key:` and reads as null. An empty list is written `[]
 
 **`kind`** takes one of these values (`TICKET_KINDS`); anything else is `other`:
 
-| kind | Typical route | Asks for |
+| kind | Route (required) | Asks for |
 |---|---|---|
 | `verify` | → expert | a proof review (two rigor-reviewer runs, decision table) |
 | `cite` | → expert | a bibliography entry plus a card with a verbatim quote |
 | `lookup` | → expert | a quick answer from the clerk |
 | `referee` | → expert | a whole-paper referee packet |
-| `prove` | → researcher | a proof, or a new argument the Author may not invent |
+| `prove` | → researcher | a proof, or a new argument the Author may not invent (an Author asks through `research`) |
+| `research` | Author → Expert, relayed with `final_to` | a research request (a new argument, an experiment) the Author may not invent; research-intake prepares it and relays it toward `final_to` (5.1) |
+| `note` | Expert → Author, informational | a literature result the Author should know, unsolicited; lands with math-writer as a roadmap item |
 | `review-experiment` | → researcher | two experiment-reviewer runs on a finished report |
 | `generalize` | → researcher | conjectured generalizations of a reviewed experiment's `## Conclusion` (see 6.2) |
 | `experiment` | → scientist | a new experiment and its report |
@@ -331,6 +337,67 @@ spends at most its own `budget.runs` agent runs at no heavier model than
   re-checks `may_call` against the recorded caller, then the substance: parties,
   transitions, field ownership, namespace, statuses and grounds.
 
+### 5.1 The ticket chain
+
+`academy/permissions.json` `tickets.edges` is the source of truth (the chain, `maxHops`,
+the liaisons per direction, `exempt`); the tables below summarise it.
+
+**The rule.** The chain is `[author, expert, researcher, scientist]`. A ticket from S
+to R, filed by agent A, is allowed iff one of:
+
+1. S or R is `human`;
+2. S and R have the same role (self-tickets, and researcher to researcher across
+   domains);
+3. the roles of S and R are adjacent in the chain **and** A is on the liaison list of
+   the direction role(S) -> role(R);
+4. the ticket is clerical and exempt.
+
+Roles, not instances, are compared. A refusal names the neighbour to file to instead
+and its relay for that direction. Replies and deliveries on the same ticket,
+`packets_create`, thread appends and re-routing `to` (human-only) create no new edge
+and are not checked. A request that must cross a middle plugin carries `final_to`, and
+the middle plugin's relay forwards it one hop.
+
+**Liaisons per direction** (agents that may file across it; `main` is the main session
+filing as its instance):
+
+| Direction | Liaisons | Carries |
+|---|---|---|
+| author -> expert | `main`, `math-writer`, `notation-auditor`, `figure-maker` | verify, cite, referee, litwatch, notation, and `research` |
+| expert -> author | `librarian`, `review-chair`, `research-intake`, `paper-liaison` | `note`, repair questions on `paper:` claims, forwarded questions and results |
+| expert -> researcher | `research-intake`, `review-chair` | the prepared `lead` ticket with its research block; prove/repair after a review |
+| researcher -> expert | `main`, `lead-researcher`, `prover`, `lit-request` | verify, cite, literature asks; forwarded lab cite asks |
+| researcher -> scientist | `main`, `lead-researcher`, `experiment-spec` | exact experiment and test specs |
+| scientist -> researcher | `main`, `experimenter` | review-experiment, questions, results bearing on a claim |
+
+**Relays.** The two middle roles each have two crossings, so there are four directional
+relays. A relay checks, sharpens and forwards; it writes no mathematics, grades
+nothing, uses no web and no shell, and makes one pass.
+
+| Relay | Crossing | Model |
+|---|---|---|
+| `expert:research-intake` | author -> (expert) -> researcher | sonnet |
+| `expert:paper-liaison` | researcher side -> (expert) -> author | haiku |
+| `researcher:experiment-spec` | expert -> (researcher) -> scientist | sonnet |
+| `researcher:lit-request` | scientist -> (researcher) -> expert / author | haiku |
+
+**Recognising a relay ticket.** The check requires `to` to be a neighbour; `final_to`
+may be any role further along the same direction. When a receiver's role is not
+`final_to`, its inbox routes the ticket to the relay of the matching crossing, whatever
+the kind. The relay fails fast (delivers back with the reason), sharpens (a research
+block or an experiment spec), then forwards a child ticket with `parent` = the received
+ticket and `final_to` kept, and sets the received ticket `blocked`, `waiting_on` the
+child. When the child is delivered, the same relay delivers the parent with a short
+result pointing at the child.
+
+**Hop limit.** A relay chain has at most `maxHops` (3) links. Only consecutive
+ancestors that carry `final_to` count; an ordinary `parent` link is not a relay hop.
+
+**Exempt** (clerical, not requests): claim-keeper `decision` tickets from
+`claims_propose_status` (still checked to go to the keeper of the claim's namespace),
+usage-analyst (files only to `human`), and concierge (files as `human` after Roey
+confirms).
+
 ## 6. Worked flows
 
 ### 6.1 Verify
@@ -370,6 +437,32 @@ spends at most its own `budget.runs` agent runs at no heavier model than
 A packet's decisions are answered by the human in `/academy:review`. The answers are
 written into the packet (`docs/packet-template.md`), and one thread line goes into
 the packet's ticket: `- <date> human: decision on P-NNNN D<k>: (<letter>) <option>`.
+
+### 6.4 A research request from the Author
+
+1. An Author agent (math-writer, figure-maker) files a `research` ticket to the Expert
+   with `final_to: researcher`.
+2. The Expert's inbox sees that `final_to` is not the Expert and hands it to
+   research-intake, which either fails fast (delivers back with the reason: not pinned
+   down, already answered by the library, settled by a registry claim) or writes the
+   research block (cards with pinpoints, related claims with statuses, known results,
+   open literature gaps) into a child `lead` ticket to the Researcher, and blocks the
+   parent on it.
+3. The Researcher's lead-researcher does the `lead` work.
+4. The delivery goes back up hop by hop: the Researcher delivers the child, the Expert's
+   research-intake delivers the parent to the Author, and math-writer lands it.
+   Literature results the Author should know arrive as `note` tickets.
+
+### 6.5 An experiment for the paper
+
+1. The Author files a `research` ticket to the Expert with `final_to: scientist`.
+2. research-intake checks it and forwards a child ticket to the Researcher, keeping
+   `final_to`.
+3. The Researcher's experiment-spec fails fast (no claim named, or the lab already has
+   the result) or writes the experiment spec in the lab's header vocabulary, and files
+   it to the Scientist.
+4. The result is delivered back the same way: Scientist -> Researcher -> Expert ->
+   Author (three links, the `maxHops` limit).
 
 ## 7. Hooks of the base plugin
 

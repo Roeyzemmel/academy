@@ -10,7 +10,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | Script | Used by | Command lines |
 |---|---|---|
 | `academy_status.py` | desk (no arg), status | `py $S/academy_status.py [--since last\|YYYY-MM-DD] [--mark-visit] [--usage] [--instances-only] [--json]` |
-| `board.py` | board, desk | `list [--to X] [--from X] [--status S] [--all] [--json]` · `show T-NNNN` · `new --to X --title T --ask A --deliverable D [--kind K] [--priority P] [--refs a,b] [--agenda ID] [--parent T-NNNN] [--runs N] [--max-model M] [--detail TEXT]` · `transition T-NNNN STATUS [--reason R] [--result R] [--waiting-on a,b]` · `append T-NNNN --text TEXT` |
+| `board.py` | board, desk | `list [--to X] [--from X] [--status S] [--all] [--json]` · `show T-NNNN` · `new --as INSTANCE --to X --title T --ask A --deliverable D [--agent NAME] [--final-to ROLE] [--kind K] [--priority P] [--refs a,b] [--agenda ID] [--parent T-NNNN] [--runs N] [--max-model M] [--detail TEXT]` · `transition T-NNNN STATUS [--reason R] [--result R] [--waiting-on a,b]` · `append T-NNNN --text TEXT` |
 | `packets.py` | review, desk | `list [--open] [--instance X] [--json]` · `show P-NNNN` · `decide P-NNNN --choice a\|b\|c\|d\|other\|ack [--decision K] [--comment TEXT]` |
 | `decisions.py` | decide, secretary | `list [--json] [--instance X]` · `batches [--size 4] [--json] [--instance X]` · `record <id> --choice <letter\|proceed\|decline> [--comment TEXT]` · `accept-recommended [--mechanical-only] [--dry-run] [--json]` |
 | `render_packets.py` | review, deep-dive | `[--out FILE] [--all]` (dashboard; default `<board>/.render/review.html`) · `--deep-dive BUNDLE.json [--kind K] [--out FILE]` (default `<board>/deep-dives/<id>.html`) |
@@ -21,9 +21,13 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `session_usage.py` | usage | `<session-id> [--project DIR]`: one session, per subagent |
 | `session_start.py` | the SessionStart hook | (no arguments; reads the hook event) |
 
-Called as the human: the main session has no agent type, so `board.py` and
-`packets.py` act as `human` unless `--as <instance>` is given. Only the main session
-runs `packets.py decide`.
+`board.py new` requires `--as <instance>` (the main session inside a home files as
+`<instance>`, agent `main`; `--agent <name>` names another agent) and applies the
+ticket-chain check. `--final-to <role>` sets `final_to` on a relayed ticket. Only
+/academy:board, /academy:desk and /academy:decide pass `--as human`, after Roey
+confirms. For `transition` and `append`, `--as` is optional and the caller is the human
+without it; `packets.py` acts as `human` unless `--as <instance>` is given. Only the
+main session runs `packets.py decide`.
 
 Board commits: tool writes never commit. `session_start` commits pending board
 changes, and `/academy:board sync` does the same on demand.
