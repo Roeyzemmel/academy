@@ -17,6 +17,7 @@ numbering is empty; an id that was never used is a closed placeholder issue).
 | `status` | label `status:<s>`; Project **Status**: `Todo` = open, `In Progress`, `Done` = closed keep their meaning, `Accepted`, `Blocked`, `Delivered` are added |
 | `to` | label `to:<instance>`; Project **Instance**; native *assignee* only for `to: human` and real collaborators (instances are not GitHub users) |
 | role of `to` | label `role:<author\|researcher\|expert\|scientist\|human>`, derived from `to` and rewritten by `board-sync`; Project **Role** |
+| dead route | label `route:dead`, zero or one, derived from `blocked_by` + `reopen_if` (present exactly when both are set, like `role:` from `to`) and rewritten by `board-sync`; Project **Block** = `pending` \| `dead-route` on a blocked ticket |
 | `from`, `kind`, `priority` | labels `from:`, `kind:`, `prio:`; Project **Kind**, **Priority** (P0/P1/P2 = high/normal/low) |
 | `parent` | native sub-issue |
 | `waiting_on` / `blocks` | native issue dependencies for ticket targets; the rest in the meta line; `status:blocked` is the queryable signal |
@@ -37,7 +38,16 @@ in the comment; the write hook and `board-sync` check the rules, not the account
   academy's `TRANSITIONS`, `validate_ticket`, edges and required fields.
 - Server backstop (`.github/workflows/board-sync.yml` -> `board_sync.py`): one label of each
   kind, role derived from `to`, state follows status, ticket decodes and validates; one
-  comment lists what a human must fix. It does not judge who made a status move.
+  comment lists what a human must fix. It does not see who made a status move, but it keeps
+  the previous state of each ticket (one hidden `<!-- academy:state {...} -->` comment, or
+  `board_sync.py --previous FILE` offline) and checks what that state can show of the reopen
+  rule (`board_codec.check_reopen`): a dead-route block ends only by `blocked -> accepted`
+  with a new `reopened: <mechanism>` thread entry (or by the sender's cancellation), so
+  hand-editing the status label or the meta line to reopen a dead route without that thread
+  line is reported, and so is a removed thread entry. The remembered state does not advance
+  past a violation, so the report stays until it is undone or the `reopened:` line is added.
+  A ticket that is no longer blocked must not carry `blocked_by`/`reopen_if`
+  (`validate_ticket`, reported too). It cannot say *who* made a legal-looking move.
 - Cloud sessions write issues live, so the `cloud/<date>` review branch cannot apply to
   them. A cloud session acts as `<instance>/<agent>`, must not close or re-route a ticket
   (the human or the addressee's own inbox flow does), and Roey reviews the thread; packets still

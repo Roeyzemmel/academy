@@ -9,7 +9,8 @@ Mapping (one ticket = one issue, ``issue number == ticket number``):
     state            open, or closed for a terminal status
                      (closed -> completed; rejected / cancelled -> not_planned)
     labels           ``status:`` ``to:`` ``role:`` (derived from ``to``) ``from:`` ``kind:``
-                     ``prio:``; exactly one of each
+                     ``prio:``; exactly one of each; plus ``route:dead`` (zero or one,
+                     derived from ``blocked_by`` + ``reopen_if``: a dead-route block)
     body             ``<!-- academy:meta {json} -->`` (the fields no label carries) followed
                      by the ticket body up to, not including, ``## Thread``
     comments         one per thread entry: ``<!-- academy:thread -->`` ``**who** date`` text
@@ -41,6 +42,7 @@ LABEL_FIELDS = (("status", "status"), ("to", "to"), ("from", "from"),
 META_FIELDS = tuple(k for k in ac.TICKET_KEY_ORDER
                     if k not in ("id", "title", "status", "to", "from", "kind", "priority"))
 ROLES = ("author", "researcher", "expert", "scientist", "human")
+ROUTE_DEAD = "route:dead"
 RE_TITLE = re.compile(r"^(T-\d{4,}): (.*)$", re.S)
 RE_META = re.compile(r"^<!-- academy:meta (.*) -->$")
 RE_COMMENT = re.compile(r"^<!-- academy:thread -->\n\*\*(\S+)\*\* (\d{4}-\d{2}-\d{2})\n\n(.*)$", re.S)
@@ -67,6 +69,16 @@ def role_of(to):
     if not m:
         raise CodecError("cannot derive a role from to=%r" % (to,))
     return m.group(1)
+
+
+def is_dead_route(meta):
+    """A dead-route block: both ``blocked_by`` and ``reopen_if`` (the inbox core's rule)."""
+    return ac.inbox_core.is_dead_route(meta)
+
+
+def route_labels(meta):
+    """The derived ``route:`` label list of a ticket: ``["route:dead"]`` or ``[]``."""
+    return [ROUTE_DEAD] if is_dead_route(meta) else []
 
 
 def label_names(labels):
@@ -108,7 +120,7 @@ def labels_for(meta):
         if meta.get(field) not in (None, ""):
             out.append("%s:%s" % (prefix, meta[field]))
     out.insert(2, "role:%s" % role_of(meta["to"]))
-    return out
+    return out + route_labels(meta)
 
 
 def encode_comment(date, who, text):
@@ -175,6 +187,10 @@ def decode(issue, comments=()):
     fields = json.loads(mm.group(1))
     names = label_names(issue.get("labels"))
     meta = {"id": tid, "title": title}
+    routes = _one_label(names, "route")
+    if len(routes) > 1 or (routes and routes != ["dead"]):
+        raise CodecError("issue #%s: at most one route: label, and only route:dead "
+                         "(found %s)" % (issue["number"], ", ".join("route:" + r for r in routes)))
     for field, prefix in LABEL_FIELDS:
         vals = _one_label(names, prefix)
         if len(vals) != 1:
@@ -224,6 +240,11 @@ def validate_issue(issue, comments=()):
         return probs + [str(e)]
     if roles != [want]:
         probs.append("role label %s does not match to=%s (want role:%s)" % (roles, meta["to"], want))
+    want_routes = [r[len("route:"):] for r in route_labels(meta)]
+    if _one_label(names, "route") != want_routes:
+        probs.append("route label %s does not match blocked_by/reopen_if (want %s)" % (
+            ["route:" + r for r in _one_label(names, "route")],
+            route_labels(meta) or "no route: label"))
     state, reason = state_of(meta["status"])
     if issue.get("state") and issue["state"] != state:
         probs.append("issue is %s but status %s wants %s" % (issue["state"], meta["status"], state))
@@ -232,6 +253,67 @@ def validate_issue(issue, comments=()):
                      % (issue.get("state_reason"), meta["status"], reason))
     if len(issue.get("body") or "") > MAX_BODY:
         probs.append("issue body exceeds %d characters" % MAX_BODY)
+    return probs
+
+
+# ----------------------------------------------------------------------------
+# Server-side reopen rule (needs the previous state)
+# ----------------------------------------------------------------------------
+
+def ticket_state(meta, body=""):
+    """The compact state ``check_reopen`` compares: what a sync run remembers of a ticket.
+
+    ``status``, ``dead`` (a dead-route block), ``reopened`` (the count of ``reopened:``
+    thread entries) and ``entries`` (the count of thread entries).
+    """
+    entries = ac.thread_lines(body)
+    return {"status": meta.get("status"),
+            "dead": meta.get("status") == "blocked" and is_dead_route(meta),
+            "reopened": sum(1 for e in entries if e[2].startswith("reopened:")),
+            "entries": len(entries)}
+
+
+def state_of_issue(issue, comments=()):
+    """``ticket_state`` of an issue (raises CodecError when it does not decode)."""
+    meta, body = decode(issue, comments)
+    return ticket_state(meta, body)
+
+
+def check_reopen(previous, current):
+    """Problems with the move from ``previous`` to ``current`` (two ``ticket_state`` dicts).
+
+    The server cannot see who moved a status, but it can see the state a hand edit leaves:
+
+      * a dead-route block may end only by ``blocked -> accepted`` with a new
+        ``reopened: <the new mechanism>`` thread entry, or by cancellation (the sender's);
+      * a dead route may not turn pending or plain (``blocked_by`` / ``reopen_if`` cleared
+        while still blocked) without that entry either;
+      * the Thread is append-only: entries are never removed.
+    """
+    if not previous:
+        return []
+    probs = []
+    if previous.get("dead"):
+        st = current.get("status")
+        if st == "blocked" and current.get("dead"):
+            pass
+        elif st == "cancelled":
+            pass
+        elif st == "accepted" and current.get("reopened", 0) > previous.get("reopened", 0):
+            pass
+        elif st == "accepted":
+            probs.append("a dead-route ticket was reopened (blocked -> accepted) without a new "
+                         "'reopened: <the new mechanism>' thread entry")
+        elif st == "blocked":
+            probs.append("a dead-route block was changed to pending by editing blocked_by/"
+                         "reopen_if or the route label; a dead route reopens only "
+                         "blocked -> accepted with a 'reopened:' thread entry")
+        else:
+            probs.append("a dead-route ticket left blocked for %s; it reopens only "
+                         "blocked -> accepted with a 'reopened:' thread entry (or is "
+                         "cancelled by the sender)" % st)
+    if current.get("entries", 0) < previous.get("entries", 0):
+        probs.append("thread entries were removed or edited (the Thread is append-only)")
     return probs
 
 

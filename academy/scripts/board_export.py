@@ -24,10 +24,12 @@ import board as bd  # noqa: E402
 import board_codec as bc  # noqa: E402
 
 COLORS = {"status": "1d76db", "to": "5319e7", "role": "0e8a16", "from": "bfd4f2",
-          "kind": "fbca04", "prio": "d93f0b", "placeholder": "cccccc", "via": "ededed"}
+          "kind": "fbca04", "prio": "d93f0b", "route": "b60205", "placeholder": "cccccc",
+          "via": "ededed"}
 DESCRIPTIONS = {"status": "ticket status", "to": "addressee instance",
                 "role": "addressee role (derived from to)", "from": "sender instance",
-                "kind": "ticket kind", "prio": "ticket priority"}
+                "kind": "ticket kind", "prio": "ticket priority",
+                "route": "dead-route block (derived from blocked_by + reopen_if)"}
 
 
 def build(board, repo=""):
