@@ -35,7 +35,7 @@ roster rules allow for this agent); say in your report which you were.
    `\label{fig:...}`), add the `\cref` at the point of use, and let the build gate build
    the paper when you stop.
 
-Record the item (`py ${CLAUDE_PLUGIN_ROOT}/scripts/next.py mark R-NNNN --status done
+Record the item (`py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py mark R-NNNN --status done
 --note "<file, label>"`) or the ticket (`tickets_update`: result, `delivered`).
 
 **Report**: the file, the label, what the picture shows, the data source (claim id,

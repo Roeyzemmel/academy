@@ -163,8 +163,12 @@ def _check_party(name, workspace, what):
 def create_ticket(board, to, title, ask, deliverable, kind="other", priority="normal",
                   refs=None, agenda=None, domain=None, parent=None, budget=None,
                   detail="", as_instance=None, agent="", workspace=None, date=None,
-                  final_to=None, perms=None):
-    """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path."""
+                  final_to=None, perms=None, campaign=None):
+    """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path.
+
+    ``campaign`` (a registry id, the campaign's target) tags the ticket so
+    ``inbox.py --campaign <target>`` selects it; omitted, the field is not written.
+    """
     ws = workspace if workspace is not None else _workspace_or_none()
     if not as_instance:
         raise ac.AcademyError("--as is required: the filing instance ('human' only from "
@@ -191,6 +195,8 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
         "blocks": [], "waiting_on": [], "budget": dict(budget or _default_budget()),
         "result": None, "packets": [], "created": date, "updated": date,
     }
+    if campaign:
+        meta["campaign"] = campaign
     probs = ac.validate_ticket(meta)
     if probs:
         raise ac.AcademyError("invalid ticket: " + "; ".join(probs))

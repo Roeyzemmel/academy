@@ -303,7 +303,7 @@ precedence: paper order by default. Edit label, claim, required, depends_on and 
 by hand or with /author:agenda; the status column is refreshed by
 `agenda.py status` from the registry and is never edited by hand. -->
 
-The paper's results in paper order. `/author:next` works on the items that unblock
+The paper's results in paper order. `/author:inbox` works on the items that unblock
 the earliest entry first. `required` is the status an entry must reach; `status` is
 what the registry says now (vocabulary: the academy `status-vocabulary` skill).
 """
@@ -459,11 +459,11 @@ ROADMAP_HEADER = """# Roadmap: {instance}
 <!-- academy roadmap v1 (author plugin, references/formats.md). One work item per
 `## R-NNNN [tag] title` heading, then `- key: value` fields, then free text.
 Tags: write apply lead verify cite experiment figure build notation sweep referee.
-Status: open ticketed blocked needs-human done dropped. `/author:next` picks from
+Status: open ticketed blocked needs-human done dropped. `/author:inbox` picks from
 here and from the board; `/author:notes` and `/author:agenda` file new items. -->
 
 The Author's own work items. Items needing another role (a proof, a verification, a
-citation, an experiment) become board tickets when `/author:next` reaches them; the
+citation, an experiment) become board tickets when `/author:inbox` reaches them; the
 item then waits in `ticketed` until the ticket is delivered.
 """
 

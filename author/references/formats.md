@@ -33,7 +33,7 @@ too; the scripts keep his text.
 | `owner` | The instance that must deliver it | Roey |
 | `status` | The registry's status now; **generated** by `agenda.py status`; `missing` = no record, `?` = never read | script only |
 
-- **Row order is precedence** (paper order by default). `/author:next` takes first the
+- **Row order is precedence** (paper order by default). `/author:inbox` takes first the
   items that unblock the earliest entry, transitively through `depends_on`.
 - **Satisfied**: `status` at or above `required`, with the ranks open < conjectured <
   sketch = supported < proved-modulo < proved; `refuted` meets only `refuted`.
@@ -68,9 +68,9 @@ Free Markdown: what to do, quotes of the notes, history lines
 | `route` | an agent name overriding the tag's default (e.g. `figure-maker` for an illustration) |
 | `source` | where the item came from (a note, a packet point, the old roadmap) |
 
-- Item ids are never reused; `next.py add` allocates the next one.
+- Item ids are never reused; `inbox.py add` allocates the next one.
 - `##` headings that are not items (free prose sections) are kept verbatim.
-- Writes go through `next.py add` and `next.py mark` (which appends a dated history
+- Writes go through `inbox.py add` and `inbox.py mark` (which appends a dated history
   line); hand edits are fine and `agenda.py check` validates them.
 
 ## The old roadmap's vocabulary

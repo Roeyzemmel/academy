@@ -1,6 +1,6 @@
 ---
 name: note-sweeper
-description: Runs the machine-note sweep over the paper's tex — inventories every machine margin note, decides from the roadmap, the board, the human's later notes and the registry whether each is answered (folds the answer into the roadmap item and deletes the note) or still open (leaves it untouched), and reports counts per section before and after. Use via /author:sweep, after a run of /author:next that closed items, or before presync.
+description: Runs the machine-note sweep over the paper's tex — inventories every machine margin note, decides from the roadmap, the board, the human's later notes and the registry whether each is answered (folds the answer into the roadmap item and deletes the note) or still open (leaves it untouched), and reports counts per section before and after. Use via /author:sweep, after a run of /author:inbox that closed items, or before presync.
 model: sonnet
 effort: medium
 fallback: opus
@@ -41,7 +41,7 @@ Where an answer can live, checked in this order:
    whole brace group; record file, line, the nearest label, and the text. Count per
    file: the "before" number. Inline notes count too.
 2. **Decide per note.** *Answered*: fold the answer into the roadmap item (create one
-   with `py ${CLAUDE_PLUGIN_ROOT}/scripts/next.py add --tag apply --title ...
+   with `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py add --tag apply --title ...
    --attach <label>` and mark it done if none exists: the roadmap is the durable
    record, the margin is not), then delete the note. *Open*: leave it exactly as it is.
    *Partly answered*: narrow it to the part still open and record the rest.

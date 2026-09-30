@@ -29,6 +29,10 @@ Tickets
     TICKET_STATUSES, TRANSITIONS, can_transition(...), validate_ticket(...)
     slugify, ticket_filename, find_ticket, thread_lines, append_thread,
     thread_is_append_only, new_ticket, parties, editable_fields
+Inbox (one core, thin per-role wrappers)
+    inbox_core.select(board, instance, limit, all=False, route=..., campaign=None)
+    inbox_core.serial_checkpoint(meta) / check(board, tid), is_dead_route(meta)
+    inbox_core.parser(desc) / run(args, instance, board, limit, route)   the shared CLI
 Packets
     PACKET_KEY_ORDER, validate_packet, packet_decisions, packet_answers,
     record_decision, packet_is_decided, packet_filename, find_packet
@@ -1113,7 +1117,8 @@ TICKET_STATUSES = ("open", "accepted", "in-progress", "delivered", "closed",
 TERMINAL = ("closed", "rejected", "cancelled")
 TICKET_KINDS = ("verify", "cite", "lookup", "prove", "review-experiment", "generalize",
                 "experiment", "test", "code", "notation", "referee", "build", "figure",
-                "decision", "question", "research", "note", "other")
+                "decision", "question", "research", "note", "write", "apply", "copy",
+                "sweep", "other")
 PRIORITIES = ("high", "normal", "low")
 
 #: (from, to) -> parties who may make the transition; 'human' may make any, always.
@@ -1142,12 +1147,12 @@ TICKET_FIELDS = {
     "system": ("id", "from", "created", "updated"),
     "human_only": ("to",),
     "sender": ("title", "kind", "ask", "deliverable", "refs", "priority", "budget",
-               "parent", "blocks", "agenda", "domain", "final_to"),
+               "parent", "blocks", "agenda", "domain", "final_to", "campaign"),
     "receiver": ("status", "result", "waiting_on", "packets"),
 }
 TICKET_KEY_ORDER = ("id", "title", "kind", "from", "to", "status", "priority", "ask",
-                    "deliverable", "refs", "agenda", "domain", "parent", "final_to", "blocks",
-                    "waiting_on", "budget", "result", "packets", "created", "updated")
+                    "deliverable", "refs", "agenda", "domain", "parent", "final_to", "campaign",
+                    "blocks", "waiting_on", "budget", "result", "packets", "created", "updated")
 REQUIRED_TICKET_FIELDS = ("id", "title", "kind", "from", "to", "status", "ask",
                           "deliverable", "priority", "budget", "created", "updated")
 THREAD_HEADING = "## Thread"
@@ -1370,6 +1375,9 @@ def validate_ticket(meta, body=None):
             probs.append("packets entry %r is not a packet id" % p)
     if meta.get("parent") and not RE_TICKET_ID.match(str(meta["parent"])):
         probs.append("parent must be a ticket id")
+    if meta.get("campaign") is not None and (not isinstance(meta["campaign"], str)
+                                             or "\n" in meta["campaign"]):
+        probs.append("campaign must be a registry id (the campaign's target)")
     ft = meta.get("final_to")
     if ft and ft not in ROLES and not RE_INSTANCE.match(str(ft)):
         probs.append("final_to must be a role or an instance name, not %r" % ft)
@@ -1527,6 +1535,255 @@ def new_ticket(meta, ask_detail=""):
     body = "\n## Ask\n\n%s\n\n## Result\n\n\n%s\n\n" % (
         ask_detail.strip() or ordered.get("ask", ""), THREAD_HEADING)
     return write_frontmatter(ordered, body)
+
+
+# ----------------------------------------------------------------------------
+# The inbox core (docs/protocol.md section 4; campaign-mode design sections 8, 10)
+# ----------------------------------------------------------------------------
+
+class inbox_core(object):
+    """Selection, ordering, return legs, the blocked filter and the serial checkpoint.
+
+    Every role's ``inbox.py`` is a thin wrapper over this: it resolves its instance and
+    its limit, and supplies ``route(meta) -> {how, target, why}`` (its routing table,
+    ``routes.py``); ``how`` is ``skill``, ``agent``, ``human`` or ``reject``. A route may
+    add ``over_budget`` (a reason string), which the row carries at top level.
+
+    ``select`` takes, in order: the instance's in-progress tickets (unfinished work is
+    resumed before anything new starts), relay parents ready for their return leg
+    (``relay_return_ready``), then ``open`` and ``accepted`` tickets. Each group is
+    ordered by priority, then agenda position (a ticket that has an ``agenda`` field
+    first, or ``position(meta)`` when the wrapper knows the agenda), then id. Dead-route
+    blocked tickets (both ``blocked_by`` and ``reopen_if``) and pending blocked ones
+    are never taken. The limit is at most 3, except for a campaign (``campaign`` names
+    its target; only tickets carrying ``campaign: <target>`` are listed).
+    """
+
+    TAKE = ("open", "accepted")
+    SHOW = ("open", "accepted", "in-progress", "blocked")
+    MAX = 3
+    PRIORITY = {"high": 0, "normal": 1, "low": 2}
+    RETURN_WHY = ("return leg: the child is back; close it and deliver this ticket "
+                  "with a result pointing at it")
+    _RE_FILE = re.compile(r"^T-\d{4,}(?:-.*)?\.md$")
+
+    @staticmethod
+    def is_dead_route(meta):
+        """A ticket whose route was abandoned: both ``blocked_by`` and ``reopen_if``."""
+        return bool(meta.get("blocked_by") and meta.get("reopen_if"))
+
+    @staticmethod
+    def _read_all(board, instance):
+        folder = os.path.join(str(board), instance)
+        out = []
+        if not os.path.isdir(folder):
+            return out
+        for f in sorted(os.listdir(folder)):
+            if not inbox_core._RE_FILE.match(f):
+                continue
+            path = os.path.join(folder, f)
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    meta = read_frontmatter(fh.read())[0]
+            except (OSError, AcademyError, UnicodeDecodeError):
+                continue
+            if not meta.get("id") or meta.get("to", instance) != instance:
+                continue
+            meta = dict(meta)
+            meta["_path"] = path.replace("\\", "/")
+            out.append(meta)
+        return out
+
+    @staticmethod
+    def _num(meta):
+        try:
+            return int(str(meta.get("id", "T-0")).split("-")[1])
+        except (IndexError, ValueError):
+            return 0
+
+    @staticmethod
+    def unfinished(rows):
+        """Ids of the in-progress rows: work started and not yet settled."""
+        return [r["id"] for r in rows if r.get("status") == "in-progress"]
+
+    @staticmethod
+    def select(board, instance, limit=3, all=False, route=None, campaign=None,
+               position=None, return_legs=True, position_first=False, extra=None):
+        """``(rows, total)``: the tickets to handle, and how many were eligible.
+
+        ``all`` lists every open, accepted, in-progress and blocked ticket without the
+        cut (blocked ones carry ``blocked``: ``pending`` or ``dead-route``).
+        ``position_first`` orders by agenda position before priority (the Author's
+        precedence is the paper's order). ``extra`` is a list of finished rows the
+        wrapper builds itself (the Author's landing legs); they follow the in-progress
+        rows and count against the cut.
+        """
+        pos = position or (lambda m: 0 if m.get("agenda") else 10 ** 9)
+
+        def status_of(tid):
+            path = find_ticket(board, tid)
+            if not path:
+                return None
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    return read_frontmatter(fh.read())[0].get("status")
+            except (OSError, AcademyError):
+                return None
+
+        pool = []
+        for m in inbox_core._read_all(board, instance):
+            st = m.get("status")
+            if campaign and m.get("campaign") != campaign:
+                continue
+            dead = inbox_core.is_dead_route(m)
+            ret = False
+            if all:
+                if st not in inbox_core.SHOW:
+                    continue
+            elif dead:
+                continue
+            elif st == "in-progress":
+                group = 0
+            elif st in inbox_core.TAKE:
+                group = 2
+            elif (st == "blocked" and return_legs
+                  and relay_return_ready(m, status_of)):
+                group, ret = 1, True
+            else:
+                continue
+            if all:
+                group = 0 if st == "in-progress" else 2 if st in inbox_core.TAKE else 1
+            m["_group"] = group
+            m["_return"] = ret
+            m["_blocked"] = ("dead-route" if dead else "pending") if st == "blocked" else None
+            pool.append(m)
+        prio = lambda m: inbox_core.PRIORITY.get(m.get("priority"), 1)  # noqa: E731
+        pool.sort(key=lambda m: ((m["_group"], pos(m), prio(m), inbox_core._num(m))
+                                 if position_first else
+                                 (m["_group"], prio(m), pos(m), inbox_core._num(m))))
+        rows = [inbox_core._row(m, route) for m in pool]
+        if extra:
+            first = next((i for i, r in enumerate(rows) if r["status"] != "in-progress"),
+                         len(rows))
+            rows[first:first] = list(extra)
+        total = len(rows)
+        if not all:
+            cap = None if campaign else inbox_core.MAX
+            n = max(1, int(limit))
+            rows = rows[:n if cap is None else min(n, cap)]
+        return rows, total
+
+    @staticmethod
+    def _row(m, route):
+        r = dict(route(m)) if route else {"how": "human", "target": "human",
+                                          "why": "no routing table"}
+        over = r.pop("over_budget", None)
+        if m.get("_return"):
+            r["why"] = inbox_core.RETURN_WHY
+        return {"id": m.get("id"), "kind": m.get("kind"), "status": m.get("status"),
+                "priority": m.get("priority") or "normal", "from": m.get("from"),
+                "title": m.get("title"), "agenda": m.get("agenda"),
+                "budget": m.get("budget"), "refs": m.get("refs") or [],
+                "campaign": m.get("campaign"), "route": r, "return": bool(m.get("_return")),
+                "over_budget": over, "blocked": m.get("_blocked"), "path": m.get("_path")}
+
+    @staticmethod
+    def serial_checkpoint(meta):
+        """Where a ticket stands after its route ran, and whether it is settled.
+
+        Settled: delivered (with a result), blocked with its reason, rejected. A ticket
+        still open, accepted or in-progress is *unfinished*: report it, do not take
+        another ticket while it is (it comes first in the next run).
+        """
+        st = meta.get("status")
+        problem = None
+        if st in ("delivered", "closed"):
+            state = "delivered"
+            if not meta.get("result"):
+                problem = "delivered without a result"
+        elif st in ("rejected", "cancelled"):
+            state = "rejected"
+        elif st == "blocked":
+            state = "blocked"
+            if not (meta.get("waiting_on") or inbox_core.is_dead_route(meta)):
+                problem = "blocked without a reason (waiting_on, or blocked_by and reopen_if)"
+        else:
+            state = "unfinished"
+        return {"id": meta.get("id"), "status": st, "state": state, "problem": problem,
+                "unfinished": state == "unfinished" or problem is not None}
+
+    @staticmethod
+    def check(board, tid):
+        path = find_ticket(board, tid)
+        if not path:
+            raise AcademyError("no ticket %s on %s" % (tid, board))
+        with open(path, "r", encoding="utf-8") as fh:
+            return inbox_core.serial_checkpoint(read_frontmatter(fh.read())[0])
+
+    @staticmethod
+    def parser(description, prog=None):
+        import argparse
+        ap = argparse.ArgumentParser(prog=prog, description=description)
+        ap.add_argument("--instance")
+        ap.add_argument("--board")
+        ap.add_argument("--home")
+        ap.add_argument("--workspace")
+        ap.add_argument("--n", "--limit", dest="n", type=int,
+                        help="tickets to take (at most 3 outside a campaign); --limit is an alias")
+        ap.add_argument("--all", action="store_true", help="list without taking or cutting")
+        ap.add_argument("--json", action="store_true")
+        ap.add_argument("--campaign", metavar="TARGET",
+                        help="only tickets carrying `campaign: TARGET`")
+        ap.add_argument("--check", metavar="T-NNNN",
+                        help="the serial checkpoint of one ticket (exit 3 if unfinished)")
+        return ap
+
+    @staticmethod
+    def run(args, instance, board, budget_limit, route, out=None, position=None,
+            return_legs=True, position_first=False, extra=None, header=None):
+        """Print the inbox of ``instance``; exit 0 with rows, 1 empty, 3 for --check
+        on an unfinished ticket. ``header`` = ``{"json": {...}, "text": [lines]}`` is what
+        a wrapper reports before the rows (the Author's sweep step, its waiting lists)."""
+        out = out or sys.stdout
+        if args.check:
+            r = inbox_core.check(board, args.check)
+            out.write("%s: %s (%s)%s\n" % (r["id"], r["state"], r["status"],
+                                           ("; " + r["problem"]) if r["problem"] else ""))
+            return 3 if r["unfinished"] else 0
+        limit = max(1, int(budget_limit or inbox_core.MAX))
+        n = args.n or limit
+        limit = n if args.campaign else min(n, limit, inbox_core.MAX)
+        rows, total = inbox_core.select(board, instance, limit, all=args.all, route=route,
+                                        campaign=args.campaign, position=position,
+                                        return_legs=return_legs,
+                                        position_first=position_first, extra=extra)
+        header = header or {}
+        left = 0 if args.all else max(0, total - len(rows))
+        unfinished = inbox_core.unfinished(rows)
+        if args.json:
+            doc = {"instance": instance, "limit": limit, "waiting": total,
+                   "take": rows, "remaining": left, "unfinished": unfinished}
+            doc.update(header.get("json") or {})
+            out.write(json.dumps(doc, ensure_ascii=False, indent=1) + "\n")
+            return 0 if rows else 1
+        for line in header.get("text") or []:
+            out.write(line + "\n")
+        for r in rows:
+            rt = r["route"]
+            out.write("%s  %-17s %-11s %-6s from %-18s -> %-8s %-24s %s%s%s\n" % (
+                r["id"], r["kind"], r["status"], r["priority"], r["from"], rt["how"],
+                (rt["target"] or "") + (" (return)" if r["return"] else ""), r["title"],
+                ("  [over budget: %s]" % r["over_budget"]) if r["over_budget"] else "",
+                ("  [blocked: %s]" % r["blocked"]) if r["blocked"] else ""))
+        if not rows:
+            out.write("(inbox of %s is empty)\n" % instance)
+        if unfinished:
+            out.write("unfinished: %s; resume before taking anything new\n"
+                      % ", ".join(unfinished))
+        out.write("%d taken, %d remaining\n" % (len(rows), left))
+        for line in header.get("text_after") or []:
+            out.write(line + "\n")
+        return 0 if rows else 1
 
 
 # ----------------------------------------------------------------------------

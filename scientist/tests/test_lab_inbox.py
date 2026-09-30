@@ -86,17 +86,17 @@ class InboxTest(unittest.TestCase):
         rows, total = inbox.select(self.sb.board, "scientist@main", 3)
         self.assertEqual(total, 4)
         self.assertEqual([r["kind"] for r in rows], ["test", "code", "experiment"])
-        self.assertEqual(rows[0]["route"], "experimenter")
-        self.assertEqual(rows[1]["route"], "developer")
-        self.assertIn("over_budget", rows[1])                  # developer is opus
+        self.assertEqual(rows[0]["route"]["target"], "experimenter")
+        self.assertEqual(rows[1]["route"]["target"], "developer")
+        self.assertTrue(rows[1]["over_budget"])                # developer is opus
         rows, _ = inbox.select(self.sb.board, "scientist@main", 3, take_all=True)
-        self.assertEqual(rows[-1]["route"], "reject")
+        self.assertEqual(rows[-1]["route"]["how"], "reject")
 
     def test_upstream_code_ticket_goes_to_upstream_contributor(self):
         self.ticket("code", "Upstream: saddle_connections ignores the bound")
         rows, _ = inbox.select(self.sb.board, "scientist@main", 3)
-        self.assertEqual(rows[0]["route"], "upstream-contributor")
-        self.assertNotIn("over_budget", rows[0])
+        self.assertEqual(rows[0]["route"]["target"], "upstream-contributor")
+        self.assertIsNone(rows[0]["over_budget"])
 
     def test_empty_inbox_exit_1(self):
         code, out, err = self.sb.run("inbox.py", ["--home", self.sb.lab, "--board",

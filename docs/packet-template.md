@@ -55,7 +55,7 @@ The statuses are those of the unified registry: `open`, `conjectured`, `sketch`,
 | `generalization` | prover / lead-researcher (`/researcher:generalize`) |
 | `proof` | prover |
 | `notation` | notation-auditor / librarian |
-| `agenda` | Author orchestration (`/author:next` batch results) |
+| `agenda` | Author orchestration (`/author:inbox` batch results) |
 | `migration` | migration builders (schema v2, roadmap → agenda, ledgers) |
 | `handover` | end of the unattended run, one per home |
 | `usage` | usage-analyst |

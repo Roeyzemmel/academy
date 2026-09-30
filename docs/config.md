@@ -138,7 +138,7 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `itemsPerRun` | int 1..3 | 3 | Most tickets or agenda items one inbox or next run takes |
+| `itemsPerRun` | int 1..3 | 3 | Most tickets one inbox run takes (a campaign lifts the cap) |
 | `serial` | bool | true | Items run one after another |
 | `orchestratorModel` | model | `sonnet` | Model for skill orchestrators |
 | `maxModel` | model | `fable` | Heaviest model any agent in this home may use |

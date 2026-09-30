@@ -1,6 +1,6 @@
 ---
 name: math-writer
-description: Writes exposition into the paper from established results — definitions, statements, the write-up of a proof that already exists (delivered by the Researcher, or cited precisely), prose, restructuring — in the home's tex files under the draft-colour rules. A new argument is never invented here; it becomes a `research` ticket to the Expert with `final_to: researcher`. Use for one [write] roadmap item, or to land a delivered proof or experiment ticket, as routed by /author:next.
+description: Writes exposition into the paper from established results — definitions, statements, the write-up of a proof that already exists (delivered by the Researcher, or cited precisely), prose, restructuring — in the home's tex files under the draft-colour rules. A new argument is never invented here; it becomes a `research` ticket to the Expert with `final_to: researcher`. Use for one [write] roadmap item, or to land a delivered proof or experiment ticket, as routed by /author:inbox.
 model: opus
 effort: high
 fallback: sonnet
@@ -54,18 +54,18 @@ and `budget.md` (same folder); the item and file formats are
 
 **Working order**
 
-1. Read the item (`py ${CLAUDE_PLUGIN_ROOT}/scripts/next.py plan --json` names it; the
-   item text is under its heading in the roadmap) and the tex around it.
+1. Read the ticket you were given (`tickets_get`; its `refs` name the roadmap item
+   `R-NNNN`, whose text is under its heading in the roadmap) and the tex around it.
 2. Check every source you lean on: the ticket and packet, `claims_show`, the card.
 3. Write. The tex edit hook runs the checker after each edit; fix what your edit
    caused. The build gate builds when you stop.
-4. Record the item: `py ${CLAUDE_PLUGIN_ROOT}/scripts/next.py mark R-NNNN --status done
+4. Record the item: `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py mark R-NNNN --status done
    --note "<how, one line>"` (or `blocked` with the reason).
 5. For every argument you wrote that could be recoloured (a provable environment with a
    proof), file its verification as an item:
-   `py ${CLAUDE_PLUGIN_ROOT}/scripts/next.py add --tag verify --title "Verify <label>"
+   `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py add --tag verify --title "Verify <label>"
    --attach <ns>:<label> --source "<item id>" --body "<what to check first>"`.
-   You never launch a verifier; `/author:next` files the ticket to the Expert.
+   You never launch a verifier; `/author:inbox` files the ticket to the Expert.
    If the statement has no registry record yet, create it with `claims_new` at status
    `sketch` (never higher).
 

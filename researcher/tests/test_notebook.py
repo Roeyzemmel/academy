@@ -155,25 +155,25 @@ class InboxTests(Workspace):
         ticket(self.B, inst, "T-0004", kind="decision")
         ticket(self.B, inst, "T-0005", status="closed")
         ticket(self.B, inst, "T-0006", status="accepted", kind="generalize", priority="low")
-        pool = inbox.tickets_for(self.B, inst, inbox.TAKE)
-        taken = inbox.take(pool, 3)
-        self.assertEqual([t["id"] for t in taken], ["T-0002", "T-0003", "T-0001"])
-        self.assertEqual([inbox.route(t) for t in taken],
-                         ["/researcher:review-experiment", "/researcher:prove",
-                          "lead-researcher"])
         rc, out, _ = self.run_script("inbox.py", "--json")
         data = json.loads(out)
+        taken = data["take"]
+        self.assertEqual([t["id"] for t in taken], ["T-0002", "T-0003", "T-0001"])
+        self.assertEqual([t["route"]["target"] for t in taken],
+                         ["researcher:review-experiment", "researcher:prove",
+                          "lead-researcher"])
         self.assertEqual((data["instance"], len(data["take"]), data["remaining"]),
                          (inst, 3, 2))
 
     def test_final_to_routes_to_the_relay(self):
-        self.assertEqual(inbox.route({"kind": "research", "final_to": "scientist"}),
+        self.assertEqual(inbox.route({"kind": "research", "final_to": "scientist"})["target"],
                          "experiment-spec")
-        self.assertEqual(inbox.route({"kind": "cite", "final_to": "expert"}), "lit-request")
-        self.assertEqual(inbox.route({"kind": "question", "final_to": "author"}),
+        self.assertEqual(inbox.route({"kind": "cite", "final_to": "expert"})["target"],
                          "lit-request")
-        self.assertEqual(inbox.route({"kind": "prove", "final_to": "researcher"}),
-                         "/researcher:prove")
+        self.assertEqual(inbox.route({"kind": "question", "final_to": "author"})["target"],
+                         "lit-request")
+        self.assertEqual(inbox.route({"kind": "prove", "final_to": "researcher"})["target"],
+                         "researcher:prove")
 
     def relay_parent(self, child_status, waiting=None, final_to="scientist"):
         inst = "researcher@t"
@@ -196,14 +196,14 @@ class InboxTests(Workspace):
         self.relay_parent("delivered")
         rc, out, _ = self.run_script("inbox.py", "--json")
         rows = json.loads(out)["take"]
-        self.assertEqual([(r["id"], r["route"], r["return"]) for r in rows],
+        self.assertEqual([(r["id"], r["route"]["target"], r["return"]) for r in rows],
                          [("T-0001", "experiment-spec", True)])
 
     def test_return_leg_toward_the_expert_goes_to_lit_request(self):
         self.relay_parent("closed", final_to="expert")
         rc, out, _ = self.run_script("inbox.py", "--json")
         rows = json.loads(out)["take"]
-        self.assertEqual([(r["id"], r["route"], r["return"]) for r in rows],
+        self.assertEqual([(r["id"], r["route"]["target"], r["return"]) for r in rows],
                          [("T-0001", "lit-request", True)])
 
     def test_blocked_parent_with_open_child_is_not_taken(self):

@@ -38,8 +38,8 @@ item or ticket is attached to, with a proposed tag:
 
 Show the list and ask Roey with `AskUserQuestion` which to file (all / a subset /
 none, and whether any entry's `required` should be lowered instead). For each one to
-file: `py $S/next.py add --tag <tag> --title "<verb> <label>" --attach <ns>:<label>
---source "agenda gaps <date>"`. Filing an item starts no work: `/author:next` picks it
+file: `py $S/inbox.py add --tag <tag> --title "<verb> <label>" --attach <ns>:<label>
+--source "agenda gaps <date>"`. Filing an item starts no work: `/author:inbox` picks it
 up in agenda order (budget.md rule 3).
 
 ## milestones
@@ -53,6 +53,6 @@ many of its entries reach their target. To add one, edit the `## Milestones` sec
 Order, `required`, `depends_on` and `owner` are Roey's decisions: make an edit only
 when he states it, with the Edit tool on the agenda file, then run `check`. The default
 order is paper order; moving an entry up moves every item that unblocks it up in
-`/author:next`.
+`/author:inbox`.
 
 Never ask questions except where this skill says to.

@@ -8,7 +8,7 @@ import sys
 import unittest
 
 from fixtures import SCRIPTS, Sandbox
-from test_next import AGENDA, ROADMAP
+from test_inbox import AGENDA, ROADMAP
 
 sys.path.insert(0, SCRIPTS)
 import agenda_lib as al  # noqa: E402

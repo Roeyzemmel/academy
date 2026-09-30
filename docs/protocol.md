@@ -176,6 +176,7 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 | `domain` | pack name | no | sender | Routing record; defaults to the receiver's first domain |
 | `parent` | ticket id \| empty | no | sender | The ticket this one was spawned from |
 | `final_to` | role \| instance \| empty | no | sender | The role (or instance) the request is really for; set on relayed tickets; a receiver whose role is not `final_to` hands the ticket to its relay |
+| `campaign` | registry id \| empty | no | sender | The target of the campaign this ticket belongs to; `inbox.py --campaign <target>` lists only such tickets. Omitted unless set |
 | `blocks` | list of ticket ids | no | sender (server mirrors) | Tickets waiting on this one |
 | `waiting_on` | list of ticket ids, instances or `human` | iff `blocked` | receiver | What the receiver waits for |
 | `budget` | map `{runs: int >= 1, max_model: fable\|opus\|sonnet\|haiku}` | yes | sender | Agent runs allowed and the heaviest model; default from `academy.json` `budget.ticketDefault` |
@@ -207,6 +208,7 @@ section 5.1 restricts to the receiver's neighbours in the chain (or the same rol
 | `code` | → scientist | only the Researcher, from its researcher -> scientist liaisons (5.1); the Scientist also to itself (an "Upstream:" ticket) | developer or test-engineer work, including academy scripts |
 | `notation` | → expert / author | the Author to the Expert (a domain-notation change; the Scientist's goes through the Researcher with `final_to: expert`); the Expert or the Author itself to an Author | a domain-notation change or a project notation decision |
 | `build` / `figure` | → author | the Author itself, or the Expert | toolchain or figure work |
+| `write` / `apply` / `copy` / `sweep` | → author, the Author's own | the Author itself, from a roadmap item (`/author:inbox` files it; `refs` carries the item id `R-NNNN` and the claim) | prose, a mechanical edit, a copy-edit, or the note sweep, routed by kind to math-writer, math-editor or note-sweeper |
 | `decision` | → human, or → the claim-keeper via `claims_propose_status` | any role (`claims_propose_status` is exempt from the chain) | a choice only the receiver may make |
 | `question` | → a neighbour, or the same role | any role, within 5.1 | a question that needs more than a lookup |
 | `other` | → a neighbour, or the same role | any role, within 5.1 | anything else |
@@ -218,6 +220,7 @@ section 5.1 restricts to the receiver's neighbours in the chain (or the same rol
 - `<ns>:<id>` for a registry object, e.g. `paper:lem:strip-bound`, `lab:ew-check`,
   `s1:Q2`.
 - `T-NNNN` for a ticket and `P-NNNN` for a packet.
+- `R-NNNN` for a roadmap item of the filing Author (on its own self-tickets).
 - `bib:<key>` for a bibliography key, optionally with a pinpoint:
   `bib:LMW16#Thm1.3`.
 - `file:<instance>/<path relative to that home>`, with forward slashes.
@@ -320,9 +323,22 @@ Terminal states: `closed`, `rejected`, `cancelled`.
 awaited ticket closes, `session_start` lists the blocked tickets it frees; they are
 not auto-resumed.
 
-**Execution.** Nothing runs on its own. `/<role>:inbox` takes the receiver's `open`
-and `accepted` tickets, ordered by priority, then agenda position, then id. It
-handles at most `budget.itemsPerRun` (at most 3) of them, serially. Each ticket
+**Execution.** Nothing runs on its own. `/<role>:inbox` takes, in this order, the
+receiver's `in-progress` tickets (unfinished work is resumed before anything new
+starts), the relay parents ready for their return leg (5.2), then its `open` and
+`accepted` tickets, ordered by priority, then agenda position, then id. Blocked
+tickets are never taken except a return leg (and, once section 9 of the campaign design
+lands, a ticket carrying both `blocked_by` and `reopen_if` is a dead route and is never
+taken). It handles at most `budget.itemsPerRun` (at most 3) of them, serially, and after
+each one the ticket must be `delivered`, `blocked` with its reason, or `rejected`
+(`inbox.py --check T-NNNN`); an unfinished ticket is reported, not redispatched, and no
+other ticket is taken while it is unfinished. Selection, ordering, return legs and the
+checkpoint live once, in the academy library (`inbox_core` in `academy_common.py`); each
+role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
+`--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
+`--campaign <target>` lists only tickets carrying `campaign: <target>` (and lifts the cap
+of 3, a campaign having its own caps). `/academy:inbox` runs every instance in turn
+(Author, Expert, Researcher, Scientist) under one cap. Each ticket
 spends at most its own `budget.runs` agent runs at no heavier model than
 `budget.max_model`. If the ticket needs more, the receiver moves it to `blocked` with
 `waiting_on: [human]` and a thread line asking for more budget.
@@ -461,7 +477,7 @@ the packet's ticket: `- <date> human: decision on P-NNNN D<k>: (<letter>) <optio
 
 ### 6.4 A research request from the Author
 
-1. The Author's main session (`/author:next` files as `main`) or an Author agent
+1. The Author's main session (`/author:inbox` files as `main`) or an Author agent
    (math-writer, figure-maker) files a `research` ticket to the Expert with
    `final_to: researcher`.
 2. The Expert's inbox sees that `final_to` is not the Expert and hands it to

@@ -391,7 +391,7 @@ class ChainDocsTests(unittest.TestCase):
     CASES = {
         os.path.join("author", "agents", "math-writer.md"): "final_to",
         os.path.join("author", "agents", "figure-maker.md"): "final_to",
-        os.path.join("author", "skills", "next", "references", "routing.md"): "final_to",
+        os.path.join("author", "skills", "inbox", "references", "routing.md"): "final_to",
         os.path.join("expert", "skills", "verify", "references", "conclude.md"): "final_to",
         os.path.join("expert", "agents", "review-chair.md"): "final_to",
         os.path.join("scientist", "skills", "examples-audit", "SKILL.md"): "final_to",
@@ -472,7 +472,7 @@ class ChainDocsTests(unittest.TestCase):
         return text[text.index(start):text.index(end)]
 
     def test_protocol_research_flow_names_the_research_kind(self):
-        """M4: research-intake forwards a `research` child; /author:next files as main."""
+        """M4: research-intake forwards a `research` child; /author:inbox files as main."""
         flow = self.section(self.read("docs", "protocol.md"),
                             "### 6.4", "### 6.5")
         self.assertNotIn("`lead`", flow)

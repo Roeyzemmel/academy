@@ -37,7 +37,7 @@ if HERE not in sys.path:
 
 import _academy as ac  # noqa: E402
 import agenda_lib as al  # noqa: E402
-import next as nx  # noqa: E402
+import inbox as nx  # noqa: E402
 
 #: which ask a gap needs, by (current status, required status)
 GAP_PROPOSALS = (
@@ -63,10 +63,10 @@ def load(args):
 
 
 def registry_statuses(home, config):
-    """{claim id: status} from the home's registry command, or raise NextError."""
+    """{claim id: status} from the home's registry command, or raise InboxError."""
     cmd = ((config or {}).get("registry") or {}).get("legacy", {}).get("claims")
     if not cmd:
-        raise nx.NextError("no registry command (registry.legacy.claims in academy.json); "
+        raise nx.InboxError("no registry command (registry.legacy.claims in academy.json); "
                            "pass --statuses FILE written from the MCP tool claims_list")
     argv = shlex.split(cmd, posix=False)
     if argv and argv[0].lower() in ("py", "python", "python3"):
@@ -76,9 +76,9 @@ def registry_statuses(home, config):
     try:
         p = subprocess.run(argv, cwd=home, capture_output=True, timeout=120, env=env)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise nx.NextError("registry command failed: %s" % exc)
+        raise nx.InboxError("registry command failed: %s" % exc)
     if p.returncode != 0:
-        raise nx.NextError("registry command exited %d: %s" % (
+        raise nx.InboxError("registry command exited %d: %s" % (
             p.returncode, p.stderr.decode("utf-8", "replace").strip()[:300]))
     out = {}
     for ln in p.stdout.decode("utf-8", "replace").splitlines()[1:]:
@@ -218,7 +218,7 @@ def main(argv=None):
                         e.position, e.label, e.status or "?", e.required,
                         "ok" if e.done else ""))
             return 0
-    except (nx.NextError, al.AgendaError, ac.AcademyError, OSError, ValueError) as exc:
+    except (nx.InboxError, al.AgendaError, ac.AcademyError, OSError, ValueError) as exc:
         sys.stderr.write("agenda.py: %s\n" % exc)
         return 2
     return 2

@@ -37,7 +37,7 @@ line-ending rule (`crlf`). The standing rules are
    margin note that falls off the page is split into two notes, verbatim.
 4. **Bibliography**: a missing-field warning is fixed only by the Expert's librarian,
    and the bib gate refuses your edit. Hand it back in your report as a `[cite]`
-   roadmap item with the key and the warning, which `/author:next` files; you are not
+   roadmap item with the key and the warning, which `/author:inbox` files; you are not
    the Author's liaison to the Expert.
 
 ## The toolchain
@@ -63,7 +63,7 @@ line-ending rule (`crlf`). The standing rules are
 
 Not yours any more: math-editor does the recolouring edit when a verification lands.
 
-Record each item: `py ${CLAUDE_PLUGIN_ROOT}/scripts/next.py mark R-NNNN --status done
+Record each item: `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py mark R-NNNN --status done
 --note "<how>"`, or for a ticket, `tickets_update` with the result and `delivered`.
 
 **Report**: the build before and after (exit code, errors, undefined, `??`, BibTeX

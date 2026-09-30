@@ -78,7 +78,7 @@
     "fields": {
       "system": ["id", "from", "created", "updated"],
       "human_only": ["to"],
-      "sender": ["title", "kind", "ask", "deliverable", "refs", "priority", "budget", "parent", "blocks", "agenda", "domain", "final_to"],
+      "sender": ["title", "kind", "ask", "deliverable", "refs", "priority", "budget", "parent", "blocks", "agenda", "domain", "final_to", "campaign"],
       "receiver": ["status", "result", "waiting_on", "packets"]
     },
     "sections": {

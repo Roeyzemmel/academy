@@ -381,7 +381,7 @@ def report(items, entries, counts, rows, legacy_path, paper_root, statuses_src):
             "its archive, which remain the record.",
             "- Item dependencies (\"issue 2 needs issue 1\", \"verify after X\") were "
             "not parsed from prose: every `depends_on` is `[]`. A `[verify]` item still "
-            "waits for its entry's inputs through the agenda (next.py).",
+            "waits for its entry's inputs through the agenda (inbox.py).",
             "- Every entry that is not a conjecture has `required: proved`; lower it (to "
             "`sketch`) for results the paper will state as sketches, or set milestones.",
             "- Agenda membership: a labelled statement with a registry record, or of a "

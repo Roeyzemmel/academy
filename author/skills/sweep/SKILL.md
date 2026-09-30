@@ -1,6 +1,6 @@
 ---
 name: sweep
-description: 'The machine-note sweep: inventory machine margin notes in the tex, fold answered ones into roadmap items and delete them, leave open ones, report counts. Use after /author:next runs, before /author:presync, or when margins are full of machine notes.'
+description: 'The machine-note sweep: inventory machine margin notes in the tex, fold answered ones into roadmap items and delete them, leave open ones, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full of machine notes.'
 ---
 
 # /author:sweep

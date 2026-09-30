@@ -18,11 +18,11 @@ tex, edits **only** the home's `.claude/rules/notation-decisions.md`, and files 
 ## What the main session does with the report
 
 - **Clashes inside the draft** are not fixed here. For each recommendation the agent
-  gives, file an item: `py ${CLAUDE_PLUGIN_ROOT}/scripts/next.py add --tag apply
+  gives, file an item: `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py add --tag apply
   --title "Notation: <symbol>" --attach <label or global> --source "audit-notation
   <date>" --body "<the clash, the counts, the recommended symbol>"`. If a
   recommendation changes a decision rather than recording one, file it as
-  `needs-human` instead (`next.py mark R-NNNN --status needs-human`).
+  `needs-human` instead (`inbox.py mark R-NNNN --status needs-human`).
 - **The domain ticket** (if any) is the Expert's to act on; relay its id.
 - **The decisions file** is this paper's only; say which rows changed.
 
