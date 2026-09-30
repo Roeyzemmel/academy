@@ -286,17 +286,17 @@ permissions.json). **The human may make any transition**, including re-opening
 |---|---|---|---|
 | open | accepted | receiver | |
 | open | rejected | receiver | reason in thread |
-| open | blocked | receiver | `waiting_on` non-empty |
+| open | blocked | receiver | `waiting_on` non-empty, or a dead route (below) |
 | open | cancelled | sender | reason in thread |
 | accepted | in-progress | receiver | |
-| accepted | blocked | receiver | `waiting_on` non-empty |
+| accepted | blocked | receiver | `waiting_on` non-empty, or a dead route |
 | accepted | rejected | receiver | reason in thread |
 | accepted | cancelled | sender | reason in thread |
 | in-progress | delivered | receiver | `result` non-empty |
-| in-progress | blocked | receiver | `waiting_on` non-empty |
+| in-progress | blocked | receiver | `waiting_on` non-empty, or a dead route |
 | in-progress | cancelled | sender | reason in thread |
-| blocked | accepted | receiver | `waiting_on` cleared |
-| blocked | in-progress | receiver | `waiting_on` cleared |
+| blocked | accepted | receiver | `waiting_on` cleared; a dead route needs `--reopen` |
+| blocked | in-progress | receiver | `waiting_on` cleared (never a dead route) |
 | blocked | cancelled | sender | reason in thread |
 | delivered | closed | sender | |
 | delivered | in-progress | sender | reason in thread ("returned") |
@@ -318,6 +318,26 @@ Terminal states: `closed`, `rejected`, `cancelled`.
 - The human may edit anything, in VS Code too. `ticket_edit_check` then validates
   the file (`validate_ticket`) and the append-only thread.
 
+**Two kinds of `blocked`**, told apart by their fields (receiver fields):
+
+| kind | fields | meaning | inbox |
+|---|---|---|---|
+| pending | `waiting_on` non-empty (ticket ids, instances or `human`) | waiting for a ticket, an instance or Roey | not taken; return legs as above |
+| dead route | `blocked_by` (a ticket or claim id) and `reopen_if` (one line) | the route ends at a result as strong as the goal, or at a refutation; reopens only for a materially new mechanism, invariant or construction | never taken |
+
+- `blocked` needs `waiting_on` **or** both `blocked_by` and `reopen_if`; both kinds at
+  once is an error. A dead-route block also needs a thread line `tried: <what was
+  tried>` (`board.py transition ... blocked --blocked-by ID --reopen-if LINE --reason
+  "<what was tried>"` writes it). `validate_ticket` and `transition_ticket` enforce
+  this; the transitions themselves are unchanged.
+- **Reopening** a dead-route ticket is `blocked -> accepted` by the receiver with
+  `--reopen "<the new mechanism>"` (MCP: `tickets_update` argument `reopen`); it
+  appends a `reopened: <mechanism>` thread line and clears both fields. Nothing else
+  reopens one (not `blocked -> in-progress`, not the sender). The sender may still
+  cancel, with a reason. A pending block reopens as before, with no `--reopen`.
+- In a campaign, an approach object's `blocked_by` / `reopen_if` are the same fields
+  with the same rules.
+
 **Blocking bookkeeping.** When a ticket enters `blocked` with a ticket id in
 `waiting_on`, the server adds this ticket's id to that ticket's `blocks`. When the
 awaited ticket closes, `session_start` lists the blocked tickets it frees; they are
@@ -327,9 +347,8 @@ not auto-resumed.
 receiver's `in-progress` tickets (unfinished work is resumed before anything new
 starts), the relay parents ready for their return leg (5.2), then its `open` and
 `accepted` tickets, ordered by priority, then agenda position, then id. Blocked
-tickets are never taken except a return leg (and, once section 9 of the campaign design
-lands, a ticket carrying both `blocked_by` and `reopen_if` is a dead route and is never
-taken). It handles at most `budget.itemsPerRun` (at most 3) of them, serially, and after
+tickets are never taken except a return leg (a ticket carrying both `blocked_by` and
+`reopen_if` is a dead route and is never taken, return leg or not). It handles at most `budget.itemsPerRun` (at most 3) of them, serially, and after
 each one the ticket must be `delivered`, `blocked` with its reason, or `rejected`
 (`inbox.py --check T-NNNN`); an unfinished ticket is reported, not redispatched, and no
 other ticket is taken while it is unfinished. Selection, ordering, return legs and the

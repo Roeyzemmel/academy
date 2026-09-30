@@ -218,11 +218,37 @@ def update_ticket(ctx, a):
                 or (old_status, new_status) in REASON_NEEDED) and not reason:
             raise ToolError("%s -> %s needs a reason in the same write"
                             % (old_status, new_status))
-        if new_status == "blocked" and not meta.get("waiting_on"):
-            raise ToolError("blocked needs waiting_on (fields.waiting_on)")
-        if old_status == "blocked" and new_status != "blocked" and meta.get("waiting_on"):
-            meta["waiting_on"] = []
-            lines.append("set waiting_on: []")
+        was_dead = old_status == "blocked" and bool(old_meta.get("blocked_by")
+                                                     and old_meta.get("reopen_if"))
+        reopen = " ".join(str(a.get("reopen") or "").split())
+        if new_status == "blocked":
+            dead = bool(meta.get("blocked_by") and meta.get("reopen_if"))
+            if meta.get("waiting_on") and (meta.get("blocked_by") or meta.get("reopen_if")):
+                raise ToolError("blocked is pending (waiting_on) or a dead route "
+                                "(blocked_by and reopen_if), not both")
+            if not meta.get("waiting_on") and not dead:
+                raise ToolError("blocked needs fields.waiting_on, or both "
+                                "fields.blocked_by and fields.reopen_if")
+            if dead:
+                if not reason:
+                    raise ToolError("a dead-route block needs a reason naming what was tried")
+                lines.append("tried: %s" % " ".join(reason.split()))
+                reason = ""
+        elif was_dead:
+            if new_status == "accepted":
+                if not reopen:
+                    raise ToolError("a dead-route ticket reopens with reopen "
+                                    "(the new mechanism)")
+                lines.append("reopened: %s" % reopen)
+            elif new_status != "cancelled":
+                raise ToolError("a dead-route ticket reopens only blocked -> accepted "
+                                "with reopen; the sender may cancel with a reason")
+        if old_status == "blocked" and new_status != "blocked":
+            if meta.get("waiting_on"):
+                meta["waiting_on"] = []
+                lines.append("set waiting_on: []")
+            for f in ("blocked_by", "reopen_if"):
+                meta.pop(f, None)
         if new_status in ("delivered", "closed") and not meta.get("result"):
             raise ToolError("%s needs result (fields.result)" % new_status)
         meta["status"] = new_status
@@ -347,7 +373,7 @@ TOOLS = [
          "protocol needs one), owned fields, ## Ask / ## Result detail, and/or a thread "
          "note. Field ownership and transitions per docs/protocol.md.",
          obj({"id": S, "status": {"type": "string", "enum": list(ac.TICKET_STATUSES)},
-              "reason": S, "fields": {"type": "object"}, "ask_detail": S,
+              "reason": S, "reopen": S, "fields": {"type": "object"}, "ask_detail": S,
               "result_detail": S, "note": S}, ["id"]),
          update_ticket, write=True),
 ]

@@ -265,6 +265,110 @@ class TestTickets(BoardCase):
         self.assertEqual(m1["waiting_on"], [])
         self.assertEqual(ac.validate_ticket(m1, b1), [])
 
+    # -- blocking: pending versus dead route (campaign design section 9) --------------
+
+    def block_dead(self, tid="T-0001", **kw):
+        args = dict(blocked_by="paper:lem:x", reopen_if="a new invariant",
+                    reason="tried the sum formula and the induction; both circular",
+                    as_instance="expert@main", date=DATE)
+        args.update(kw)
+        return bd.transition_ticket(self.board, tid, "blocked", **args)
+
+    def test_blocked_with_neither_kind_fails(self):
+        self.new()
+        with self.assertRaises(ac.AcademyError):
+            bd.transition_ticket(self.board, "T-0001", "blocked", as_instance="expert@main")
+        with self.assertRaises(ac.AcademyError):      # blocked_by alone is not a dead route
+            bd.transition_ticket(self.board, "T-0001", "blocked", blocked_by="T-0009",
+                                 reason="tried x", as_instance="expert@main")
+
+    def test_both_kinds_at_once_fails(self):
+        self.new()
+        with self.assertRaises(ac.AcademyError):
+            self.block_dead(waiting_on=["human"])
+
+    def test_dead_route_without_reopen_if_fails(self):
+        self.new()
+        with self.assertRaises(ac.AcademyError):
+            self.block_dead(reopen_if=None)
+
+    def test_dead_route_needs_a_thread_line_of_what_was_tried(self):
+        self.new()
+        with self.assertRaises(ac.AcademyError):
+            self.block_dead(reason="")
+
+    def test_dead_route_block_records_fields_and_thread(self):
+        self.new()
+        p = self.block_dead()
+        meta, body = bd.read_ticket(p)
+        self.assertEqual(meta["blocked_by"], "paper:lem:x")
+        self.assertEqual(meta["reopen_if"], "a new invariant")
+        self.assertEqual(ac.validate_ticket(meta, body), [])
+        self.assertTrue(any(t.startswith("tried: ") for _d, _w, t in ac.thread_lines(body)))
+        # validate_ticket alone rejects the same ticket with the line removed
+        bare = body.split("- ")[0] + "- %s author@main: opened\n" % DATE
+        self.assertTrue(any("tried" in x for x in ac.validate_ticket(meta, bare)))
+        self.assertTrue(any("both" in x or "waiting_on" in x for x in
+                            ac.validate_ticket(dict(meta, waiting_on=["human"]))))
+
+    def test_reopen_needs_reopen_text_and_only_blocked_to_accepted(self):
+        self.new()
+        self.block_dead()
+        with self.assertRaises(ac.AcademyError):      # reopen without --reopen
+            bd.transition_ticket(self.board, "T-0001", "accepted", as_instance="expert@main")
+        with self.assertRaises(ac.AcademyError):      # nothing else reopens one
+            bd.transition_ticket(self.board, "T-0001", "in-progress",
+                                 reopen="a new construction", as_instance="expert@main")
+        with self.assertRaises(ac.AcademyError):      # the sender cannot reopen
+            bd.transition_ticket(self.board, "T-0001", "accepted",
+                                 reopen="a new construction", as_instance="author@main")
+        p = bd.transition_ticket(self.board, "T-0001", "accepted",
+                                 reopen="a new construction via Prym forms",
+                                 as_instance="expert@main", date=DATE)
+        meta, body = bd.read_ticket(p)
+        self.assertEqual(meta["status"], "accepted")
+        self.assertNotIn("blocked_by", meta)
+        self.assertNotIn("reopen_if", meta)
+        self.assertEqual(ac.validate_ticket(meta, body), [])
+        texts = [t for _d, _w, t in ac.thread_lines(body)]
+        self.assertIn("reopened: a new construction via Prym forms", texts)
+
+    def test_sender_may_cancel_a_dead_route_with_a_reason(self):
+        self.new()
+        self.block_dead()
+        with self.assertRaises(ac.AcademyError):
+            bd.transition_ticket(self.board, "T-0001", "cancelled", as_instance="author@main")
+        p = bd.transition_ticket(self.board, "T-0001", "cancelled", reason="dropped",
+                                 as_instance="author@main", date=DATE)
+        meta, body = bd.read_ticket(p)
+        self.assertEqual(ac.validate_ticket(meta, body), [])
+
+    def test_pending_block_reopens_without_reopen_text(self):
+        self.new()
+        bd.transition_ticket(self.board, "T-0001", "blocked", waiting_on=["human"],
+                             as_instance="expert@main", date=DATE)
+        bd.transition_ticket(self.board, "T-0001", "accepted", as_instance="expert@main")
+
+    def test_the_core_skips_a_ticket_blocked_through_the_cli_path(self):
+        self.new()
+        self.block_dead()
+        rows, _t = ac.inbox_core.select(self.board, "expert@main", 3,
+                                        route=lambda m: {"how": "skill", "target": "x",
+                                                         "why": "y"})
+        self.assertEqual(rows, [])
+
+    def test_cli_blocked_by_and_reopen_flags(self):
+        self.new()
+        rc = bd.main(["--board", self.board, "transition", "T-0001", "blocked",
+                      "--blocked-by", "paper:lem:x", "--reopen-if", "a new invariant",
+                      "--reason", "tried the sum formula", "--as", "expert@main"])
+        self.assertEqual(rc, 0)
+        rc = bd.main(["--board", self.board, "transition", "T-0001", "accepted",
+                      "--reopen", "a new mechanism", "--as", "expert@main"])
+        self.assertEqual(rc, 0)
+        meta, _ = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
+        self.assertEqual(meta["status"], "accepted")
+
     def test_append_is_append_only(self):
         p = self.new()
         old = bd.read_ticket(p)[1]

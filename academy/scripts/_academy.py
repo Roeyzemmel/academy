@@ -1148,11 +1148,12 @@ TICKET_FIELDS = {
     "human_only": ("to",),
     "sender": ("title", "kind", "ask", "deliverable", "refs", "priority", "budget",
                "parent", "blocks", "agenda", "domain", "final_to", "campaign"),
-    "receiver": ("status", "result", "waiting_on", "packets"),
+    "receiver": ("status", "result", "waiting_on", "blocked_by", "reopen_if", "packets"),
 }
 TICKET_KEY_ORDER = ("id", "title", "kind", "from", "to", "status", "priority", "ask",
                     "deliverable", "refs", "agenda", "domain", "parent", "final_to", "campaign",
-                    "blocks", "waiting_on", "budget", "result", "packets", "created", "updated")
+                    "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
+                    "packets", "created", "updated")
 REQUIRED_TICKET_FIELDS = ("id", "title", "kind", "from", "to", "status", "ask",
                           "deliverable", "priority", "budget", "created", "updated")
 THREAD_HEADING = "## Thread"
@@ -1390,16 +1391,34 @@ def validate_ticket(meta, body=None):
                 probs.append("budget.runs must be a positive integer")
             if b.get("max_model") not in MODELS:
                 probs.append("budget.max_model must be one of %s" % ", ".join(MODELS))
-    if st == "blocked" and not meta.get("waiting_on"):
-        probs.append("a blocked ticket needs waiting_on")
-    if st != "blocked" and meta.get("waiting_on"):
-        probs.append("waiting_on must be empty unless status is blocked")
+    for f in ("blocked_by", "reopen_if"):
+        v = meta.get(f)
+        if v is not None and (not isinstance(v, str) or "\n" in v):
+            probs.append("%s must be a single line" % f)
+    pending = bool(meta.get("waiting_on"))
+    dead = bool(meta.get("blocked_by") and meta.get("reopen_if"))
+    if st == "blocked":
+        if pending and (meta.get("blocked_by") or meta.get("reopen_if")):
+            probs.append("a blocked ticket is pending (waiting_on) or a dead route "
+                         "(blocked_by and reopen_if), not both")
+        elif not pending and not dead:
+            probs.append("a blocked ticket needs waiting_on, or both blocked_by and reopen_if")
+    else:
+        if pending:
+            probs.append("waiting_on must be empty unless status is blocked")
+        if meta.get("blocked_by") or meta.get("reopen_if"):
+            probs.append("blocked_by and reopen_if must be empty unless status is blocked")
     if st in ("delivered", "closed") and not meta.get("result"):
         probs.append("a %s ticket needs result" % st)
     if body is not None:
         if THREAD_HEADING not in body.split("\n"):
             probs.append("missing '## Thread' section")
         else:
+            if st == "blocked" and dead and not pending and not any(
+                    m and m.group(3).startswith("tried:")
+                    for m in (RE_THREAD_LINE.match(ln)
+                              for ln in thread_lines(body, raw=True))):
+                probs.append("a dead-route block needs a thread line 'tried: <what was tried>'")
             for ln in thread_lines(body, raw=True):
                 if not RE_THREAD_LINE.match(ln) and not ln.startswith("  "):
                     probs.append("malformed thread line: %r" % ln)

@@ -192,6 +192,35 @@ class TestProtocol(McpTestBase):
 
 
 class TestTickets(McpTestBase):
+    def test_dead_route_block_and_reopen(self):
+        author = self.server("author@t")
+        expert = self.server("expert@t")
+        w, r = "author:math-writer", "expert:review-chair"
+        err, t = author.call("tickets_create", caller=w, title="Check Lemma 4.2",
+                             kind="verify", to="expert@t", ask="Verify paper:lem:x.",
+                             deliverable="A packet.")
+        tid = t["id"]
+        err, res = expert.call("tickets_update", caller=r, id=tid, status="accepted")
+        self.assertFalse(err, res)
+        err, msg = expert.call("tickets_update", caller=r, id=tid, status="blocked")
+        self.assertTrue(err)                                   # neither kind
+        dead = {"blocked_by": "paper:lem:x", "reopen_if": "a new invariant"}
+        err, msg = expert.call("tickets_update", caller=r, id=tid, status="blocked",
+                               fields=dead)
+        self.assertTrue(err)                                   # no thread line of what was tried
+        err, res = expert.call("tickets_update", caller=r, id=tid, status="blocked",
+                               fields=dead, reason="tried the strip bound; circular")
+        self.assertFalse(err, res)
+        err, msg = expert.call("tickets_update", caller=r, id=tid, status="accepted")
+        self.assertTrue(err)                                   # reopen needs the mechanism
+        err, res = expert.call("tickets_update", caller=r, id=tid, status="accepted",
+                               reopen="a Prym construction")
+        self.assertFalse(err, res)
+        err, got = expert.call("tickets_get", caller=r, id=tid)
+        self.assertNotIn("blocked_by", got["meta"])
+        self.assertEqual(got["problems"], [])
+        self.assertIn("reopened: a Prym construction", got["body"])
+
     def test_round_trip(self):
         author = self.server("author@t")
         expert = self.server("expert@t")
