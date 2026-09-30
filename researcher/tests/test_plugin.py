@@ -18,7 +18,7 @@ AGENTS = {
     "experiment-spec": ("sonnet", "opus", False),
     "lit-request": ("haiku", "sonnet", False),
 }
-SKILLS = ("explore", "prove", "corollaries", "generalize", "claims", "review-experiment",
+SKILLS = ("explore", "campaign", "prove", "corollaries", "generalize", "claims", "review-experiment",
           "settle", "inbox", "status")
 SHELL_AND_WRITE = {"Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit"}
 #: words that would mean domain mathematics leaked into the role plugin
@@ -105,6 +105,43 @@ class PluginTests(unittest.TestCase):
                 self.assertLess(len(text.split("\n")), 120, "a SKILL.md stays a thin orchestrator")
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "skills", "review-experiment",
                                                     "checklist.md")))
+
+    def campaign_text(self):
+        out = []
+        for rel in (("skills", "campaign", "SKILL.md"), ("references", "campaign-dispatch.md")):
+            with open(os.path.join(PLUGIN, *rel), encoding="utf-8") as fh:
+                out.append(fh.read())
+        return out
+
+    def test_campaign_skill_states_its_caps_and_serial_dispatch(self):
+        skill, ref = self.campaign_text()
+        for flag in ("--rounds", "--agents", "--runs"):
+            self.assertIn(flag, skill)
+        self.assertRegex(skill, r"K = 0 if omitted")
+        self.assertRegex(skill, r"(?i)forced to\s+0")
+        self.assertRegex(skill, r"(?i)serial")
+        self.assertRegex(skill, r"(?i)one subagent at a time")
+        self.assertIn("references/campaign-dispatch.md", skill)
+        self.assertRegex(ref, r"(?i)strictly one subagent at a time")
+        self.assertIn("--campaign", ref)
+        self.assertIn("--campaign", skill)
+
+    def test_campaign_names_no_agent_outside_the_existing_set(self):
+        others = set()
+        for role in ("academy", "author", "expert", "scientist"):
+            d = os.path.join(REPO, role, "agents")
+            others |= {os.path.splitext(f)[0] for f in os.listdir(d) if f.endswith(".md")}
+        others -= set(AGENTS)
+        for text in self.campaign_text():
+            for name in others:
+                self.assertNotRegex(text, r"\b%s\b" % re.escape(name), name)
+            # every agent-shaped backticked name is one of the researcher's own
+            for name in re.findall(r"`([a-z]+(?:-[a-z]+)+)`", text):
+                if name in ("lead-researcher", "prover", "claim-keeper"):
+                    continue
+                self.assertNotIn(name, others)
+        self.assertEqual({f[:-3] for f in os.listdir(os.path.join(PLUGIN, "agents"))},
+                         set(AGENTS))
 
     def test_hooks_point_at_scripts(self):
         with open(os.path.join(PLUGIN, "hooks", "hooks.json"), encoding="utf-8") as fh:

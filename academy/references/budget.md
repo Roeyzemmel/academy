@@ -41,6 +41,18 @@ happen again.
 9. **Short briefs.** Point the agent at the ticket, packet or object id; it reads the
    files. Text pasted into a brief is paid again on every turn of the agent.
 
+## Campaigns
+
+A campaign (`/researcher:campaign`) runs under caps Roey sets per invocation:
+`--rounds N`, `--agents M` (subagent runs per round, provers and dispatched tickets
+together), `--runs K` (lab runs, default 0). Without the two required caps it does
+not start. Inside those caps, and for nothing else, **rule 3 is suspended** for
+dispatching tickets through the inbox and for lab runs up to `--runs`; rule 1 is
+replaced by the caps. **Rule 2 is never suspended**: dispatch is one subagent at a
+time, each checkpointed before the next. Rule 4 holds (a limit error ends the
+campaign with a report), and rules 5 to 9 hold for every dispatched subagent. In a
+cloud session `--runs` is forced to 0.
+
 ## Measuring
 
 `/academy:usage` reports turns and cache volume by instance, role and agent, with

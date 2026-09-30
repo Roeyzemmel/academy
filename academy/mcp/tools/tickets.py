@@ -127,6 +127,9 @@ def create_ticket(ctx, a, clerical=False):
         "created": today,
         "updated": today,
     }
+    campaign = _one_line("campaign", a.get("campaign"), required=False)
+    if campaign:
+        meta["campaign"] = campaign     # the campaign's target id (inbox --campaign)
     meta["id"] = "T-0000"                           # placeholder for validation
     probs = ac.validate_ticket(meta)
     if probs:
@@ -366,7 +369,8 @@ TOOLS = [
               "to": S, "ask": S, "deliverable": S, "ask_detail": S,
               "priority": {"type": "string", "enum": list(ac.PRIORITIES)},
               "refs": L, "agenda": S, "domain": S, "parent": S,
-              "budget": {"type": "object"}, "note": S, "final_to": S, "as_human": B},
+              "budget": {"type": "object"}, "note": S, "final_to": S, "campaign": S,
+              "as_human": B},
              ["title", "kind", "to", "ask", "deliverable"]),
          lambda ctx, a: create_ticket(ctx, a), write=True),
     Tool("tickets_update", "Change a ticket: a status transition (with reason where the "

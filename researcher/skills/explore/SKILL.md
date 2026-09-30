@@ -10,6 +10,8 @@ the items to take. A `question` ticket counts as a one-item run. Scripts: `$R`, 
 as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Budget: `academy/references/budget.md`
 (at most `budget.itemsPerRun` items, serially; nothing starts itself).
 
+Under `/researcher:campaign` a direction may belong to an approach (`approach:`); `next` gives nothing for a blocked one.
+
 The main session briefs and relays. It writes no mathematics, no code and no
 experiment script, and decides no truth.
 

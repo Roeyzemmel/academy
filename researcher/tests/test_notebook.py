@@ -136,6 +136,140 @@ class NotebookTests(Workspace):
         self.assertIn("Researcher home", err)
 
 
+APPROACH = """---
+id: AP-1
+kind: approach
+title: "A mechanism"
+statement: "x"
+target: C-9
+lifecycle: {lc}
+{extra}history:
+{hist}---
+
+## Mechanism
+"""
+
+
+def approach_text(lc="active", extra="", hist=None):
+    hist = hist or ['  - "2026-09-30 | %s | created"\n' % lc]
+    return APPROACH.format(lc=lc, extra=extra, hist="".join(hist))
+
+
+class ApproachTests(Workspace):
+    def setUp(self):
+        super().setUp()
+        self.nb = notebook.Notebook(self.R)
+
+    def put_direction(self, did="D-1", approach="AP-1"):
+        text = DIRECTION.replace("id: D-1", "id: %s" % did).replace(
+            "lifecycle: active\n", "lifecycle: active\napproach: %s\n" % approach, 1)
+        write(os.path.join(self.R, "objects", "direction", did + ".md"), text)
+        write(os.path.join(self.R, "objects", "question", "Q-2.md"), record("open", "Q-2", "question"))
+
+    def test_approach_kind_parses(self):
+        self.assertIn("approach", rs.OBJECT_KINDS)
+        path = self.nb.new_object("approach", "s9:AP-2", "Mechanism two", "One line.",
+                                  target="C-9")
+        a = self.nb.approach("AP-2")
+        self.assertEqual((a["kind"], a["lifecycle"], a["target"], a["status"]),
+                         ("approach", "active", "C-9", None))
+        self.assertTrue(path.replace("\\", "/").endswith("objects/approach/AP-2.md"))
+        self.assertEqual(self.nb.approach_problems("AP-2"), [])
+        with self.assertRaises(ac.AcademyError):
+            self.nb.new_object("approach", "AP-3", "no target")
+        with self.assertRaises(ac.AcademyError):
+            self.nb.new_object("approach", "AP-4", "t", status="open", target="C-9")
+
+    def test_direction_carries_an_optional_approach(self):
+        p = self.nb.new_object("direction", "D-7", "Program", approach="s9:AP-2")
+        self.assertEqual(self.nb.find("D-7")["approach"], "AP-2")
+        p2 = self.nb.new_object("direction", "D-8", "Program")
+        self.assertNotIn("approach:", rs.read_text(p2))
+        self.assertIsNone(self.nb.find("D-8")["approach"])
+
+    def test_membership_is_computed_from_directions(self):
+        write(os.path.join(self.R, "objects", "approach", "AP-1.md"), approach_text())
+        write(os.path.join(self.R, "objects", "approach", "AP-2.md"),
+              approach_text().replace("AP-1", "AP-2"))
+        self.put_direction("D-1", "s9:AP-1")
+        self.put_direction("D-2", "AP-2")
+        self.put_direction("D-3", "AP-1")
+        self.assertEqual(sorted(m["id"] for m in self.nb.approach_members("AP-1")),
+                         ["D-1", "D-3"])
+        self.assertEqual([m["id"] for m in self.nb.approach_members("s9:AP-2")], ["D-2"])
+        rc, out, _ = self.run_script("notebook.py", "approach", "show", "AP-1", "--json")
+        self.assertEqual(json.loads(out)["members"], ["s9:D-1", "s9:D-3"])
+
+    def test_next_skips_blocked_approaches(self):
+        write(os.path.join(self.R, "objects", "approach", "AP-1.md"), approach_text())
+        self.put_direction("D-1", "AP-1")
+        self.assertTrue(self.nb.next_items("D-1"))
+        self.nb.set_approach("AP-1", "blocked", blocked_by="C-8",
+                             reopen_if="a new invariant")
+        self.assertEqual(self.nb.next_items("D-1"), [])
+        rc, _, _ = self.run_script("notebook.py", "next", "D-1")
+        self.assertEqual(rc, 1)
+        self.nb.set_approach("AP-1", "active", note="uses the new invariant I")
+        self.assertTrue(self.nb.next_items("D-1"))
+
+    def test_blocked_without_blocked_by_fails(self):
+        with self.assertRaises(ac.AcademyError):
+            write(os.path.join(self.R, "objects", "approach", "AP-1.md"), approach_text())
+            self.nb.set_approach("AP-1", "blocked", reopen_if="x")
+        with self.assertRaises(ac.AcademyError):
+            self.nb.set_approach("AP-1", "blocked", blocked_by="C-8")
+        # a hand-edited file is caught by the check
+        write(os.path.join(self.R, "objects", "approach", "AP-5.md"),
+              approach_text("blocked").replace("AP-1", "AP-5"))
+        probs = self.nb.approach_problems("AP-5")
+        self.assertTrue(any("blocked without blocked_by" in p for p in probs), probs)
+        rc, out, _ = self.run_script("notebook.py", "approach", "check")
+        self.assertEqual(rc, 2)
+
+    def test_reopening_needs_a_history_row(self):
+        write(os.path.join(self.R, "objects", "approach", "AP-1.md"), approach_text())
+        self.nb.set_approach("AP-1", "blocked", blocked_by="C-8", reopen_if="new invariant")
+        a = self.nb.approach("AP-1")
+        self.assertEqual((a["lifecycle"], a["blocked_by"]), ("blocked", "C-8"))
+        with self.assertRaises(ac.AcademyError):
+            self.nb.set_approach("AP-1", "active")           # no mechanism named
+        # editing the lifecycle by hand leaves no history row: the check fails
+        path = a["path"]
+        rs_text = rs.read_text(path).replace("lifecycle: blocked", "lifecycle: active", 1)
+        rs_text = rs_text.replace("blocked_by: C-8\n", "").replace(
+            "reopen_if: new invariant\n", "")
+        write(path, rs_text)
+        probs = self.nb.approach_problems("AP-1")
+        self.assertTrue(any("newest history row" in p for p in probs), probs)
+        # a proper reopening writes the row
+        write(path, rs.read_text(path).replace("lifecycle: active", "lifecycle: blocked", 1))
+        self.nb.set_approach("AP-1", "blocked", blocked_by="C-8", reopen_if="new invariant")
+        self.nb.set_approach("AP-1", "active", note="invariant I found")
+        self.assertEqual(self.nb.approach_problems("AP-1"), [])
+        self.assertIn("| active | invariant I found", rs.read_text(path))
+
+    def test_blocking_lists_the_open_tickets_to_move(self):
+        write(os.path.join(self.R, "objects", "approach", "AP-1.md"), approach_text())
+        self.put_direction("D-1", "AP-1")
+        ticket(self.B, "scientist@t", "T-0001")
+        ticket(self.B, "scientist@t", "T-0002")
+        ticket(self.B, "scientist@t", "T-0003")
+        for tid, refs in (("T-0001", ["s9:AP-1"]), ("T-0002", ["s9:D-1"]),
+                          ("T-0003", ["s9:C-1"])):
+            path = ac.find_ticket(self.B, tid)
+            meta, body = ac.read_frontmatter(rs.read_text(path))
+            meta["refs"] = refs
+            write(path, ac.write_frontmatter(meta, body))
+        got = [t[0] for t in self.nb.approach_tickets("AP-1", self.B)]
+        self.assertEqual(sorted(got), ["T-0001", "T-0002"])
+        rc, out, _ = self.run_script("notebook.py", "approach", "set", "AP-1", "blocked",
+                                     "--blocked-by", "C-8", "--reopen-if", "new invariant",
+                                     "--board", self.B)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("transition T-0001 blocked --blocked-by C-8", out)
+        self.assertNotIn("T-0003", out)
+
+
 def ticket(board, inst, tid, status="open", kind="prove", priority="normal", agenda=None):
     meta = {"id": tid, "title": "t " + tid, "kind": kind, "from": "author@x", "to": inst,
             "status": status, "priority": priority, "ask": "a", "deliverable": "d",

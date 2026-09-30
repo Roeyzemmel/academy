@@ -373,6 +373,7 @@ def main(argv=None):
     p.add_argument("--max-model", choices=ac.MODELS); p.add_argument("--detail", default="")
     p.add_argument("--as", dest="as_instance", required=True)
     p.add_argument("--final-to", dest="final_to")
+    p.add_argument("--campaign", help="the campaign's target id (inbox --campaign selects it)")
     p.add_argument("--agent", default="")
 
     p = sub.add_parser("show", help="print one ticket")
@@ -418,7 +419,7 @@ def main(argv=None):
             path = create_ticket(board, a.to, a.title, a.ask, a.deliverable, a.kind,
                                  a.priority, _split(a.refs), a.agenda, a.domain, a.parent,
                                  budget, a.detail, a.as_instance, a.agent, ws,
-                                 final_to=a.final_to)
+                                 final_to=a.final_to, campaign=a.campaign)
             print(path)
         elif a.cmd == "show":
             path, meta, body = get_ticket(board, a.id)

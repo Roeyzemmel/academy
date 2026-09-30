@@ -11,6 +11,13 @@ Usage (from a Researcher home, or with --home):
     py notebook.py next ID [--n N] [--json]         the next unsettled items to explore
     py notebook.py new KIND ID --title T [--statement S] [--status S] [--bears-on a,b]
                        [--depends-on a,b] [--falsifier F] [--tags a,b] [--domain D] [--by WHO]
+                       [--target ID]  (approach)  [--approach ID]  (direction)
+    py notebook.py approach show ID [--json]        lifecycle, target, members (computed)
+    py notebook.py approach check [ID]              blocked needs blocked_by and reopen_if;
+                                                    a lifecycle change needs a history row
+    py notebook.py approach set ID LIFECYCLE [--blocked-by ID --reopen-if LINE] [--note WHAT]
+                       [--board DIR]                blocking lists the approach's open tickets
+                                                    and the dead-route moves for them
     py notebook.py attempt ID [--create] [--by WHO]  path of the next proof attempt
     py notebook.py journal [--date YYYY-MM-DD] [--create]
     py notebook.py scaffold HOME [--dry-run]         copy templates/notebook into a home
@@ -99,6 +106,9 @@ class Notebook(object):
         return {"id": oid, "ref": self.ref(oid), "kind": get("kind") or folder,
                 "status": get("status"), "title": get("title"),
                 "lifecycle": get("lifecycle") or "active", "proof": get("proof"),
+                "approach": get("approach") or None, "target": get("target") or None,
+                "blocked_by": get("blocked_by") or None,
+                "reopen_if": get("reopen_if") or None,
                 "path": path.replace("\\", "/")}
 
     def objects(self, kind=None, status=None):
@@ -161,7 +171,10 @@ class Notebook(object):
     def next_items(self, ref, n=None):
         """The first ``n`` unsettled question / candidate-claim items of a direction."""
         n = min(n or self.budget, self.budget, 3)
-        _, items = self.direction(ref)
+        d, items = self.direction(ref)
+        ap = self.find(d["approach"]) if d.get("approach") else None
+        if ap and ap["kind"] == "approach" and ap["lifecycle"] != "active":
+            return []       # a blocked (or delivered, dropped) approach gets no work
         out = []
         for it in items:
             if it["section"] not in EXPLORE_SECTIONS:
@@ -176,6 +189,123 @@ class Notebook(object):
                 break
         return out
 
+    # -- approaches (campaign mode) ------------------------------------------
+    def approach(self, ref):
+        a = self.find(ref)
+        if not a or a["kind"] != "approach":
+            raise ac.AcademyError("no approach object %s" % ref)
+        return a
+
+    def approach_members(self, ref):
+        """The directions naming this approach in their ``approach:`` field. Computed,
+        never hand-kept."""
+        oid = self.bare(ref)
+        return [d for d in self.objects("direction")
+                if d["approach"] and self.bare(d["approach"]) == oid]
+
+    def _approach_file(self, ref):
+        a = self.approach(ref)
+        meta, body = ac.read_frontmatter(rs.read_text(a["path"]) or "")
+        return a, meta, body
+
+    @staticmethod
+    def _history_rows(meta):
+        rows = []
+        for r in meta.get("history") or []:
+            parts = [x.strip() for x in str(r).split("|", 2)]
+            parts += [""] * (3 - len(parts))
+            rows.append(tuple(parts))
+        return rows        # newest first
+
+    def approach_problems(self, ref=None):
+        """Rule violations of one approach (or all): ``blocked`` needs ``blocked_by`` and
+        ``reopen_if``; the lifecycle must be the newest history row's; a reopening
+        (blocked to anything else) needs a row that says what changed."""
+        refs = [ref] if ref else [a["id"] for a in self.objects("approach")]
+        probs = []
+        for r in refs:
+            a, meta, _ = self._approach_file(r)
+            lc = str(meta.get("lifecycle") or "active")
+            if lc not in rs.APPROACH_LIFECYCLES:
+                probs.append("%s: lifecycle %r is not one of %s"
+                             % (a["id"], lc, ", ".join(rs.APPROACH_LIFECYCLES)))
+            if lc == "blocked":
+                for f in ("blocked_by", "reopen_if"):
+                    if not str(meta.get(f) or "").strip():
+                        probs.append("%s: blocked without %s" % (a["id"], f))
+            elif meta.get("blocked_by") or meta.get("reopen_if"):
+                probs.append("%s: blocked_by / reopen_if left set on a %s approach"
+                             % (a["id"], lc))
+            rows = self._history_rows(meta)
+            if not rows:
+                probs.append("%s: no history row" % a["id"])
+                continue
+            if rows[0][1] != lc:
+                probs.append("%s: lifecycle is %s but the newest history row says %s "
+                             "(a change needs a row naming what changed)"
+                             % (a["id"], lc, rows[0][1] or "nothing"))
+            for newer, older in zip(rows, rows[1:]):
+                if older[1] == "blocked" and newer[1] != "blocked" and not newer[2]:
+                    probs.append("%s: reopened on %s without naming the new mechanism"
+                                 % (a["id"], newer[0]))
+        return probs
+
+    def set_approach(self, ref, lifecycle, blocked_by=None, reopen_if=None, note="",
+                     by="lead-researcher"):
+        """Move an approach to ``lifecycle`` and add the history row. Blocking needs
+        ``blocked_by`` and ``reopen_if``; leaving ``blocked`` needs ``note``: the new
+        mechanism, invariant or construction. Returns the path."""
+        if lifecycle not in rs.APPROACH_LIFECYCLES:
+            raise ac.AcademyError("lifecycle must be one of %s"
+                                  % ", ".join(rs.APPROACH_LIFECYCLES))
+        a, meta, body = self._approach_file(ref)
+        old = str(meta.get("lifecycle") or "active")
+        note = " ".join((note or "").split())
+        bb = self.bare(blocked_by) if blocked_by else ""
+        ri = " ".join((reopen_if or "").split())
+        if lifecycle == "blocked":
+            if not bb or not ri:
+                raise ac.AcademyError("%s: blocked needs blocked_by (the theorem-strength "
+                                      "lemma) and reopen_if" % a["id"])
+            meta["blocked_by"], meta["reopen_if"] = bb, ri
+            note = note or "blocked by %s" % bb
+        else:
+            if bb or ri:
+                raise ac.AcademyError("blocked_by and reopen_if belong to a move to blocked")
+            if old == "blocked" and not note:
+                raise ac.AcademyError("%s: reopening needs --note naming the new mechanism, "
+                                      "invariant or construction; nothing else reopens it"
+                                      % a["id"])
+            meta.pop("blocked_by", None)
+            meta.pop("reopen_if", None)
+            note = note or "set %s" % lifecycle
+        meta["lifecycle"] = lifecycle
+        meta["history"] = ["%s | %s | %s (%s)" % (ac.today(), lifecycle, note, by)] \
+            + [str(r) for r in (meta.get("history") or [])]
+        ac.atomic_write(a["path"], ac.write_frontmatter(meta, body))
+        return a["path"]
+
+    def approach_tickets(self, ref, board):
+        """Open tickets of the campaign that name this approach (or one of its
+        directions) in ``refs``: ``[(id, to, status)]``, for the dead-route move."""
+        a = self.approach(ref)
+        names = {a["id"], a["ref"]} | {m["id"] for m in self.approach_members(ref)} \
+            | {m["ref"] for m in self.approach_members(ref)}
+        out = []
+        for dirpath, dirnames, filenames in os.walk(str(board)):
+            dirnames[:] = [d for d in dirnames if d != ".git"]
+            for f in sorted(filenames):
+                if not re.match(r"^T-\d+.*\.md$", f):
+                    continue
+                try:
+                    m, _ = ac.read_frontmatter(rs.read_text(os.path.join(dirpath, f)) or "")
+                except ac.AcademyError:
+                    continue
+                if m.get("status") in ("open", "accepted", "in-progress") \
+                        and set(str(x) for x in (m.get("refs") or [])) & names:
+                    out.append((m["id"], m.get("to"), m.get("status")))
+        return out
+
     # -- writing -----------------------------------------------------------
     def _render(self, name, values):
         with open(os.path.join(TEMPLATE_DIR, name), "r", encoding="utf-8") as fh:
@@ -185,7 +315,8 @@ class Notebook(object):
         return text
 
     def new_object(self, kind, oid, title, statement="", status=None, bears_on=(),
-                   depends_on=(), falsifier="", tags=(), domain=None, by="researcher"):
+                   depends_on=(), falsifier="", tags=(), domain=None, by="researcher",
+                   target="", approach=""):
         if kind not in rs.OBJECT_KINDS:
             raise ac.AcademyError("kind must be one of %s" % ", ".join(rs.OBJECT_KINDS))
         oid = self.bare(oid)
@@ -208,8 +339,16 @@ class Notebook(object):
                 "tags": fmt_list(tags), "domain": domain or self.domain,
                 "date": ac.today(), "ns": self.ns, "falsifier": falsifier or "",
                 "created": "created by %s" % by}
-        if kind == "direction":
+        if kind == "approach":
+            if not target:
+                raise ac.AcademyError("an approach names its target (--target, a registry id)")
+            vals["target"] = target
+            text = self._render("approach.md", vals)
+        elif kind == "direction":
+            vals["approach"] = self.bare(approach) if approach else ""
             text = self._render("direction.md", vals)
+            if not approach:
+                text = text.replace("approach: \n", "", 1)
         else:
             text = self._render("object.md", vals)
             if kind not in rs.STATUS_KINDS:
@@ -289,6 +428,48 @@ def _csv(s):
     return [x.strip() for x in (s or "").split(",") if x.strip()]
 
 
+def _approach_cmd(nb, args):
+    def board():
+        return args.board or ac.load_workspace()["board"]
+    if args.action == "check":
+        probs = nb.approach_problems(args.id)
+        for p_ in probs:
+            print(p_)
+        return 2 if probs else 0
+    if not args.id:
+        raise ac.AcademyError("give the approach id")
+    if args.action == "set":
+        if not args.lifecycle:
+            raise ac.AcademyError("give the lifecycle")
+        nb.set_approach(args.id, args.lifecycle, args.blocked_by, args.reopen_if, args.note,
+                        args.by)
+        print("%s -> %s" % (nb.approach(args.id)["ref"], args.lifecycle))
+        if args.lifecycle == "blocked":
+            # the tickets' receivers (or Roey) make the moves: the chain gate lets only
+            # a ticket's receiver block it, so they are listed, not run
+            for tid, to, st in nb.approach_tickets(args.id, board()):
+                print("  %s (%s, %s): py academy/scripts/board.py transition %s blocked "
+                      "--blocked-by %s --reopen-if %s --reason \"tried: <what>\" --as %s"
+                      % (tid, to, st, tid, nb.bare(args.blocked_by),
+                         json.dumps(args.reopen_if), to))
+        return 0
+    a = nb.approach(args.id)
+    info = {"approach": a, "members": [m["ref"] for m in nb.approach_members(args.id)],
+            "problems": nb.approach_problems(args.id)}
+    if args.json:
+        print(json.dumps(info, ensure_ascii=False, indent=1))
+    else:
+        print("%s  %s  [%s]  target %s" % (a["ref"], a["title"] or "", a["lifecycle"],
+                                          a["target"] or "?"))
+        if a["blocked_by"]:
+            print("  blocked_by %s; reopen_if %s" % (a["blocked_by"], a["reopen_if"]))
+        for m in info["members"]:
+            print("  direction %s" % m)
+        for p_ in info["problems"]:
+            print("  PROBLEM " + p_)
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--home")
@@ -303,6 +484,12 @@ def main(argv=None):
     p.add_argument("--status"); p.add_argument("--bears-on"); p.add_argument("--depends-on")
     p.add_argument("--falsifier", default=""); p.add_argument("--tags")
     p.add_argument("--domain"); p.add_argument("--by", default="researcher")
+    p.add_argument("--target", default=""); p.add_argument("--approach", default="")
+    p = sub.add_parser("approach"); p.add_argument("action", choices=("show", "check", "set"))
+    p.add_argument("id", nargs="?"); p.add_argument("lifecycle", nargs="?")
+    p.add_argument("--blocked-by"); p.add_argument("--reopen-if"); p.add_argument("--note", default="")
+    p.add_argument("--board"); p.add_argument("--by", default="lead-researcher")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("attempt"); p.add_argument("id"); p.add_argument("--create", action="store_true")
     p.add_argument("--by", default="prover")
     p = sub.add_parser("journal"); p.add_argument("--date"); p.add_argument("--create", action="store_true")
@@ -352,9 +539,12 @@ def main(argv=None):
         if args.cmd == "new":
             path = nb.new_object(args.kind, args.id, args.title, args.statement, args.status,
                                  _csv(args.bears_on), _csv(args.depends_on), args.falsifier,
-                                 _csv(args.tags), args.domain, args.by)
+                                 _csv(args.tags), args.domain, args.by, args.target,
+                                 args.approach)
             print(path.replace("\\", "/"))
             return 0
+        if args.cmd == "approach":
+            return _approach_cmd(nb, args)
         if args.cmd == "attempt":
             path, n = nb.attempt_path(args.id, args.create, args.by)
             print(path.replace("\\", "/"))

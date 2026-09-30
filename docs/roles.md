@@ -43,7 +43,7 @@ Researcher. Relays: `research-intake` (author -> researcher) and `paper-liaison`
 
 ## Researcher (one per research domain): `researcher/README.md`
 
-Owns the research notebook and the claim statuses (`claim-keeper`). Neighbours: the
+Owns the research notebook and the claim statuses (`claim-keeper`); `/researcher:campaign` runs a capped portfolio of approaches on one claim. Neighbours: the
 Expert and the Scientist. Relays: `experiment-spec` (expert -> scientist) and
 `lit-request` (scientist -> expert / author).
 

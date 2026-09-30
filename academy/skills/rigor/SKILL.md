@@ -60,6 +60,15 @@ Read your own argument as a hostile referee.
   objects*, not merely plausible for them. This is the most common serious error in
   an otherwise sound paper, because it looks like scholarship (`citation-discipline`).
 
+**Reduction audit** (for an adversary, or for your own reduction). Check each in turn:
+
+- **The wrong object.** The constructed object is not the one defined: a weaker
+  notion passing for the defined one.
+- **The wrong count.** A quantity counted with the wrong multiplicity.
+- **Dropped degenerate cases.** Empty, disconnected or repeated ones.
+- **A new bad case.** A reduction that introduces a case violating the hypotheses.
+- **Circular use** of the target or of a statement equivalent to it.
+
 ## 4. Earn the flag before you write it
 
 Flagging has its own failure mode: it becomes a substitute for thinking. A neatly
@@ -75,6 +84,12 @@ writing one, or reporting "not settled":
 - **A blocked route is not a blocked question.** "The known construction does not
   transfer here, because the relevant points behave differently" is a fact about one
   route, not evidence that no counterexample exists.
+- **A theorem-strength lemma blocks the route.** A lemma is theorem-strength if it
+  implies the target, or is implied by it under known reductions. A route that ends
+  at one has made no progress toward the target unless it supplies a new proof of
+  that lemma. Name the lemma and mark the route blocked, with what would reopen it:
+  only a materially new mechanism, invariant or construction. Naming the lemma is a
+  recorded judgement a reviewer may challenge; the registry does not decide it.
 - **Record the class you searched.** "No counterexample among objects of size ≤ 6,
   over pairs of distinguished points only." A search over a class that structurally
   excludes the answer is worth nothing, and stating the class makes that visible.
@@ -95,6 +110,11 @@ End every piece of work with one status from `status-vocabulary`, and if it is n
 | Proofs under extra hypotheses or in special cases | split: each proved case is its own claim; the general claim stays `open` and depends on them; say what breaks in general |
 | An explicit, verified counterexample | `refuted` (or `refuted-as-stated` with the repaired statement) |
 | Nothing settled | `open` / `conjectured` / `sketch`: what you tried, where it broke, the class searched, the obstruction you suspect |
+
+**No artifact, no result.** A report without a lemma, construction, equation, proof
+attempt or counterexample counts as nothing. "Promising" and "routine" are not
+accepted for an unproved compatibility or global statement: write it down as a lemma
+and treat it as open.
 
 "Not settled" without a described counterexample attempt is a weaker answer than it
 looks. Mark the seams inside a written argument too, with the home's machine-note

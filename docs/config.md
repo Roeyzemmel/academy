@@ -177,7 +177,7 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 
 | Key | Type | Meaning |
 |---|---|---|
-| `objectKinds` | list | `definition claim conjecture question example assumption direction` |
+| `objectKinds` | list | `definition claim conjecture question example assumption direction` (`approach` too, for campaigns) |
 | `statusField` | str | The frontmatter key guarded by `status_guard` (`status`) |
 | `reviewsHome` | instance | Where proof reviews live (`expert@main`) |
 | `lab` | instance | The Scientist instance experiments go to |
