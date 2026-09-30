@@ -410,6 +410,42 @@ class TestMcpParity(StoreCase):
         self.assertEqual(self.snapshot(self.files), self.snapshot(self.gh))
 
 
+class NoLinks(object):
+    """A transport without the optional native-link methods."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        if name in ("set_parent", "add_dependency"):
+            raise AttributeError(name)
+        return getattr(self._inner, name)
+
+
+class TestSkippedRelations(StoreCase):
+    def test_a_transport_without_links_reports_what_it_could_not_write(self):
+        import io
+        from contextlib import redirect_stderr
+        st = bs.GithubBoardStore(NoLinks(self.transport), "o/r")
+        _r, m4, b4 = st.get("T-0004")
+        m4 = dict(m4, waiting_on=["T-0001", "T-0002"])
+        _r, m6, b6 = st.get("T-0006")
+        m6 = dict(m6, parent="T-0001")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            st.save(m4, b4)
+            st.save(m6, b6)
+        self.assertEqual([{"type": "dependency", "issue": 4, "blocker": 2},
+                          {"type": "sub_issue", "parent": 1, "child": 6}],
+                         st.skipped_relations)
+        self.assertIn("not written", err.getvalue())
+
+    def test_a_transport_with_links_skips_nothing(self):
+        _r, m4, b4 = self.gh.get("T-0004")
+        self.gh.save(dict(m4, waiting_on=["T-0001", "T-0002"]), b4)
+        self.assertEqual([], self.gh.skipped_relations)
+
+
 class TestOpenStore(BoardCase):
     def write_ws(self, board):
         with open(self.ws_path, encoding="utf-8") as fh:
@@ -464,3 +500,4 @@ class TestOpenStore(BoardCase):
 
 if __name__ == "__main__":
     unittest.main()
+

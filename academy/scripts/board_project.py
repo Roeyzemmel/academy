@@ -13,8 +13,7 @@ values from ``fields_for(meta)``. ``fields.json`` for ``--live`` is what the Pro
 ``{"fields": [{"name": "Kind", "options": ["verify", ...]}, ...]}`` (options as names or
 ``{"name": ...}``); missing fields and options are reported, extra ones are only noted.
 
-Fields (docs/github-board.md): **Status** (Todo = open, In Progress, Done = closed / rejected
-/ cancelled, plus Accepted, Blocked, Delivered), **Instance** (the ``to`` of the ticket, one
+Fields (docs/github-board.md): **Status** (Todo = open, In Progress, Done = every terminal status, plus Accepted, Blocked, Delivered), **Instance** (the ``to`` of the ticket, one
 option per workspace instance and ``human``), **Role**, **Kind**, **Priority** (P0/P1/P2 =
 high/normal/low), **Agenda** (text) and **Block** (``pending`` or ``dead-route``, set on a
 blocked ticket only, the Project twin of the label ``route:dead``).
@@ -33,9 +32,9 @@ import academy_common as ac  # noqa: E402
 import board_codec as bc  # noqa: E402
 
 #: ticket status -> option of the Project's Status field
-STATUS_OPTIONS = {"open": "Todo", "accepted": "Accepted", "in-progress": "In Progress",
-                  "delivered": "Delivered", "blocked": "Blocked", "closed": "Done",
-                  "rejected": "Done", "cancelled": "Done"}
+STATUS_OPTIONS = dict({"open": "Todo", "accepted": "Accepted", "in-progress": "In Progress",
+                       "delivered": "Delivered", "blocked": "Blocked"},
+                      **{s: "Done" for s in ac.TERMINAL})
 #: ticket priority -> option of the Priority field
 PRIORITY_OPTIONS = {"high": "P0", "normal": "P1", "low": "P2"}
 BLOCK_OPTIONS = ("pending", "dead-route")
@@ -82,7 +81,7 @@ def fields_for(meta):
             "Kind": meta.get("kind"),
             "Priority": PRIORITY_OPTIONS.get(meta.get("priority")),
             "Agenda": meta.get("agenda") or None,
-            "Block": (("dead-route" if bc.is_dead_route(meta) else "pending")
+            "Block": (("dead-route" if bc.is_dead_block(meta) else "pending")
                       if blocked else None)}
 
 

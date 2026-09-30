@@ -1,5 +1,6 @@
 """Tests for board_sync.plan (the pure part of the GitHub board backstop)."""
 
+import json
 import os
 import sys
 import unittest
@@ -193,59 +194,246 @@ class TestRouteAndReopen(ReopenBase):
         self.assertTrue(json.loads(out.getvalue())["problems"])
 
 
+API = "https://api.github.com/repos/o/r/issues/1"
+CURL = "https://api.github.com/repos/o/r/issues/comments/%d"
+BOT = bs.BOT_LOGIN
+
+
 class FakeGithub(object):
-    """Just enough REST for ``board_sync.sync``: records the calls, keeps comments."""
+    """Just enough REST for ``board_sync.sync``: records the calls, keeps comments. Comment
+    URLs and the issue URL look like the real ones; a call to an unknown URL fails."""
 
     def __init__(self, comments):
         self.comments = [dict(c) for c in comments]
         self.calls = []
+        self.next_id = 1000
 
     def __call__(self, method, url, payload=None):
         self.calls.append((method, url, payload))
-        if method == "POST" and url.endswith("/comments"):
-            self.comments.append({"body": payload["body"], "url": "u%d" % len(self.comments)})
-        elif method == "PATCH" and url.startswith("u"):
-            for c in self.comments:
-                if c["url"] == url:
-                    c["body"] = payload["body"]
+        if method == "POST" and url == API + "/comments":
+            self.next_id += 1
+            self.comments.append({"body": payload["body"], "url": CURL % self.next_id,
+                                  "user": {"login": BOT}})
+        elif method == "PATCH" and "/comments/" in url:
+            hit = [c for c in self.comments if c["url"] == url]
+            assert hit, "PATCH of unknown comment " + url
+            hit[0]["body"] = payload["body"]
+        elif method == "DELETE" and "/comments/" in url:
+            assert any(c["url"] == url for c in self.comments), "DELETE of unknown " + url
+            self.comments = [c for c in self.comments if c["url"] != url]
+        elif method == "PATCH" and url == API:
+            pass
+        else:
+            raise AssertionError("unexpected call %s %s" % (method, url))
+
+    def of(self, mark):
+        return [c for c in self.comments if c["body"].startswith(mark)]
+
+
+def state_comment(state, login=BOT, n=1):
+    return {"body": bs.STATE_MARK + (state if isinstance(state, str) else json.dumps(state))
+            + bs.STATE_END, "url": CURL % n, "user": {"login": login}}
 
 
 class TestSyncRun(ReopenBase):
     def api_comments(self, cs):
-        return [{"body": c, "url": "c%d" % i} for i, c in enumerate(cs)]
+        return [{"body": c, "url": CURL % i, "user": {"login": "roey"}}
+                for i, c in enumerate(cs)]
 
-    def test_state_comment_is_written_then_used_to_catch_a_hand_reopen(self):
-        gh = FakeGithub(self.api_comments(self.cs))
-        bs.sync(self.iss, gh.comments, gh, "api")
-        states = [c for c in gh.comments if c["body"].startswith(bs.STATE_MARK)]
-        self.assertEqual(1, len(states))
-        # next event: the hand edit; the stored state says the ticket was a dead route
+    def hand_reopened(self):
+        """The issue after a hand edit: accepted, the dead-route fields gone, no entry."""
         m, b = self.ticket()
         m = dict(m, status="accepted")
         m.pop("blocked_by"); m.pop("reopen_if")
-        iss, cs = self.issue_for(m, b)
-        gh.comments = [c for c in gh.comments if not c["body"].startswith("<!--")] + states
+        return self.issue_for(m, b)
+
+    def test_state_comment_is_written_then_used_to_catch_a_hand_reopen(self):
+        gh = FakeGithub(self.api_comments(self.cs))
+        bs.sync(self.iss, gh.comments, gh, API)
+        states = gh.of(bs.STATE_MARK)
+        self.assertEqual(1, len(states))
+        self.assertEqual(BOT, states[0]["user"]["login"])
+        # next event: the hand edit; the stored state says the ticket was a dead route
+        iss, cs = self.hand_reopened()
         gh.comments = self.api_comments(cs) + states
-        p = bs.sync(iss, gh.comments, gh, "api")
+        p = bs.sync(iss, gh.comments, gh, API)
         self.assertTrue(p["problems"])
-        self.assertTrue(any(c["body"].startswith(bs.PROBLEM_MARK) for c in gh.comments))
+        self.assertTrue(gh.of(bs.PROBLEM_MARK))
         # the state did not advance to the violation
-        st = [c for c in gh.comments if c["body"].startswith(bs.STATE_MARK)]
-        self.assertIn('"dead":true', st[0]["body"])
+        self.assertIn('"dead":true', gh.of(bs.STATE_MARK)[0]["body"])
 
     def test_state_advances_after_a_proper_reopen(self):
         gh = FakeGithub(self.api_comments(self.cs))
-        bs.sync(self.iss, gh.comments, gh, "api")
+        bs.sync(self.iss, gh.comments, gh, API)
         bd.transition_ticket(self.board, "T-0001", "accepted", reopen="new lemma",
                              as_instance="expert@main", date="2026-09-30")
         iss, cs = self.issue_for(*self.ticket())
-        states = [c for c in gh.comments if c["body"].startswith(bs.STATE_MARK)]
-        gh.comments = self.api_comments(cs) + states
-        p = bs.sync(iss, gh.comments, gh, "api")
+        gh.comments = self.api_comments(cs) + gh.of(bs.STATE_MARK)
+        p = bs.sync(iss, gh.comments, gh, API)
         self.assertEqual([], p["problems"])
-        st = [c for c in gh.comments if c["body"].startswith(bs.STATE_MARK)]
+        st = gh.of(bs.STATE_MARK)
+        self.assertEqual(1, len(st))
         self.assertIn('"dead":false', st[0]["body"])
         self.assertIn('"reopened":1', st[0]["body"])
+
+    # -- finding 1: a forged or malformed state comment must not turn the backstop off ------
+    def test_malformed_state_comments_never_crash_and_are_reported(self):
+        for forged in ("5", "[1]", '"issue"', "null",
+                       '{"status":"blocked","dead":true,"entries":"a","reopened":0}',
+                       '{"status":"nonsense","dead":true,"entries":1,"reopened":0}',
+                       '{"status":"blocked","dead":"yes","entries":1,"reopened":0}',
+                       '{"status":"blocked","dead":true,"entries":1,"reopened":true}',
+                       "{not json"):
+            iss, cs = self.hand_reopened()
+            gh = FakeGithub(self.api_comments(cs) + [state_comment(forged, n=99)])
+            p = bs.sync(iss, gh.comments, gh, API)        # must not raise
+            self.assertTrue(any("malformed" in x for x in p["problems"]), (forged, p))
+            # the bot's own malformed comment is rewritten in place, not duplicated
+            self.assertEqual(1, len(gh.of(bs.STATE_MARK)), forged)
+
+    def test_plan_survives_malformed_previous_and_bad_issues(self):
+        iss, cs = self.hand_reopened()
+        for prev in (5, [1], "issue", {"status": "blocked", "dead": True, "entries": "a",
+                                       "reopened": 0}, {"issue": 5}, {"issue": {"x": 1}}):
+            p = bs.plan(iss, cs, prev)
+            self.assertIsInstance(p["problems"], list, prev)
+        p = bs.plan({"number": 1, "title": 5, "body": None, "labels": 7}, [])
+        self.assertTrue(p["problems"])
+
+    def test_a_state_comment_by_anyone_but_the_bot_is_ignored(self):
+        iss, cs = self.hand_reopened()
+        forged = state_comment({"status": "accepted", "dead": False, "reopened": 0,
+                                "entries": 1}, login="mallory", n=77)
+        gh = FakeGithub(self.api_comments(cs) + [forged])
+        p = bs.sync(iss, gh.comments, gh, API)
+        self.assertTrue(any("ignored" in x for x in p["problems"]), p)
+        # with no trusted state the unreopened dead route is still seen
+        self.assertTrue(any("state missing" in x for x in p["problems"]), p)
+        self.assertIn(forged["body"], [c["body"] for c in gh.comments])  # not touched
+
+    def test_the_last_bot_state_comment_counts_and_duplicates_are_deleted(self):
+        gh = FakeGithub(self.api_comments(self.cs))
+        bs.sync(self.iss, gh.comments, gh, API)
+        good = gh.of(bs.STATE_MARK)[0]
+        stale = state_comment({"status": "accepted", "dead": False, "reopened": 0,
+                               "entries": 1}, n=50)            # an older, different state
+        iss, cs = self.hand_reopened()
+        gh.comments = [stale] + self.api_comments(cs) + [good]
+        gh.comments[-1]["url"] = CURL % 51
+        p = bs.sync(iss, gh.comments, gh, API)
+        self.assertTrue(any("without a new 'reopened" in x for x in p["problems"]), p)
+        self.assertIn(("DELETE", CURL % 50, None), gh.calls)
+        self.assertEqual(1, len(gh.of(bs.STATE_MARK)))
+
+    def test_duplicate_states_collapse_when_the_rule_holds(self):
+        a = state_comment(bc.ticket_state(*self.ticket()), n=50)
+        b = state_comment(bc.ticket_state(*self.ticket()), n=51)
+        gh = FakeGithub(self.api_comments(self.cs) + [a, b])
+        bs.sync(self.iss, gh.comments, gh, API)
+        self.assertEqual([CURL % 51], [c["url"] for c in gh.of(bs.STATE_MARK)])
+        self.assertIn(("DELETE", CURL % 50, None), gh.calls)
+
+    # -- finding 2: deleting or rewriting the state, editing the thread --------------------
+    def test_deleted_state_on_a_hand_reopened_dead_route_is_reported(self):
+        iss, cs = self.hand_reopened()
+        gh = FakeGithub(self.api_comments(cs))                  # no state comment at all
+        p = bs.sync(iss, gh.comments, gh, API)
+        self.assertTrue(any("state missing" in x for x in p["problems"]), p)
+        self.assertEqual([], gh.of(bs.STATE_MARK))              # and no fresh state is blessed
+
+    def test_first_sync_of_a_clean_dead_route_writes_state_without_complaint(self):
+        gh = FakeGithub(self.api_comments(self.cs))
+        p = bs.sync(self.iss, gh.comments, gh, API)
+        self.assertEqual([], p["problems"])
+        self.assertEqual(1, len(gh.of(bs.STATE_MARK)))
+        self.assertEqual([], gh.of(bs.PROBLEM_MARK))
+
+    def test_first_sync_of_an_already_violating_ticket_is_flagged(self):
+        self.assertTrue(bs.plan(*self.hand_reopened())["problems"])
+        # but a properly reopened ticket on its first sync is clean
+        bd.transition_ticket(self.board, "T-0001", "accepted", reopen="new lemma",
+                             as_instance="expert@main", date="2026-09-30")
+        self.assertEqual([], bs.plan(*self.issue_for(*self.ticket()))["problems"])
+
+    def test_an_edited_thread_entry_with_the_same_count_is_reported(self):
+        m, b = self.ticket()
+        iss, cs = self.issue_for(m, b)
+        cs = list(cs)
+        cs[-1] = cs[-1].replace("status blocked", "status BLOCKED") \
+            if "status blocked" in cs[-1] else cs[-1] + "\nrewritten"
+        self.assertNotEqual(self.cs, cs)
+        probs = bs.plan(iss, cs, self.prev)["problems"]
+        self.assertTrue(any("edited or replaced" in x for x in probs), probs)
+        # an appended entry is fine
+        b2 = ac.append_thread(b, "expert@main", "note: still thinking", "2026-09-30")
+        iss, cs = self.issue_for(m, b2)
+        self.assertEqual([], bs.plan(iss, cs, self.prev)["problems"])
+
+    def test_a_replaced_thread_comment_is_reported(self):
+        m, b = self.ticket()
+        iss, cs = self.issue_for(m, b)
+        forged = bc.encode_comment("2026-09-30", "expert@main", "tried: something else")
+        probs = bs.plan(iss, list(cs[:-1]) + [forged], self.prev)["problems"]
+        self.assertTrue(any("edited or replaced" in x for x in probs), probs)
+
+    def test_a_forged_reopened_entry_passes_the_limit_is_documented(self):
+        """The server checks the state, not the person: GitHub identity is one account."""
+        iss, cs = self.hand_reopened()
+        forged = bc.encode_comment("2026-09-30", "expert@main", "reopened: trust me")
+        self.assertEqual([], bs.plan(iss, list(cs) + [forged], self.prev)["problems"])
+        for f in ("github", "x y"):                     # but not a non-speaker name
+            bad = bc.encode_comment("2026-09-30", f, "reopened: trust me")
+            p = bs.plan(iss, list(cs) + [bad], self.prev)["problems"]
+            self.assertTrue(p, f)
+        self.assertIn("one account", bs.__doc__)
+
+    # -- finding 3: stale problem comments -----------------------------------------------
+    def test_a_problem_comment_becomes_resolved_when_the_problem_clears(self):
+        gh = FakeGithub(self.api_comments(self.cs))
+        bs.sync(self.iss, gh.comments, gh, API)
+        iss, cs = self.hand_reopened()
+        gh.comments = self.api_comments(cs) + gh.of(bs.STATE_MARK)
+        bs.sync(iss, gh.comments, gh, API)
+        probs = gh.of(bs.PROBLEM_MARK)
+        self.assertEqual(1, len(probs))
+        self.assertIn("does not pass", probs[0]["body"])
+        # undone: back to the dead route
+        gh.comments = self.api_comments(self.cs) + gh.of(bs.STATE_MARK) + probs
+        p = bs.sync(self.iss, gh.comments, gh, API)
+        self.assertEqual([], p["problems"])
+        self.assertEqual(bs.RESOLVED, gh.of(bs.PROBLEM_MARK)[0]["body"])
+        n = len(gh.calls)
+        bs.sync(self.iss, gh.comments, gh, API)                  # idempotent: no more writes
+        self.assertEqual([], [c for c in gh.calls[n:] if c[0] != "PATCH" or c[1] != API])
+        self.assertEqual(1, len(gh.of(bs.PROBLEM_MARK)))
+
+    # -- finding 6: the human's exemption ------------------------------------------------
+    def test_the_human_may_leave_a_dead_route_by_any_move(self):
+        m, b = self.ticket()
+        m = dict(m, status="in-progress")
+        m.pop("blocked_by"); m.pop("reopen_if")
+        iss, cs = self.issue_for(m, b)
+        self.assertTrue(bs.plan(iss, cs, self.prev)["problems"])          # unknown editor
+        self.assertEqual([], bs.plan(iss, cs, self.prev, human=True)["problems"])
+        b2 = ac.append_thread(b, "human", "status blocked -> in-progress: my call",
+                              "2026-09-30")
+        iss, cs = self.issue_for(m, b2)                                   # human speaker
+        self.assertEqual([], bs.plan(iss, cs, self.prev)["problems"])
+        # the human exemption does not cover a removed or edited thread
+        self.assertTrue(bs.plan(iss, list(cs[:-2]), self.prev, human=True)["problems"])
+
+    def test_sync_passes_the_human_flag_and_advances_the_state(self):
+        m, b = self.ticket()
+        m = dict(m, status="in-progress")
+        m.pop("blocked_by"); m.pop("reopen_if")
+        iss, cs = self.issue_for(m, b)
+        gh = FakeGithub(self.api_comments(cs) + [state_comment(self.prev)])
+        p = bs.sync(iss, gh.comments, gh, API, human=True)
+        self.assertEqual([], p["problems"])
+        self.assertIn('"status":"in-progress"', gh.of(bs.STATE_MARK)[0]["body"])
+
+    def test_cancelling_is_accepted_whoever_does_it(self):
+        self.assertIn("cannot tell", bc.check_reopen.__doc__)
 
 
 if __name__ == "__main__":

@@ -343,8 +343,9 @@ Terminal states: `closed`, `rejected`, `cancelled`.
   (also without a status change).
 - **The human** may leave a dead route by any transition (`accepted`, `in-progress`,
   `open`, `cancelled`, ...), giving a `--reason` (or `--reopen`) as the record: it clears
-  both fields, and a move to `accepted` writes it as the `reopened:` line. (`board-sync`'s
-  reopen check still flags a human move other than `blocked -> accepted`; see its notes.)
+  both fields, and a move to `accepted` writes it as the `reopened:` line. (`board-sync` exempts the human's move when the
+  event's sender is a configured human login or the new last thread entry is `human`'s; see
+  `docs/github-board.md`.)
 - In a campaign, an approach object's `blocked_by` / `reopen_if` are the same fields
   with the same rules.
 

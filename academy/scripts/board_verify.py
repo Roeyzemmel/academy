@@ -8,6 +8,12 @@
 MCP). Every ticket is decoded from its issue and rendered; the text must equal the file
 on the board byte for byte, and the issue must be consistent (labels, role, state).
 Exit 1 on any drift. Placeholders are checked to be closed.
+
+Relations (sub-issue ``parent``, dependency ``waits_on``): a manifest is checked completely
+(each issue's ``parent`` / ``waits_on`` and the manifest's ``relations`` list must equal what
+the ticket files give). An issues dump is checked only when its records carry ``parent`` /
+``waits_on`` (the runbook adds them from the native links); without them the relations are
+**unverified** and ``main`` says so.
 """
 
 import argparse
@@ -26,11 +32,22 @@ KEYS = ("number", "title", "body", "labels", "state", "state_reason")
 
 
 def from_manifest(m):
-    return [{"issue": {k: i[k] for k in KEYS}, "comments": i["comments"]} for i in m["issues"]]
+    return [{"issue": {k: i[k] for k in KEYS}, "comments": i["comments"],
+             "parent": i.get("parent"), "waits_on": i.get("waits_on", [])}
+            for i in m["issues"]]
 
 
-def verify(board, records):
-    """List of drift messages (empty when the issues reproduce the board exactly)."""
+def unverified_relations(records):
+    """Numbers of the records that carry no relation data (their links are not checked)."""
+    return [r["issue"]["number"] for r in records
+            if "parent" not in r and "waits_on" not in r
+            and "placeholder" not in bc.label_names(r["issue"].get("labels"))]
+
+
+def verify(board, records, relations=None):
+    """List of drift messages (empty when the issues reproduce the board exactly).
+
+    ``relations`` is the manifest's relation list, when there is one."""
     files = {}
     for path, meta, body in bd.iter_tickets(board):
         if meta is not None:
@@ -59,8 +76,24 @@ def verify(board, records):
         with open(files[n], encoding="utf-8", newline="") as fh:
             if fh.read() != bc.render(meta, body):
                 out.append("#%d: rendered ticket differs from %s" % (n, os.path.basename(files[n])))
+        if "parent" in r or "waits_on" in r:
+            want = bc.encode(meta, body)
+            if (r.get("parent") or None) != want["parent"]:
+                out.append("#%d: parent is %s, the ticket says %s"
+                           % (n, r.get("parent"), want["parent"]))
+            if sorted(r.get("waits_on") or []) != sorted(want["waits_on"]):
+                out.append("#%d: waits_on is %s, the ticket says %s"
+                           % (n, r.get("waits_on"), want["waits_on"]))
     for n in sorted(set(files) - seen):
         out.append("T-%04d is on the board but has no issue" % n)
+    if relations is not None:
+        issues = [bc.encode(m, b) for _p, m, b in bd.iter_tickets(board) if m is not None]
+        key = lambda r: json.dumps(r, sort_keys=True)  # noqa: E731
+        have, want = sorted(map(key, relations)), sorted(map(key, bc.relations(issues)))
+        out.extend("relation %s is on the ticket files but not in the manifest" % w
+                   for w in want if w not in have)
+        out.extend("relation %s is in the manifest but not on the ticket files" % h
+                   for h in have if h not in want)
     return out
 
 
@@ -74,9 +107,14 @@ def main(argv=None):
     with open(a.manifest or a.issues, encoding="utf-8") as fh:
         data = json.load(fh)
     recs = from_manifest(data) if a.manifest else data
-    drift = verify(bd.resolve_board(a.board), recs)
+    drift = verify(bd.resolve_board(a.board), recs,
+                   data.get("relations", []) if a.manifest else None)
     for d in drift:
         print(d)
+    skipped = unverified_relations(recs)
+    if skipped:
+        print("note: relations (parent, waits_on) of %d issue(s) are unverified: the dump "
+              "carries no link data" % len(skipped))
     print("%d issue(s) checked, %d drift" % (len(recs), len(drift)))
     return 1 if drift else 0
 

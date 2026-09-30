@@ -135,6 +135,38 @@ class TestCodec(GithubBoardCase):
         self.assertEqual([], bc.check_transition("open", "closed", "sender", human=True))
 
 
+class TestMetaCannotShadowLabels(GithubBoardCase):
+    def issue(self):
+        self.make()
+        _p, m, b = next(iter(bd.iter_tickets(self.board)))
+        e = bc.encode(m, b)
+        return issue_of(e), e["comments"]
+
+    def test_meta_line_carrying_a_label_field_is_refused(self):
+        iss, cs = self.issue()
+        for key, val in (("status", "delivered"), ("to", "author@main"), ("kind", "cite"),
+                         ("priority", "high"), ("from", "human"), ("id", "T-0009"),
+                         ("title", "x")):
+            first, _, rest = iss["body"].partition("\n")
+            fields = json.loads(first[len(bc.META_PREFIX):-len(bc.META_SUFFIX)])
+            fields[key] = val
+            bad = dict(iss, body=bc._dump_meta(fields) + "\n" + rest)
+            with self.assertRaises(bc.CodecError, msg=key):
+                bc.decode(bad, cs)
+            self.assertTrue(bc.validate_issue(bad, cs), key)
+
+    def test_unknown_meta_key_round_trips_in_place(self):
+        self.make()
+        _p, m, b = next(iter(bd.iter_tickets(self.board)))
+        m = dict(m, zzz_note="kept", aaa_note="too")
+        e = bc.encode(m, b)
+        m2, b2 = bc.decode(issue_of(e), e["comments"])
+        self.assertEqual(list(bc.ordered_meta(m)), list(m2))
+        self.assertEqual("kept", m2["zzz_note"])
+        self.assertEqual(bc.render(m, b), bc.render(m2, b2))
+        self.assertIn("zzz_note", bc.render(m, b))
+
+
 class TestRouteLabel(GithubBoardCase):
     """route:dead: zero or one, derived from blocked_by + reopen_if (campaign design)."""
 
@@ -196,6 +228,38 @@ class TestRouteLabel(GithubBoardCase):
         self.assertNotEqual("ededed", defs["route:dead"]["color"])
         self.assertTrue(defs["route:dead"]["description"])
         self.assertEqual([], bv.verify(self.board, bv.from_manifest(m)))
+
+    def test_route_label_needs_a_blocked_ticket(self):
+        """One predicate: not blocked + both fields is a validation error, never route:dead."""
+        got = self.dead_and_pending()
+        m = dict(got["T-0001"][0], status="accepted")
+        self.assertEqual([], bc.route_labels(m))
+        self.assertFalse(bc.is_dead_block(m))
+        self.assertFalse(bc.ticket_state(m, got["T-0001"][1])["dead"])
+        self.assertTrue(ac.validate_ticket(m, got["T-0001"][1]))
+
+    def test_label_helpers_are_defined_once(self):
+        self.assertEqual(("status", "to", "from", "kind", "prio", "role", "route"),
+                         bc.LABEL_PREFIXES)
+        self.assertEqual(set(bc.LABEL_PREFIXES) | {bc.PLACEHOLDER}, set(be.COLORS))
+        self.assertEqual(set(bc.LABEL_PREFIXES), set(be.DESCRIPTIONS))
+
+    def test_relations_drift_is_verified(self):
+        self.make()
+        m = be.build(self.board)
+        self.assertTrue(any(r["type"] == "sub_issue" for r in m["relations"]))
+        self.assertEqual([], bv.verify(self.board, bv.from_manifest(m), m["relations"]))
+        bad = json.loads(json.dumps(m))
+        bad["relations"] = []
+        self.assertTrue(any("relation" in d
+                            for d in bv.verify(self.board, bv.from_manifest(bad), [])))
+        recs = bv.from_manifest(m)
+        for r in recs:
+            if r["issue"]["number"] == 2:
+                r["parent"] = None
+        self.assertTrue(any("#2: parent" in d for d in bv.verify(self.board, recs)))
+        bare = [{"issue": r["issue"], "comments": r["comments"]} for r in recs]
+        self.assertEqual([1, 2, 3], bv.unverified_relations(bare))
 
     def test_export_of_a_board_without_dead_routes_has_no_route_label(self):
         self.make()

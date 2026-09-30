@@ -23,6 +23,21 @@ def names(spec, field):
 
 
 class TestSpec(unittest.TestCase):
+    def test_kind_and_status_options_are_the_literal_lists(self):
+        """Not derived from the constants under test: a rename must fail here."""
+        self.assertEqual(
+            ["verify", "cite", "lookup", "prove", "review-experiment", "generalize",
+             "experiment", "test", "code", "notation", "referee", "build", "figure",
+             "decision", "question", "research", "note", "write", "apply", "copy",
+             "sweep", "other"], names(bp.build(), "Kind"))
+        self.assertEqual(["Todo", "Accepted", "In Progress", "Delivered", "Done", "Blocked"],
+                         names(bp.build(), "Status"))
+        self.assertEqual({"open": "Todo", "accepted": "Accepted", "in-progress": "In Progress",
+                          "delivered": "Delivered", "blocked": "Blocked", "closed": "Done",
+                          "rejected": "Done", "cancelled": "Done"}, bp.STATUS_OPTIONS)
+        self.assertEqual(["author", "researcher", "expert", "scientist", "human"],
+                         names(bp.build(), "Role"))
+
     def test_kind_options_are_every_ticket_kind_including_campaign_kinds(self):
         got = names(bp.build(), "Kind")
         self.assertEqual(list(ac.TICKET_KINDS), got)

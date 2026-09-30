@@ -28,7 +28,8 @@ empty. Comments are ordered by ``id`` (else ``created_at``) when the transport g
 otherwise as returned.
 
 and optionally ``set_parent(number, parent_number)`` and ``add_dependency(number,
-blocker_number)`` (native sub-issue and dependency links; skipped when absent). The real
+blocker_number)`` (native sub-issue and dependency links; when absent the links are not
+written, but listed in ``store.skipped_relations`` and reported on stderr). The real
 transport (the github MCP in a session, or REST with a token) is not in this repository:
 ``MemoryTransport`` below is the reference behaviour and the fake the tests use.
 """
@@ -82,6 +83,10 @@ class GithubBoardStore(ac.BoardStore):
         #: the academy_common module this store speaks through (its AcademyError, its
         #: ticket-id pattern): a role plugin passes its vendored copy (see open_store)
         self.lib = lib or ac
+        #: native links the transport could not write (it lacks ``set_parent`` /
+        #: ``add_dependency``): ``{"type", "issue", ...}`` dicts in the manifest's relation
+        #: form, kept so a caller can report them or apply them later; never silent
+        self.skipped_relations = []
 
     def describe(self):
         return "github:%s" % (self.repo or "board")
@@ -186,13 +191,20 @@ class GithubBoardStore(ac.BoardStore):
             old = bc.decode(cur, ())[0]
         except (bc.CodecError, ValueError):
             old = {}                                 # a fresh '(new ticket)' issue
-        if e["parent"] and e["parent"] != old.get("parent") and hasattr(self.t, "set_parent"):
-            self.t.set_parent(n, bc.ticket_number(e["parent"]))
-        if hasattr(self.t, "add_dependency"):
-            had = set(str(w) for w in old.get("waiting_on") or [])
-            for w in e["waits_on"]:
-                if w not in had:
-                    self.t.add_dependency(n, bc.ticket_number(w))
+        if e["parent"] and e["parent"] != old.get("parent"):
+            if hasattr(self.t, "set_parent"):
+                self.t.set_parent(n, bc.ticket_number(e["parent"]))
+            else:
+                self._skip({"type": "sub_issue", "parent": bc.ticket_number(e["parent"]),
+                            "child": n})
+        had = set(str(w) for w in old.get("waiting_on") or [])
+        for w in e["waits_on"]:
+            if w in had:
+                continue
+            if hasattr(self.t, "add_dependency"):
+                self.t.add_dependency(n, bc.ticket_number(w))
+            else:
+                self._skip({"type": "dependency", "issue": n, "blocker": bc.ticket_number(w)})
         want = {"title": e["title"], "body": e["body"], "labels": e["labels"],
                 "state": e["state"], "state_reason": e["state_reason"]}
         have_issue = {"title": cur.get("title"), "body": cur.get("body"),
@@ -201,6 +213,12 @@ class GithubBoardStore(ac.BoardStore):
         if dict(want, labels=sorted(want["labels"])) != have_issue:
             self.t.update_issue(n, **want)
         return self.ref(n)
+
+    def _skip(self, rel):
+        if rel not in self.skipped_relations:
+            self.skipped_relations.append(rel)
+        sys.stderr.write("board_store: %s not written (the transport has no %s)\n" % (
+            rel, "set_parent" if rel["type"] == "sub_issue" else "add_dependency"))
 
     def create(self, meta, body):
         """Open the issue first (GitHub assigns the number, which is the ticket id), then

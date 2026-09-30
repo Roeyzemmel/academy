@@ -4,8 +4,9 @@
 
 Writes a deterministic manifest of everything a transport must create so that issue
 number == ticket number: one entry per number 1..max (ids that were never used become
-closed 'not planned' placeholders), the label set, and the relations (sub-issue parent,
-dependency: a ticket waiting on tickets) to apply once every issue exists. Nothing is sent anywhere; the migration
+closed 'not planned' placeholders), the label set, and the relations to apply once every
+issue exists: ``sub_issue`` (a ticket and its ``parent``) and ``dependency`` (a ticket and
+each ticket in its ``waiting_on``). Nothing is sent anywhere; the migration
 runbook (/academy:board-migrate) executes the manifest through the github MCP, or
 ``board_project.py``/a token does. Packets are not exported (they stay files).
 """
@@ -23,13 +24,15 @@ import academy_common as ac  # noqa: E402
 import board as bd  # noqa: E402
 import board_codec as bc  # noqa: E402
 
-COLORS = {"status": "1d76db", "to": "5319e7", "role": "0e8a16", "from": "bfd4f2",
-          "kind": "fbca04", "prio": "d93f0b", "route": "b60205", "placeholder": "cccccc",
-          "via": "ededed"}
-DESCRIPTIONS = {"status": "ticket status", "to": "addressee instance",
-                "role": "addressee role (derived from to)", "from": "sender instance",
-                "kind": "ticket kind", "prio": "ticket priority",
-                "route": "dead-route block (derived from blocked_by + reopen_if)"}
+#: label colour and description by prefix (``board_codec.LABEL_PREFIXES`` and the placeholder)
+COLORS = dict(zip(bc.LABEL_PREFIXES + (bc.PLACEHOLDER,),
+                  ("1d76db", "5319e7", "bfd4f2", "fbca04", "d93f0b", "0e8a16", "b60205",
+                   "cccccc")))
+DESCRIPTIONS = dict(zip(bc.LABEL_PREFIXES,
+                        ("ticket status", "addressee instance", "sender instance", "ticket kind",
+                         "ticket priority", "addressee role (derived from to)",
+                         "dead-route block (derived from status blocked + blocked_by + "
+                         "reopen_if)")))
 
 
 def build(board, repo=""):
@@ -50,16 +53,9 @@ def build(board, repo=""):
             gaps.append(n)
             issues.append(bc.placeholder(n))
     labels = sorted({l for i in issues for l in i["labels"]})
-    label_defs = [{"name": l, "color": COLORS.get(l.split(":")[0], "ededed"),
-                   "description": DESCRIPTIONS.get(l.split(":")[0], "")} for l in labels]
-    relations = []
-    for i in issues:
-        if i["parent"]:
-            relations.append({"type": "sub_issue", "parent": bc.ticket_number(i["parent"]),
-                              "child": i["number"]})
-        for t in i["waits_on"]:
-            relations.append({"type": "dependency", "issue": i["number"],
-                              "blocker": bc.ticket_number(t)})
+    label_defs = [{"name": l, "color": COLORS.get(bc.label_prefix(l), "ededed"),
+                   "description": DESCRIPTIONS.get(bc.label_prefix(l), "")} for l in labels]
+    relations = bc.relations(issues)
     problems = []
     for i in issues:
         if len(i["body"]) > bc.MAX_BODY:
