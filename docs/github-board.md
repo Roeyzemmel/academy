@@ -72,12 +72,49 @@ scope for `board-sync`'s later Project step). Without Projects access the board 
 labels alone; Project fields lag until they are synced. The board repo must be in the session's
 repository scope.
 
+## The store seam
+
+`academy_common.BoardStore` is the one interface to the tickets: `iter_tickets`, `iter_meta`,
+`read_all(instance)`, `find`, `get`, `save`, `create`, `status_of`. `FileBoardStore` is the file board
+(unchanged behaviour: it is the old code moved behind the seam). `academy/lib/board_store.py` has
+`GithubBoardStore`, which keeps the same tickets as issues through an **injected transport**
+(`list_issues`, `get_issue`, `create_issue`, `update_issue`, `list_comments`, `add_comment`, optional
+`set_parent`/`add_dependency`) and does every encoding with `board_codec`; `MemoryTransport` is the
+in-memory reference and the fake the tests use. `inbox_core.select`/`run`/`check`, `board.py` (every
+function takes a directory or a store), the role `inbox.py` wrappers (Researcher, Expert, Scientist, and
+the Author's `--check`) and the MCP `tickets_*` tools (`Context.store`) all go through it, so a ticket
+rule is written once.
+
+Selection is `workspace.json`: `"board": "<path>"` (files, the default) or an object
+`{"path": "<local board dir>", "backend": "files" | "github", "repo": "owner/name",
+"transport": "module:factory"}`. The path stays (packets, deep-dives and `.render/` are files either
+way); `ac.open_store(workspace, transport=None)` and `board.resolve_store()` pick the store, and an
+explicit `--board DIR` always means the file board there. `github` without a transport (given, or named
+by `board.transport`, a factory called with the config dict) is a `ConfigError`.
+
+`test_board_store.py` builds a GitHub board from a file board through the codec and shows that
+`inbox_core.select` (default, `--all`, `--campaign`, return legs, position order, the `--json`/text
+`run` output and `--check`), the dead-route and pending-block filtering, every transition rule (legal,
+illegal, wrong party, reason and result requirements, `reopened:` entries, `blocks` mirroring), ticket
+creation with the chain gate and the `campaign` field, and the MCP `tickets_list/get/create/update`
+give identical results on both, and that every issue the GitHub side writes still validates.
+
 ## Status
 
-Done: codec, export/verify/import, `board_sync` backstop, workflow and issue form, runbook.
-Campaign mode (shared inbox core, dead-route blocking, `campaign:` tag, kinds `write` `apply` `copy` `sweep`)
-round-trips through the codec and validates in `board-sync`; the inbox core and `board.py` still read the
-file board, so `/academy:inbox` and campaigns need the `BoardStore` seam below before they can run on a
-GitHub board (until then, run them on a checkout made by `board_import.py`).
-Not yet: the `BoardStore` seam behind `board.py` and the MCP `tickets_*` tools (github mode is
-reached through the skills and the codec until then), the write hook, the Project views and the writing of Project fields to a live Project (`board_project.py` only declares and checks them), the Project-field half of `board-sync`.
+Done: codec, export/verify/import, `board_sync` backstop (roles, `route:dead`, the reopen check against
+the previous state), workflow and issue form, runbook, `board_project.py` (the Project field spec and its
+coverage check), and the `BoardStore` seam behind `inbox_core`, `board.py`, the role inbox wrappers and
+the MCP `tickets_*` tools, with a file and a GitHub implementation proven equivalent offline. Campaign
+mode (kinds `write` `apply` `copy` `sweep`, `campaign:`, dead-route blocking) runs through the seam.
+
+Still needs the real transport, which is not in this repository and was never exercised against GitHub:
+an object with the transport methods above over the github MCP (in a session) or REST with a token,
+named by `board.transport`; native sub-issue and dependency calls (`set_parent`, `add_dependency`);
+`list_issues` paging and its label filter on a large repo (the store asks for `to:<instance>` only, and
+never reads comments while selecting). Also not done: writing the Project fields (and creating the
+Project's fields/views from `board_project.py`) on a live Project, the Project-field half of
+`board-sync`, the write hook on github mode, the Author's roadmap/agenda sync and `packets.py`,
+`decisions.py`, `session_start.py` and `land_referee.py`, which still read tickets from the files of
+the board directory (the Author's ticket filing already goes through `board.create_ticket`, so it
+follows a store only once its `ctx.board` is one). Until the transport exists, run a github board's
+inbox from a checkout made by `board_import.py`.

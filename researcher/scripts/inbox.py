@@ -48,7 +48,7 @@ def main(argv=None):
     args = core.parser(__doc__.split("\n")[0]).parse_args(argv)
     try:
         inst, cfg = resolve_instance(args.instance)
-        board = args.board or ac.load_workspace()["board"]
+        board = args.board or ac.open_store(ac.load_workspace())
         limit = min(int(((cfg or {}).get("budget") or {}).get("itemsPerRun", 3)), 3)
         return core.run(args, inst, board, limit, route)
     except (ac.AcademyError, OSError) as exc:

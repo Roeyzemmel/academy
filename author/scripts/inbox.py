@@ -715,7 +715,7 @@ def sweep_step():
 def run_inbox(args):
     """The selection: sync first when asked, then the core with the Author's extras."""
     if args.check:
-        board = args.board or ac.load_workspace(args.workspace)["board"]
+        board = args.board or ac.open_store(ac.load_workspace(args.workspace))
         return core.run(args, "", board, 3, route)
     args.items = args.n
     ctx = load_context(args)

@@ -73,6 +73,7 @@ RE_TICKET_ID = re.compile(r"^T-\d{4,}$")
 RE_PACKET_ID = re.compile(r"^P-\d{4,}$")
 
 CONFIG_REL = os.path.join(".claude", "academy.json")
+BOARD_BACKENDS = ("files", "github")
 
 def _same_file(a, b):
     return bool(a and b) and os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
@@ -406,6 +407,17 @@ def load_workspace(path=None):
     ws = _read_json(chosen)
     if not isinstance(ws, dict) or not isinstance(ws.get("instances"), dict):
         raise ConfigError("%s: 'instances' object missing" % chosen)
+    # ``board`` is a path (the file board) or {"path", "backend": files|github, ...}; the
+    # path stays in ws["board"] (packets and deep-dives are files either way), the rest in
+    # ws["board_config"] (see open_store)
+    if isinstance(ws.get("board"), dict):
+        ws["board_config"] = dict(ws["board"])
+        ws["board"] = ws["board_config"].get("path")
+    else:
+        ws["board_config"] = {}
+    if ws["board_config"].get("backend", "files") not in BOARD_BACKENDS:
+        raise ConfigError("%s: board.backend must be one of %s" % (chosen,
+                                                                   ", ".join(BOARD_BACKENDS)))
     if _same_file(chosen, os.environ.get("ACADEMY_ENV_WORKSPACE")):
         if os.environ.get("ACADEMY_BOARD"):
             ws["board"] = os.environ["ACADEMY_BOARD"]
@@ -1205,13 +1217,12 @@ def relay_depth(board, parent):
     ticket filed against the ticket that commissioned the experiment) stops the count.
     """
     n, seen, tid = 0, set(), parent
+    store = as_store(board)
     while tid and tid not in seen:
         seen.add(tid)
-        path = find_ticket(board, tid)
-        if not path:
+        if not store.find(tid):
             break
-        with open(path, "r", encoding="utf-8") as fh:
-            meta, _ = read_frontmatter(fh.read())
+        meta = store.get(tid)[1]
         if not meta.get("final_to"):
             break
         n += 1
@@ -1557,6 +1568,206 @@ def new_ticket(meta, ask_detail=""):
 
 
 # ----------------------------------------------------------------------------
+# The board store (docs/github-board.md): tickets behind one seam
+# ----------------------------------------------------------------------------
+
+class BoardStore(object):
+    """The tickets of a board, wherever they live. A *ref* names one ticket in its store
+    (a file path, or ``github#<number>``) and is what rows report as ``path``.
+
+    ``FileBoardStore`` (here) is the file board; ``board_store.GithubBoardStore`` keeps the
+    same tickets as issues through an injected transport. Both hand out and take
+    ``(meta, body)`` pairs, so the ticket rules (``validate_ticket``, transitions) do not
+    know which one they run on.
+    """
+
+    backend = "abstract"
+
+    def describe(self):
+        return self.backend
+
+    def iter_tickets(self):
+        """Yield ``(ref, meta, body)``; an unreadable ticket has ``meta = None``."""
+        raise NotImplementedError
+
+    def iter_meta(self):
+        """Yield ``(ref, meta)`` of every readable ticket (a store may skip the bodies)."""
+        for ref, meta, _body in self.iter_tickets():
+            if meta is not None:
+                yield ref, meta
+
+    def read_all(self, instance):
+        """The metas (with ``_path`` = ref) of the tickets addressed to ``instance``."""
+        raise NotImplementedError
+
+    def find(self, tid):
+        """The ref of ticket ``tid``, or None."""
+        raise NotImplementedError
+
+    def get(self, tid):
+        """``(ref, meta, body)`` of ticket ``tid``; AcademyError when there is none."""
+        raise NotImplementedError
+
+    def save(self, meta, body, ref=None, relocate=False):
+        """Write an existing ticket (``ref`` given) or a new one; returns its ref.
+        ``relocate``: the ticket's ``to`` changed, so it moves to its new addressee."""
+        raise NotImplementedError
+
+    def create(self, meta, body):
+        """Give a new ticket its id, store it; returns ``(ref, meta)``."""
+        raise NotImplementedError
+
+    def meta(self, tid):
+        """The meta of ticket ``tid``, or None when missing or unreadable."""
+        try:
+            return self.get(tid)[1]
+        except (AcademyError, OSError, ValueError):
+            return None
+
+    def status_of(self, tid):
+        m = self.meta(tid)
+        return m.get("status") if m else None
+
+
+class FileBoardStore(BoardStore):
+    """The file board: ``<board>/<instance or human>/T-NNNN-slug.md`` (docs/protocol.md 2)."""
+
+    backend = "files"
+    RESERVED = ("packets", "deep-dives", ".ids", ".render", ".git")
+    _RE_FILE = re.compile(r"^T-\d{4,}(?:-.*)?\.md$")
+
+    def __init__(self, board):
+        self.board = str(board)
+
+    def describe(self):
+        return self.board
+
+    @staticmethod
+    def _read(path):
+        with open(path, "r", encoding="utf-8") as fh:
+            return read_frontmatter(fh.read())
+
+    def iter_tickets(self):
+        board = self.board
+        if not os.path.isdir(board):
+            return
+        for folder in sorted(os.listdir(board)):
+            full = os.path.join(board, folder)
+            if folder in self.RESERVED or folder.startswith(".") or not os.path.isdir(full):
+                continue
+            for f in sorted(os.listdir(full)):
+                if not self._RE_FILE.match(f):
+                    continue
+                p = os.path.join(full, f)
+                try:
+                    meta, body = self._read(p)
+                except (FrontmatterError, OSError, UnicodeDecodeError):
+                    meta, body = None, ""
+                yield p, meta, body
+
+    def read_all(self, instance):
+        folder = os.path.join(self.board, instance)
+        out = []
+        if not os.path.isdir(folder):
+            return out
+        for f in sorted(os.listdir(folder)):
+            if not self._RE_FILE.match(f):
+                continue
+            path = os.path.join(folder, f)
+            try:
+                meta = self._read(path)[0]
+            except (OSError, AcademyError, UnicodeDecodeError):
+                continue
+            if not meta.get("id") or meta.get("to", instance) != instance:
+                continue
+            meta = dict(meta)
+            meta["_path"] = path.replace("\\", "/")
+            out.append(meta)
+        return out
+
+    def find(self, tid):
+        return find_ticket(self.board, tid)
+
+    def get(self, tid):
+        path = find_ticket(self.board, tid)
+        if not path:
+            raise AcademyError("no ticket %s on %s" % (tid, self.board))
+        meta, body = self._read(path)
+        return path, meta, body
+
+    def status_of(self, tid):
+        path = find_ticket(self.board, tid)
+        if not path:
+            return None
+        try:
+            return self._read(path)[0].get("status")
+        except (OSError, AcademyError):
+            return None
+
+    def save(self, meta, body, ref=None, relocate=False):
+        ordered = {k: meta[k] for k in TICKET_KEY_ORDER if k in meta}
+        path = ref
+        if ref is None:
+            path = os.path.join(self.board, meta["to"],
+                                ticket_filename(meta["id"], meta["title"]))
+        elif relocate:
+            path = os.path.join(self.board, meta["to"], os.path.basename(ref))
+        atomic_write(path, write_frontmatter(ordered, body))
+        if ref is not None and path != ref:
+            os.remove(ref)
+        return path
+
+    def create(self, meta, body):
+        meta = dict(meta)
+        meta["id"] = allocate_id(self.board, "ticket")
+        return self.save(meta, body), meta
+
+
+def as_store(board):
+    """``board`` as a BoardStore: a store is returned as it is, a path becomes a file store."""
+    return board if isinstance(board, BoardStore) else FileBoardStore(board)
+
+
+def open_store(workspace=None, transport=None, board=None):
+    """The board store of a workspace: ``board.backend`` of workspace.json, ``files`` by default.
+
+    ``board`` (an explicit path) always opens the file board there. ``github`` needs a
+    transport: the object passed in, or the one ``board.transport`` (``"module:factory"``,
+    called with the board's config dict) names; without either it is a ConfigError, because
+    the real MCP/REST transport is not part of this library.
+    """
+    if board:
+        return FileBoardStore(board)
+    ws = workspace if isinstance(workspace, dict) else load_workspace(workspace)
+    cfg = ws.get("board_config") or {}
+    backend = cfg.get("backend", "files")
+    if backend == "files":
+        return FileBoardStore(ws["board"])
+    if transport is None and cfg.get("transport"):
+        import importlib
+        mod, _, fn = str(cfg["transport"]).partition(":")
+        transport = getattr(importlib.import_module(mod), fn or "transport")(cfg)
+    if transport is None:
+        raise ConfigError("board.backend is github but no transport is available: pass one "
+                          "to open_store or set board.transport to 'module:factory'")
+    try:
+        import board_store
+    except ImportError:
+        here = os.path.dirname(os.path.abspath(__file__))
+        for cand in (os.path.join(here, os.pardir, os.pardir, "academy", "lib"),
+                     os.path.join(here, os.pardir, "lib")):
+            if os.path.isfile(os.path.join(cand, "board_store.py")):
+                sys.path.insert(0, os.path.abspath(cand))
+                break
+        try:
+            import board_store
+        except ImportError:
+            raise ConfigError("the github board store lives in the academy plugin "
+                              "(academy/lib/board_store.py), which is not next to this plugin")
+    return board_store.GithubBoardStore(transport, cfg.get("repo", ""))
+
+
+# ----------------------------------------------------------------------------
 # The inbox core (docs/protocol.md section 4; campaign-mode design sections 8, 10)
 # ----------------------------------------------------------------------------
 
@@ -1584,7 +1795,6 @@ class inbox_core(object):
     PRIORITY = {"high": 0, "normal": 1, "low": 2}
     RETURN_WHY = ("return leg: the child is back; close it and deliver this ticket "
                   "with a result pointing at it")
-    _RE_FILE = re.compile(r"^T-\d{4,}(?:-.*)?\.md$")
 
     @staticmethod
     def is_dead_route(meta):
@@ -1593,25 +1803,7 @@ class inbox_core(object):
 
     @staticmethod
     def _read_all(board, instance):
-        folder = os.path.join(str(board), instance)
-        out = []
-        if not os.path.isdir(folder):
-            return out
-        for f in sorted(os.listdir(folder)):
-            if not inbox_core._RE_FILE.match(f):
-                continue
-            path = os.path.join(folder, f)
-            try:
-                with open(path, "r", encoding="utf-8") as fh:
-                    meta = read_frontmatter(fh.read())[0]
-            except (OSError, AcademyError, UnicodeDecodeError):
-                continue
-            if not meta.get("id") or meta.get("to", instance) != instance:
-                continue
-            meta = dict(meta)
-            meta["_path"] = path.replace("\\", "/")
-            out.append(meta)
-        return out
+        return as_store(board).read_all(instance)
 
     @staticmethod
     def _num(meta):
@@ -1639,18 +1831,10 @@ class inbox_core(object):
         """
         pos = position or (lambda m: 0 if m.get("agenda") else 10 ** 9)
 
-        def status_of(tid):
-            path = find_ticket(board, tid)
-            if not path:
-                return None
-            try:
-                with open(path, "r", encoding="utf-8") as fh:
-                    return read_frontmatter(fh.read())[0].get("status")
-            except (OSError, AcademyError):
-                return None
-
+        store = as_store(board)
+        status_of = store.status_of
         pool = []
-        for m in inbox_core._read_all(board, instance):
+        for m in store.read_all(instance):
             st = m.get("status")
             if campaign and m.get("campaign") != campaign:
                 continue
@@ -1733,11 +1917,7 @@ class inbox_core(object):
 
     @staticmethod
     def check(board, tid):
-        path = find_ticket(board, tid)
-        if not path:
-            raise AcademyError("no ticket %s on %s" % (tid, board))
-        with open(path, "r", encoding="utf-8") as fh:
-            return inbox_core.serial_checkpoint(read_frontmatter(fh.read())[0])
+        return inbox_core.serial_checkpoint(as_store(board).get(tid)[1])
 
     @staticmethod
     def parser(description, prog=None):

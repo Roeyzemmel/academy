@@ -13,6 +13,10 @@ Usage (from anywhere; the board comes from workspace.json unless --board is give
                     [--as INSTANCE] [--agent NAME]
     py board.py append T-NNNN --text TEXT [--as INSTANCE] [--agent NAME]
 
+Every function takes ``board`` as a directory or as a ``BoardStore`` (``ac.as_store``,
+``ac.open_store``): the same rules run on the file board and on the GitHub one
+(docs/github-board.md); a directory is the file board, as before.
+
 ``--as`` names the caller's instance; ``new`` requires it (``--as human`` only from
 /academy:board, desk and decide); for ``transition`` and ``append``, without it the
 caller is the human. The functions below are the implementation
@@ -30,7 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
 
 import academy_common as ac  # noqa: E402
 
-RESERVED = ("packets", "deep-dives", ".ids", ".render", ".git")
+RESERVED = ac.FileBoardStore.RESERVED
 PRIORITY_ORDER = {"high": 0, "normal": 1, "low": 2}
 
 
@@ -43,6 +47,18 @@ def resolve_board(board=None, workspace=None):
     if board:
         return os.path.abspath(board)
     return os.path.abspath(ac.load_workspace(workspace)["board"])
+
+
+def resolve_store(board=None, workspace=None, transport=None):
+    """The BoardStore to work on: ``board`` (a path) is the file board there; otherwise
+    the workspace's ``board.backend`` decides (``files`` by default, see ``ac.open_store``)."""
+    if board:
+        return ac.FileBoardStore(os.path.abspath(board))
+    ws = ac.load_workspace(workspace)
+    st = ac.open_store(ws, transport)
+    if isinstance(st, ac.FileBoardStore):
+        st = ac.FileBoardStore(os.path.abspath(st.board))
+    return st
 
 
 def _workspace_or_none(workspace=None):
@@ -90,23 +106,8 @@ def iter_tickets(board):
     Only files named ``T-NNNN-*.md`` inside instance folders and ``human/`` count
     (protocol.md section 2). An unreadable file is yielded with ``meta = None``.
     """
-    import re
-    rx = re.compile(r"^T-\d{4,}(?:-.*)?\.md$")
-    if not os.path.isdir(board):
-        return
-    for folder in sorted(os.listdir(board)):
-        full = os.path.join(board, folder)
-        if folder in RESERVED or folder.startswith(".") or not os.path.isdir(full):
-            continue
-        for f in sorted(os.listdir(full)):
-            if not rx.match(f):
-                continue
-            p = os.path.join(full, f)
-            try:
-                meta, body = read_ticket(p)
-            except (ac.FrontmatterError, OSError, UnicodeDecodeError):
-                meta, body = None, ""
-            yield p, meta, body
+    for ref, meta, body in ac.as_store(board).iter_tickets():
+        yield ref, meta, body
 
 
 def list_tickets(board, to=None, frm=None, status=None, include_terminal=False):
@@ -137,11 +138,7 @@ def list_tickets(board, to=None, frm=None, status=None, include_terminal=False):
 
 
 def get_ticket(board, tid):
-    path = ac.find_ticket(board, tid)
-    if not path:
-        raise ac.AcademyError("no ticket %s on %s" % (tid, board))
-    meta, body = read_ticket(path)
-    return path, meta, body
+    return ac.as_store(board).get(tid)
 
 
 # ----------------------------------------------------------------------------
@@ -177,7 +174,8 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     _check_party(to, ws, "to")
     _check_party(as_instance, ws, "from")
     who = bare_agent(agent) or (ac.MAIN_AGENT if as_instance != ac.HUMAN else "")
-    depth = ac.relay_depth(board, parent) if final_to and parent else 0
+    store = ac.as_store(board)
+    depth = ac.relay_depth(store, parent) if final_to and parent else 0
     ok, why = ac.ticket_edge_allowed(as_instance, to, who,
                                      perms if perms is not None else ac.load_permissions(),
                                      ws, final_to, depth)
@@ -201,41 +199,39 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     probs = ac.validate_ticket(meta)
     if probs:
         raise ac.AcademyError("invalid ticket: " + "; ".join(probs))
-    tid = ac.allocate_id(board, "ticket")
-    meta["id"] = tid
     text = ac.new_ticket(meta, detail)
     fm, body = ac.read_frontmatter(text)
     body = ac.append_thread(body, ac.format_who(as_instance, who), "opened", date)
-    path = os.path.join(board, to, ac.ticket_filename(tid, title))
-    write_ticket(path, fm, body)
+    path, _fm = store.create(fm, body)
     return path
 
 
 def append_to_ticket(board, tid, text, as_instance=ac.HUMAN, agent="", date=None):
     """Append one entry to the ticket's thread. Returns the path."""
-    path, meta, body = get_ticket(board, tid)
+    store = ac.as_store(board)
+    path, meta, body = store.get(tid)
     date = date or ac.today()
     body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent)), text, date)
     meta["updated"] = date
-    write_ticket(path, meta, body)
-    return path
+    return store.save(meta, body, path)
 
 
 def _mirror_blocks(board, tid, waiting_on, date):
     """Add ``tid`` to the ``blocks`` list of every ticket it now waits on."""
+    store = ac.as_store(board)
     for w in waiting_on or []:
         if not ac.RE_TICKET_ID.match(str(w)):
             continue
-        p = ac.find_ticket(board, w)
+        p = store.find(w)
         if not p:
             continue
-        m, b = read_ticket(p)
+        _p, m, b = store.get(w)
         blocks = list(m.get("blocks") or [])
         if tid not in blocks:
             blocks.append(tid)
             m["blocks"] = blocks
             m["updated"] = date
-            write_ticket(p, m, b)
+            store.save(m, b, p)
 
 
 def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
@@ -253,7 +249,8 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
     by ``blocked -> accepted`` with ``reopen`` (the new mechanism), which appends a
     ``reopened:`` thread line and clears both fields.
     """
-    path, meta, body = get_ticket(board, tid)
+    store = ac.as_store(board)
+    path, meta, body = store.get(tid)
     date = date or ac.today()
     as_instance = as_instance or ac.HUMAN
     human = as_instance == ac.HUMAN
@@ -328,9 +325,9 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
     probs = ac.validate_ticket(meta, body)
     if probs:
         raise ac.AcademyError("%s would be invalid: %s" % (tid, "; ".join(probs)))
-    write_ticket(path, meta, body)
+    path = store.save(meta, body, path)
     if new == "blocked" and meta.get("waiting_on"):
-        _mirror_blocks(board, tid, meta["waiting_on"], date)
+        _mirror_blocks(store, tid, meta["waiting_on"], date)
     return path
 
 
@@ -354,7 +351,8 @@ def _utf8_stdout():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="board.py", description=__doc__.split("\n")[0])
-    ap.add_argument("--board", help="board directory (default: workspace.json 'board')")
+    ap.add_argument("--board", help="board directory (default: workspace.json 'board'; its "
+                                    "board.backend picks files or github)")
     ap.add_argument("--workspace", help="workspace.json to use")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -401,7 +399,7 @@ def main(argv=None):
     _utf8_stdout()
     try:
         ws = _workspace_or_none(a.workspace)
-        board = resolve_board(a.board, a.workspace)
+        board = resolve_store(a.board, a.workspace)
         if a.cmd == "list":
             rows = list_tickets(board, a.to, a.frm, a.status, a.all)
             if a.json:
@@ -429,8 +427,12 @@ def main(argv=None):
                                   "problems": ac.validate_ticket(meta, body)},
                                  indent=2, ensure_ascii=False))
             else:
-                with open(path, "r", encoding="utf-8") as fh:
-                    sys.stdout.write(fh.read())
+                if os.path.isfile(path):
+                    with open(path, "r", encoding="utf-8") as fh:
+                        sys.stdout.write(fh.read())
+                else:                                   # a ticket of the github board
+                    sys.stdout.write(ac.write_frontmatter(
+                        {k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}, body))
                 probs = ac.validate_ticket(meta, body)
                 if probs:
                     print("\n# problems: " + "; ".join(probs))

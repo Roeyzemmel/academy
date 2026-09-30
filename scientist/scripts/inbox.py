@@ -43,7 +43,7 @@ def main(argv=None):
         pass
     try:
         lab = c.resolve_lab(args.home, os.getcwd(), args.workspace)
-        board = args.board or ac.load_workspace(args.workspace)["board"]
+        board = args.board or ac.open_store(ac.load_workspace(args.workspace))
         limit = (lab["cfg"].get("budget") or {}).get("itemsPerRun", 3)
         return core.run(args, args.instance or lab["instance"], board, min(int(limit), 3), route,
                         return_legs=False)

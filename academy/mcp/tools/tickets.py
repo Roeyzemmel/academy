@@ -45,11 +45,9 @@ def _read(path):
 def load_ticket(ctx, tid):
     if not ac.RE_TICKET_ID.match(str(tid or "")):
         raise ToolError("a ticket id looks like T-0007, got %r" % tid)
-    path = ac.find_ticket(ctx.board, tid)
-    if not path:
+    if not ctx.store.find(tid):
         raise ToolError("no ticket %s on the board %s" % (tid, ctx.board))
-    meta, body = ac.read_frontmatter(_read(path))
-    return path, meta, body
+    return ctx.store.get(tid)
 
 
 def _write(path, meta, body):
@@ -86,9 +84,9 @@ def create_ticket(ctx, a, clerical=False):
         raise ToolError("to must be a workspace instance or 'human', got %r" % to)
     final_to = _one_line("final_to", a.get("final_to"), required=False)
     parent = a.get("parent") or None
-    if parent and not ac.find_ticket(ctx.board, parent):
+    if parent and not ctx.store.find(parent):
         raise ToolError("parent %s is not on the board" % parent)
-    depth = ac.relay_depth(ctx.board, parent) if final_to and parent else 0
+    depth = ac.relay_depth(ctx.store, parent) if final_to and parent else 0
     ok, why = ac.ticket_edge_allowed(sender, to, agent, ctx.perms, ctx.workspace,
                                      final_to, depth, clerical=clerical)
     if not ok:
@@ -135,8 +133,6 @@ def create_ticket(ctx, a, clerical=False):
     if probs:
         raise ToolError("invalid ticket: " + "; ".join(probs))
     speaker = ac.format_who(sender, agent)
-    tid = ac.allocate_id(ctx.board, "ticket")
-    meta["id"] = tid
     text = ac.new_ticket(meta, a.get("ask_detail") or "")
     fm, body = ac.read_frontmatter(text)
     note = (a.get("note") or "").strip()
@@ -144,8 +140,8 @@ def create_ticket(ctx, a, clerical=False):
     probs = ac.validate_ticket(fm, body)
     if probs:
         raise ToolError("invalid ticket: " + "; ".join(probs))
-    path = os.path.join(ctx.board, to, ac.ticket_filename(tid, meta["title"]))
-    _write(path, fm, body)
+    path, fm = ctx.store.create(fm, body)
+    tid = fm["id"]
     return {"id": tid, "path": path.replace("\\", "/"), "to": to, "from": sender,
             "status": "open"}
 
@@ -161,6 +157,7 @@ def _fmt_val(v):
 def update_ticket(ctx, a):
     path, meta, body = load_ticket(ctx, a.get("id"))
     old_meta = dict(meta)
+    old_body = body
     human = ctx.is_human
     me = ctx.instance
     if not me:
@@ -270,32 +267,29 @@ def update_ticket(ctx, a):
     probs = ac.validate_ticket(meta, body)
     if probs:
         raise ToolError("the update would leave an invalid ticket: " + "; ".join(probs))
-    if not ac.thread_is_append_only(ac.read_frontmatter(_read(path))[1], body):
+    if not ac.thread_is_append_only(old_body, body):
         raise ToolError("internal: thread is not append-only")
 
-    new_path = path
-    if meta.get("to") != old_meta.get("to"):
+    relocate = meta.get("to") != old_meta.get("to")
+    if relocate:
         to = meta["to"]
         if to != ac.HUMAN and to not in ctx.instances():
             raise ToolError("to must be a workspace instance or 'human'")
-        new_path = os.path.join(ctx.board, to, os.path.basename(path))
-    _write(new_path, meta, body)
-    if new_path != path:
-        os.remove(path)
+    new_path = ctx.store.save(meta, body, path, relocate=relocate)
 
     # blocking bookkeeping: mirror into the awaited tickets' blocks
     freed = []
     if meta.get("status") == "blocked":
         for w in meta.get("waiting_on") or []:
             if ac.RE_TICKET_ID.match(str(w)):
-                wp = ac.find_ticket(ctx.board, w)
+                wp = ctx.store.find(w)
                 if not wp:
                     continue
-                wm, wb = ac.read_frontmatter(_read(wp))
+                _wp, wm, wb = ctx.store.get(w)
                 if meta["id"] not in (wm.get("blocks") or []):
                     wm["blocks"] = list(wm.get("blocks") or []) + [meta["id"]]
                     wm["updated"] = ac.today()
-                    _write(wp, wm, wb)
+                    ctx.store.save(wm, wb, wp)
                     freed.append(w)
     return {"id": meta["id"], "path": new_path.replace("\\", "/"),
             "status": meta["status"], "thread": lines, "mirrored_blocks_into": freed}
@@ -331,7 +325,7 @@ def _list(ctx, a):
     statuses = a.get("status")
     if isinstance(statuses, str):
         statuses = [statuses]
-    for p, m in iter_tickets(ctx.board):
+    for p, m in ctx.store.iter_meta():
         if a.get("to") and m.get("to") != a["to"]:
             continue
         if a.get("from") and m.get("from") != a["from"]:

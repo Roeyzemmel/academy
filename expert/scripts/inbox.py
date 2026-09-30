@@ -58,7 +58,9 @@ def main(argv=None):
         return 2
     cfg = ex.expert_config(ws["instances"][instance]["home"])
     limit = ((cfg or {}).get("budget") or {}).get("itemsPerRun") or 3
-    board = os.path.abspath(args.board or ws["board"])
+    board = os.path.abspath(args.board) if args.board else ac.open_store(ws)
+    if isinstance(board, ac.FileBoardStore):
+        board = ac.FileBoardStore(os.path.abspath(board.board))
     try:
         return core.run(args, instance, board, min(int(limit), 3), route)
     except (ac.AcademyError, OSError) as exc:
