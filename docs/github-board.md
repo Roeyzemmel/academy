@@ -57,7 +57,11 @@ in the comment; the write hook and `board-sync` check the rules, not the account
 
 `board_codec.py` (offline encode/decode/validate/transition), `board_export.py` (manifest),
 `board_verify.py` (issues or manifest against the files, byte for byte), `board_import.py`
-(issues back to files: backup, rollback), `board_sync.py` (the workflow). The runbook is
+(issues back to files: backup, rollback), `board_sync.py` (the workflow), `board_project.py`
+(the Project fields and their option sets as a JSON spec derived from the codec and the
+academy constants: Status incl. Accepted/Blocked/Delivered, Instance, Role, Kind = every
+ticket kind, Priority, Agenda, Block; `--check` proves it covers every kind and status,
+`--live` reports what a live Project lacks; `fields_for(meta)` is a ticket's values). The runbook is
 `/academy:board-migrate`. Templates: `academy/templates/github-board/.github/`.
 
 ## Permissions (connector or token)
@@ -76,5 +80,4 @@ round-trips through the codec and validates in `board-sync`; the inbox core and 
 file board, so `/academy:inbox` and campaigns need the `BoardStore` seam below before they can run on a
 GitHub board (until then, run them on a checkout made by `board_import.py`).
 Not yet: the `BoardStore` seam behind `board.py` and the MCP `tickets_*` tools (github mode is
-reached through the skills and the codec until then), the write hook, `board_project.py`
-(Project fields and views), the Project-field half of `board-sync`.
+reached through the skills and the codec until then), the write hook, the Project views and the writing of Project fields to a live Project (`board_project.py` only declares and checks them), the Project-field half of `board-sync`.
