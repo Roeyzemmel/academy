@@ -369,6 +369,33 @@ class TestTickets(BoardCase):
         meta, _ = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
         self.assertEqual(meta["status"], "accepted")
 
+    def test_cli_new_campaign_tags_the_ticket_and_inbox_selects_it(self):
+        buf = io.StringIO()
+        base = ["--board", self.board, "--workspace", self.ws_path, "new", "--to", "expert@main",
+                "--title", "Tagged", "--ask", "a", "--deliverable", "d", "--kind", "lookup",
+                "--as", "author@main"]
+        with redirect_stdout(buf):
+            self.assertEqual(0, bd.main(base + ["--campaign", "paper:thm:x"]))
+            self.assertEqual(0, bd.main([*base[:-2], "--title", "Untagged", "--as",
+                                         "author@main"]))
+        meta, _ = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
+        self.assertEqual("paper:thm:x", meta["campaign"])
+        self.assertEqual([], ac.validate_ticket(meta))
+        meta2, _ = bd.read_ticket(ac.find_ticket(self.board, "T-0002"))
+        self.assertNotIn("campaign", meta2)                  # omitted, not written empty
+        route = lambda m: {"how": "skill", "target": "x", "why": "y"}  # noqa: E731
+        rows, _t = ac.inbox_core.select(self.board, "expert@main", 3, route=route,
+                                        campaign="paper:thm:x")
+        self.assertEqual(["T-0001"], [r["id"] for r in rows])
+        self.assertEqual("paper:thm:x", rows[0]["campaign"])
+
+    def test_create_ticket_campaign_argument(self):
+        p = self.new(campaign="paper:thm:x")
+        self.assertEqual("paper:thm:x", bd.read_ticket(p)[0]["campaign"])
+        self.assertNotIn("campaign", bd.read_ticket(self.new())[0])
+        with self.assertRaises(ac.AcademyError):
+            self.new(campaign="two\nlines")
+
     def test_append_is_append_only(self):
         p = self.new()
         old = bd.read_ticket(p)[1]

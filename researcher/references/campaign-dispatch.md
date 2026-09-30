@@ -6,10 +6,12 @@ loses at most the one ticket in hand, which the checkpoint has already recorded.
 
 ## The dispatch step
 
-1. `/academy:inbox --campaign <target> --all` lists the open, accepted and in-progress
-   tickets carrying the campaign's tag, in inbox order, without dead-route blocked
-   ones. In-progress tickets come first: unfinished work is resumed before anything
-   new starts.
+1. `/academy:inbox --campaign <target>` lists the tickets carrying the campaign's tag,
+   in inbox order: in-progress first (unfinished work is resumed before anything new
+   starts), then relay return legs, then open and accepted ones. Dead-route and pending
+   blocked tickets are never listed, and the cap of three is lifted (the campaign's
+   `--agents` cap applies). `--all` only looks: it adds the blocked ones, marked
+   `blocked: pending` or `dead-route`, and takes nothing; never dispatch from it.
 2. Take the first ticket. Dispatch one subagent for the receiving role, briefed with
    the ticket id only (`budget.md` rule 9), through the route that role's inbox names
    for that ticket (`py <role plugin>/scripts/inbox.py --instance <name> --json`).

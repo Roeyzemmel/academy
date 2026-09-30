@@ -221,6 +221,31 @@ class TestTickets(McpTestBase):
         self.assertEqual(got["problems"], [])
         self.assertIn("reopened: a Prym construction", got["body"])
 
+    def test_create_campaign_field(self):
+        author = self.server("author@t")
+        w = "author:math-writer"
+        args = dict(title="Prior art", kind="lookup", to="expert@t", ask="Is it known?",
+                    deliverable="A note.")
+        err, tagged = author.call("tickets_create", caller=w, campaign="paper:thm:x", **args)
+        self.assertFalse(err, tagged)
+        err, plain = author.call("tickets_create", caller=w, **args)
+        self.assertFalse(err, plain)
+        err, got = author.call("tickets_get", caller=w, id=tagged["id"])
+        self.assertEqual("paper:thm:x", got["meta"]["campaign"])
+        self.assertEqual([], got["problems"])
+        err, got = author.call("tickets_get", caller=w, id=plain["id"])
+        self.assertNotIn("campaign", got["meta"])
+        # a campaign is one line: a multi-line value is refused before anything is written
+        err, msg = author.call("tickets_create", caller=w, campaign="a\nb", **args)
+        self.assertTrue(err)
+        self.assertIn("one line", msg)
+        # and the inbox core selects exactly the tagged ticket for that campaign
+        rows, _t = ac.inbox_core.select(self.board, "expert@t", 3, campaign="paper:thm:x",
+                                        route=lambda m: {"how": "skill", "target": "x",
+                                                         "why": "y"})
+        self.assertEqual([tagged["id"]], [r["id"] for r in rows])
+        self.assertEqual("paper:thm:x", rows[0]["campaign"])
+
     def test_round_trip(self):
         author = self.server("author@t")
         expert = self.server("expert@t")
