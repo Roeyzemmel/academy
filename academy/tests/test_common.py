@@ -182,6 +182,46 @@ class ConfigTests(TempDir):
         self.assertEqual(ac.gate_mode(cfg, "academy-migration"), "off")
         self.assertEqual(ac.gate_mode(cfg), "normal")
 
+    def test_gate_mode_glob_matches_template_branch(self):
+        cfg = {"gate": {"commit": "normal",
+                        "branches": {"????-??-??/*/*": {"commit": "warn"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/t-0059/author"), "warn")
+        self.assertEqual(ac.gate_mode(cfg, "main"), "normal")
+
+    def test_gate_mode_exact_beats_glob(self):
+        # the exact key comes after the glob in dict order and still wins
+        cfg = {"gate": {"commit": "normal",
+                        "branches": {"????-??-??/*/*": {"commit": "warn"},
+                                     "2026-09-30/release/author": {"commit": "strict"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/release/author"), "strict")
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/other/author"), "warn")
+
+    def test_gate_mode_no_match_falls_back_to_default(self):
+        cfg = {"gate": {"commit": "strict",
+                        "branches": {"????-??-??/*/*": {"commit": "warn"},
+                                     "academy-migration": {"commit": "off"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "feature/x"), "strict")
+        self.assertEqual(ac.gate_mode(cfg, None), "strict")
+        self.assertEqual(ac.gate_mode({}, "2026-09-30/a/b"), "normal")
+
+    def test_gate_mode_glob_first_match_wins(self):
+        cfg = {"gate": {"commit": "normal",
+                        "branches": {"*/*/author": {"commit": "off"},
+                                     "????-??-??/*/*": {"commit": "warn"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/t/author"), "off")
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/t/expert"), "warn")
+
+    def test_gate_mode_glob_is_case_sensitive(self):
+        cfg = {"gate": {"commit": "normal", "branches": {"WIP/*": {"commit": "off"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "wip/x"), "normal")
+        self.assertEqual(ac.gate_mode(cfg, "WIP/x"), "off")
+
+    def test_validate_config_accepts_warn(self):
+        base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["author@main"])
+        cfg = dict(base, gate=dict(base["gate"], commit="warn",
+                                   branches={"????-??-??/*/*": {"commit": "warn"}}))
+        self.assertEqual(ac.validate_config(cfg), [])
+
     def test_find_home(self):
         home = self.make_home(config_examples()["expert@main"])
         deep = os.path.join(home, "a", "b")

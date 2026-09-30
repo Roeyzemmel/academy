@@ -181,6 +181,99 @@ class CommitGateHookTests(unittest.TestCase):
         self.sb.git_init(self.sb.home, branch="main")
         self.assertEqual(self.gate("git commit -m x", self.sb.home)[0], 2)
 
+    @unittest.skipUnless(HAVE_GIT, "git not on PATH")
+    def test_warn_mode_exit_zero_with_findings_on_stderr(self):
+        self.sb.write_config(gate={"commit": "normal", "build": True,
+                                   "baseline": ".claude/paper-gate-baseline.txt",
+                                   "branches": {"????-??-??/*/*": {"commit": "warn"}}})
+        self.sb.set_baseline(["sections/b.tex|lem:y|R1"])
+        self.sb.git_init(self.sb.home, branch="2026-09-30/t-0059/author")
+        code, _out, err = self.gate('git commit -m "x"', self.sb.home)
+        self.assertEqual(code, 0, err)
+        self.assertIn("commit gate (warn):", err)
+        self.assertIn("lem:x", err)
+
+    def test_warn_mode_in_config_exit_zero(self):
+        self.sb.write_config(gate={"commit": "warn", "build": True, "branches": {},
+                                   "baseline": ".claude/paper-gate-baseline.txt"})
+        code, _out, err = self.gate('git commit -m "x"', self.sb.home)
+        self.assertEqual(code, 0, err)
+        self.assertIn("commit gate (warn):", err)
+        self.assertIn("lem:x", err)
+
+    @unittest.skipUnless(HAVE_GIT, "git not on PATH")
+    def test_normal_mode_still_blocks_exit_two(self):
+        self.sb.write_config(gate={"commit": "normal", "build": True,
+                                   "baseline": ".claude/paper-gate-baseline.txt",
+                                   "branches": {"????-??-??/*/*": {"commit": "warn"}}})
+        self.sb.set_baseline(["sections/b.tex|lem:y|R1"])
+        self.sb.git_init(self.sb.home, branch="main")
+        code, _out, err = self.gate('git commit -m "x"', self.sb.home)
+        self.assertEqual(code, 2, err)
+        self.assertIn("not in the recorded baseline", err)
+        self.assertNotIn("commit gate (warn):", err)
+
+    # -- gate_check, the importable core (scripts/ship.py calls it) ----------
+
+    def loaded(self):
+        os.environ["ACADEMY_WORKSPACE"] = self.sb.workspace
+        try:
+            home, cfg = commit_gate.au.author_home(self.sb.home)
+        finally:
+            os.environ.pop("ACADEMY_WORKSPACE", None)
+        self.assertIsNotNone(home)
+        return home, cfg
+
+    def test_off_mode_skips_checker(self):
+        self.sb.write_config(gate={"commit": "off", "build": True, "branches": {}})
+        home, cfg = self.loaded()
+        self.assertEqual(commit_gate.gate_check(home, cfg, "main"), ("off", {}))
+        self.assertEqual(self.sb.calls("checker_calls.txt"), [])
+        self.assertEqual(self.gate("git commit -m x", self.sb.home)[0], 0)
+        self.assertEqual(self.sb.calls("checker_calls.txt"), [])
+
+    def test_gate_check_returns_new_findings_only(self):
+        self.sb.set_checker(FINDING + "  sections/b.tex:3: lem:y: [R1] rests on a sketch\n",
+                            1)
+        self.sb.set_baseline(["sections/b.tex|lem:y|R1"])
+        home, cfg = self.loaded()
+        mode, new = commit_gate.gate_check(home, cfg, "main")
+        self.assertEqual(mode, "normal")
+        self.assertEqual(list(new), [KEY])
+        self.assertIn("lem:x", new[KEY])
+        # glob override: same findings, mode warn
+        cfg["gate"]["branches"] = {"????-??-??/*/*": {"commit": "warn"}}
+        self.assertEqual(commit_gate.gate_check(home, cfg, "2026-09-30/t-0059/author"),
+                         ("warn", {KEY: new[KEY]}))
+        # everything in the baseline -> no new findings
+        self.sb.set_baseline([KEY, "sections/b.tex|lem:y|R1"])
+        self.assertEqual(commit_gate.gate_check(home, cfg, "main"), ("normal", {}))
+        # a clean checker exit -> nothing, whatever it printed
+        self.sb.set_checker(FINDING, 0)
+        self.sb.set_baseline([])
+        self.assertEqual(commit_gate.gate_check(home, cfg, "main"), ("normal", {}))
+
+    def test_gate_check_no_baseline_counts_all_findings(self):
+        home, cfg = self.loaded()
+        mode, new = commit_gate.gate_check(home, cfg, None)
+        self.assertEqual((mode, list(new)), ("normal", [KEY]))
+
+    def test_gate_check_strict_passes_strict_args(self):
+        home, cfg = self.loaded()
+        cfg["gate"]["commit"] = "strict"
+        self.assertEqual(commit_gate.gate_check(home, cfg, "main")[0], "strict")
+        self.assertIn("--strict", self.sb.calls("checker_calls.txt")[-1])
+
+    def test_gate_check_unavailable_when_checker_cannot_run(self):
+        from unittest import mock
+        home, cfg = self.loaded()
+        with mock.patch.object(commit_gate.au, "run_checker",
+                               return_value=(None, "checker could not run: boom")):
+            self.assertEqual(commit_gate.gate_check(home, cfg, "main"), ("unavailable", {}))
+        # and for real: a home whose directory vanished cannot be the checker's cwd
+        gone = os.path.join(self.sb.root, "gone")
+        self.assertEqual(commit_gate.gate_check(gone, cfg, "main"), ("unavailable", {}))
+
     def test_write_baseline(self):
         import contextlib
         import io

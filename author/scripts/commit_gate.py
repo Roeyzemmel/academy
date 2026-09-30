@@ -20,7 +20,11 @@ ran the Author's checker for a commit to the lab made from a paper session).
 heredocs and PowerShell here-strings are skipped as data.
 
 Mode: ``gate_mode(config, branch)`` -- ``gate.commit`` with the per-branch override
-(``academy-migration`` sets ``off``). ``strict`` also fails on warnings.
+(an exact branch name, e.g. ``academy-migration`` sets ``off``, or a glob such as
+``????-??-??/*/*``). ``strict`` also fails on warnings; ``warn`` reports the new
+findings on stderr (``commit gate (warn):``) and lets the commit through (exit 0).
+``gate_check(home, cfg, branch)`` is the importable core (``scripts/ship.py`` in the
+workspace calls it before committing): ``(mode, new_findings)``, no blocking.
 Baseline: ``gate.baseline`` (default ``.claude/paper-gate-baseline.txt``), one
 ``file|label|rule`` key per line. Regenerate it, from inside the home, with
 
@@ -83,16 +87,47 @@ def homes_to_gate(command, cwd):
     return out
 
 
-def check_home(home, cfg, repo):
-    """None if the commit may go ahead, else the reason to block it."""
-    mode = ac.gate_mode(cfg, current_branch(repo))
+def _gate_run(home, cfg, branch):
+    """(mode, new findings, checker exit code, checker output) -- gate_check's core."""
+    mode = ac.gate_mode(cfg, branch)
     if mode == "off":
-        return None
+        return "off", {}, None, ""
     code, output = au.run_checker(home, cfg, strict=(mode == "strict"))
-    if code is None or code == 0:
-        return None
-    new = au.new_findings(home, cfg, output)
+    if code is None:
+        return "unavailable", {}, None, output
+    if code == 0:
+        return mode, {}, code, output
+    return mode, au.new_findings(home, cfg, output), code, output
+
+
+def gate_check(home, cfg, branch):
+    """``(mode, new_findings)`` for a commit to the Author home ``home`` on ``branch``.
+
+    mode is ``gate_mode(cfg, branch)`` ('strict'|'normal'|'warn'|'off'), or
+    'unavailable' when the checker could not run. new_findings maps the finding key
+    ``file|label|rule`` to the checker's line for every finding outside the recorded
+    baseline (all of them when no baseline is recorded); it is empty for 'off'
+    (checker not run), 'unavailable', and a checker exit 0. The checker inspects the
+    working tree (cwd=home), not the index. Deciding what to do is the caller's.
+    """
+    mode, new, _code, _output = _gate_run(home, cfg, branch)
+    return mode, new
+
+
+def check_home(home, cfg, repo):
+    """None if the commit may go ahead, else the reason to block it.
+
+    In mode 'warn' the findings are written to stderr (``commit gate (warn):``) and
+    the commit goes ahead.
+    """
+    mode, new, code, output = _gate_run(home, cfg, current_branch(repo))
     if not new:
+        return None
+    if mode == "warn":
+        sys.stderr.write("commit gate (warn): %s: %d finding(s) not in the recorded "
+                         "baseline; not blocking on this branch.\n%s\n"
+                         % (cfg.get("instance", home), len(new),
+                            "\n".join(sorted(new.values()))))
         return None
     here = os.path.abspath(__file__)
     if not au.load_baseline(home, cfg):
