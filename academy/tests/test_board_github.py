@@ -61,6 +61,26 @@ class TestCodec(GithubBoardCase):
         self.assertFalse(got["T-0001"]["assign_human"])
         self.assertEqual("T-0001", got["T-0002"]["parent"])
 
+    def test_dead_route_campaign_and_new_kinds_roundtrip(self):
+        """Campaign design sections 4 and 9: the new fields ride the meta line."""
+        self.new(title="Self item", kind="write", to="author@main", campaign="paper:thm:x")
+        self.new(title="Dead route", campaign="paper:thm:x")
+        bd.transition_ticket(self.board, "T-0002", "blocked", blocked_by="paper:lem:y",
+                             reopen_if="a new invariant", reason="tried the induction; circular",
+                             as_instance="expert@main", date="2026-09-30")
+        for path, meta, body in bd.iter_tickets(self.board):
+            e = bc.encode(meta, body)
+            self.assertEqual([], e["blocked_by"], "dead route is not a native dependency")
+            m2, b2 = bc.decode(issue_of(e), e["comments"])
+            with open(path, encoding="utf-8", newline="") as fh:
+                self.assertEqual(fh.read(), bc.render(m2, b2), path)
+            self.assertEqual([], bc.validate_issue(issue_of(e), e["comments"]))
+        dead = [m for _p, m, _b in bd.iter_tickets(self.board) if m["id"] == "T-0002"][0]
+        self.assertEqual("paper:lem:y", dead["blocked_by"])
+        self.assertIn("status:blocked", bc.encode(dead, "")["labels"])
+        self.assertIn("kind:write", bc.encode(
+            [m for _p, m, _b in bd.iter_tickets(self.board) if m["id"] == "T-0001"][0], "")["labels"])
+
     def test_meta_line_never_closes_the_html_comment_early(self):
         self.make()
         for _p, m, b in bd.iter_tickets(self.board):

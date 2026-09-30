@@ -22,6 +22,7 @@ numbering is empty; an id that was never used is a closed placeholder issue).
 | `waiting_on` / `blocks` | native issue dependencies for ticket targets; the rest in the meta line; `status:blocked` is the queryable signal |
 | `## Ask`, `## Result` | issue body, after the line `<!-- academy:meta {json} -->` that carries the other fields |
 | `## Thread` | one comment per entry, marked `<!-- academy:thread -->`; other comments are conversation, not Thread |
+| `campaign`, `blocked_by`, `reopen_if` | the meta line (ticket-only fields, `docs/protocol.md` section 4 and the campaign design); a dead-route ticket is `status:blocked` like a pending one, told apart by `blocked_by` + `reopen_if` in the meta line. `blocked_by` is **not** a native issue dependency: only `waiting_on` ticket ids are, so a dead route never shows as "blocked by" an issue |
 | `agenda` | Project text field **Agenda**; milestones stay free for the paper's milestones |
 | packets, `.render/`, `deep-dives/` | stay files in the board repo (`packets/`) |
 
@@ -60,6 +61,10 @@ repository scope.
 ## Status
 
 Done: codec, export/verify/import, `board_sync` backstop, workflow and issue form, runbook.
+Campaign mode (shared inbox core, dead-route blocking, `campaign:` tag, kinds `write` `apply` `copy` `sweep`)
+round-trips through the codec and validates in `board-sync`; the inbox core and `board.py` still read the
+file board, so `/academy:inbox` and campaigns need the `BoardStore` seam below before they can run on a
+GitHub board (until then, run them on a checkout made by `board_import.py`).
 Not yet: the `BoardStore` seam behind `board.py` and the MCP `tickets_*` tools (github mode is
 reached through the skills and the codec until then), the write hook, `board_project.py`
 (Project fields and views), the Project-field half of `board-sync`.
