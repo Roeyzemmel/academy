@@ -28,13 +28,13 @@ def _one_line(name, value, required=True):
 
 
 def _default_budget(ctx):
+    """``{"runs": n}`` from the caller's home ``budget.ticketDefault`` (no max_model)."""
     try:
         home = ac.find_home(ctx.cwd)
-        cfg = ac.load_config(home) if home else ac.CONFIG_DEFAULTS
+        cfg = ac.load_config(home) if home else None
     except ac.ConfigError:
-        cfg = ac.CONFIG_DEFAULTS
-    b = (cfg.get("budget") or {}).get("ticketDefault") or {"runs": 1, "max_model": "sonnet"}
-    return {"runs": int(b.get("runs", 1)), "max_model": b.get("max_model", "sonnet")}
+        cfg = None
+    return ac.default_ticket_budget(cfg)
 
 
 def _read(path):
@@ -340,7 +340,11 @@ TOOLS = [
               "to": S, "ask": S, "deliverable": S, "ask_detail": S,
               "priority": {"type": "string", "enum": list(ac.PRIORITIES)},
               "refs": L, "agenda": S, "domain": S, "parent": S,
-              "budget": {"type": "object"}, "note": S, "final_to": S, "as_human": B},
+              "budget": {"type": "object", "description":
+                         "{runs: int >= 1} (default: the home's budget.ticketDefault "
+                         "runs); an optional max_model is an advisory note only, never "
+                         "a gate: an agent runs on its agent file's model"},
+              "note": S, "final_to": S, "as_human": B},
              ["title", "kind", "to", "ask", "deliverable"]),
          lambda ctx, a: create_ticket(ctx, a), write=True),
     Tool("tickets_update", "Change a ticket: a status transition (with reason where the "

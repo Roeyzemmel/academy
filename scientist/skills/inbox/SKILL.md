@@ -19,8 +19,9 @@ py "${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py" --json
 
 It returns up to `budget.itemsPerRun` (at most 3) tickets addressed to this
 instance, status `open` or `accepted`, ordered by priority then id, each with its
-**route** and, when the routed agent is heavier than the ticket's `max_model`,
-`over_budget`. With ticket ids as arguments, take those, still at most three.
+**route**. The routed agent runs on its agent file's model; a ticket's
+`budget.max_model`, if present, is an advisory note and never blocks a route. With
+ticket ids as arguments, take those, still at most three.
 Say how many remain.
 
 ## 2. For each ticket, serially
@@ -39,8 +40,8 @@ Say how many remain.
    - `human`: put the ticket to Roey with `AskUserQuestion`, and record his answer in
      the thread.
    - `reject`: `rejected`, with the reason and the usual receiver in the thread.
-   - `over_budget`: `blocked`, `waiting_on: [human]`, a thread line asking for more
-     budget. Do not run it.
+   - A ticket that needs more agent runs than its `budget.runs`: `blocked`,
+     `waiting_on: [human]`, a thread line asking for more runs.
 3. Finish: `delivered` with a one-line `result` (and `packets` when a packet came
    out), or `blocked` with what it waits on. Nothing else starts because a ticket
    was delivered.

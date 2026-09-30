@@ -28,11 +28,14 @@ happen again.
    the assumption in its report, and returns. Only the main session asks Roey, with
    `AskUserQuestion`, at a decision point.
 6. **The lightest agent that can do the work.** Orchestration runs on
-   `budget.orchestratorModel` (sonnet). No agent runs heavier than `budget.maxModel`
-   or than the ticket's `budget.max_model`. Graders run on a primary, Fable or
+   `budget.orchestratorModel` (sonnet). An agent runs on the model of its agent file
+   (`model:` in its frontmatter), never heavier than the home's `budget.maxModel`. The
+   model is not the issuer's to set: a ticket's `budget.max_model`, if present, is an
+   advisory note and never blocks a route. Graders run on a primary, Fable or
    Opus 5.5, which count equally (roster-rules.md, "Model fallback"); a grader run on
    a lighter model spends a run for a verdict that cannot count.
-7. **A ticket spends at most its own `budget.runs` agent runs.** If it needs more,
+7. **A ticket spends at most its own `budget.runs` agent runs** (the issuer's limit).
+   If it needs more,
    the receiver moves it to `blocked` with `waiting_on: [human]` and a thread line
    asking for more budget (docs/protocol.md section 4).
 8. **Turn caps.** Agents that can wander carry `maxTurns`. A capped agent returns a

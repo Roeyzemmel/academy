@@ -31,8 +31,7 @@
     "orchestratorModel": "sonnet",
     "maxModel": "fable",
     "ticketDefault": {
-      "runs": 1,
-      "max_model": "sonnet"
+      "runs": 1
     }
   },
   "gate": {

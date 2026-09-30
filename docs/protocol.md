@@ -133,7 +133,6 @@ blocks: []
 waiting_on: []
 budget:
   runs: 2
-  max_model: fable
 result:
 packets: []
 created: 2026-09-27
@@ -178,7 +177,7 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 | `final_to` | role \| instance \| empty | no | sender | The role (or instance) the request is really for; set on relayed tickets; a receiver whose role is not `final_to` hands the ticket to its relay |
 | `blocks` | list of ticket ids | no | sender (server mirrors) | Tickets waiting on this one |
 | `waiting_on` | list of ticket ids, instances or `human` | iff `blocked` | receiver | What the receiver waits for |
-| `budget` | map `{runs: int >= 1, max_model: fable\|opus\|sonnet\|haiku}` | yes | sender | Agent runs allowed and the heaviest model; default from `academy.json` `budget.ticketDefault` |
+| `budget` | map `{runs: int >= 1}`, optionally `max_model: fable\|opus\|sonnet\|haiku` | yes | sender | Agent runs allowed; default `runs` from `academy.json` `budget.ticketDefault`. The model is not the sender's: an agent runs on its agent file's `model:`. `max_model`, if given, is an advisory note and never blocks a route |
 | `result` | str, one line | iff `delivered`/`closed` | receiver | The answer in one line; detail in `## Result` |
 | `packets` | list of packet ids | no | receiver | Packets produced for this ticket |
 | `created` | `YYYY-MM-DD` | yes | system | |
@@ -323,9 +322,11 @@ not auto-resumed.
 **Execution.** Nothing runs on its own. `/<role>:inbox` takes the receiver's `open`
 and `accepted` tickets, ordered by priority, then agenda position, then id. It
 handles at most `budget.itemsPerRun` (at most 3) of them, serially. Each ticket
-spends at most its own `budget.runs` agent runs at no heavier model than
-`budget.max_model`. If the ticket needs more, the receiver moves it to `blocked` with
-`waiting_on: [human]` and a thread line asking for more budget.
+spends at most its own `budget.runs` agent runs. Each agent runs on the model of its
+agent file (never above the home's `budget.maxModel`); a ticket's `budget.max_model`
+is an advisory note from the sender, not a gate. If the ticket needs more runs, the
+receiver moves it to `blocked` with `waiting_on: [human]` and a thread line asking for
+more budget.
 
 ## 5. Permissions
 

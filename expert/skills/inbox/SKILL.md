@@ -34,8 +34,10 @@ the ticket lifecycle is `docs/protocol.md` section 4.
    Each transition goes through `tickets_update`; never edit a ticket file.
 3. **Stop at once** on a limit error: record in the current ticket's thread what was
    and was not done, launch nothing further, and report (`budget.md` rule 4). A ticket
-   whose `budget.runs` or `budget.max_model` cannot cover its route goes to `blocked`
-   with `waiting_on: [human]` and a thread line asking for the budget.
+   whose `budget.runs` cannot cover its route goes to `blocked` with
+   `waiting_on: [human]` and a thread line asking for the budget. The model is not a
+   budget question: each agent runs on its agent file's model, and a ticket's
+   `budget.max_model`, if present, is an advisory note that never blocks a route.
 
 ## Report
 

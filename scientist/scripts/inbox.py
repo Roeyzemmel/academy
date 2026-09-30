@@ -23,10 +23,10 @@ other               human (Roey says what it is)
 anything else       reject: not the lab's work (names the usual receiver)
 ==================  ============================================================
 
-A ticket whose ``budget.max_model`` is lighter than the routed agent's model gets
-``over_budget``: the receiver moves it to ``blocked`` with ``waiting_on: [human]``
-instead of running it (academy references/budget.md rule 7). Exit 0 with rows,
-1 with nothing to take, 2 on error.
+The routed agent runs on its agent file's model. A ticket's ``budget.max_model``, if
+present, is an advisory note from the sender and never blocks a route (T-0071); the
+ticket's limit is ``budget.runs`` (academy references/budget.md rules 6 and 7). Exit 0
+with rows, 1 with nothing to take, 2 on error.
 """
 
 import argparse
@@ -42,10 +42,6 @@ from _common import ac  # noqa: E402
 
 TAKE = ("open", "accepted")
 PRIORITY = {"high": 0, "normal": 1, "low": 2}
-WEIGHT = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}
-#: primary model of each Scientist agent (plan section 3.5)
-AGENT_MODEL = {"experimenter": "sonnet", "developer": "opus", "test-engineer": "sonnet",
-               "upstream-contributor": "sonnet", "api-prober": "sonnet"}
 ROUTES = {
     "experiment": ("experimenter", "design, header approval, script, queue, report"),
     "test": ("experimenter", "test the falsifier first; the report goes back to the sender"),
@@ -70,12 +66,6 @@ def route(meta):
     else:
         row = {"route": "reject", "how": "not the lab's work; usually for %s"
                % ELSEWHERE.get(kind, "another instance")}
-    budget = meta.get("budget") or {}
-    mm = budget.get("max_model") if isinstance(budget, dict) else None
-    need = AGENT_MODEL.get(row["route"])
-    if need and mm in WEIGHT and WEIGHT[need] > WEIGHT[mm]:
-        row["over_budget"] = "%s runs on %s; the ticket allows at most %s" % (
-            row["route"], need, mm)
     return row
 
 
@@ -127,9 +117,8 @@ def main(argv=None):
                          ensure_ascii=False))
     else:
         for r in rows:
-            print("%s  %-8s %-17s -> %-13s %s%s" % (
-                r["id"], r["priority"], r["kind"], r["route"], r["title"],
-                ("  [over budget: %s]" % r["over_budget"]) if r.get("over_budget") else ""))
+            print("%s  %-8s %-17s -> %-13s %s" % (
+                r["id"], r["priority"], r["kind"], r["route"], r["title"]))
         print("%d taken, %d remaining" % (len(rows), max(0, total - len(rows))))
     return 0 if rows else 1
 

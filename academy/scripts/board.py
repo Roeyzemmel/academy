@@ -52,14 +52,16 @@ def _workspace_or_none(workspace=None):
 
 
 def _default_budget(cwd=None):
-    """``budget.ticketDefault`` of the caller's home config, or the library default."""
+    """``{"runs": n}`` from ``budget.ticketDefault`` of the caller's home config, or the
+    library default (``ac.default_ticket_budget``; no ``max_model``, T-0071)."""
     home = ac.find_home(cwd or os.getcwd())
+    cfg = None
     if home:
         try:
-            return dict(ac.load_config(home)["budget"]["ticketDefault"])
-        except (ac.AcademyError, KeyError, TypeError):
+            cfg = ac.load_config(home)
+        except ac.AcademyError:
             pass
-    return dict(ac.CONFIG_DEFAULTS["budget"]["ticketDefault"])
+    return ac.default_ticket_budget(cfg)
 
 
 def _split(s):
@@ -318,7 +320,10 @@ def main(argv=None):
                                                                choices=ac.PRIORITIES)
     p.add_argument("--refs"); p.add_argument("--agenda"); p.add_argument("--domain")
     p.add_argument("--parent"); p.add_argument("--runs", type=int)
-    p.add_argument("--max-model", choices=ac.MODELS); p.add_argument("--detail", default="")
+    p.add_argument("--max-model", choices=ac.MODELS,
+                   help="optional advisory note for budget.max_model; never a gate: the "
+                        "agent file sets the model (T-0071)")
+    p.add_argument("--detail", default="")
     p.add_argument("--as", dest="as_instance", required=True)
     p.add_argument("--final-to", dest="final_to")
     p.add_argument("--agent", default="")

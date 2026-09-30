@@ -142,7 +142,7 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 | `serial` | bool | true | Items run one after another |
 | `orchestratorModel` | model | `sonnet` | Model for skill orchestrators |
 | `maxModel` | model | `fable` | Heaviest model any agent in this home may use |
-| `ticketDefault` | `{runs, max_model}` | `{1, sonnet}` | Budget written into new tickets when the sender gives none |
+| `ticketDefault` | `{runs}` | `{1}` | Budget written into new tickets when the sender gives none. A `max_model` here is ignored: an agent runs on its agent file's model (T-0071) |
 
 **`gate`:**
 
@@ -267,7 +267,7 @@ a shim until phase 8.
                "statusKeeper": "claim-keeper",
                "legacy": {"claims": "py ../<lab>/scripts/claims.py --repo ."}},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
-             "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+             "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": true,
            "baseline": ".claude/paper-gate-baseline.txt",
            "branches": {"academy-migration": {"commit": "off"}}},
@@ -318,7 +318,7 @@ a shim until phase 8.
                "statusKeeper": "claim-keeper",
                "legacy": {"kb": "py tools/kb.py"}},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
-             "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+             "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": false, "baseline": null,
            "branches": {"academy-migration": {"commit": "off"}}},
   "researcher": {
@@ -351,7 +351,7 @@ a shim until phase 8.
   },
   "registry": {"profile": "none", "db": ".claude/academy.sqlite"},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
-             "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+             "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "off", "build": false, "baseline": null, "branches": {}},
   "expert": {
     "bibs": ["author@main:references.bib"],
@@ -386,7 +386,7 @@ a shim until phase 8.
                "statusKeeper": "claim-keeper",
                "legacy": {"claims": "py scripts/claims.py"}},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
-             "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+             "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": false, "baseline": null,
            "branches": {"academy-migration": {"commit": "off"}}},
   "scientist": {
