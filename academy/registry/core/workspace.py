@@ -57,12 +57,7 @@ def workspace_path():
     if env:
         return Path(env)
     # the academy checked out inside the workspace: workspace.json is beside it
-    # or, in a cloud session, the workspace checked out next to an attached academy
-    cands = [academy_root() / "workspace.json", academy_root().parent / "workspace.json",
-             academy_root().parent / "BilliardIlluminationWorkspace" / "workspace.json"]
-    if os.environ.get("CLAUDE_PROJECT_DIR"):
-        cands.append(Path(os.environ["CLAUDE_PROJECT_DIR"]) / "workspace.json")
-    for cand in cands:
+    for cand in (academy_root() / "workspace.json", academy_root().parent / "workspace.json"):
         if cand.is_file():
             return cand
     return None
