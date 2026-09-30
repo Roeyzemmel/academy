@@ -153,10 +153,10 @@ def _classify_ticket(t):
 def _packet_unblocks(board, tid):
     if not tid:
         return []
-    path = ac.find_ticket(board, tid)
-    if not path:
+    store = ac.as_store(board)
+    if not store.find(tid):
         return [tid]
-    meta, _body = boardlib.read_ticket(path)
+    meta = store.get(tid)[1]
     out = [tid]
     out.extend(str(b) for b in (meta.get("blocks") or []) if str(b) not in out)
     return out
@@ -396,7 +396,7 @@ def main(argv=None):
     boardlib._utf8_stdout()
     try:
         ws = boardlib._workspace_or_none(a.workspace)
-        board = boardlib.resolve_board(a.board, a.workspace)
+        board = boardlib.resolve_store(a.board, a.workspace)
         if a.cmd == "list":
             items = pending_decisions(board, a.instance)
             if a.json:

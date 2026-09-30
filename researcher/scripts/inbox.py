@@ -29,31 +29,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import _academy as ac  # noqa: E402
-import _researcher as rs  # noqa: E402
 from routes import RELAYS, ROUTES, route  # noqa: E402,F401
 
 core = ac.inbox_core
 
 
-def resolve_instance(instance=None, cwd=None):
-    if instance:
-        return instance, None
-    home, cfg, inst = rs.researcher_home(cwd or os.getcwd())
-    if not inst:
-        raise ac.AcademyError("not in a Researcher home; give --instance")
-    return inst, cfg
+def resolve(args):
+    """``(instance, config)``: ``--instance``/``--home``/``--workspace``, else the
+    Researcher home containing the cwd."""
+    return core.resolve_instance(args, "researcher")
 
 
 def main(argv=None):
-    args = core.parser(__doc__.split("\n")[0]).parse_args(argv)
-    try:
-        inst, cfg = resolve_instance(args.instance)
-        board = args.board or ac.open_store(ac.load_workspace())
-        limit = min(int(((cfg or {}).get("budget") or {}).get("itemsPerRun", 3)), 3)
-        return core.run(args, inst, board, limit, route)
-    except (ac.AcademyError, OSError) as exc:
-        sys.stderr.write("inbox.py: %s\n" % exc)
-        return 2
+    return core.main(argv, __doc__.split("\n")[0], resolve, route)
 
 
 if __name__ == "__main__":

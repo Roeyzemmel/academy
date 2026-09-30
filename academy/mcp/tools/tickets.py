@@ -5,13 +5,10 @@ decided by its instance against the ticket's ``from`` / ``to``; the human may do
 anything, and is the only party on a ticket addressed to ``human``.
 """
 
-import os
-
 import academy_common as ac
 
 from . import Tool, ToolError, obj, S, B, L
 
-REASON_NEEDED = {("delivered", "in-progress")}
 PRIORITY_ORDER = {"high": 0, "normal": 1, "low": 2}
 FROZEN = ("id", "created", "updated")
 
@@ -37,22 +34,20 @@ def _default_budget(ctx):
     return {"runs": int(b.get("runs", 1)), "max_model": b.get("max_model", "sonnet")}
 
 
-def _read(path):
-    with open(path, "r", encoding="utf-8") as fh:
-        return fh.read()
-
-
 def load_ticket(ctx, tid):
+    """``(ref, meta, body)`` of ticket ``tid`` on the caller's store (one fetch)."""
     if not ac.RE_TICKET_ID.match(str(tid or "")):
         raise ToolError("a ticket id looks like T-0007, got %r" % tid)
-    if not ctx.store.find(tid):
+    try:
+        return ctx.store.get(tid)
+    except ac.AcademyError:
         raise ToolError("no ticket %s on the board %s" % (tid, ctx.board))
-    return ctx.store.get(tid)
 
 
-def _write(path, meta, body):
-    ordered = {k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}
-    ac.atomic_write(path, ac.write_frontmatter(ordered, body))
+def ticket_text(ctx, tid):
+    """The ticket as a file would read (frontmatter and body), on either backend."""
+    _ref, meta, body = load_ticket(ctx, tid)
+    return ac.write_frontmatter({k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}, body)
 
 
 def replace_section(body, heading, text):
@@ -169,6 +164,9 @@ def update_ticket(ctx, a):
     note = (a.get("note") or "").strip()
     speaker = ctx.speaker
     lines = []
+    old_status = old_meta.get("status")
+    status_change = bool(new_status and new_status != old_status)
+    staged = {}          # blocking fields of a status move: apply_blocking writes them
 
     # -- fields -----------------------------------------------------------
     allowed = ac.editable_fields(pset, human)
@@ -189,6 +187,9 @@ def update_ticket(ctx, a):
                 k, owner, me, " and ".join(sorted(pset)) or "no party", meta["id"]))
         if k in ("title", "ask", "deliverable", "result"):
             v = _one_line(k, v, required=(k != "result"))
+        if k in ac.BLOCK_FIELDS and status_change:
+            staged[k] = v
+            continue
         if meta.get(k) != v:
             meta[k] = v
             lines.append("set %s: %s" % (k, _fmt_val(v)))
@@ -206,54 +207,29 @@ def update_ticket(ctx, a):
         lines.append("set ## Result")
 
     # -- status -----------------------------------------------------------
-    old_status = old_meta.get("status")
-    if new_status and new_status != old_status:
+    if status_change:
         if meta.get("to") == ac.HUMAN and not human:
             raise ToolError("refused: a ticket addressed to human changes status only "
                             "by the human")
         ok, why = ac.can_transition(old_status, new_status, pset, human)
         if not ok:
             raise ToolError("refused: %s" % why)
-        if (new_status in ("rejected", "cancelled")
-                or (old_status, new_status) in REASON_NEEDED) and not reason:
-            raise ToolError("%s -> %s needs a reason in the same write"
-                            % (old_status, new_status))
-        was_dead = old_status == "blocked" and bool(old_meta.get("blocked_by")
-                                                     and old_meta.get("reopen_if"))
-        reopen = " ".join(str(a.get("reopen") or "").split())
-        if new_status == "blocked":
-            dead = bool(meta.get("blocked_by") and meta.get("reopen_if"))
-            if meta.get("waiting_on") and (meta.get("blocked_by") or meta.get("reopen_if")):
-                raise ToolError("blocked is pending (waiting_on) or a dead route "
-                                "(blocked_by and reopen_if), not both")
-            if not meta.get("waiting_on") and not dead:
-                raise ToolError("blocked needs fields.waiting_on, or both "
-                                "fields.blocked_by and fields.reopen_if")
-            if dead:
-                if not reason:
-                    raise ToolError("a dead-route block needs a reason naming what was tried")
-                lines.append("tried: %s" % " ".join(reason.split()))
-                reason = ""
-        elif was_dead:
-            if new_status == "accepted":
-                if not reopen:
-                    raise ToolError("a dead-route ticket reopens with reopen "
-                                    "(the new mechanism)")
-                lines.append("reopened: %s" % reopen)
-            elif new_status != "cancelled":
-                raise ToolError("a dead-route ticket reopens only blocked -> accepted "
-                                "with reopen; the sender may cancel with a reason")
-        if old_status == "blocked" and new_status != "blocked":
-            if meta.get("waiting_on"):
-                meta["waiting_on"] = []
-                lines.append("set waiting_on: []")
-            for f in ("blocked_by", "reopen_if"):
-                meta.pop(f, None)
+        try:
+            blines = ac.apply_blocking(
+                old_meta, meta, new_status, reason, staged.get("waiting_on"),
+                staged.get("blocked_by"), staged.get("reopen_if"), a.get("reopen"), human)
+        except ac.AcademyError as exc:
+            raise ToolError(str(exc))
+        lines.extend(blines)
         if new_status in ("delivered", "closed") and not meta.get("result"):
             raise ToolError("%s needs result (fields.result)" % new_status)
         meta["status"] = new_status
+        dead_block = new_status == "blocked" and ac.is_dead_route(meta)
         lines.append("status %s -> %s%s" % (old_status, new_status,
-                                            (": " + reason) if reason else ""))
+                                            (": " + " ".join(reason.split()))
+                                            if reason and not dead_block else ""))
+    elif a.get("reopen"):
+        raise ToolError(ac.REOPEN_ONLY)
     elif reason and not note:
         note = reason
     if note:
@@ -280,17 +256,7 @@ def update_ticket(ctx, a):
     # blocking bookkeeping: mirror into the awaited tickets' blocks
     freed = []
     if meta.get("status") == "blocked":
-        for w in meta.get("waiting_on") or []:
-            if ac.RE_TICKET_ID.match(str(w)):
-                wp = ctx.store.find(w)
-                if not wp:
-                    continue
-                _wp, wm, wb = ctx.store.get(w)
-                if meta["id"] not in (wm.get("blocks") or []):
-                    wm["blocks"] = list(wm.get("blocks") or []) + [meta["id"]]
-                    wm["updated"] = ac.today()
-                    ctx.store.save(wm, wb, wp)
-                    freed.append(w)
+        freed = ac.mirror_blocks(ctx.store, meta["id"], meta.get("waiting_on"), ac.today())
     return {"id": meta["id"], "path": new_path.replace("\\", "/"),
             "status": meta["status"], "thread": lines, "mirrored_blocks_into": freed}
 
@@ -299,25 +265,6 @@ def _summary(path, meta):
     return {k: meta.get(k) for k in ("id", "title", "kind", "from", "to", "status",
                                      "priority", "agenda", "updated")} | {
         "path": path.replace("\\", "/")}
-
-
-def iter_tickets(board):
-    import re
-    rx = re.compile(r"^T-\d{4,}-.*\.md$")
-    if not os.path.isdir(board):
-        return
-    for d in sorted(os.listdir(board)):
-        full = os.path.join(board, d)
-        if d in ("packets", "deep-dives", ".ids", ".git") or not os.path.isdir(full):
-            continue
-        for f in sorted(os.listdir(full)):
-            if rx.match(f):
-                p = os.path.join(full, f)
-                try:
-                    meta, _ = ac.read_frontmatter(_read(p))
-                except ac.FrontmatterError:
-                    continue
-                yield p, meta
 
 
 def _list(ctx, a):

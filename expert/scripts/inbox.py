@@ -39,33 +39,15 @@ def plan(board, instance, limit):
             "remaining": max(0, total - len(rows)), "unfinished": core.unfinished(rows)}
 
 
+def resolve(args):
+    """``(instance, config)``: ``--instance``/``--home``/``--workspace``, else the Expert
+    home containing the cwd, else the only Expert instance."""
+    return core.resolve_instance(args, "expert")
+
+
 def main(argv=None):
     ex.utf8_stdout()
-    args = core.parser(__doc__.split("\n")[0]).parse_args(argv)
-    ws = ex.load_workspace_or_none()
-    if not ws:
-        sys.stderr.write("inbox: workspace.json not found\n")
-        return 2
-    home = ac.find_home(os.getcwd())
-    instance = args.instance
-    if not instance and home:
-        instance = ex.expert_instance_for_home(ws, home)
-    if not instance:
-        names = ex.expert_instances(ws)
-        instance = names[0] if len(names) == 1 else None
-    if not instance or instance not in ws["instances"]:
-        sys.stderr.write("inbox: name the Expert instance (--instance)\n")
-        return 2
-    cfg = ex.expert_config(ws["instances"][instance]["home"])
-    limit = ((cfg or {}).get("budget") or {}).get("itemsPerRun") or 3
-    board = os.path.abspath(args.board) if args.board else ac.open_store(ws)
-    if isinstance(board, ac.FileBoardStore):
-        board = ac.FileBoardStore(os.path.abspath(board.board))
-    try:
-        return core.run(args, instance, board, min(int(limit), 3), route)
-    except (ac.AcademyError, OSError) as exc:
-        sys.stderr.write("inbox: %s\n" % exc)
-        return 2
+    return core.main(argv, __doc__.split("\n")[0], resolve, route)
 
 
 if __name__ == "__main__":

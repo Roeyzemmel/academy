@@ -53,11 +53,10 @@ def resolve_store(board=None, workspace=None, transport=None):
     """The BoardStore to work on: ``board`` (a path) is the file board there; otherwise
     the workspace's ``board.backend`` decides (``files`` by default, see ``ac.open_store``)."""
     if board:
-        return ac.FileBoardStore(os.path.abspath(board))
-    ws = ac.load_workspace(workspace)
-    st = ac.open_store(ws, transport)
+        return ac.FileBoardStore(resolve_board(board))
+    st = ac.open_store(ac.load_workspace(workspace), transport)
     if isinstance(st, ac.FileBoardStore):
-        st = ac.FileBoardStore(os.path.abspath(st.board))
+        st = ac.FileBoardStore(resolve_board(st.board))
     return st
 
 
@@ -89,25 +88,17 @@ def _split(s):
 # Reading tickets
 # ----------------------------------------------------------------------------
 
-def read_ticket(path):
-    with open(path, "r", encoding="utf-8") as fh:
-        meta, body = ac.read_frontmatter(fh.read())
-    return meta, body
-
-
-def write_ticket(path, meta, body):
-    ordered = {k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}
-    ac.atomic_write(path, ac.write_frontmatter(ordered, body))
+read_ticket = ac.FileBoardStore.read_path
+write_ticket = ac.FileBoardStore.write_path
 
 
 def iter_tickets(board):
-    """Yield ``(path, meta, body)`` for every ticket file on the board.
+    """Yield ``(ref, meta, body)`` for every ticket on the board (a directory or a store).
 
-    Only files named ``T-NNNN-*.md`` inside instance folders and ``human/`` count
-    (protocol.md section 2). An unreadable file is yielded with ``meta = None``.
+    On the file board only ``T-NNNN-*.md`` files inside instance folders and ``human/``
+    count (protocol.md section 2). An unreadable ticket is yielded with ``meta = None``.
     """
-    for ref, meta, body in ac.as_store(board).iter_tickets():
-        yield ref, meta, body
+    return ac.as_store(board).iter_tickets()
 
 
 def list_tickets(board, to=None, frm=None, status=None, include_terminal=False):
@@ -216,24 +207,6 @@ def append_to_ticket(board, tid, text, as_instance=ac.HUMAN, agent="", date=None
     return store.save(meta, body, path)
 
 
-def _mirror_blocks(board, tid, waiting_on, date):
-    """Add ``tid`` to the ``blocks`` list of every ticket it now waits on."""
-    store = ac.as_store(board)
-    for w in waiting_on or []:
-        if not ac.RE_TICKET_ID.match(str(w)):
-            continue
-        p = store.find(w)
-        if not p:
-            continue
-        _p, m, b = store.get(w)
-        blocks = list(m.get("blocks") or [])
-        if tid not in blocks:
-            blocks.append(tid)
-            m["blocks"] = blocks
-            m["updated"] = date
-            store.save(m, b, p)
-
-
 def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
                       as_instance=ac.HUMAN, agent="", date=None, blocked_by=None,
                       reopen_if=None, reopen=None):
@@ -247,7 +220,8 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
     dead route (``blocked_by`` and ``reopen_if``, plus ``reason``: what was tried,
     recorded as a ``tried:`` thread line), never both. A dead-route ticket reopens only
     by ``blocked -> accepted`` with ``reopen`` (the new mechanism), which appends a
-    ``reopened:`` thread line and clears both fields.
+    ``reopened:`` thread line and clears both fields; the human may leave one by any
+    transition, giving ``reason`` (or ``reopen``) as the record (``ac.apply_blocking``).
     """
     store = ac.as_store(board)
     path, meta, body = store.get(tid)
@@ -259,67 +233,27 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
     if not ok:
         raise ac.AcademyError("%s: %s" % (tid, why))
     if old == new:
+        if (reopen or "").strip():
+            raise ac.AcademyError("%s: %s" % (tid, ac.REOPEN_ONLY))
         return path
-    was_dead = old == "blocked" and bool(meta.get("blocked_by") and meta.get("reopen_if"))
-    if new != "blocked" and (blocked_by or reopen_if):
-        raise ac.AcademyError("%s: blocked_by and reopen_if belong to a move to blocked" % tid)
-    if (reopen or "").strip() and not (was_dead and new == "accepted"):
-        raise ac.AcademyError("%s: --reopen applies only to blocked -> accepted of a "
-                              "dead-route ticket" % tid)
-    if was_dead and not (new == "accepted" and (reopen or "").strip()) \
-            and new not in ("cancelled",):
-        raise ac.AcademyError(
-            "%s: a dead-route ticket reopens only by blocked -> accepted with --reopen "
-            "\"<the new mechanism>\" (the sender may cancel, with a reason)" % tid)
-    needs_reason = new in ("rejected", "cancelled") or (old, new) == ("delivered",
-                                                                      "in-progress")
-    if needs_reason and not (reason or "").strip():
-        raise ac.AcademyError("%s: %s -> %s needs a reason" % (tid, old, new))
+    old_meta = dict(meta)
     who = ac.format_who(as_instance, bare_agent(agent))
     if result is not None and str(result).strip():
         meta["result"] = " ".join(str(result).split())
         body = ac.append_thread(body, who, "set result: %s" % meta["result"], date)
-    if new == "blocked":
-        wo = list(waiting_on or [])
-        bb = (blocked_by or "").strip() or None
-        ri = " ".join(str(reopen_if).split()) if (reopen_if or "").strip() else None
-        if wo and (bb or ri):
-            raise ac.AcademyError("%s: blocked is pending (--waiting-on) or a dead route "
-                                  "(--blocked-by and --reopen-if), not both" % tid)
-        if bb or ri:
-            if not (bb and ri):
-                raise ac.AcademyError("%s: a dead-route block needs both --blocked-by and "
-                                      "--reopen-if" % tid)
-            if not (reason or "").strip():
-                raise ac.AcademyError("%s: a dead-route block needs --reason, naming what "
-                                      "was tried" % tid)
-            meta["blocked_by"], meta["reopen_if"] = bb, ri
-            meta["waiting_on"] = []
-            body = ac.append_thread(body, who, "tried: %s" % " ".join(reason.split()), date)
-            body = ac.append_thread(body, who, "set blocked_by: %s; reopen_if: %s" % (bb, ri),
-                                    date)
-        else:
-            wo = wo or list(meta.get("waiting_on") or [])
-            if not wo:
-                raise ac.AcademyError("%s: a blocked ticket needs --waiting-on, or "
-                                      "--blocked-by and --reopen-if" % tid)
-            meta["waiting_on"] = wo
-            meta.pop("blocked_by", None)
-            meta.pop("reopen_if", None)
-            body = ac.append_thread(body, who, "set waiting_on: [%s]" % ", ".join(wo), date)
-    else:
-        if meta.get("waiting_on"):
-            meta["waiting_on"] = []
-        if was_dead and new == "accepted":
-            body = ac.append_thread(body, who, "reopened: %s" % " ".join(reopen.split()), date)
-        meta.pop("blocked_by", None)
-        meta.pop("reopen_if", None)
+    try:
+        entries = ac.apply_blocking(old_meta, meta, new, reason, waiting_on, blocked_by,
+                                    reopen_if, reopen, human)
+    except ac.AcademyError as exc:
+        raise ac.AcademyError("%s: %s" % (tid, exc))
+    for text in entries:
+        body = ac.append_thread(body, who, text, date)
     if new in ("delivered", "closed") and not meta.get("result"):
         raise ac.AcademyError("%s: %s needs a result (--result)" % (tid, new))
     meta["status"] = new
     meta["updated"] = date
     line = "status %s -> %s" % (old, new)
-    if (reason or "").strip() and not (new == "blocked" and meta.get("blocked_by")):
+    if (reason or "").strip() and not (new == "blocked" and ac.is_dead_route(meta)):
         line += ": " + reason.strip()
     body = ac.append_thread(body, who, line, date)
     probs = ac.validate_ticket(meta, body)
@@ -327,7 +261,7 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
         raise ac.AcademyError("%s would be invalid: %s" % (tid, "; ".join(probs)))
     path = store.save(meta, body, path)
     if new == "blocked" and meta.get("waiting_on"):
-        _mirror_blocks(store, tid, meta["waiting_on"], date)
+        ac.mirror_blocks(store, tid, meta["waiting_on"], date)
     return path
 
 

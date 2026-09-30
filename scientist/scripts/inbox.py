@@ -35,21 +35,19 @@ def select(board, instance, limit=3, take_all=False):
                        return_legs=False)
 
 
+def resolve(args):
+    """``(instance, config)`` of the lab: ``--home``, else the lab containing the cwd, else
+    workspace.json's Scientist; ``--instance`` overrides the name."""
+    lab = c.resolve_lab(args.home, os.getcwd(), args.workspace)
+    return args.instance or lab["instance"], lab["cfg"]
+
+
 def main(argv=None):
-    args = core.parser(__doc__.split("\n")[0], prog="inbox.py").parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass
-    try:
-        lab = c.resolve_lab(args.home, os.getcwd(), args.workspace)
-        board = args.board or ac.open_store(ac.load_workspace(args.workspace))
-        limit = (lab["cfg"].get("budget") or {}).get("itemsPerRun", 3)
-        return core.run(args, args.instance or lab["instance"], board, min(int(limit), 3), route,
-                        return_legs=False)
-    except ac.AcademyError as exc:
-        print("error: %s" % exc, file=sys.stderr)
-        return 2
+    return core.main(argv, __doc__.split("\n")[0], resolve, route, return_legs=False)
 
 
 if __name__ == "__main__":
