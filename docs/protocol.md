@@ -279,7 +279,7 @@ any non-terminal state --> cancelled (sender)
 
 Here is the full table (`TRANSITIONS` in the lib, `tickets.transitions` in
 permissions.json). **The human may make any transition**, including re-opening
-`closed` / `rejected` / `cancelled` to `open`.
+`closed` / `rejected` / `cancelled` to `open` and leaving a dead route (below).
 
 | From | To | Who | Also required |
 |---|---|---|---|
@@ -295,7 +295,7 @@ permissions.json). **The human may make any transition**, including re-opening
 | in-progress | blocked | receiver | `waiting_on` non-empty, or a dead route |
 | in-progress | cancelled | sender | reason in thread |
 | blocked | accepted | receiver | `waiting_on` cleared; a dead route needs `--reopen` |
-| blocked | in-progress | receiver | `waiting_on` cleared (never a dead route) |
+| blocked | in-progress | receiver | `waiting_on` cleared (never a dead route, except by the human) |
 | blocked | cancelled | sender | reason in thread |
 | delivered | closed | sender | |
 | delivered | in-progress | sender | reason in thread ("returned") |
@@ -322,18 +322,29 @@ Terminal states: `closed`, `rejected`, `cancelled`.
 | kind | fields | meaning | inbox |
 |---|---|---|---|
 | pending | `waiting_on` non-empty (ticket ids, instances or `human`) | waiting for a ticket, an instance or Roey | not taken; return legs as above |
-| dead route | `blocked_by` (a ticket or claim id) and `reopen_if` (one line) | the route ends at a result as strong as the goal, or at a refutation; reopens only for a materially new mechanism, invariant or construction | never taken |
+| dead route | `blocked_by` (a ticket or registry id: `T-0007`, `GEO-31`, `paper:lem:x`) and `reopen_if` (one line) | the route ends at a result as strong as the goal, or at a refutation; reopens only for a materially new mechanism, invariant or construction | never taken |
 
 - `blocked` needs `waiting_on` **or** both `blocked_by` and `reopen_if`; both kinds at
   once is an error. A dead-route block also needs a thread line `tried: <what was
   tried>` (`board.py transition ... blocked --blocked-by ID --reopen-if LINE --reason
-  "<what was tried>"` writes it). `validate_ticket` and `transition_ticket` enforce
-  this; the transitions themselves are unchanged.
+  "<what was tried>"` writes it); after a reopening the ticket needs a fresh `tried:` line
+  of its own for the next dead-route block. `blocked_by` must be a ticket id or a registry
+  id (`GEO-31`, `Q1`, `ns:id`), not free text. `validate_ticket` and the one shared rule
+  function (`apply_blocking`, used by `board.py transition` and the MCP `tickets_update`,
+  which write the same thread lines in the same order: `tried:`, `set blocked_by ...` or
+  `set waiting_on ...`, `reopened:`, then the status line) enforce this; the transitions
+  themselves are unchanged.
 - **Reopening** a dead-route ticket is `blocked -> accepted` by the receiver with
   `--reopen "<the new mechanism>"` (MCP: `tickets_update` argument `reopen`); it
   appends a `reopened: <mechanism>` thread line and clears both fields. Nothing else
   reopens one (not `blocked -> in-progress`, not the sender). The sender may still
-  cancel, with a reason. A pending block reopens as before, with no `--reopen`.
+  cancel, with a reason. A pending block reopens as before, with no `--reopen`, and
+  `--reopen` / `reopen` on anything but a dead route's `blocked -> accepted` is an error
+  (also without a status change).
+- **The human** may leave a dead route by any transition (`accepted`, `in-progress`,
+  `open`, `cancelled`, ...), giving a `--reason` (or `--reopen`) as the record: it clears
+  both fields, and a move to `accepted` writes it as the `reopened:` line. (`board-sync`'s
+  reopen check still flags a human move other than `blocked -> accepted`; see its notes.)
 - In a campaign, an approach object's `blocked_by` / `reopen_if` are the same fields
   with the same rules.
 
@@ -354,8 +365,10 @@ other ticket is taken while it is unfinished. Selection, ordering, return legs a
 checkpoint live once, in the academy library (`inbox_core` in `academy_common.py`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
-`--campaign <target>` lists only tickets carrying `campaign: <target>` (and lifts the cap
-of 3, a campaign having its own caps). `/academy:inbox` runs every instance in turn
+`--campaign <target>` lists only tickets carrying `campaign: <target>` and lifts the cap
+of 3 on its own (a campaign has its own caps; `--n` still lowers it). An in-progress ticket
+of the instance outside the campaign is not listed but is reported in `unfinished` (and as
+`outside_campaign` in `--json`): resume it first. `/academy:inbox` runs every instance in turn
 (Author, Expert, Researcher, Scientist) under one cap. Each ticket
 spends at most its own `budget.runs` agent runs at no heavier model than
 `budget.max_model`. If the ticket needs more, the receiver moves it to `blocked` with

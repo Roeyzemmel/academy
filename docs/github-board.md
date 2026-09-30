@@ -80,7 +80,19 @@ repository scope.
 `GithubBoardStore`, which keeps the same tickets as issues through an **injected transport**
 (`list_issues`, `get_issue`, `create_issue`, `update_issue`, `list_comments`, `add_comment`, optional
 `set_parent`/`add_dependency`) and does every encoding with `board_codec`; `MemoryTransport` is the
-in-memory reference and the fake the tests use. `inbox_core.select`/`run`/`check`, `board.py` (every
+in-memory reference and the fake the tests use (paging with a cap, pull requests among the issues,
+failure injection).
+
+**Transport contract.** `list_issues(labels, state, page, per_page)` and `list_comments(number, page,
+per_page)` return one page (1-based) and an empty list past the last; a transport may return fewer than
+`per_page` (the REST API caps it at 100), so the store reads until a page is empty. The REST API lists
+pull requests among the issues (`"pull_request"` key); the store skips them. Comments are read oldest
+first by `id` (else `created_at`) when the transport gives them. `save` writes in this order: the thread
+comments, the native links (only those that changed), then the issue's title, body, labels and state
+(the commit point), so a failure half way leaves something a retry repairs; a failed `create` turns the
+new issue into a closed `placeholder` instead of leaving an open "(new ticket)". The store and the
+library copy it runs on: `as_store` recognises a store by its methods, not by `isinstance`, because every
+plugin vendors its own copy of `academy_common`; `open_store` passes its own copy to the store. `inbox_core.select`/`run`/`check`, `board.py` (every
 function takes a directory or a store), the role `inbox.py` wrappers (Researcher, Expert, Scientist, and
 the Author's `--check`) and the MCP `tickets_*` tools (`Context.store`) all go through it, so a ticket
 rule is written once.
@@ -88,7 +100,8 @@ rule is written once.
 Selection is `workspace.json`: `"board": "<path>"` (files, the default) or an object
 `{"path": "<local board dir>", "backend": "files" | "github", "repo": "owner/name",
 "transport": "module:factory"}`. The path stays (packets, deep-dives and `.render/` are files either
-way); `ac.open_store(workspace, transport=None)` and `board.resolve_store()` pick the store, and an
+way); `ac.open_store(workspace, transport=None)` and `board.resolve_store()` pick the store (a github store also carries the board path as `.board`, for
+packets), and an
 explicit `--board DIR` always means the file board there. `github` without a transport (given, or named
 by `board.transport`, a factory called with the config dict) is a `ConfigError`.
 
@@ -110,11 +123,11 @@ mode (kinds `write` `apply` `copy` `sweep`, `campaign:`, dead-route blocking) ru
 Still needs the real transport, which is not in this repository and was never exercised against GitHub:
 an object with the transport methods above over the github MCP (in a session) or REST with a token,
 named by `board.transport`; native sub-issue and dependency calls (`set_parent`, `add_dependency`);
-`list_issues` paging and its label filter on a large repo (the store asks for `to:<instance>` only, and
-never reads comments while selecting). Also not done: writing the Project fields (and creating the
+the label filter on a large repo (the store asks for `to:<instance>` only, and never reads comments
+while selecting). Not exercised here: `list_issues` paging against a live repo. Also not done: writing the Project fields (and creating the
 Project's fields/views from `board_project.py`) on a live Project, the Project-field half of
 `board-sync`, the write hook on github mode, the Author's agenda-gap filing and `packets.py`,
-`decisions.py`, `session_start.py` and `land_referee.py`, which still read tickets from the files of
-the board directory (the Author's ticket filing already goes through `board.create_ticket`, so it
+`session_start.py`, which still reads tickets from the files of the board directory (`packets.py`,
+`decisions.py`, `land_referee.py` and the MCP packets/claims tools go through the store now) (the Author's ticket filing already goes through `board.create_ticket`, so it
 follows a store only once its `ctx.board` is one). Until the transport exists, run a github board's
 inbox from a checkout made by `board_import.py`.

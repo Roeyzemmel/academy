@@ -202,7 +202,7 @@ class TestSelectParity(StoreCase):
         self.rows(self.gh, limit=9)
         kinds = {c[0] for c in self.transport.calls}
         self.assertNotIn("list_comments", kinds)
-        self.assertIn(("list_issues", ("to:" + INST,), "all"), self.transport.calls)
+        self.assertIn(("list_issues", ("to:" + INST,), "all", 1), self.transport.calls)
 
     def test_a_path_still_means_the_file_board(self):
         a, _ = core.select(self.board, INST, 3, route=route)
@@ -243,12 +243,18 @@ class TestTransitionParity(StoreCase):
         ("T-0007", "closed", dict(as_instance="author@main")),                 # not delivered
     ]
 
+    #: which OPS must fail (True) -- parity of two silent successes would prove nothing
+    ERRORS = [False, True, False, False, True, True, False, True, False, True, True, False,
+              False, True, False, False, True, True]
+
     def test_same_outcome_for_every_move_and_same_tickets_after(self):
-        for tid, new, kw in self.OPS:
+        self.assertEqual(len(self.OPS), len(self.ERRORS))
+        for (tid, new, kw), must_fail in zip(self.OPS, self.ERRORS):
             kw = dict(kw, date=DATE)
             a = self.attempt(self.files, bd.transition_ticket, tid, new, **kw)
             b = self.attempt(self.gh, bd.transition_ticket, tid, new, **kw)
             self.assertEqual(a, b, (tid, new))
+            self.assertEqual(must_fail, a.startswith("error"), (tid, new, a))
             self.assertEqual(self.snapshot(self.files), self.snapshot(self.gh), (tid, new))
         # the legal moves did happen, the illegal ones did not
         self.assertEqual("accepted", self.gh.status_of("T-0005"))
@@ -378,6 +384,7 @@ class TestMcpParity(StoreCase):
             {"id": "T-0006", "status": "rejected"},                          # needs a reason
             {"id": "T-0006", "status": "rejected", "reason": "no"},
         ]
+        results = []
         for a in steps:
             out = []
             for s in (self.files, self.gh):
@@ -387,6 +394,9 @@ class TestMcpParity(StoreCase):
                 except ToolError as e:
                     out.append(str(e))
             self.assertEqual(out[0], out[1], a)
+            results.append(out[0])
+        self.assertEqual([True, False, False, True, True, False],
+                         [isinstance(r, str) for r in results])      # the errors did occur
         self.assertEqual(self.snapshot(self.files), self.snapshot(self.gh))
         self.assertEqual("accepted", self.gh.status_of("T-0005"))
 

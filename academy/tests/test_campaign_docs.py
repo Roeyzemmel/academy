@@ -81,7 +81,7 @@ class DocumentedCommands(unittest.TestCase):
                 src = fh.read()
             with self.subTest(role=role):
                 self.assertIn("inbox_core", src)          # a wrapper over the shared core
-                self.assertIn("core.parser(", src)        # so --campaign comes for free
+                self.assertTrue("core.parser(" in src or "core.main(" in src)  # --campaign free
 
     def test_the_documented_ticket_tagging_matches_the_tools(self):
         skill = text(*SKILL)
