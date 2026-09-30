@@ -1,8 +1,9 @@
 """routes.py -- the Author's routing table: who handles a ticket or a landing, by kind.
 
 The one part of the Author's inbox that is not shared (``inbox.py`` wraps the academy's
-``inbox_core``). ``route(meta)`` gives ``{how, target, why}`` for a ticket addressed to
-the Author, by its kind (the roadmap-item kinds ride on self-tickets):
+``inbox_core``). The board is the Author's only queue: every work item is a ticket.
+``route(meta)`` gives ``{how, target, why}`` for a ticket addressed to the Author, by
+its kind:
 
 | kind | route |
 |---|---|
@@ -12,12 +13,18 @@ the Author, by its kind (the roadmap-item kinds ride on self-tickets):
 | build | agent ``tex-engineer`` |
 | notation | agent ``notation-auditor`` |
 | sweep | agent ``note-sweeper`` |
-| note | agent ``math-writer`` (a literature result from the Expert, folded into an item) |
+| note | agent ``math-writer`` (a literature result from the Expert, folded into the paper) |
 | any other kind | ``human``: asked, never guessed |
 
-``land_route(tag)`` is the agent that lands a returned ticket of a roadmap item: a
-verdict or a citation with ``math-editor``, a proof or an experiment with ``math-writer``,
-a referee packet with ``/author:notes``.
+``land_route(kind, final_to)`` is the agent that lands a returned ticket (one this
+Author filed to another role that came back ``delivered``): a verdict or a citation
+with ``math-editor``, a proof or an experiment (a ``research`` ticket relayed to the
+Researcher or the Scientist) with ``math-writer``, a referee packet with
+``/author:notes``.
+
+``OUT_ROUTES`` is how the Author files an ask that leaves it (used by
+``agenda.py gaps --file``; a hand-filed ticket uses ``board.py new`` /
+``tickets_create`` with the same kind, ``final_to`` and ``agenda``).
 """
 
 #: ticket kind -> (how, target, why)
@@ -29,18 +36,37 @@ KIND_ROUTES = {
     "build": ("agent", "tex-engineer", "toolchain or build repair"),
     "notation": ("agent", "notation-auditor", "a notation decision or clash"),
     "sweep": ("agent", "note-sweeper", "the machine-note sweep"),
-    "note": ("agent", "math-writer", "fold the literature note into a roadmap item"),
+    "note": ("agent", "math-writer", "fold the literature result into the paper"),
 }
-#: roadmap item tag -> the ticket kind of its self-ticket (items that stay in the Author)
-ITEM_KINDS = {"write": "write", "apply": "apply", "figure": "figure", "build": "build",
-              "notation": "notation", "sweep": "sweep"}
-#: an item's ``route:`` agent -> the ticket kind that routes back to it
-AGENT_KINDS = {"math-writer": "write", "math-editor": "apply", "figure-maker": "figure",
-               "tex-engineer": "build", "notation-auditor": "notation",
-               "note-sweeper": "sweep"}
-#: ask items that leave the Author: tag -> the agent that lands the returned ticket
-LAND_ROUTES = {"lead": "math-writer", "verify": "math-editor", "cite": "math-editor",
-               "experiment": "math-writer"}
+#: the ticket kinds an Author files to itself (the work items that stay in the Author)
+SELF_KINDS = ("write", "apply", "copy", "figure", "build", "notation", "sweep")
+#: ask -> (role of the receiver, ticket kind, final_to, deliverable key). An ask that
+#: needs the Researcher or the Scientist goes to the Expert as ``research`` with
+#: ``final_to`` (docs/protocol.md section 5).
+OUT_ROUTES = {
+    "lead": ("expert", "research", "researcher", "prove"),
+    "verify": ("expert", "verify", None, "verify"),
+    "cite": ("expert", "cite", None, "cite"),
+    "experiment": ("expert", "research", "scientist", "experiment"),
+    "referee": ("expert", "referee", None, "referee"),
+}
+DELIVERABLES = {
+    "prove": "A proof (or a refutation) of the statement, as a proof object with its "
+             "status proposed; the ticket result names it.",
+    "verify": "A verification packet with two verdicts; the ticket result names the "
+              "verdict and whether a recolour is proposed.",
+    "cite": "A bibliography entry and a card with the verbatim quote and version; the "
+            "ticket result gives the key and pinpoint.",
+    "experiment": "An experiment report packet with its ## Conclusion; the ticket result "
+                  "names the lab claim.",
+    "referee": "A referee packet on the built PDF.",
+}
+#: the deliverable of a ticket the Author files to itself
+SELF_DELIVERABLE = ("The work done in the paper and recorded; this ticket delivered with "
+                    "a one-line result.")
+#: returned-ticket kind -> the agent that lands it in the tex
+LAND_ROUTES = {"verify": "math-editor", "cite": "math-editor", "research": "math-writer",
+               "prove": "math-writer", "experiment": "math-writer"}
 
 
 def route(meta):
@@ -49,13 +75,13 @@ def route(meta):
         how, target, why = KIND_ROUTES[kind]
         return {"how": how, "target": target, "why": why}
     return {"how": "human", "target": "human",
-            "why": "no Author route for a %s ticket: ask Roey (accept and file an item, "
-                   "reject with a reason, forward)" % kind}
+            "why": "no Author route for a %s ticket: ask Roey (accept and file a work "
+                   "ticket, reject with a reason, forward)" % kind}
 
 
-def land_route(tag):
-    if tag == "referee":
+def land_route(kind, final_to=None):
+    if kind == "referee":
         return {"how": "skill", "target": "author:notes",
-                "why": "land the returned referee packet as roadmap items"}
-    return {"how": "agent", "target": LAND_ROUTES.get(tag, "math-editor"),
-            "why": "land the returned %s ticket in the tex" % tag}
+                "why": "land the returned referee packet as tickets"}
+    return {"how": "agent", "target": LAND_ROUTES.get(kind, "math-editor"),
+            "why": "land the returned %s ticket in the tex" % kind}

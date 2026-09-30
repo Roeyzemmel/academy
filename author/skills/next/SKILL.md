@@ -1,6 +1,6 @@
 ---
 name: next
-description: 'Retired: /author:next is now /author:inbox (sweep first, roadmap items as tickets, routing by kind). Use only to be redirected; for "next" or "run the agenda" use /author:inbox.'
+description: 'Retired: /author:next is now /author:inbox (sweep first, the board as the only queue, routing by kind). Use only to be redirected; for "next" or "run the agenda" use /author:inbox.'
 ---
 
 # /author:next

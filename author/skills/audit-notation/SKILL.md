@@ -13,16 +13,19 @@ tex, edits **only** the home's `.claude/rules/notation-decisions.md`, and files 
 ## The brief
 
 > Audit the notation. <The notation introduced or changed since the last audit, by
-> item or ticket id, if known.> Check each of the home's settled decisions explicitly.
+> ticket id, if known.> Check each of the home's settled decisions explicitly.
 
 ## What the main session does with the report
 
 - **Clashes inside the draft** are not fixed here. For each recommendation the agent
-  gives, file an item: `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py add --tag apply
-  --title "Notation: <symbol>" --attach <label or global> --source "audit-notation
-  <date>" --body "<the clash, the counts, the recommended symbol>"`. If a
-  recommendation changes a decision rather than recording one, file it as
-  `needs-human` instead (`inbox.py mark R-NNNN --status needs-human`).
+  gives, file a ticket to this Author: `py ${CLAUDE_PLUGIN_ROOT}/../academy/scripts/board.py
+  new --as <this instance> --to <this instance> --kind apply --title "Notation:
+  <symbol>" --ask "<the clash, one line>" --deliverable "the recommended symbol applied"
+  --agenda <ns>:<label> --detail "audit-notation <date>: <the clash, the counts, the
+  recommended symbol>"` (no `--agenda` for a global one). If a recommendation changes a
+  decision rather than recording one, park the ticket on `human` instead (`board.py
+  transition T-NNNN blocked --waiting-on human --reason "<the decision>" --as <this
+  instance>`).
 - **The domain ticket** (if any) is the Expert's to act on; relay its id.
 - **The decisions file** is this paper's only; say which rows changed.
 

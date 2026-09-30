@@ -1,9 +1,9 @@
-# The Author's files: agenda.md and roadmap.md
+# The Author's file: agenda.md
 
-Plan section 4. Both live in the Author home (`paths.agenda`, `paths.roadmap` in
-`.claude/academy.json`), are LF, and are read and written by
-`scripts/agenda_lib.py` (tested in `tests/test_agenda.py`). Roey edits them by hand
-too; the scripts keep his text.
+Plan section 4. It lives in the Author home (`paths.agenda` in `.claude/academy.json`),
+is LF, and is read and written by `scripts/agenda_lib.py` (tested in
+`tests/test_agenda.py`). Roey edits it by hand too; the scripts keep his text. The
+Author's work items are tickets on the board (below).
 
 ## agenda.md: the paper's results in paper order
 
@@ -34,54 +34,38 @@ too; the scripts keep his text.
 | `status` | The registry's status now; **generated** by `agenda.py status`; `missing` = no record, `?` = never read | script only |
 
 - **Row order is precedence** (paper order by default). `/author:inbox` takes first the
-  items that unblock the earliest entry, transitively through `depends_on`.
+  tickets whose `agenda` unblocks the earliest entry, transitively through `depends_on`.
 - **Satisfied**: `status` at or above `required`, with the ranks open < conjectured <
   sketch = supported < proved-modulo < proved; `refuted` meets only `refuted`.
 - **Milestones**: one line each, `` - `name`: label=status, ... ``; a boundary such as a
   coauthor round or a submission. `agenda.py milestones` shows progress.
 
-## roadmap.md: the Author's own work items
+## There is no roadmap: the board is the only queue
 
-```markdown
-## R-0007 [apply] Delete the stale note after lem:thick-part-compact
-- status: open
-- agenda: paper:lem:thick-part-compact
-- priority: normal
-- depends_on: [R-0003, T-0012]
-- ticket:
-- route:
-- source: comment_roadmap.md, Carried over from the archive
-- created: 2026-09-28
+A work item is a **ticket** (`docs/protocol.md`), filed with `board.py new` /
+`tickets_create` or, from an agenda gap, `agenda.py gaps --file`. What the old
+`roadmap.md` item fields became:
 
-Free Markdown: what to do, quotes of the notes, history lines
-- 2026-09-29: status done; how it was done
-```
-
-| Field | Values |
+| Old roadmap field | Now |
 |---|---|
-| tag (in the heading) | `write` `apply` `lead` `verify` `cite` `experiment` `figure` `build` `notation` `sweep` `referee` |
-| `status` | `open` · `ticketed` (waits for `ticket`) · `blocked` · `needs-human` · `done` · `dropped` |
-| `agenda` | a label or claim id of an agenda entry, or `global` |
-| `priority` | `high` · `normal` · `low` |
-| `depends_on` | item ids `R-NNNN`, ticket ids `T-NNNN`, agenda labels or claim ids |
-| `ticket` | the ticket filed for a `lead`/`verify`/`cite`/`experiment`/`referee` item |
-| `route` | an agent name overriding the tag's default (e.g. `figure-maker` for an illustration) |
-| `source` | where the item came from (a note, a packet point, the old roadmap) |
+| tag (`write` `apply` `figure` `build` `notation` `sweep`) | the ticket `kind`, `to` this Author itself |
+| tag `lead` / `experiment` | kind `research` to the Expert, `final_to: researcher` / `scientist` |
+| tag `verify` / `cite` / `referee` | kind `verify` / `cite` / `referee` to the Expert |
+| `agenda` | the ticket's `agenda` field (the entry's claim id; omitted or `global` for none); the claim is also in `refs` |
+| `priority` | the ticket's `priority` |
+| `status` open / ticketed | ticket `open`; `accepted`, `in-progress`, `delivered`, `closed` |
+| `status` needs-human / blocked | ticket `blocked` with `waiting_on: [human]` |
+| `status` done / dropped | ticket `closed` / `cancelled` or `rejected` |
+| `depends_on` a ticket | `waiting_on: [T-NNNN]` (the inbox offers the ticket again once they are back) |
+| `depends_on` an entry or claim | a line in the ticket's ask; file it when the status is reached |
+| `route` | the ticket kind that routes to that agent (`inbox` routing table) |
+| body and history lines | the ticket's `## Ask` and `## Thread` |
+| `R-NNNN` ids | gone; a ticket id is `T-NNNN` |
 
-- Item ids are never reused; `inbox.py add` allocates the next one.
-- `##` headings that are not items (free prose sections) are kept verbatim.
-- Writes go through `inbox.py add` and `inbox.py mark` (which appends a dated history
-  line); hand edits are fine and `agenda.py check` validates them.
-
-## The old roadmap's vocabulary
-
-| `comment_roadmap.md` | Now |
-|---|---|
-| a tier | agenda precedence plus milestones |
-| `[apply]` `[write]` `[lead]` `[verify]` | the same tags; `[lead]` and `[verify]` become tickets |
-| `[needs Roey]` | status `needs-human` |
-| `[done]` / `[dropped]` | status `done` / `dropped` (moved items only; the old file keeps its history) |
-| `## Verification queue` line | a `[verify]` item attached to the label |
-| "Open from this tier" | open items and open machine notes (`/author:sweep`) |
-
-`scripts/agenda_migrate.py` converts an old roadmap; see its docstring for every rule.
+- Milestone progress and the agenda's status column are computed from the registry
+  statuses, plus the tickets attached to each entry (`agenda.py milestones`, `show`).
+- `scripts/agenda_migrate.py` is the one-shot converter for a `Drafts/roadmap.md` that
+  still exists: dry run by default, `--apply` files the tickets, the file is only read
+  (archive it by hand afterwards); see its docstring for every rule. Nothing else reads
+  or writes a roadmap; an old `paths.roadmap` key in `academy.json` is accepted and
+  ignored.

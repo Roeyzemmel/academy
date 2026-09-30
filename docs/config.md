@@ -171,7 +171,9 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 | `writers` | list of bare agents | Agents whose SubagentStop triggers `build_gate` |
 | `bibWriters` | list of bare agents | Agents allowed to edit `paths.bib` (`bib_gate`) |
 
-**Required paths:** `tex`, `bib`, `drafts`, `agenda`, `roadmap`, `records`, `views`.
+**Required paths:** `tex`, `bib`, `drafts`, `agenda`, `records`, `views`. (`paths.roadmap`
+was required until 2026-09-30, when the roadmap was dropped and the board became the
+Author's only queue; a config that still has the key validates and the key is ignored.)
 
 ### `researcher`
 
@@ -256,7 +258,6 @@ a shim until phase 8.
     "bib": "references.bib",
     "drafts": "Drafts",
     "agenda": "Drafts/agenda.md",
-    "roadmap": "Drafts/roadmap.md",
     "records": "claims",
     "figures": "figures",
     "views": ["Drafts/statements.md", "Drafts/experiments.md", "Drafts/verdicts.md",

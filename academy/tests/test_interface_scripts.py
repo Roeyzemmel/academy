@@ -254,6 +254,16 @@ class InitInstanceTest(Sandbox):
         self.assertEqual(cfg["author"]["noteMacros"]["human"], ["\\Roey"])
         self.assertEqual(cfg["ns"], "x")
 
+    def test_author_template_has_no_roadmap_path_but_an_old_config_validates(self):
+        ws = ac.load_workspace(self.ws_path)
+        cfg = init_instance.build_config("author@x", ["d"], workspace=ws)
+        self.assertNotIn("roadmap", cfg["paths"])
+        self.assertNotIn("roadmap", ac.REQUIRED_PATHS["author"])
+        # the roadmap was dropped (the board is the only queue): an old config that still
+        # names it is accepted and the key is ignored
+        cfg["paths"]["roadmap"] = "Drafts/roadmap.md"
+        self.assertEqual(ac.validate_config(cfg), [])
+
     def test_bad_name(self):
         with self.assertRaises(ac.ConfigError):
             init_instance.build_config("wizard@x", ["d"])
@@ -457,7 +467,7 @@ class ChainDocsTests(unittest.TestCase):
         """F2: tex-engineer is no author->expert liaison."""
         text = self.read("author", "agents", "tex-engineer.md")
         self.assertNotRegex(text, r"(?i)file a `cite` ticket")
-        self.assertIn("`[cite]`", text)
+        self.assertIn("`cite` request", text)
 
     def test_lead_researcher_reaches_paper_owners_through_the_expert(self):
         text = self.read("researcher", "agents", "lead-researcher.md")

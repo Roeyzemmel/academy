@@ -10,8 +10,8 @@ Read-only. Scripts: `$S` = `${CLAUDE_PLUGIN_ROOT}/scripts`; run from the Author 
 1. `py $S/agenda.py show`: entries with status and whether each meets its requirement
    (status column as last refreshed; say when `/author:agenda status` would refresh it).
 2. `py $S/agenda.py milestones`.
-3. `py $S/inbox.py --all` (`/author:inbox --all`): what the next run would take, what waits and on what, and
-   what is parked.
+3. `py $S/inbox.py --all` (`/author:inbox --all`): what the next run would take, what waits and on what (blocked tickets), and
+   what is parked on `human`.
 4. The inbox: `py ${CLAUDE_PLUGIN_ROOT}/../academy/scripts/board.py list --to <instance>`
    and the tickets this instance is waiting on:
    `board.py list --from <instance>` (`<instance>` from `.claude/academy.json`).
@@ -19,5 +19,5 @@ Read-only. Scripts: `$S` = `${CLAUDE_PLUGIN_ROOT}/scripts`; run from the Author 
    (statements, violations, warnings, BUILD).
 
 Show each output as it is, under a one-line heading. Add at most three lines of your
-own: the milestone closest to done, the item that would unblock the most, and anything
+own: the milestone closest to done, the ticket that would unblock the most, and anything
 parked on Roey. Change nothing.

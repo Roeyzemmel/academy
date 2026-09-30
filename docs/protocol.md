@@ -200,7 +200,7 @@ section 5.1 restricts to the receiver's neighbours in the chain (or the same rol
 | `referee` | → expert | the Author | a whole-paper referee packet |
 | `prove` | → researcher | the Expert (a repair after a review), or the Researcher itself | a proof, or a new argument the Author may not invent (an Author asks through `research`) |
 | `research` | → expert, then → researcher, relayed with `final_to` | the Author to the Expert; the Expert's research-intake to the Researcher | a research request (a new argument, an experiment) the Author may not invent; research-intake prepares it and relays it toward `final_to` (5.1) |
-| `note` | → author, informational | the Expert | a literature result the Author should know, unsolicited; lands with math-writer as a roadmap item |
+| `note` | → author, informational | the Expert | a literature result the Author should know, unsolicited; lands with math-writer |
 | `review-experiment` | → researcher | the Scientist | two experiment-reviewer runs on a finished report |
 | `generalize` | → researcher | the Researcher itself | conjectured generalizations of a reviewed experiment's `## Conclusion` (see 6.2) |
 | `experiment` | → scientist | only the Researcher, from its researcher -> scientist liaisons (5.1); the Scientist also to itself | a new experiment and its report |
@@ -208,7 +208,7 @@ section 5.1 restricts to the receiver's neighbours in the chain (or the same rol
 | `code` | → scientist | only the Researcher, from its researcher -> scientist liaisons (5.1); the Scientist also to itself (an "Upstream:" ticket) | developer or test-engineer work, including academy scripts |
 | `notation` | → expert / author | the Author to the Expert (a domain-notation change; the Scientist's goes through the Researcher with `final_to: expert`); the Expert or the Author itself to an Author | a domain-notation change or a project notation decision |
 | `build` / `figure` | → author | the Author itself, or the Expert | toolchain or figure work |
-| `write` / `apply` / `copy` / `sweep` | → author, the Author's own | the Author itself, from a roadmap item (`/author:inbox` files it; `refs` carries the item id `R-NNNN` and the claim) | prose, a mechanical edit, a copy-edit, or the note sweep, routed by kind to math-writer, math-editor or note-sweeper |
+| `write` / `apply` / `copy` / `sweep` | → author, the Author's own | the Author itself (filed with `board.py new`, the margin-notes skill or `agenda.py gaps --file`; `refs` carries the claim and `agenda` its entry; the Author has no roadmap, the board is its only queue) | prose, a mechanical edit, a copy-edit, or the note sweep, routed by kind to math-writer, math-editor or note-sweeper |
 | `decision` | → human, or → the claim-keeper via `claims_propose_status` | any role (`claims_propose_status` is exempt from the chain) | a choice only the receiver may make |
 | `question` | → a neighbour, or the same role | any role, within 5.1 | a question that needs more than a lookup |
 | `other` | → a neighbour, or the same role | any role, within 5.1 | anything else |
@@ -220,7 +220,6 @@ section 5.1 restricts to the receiver's neighbours in the chain (or the same rol
 - `<ns>:<id>` for a registry object, e.g. `paper:lem:strip-bound`, `lab:ew-check`,
   `s1:Q2`.
 - `T-NNNN` for a ticket and `P-NNNN` for a packet.
-- `R-NNNN` for a roadmap item of the filing Author (on its own self-tickets).
 - `bib:<key>` for a bibliography key, optionally with a pinpoint:
   `bib:LMW16#Thm1.3`.
 - `file:<instance>/<path relative to that home>`, with forward slashes.

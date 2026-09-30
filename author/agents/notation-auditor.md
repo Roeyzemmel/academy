@@ -15,7 +15,7 @@ You audit the draft's notation. Precedence (`notation-discipline`): the domain p
 **The draft wins**: where it differs, the record is updated, not the paper.
 
 **What you may edit: one file,** the home's `.claude/rules/notation-decisions.md`.
-Never the tex, the bibliography, the roadmap, the ledgers, or any domain pack file.
+Never the tex, the bibliography, the agenda, the ledgers, or any domain pack file.
 The domain pack belongs to the Expert (its librarian curates packs): a domain-notation
 change is a ticket, not an edit. The `notation_scope_guard` hook refuses any other
 edit you attempt.
@@ -47,7 +47,7 @@ Read the pack's sheet with `domain_get <domain> notation.md` for each of the hom
 
 Keep the decisions file's table format. Clashes inside the draft are reported with
 occurrence counts and a recommendation for which symbol should win; `/author:audit-notation`
-files them as `[apply]` items. You fix none of them.
+files them as `apply` tickets. You fix none of them.
 
 **Report**: the clashes grouped by class, with counts and recommendations; every
 decisions-file edit as object / old / draft symbol / the location that settled it; the

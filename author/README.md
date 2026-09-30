@@ -1,8 +1,8 @@
 # author: the Author role plugin
 
 One Author instance per paper (plan section 3.2); the first is `author@main`
-(the paper home). The instance's home holds the paper, `Drafts/agenda.md`,
-`Drafts/roadmap.md` and `.claude/academy.json`; this plugin holds the logic. The
+(the paper home). The instance's home holds the paper, `Drafts/agenda.md` and `.claude/academy.json`; this plugin holds the logic. The board is
+the Author's only queue: every work item is a ticket (there is no roadmap). The
 contracts it codes against are the academy repo's `docs/protocol.md`,
 `docs/config.md` and `docs/packet-template.md`; the standing rules are
 `academy/references/budget.md` and `roster-rules.md`.
@@ -19,8 +19,7 @@ rule: `academy/references/roster-rules.md`, "Model fallback").
 | `note-sweeper` | The machine-note sweep |
 | `notation-auditor` | The home's notation decisions; domain notation goes to the Expert as a ticket |
 
-Skills: `/author:inbox` (replaces `next`, and before it `tier`; `/author:next` stays as a redirect), `/author:agenda`, `/author:notes` (was the paper's
-`roadmap`), `/author:sweep`, `/author:audit-notation`, `/author:presync`,
+Skills: `/author:inbox` (replaces `next`, and before it `tier`; `/author:next` stays as a redirect), `/author:agenda`, `/author:notes`, `/author:sweep`, `/author:audit-notation`, `/author:presync`,
 `/author:status`, and `paper-method` (preloaded by the writing agents).
 
 Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home:
@@ -45,14 +44,14 @@ Scripts and formats: `references/scripts.md`, `references/formats.md`. Tests:
 
 | Skill | What it does |
 |---|---|
-| /author:agenda | Maintain the paper's agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into roadmap items or tickets. Use for "update the agenda", "what does the paper need". |
+| /author:agenda | Maintain the paper's agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into tickets. Use for "update the agenda", "what does the paper need". |
 | /author:audit-notation | Audit the paper's notation against the home's notation decisions and the domain pack, report clashes, sync notation-decisions.md to the draft, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round. |
-| /author:inbox | Work the paper's inbox (replaces /author:next): sweep the machine notes first, file roadmap items as tickets (self-tickets for the Author's own work), then take at most three tickets, routed by kind or landed. Use for "next", "run the agenda", "work the inbox". |
-| /author:next | Retired: /author:next is now /author:inbox (sweep first, roadmap items as tickets, routing by kind). Use only to be redirected; for "next" or "run the agenda" use /author:inbox. |
-| /author:notes | File the human's new margin notes as roadmap items on the agenda entry they concern (or tickets for other roles), and referee-packet points. Use when Roey has left notes in the PDF, after an Overleaf sync, or when a referee packet comes back. |
+| /author:inbox | Work the paper's inbox (replaces /author:next): sweep the machine notes first, then take at most three tickets from the board (the only queue), routed by kind, landed if returned, or released if unblocked. Use for "next", "run the agenda", "work the inbox". |
+| /author:next | Retired: /author:next is now /author:inbox (sweep first, the board as the only queue, routing by kind). Use only to be redirected; for "next" or "run the agenda" use /author:inbox. |
+| /author:notes | File the human's new margin notes as tickets on the agenda entry they concern (to the Author itself, or to the role that owns the work), and referee-packet points. Use when Roey has left notes in the PDF, after an Overleaf sync, or when a referee packet comes back. |
 | /author:paper-method | How to write a research mathematics paper in LaTeX so a reader one field over can follow it: structure, prose, labels, macros, bibliography, exposition from proofs, pre-send checklist. Use whenever writing, restructuring or cleaning up a paper. |
 | /author:presync | The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone. |
 | /author:status | The paper's state at a glance: agenda progress, what /author:inbox would run, what waits on which ticket, tickets to this Author, checker summary. Read-only. Use for "where is the paper", "author status", "how far is the milestone". |
-| /author:sweep | The machine-note sweep: inventory machine margin notes in the tex, fold answered ones into roadmap items and delete them, leave open ones, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full of machine notes. |
+| /author:sweep | The machine-note sweep: inventory machine margin notes in the tex, fold answered ones into their ticket's thread and delete them, leave open ones, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full of machine notes. |
 
 <!-- skills:end -->

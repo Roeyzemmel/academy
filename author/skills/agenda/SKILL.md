@@ -1,6 +1,6 @@
 ---
 name: agenda
-description: 'Maintain the paper''s agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into roadmap items or tickets. Use for "update the agenda", "what does the paper need".'
+description: 'Maintain the paper''s agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into tickets. Use for "update the agenda", "what does the paper need".'
 ---
 
 # /author:agenda
@@ -22,25 +22,28 @@ The status column is generated; never edit it by hand.
 
 ## check
 
-`py $S/agenda.py check`: unknown labels, bad statuses, dependency cycles, roadmap
-items attached to entries that do not exist. Relay the problems; fix the agenda file
+`py $S/agenda.py check`: unknown labels, bad statuses, dependency cycles. Relay the problems; fix the agenda file
 only for mechanical ones (a renamed label), and ask Roey about the rest.
 
 ## gaps: file the missing work
 
-`py $S/agenda.py gaps --json` lists entries below their required status that no open
-item or ticket is attached to, with a proposed tag:
+The board is the Author's only queue. `py $S/agenda.py gaps --json` lists entries below
+their required status that no non-terminal ticket is attached to (by its `agenda`
+field), with a proposed kind of ticket:
 
-- `verify`: an argument exists (`sketch`); the paper needs two agreeing verdicts.
+- `verify`: an argument exists (`sketch`); the paper needs two agreeing verdicts. Held
+  (`waits_for`) while the entry's own inputs are below their required status.
 - `lead`: no argument yet; a proof must come from the Researcher, asked through the Expert (`final_to: researcher`).
 - `apply`: no registry record; create one (math-editor, `claims_new` at an unsettled
   status).
 
 Show the list and ask Roey with `AskUserQuestion` which to file (all / a subset /
 none, and whether any entry's `required` should be lowered instead). For each one to
-file: `py $S/inbox.py add --tag <tag> --title "<verb> <label>" --attach <ns>:<label>
---source "agenda gaps <date>"`. Filing an item starts no work: `/author:inbox` picks it
-up in agenda order (budget.md rule 3).
+file: `py $S/agenda.py gaps --file` files every proposed ticket (add `--dry-run` to see
+them first; to file a subset, file those by hand with `board.py new --agenda
+<ns>:<label> --refs <ns>:<label> ...`). Filing is idempotent (a filed gap has a ticket,
+so it is no longer a gap) and starts no work: `/author:inbox` picks the tickets up in
+agenda order (budget.md rule 3). `milestones` and `show` list each entry's tickets.
 
 ## milestones
 
@@ -52,7 +55,7 @@ many of its entries reach their target. To add one, edit the `## Milestones` sec
 
 Order, `required`, `depends_on` and `owner` are Roey's decisions: make an edit only
 when he states it, with the Edit tool on the agenda file, then run `check`. The default
-order is paper order; moving an entry up moves every item that unblocks it up in
+order is paper order; moving an entry up moves every ticket that unblocks it up in
 `/author:inbox`.
 
 Never ask questions except where this skill says to.

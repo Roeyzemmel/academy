@@ -249,9 +249,11 @@ CONFIG_DEFAULTS = {
     "paths": {},
 }
 
-#: path keys each role must define in ``paths`` (docs/config.md)
+#: path keys each role must define in ``paths`` (docs/config.md). Keys not listed are
+#: never rejected: an old Author config that still carries ``paths.roadmap`` (the
+#: roadmap was dropped, the board is the only queue) validates and the key is ignored.
 REQUIRED_PATHS = {
-    "author": ("tex", "bib", "drafts", "agenda", "roadmap", "records", "views"),
+    "author": ("tex", "bib", "drafts", "agenda", "records", "views"),
     "researcher": ("objects", "proofs", "journal", "audits", "records", "views"),
     "expert": ("index", "cards", "ledgers", "reviews", "hot", "cache", "views"),
     "scientist": ("package", "experiments", "results", "queue", "records", "views"),

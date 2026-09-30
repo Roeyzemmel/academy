@@ -63,8 +63,8 @@ class PluginTests(unittest.TestCase):
 
     def test_inbox_skill_states_the_author_flow(self):
         text = read("skills", "inbox", "SKILL.md")
-        for needle in ("Sweep first", "note-sweeper", "inbox.py --sync", "self", "--check",
-                       "return", "human", "at most `budget.itemsPerRun`"):
+        for needle in ("Sweep first", "note-sweeper", "py $S/inbox.py", "self", "--check",
+                       "return", "released", "human", "no roadmap", "at most `budget.itemsPerRun`"):
             self.assertIn(needle, text, needle)
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "skills", "inbox",
                                                     "references", "routing.md")))

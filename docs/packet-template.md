@@ -56,7 +56,7 @@ The statuses are those of the unified registry: `open`, `conjectured`, `sketch`,
 | `proof` | prover |
 | `notation` | notation-auditor / librarian |
 | `agenda` | Author orchestration (`/author:inbox` batch results) |
-| `migration` | migration builders (schema v2, roadmap → agenda, ledgers) |
+| `migration` | migration builders (schema v2, old roadmap → agenda and tickets, ledgers) |
 | `handover` | end of the unattended run, one per home |
 | `usage` | usage-analyst |
 | `failure` | a failed phase gate or run |

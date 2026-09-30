@@ -45,7 +45,7 @@ def author_config(home, tools, instance="author@t", **over):
         "ns": "paper",
         "paths": {"tex": ["main.tex", "sections/*.tex"], "bib": "references.bib",
                   "drafts": "Drafts", "agenda": "Drafts/agenda.md",
-                  "roadmap": "Drafts/roadmap.md", "records": "claims",
+                  "records": "claims",
                   "views": ["Drafts/statements.md"]},
         "registry": {"profile": "paper", "root": "claims"},
         "gate": {"commit": "normal", "build": True,

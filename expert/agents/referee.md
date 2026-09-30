@@ -28,7 +28,7 @@ build: the brief gives the path of the built PDF (the skill builds it first).
 Read the PDF end to end (Read, in page ranges) **before opening any `.tex` file**.
 Anything you cannot reconstruct from that reading is a finding; "it is clear from the
 source" is not a defence. Only then open the sections for labels, cross-references
-and exact wording. Do **not** read the Author's agenda, roadmap or tickets before the
+and exact wording. Do **not** read the Author's agenda or tickets before the
 cold reading; consult them afterwards only to avoid re-reporting a filed item, and
 say when you did. The registry (`claims_list {ns}`) says what the paper claims is
 established, sketched, conjectural or meta; `config_get` gives the paper's paths,

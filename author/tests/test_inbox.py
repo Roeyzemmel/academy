@@ -1,7 +1,10 @@
-"""inbox.py: roadmap items become self-tickets, the ordered inbox, idempotent filing, sweep first."""
+"""inbox.py: the board is the only queue; tickets are routed, returned ones landed,
+released ones offered again, the sweep comes first. Nothing reads or writes a roadmap."""
 
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -9,7 +12,6 @@ import unittest
 from fixtures import SCRIPTS, Sandbox
 
 sys.path.insert(0, SCRIPTS)
-import agenda_lib as al  # noqa: E402
 import inbox as nx  # noqa: E402
 import routes  # noqa: E402
 import _academy as ac  # noqa: E402
@@ -32,51 +34,50 @@ AGENDA = """# Agenda: author@t
 """
 
 
-def item(iid, tag, title, **fields):
-    body = fields.pop("body", "Do %s." % title)
-    lines = ["## %s [%s] %s" % (iid, tag, title)]
-    fields = dict([("status", fields.pop("status", "open"))] + list(fields.items()))
-    for k, v in fields.items():
-        lines.append("- %s: %s" % (k, v))
-    return "\n".join(lines) + "\n\n" + body + "\n"
-
-
-ROADMAP = "# Roadmap: author@t\n\nPreamble.\n\n" + "\n".join([
-    item("R-0001", "apply", "Fix lem:d wording", agenda="paper:lem:d"),
-    item("R-0002", "write", "Explain lem:b", agenda="lem:b", priority="low"),
-    item("R-0003", "apply", "Main theorem edit", agenda="paper:thm:main", priority="high",
-         depends_on="[R-0004]"),
-    item("R-0004", "write", "Global prose pass", agenda="global", priority="high"),
-    item("R-0005", "verify", "Verify lem:b", agenda="paper:lem:b"),
-    item("R-0006", "lead", "Prove lem:d", agenda="paper:lem:d", status="ticketed",
-         ticket="T-0002"),
-    item("R-0007", "cite", "Cite LMW16", agenda="global", status="ticketed", ticket="T-0003"),
-    item("R-0008", "apply", "Already done", agenda="global", status="done"),
-    item("R-0009", "write", "Ask Roey", agenda="global", status="needs-human"),
-    item("R-0010", "apply", "After a rejected ticket", agenda="prop:a",
-         depends_on="[T-0004]"),
-    item("R-0011", "verify", "Verify thm:main", agenda="paper:thm:main"),
-    item("R-0012", "write", "After prop:a", agenda="global", depends_on="[paper:prop:a]"),
-])
-
-
 def ticket(board, tid, to, status, kind="other", frm="author@t", agenda="", priority="normal",
-           result=""):
+           result="", waiting_on=None, final_to=None, body=""):
+    wo = ("waiting_on: [%s]\n" % ", ".join(waiting_on)) if waiting_on else ""
+    ft = ("final_to: %s\n" % final_to) if final_to else ""
     text = ("---\nid: %s\ntitle: %s ticket\nkind: %s\nfrom: %s\nto: %s\nstatus: %s\n"
-            "priority: %s\nask: x\ndeliverable: y\nagenda: %s\nresult: %s\n---\n\n"
-            "## Ask\n\n## Result\n\n## Thread\n" % (tid, kind, kind, frm, to, status,
-                                                     priority, agenda, result))
+            "priority: %s\nask: x\ndeliverable: y\nagenda: %s\nresult: %s\n%s%s---\n\n"
+            "## Ask\n\n%s\n\n## Result\n\n## Thread\n" % (tid, kind, kind, frm, to, status,
+                                                         priority, agenda, result, wo, ft,
+                                                         body))
     path = os.path.join(board, to, "%s-%s-ticket.md" % (tid, kind))
     Sandbox.write(path, text)
 
 
-class InboxPlanTests(unittest.TestCase):
+def sha(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+class InboxBase(unittest.TestCase):
     def setUp(self):
         self.sb = Sandbox()
         self.agenda = os.path.join(self.sb.home, "Drafts", "agenda.md")
-        self.roadmap = os.path.join(self.sb.home, "Drafts", "roadmap.md")
         self.sb.write(self.agenda, AGENDA)
-        self.sb.write(self.roadmap, ROADMAP)
+        os.environ["ACADEMY_WORKSPACE"] = self.sb.workspace
+
+    def tearDown(self):
+        os.environ.pop("ACADEMY_WORKSPACE", None)
+        self.sb.cleanup()
+
+    def ctx(self, items=3):
+        with open(self.sb.workspace, encoding="utf-8") as fh:
+            ws = json.load(fh)
+        return nx.Context(self.agenda, self.sb.board, ws, "author@t", "paper", items, ["dom"])
+
+    def run_cli(self, *args):
+        res = subprocess.run([sys.executable, os.path.join(SCRIPTS, "inbox.py")]
+                             + list(args) + ["--home", self.sb.home],
+                             capture_output=True, env=dict(self.sb.env))
+        return res.returncode, res.stdout.decode("utf-8"), res.stderr.decode("utf-8")
+
+
+class InboxPlanTests(InboxBase):
+    def setUp(self):
+        InboxBase.setUp(self)
         b = self.sb.board
         ticket(b, "T-0001", "author@t", "open", kind="figure", frm="human",
                agenda="paper:thm:main")
@@ -86,110 +87,80 @@ class InboxPlanTests(unittest.TestCase):
         ticket(b, "T-0004", "expert@t", "rejected", kind="verify")
         ticket(b, "T-0005", "author@t", "closed", kind="build")
         ticket(b, "T-0006", "author@t", "accepted", kind="question", priority="high")
-        os.environ["ACADEMY_WORKSPACE"] = self.sb.workspace
+        ticket(b, "T-0007", "author@t", "open", kind="write", agenda="paper:lem:b")
+        ticket(b, "T-0008", "author@t", "open", kind="apply", agenda="paper:lem:d")
+        ticket(b, "T-0009", "author@t", "blocked", kind="write", waiting_on=["T-0002"],
+               agenda="paper:prop:a")
+        ticket(b, "T-0010", "author@t", "blocked", kind="write", waiting_on=["T-0003"])
+        ticket(b, "T-0011", "author@t", "blocked", kind="apply", waiting_on=["human"])
+        ticket(b, "T-0012", "expert@t", "delivered", kind="verify", agenda="paper:lem:b",
+               result="CONFIRMED", priority="high")
+        ticket(b, "T-0013", "author@t", "delivered", kind="write", frm="author@t",
+               result="done")      # a delivered self-ticket: not a landing
 
-    def tearDown(self):
-        os.environ.pop("ACADEMY_WORKSPACE", None)
-        self.sb.cleanup()
-
-    def ctx(self, items=3, statuses=None):
-        with open(self.sb.workspace, encoding="utf-8") as fh:
-            ws = json.load(fh)
-        return nx.Context(self.agenda, self.roadmap, self.sb.board, ws, "author@t", "paper",
-                          items, ["dom"], statuses)
-
-    def run_cli(self, *args):
-        res = subprocess.run([sys.executable, os.path.join(SCRIPTS, "inbox.py")]
-                             + list(args) + ["--home", self.sb.home],
-                             capture_output=True, env=dict(self.sb.env))
-        return res.returncode, res.stdout.decode("utf-8"), res.stderr.decode("utf-8")
-
-    def test_ready_items_in_paper_order(self):
+    def test_returned_tickets_are_the_delivered_ones_this_author_filed_elsewhere(self):
         p = nx.plan(self.ctx())
-        self.assertEqual([r["id"] for r in p["to_file"]],
-                         ["R-0005", "R-0002", "R-0001", "R-0004", "R-0012"])
-        self.assertEqual([r["id"] for r in p["land"]], ["R-0006"])
+        # T-0012 unblocks position 1 (lem:b under thm:main), T-0002 position 5
+        self.assertEqual([r["ticket"] for r in p["land"]], ["T-0012", "T-0002"])
 
-    def test_positions_come_from_what_an_item_unblocks(self):
+    def test_released_are_blocked_on_tickets_that_are_all_back(self):
         p = nx.plan(self.ctx())
-        pos = {r["id"]: r["position"] for r in p["to_file"]}
-        self.assertEqual(pos["R-0002"], 1)      # lem:b is at 3, but thm:main rests on it
-        self.assertEqual(pos["R-0001"], 5)
-        self.assertIsNone(pos["R-0004"])        # global sorts last
+        self.assertEqual([r["ticket"] for r in p["release"]], ["T-0009"])   # not T-0010/11
 
-    def test_actions(self):
-        p = {r["id"]: r for r in nx.plan(self.ctx())["to_file"]}
-        self.assertEqual((p["R-0001"]["action"], p["R-0001"]["agent"], p["R-0001"]["kind"]),
-                         ("self", "math-editor", "apply"))
-        self.assertEqual((p["R-0002"]["action"], p["R-0002"]["agent"], p["R-0002"]["kind"]),
-                         ("self", "math-writer", "write"))
-        self.assertEqual((p["R-0005"]["action"], p["R-0005"]["kind"], p["R-0005"]["to"]),
-                         ("ticket", "verify", "expert@t"))
-        land = nx.plan(self.ctx())["land"][0]
-        self.assertEqual((land["action"], land["ticket"]), ("land", "T-0002"))
-        rows = nx.land_rows(self.ctx(), nx.plan(self.ctx()))
-        self.assertEqual((rows[0]["id"], rows[0]["route"]["target"], rows[0]["return"]),
-                         ("T-0002", "math-writer", True))
+    def test_land_routes_by_kind(self):
+        rows = {r["id"]: r for r in nx.land_rows(self.ctx(), nx.plan(self.ctx()))}
+        self.assertEqual((rows["T-0002"]["route"]["target"], rows["T-0002"]["return"]),
+                         ("math-writer", True))
+        self.assertEqual(rows["T-0012"]["route"]["target"], "math-editor")
 
-    def test_waiting_and_parked(self):
-        p = nx.plan(self.ctx())
-        waiting = {r["id"]: r["reason"] for r in p["waiting"]}
-        parked = {r["id"]: r["reason"] for r in p["parked"]}
-        self.assertEqual(set(waiting), {"R-0003", "R-0007", "R-0011"})
-        self.assertIn("R-0004", waiting["R-0003"])
-        self.assertIn("T-0003", waiting["R-0007"])
-        self.assertIn("lem:b", waiting["R-0011"])     # verify waits for its entry's inputs
-        self.assertEqual(set(parked), {"R-0009", "R-0010"})
-        self.assertIn("rejected", parked["R-0010"])
-
-    def test_statuses_override_unblocks(self):
-        p = nx.plan(self.ctx(statuses={"paper:lem:b": "proved"}))
-        ready = [r["id"] for r in p["to_file"]]
-        self.assertIn("R-0011", ready)
-        self.assertLess(ready.index("R-0011"), ready.index("R-0002"))
-
-    def test_done_dependency_unblocks(self):
-        rm = al.parse_roadmap(al.read_text(self.roadmap))
-        rm.get("R-0004").fields["status"] = "done"
-        al.write_text(self.roadmap, al.write_roadmap(rm))
-        p = nx.plan(self.ctx())
-        self.assertEqual(p["to_file"][0]["id"], "R-0003")   # high priority at position 1
-
-    def test_inbox_takes_land_first_then_by_position_and_caps_at_three(self):
-        code, out, err = self.run_cli("--sync", "--json")
+    def test_inbox_takes_in_progress_then_landings_then_position_and_caps_at_three(self):
+        code, out, err = self.run_cli("--json", "--n", "9")
         self.assertEqual(code, 0, err)
         d = json.loads(out)
-        rows = d["take"]
-        self.assertEqual([(r["id"] == "T-0002", r["return"]) for r in rows[:1]], [(True, True)])
-        self.assertEqual(rows[1]["id"], "T-0001")           # position 1, normal
-        self.assertEqual((rows[2]["kind"], rows[2]["route"]["target"]),
-                         ("write", "math-writer"))          # the self-ticket of R-0002
-        self.assertIn("R-0002", rows[2]["refs"])
-        self.assertEqual((len(rows), d["limit"]), (3, 3))
+        ids = [r["id"] for r in d["take"]]
+        self.assertEqual(len(ids), 3)
+        self.assertEqual(ids, ["T-0012", "T-0002", "T-0009"])   # landings, then the release
+        self.assertEqual(d["limit"], 3)
         self.assertGreater(d["remaining"], 0)
+        self.assertEqual((d["land"], d["released"]), (2, 1))
+        rows = {r["id"]: r for r in d["take"]}
+        self.assertTrue(rows["T-0012"]["return"] and rows["T-0009"]["released"])
+        self.assertIn("blocked -> accepted", rows["T-0009"]["route"]["why"])
+
+    def test_open_tickets_follow_by_agenda_position_then_priority(self):
+        b = self.sb.board
+        for t in ("T-0002", "T-0012", "T-0009"):         # settle the landings and the release
+            os.remove([os.path.join(b, d, f) for d in os.listdir(b)
+                       for f in os.listdir(os.path.join(b, d)) if f.startswith(t)][0])
+        code, out, err = self.run_cli("--json")
+        ids = [r["id"] for r in json.loads(out)["take"]]
+        # T-0001 (thm:main, pos 1), T-0007 (lem:b unblocks thm:main, pos 1), T-0008 (pos 5);
+        # T-0006 has no agenda entry and sorts last
+        self.assertEqual(ids, ["T-0001", "T-0007", "T-0008"])
+        code, out, err = self.run_cli("--all", "--json")
+        all_ids = [r["id"] for r in json.loads(out)["take"]]
+        self.assertLess(all_ids.index("T-0008"), all_ids.index("T-0006"))
 
     def test_sweep_comes_first_except_in_all(self):
-        code, out, err = self.run_cli("--sync", "--json")
+        code, out, err = self.run_cli("--json")
         self.assertEqual(json.loads(out)["sweep"]["target"], "note-sweeper")
-        code, out, err = self.run_cli("--sync")
+        code, out, err = self.run_cli()
         self.assertTrue(out.startswith("SWEEP FIRST"), out)
         code, out, err = self.run_cli("--all", "--json")
         d = json.loads(out)
         self.assertNotIn("sweep", d)
-        self.assertTrue({"R-0003", "R-0007", "R-0011"} <=
-                        {r["id"] for r in d["waiting_items"]})
-        self.assertEqual({r["id"] for r in d["parked"]}, {"R-0009", "R-0010"})
+        ids = [r["id"] for r in d["take"]]
+        self.assertEqual(ids.count("T-0009"), 1)            # the blocked pool, not twice
+        self.assertIn("T-0010", ids)                        # blocked pending: listed by --all
 
-    def test_unfiled_items_are_reported_without_sync(self):
+    def test_every_entry_has_a_ticket_so_no_gap_is_reported(self):
         code, out, err = self.run_cli("--json")
-        self.assertEqual(json.loads(out)["unfiled"], 5)
-        code, out, err = self.run_cli()
-        self.assertIn("not filed yet", out)
+        self.assertEqual(json.loads(out)["gaps"], 0)
 
     def test_items_per_run_is_capped_at_three(self):
         self.assertEqual(self.ctx(items=1).items_per_run, 1)
         self.assertEqual(self.ctx(items=9).items_per_run, 3)
-        code, out, err = self.run_cli("--sync", "--json", "--n", "1")
+        code, out, err = self.run_cli("--json", "--n", "1")
         self.assertEqual(len(json.loads(out)["take"]), 1)
 
     def test_check_reports_an_unfinished_ticket(self):
@@ -198,6 +169,22 @@ class InboxPlanTests(unittest.TestCase):
         self.assertIn("unfinished", out)
         code, out, err = self.run_cli("--check", "T-0002")
         self.assertEqual(code, 0)
+
+    def test_the_old_filing_and_item_commands_are_gone(self):
+        for cmd in ("sync", "file", "mark", "add"):
+            code, out, err = self.run_cli(cmd)
+            self.assertEqual(code, 2, cmd)                  # not a subcommand any more
+        code, out, err = self.run_cli("--sync")
+        self.assertEqual(code, 2)
+
+
+class GapHeaderTests(InboxBase):
+    def test_the_header_counts_agenda_gaps_without_a_ticket(self):
+        code, out, err = self.run_cli("--json")
+        self.assertEqual(code, 1)                           # an empty inbox
+        self.assertEqual(json.loads(out)["gaps"], 3)        # thm:main, lem:b, lem:d
+        code, out, err = self.run_cli()
+        self.assertIn("3 agenda gap(s) have no ticket", out)
 
 
 class RoutesTests(unittest.TestCase):
@@ -214,200 +201,68 @@ class RoutesTests(unittest.TestCase):
             r = routes.route({"kind": kind})
             self.assertEqual((r["how"], r["target"]), ("human", "human"), kind)
 
-    def test_land_routes(self):
+    def test_land_routes_by_ticket_kind(self):
         self.assertEqual(routes.land_route("verify")["target"], "math-editor")
         self.assertEqual(routes.land_route("cite")["target"], "math-editor")
-        self.assertEqual(routes.land_route("lead")["target"], "math-writer")
-        self.assertEqual(routes.land_route("experiment")["target"], "math-writer")
+        self.assertEqual(routes.land_route("research", "researcher")["target"], "math-writer")
+        self.assertEqual(routes.land_route("research", "scientist")["target"], "math-writer")
         self.assertEqual(routes.land_route("referee")["target"], "author:notes")
 
-    def test_every_self_ticket_kind_is_a_ticket_kind_and_routes(self):
-        for kind in list(routes.ITEM_KINDS.values()) + list(routes.AGENT_KINDS.values()):
+    def test_every_self_kind_is_a_ticket_kind_and_routes(self):
+        for kind in routes.SELF_KINDS:
             self.assertIn(kind, ac.TICKET_KINDS)
             self.assertEqual(routes.route({"kind": kind})["how"], "agent")
 
-
-class InboxWriteTests(unittest.TestCase):
-    def setUp(self):
-        self.sb = Sandbox()
-        self.agenda = os.path.join(self.sb.home, "Drafts", "agenda.md")
-        self.roadmap = os.path.join(self.sb.home, "Drafts", "roadmap.md")
-        self.sb.write(self.agenda, AGENDA)
-        self.sb.write(self.roadmap, ROADMAP)
-        os.environ["ACADEMY_WORKSPACE"] = self.sb.workspace
-
-    def tearDown(self):
-        os.environ.pop("ACADEMY_WORKSPACE", None)
-        self.sb.cleanup()
-
-    def ctx(self):
-        with open(self.sb.workspace, encoding="utf-8") as fh:
-            ws = json.load(fh)
-        return nx.Context(self.agenda, self.roadmap, self.sb.board, ws, "author@t", "paper",
-                          3, ["dom"])
-
-    def board_tickets(self, folder):
-        d = os.path.join(self.sb.board, folder)
-        return sorted(f for f in os.listdir(d) if f.startswith("T-"))
-
-    def test_add_and_mark(self):
-        it = nx.add(self.ctx(), "apply", "A new  edit", agenda="paper:lem:d",
-                    depends_on=["R-0001"], source="notes", body="Body.", date="2026-09-28")
-        self.assertEqual(it.id, "R-0013")
-        again = al.parse_roadmap(al.read_text(self.roadmap)).get("R-0013")
-        self.assertEqual((again.title, again.agenda, again.depends_on),
-                         ("A new edit", "paper:lem:d", ["R-0001"]))
-        nx.mark(self.ctx(), "R-0013", "done", "how: edited", date="2026-09-29")
-        nx.mark(self.ctx(), "R-0013", None, "second note", date="2026-09-30")
-        after = al.parse_roadmap(al.read_text(self.roadmap)).get("R-0013")
-        self.assertEqual(after.status, "done")
-        self.assertTrue(after.body.endswith("- 2026-09-29: status done; how: edited\n"
-                                            "- 2026-09-30: second note"))
-        with self.assertRaises(nx.InboxError):
-            nx.mark(self.ctx(), "R-0013", "finished")
-
-    def test_lead_goes_to_the_expert_for_the_researcher(self):
-        c = self.ctx()
-        draft = nx.ticket_draft(c, c.roadmap.get("R-0006"))
-        self.assertEqual((draft["to"], draft["kind"], draft["final_to"]),
-                         ("expert@t", "research", "researcher"))
-        self.assertEqual(draft["deliverable"], nx.DELIVERABLES["prove"])
-
-    def test_file_ticket_marks_the_item_ticketed(self):
-        draft, dry = nx.file_ticket(self.ctx(), "R-0005", dry_run=True)
-        self.assertIsNone(dry)
-        self.assertEqual((draft["to"], draft["kind"], draft["refs"], draft["agenda"]),
-                         ("expert@t", "verify", ["paper:lem:b"], "paper:lem:b"))
-        draft, tid = nx.file_ticket(self.ctx(), "R-0005")
-        self.assertRegex(tid, r"^T-\d{4}$")
-        path = [f for f in os.listdir(os.path.join(self.sb.board, "expert@t"))
-                if f.startswith(tid)][0]
-        text = self.sb.read(os.path.join(self.sb.board, "expert@t", path))
-        self.assertIn("from: author@t", text)
-        self.assertIn("kind: verify", text)
-        it = al.parse_roadmap(al.read_text(self.roadmap)).get("R-0005")
-        self.assertEqual((it.status, it.ticket), ("ticketed", tid))
-        p = nx.plan(self.ctx())
-        self.assertIn("R-0005", [r["id"] for r in p["waiting"]])
-
-    def test_a_local_item_becomes_a_self_ticket(self):
-        draft, tid = nx.file_ticket(self.ctx(), "R-0001")
-        d = os.path.join(self.sb.board, "author@t")
-        text = self.sb.read(os.path.join(d, [f for f in os.listdir(d) if f.startswith(tid)][0]))
-        meta = ac.read_frontmatter(text)[0]
-        self.assertEqual((meta["from"], meta["to"], meta["kind"], meta["status"]),
-                         ("author@t", "author@t", "apply", "open"))
-        self.assertEqual(meta["refs"], ["R-0001", "paper:lem:d"])
-        self.assertEqual(meta["agenda"], "paper:lem:d")
-        self.assertEqual(ac.validate_ticket(meta), [])
-        it = al.parse_roadmap(al.read_text(self.roadmap)).get("R-0001")
-        self.assertEqual((it.status, it.ticket), ("ticketed", tid))
-        # it is in the inbox, not in the waiting list
-        p = nx.plan(self.ctx())
-        self.assertNotIn("R-0001", [r["id"] for r in p["waiting"] + p["to_file"]])
-
-    def test_a_route_field_picks_the_kind(self):
-        rm = al.parse_roadmap(al.read_text(self.roadmap))
-        rm.get("R-0002").fields["route"] = "figure-maker"
-        al.write_text(self.roadmap, al.write_roadmap(rm))
-        c = self.ctx()
-        self.assertEqual(nx.self_draft(c, c.roadmap.get("R-0002"))["kind"], "figure")
-
-    def test_sync_is_idempotent(self):
-        first = nx.sync(self.ctx())
-        self.assertEqual([f["item"] for f in first["filed"]],
-                         ["R-0005", "R-0002", "R-0001", "R-0004", "R-0012"])
-        before = {f: self.board_tickets(f) for f in ("author@t", "expert@t")}
-        second = nx.sync(self.ctx())
-        self.assertEqual(second, {"filed": [], "settled": []})
-        self.assertEqual({f: self.board_tickets(f) for f in ("author@t", "expert@t")}, before)
-
-    def test_a_ticket_already_on_the_board_is_adopted_not_duplicated(self):
-        _, tid = nx.file_ticket(self.ctx(), "R-0001")
-        rm = al.parse_roadmap(al.read_text(self.roadmap))    # the roadmap write was lost
-        rm.get("R-0001").fields["status"] = "open"
-        rm.get("R-0001").fields.pop("ticket", None)
-        al.write_text(self.roadmap, al.write_roadmap(rm))
-        n = len(self.board_tickets("author@t"))
-        _, again = nx.file_ticket(self.ctx(), "R-0001")
-        self.assertEqual(again, tid)
-        self.assertEqual(len(self.board_tickets("author@t")), n)
-        it = al.parse_roadmap(al.read_text(self.roadmap)).get("R-0001")
-        self.assertEqual((it.status, it.ticket), ("ticketed", tid))
-
-    def test_a_delivered_self_ticket_is_settled_and_the_item_done(self):
-        _, tid = nx.file_ticket(self.ctx(), "R-0001")
-        import board as bd
-        for st in ("accepted", "in-progress"):
-            bd.transition_ticket(self.sb.board, tid, st, as_instance="author@t")
-        bd.transition_ticket(self.sb.board, tid, "delivered", result="reworded",
-                             as_instance="author@t")
-        res = nx.sync(self.ctx())
-        self.assertEqual(res["settled"], [{"item": "R-0001", "ticket": tid}])
-        it = al.parse_roadmap(al.read_text(self.roadmap)).get("R-0001")
-        self.assertEqual(it.status, "done")
-        self.assertEqual(bd.get_ticket(self.sb.board, tid)[1]["status"], "closed")
-        self.assertEqual(nx.sync(self.ctx())["settled"], [])
-
-    def test_mark_done_closes_a_delivered_self_ticket(self):
-        _, tid = nx.file_ticket(self.ctx(), "R-0001")
-        import board as bd
-        for st in ("accepted", "in-progress"):
-            bd.transition_ticket(self.sb.board, tid, st, as_instance="author@t")
-        bd.transition_ticket(self.sb.board, tid, "delivered", result="ok",
-                             as_instance="author@t")
-        nx.mark(self.ctx(), "R-0001", "done", "how: edited")
-        self.assertEqual(bd.get_ticket(self.sb.board, tid)[1]["status"], "closed")
-
-    def test_mark_done_walks_an_in_progress_self_ticket_to_closed(self):
-        _, tid = nx.file_ticket(self.ctx(), "R-0001")
-        import board as bd
-        for st in ("accepted", "in-progress"):
-            bd.transition_ticket(self.sb.board, tid, st, as_instance="author@t")
-        nx.mark(self.ctx(), "R-0001", "done", "how: edited")
-        meta = bd.get_ticket(self.sb.board, tid)[1]
-        self.assertEqual((meta["status"], meta["result"]), ("closed", "how: edited"))
-
-    def test_mark_needs_human_parks_the_self_ticket(self):
-        _, tid = nx.file_ticket(self.ctx(), "R-0001")
-        import board as bd
-        nx.mark(self.ctx(), "R-0001", "needs-human", "asks Roey")
-        meta = bd.get_ticket(self.sb.board, tid)[1]
-        self.assertEqual((meta["status"], meta["waiting_on"]), ("blocked", ["human"]))
-        rows, _ = ac.inbox_core.select(self.sb.board, "author@t", 3, route=routes.route)
-        self.assertNotIn(tid, [r["id"] for r in rows])
-
-    def test_file_refuses_a_non_open_item(self):
-        with self.assertRaises(nx.InboxError):
-            nx.file_ticket(self.ctx(), "R-0008", dry_run=True)
-
-    def test_cli_subcommands(self):
-        env = dict(self.sb.env)
-        base = [sys.executable, os.path.join(SCRIPTS, "inbox.py")]
-        res = subprocess.run(base + ["sync", "--dry-run", "--home", self.sb.home],
-                             capture_output=True, env=env)
-        self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(self.board_tickets("author@t"), [])
-        res = subprocess.run(base + ["sync", "--home", self.sb.home],
-                             capture_output=True, env=env)
-        self.assertEqual(res.returncode, 0, res.stderr)
-        res = subprocess.run(base + ["sync", "--home", self.sb.home],
-                             capture_output=True, env=env)
-        self.assertEqual(res.returncode, 1)                  # nothing new to file
-        res = subprocess.run(base + ["mark", "R-0004", "--status", "done", "--home",
-                                     self.sb.home], capture_output=True, env=env)
-        self.assertEqual(res.returncode, 0, res.stderr)
+    def test_every_out_route_is_a_ticket_kind_with_a_deliverable(self):
+        for tag, (role, kind, final_to, dkey) in routes.OUT_ROUTES.items():
+            self.assertIn(kind, ac.TICKET_KINDS)
+            self.assertIn(dkey, routes.DELIVERABLES)
 
 
-class AskLineTests(unittest.TestCase):
+class NoRoadmapTests(InboxBase):
+    """No code path reads or writes a roadmap; an old file and an old config are inert."""
 
-    def test_a_leading_list_marker_is_dropped(self):
-        it = al.Item("R-0001", "verify", "Verify lem:x", {}, "- `lem:x` -- check it\n")
-        self.assertEqual(nx._ask_line(it), "Verify lem:x -- `lem:x` -- check it")
+    JUNK = "# Roadmap\n\n## R-0001 [apply] old\n- status: open\n- agenda: lem:d\n\nbody\n"
 
-    def test_plain_first_paragraph_is_kept(self):
-        it = al.Item("R-0001", "cite", "Cite X", {}, "Pinpoint X.\n\nMore.")
-        self.assertEqual(nx._ask_line(it), "Cite X -- Pinpoint X.")
+    def test_no_script_but_the_converter_knows_the_roadmap(self):
+        pat = re.compile(r"roadmap\.md|parse_roadmap|write_roadmap|\bRoadmap\b|R-\\d|R-NNNN")
+        for name in sorted(os.listdir(SCRIPTS)):
+            if not name.endswith(".py") or name in ("agenda_migrate.py", "_academy.py"):
+                continue
+            with open(os.path.join(SCRIPTS, name), encoding="utf-8") as fh:
+                self.assertIsNone(pat.search(fh.read()), name)
+        hooks = os.path.join(os.path.dirname(SCRIPTS), "hooks", "hooks.json")
+        with open(hooks, encoding="utf-8") as fh:
+            self.assertNotIn("roadmap", fh.read().lower())
+
+    def test_running_the_tools_never_touches_or_reads_a_roadmap_file(self):
+        rm = os.path.join(self.sb.home, "Drafts", "roadmap.md")
+        self.sb.write(rm, self.JUNK)
+        before = sha(rm)
+        ticket(self.sb.board, "T-0001", "author@t", "open", kind="write",
+               agenda="paper:lem:b")
+        with_file = self.run_cli("--json")[1]
+        os.remove(rm)
+        self.assertEqual(self.run_cli("--json")[1], with_file)         # same without it
+        self.sb.write(rm, self.JUNK)
+        agenda_cli = [sys.executable, os.path.join(SCRIPTS, "agenda.py")]
+        for cmd in (["check"], ["status", "--statuses", os.devnull], ["gaps"],
+                    ["gaps", "--file"], ["milestones"], ["show"]):
+            subprocess.run(agenda_cli + cmd + ["--home", self.sb.home], capture_output=True,
+                           env=self.sb.env)
+        self.assertEqual(sha(rm), before)
+        self.assertEqual(self.run_cli("--json", "--roadmap", rm)[0], 2)  # no such option
+
+    def test_an_old_config_with_a_roadmap_path_still_validates_and_runs(self):
+        cfg = json.loads(self.sb.read(os.path.join(self.sb.home, ".claude", "academy.json")))
+        self.assertNotIn("roadmap", cfg["paths"])
+        cfg["paths"]["roadmap"] = "Drafts/roadmap.md"
+        self.sb.write(os.path.join(self.sb.home, ".claude", "academy.json"),
+                      json.dumps(cfg, indent=2))
+        self.assertEqual(ac.validate_config(ac.load_config(self.sb.home)), [])
+        code, out, err = self.run_cli("--json")
+        self.assertIn(code, (0, 1), err)
+        self.assertIn("sweep", json.loads(out))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 ---
 name: figure-maker
-description: Produces one figure for the paper — a standalone TikZ file from a description or from computed data (coordinates, a decomposition, trajectories) — following the domain pack's figures.md conventions, compiles it alone, rasterises and inspects it, and includes it in the section. Use for a [figure] item, a [write] item routed to it, or a figure ticket. The primary model is opus when the picture carries computed data.
+description: Produces one figure for the paper — a standalone TikZ file from a description or from computed data (coordinates, a decomposition, trajectories) — following the domain pack's figures.md conventions, compiles it alone, rasterises and inspects it, and includes it in the section. Use for a figure ticket, or a write ticket routed to it. The primary model is opus when the picture carries computed data.
 model: sonnet
 effort: medium
 fallback: opus
@@ -35,8 +35,7 @@ roster rules allow for this agent); say in your report which you were.
    `\label{fig:...}`), add the `\cref` at the point of use, and let the build gate build
    the paper when you stop.
 
-Record the item (`py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py mark R-NNNN --status done
---note "<file, label>"`) or the ticket (`tickets_update`: result, `delivered`).
+Record the ticket (`tickets_update`: result "<file, label>", `delivered`).
 
 **Report**: the file, the label, what the picture shows, the data source (claim id,
 result file, commit) if any, any library you had to load, and what you could not

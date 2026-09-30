@@ -113,7 +113,7 @@ named by `board.transport`; native sub-issue and dependency calls (`set_parent`,
 `list_issues` paging and its label filter on a large repo (the store asks for `to:<instance>` only, and
 never reads comments while selecting). Also not done: writing the Project fields (and creating the
 Project's fields/views from `board_project.py`) on a live Project, the Project-field half of
-`board-sync`, the write hook on github mode, the Author's roadmap/agenda sync and `packets.py`,
+`board-sync`, the write hook on github mode, the Author's agenda-gap filing and `packets.py`,
 `decisions.py`, `session_start.py` and `land_referee.py`, which still read tickets from the files of
 the board directory (the Author's ticket filing already goes through `board.create_ticket`, so it
 follows a store only once its `ctx.board` is one). Until the transport exists, run a github board's

@@ -57,8 +57,9 @@ the informal phrase in `academy/skills/rigor/SKILL.md` §4.
 10. **Two kinds of blocked ticket** (section 9): pending (`waiting_on`, unchanged)
     and dead route (`blocked_by` + `reopen_if`, new). The `approach` object's
     blocking (section 3) uses the same fields and words.
-11. **The Author works through `/author:inbox`** (section 10): roadmap items become
-    self-tickets, and the note sweep runs on every invocation.
+11. **The Author works through `/author:inbox`** (section 10), and the board is its
+    only queue: the roadmap is dropped (Roey, 2026-09-30), work items are tickets, and
+    the note sweep runs on every invocation.
 4. **Discipline rules are shared and stated once** (`rigor`, `honest-reporting`,
    `budget.md`, `roster-rules.md`); everything else points to them.
 5. **Search discipline deviates from the CDC prompt on purpose** (section 6).
@@ -264,8 +265,8 @@ Outside campaign mode the scout is unchanged.
 Tests first (TDD) within each phase. Three phases, each its own plan, in order:
 
 **Phase 1, shared inbox and `/author:inbox` (sections 8, 10).** Vendored core and its
-tests; the three role wrappers ported; `/academy:inbox`; the Author's inbox,
-self-tickets and sweep-first; `next` retired; docs and skill tables.
+tests; the three role wrappers ported; `/academy:inbox`; the Author's inbox
+(tickets only, no roadmap), landings and sweep-first; `next` retired; docs and skill tables.
 
 **Phase 2, ticket blocking (section 9).** `validate_ticket`, `transition_ticket`,
 `docs/protocol.md`, the MCP `tickets_update`; the core's dead-route filter.
@@ -310,7 +311,8 @@ change to the shared library is made there and re-vendored.
 **Today** the researcher, expert and scientist `scripts/inbox.py` are three copies
 with their own selection, ordering, limit flag (`--n` / `--limit`) and return-leg
 handling (the scientist's has none); the Author has no inbox, and
-`author/scripts/next.py` mixes roadmap items and tickets.
+`author/scripts/next.py` mixes roadmap items and tickets (the roadmap is dropped in
+section 10).
 
 **Design.** One library `inbox_core` in `academy/lib/academy_common.py` (vendored
 into every plugin's `_academy.py` like the rest, `test_vendored_lib_is_in_sync`):
@@ -384,28 +386,58 @@ reason is required, and nothing records why a route was abandoned
 the tickets to the instance together, and `author:next` is how the Author runs its
 own work. The Author has no `inbox`.
 
+**Amendment (Roey, 2026-09-30): the roadmap is dropped.** The first version of this
+section kept `Drafts/roadmap.md` (R-NNNN items, `inbox.py sync` / `file` / `mark` /
+`add`) as a second queue that was filed into the board. That was a mistake: two queues
+with a sync between them. **The board is the Author's only queue.** There is no roadmap
+file, no `R-NNNN` id, no item store and no sync. The text below is the design as
+amended.
+
 **Design.**
 - **`/author:inbox` replaces `/author:next`.** Same interface as the other roles:
   the shared core (section 8) plus the Author's routing table.
-- **Roadmap items become self-tickets.** Each item on the agenda's roadmap is filed
-  as a ticket from the author instance to itself (allowed by the chain gate: same
-  role), carrying the claim id, the item kind and its agenda position. `next.py
-  file` keeps its rule for items that leave the Author (verify, cite, referee to the
-  Expert; lead and experiment as `research` tickets with `final_to`), and filing
-  becomes idempotent so an item is never ticketed twice. The board is the single
-  queue; the roadmap stays the place the human edits.
-- **Routing by kind** (the existing `TICKET_KIND_ROUTES`, extended with the item
-  kinds): write to math-writer, apply and copy to math-editor, figure to
-  figure-maker, build to tex-engineer, notation to notation-auditor, a delivered
-  verify or cite ticket landed by math-editor, a returned experiment or proof
-  landed by math-writer. A ticket of no known kind is `human` (asked, never guessed).
+- **Work items are tickets.** The Author's own work is a ticket from the author
+  instance to itself (allowed by the chain gate: same role) of kind `write`, `apply`,
+  `copy`, `figure`, `build`, `notation` or `sweep`; an ask that leaves the Author is a
+  ticket to the Expert (`verify`, `cite`, `referee`; `research` with `final_to:
+  researcher` or `scientist` for a proof or an experiment). Every such ticket carries the
+  claim in `refs` and, in `agenda`, the claim id of the agenda entry it serves (its
+  position in the paper). They are filed with `board.py new` / `tickets_create`; the
+  margin-notes skill files one per note, and `agenda.py gaps --file` files one per
+  agenda gap through `board.create_ticket` (no separate item store, no `inbox.py file`).
+  An agenda entry is a gap only while no non-terminal ticket to or from the Author
+  carries its `agenda`, so filing is idempotent: the same gap twice is one ticket. A
+  `verify` for an entry whose own inputs are below their required status is held, as
+  before.
+- **Dependencies are ticket waits.** A ticket that must wait is `blocked` with
+  `waiting_on` (other tickets, or `human` for a decision only Roey can make). The
+  Author's inbox offers a blocked ticket again (a "released" row) once every ticket it
+  waits on is `delivered` or terminal; a wait on an agenda entry reaching a status is
+  not filed until it does.
+- **Returned tickets land.** A ticket the Author filed to another role that comes back
+  `delivered` is a landing row (ahead of the open tickets, after those in progress); the
+  Author closes it after landing.
+- **Routing by kind** (the existing `TICKET_KIND_ROUTES`, extended): write to
+  math-writer, apply and copy to math-editor, figure to figure-maker, build to
+  tex-engineer, notation to notation-auditor, a delivered verify or cite ticket landed
+  by math-editor, a returned experiment or proof landed by math-writer. A ticket of no
+  known kind is `human` (asked, never guessed).
+- **Agenda, milestones, status** are computed from the registry's claim statuses and
+  the tickets attached to each entry (`agenda.py show`, `milestones`), not from items.
 - **Sweep on every run.** Before it takes tickets, `/author:inbox` runs the machine
   note sweep (`note-sweeper`, as `/author:sweep` does), so answered notes are folded
-  into items first and open ones are left. `/author:sweep` stays as a standalone
-  entry. The sweep counts against no item cap and is reported first.
+  into the thread of their ticket first and open ones are left. `/author:sweep` stays
+  as a standalone entry. The sweep counts against no item cap and is reported first.
 - **Kept:** `agenda`, `audit-notation`, `notes`, `presync`, `status`, `sweep`.
   **Retired:** `next` (its planning moves into the inbox wrapper; `author:status`
   points at `/author:inbox --all`).
-- **Tests:** `author/tests/test_next.py` is ported to the inbox; a new
+- **Migration of an existing roadmap.** `author/scripts/agenda_migrate.py` is a
+  one-shot converter from a `Drafts/roadmap.md` to tickets: dry run by default, `--apply`
+  files them, idempotent, and the roadmap file is only read; the human archives it
+  afterwards. `paths.roadmap` is no longer required in `academy.json`; an old config
+  that still has the key validates and the key is ignored.
+- **Tests:** `author/tests/test_next.py` is ported to the inbox (tickets only); a new
   `author/tests/test_plugin.py` lists the Author's skills; the generated skill
-  tables in `author/README.md` are regenerated with `skill_index.py`.
+  tables in `author/README.md` are regenerated with `skill_index.py`. Added: no code
+  path reads or writes a roadmap; gap filing is idempotent; the converter is dry-run by
+  default and maps items to tickets; an old config with a `roadmap` key validates.
