@@ -310,11 +310,17 @@ def new_agenda_text(instance, entries, milestones=None, preface=""):
 def check(agenda, ns=""):
     """Problems (list of str) with an agenda."""
     probs = []
-    labels = {}
+    labels, claims = {}, {}
     for e in agenda.entries:
         if e.label in labels:
             probs.append("agenda: duplicate label %s" % e.label)
         labels[e.label] = e
+        if e.claim not in ("", "-"):
+            if e.claim in claims:
+                probs.append("agenda: %s and %s share the claim %s (one entry per claim: a "
+                             "ticket's agenda names one entry)" % (claims[e.claim], e.label,
+                                                                   e.claim))
+            claims.setdefault(e.claim, e.label)
         if e.required not in CLAIM_STATUSES:
             probs.append("agenda: %s: required %r is not a status" % (e.label, e.required))
         if e.status and e.status not in ("?",) + CLAIM_STATUSES + ("superseded", "dropped",

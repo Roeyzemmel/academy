@@ -48,10 +48,8 @@ A work item is a **ticket** (`docs/protocol.md`), filed with `board.py new` /
 
 | Old roadmap field | Now |
 |---|---|
-| tag (`write` `apply` `figure` `build` `notation` `sweep`) | the ticket `kind`, `to` this Author itself |
-| tag `lead` / `experiment` | kind `research` to the Expert, `final_to: researcher` / `scientist` |
-| tag `verify` / `cite` / `referee` | kind `verify` / `cite` / `referee` to the Expert |
-| `agenda` | the ticket's `agenda` field (the entry's claim id; omitted or `global` for none); the claim is also in `refs` |
+| tag | the ticket kind and receiver: the generated tables in `skills/inbox/references/routing.md` (from `scripts/routes.py`) |
+| `agenda` | the ticket's `agenda` field (the entry's qualified label `<ns>:<label>`, unique where a claim id is not; omitted or `global` for none); the claim is in `refs` |
 | `priority` | the ticket's `priority` |
 | `status` open / ticketed | ticket `open`; `accepted`, `in-progress`, `delivered`, `closed` |
 | `status` needs-human / blocked | ticket `blocked` with `waiting_on: [human]` |

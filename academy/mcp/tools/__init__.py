@@ -187,7 +187,7 @@ class Context(object):
         """``(instance, agent)`` a new ticket is filed as (docs/protocol.md section 5).
 
         An agent files as its instance. The main session files as the home it runs in,
-        with agent ``main`` -- a role skill such as /author:next is its role -- unless
+        with agent ``main`` -- a role skill such as /author:inbox is its role -- unless
         ``as_human`` (only /academy:board, desk and decide pass it, after Roey
         confirms); outside every home it is the human.
         """

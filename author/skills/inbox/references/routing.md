@@ -8,40 +8,78 @@ tickets by script (`scripts/inbox.py` over the shared inbox core, tested in
 ## The routing table (`inbox.py`, `routes.py`)
 
 The board is the Author's only queue; there is no roadmap. A work item is a ticket,
-filed with `board.py new` / `tickets_create` (`--agenda <claim id>` gives its place in
+filed with `board.py new` / `tickets_create` (`--agenda <ns>:<label>` gives its place in
 the paper, `--refs` the claim), or from an agenda gap with `agenda.py gaps --file`.
 
-| Work | Filed as | Who works it |
-|---|---|---|
-| `write` (prose, definitions, a write-up from a source) | ticket to the Author itself, kind `write` | `math-writer` |
-| `apply`, mechanical `write`, `copy` | ticket to the Author itself, kind `apply` (or `copy`) | `math-editor` |
-| `figure` | ticket to the Author itself, kind `figure` | `figure-maker` (opus when the picture carries data) |
-| `build` | ticket to the Author itself, kind `build` | `tex-engineer` |
-| `notation` | ticket to the Author itself, kind `notation` | `notation-auditor` |
-| `sweep` | ticket to the Author itself, kind `sweep` | `note-sweeper` |
-| `lead` (ask for a proof) | ticket `research`, `final_to: researcher`, to the Expert | the Expert instance (research-intake prepares it and relays it to the Researcher) |
-| `verify` | ticket `verify` to the Expert | review-chair, two rigor-reviewer runs |
-| `cite` | ticket `cite` to the Expert | the librarian |
-| `experiment` (ask for a run) | ticket `research`, `final_to: scientist`, to the Expert | relayed to the Researcher, whose experiment-spec files it to the Scientist |
-| `referee` | ticket `referee` to the Expert | the referee |
-| a ticket this Author filed to another role, now `delivered` (a return row) | land, then the Author closes it | `math-writer` (`research`: a proof or an experiment), `math-editor` (`verify`, `cite`), `/author:notes` (`referee`) |
-| a blocked ticket to the Author whose `waiting_on` tickets are all back (a released row) | move `blocked -> accepted`, then route by kind | as its kind |
-| ticket to the Author of kind `build` / `figure` / `notation` / `note` | routed by kind | `tex-engineer` / `figure-maker` / `notation-auditor` / `math-writer` |
-| ticket of any other kind | `human` | Roey decides, in the main session; a route is never guessed |
+Generated from `scripts/routes.py` (`py scripts/routes.py --sync <this file>`; a test
+compares them), the single source of which kind goes to which agent:
 
-The kind picks the agent (`math-writer` `write`, `math-editor` `apply`, `figure-maker`
-`figure`, `tex-engineer` `build`, `notation-auditor` `notation`, `note-sweeper`
-`sweep`). Where several instances of a role share the domain, `agenda.py gaps --file`
-takes the first by name and says so; to choose, file the ticket by hand with
-`board.py new`. Tickets carry the claim in `refs` and in `agenda`. Gap filing is
-idempotent: an agenda entry with a non-terminal ticket attached (by `agenda`) is not a
-gap, so the same gap is never ticketed twice.
+Tickets addressed to the Author, by kind:
+
+<!-- routes:kinds -->
+| kind | how | target | why |
+|---|---|---|---|
+| `write` | agent | `math-writer` | prose, definitions, a write-up from a source |
+| `apply` | agent | `math-editor` | the edit is already decided |
+| `copy` | agent | `math-editor` | copy-edit a settled section; no mathematics |
+| `figure` | agent | `figure-maker` | an illustration |
+| `build` | agent | `tex-engineer` | toolchain or build repair |
+| `notation` | agent | `notation-auditor` | a notation decision or clash |
+| `sweep` | agent | `note-sweeper` | the machine-note sweep |
+| `note` | agent | `math-writer` | fold the literature result into the paper |
+| any other kind | human | `human` | asked, never guessed |
+<!-- /routes:kinds -->
+
+The asks the Author files (`agenda.py gaps --file`):
+
+<!-- routes:out -->
+| ask | kind | to | final_to |
+|---|---|---|---|
+| `lead` | `research` | expert | `researcher` |
+| `verify` | `verify` | expert | - |
+| `cite` | `cite` | expert | - |
+| `experiment` | `research` | expert | `scientist` |
+| `referee` | `referee` | expert | - |
+<!-- /routes:out -->
+
+A returned ticket (this Author filed it elsewhere, it came back `delivered`) is landed by:
+
+<!-- routes:land -->
+| returned kind | how | target |
+|---|---|---|
+| `cite` | agent | `math-editor` |
+| `experiment` | agent | `math-writer` |
+| `prove` | agent | `math-writer` |
+| `research` | agent | `math-writer` |
+| `verify` | agent | `math-editor` |
+| `referee` | skill | `author:notes` |
+| `(any other)` | agent | `math-editor` |
+<!-- /routes:land -->
+
+How the work is filed: a work item for the Author itself (kinds `write`, `apply`, `copy`,
+`figure`, `build`, `notation`, `sweep`) is a ticket to this Author; an ask that leaves it
+(the second table) is a ticket to the Expert, which relays a `research` ticket to the
+Researcher or the Scientist by `final_to` (`lead`: the Researcher's `prove` flow;
+`experiment`: the Researcher's experiment-spec files it to the Scientist). A blocked
+ticket to the Author whose `waiting_on` tickets are all `delivered` is offered again as a
+released row (move `blocked -> accepted`, then route by kind). `figure-maker` runs on opus
+when the picture carries data.
+
+Where several instances of a role share the domain, `agenda.py gaps --file` takes the
+first by name and says so; to choose, file the ticket by hand with `board.py new`.
+Tickets carry the claim in `refs`, and in `agenda` the entry's qualified label
+(`<ns>:<label>`). Gap filing is idempotent: an agenda entry with a non-terminal ticket
+attached (by `agenda`) is not a gap, so the same gap is never ticketed twice. A gap no
+ticket can close is **held** and reported, never filed: a refuted claim (nobody verifies
+or proves it), a claim with no registry record (Roey creates it with `claims_new`).
 
 ## Ordering
 
 1. A ticket that must wait for another is `blocked` with `waiting_on: [T-NNNN, ...]`
-   (or `human`). When every ticket it waits on is `delivered` or terminal, the inbox
-   offers it again as a released row. A wait on an agenda entry or a claim reaching a
+   (or `human`). When every ticket it waits on is `delivered` or `closed`, the inbox
+   offers it again as a released row. A wait on a `rejected` or `cancelled` ticket (or on
+   one that is not on the board) never ends by itself: the ticket stays blocked and the
+   inbox prints a NOTE; decide whether to re-file, repoint or reject it. A wait on an agenda entry or a claim reaching a
    status is not a ticket wait: say it in the ticket's ask, and file the ticket when the
    status is reached.
 2. `agenda.py gaps --file` holds a `verify` for an entry whose own inputs (its agenda

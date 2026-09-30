@@ -12,7 +12,8 @@ example ``git mv Drafts/roadmap.md Drafts/archive/``) after a run, and nothing w
 **Dry run by default.** Without ``--apply`` it prints the mapping and files nothing.
 With ``--apply`` it files the tickets through ``board.create_ticket`` (from this Author
 instance) and is idempotent: an item whose ticket carries its ``roadmap item R-NNNN``
-provenance line, or that already names a ticket (``ticketed``), is never filed again, so
+provenance line (whatever became of that ticket: a rejected or cancelled one is reported,
+not filed again), or that already names a ticket (``ticketed``), is never filed again, so
 a second run files nothing new.
 
 Mapping, by item status:
@@ -33,8 +34,9 @@ Dependencies: an item depending on another item or on a ticket becomes a ticket
 ``waiting_on`` the other's ticket (a self-ticket only; parked blocked, released by the
 inbox when the ticket it waits on is delivered), or, for an ask that leaves the Author,
 *held* (not filed; run again once the dependency is met). A dependency on an agenda
-entry or a claim becomes a line in the ticket body, not a wait. A dropped or rejected
-dependency holds the item. Everything held, and every judgement call, is in the report.
+entry or a claim becomes a line in the ticket body, not a wait. A dropped item, a rejected or cancelled ticket
+(named directly, or the ticket of an already converted or ``ticketed`` item), and a ticket
+that is not on the board hold the item. Everything held, and every judgement call, is in the report.
 
 Exit codes: 0 ok; 1 nothing to convert; 2 error.
 """
@@ -50,8 +52,8 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import _academy as ac  # noqa: E402
-import agenda as ag  # noqa: E402
 import agenda_lib as al  # noqa: E402
+import gaps as gp  # noqa: E402
 import inbox as nx  # noqa: E402
 import routes as rt  # noqa: E402
 
@@ -162,28 +164,30 @@ def local_kind(it):
 
 
 def _claim_of(ctx, it):
-    """(agenda field value, claim id or None) of an item's agenda attachment."""
+    """(agenda field value, claim id or None) of an item's agenda attachment: the entry's
+    qualified label (unique), the claim in ``refs``."""
     if not it.agenda or it.agenda == "global":
         return "global", None
     e = ctx.agenda.lookup(it.agenda, ctx.ns)
-    if e is not None and e.claim not in ("", "-"):
-        return e.claim, e.claim
     if e is not None:
-        ref = "%s:%s" % (ctx.ns, e.label) if ctx.ns else e.label
-        return ref, None
+        return gp.entry_ref(ctx, e), (e.claim if e.claim not in ("", "-") else None)
     return it.agenda, None
 
 
 def _existing(ctx):
-    """{item id: ticket id} of the tickets this instance already filed for an item."""
+    """{item id: ticket id} of the tickets this instance filed for an item, whatever became
+    of them (a live one is preferred): an item with such a ticket is converted."""
     out = {}
-    for tid in sorted(ctx.tickets, key=nx._num):
+    for tid in sorted(ctx.tickets, key=ac.inbox_core.num):
         t = ctx.tickets[tid]
-        if t.get("from") != ctx.instance or t.get("status") in nx.TICKET_DEAD:
+        if t.get("from") != ctx.instance:
             continue
-        m = RE_PROVENANCE.search(t.get("_body") or "")
+        m = RE_PROVENANCE.search(ctx.body(tid))
         if m:
-            out.setdefault(m.group(1), tid)
+            cur = out.get(m.group(1))
+            if cur is None or (ctx.tickets[cur].get("status") in gp.DEAD
+                               and t.get("status") not in gp.DEAD):
+                out[m.group(1)] = tid
     return out
 
 
@@ -204,7 +208,7 @@ def draft(ctx, it, waits, text_deps):
     final_to, note = None, ""
     if ask_tag and not parked:
         role, kind, final_to, dkey = rt.OUT_ROUTES[it.tag]
-        to, note = ag.target_instance(ctx, role)
+        to, note = gp.target_instance(ctx, role)
         deliverable = rt.DELIVERABLES[dkey]
     else:
         to, deliverable = ctx.instance, rt.SELF_DELIVERABLE
@@ -245,10 +249,13 @@ def plan(ctx, items):
             state[it.id] = "gone" if it.status == "dropped" else "done"
             continue
         if it.id in existing:
-            ticket_of[it.id] = existing[it.id]
+            tid = existing[it.id]
+            ticket_of[it.id] = tid
             state[it.id] = "skipped"
-            skipped.append({"item": it.id, "ticket": existing[it.id],
-                            "why": "already converted"})
+            st = ctx.tickets[tid].get("status")
+            skipped.append({"item": it.id, "ticket": tid, "why": "already converted" + (
+                "; its ticket was %s and is not filed again (file it by hand if it is "
+                "still wanted)" % st if st in gp.DEAD else "")})
             continue
         if it.status == "ticketed":
             state[it.id] = "skipped"
@@ -275,7 +282,18 @@ def plan(ctx, items):
                         continue
                     elif state.get(d) == "held":
                         dead = "depends on %s, which is held" % d
-                    elif d in ticket_of or state.get(d) == "filed":
+                    elif state.get(d) == "skipped":   # ticketed or already converted
+                        tid = ticket_of.get(d)
+                        t = ctx.tickets.get(tid)
+                        if t is None:
+                            dead = "depends on %s, whose ticket %s is not on the board" % (
+                                d, tid or "(none named)")
+                        elif t.get("status") in gp.DEAD:
+                            dead = "depends on %s, whose ticket %s was %s" % (
+                                d, tid, t.get("status"))
+                        elif t.get("status") not in ("delivered", "closed"):
+                            unmet.append(("ticket", tid))
+                    elif state.get(d) == "filed":
                         unmet.append(("item", d))
                     else:
                         break                       # not decided yet: next pass
@@ -283,7 +301,7 @@ def plan(ctx, items):
                     t = ctx.tickets.get(d)
                     if t is None:
                         dead = "depends on unknown ticket %s" % d
-                    elif t.get("status") in nx.TICKET_DEAD:
+                    elif t.get("status") in gp.DEAD:
                         dead = "depends on ticket %s, which was %s" % (d, t.get("status"))
                     elif t.get("status") not in ("delivered", "closed"):
                         unmet.append(("ticket", d))
@@ -298,12 +316,7 @@ def plan(ctx, items):
                     continue
                 waits = []
                 for kind, d in unmet:
-                    real = ticket_of.get(d) if kind == "item" else d
-                    t = ctx.tickets.get(real) if real else None
-                    if kind == "item" and real and t is not None \
-                            and t.get("status") in ("delivered", "closed"):
-                        continue
-                    waits.append(real or d)         # d: the item id, until it is filed
+                    waits.append(d)                 # an item id until it is filed
                 dr = draft(ctx, it, waits, text_deps)
                 if dr["parked"]:
                     dr["waits_human"] = True
@@ -326,21 +339,15 @@ def plan(ctx, items):
             "counts": counts}
 
 
-def apply(ctx, pl):
+def apply(ctx, pl, campaign=None):
     """File the planned tickets; returns ``{item id: ticket id}``. Never writes the
     roadmap file."""
     if not ctx.board:
-        raise nx.InboxError("no board (workspace.json 'board', or --board)")
-    bd = nx.board_module()
+        raise al.AgendaError("no board (workspace.json 'board', or --board)")
+    bd = gp.board_module()
     made = {}
     for dr in pl["convert"]:
-        path = bd.create_ticket(
-            ctx.board, dr["to"], dr["title"], dr["ask"], dr["deliverable"],
-            kind=dr["kind"], priority=dr["priority"], refs=dr["refs"],
-            agenda=dr["agenda"], domain=dr["domain"], detail=dr["detail"],
-            as_instance=ctx.instance, agent=ac.MAIN_AGENT, final_to=dr["final_to"],
-            workspace=ctx.workspace if ctx.workspace.get("instances") else None)
-        made[dr["item"]] = re.match(r"^(T-\d{4,})", os.path.basename(path)).group(1)
+        made[dr["item"]] = gp.file_ticket(ctx, dr, detail=dr["detail"], campaign=campaign)
     for dr in pl["convert"]:
         waits = [made.get(w, w) for w in dr["waiting_on"]]
         waits = [w for w in waits if al.RE_TICKET_ID.match(w)]
@@ -388,6 +395,8 @@ def main(argv=None):
     p.add_argument("--json", action="store_true")
     for opt in ("--home", "--agenda", "--board", "--workspace", "--instance", "--ns"):
         p.add_argument(opt, default=None)
+    p.add_argument("--campaign", metavar="TARGET", default=None,
+                   help="tag each filed ticket `campaign: TARGET`")
     a = p.parse_args(argv)
     try:
         ns_args = argparse.Namespace(home=a.home, agenda=a.agenda, board=a.board,
@@ -396,7 +405,7 @@ def main(argv=None):
         ctx = nx.load_context(ns_args)
         items = parse_items(al.read_text(a.roadmap))
         pl = plan(ctx, items)
-        made = apply(ctx, pl) if a.apply and pl["convert"] else {}
+        made = apply(ctx, pl, a.campaign) if a.apply and pl["convert"] else {}
         if a.json:
             print(json.dumps({"dry_run": not a.apply, "made": made, **{
                 k: pl[k] for k in ("convert", "skipped", "held", "problems", "counts")}},

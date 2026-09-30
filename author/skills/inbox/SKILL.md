@@ -20,8 +20,9 @@ tickets), `--n N`, or ticket ids to take in that order (at most three).
 There is no roadmap: the board is the Author's only queue. A work item is a ticket, filed
 with `board.py new` / `tickets_create` (to this Author itself for `write`, `apply`,
 `copy`, `figure`, `build`, `notation`, `sweep`; to the Expert for an ask) with `--agenda
-<claim id>` (its position in the paper) and the claim in `--refs`, or by
-`agenda.py gaps --file`.
+<ns>:<label>` (the agenda entry: its position in the paper) and the claim in `--refs`, or by
+`agenda.py gaps --file` (`--campaign TARGET` tags what it files; a refuted claim or one
+with no registry record is held for Roey, never ticketed).
 
 ## 1. Sweep first
 
@@ -49,7 +50,7 @@ By each row's `route.how` and `route.target`:
 
 | route | What you do |
 |---|---|
-| `agent` (`math-writer`, `math-editor`, `figure-maker`, `tex-engineer`, `notation-auditor`, `note-sweeper`) | Move the ticket `accepted` then `in-progress` (`py <academy>/scripts/board.py transition T-NNNN accepted --as <instance>`; `<academy>` is `${CLAUDE_PLUGIN_ROOT}/../academy`). Launch the agent with a short brief: the ticket id (the item id is in `refs`), the files it may touch, anything an earlier ticket of this run changed, and "deliver the ticket: `board.py transition T-NNNN delivered --result '<one line>' --as <instance> --agent <agent>`" (or, if it cannot finish, `transition T-NNNN blocked --waiting-on human --reason '<what is needed>'`, which parks it on `human`). |
+| `agent` (`math-writer`, `math-editor`, `figure-maker`, `tex-engineer`, `notation-auditor`, `note-sweeper`) | Move the ticket `accepted` then `in-progress` (`py <academy>/scripts/board.py transition T-NNNN accepted --as <instance>`; `<academy>` is `${CLAUDE_PLUGIN_ROOT}/../academy`). Launch the agent with a short brief: the ticket id (the claim it bears on is in `refs`, its agenda entry in `agenda`), the files it may touch, anything an earlier ticket of this run changed, and "deliver the ticket: `board.py transition T-NNNN delivered --result '<one line>' --as <instance> --agent <agent>`" (or, if it cannot finish, `transition T-NNNN blocked --waiting-on human --reason '<what is needed>'`, which parks it on `human`). |
 | `agent` with `"return": true` | A returned ticket to land: launch the named agent (`math-editor` for a verdict or citation, `math-writer` for a proof or experiment) with the returned ticket's id; it lands the result and then closes the ticket (`board.py transition T-NNNN closed --as <instance>`). |
 | `skill` (`author:notes`) | A returned referee packet: run `/author:notes` on it. |
 | `human` | No Author route for this kind: show it (`py <academy>/scripts/board.py show T-NNNN`) and ask Roey with `AskUserQuestion` (accept and file a work ticket, reject with a reason, forward). Never guess a route. |

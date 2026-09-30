@@ -34,14 +34,16 @@ field), with a proposed kind of ticket:
 - `verify`: an argument exists (`sketch`); the paper needs two agreeing verdicts. Held
   (`waits_for`) while the entry's own inputs are below their required status.
 - `lead`: no argument yet; a proof must come from the Researcher, asked through the Expert (`final_to: researcher`).
-- `apply`: no registry record; create one (math-editor, `claims_new` at an unsettled
-  status).
+- `hold`: only Roey can close it, so `--file` reports it and files nothing: the claim is
+  `refuted` (nobody verifies or proves it: change what the entry requires, repair the
+  statement, or drop it), or it has no registry record (`missing`: create it with
+  `claims_new` at an unsettled status; claim records are not the math-editor's).
 
 Show the list and ask Roey with `AskUserQuestion` which to file (all / a subset /
 none, and whether any entry's `required` should be lowered instead). For each one to
 file: `py $S/agenda.py gaps --file` files every proposed ticket (add `--dry-run` to see
-them first; to file a subset, file those by hand with `board.py new --agenda
-<ns>:<label> --refs <ns>:<label> ...`). Filing is idempotent (a filed gap has a ticket,
+them first, `--campaign TARGET` to tag them for a campaign; to file a subset, file those by hand with `board.py new --agenda
+<ns>:<label> --refs <claim id> ...`). Filing is idempotent (a filed gap has a ticket,
 so it is no longer a gap) and starts no work: `/author:inbox` picks the tickets up in
 agenda order (budget.md rule 3). `milestones` and `show` list each entry's tickets.
 

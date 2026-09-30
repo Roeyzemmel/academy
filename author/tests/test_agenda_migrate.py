@@ -178,7 +178,7 @@ class MigrateTests(unittest.TestCase):
     def test_a_held_ask_is_filed_on_a_later_run_once_its_dependency_is_met(self):
         first = json.loads(self.run_cli("--apply", "--json")[1])
         tid = first["made"]["R-0005"]
-        bd = am.nx.board_module()
+        bd = am.gp.board_module()
         for st in ("accepted", "in-progress"):
             bd.transition_ticket(self.sb.board, tid, st, as_instance="expert@t")
         bd.transition_ticket(self.sb.board, tid, "delivered", result="CONFIRMED",
@@ -193,11 +193,126 @@ class MigrateTests(unittest.TestCase):
         self.run_cli("--apply")
         self.assertEqual(sha(self.roadmap), before)
 
-    def test_the_converter_and_its_siblings_never_write_the_roadmap_path(self):
-        with open(os.path.join(SCRIPTS, "agenda_migrate.py"), encoding="utf-8") as fh:
-            src = fh.read()
-        self.assertNotIn("write_text(a.roadmap", src)
-        self.assertNotIn('"w"', src)                          # it opens nothing for writing
+    def test_the_converter_only_ever_opens_the_roadmap_for_reading(self):
+        import builtins
+        import io
+        import contextlib
+        real = builtins.open
+        opened = []
+
+        def spy(file, mode="r", *a, **k):
+            if os.path.basename(str(file)) == "roadmap.md":
+                opened.append(mode)
+            return real(file, mode, *a, **k)
+
+        before = sha(self.roadmap)
+        builtins.open = spy
+        try:
+            for args in (["--roadmap", self.roadmap, "--home", self.sb.home],
+                         ["--roadmap", self.roadmap, "--home", self.sb.home, "--apply"],
+                         ["--roadmap", self.roadmap, "--home", self.sb.home, "--apply"]):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    am.main(args)
+        finally:
+            builtins.open = real
+        self.assertTrue(opened)                               # it does read the file
+        self.assertTrue(all(not set(m) & set("wax+") for m in opened), opened)
+        self.assertEqual(sha(self.roadmap), before)
+
+    def ctx(self):
+        with open(self.sb.workspace, encoding="utf-8") as fh:
+            ws = json.load(fh)
+        return am.nx.Context(self.agenda, self.sb.board, ws, "author@t", "paper", 3, ["dom"])
+
+    def plan_of(self, *items):
+        ctx = self.ctx()
+        return am.plan(ctx, am.parse_items("\n".join(items))), ctx
+
+    def test_a_converted_item_whose_ticket_died_is_reported_not_refiled(self):
+        self.assertEqual(self.run_cli("--apply")[0], 0)
+        made = json.loads(self.run_cli("--json")[1])       # dry run: nothing new
+        self.assertEqual(made["convert"], [])
+        first = {t: m for t, m in self.all_tickets().items() if "roadmap item R-0001"
+                 in m["_body"]}
+        tid = next(iter(first))
+        bd = am.gp.board_module()
+        bd.transition_ticket(self.sb.board, tid, "cancelled", reason="no longer wanted",
+                             as_instance="author@t")
+        before = set(self.all_tickets())
+        code, out, err = self.run_cli("--apply", "--json")
+        d = json.loads(out)
+        self.assertEqual(code, 1, err)
+        self.assertEqual(d["made"], {})
+        self.assertEqual(set(self.all_tickets()), before)       # nothing re-filed
+        skipped = {s["item"]: s for s in d["skipped"]}
+        self.assertEqual(skipped["R-0001"]["ticket"], tid)
+        self.assertIn("cancelled", skipped["R-0001"]["why"])
+        self.assertIn("not filed again", skipped["R-0001"]["why"])
+
+    def test_dependants_of_a_dead_ticket_are_held_however_they_name_it(self):
+        pl, _ = self.plan_of(
+            item("R-0001", "write", "direct", depends_on="[T-0004]"),                # rejected
+            item("R-0002", "write", "via ticketed", status="ticketed", ticket="T-0004"),
+            item("R-0003", "write", "through the item", depends_on="[R-0002]"))
+        held = {h["item"]: h["why"] for h in pl["held"]}
+        self.assertIn("rejected", held["R-0001"])
+        self.assertIn("rejected", held["R-0003"])            # same outcome as the direct one
+        self.assertIn("R-0002", held["R-0003"])
+        self.assertEqual(pl["convert"], [])
+
+    def test_a_dependant_of_an_item_converted_earlier_whose_ticket_died_is_held(self):
+        ctx = self.ctx()
+        first = am.parse_items(item("R-0001", "write", "first", agenda="global"))
+        made = am.apply(ctx, am.plan(ctx, first))
+        am.gp.board_module().transition_ticket(self.sb.board, made["R-0001"], "cancelled",
+                                               reason="x", as_instance="author@t")
+        ctx = self.ctx()
+        both = am.parse_items(item("R-0001", "write", "first", agenda="global") + "\n" +
+                              item("R-0002", "write", "second", depends_on="[R-0001]"))
+        pl = am.plan(ctx, both)
+        self.assertEqual(pl["convert"], [])                      # nothing re-filed
+        self.assertIn("cancelled", {h["item"]: h["why"] for h in pl["held"]}["R-0002"])
+        self.assertIn("cancelled", pl["skipped"][0]["why"])
+
+    def test_branches_cycle_unknown_tag_unknown_status(self):
+        pl, _ = self.plan_of(
+            item("R-0001", "write", "a", depends_on="[R-0002]"),
+            item("R-0002", "write", "b", depends_on="[R-0001]"),
+            item("R-0003", "banana", "weird tag"),
+            item("R-0004", "write", "weird status", status="sleeping"))
+        held = {h["item"]: h["why"] for h in pl["held"]}
+        self.assertIn("cycle", held["R-0001"])
+        self.assertIn("cycle", held["R-0002"])
+        self.assertIn("unknown tag [banana]", held["R-0003"])
+        self.assertIn("unknown status 'sleeping'", held["R-0004"])
+        self.assertEqual(pl["convert"], [])
+        self.assertEqual(len(pl["problems"]), 2)
+
+    def test_branches_ticketed_but_missing_and_unknown_dependencies(self):
+        pl, _ = self.plan_of(
+            item("R-0001", "lead", "ticketed, gone", status="ticketed", ticket="T-0099"),
+            item("R-0002", "write", "after the gone one", depends_on="[R-0001]"),
+            item("R-0003", "write", "unknown item", depends_on="[R-0077]"),
+            item("R-0004", "write", "unknown ticket", depends_on="[T-0098]"),
+            item("R-0005", "write", "after a dropped one", depends_on="[R-0006]"),
+            item("R-0006", "write", "dropped", status="dropped"),
+            item("R-0007", "write", "after a done one", depends_on="[R-0008]"),
+            item("R-0008", "write", "done", status="done"))
+        self.assertTrue(any("T-0099" in p and "not on the board" in p for p in pl["problems"]))
+        held = {h["item"]: h["why"] for h in pl["held"]}
+        self.assertIn("not on the board", held["R-0002"])
+        self.assertIn("unknown item R-0077", held["R-0003"])
+        self.assertIn("unknown ticket T-0098", held["R-0004"])
+        self.assertIn("dropped", held["R-0005"])
+        self.assertEqual([d["item"] for d in pl["convert"]], ["R-0007"])   # done: met
+        self.assertEqual(pl["convert"][0]["waiting_on"], [])
+
+    def test_campaign_is_carried_to_the_filed_tickets(self):
+        d = json.loads(self.run_cli("--apply", "--json", "--campaign", "paper:thm:main")[1])
+        tix = self.all_tickets()
+        self.assertTrue(d["made"])
+        self.assertTrue(all(tix[t].get("campaign") == "paper:thm:main"
+                            for t in d["made"].values()))
 
 
 if __name__ == "__main__":
