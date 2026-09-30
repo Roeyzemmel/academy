@@ -1015,3 +1015,66 @@ class TicketEdgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResolveWorkspaceEnvTests(unittest.TestCase):
+    """Several workspaces on one machine: the machine-wide variables are tagged."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.none = os.path.join(self.tmp, "no-such-environment-file")
+
+    def tagged(self, tag, root):
+        return {"ACADEMY_WS__%s__WORKSPACE" % tag: root + "/workspace.json",
+                "ACADEMY_WS__%s__BOARD" % tag: root + "-board",
+                "ACADEMY_WS__%s__HOME_AUTHOR_X" % tag: root + "-paper",
+                "ACADEMY_WS__%s__ROOT" % tag: "/opt/academy"}
+
+    def resolve(self, env, cwd, etc=None):
+        tag = ac.resolve_workspace_env(env, etc or self.none, cwd)
+        return tag, env
+
+    def test_only_workspace_is_used_from_anywhere(self):
+        tag, env = self.resolve(self.tagged("A", "/w/a"), "/somewhere/else")
+        self.assertEqual(tag, "A")
+        self.assertEqual(env["ACADEMY_WORKSPACE"], "/w/a/workspace.json")
+        self.assertEqual(env["ACADEMY_HOME_AUTHOR_X"], "/w/a-paper")
+        self.assertEqual(env["ACADEMY_ROOT"], "/opt/academy")
+
+    def test_two_workspaces_chosen_by_directory(self):
+        base = dict(self.tagged("A", "/w/a"), **self.tagged("B", "/w/b"))
+        tag, env = self.resolve(dict(base), "/w/b-paper/sub")
+        self.assertEqual((tag, env["ACADEMY_WORKSPACE"]), ("B", "/w/b/workspace.json"))
+        tag, env = self.resolve(dict(base), "/w/a")
+        self.assertEqual(tag, "A")
+
+    def test_two_workspaces_ambiguous_outside_both(self):
+        base = dict(self.tagged("A", "/w/a"), **self.tagged("B", "/w/b"))
+        tag, env = self.resolve(base, "/elsewhere")
+        self.assertIsNone(tag)
+        self.assertNotIn("ACADEMY_WORKSPACE", env)
+        self.assertEqual(ac.WORKSPACE_TAGS, ["A", "B"])
+
+    def test_explicit_tag_wins(self):
+        base = dict(self.tagged("A", "/w/a"), **self.tagged("B", "/w/b"),
+                    ACADEMY_WORKSPACE_TAG="A")
+        tag, env = self.resolve(base, "/w/b")
+        self.assertEqual(tag, "A")
+
+    def test_unprefixed_set_is_left_alone(self):
+        env = dict(self.tagged("A", "/w/a"), ACADEMY_WORKSPACE="/mine/workspace.json")
+        tag, env = self.resolve(env, "/w/a")
+        self.assertIsNone(tag)
+        self.assertEqual(env["ACADEMY_WORKSPACE"], "/mine/workspace.json")
+        self.assertNotIn("ACADEMY_BOARD", env)
+
+    def test_reads_etc_environment_and_process_env_wins(self):
+        etc = os.path.join(self.tmp, "environment")
+        with open(etc, "w") as fh:
+            fh.write("".join('%s="%s"\n' % kv for kv in self.tagged("A", "/w/a").items()))
+        env = {"ACADEMY_ROOT": "/mine"}
+        tag, env = self.resolve(env, "/x", etc)
+        self.assertEqual(tag, "A")
+        self.assertEqual(env["ACADEMY_ROOT"], "/mine")
+        self.assertEqual(env["ACADEMY_BOARD"], "/w/a-board")
