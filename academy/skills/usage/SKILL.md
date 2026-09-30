@@ -22,6 +22,14 @@ one `usage-analyst` with only the window (`--days 7`) and the cwd's instance. It
 human (`packets.py new --instance <the cwd's instance> --kind usage ...`), and returns
 its id. If it fails or hits a limit, report that and stop; do not relaunch.
 
+**Errors.** A `PostToolUseFailure` hook (`scripts/error_ledger.py hook`) appends every
+failed tool call, redacted and without the command line, to
+`<board>/.errors/<instance>.jsonl` as it happens. The weekly packet lists the week's
+error classes and carries the unresolved ones forward; `settle`, run after the packet is
+filed, closes the classes that were reported and stayed quiet for seven days. From the
+main session: `py $S/error_ledger.py report [--days N]` shows the picture, and
+`py $S/error_ledger.py resolve "<class>" --note "<why>"` closes a class by hand.
+
 Reading the numbers: cache reads track cost; output tokens are undercounted in the
 transcripts and not shown. The report counts; it does not show that the budget rules
 held.
