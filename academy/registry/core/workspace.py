@@ -43,6 +43,25 @@ ENGINE_PROFILE = {"lab": "fsl-claims", "paper": "fsl-claims", "s1": "s1-kb"}
 _ws_cache = {}
 
 
+def _load_persisted_env(path="/etc/environment"):
+    """Fill in the ``ACADEMY_*`` variables the workspace bootstrap persisted when the
+    process was started without them (a plugin's MCP server launched by a cloud
+    harness that reads no shell rc file). Variables already set win."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return
+    for ln in lines:
+        k, sep, v = ln.partition("=")
+        k = k.strip()
+        if sep and k.startswith("ACADEMY_") and k not in os.environ:
+            os.environ[k] = v.strip().strip("\"'")
+
+
+_load_persisted_env()
+
+
 def academy_root() -> Path:
     env = os.environ.get("ACADEMY_ROOT")
     if env:
