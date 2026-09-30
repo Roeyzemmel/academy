@@ -316,21 +316,14 @@ def load_workspace(path=None):
     """Load workspace.json: ``{"instances": {...}, "board": ..., "human": {...}}``.
 
     Lookup order: ``path``; ``$ACADEMY_WORKSPACE``; ``<repo_root()>/workspace.json``;
-    ``<repo_root()>/../workspace.json`` (the academy checked out inside the workspace);
-    ``$CLAUDE_PROJECT_DIR/workspace.json``; ``<repo_root()>/../BilliardIlluminationWorkspace/workspace.json``
-    (a cloud session, where the academy is an attached checkout next to the workspace and
-    a plugin's MCP server is started without the ``ACADEMY_*`` variables).
+    ``<repo_root()>/../workspace.json`` (the academy checked out inside the workspace).
     ``$ACADEMY_BOARD`` and ``$ACADEMY_HOME_<INSTANCE>`` override the file's ``board`` and
     instance homes, but only for the file ``$ACADEMY_ENV_WORKSPACE`` names (the one the
     workspace bootstrap derived them from), never for a fixture. Raises ConfigError if none is readable or the file is malformed.
     """
     candidates = [path, os.environ.get("ACADEMY_WORKSPACE"),
                   os.path.join(repo_root(), "workspace.json"),
-                  os.path.join(repo_root(), os.pardir, "workspace.json"),
-                  os.path.join(os.environ.get("CLAUDE_PROJECT_DIR") or "", "workspace.json")
-                  if os.environ.get("CLAUDE_PROJECT_DIR") else None,
-                  os.path.join(repo_root(), os.pardir, "BilliardIlluminationWorkspace",
-                               "workspace.json")]
+                  os.path.join(repo_root(), os.pardir, "workspace.json")]
     chosen = next((c for c in candidates if c and os.path.isfile(c)), None)
     if not chosen:
         raise ConfigError("workspace.json not found")
