@@ -7,6 +7,7 @@
 | Skill | What it does |
 |---|---|
 | /academy:board | List, show, file, move and sync tickets on the academy board as Roey. Use for "show the board", "what's open for the expert", "show T-0007", "close that ticket", "file a ticket to ...", "sync the board", or any ticket id. |
+| /academy:board-migrate | Move the file board to GitHub Issues and a Project, or check it: export the manifest, execute it through the github MCP in resumable batches, verify zero drift, then cut over. Use for "migrate the board to GitHub", "board preflight", "verify the GitHub board". |
 | /academy:citation-discipline | How to rely on published work: cite before reproving, quote verbatim with the source version, check the real hypotheses, never invent references or pinpoints. Use whenever a literature result is stated, cited, applied or added to a bibliography. |
 | /academy:decide | Ask Roey about every pending decision (packet decisions, tickets to or blocked on human) in plain-language batches and record each answer. Use for "what needs my decision", "ask me", "decisions", or when the desk reports decisions waiting. |
 | /academy:deep-dive | Build an explainer page for any subject (concept, claim and proof, paper, experiment, direction) showing every statement's status, published as a private artifact updated in place. Use for "explain X", "walk me through", "deep dive on". |
