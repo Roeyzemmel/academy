@@ -43,23 +43,74 @@ ENGINE_PROFILE = {"lab": "fsl-claims", "paper": "fsl-claims", "s1": "s1-kb"}
 _ws_cache = {}
 
 
-def _load_persisted_env(path="/etc/environment"):
-    """Fill in the ``ACADEMY_*`` variables the workspace bootstrap persisted when the
-    process was started without them (a plugin's MCP server launched by a cloud
-    harness that reads no shell rc file). Variables already set win."""
+_WS_VAR = re.compile(r"^ACADEMY_WS__(.+?)__(.+)$")
+
+
+def resolve_workspace_env(environ=None, etc="/etc/environment", cwd=None):
+    """Make the unprefixed ``ACADEMY_*`` variables of *one* workspace visible.
+
+    A workspace's bootstrap exports its variables twice: unprefixed into the
+    ``.claude/settings.local.json`` of its own root and homes (sessions opened there),
+    and tagged ``ACADEMY_WS__<TAG>__<NAME>`` into the machine-wide places (user settings,
+    /etc/environment, shell rc files, the Windows registry), where several workspaces
+    must coexist. A process that has no unprefixed ``ACADEMY_WORKSPACE`` (a plugin's MCP
+    server started by a cloud harness outside any workspace) gets them here from the
+    tagged set of one workspace: the one named by ``ACADEMY_WORKSPACE_TAG``, else the
+    one whose root or homes contain ``cwd`` (``$CLAUDE_PROJECT_DIR``), else the only one.
+    Variables already set win. Returns the chosen tag, or None (with the candidate tags
+    in ``WORKSPACE_TAGS`` when the choice is ambiguous)."""
+    global WORKSPACE_TAGS
+    env = os.environ if environ is None else environ
+    pool = {}
     try:
-        with open(path, encoding="utf-8") as fh:
-            lines = fh.read().splitlines()
+        with open(etc, encoding="utf-8") as fh:
+            for ln in fh.read().splitlines():
+                k, sep, v = ln.partition("=")
+                k = k.strip()
+                if sep and k.startswith("ACADEMY_"):
+                    pool[k] = v.strip().strip("\"'")
     except OSError:
-        return
-    for ln in lines:
-        k, sep, v = ln.partition("=")
-        k = k.strip()
-        if sep and k.startswith("ACADEMY_") and k not in os.environ:
-            os.environ[k] = v.strip().strip("\"'")
+        pass
+    pool.update((k, v) for k, v in env.items() if k.startswith("ACADEMY_"))
+    WORKSPACE_TAGS = []
+    if "ACADEMY_WORKSPACE" in pool:
+        chosen = None           # a per-directory (unprefixed) set is in force
+    else:
+        tags = {}
+        for k, v in pool.items():
+            m = _WS_VAR.match(k)
+            if m:
+                tags.setdefault(m.group(1), {})[m.group(2)] = v
+        tags = {t: d for t, d in tags.items() if "WORKSPACE" in d}
+        want = pool.get("ACADEMY_WORKSPACE_TAG")
+        chosen = want if want in tags else None
+        if chosen is None and want is None:
+            here = os.path.realpath(cwd or env.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+
+            def inside(tag):
+                d = tags[tag]
+                paths = [os.path.dirname(d["WORKSPACE"]), d.get("BOARD", "")] + \
+                        [v for k, v in d.items() if k.startswith("HOME_")]
+                return any(p and (here == os.path.realpath(p) or
+                                  here.startswith(os.path.realpath(p) + os.sep))
+                           for p in paths)
+            hits = [t for t in tags if inside(t)]
+            pick = hits if hits else list(tags)
+            if len(pick) == 1:
+                chosen = pick[0]
+            else:
+                WORKSPACE_TAGS = sorted(pick)
+        if chosen is not None:
+            for name, v in tags[chosen].items():
+                pool.setdefault("ACADEMY_" + name, v)
+    for k, v in pool.items():
+        if not _WS_VAR.match(k) and k not in env:
+            env[k] = v
+    return chosen
 
 
-_load_persisted_env()
+WORKSPACE_TAGS = []
+resolve_workspace_env()
 
 
 def academy_root() -> Path:
