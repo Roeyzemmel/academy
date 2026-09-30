@@ -106,40 +106,72 @@ class PluginTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "skills", "review-experiment",
                                                     "checklist.md")))
 
-    def campaign_text(self):
-        out = []
-        for rel in (("skills", "campaign", "SKILL.md"), ("references", "campaign-dispatch.md")):
-            with open(os.path.join(PLUGIN, *rel), encoding="utf-8") as fh:
-                out.append(fh.read())
-        return out
+    def read(self, *rel):
+        with open(os.path.join(*rel), encoding="utf-8") as fh:
+            return fh.read()
 
-    def test_campaign_skill_states_its_caps_and_serial_dispatch(self):
+    def campaign_text(self):
+        return [self.read(PLUGIN, "skills", "campaign", "SKILL.md"),
+                self.read(PLUGIN, "references", "campaign-dispatch.md")]
+
+    def test_campaign_skill_takes_the_flags_and_points_at_the_rules(self):
         skill, ref = self.campaign_text()
-        for flag in ("--rounds", "--agents", "--runs"):
+        budget = self.read(REPO, "academy", "references", "budget.md")
+        for flag in ("--rounds", "--agents", "--runs", "--profile", "--campaign"):
             self.assertIn(flag, skill)
-        self.assertRegex(skill, r"K = 0 if omitted")
-        self.assertRegex(skill, r"(?i)forced to\s+0")
-        self.assertRegex(skill, r"(?i)serial")
-        self.assertRegex(skill, r"(?i)one subagent at a time")
-        self.assertIn("references/campaign-dispatch.md", skill)
-        self.assertRegex(ref, r"(?i)strictly one subagent at a time")
         self.assertIn("--campaign", ref)
-        self.assertIn("--campaign", skill)
+        # the skill points at the one home of the caps and at the dispatch reference ...
+        self.assertRegex(skill, r"budget\.md")
+        self.assertRegex(skill, r"\"Campaigns\"")
+        self.assertIn("references/campaign-dispatch.md", skill)
+        self.assertRegex(ref, r"budget\.md")
+        # ... where the rules live, once
+        self.assertIn("## Campaigns", budget)
+        camp = budget[budget.index("## Campaigns"):budget.index("## Measuring")]
+        self.assertRegex(camp, r"(?i)K is 0 unless given, and\s+forced to 0 in a cloud")
+        self.assertRegex(camp, r"(?i)rule 2 is never suspended")
+        self.assertRegex(camp, r"(?i)one subagent at a time")
+        self.assertRegex(camp, r"(?i)ends the round, not the campaign")
+        self.assertRegex(camp, r"(?i)enforces the caps")
+
+    def test_each_campaign_rule_is_stated_once(self):
+        skill, ref = self.campaign_text()
+        inbox = self.read(REPO, "academy", "skills", "inbox", "SKILL.md")
+        for text in (skill, ref):
+            self.assertNotRegex(text, r"(?i)forced to\s+0")
+            self.assertNotRegex(text, r"(?i)rules? 1 to 3")
+            self.assertNotRegex(text, r"(?i)never suspended|is suspended")
+            self.assertNotRegex(text, r"(?i)one subagent at a time")
+        self.assertNotRegex(inbox, r"(?i)one subagent at a time")
+        # the decisions text lives in the dispatch reference; the skill only points at it
+        self.assertIn("Decisions", ref)
+        self.assertNotIn("never records a human decision", skill)
+        # the report shape is honest-reporting's
+        self.assertIn("honest-reporting", skill)
+        self.assertNotIn("approach table", skill)
+        hr = self.read(REPO, "academy", "skills", "honest-reporting", "SKILL.md")
+        self.assertIn("table of routes", hr)
 
     def test_campaign_names_no_agent_outside_the_existing_set(self):
-        others = set()
-        for role in ("academy", "author", "expert", "scientist"):
+        everyone = set()
+        for role in ("academy", "author", "expert", "scientist", "researcher"):
             d = os.path.join(REPO, role, "agents")
-            others |= {os.path.splitext(f)[0] for f in os.listdir(d) if f.endswith(".md")}
-        others -= set(AGENTS)
+            everyone |= {os.path.splitext(f)[0] for f in os.listdir(d) if f.endswith(".md")}
+        others = everyone - set(AGENTS)
+        self.assertTrue(others)
+        academy_skills = set(os.listdir(os.path.join(REPO, "academy", "skills")))
         for text in self.campaign_text():
             for name in others:
-                self.assertNotRegex(text, r"\b%s\b" % re.escape(name), name)
-            # every agent-shaped backticked name is one of the researcher's own
+                self.assertNotRegex(text, r"(?<![\w-])%s(?![\w-])" % re.escape(name), name)
+            # every agent-shaped backticked name (a hyphenated word) is a researcher agent
+            # or a skill (the plugin's or the academy's), never another role's agent
             for name in re.findall(r"`([a-z]+(?:-[a-z]+)+)`", text):
-                if name in ("lead-researcher", "prover", "claim-keeper"):
-                    continue
-                self.assertNotIn(name, others)
+                self.assertTrue(name in AGENTS or name in SKILLS or name in academy_skills
+                                or name in ("dead-route", "in-progress"),
+                                name)
+            mentioned = {n for n in everyone if re.search(r"(?<![\w-])%s(?![\w-])"
+                                                          % re.escape(n), text)}
+            self.assertLessEqual(mentioned, set(AGENTS))
         self.assertEqual({f[:-3] for f in os.listdir(os.path.join(PLUGIN, "agents"))},
                          set(AGENTS))
 

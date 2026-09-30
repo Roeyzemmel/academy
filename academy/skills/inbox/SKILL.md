@@ -39,20 +39,23 @@ never listed. With `--all`, print each instance's list and stop.
 ## 3. Take, one at a time, under one cap
 
 Count the cap over the **whole run**, not per instance: at most 3 tickets, or `--n`
-(`budget.itemsPerRun` of the instance may lower it). Under `--campaign` the cap of 3 is
-lifted, and the campaign's own caps apply instead. Take the first row of the first
-instance that has one, and run it as that role's inbox skill says: follow its step 2 with
-the row's route (`/author:inbox`, `/expert:inbox`, `/researcher:inbox` or
+(`budget.itemsPerRun` of the instance may lower it). With `--campaign` each instance's
+listing is not cut at three and the campaign's own caps apply (`references/budget.md`,
+"Campaigns"). Take the first row of the first instance that has one; "first" is per
+instance: in-progress first is the order inside one instance's list, and the instances
+keep their fixed order. Run the row as that role's inbox skill says: follow its step 2
+with the row's route (`/author:inbox`, `/expert:inbox`, `/researcher:inbox` or
 `/scientist:inbox`), in the session or subagent that skill names, never as another role.
 An Author instance sweeps first (`/author:inbox` step 1) and this sweep counts against no
 cap.
 
-**Checkpoint before the next ticket.** `py <role plugin>/scripts/inbox.py --instance <name>
---check T-NNNN`: exit 0 means delivered, blocked with its reason or rejected. Exit 3
-means unfinished: report it, do not redispatch it in this run, and take nothing more from
-that instance while it is unfinished (it comes first next run). Then take the next row.
-Tickets a role files while running (a relay, a child) are picked up by the run that
-reaches their receiver; do not restart from the top.
+**Checkpoint before the next ticket** (serial, `budget.md` rule 2). `py <role
+plugin>/scripts/inbox.py --instance <name> --check T-NNNN`: exit 0 means delivered,
+blocked with its reason or rejected. Exit 3 means unfinished: report it, do not
+redispatch it in this run, and take nothing more from that instance while it is
+unfinished (it comes first next run). Then take the next row. Tickets a role files while
+running (a relay, a child) are picked up by the run that reaches their receiver; do not
+restart from the top.
 
 **Stop at once** on a usage or rate-limit error: record in the ticket thread what was and
 was not done, launch nothing further, and report (`budget.md` rule 4).

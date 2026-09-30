@@ -53,13 +53,16 @@ class DocumentedCommands(unittest.TestCase):
         self.assertRegex(ref, r"never dispatch from it")
         # serial: one ticket, one subagent, checkpoint, next
         self.assertRegex(skill, r"(?i)serial")
-        self.assertRegex(skill, r"one ticket, one subagent, checkpoint, next")
-        self.assertRegex(ref, r"(?i)strictly one subagent at a time")
-        self.assertRegex(ref, r"(?i)checkpoint before the next")
-        self.assertRegex(skill, r"\*\*rule 2 \(serial\)\s+never\*\*")
+        self.assertRegex(skill, r"one ticket, one subagent,\s+checkpoint, next")
+        # the serial rule is stated once, in budget.md "Campaigns"; the skill points there
+        budget = text("academy", "references", "budget.md")
+        self.assertRegex(budget, r"(?i)one subagent at a time")
+        self.assertRegex(budget, r"\*\*Rule 2 is never suspended")
+        self.assertRegex(skill, r"budget\.md")
+        self.assertRegex(ref, r"(?i)\*\*Checkpoint\*\*")
         # the inbox skill accepts the same flag and says what it does to the cap
         self.assertIn("--campaign <target-id>", inbox)
-        self.assertRegex(inbox, r"(?i)under `--campaign` the cap of 3 is\s+lifted")
+        self.assertRegex(inbox, r"(?i)with `--campaign` each instance's\s+listing is not cut at three")
 
     def test_every_documented_flag_parses_with_the_inbox_parser(self):
         ref, inbox = text(*REF), text(*INBOX)
@@ -161,9 +164,10 @@ class DispatchLoop(unittest.TestCase):
         self.assertEqual(3, len(json.loads(out)["take"]))
 
     def test_checkpoint_exit_codes_as_the_reference_describes(self):
-        ref = text(*REF)
-        self.assertRegex(ref, r"Exit 0: delivered, blocked with its reason or rejected")
-        self.assertRegex(ref, r"Exit 3:\s+unfinished")
+        ref, inbox = text(*REF), text(*INBOX)        # the checkpoint is the inbox skill's
+        self.assertRegex(inbox, r"exit 0 means delivered,\s+blocked with its reason or rejected")
+        self.assertRegex(inbox, r"Exit 3 means unfinished")
+        self.assertRegex(ref, r"exit 3 means unfinished")
         self.assertEqual(3, self.inbox("--check", "T-0002")[0])       # open: unfinished
         self.assertEqual(3, self.inbox("--check", "T-0001")[0])       # in progress
         self.assertEqual(0, self.inbox("--check", "T-0007")[0])       # blocked with its reason

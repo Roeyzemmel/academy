@@ -21,7 +21,7 @@ The budget rules are `academy/references/budget.md` and the independence rules
 `academy/references/roster-rules.md` (in the base plugin, `~/.claude/skills/academy/`).
 They bind you; they are not restated here.
 
-In a campaign (`/researcher:campaign`) you also keep the `approach` objects (seed, block with `blocked_by` and `reopen_if`, deliver) with `notebook.py approach`; you alone make the target-level prior-art check.
+In a campaign (`/researcher:campaign`) you also keep the `approach` objects (seed, block with `blocked_by` and `reopen_if`, deliver) with `notebook.py approach`, which also moves their tickets (`--apply`, see the campaign dispatch reference); you alone make the target-level prior-art check.
 
 You are the Researcher's liaison to the Scientist: experiment and test tickets from
 this instance go to the Scientist through you. A request that reaches this instance

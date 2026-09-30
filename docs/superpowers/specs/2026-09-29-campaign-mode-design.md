@@ -154,7 +154,8 @@ the state. Waiting on a ticket that section 4.1 can dispatch is not a pause: the
 campaign dispatches it.
 
 **Stop conditions, only these:** the target has two agreeing verify reviews (then
-claim-keeper sets the status); the round or agent cap; a limit error.
+claim-keeper sets the status); the round cap; a limit error; a pause (below). Reaching
+`--agents` ends the round, not the campaign (review decision 12).
 
 **Final report**, status first: the audited proof, or the strongest rigorously
 proved derivation plus the exact remaining gap as a claim id; the approach table
@@ -213,7 +214,7 @@ environments still applies: K is forced to 0 there.
 The campaign never records a human decision and never applies a recommended
 option. A packet or ticket that needs Roey is created or left `blocked` with
 `waiting_on: [human]`, and the approach it concerns is marked `waiting on
-decision`; other approaches continue. If every approach waits on a human, the
+decision` (derived from the tickets, review decision 8); other approaches continue. If every approach waits on a human, the
 campaign pauses. The report lists them and points at `/academy:decide`. An
 unattended run writes `board/human/RESUME.md` as budget rule 4 describes. Status
 changes still go only through claim-keeper on two agreeing reviews.
@@ -441,3 +442,55 @@ amended.
   tables in `author/README.md` are regenerated with `skill_index.py`. Added: no code
   path reads or writes a roadmap; gap filing is idempotent; the converter is dry-run by
   default and maps items to tickets; an old config with a `roadmap` key validates.
+
+## 11. Review decisions (2026-09-30)
+
+Four reviewers checked the first implementation of campaign mode; these decisions
+settle what they found. The rules themselves live where section 5 says (`budget.md`
+"Campaigns" for caps, suspension, serial dispatch and K; the dispatch reference for the
+mechanics and decisions); this section only records the choices.
+
+1. **One approach per direction is enforced.** `approach:` is a scalar naming one existing
+   approach object of this notebook. A list, a second id, a dangling id, an id that is
+   not an approach object or a foreign namespace is a problem of `notebook.py approach
+   check` (without an id) and makes `next` fail with an error; it never silently lifts a
+   block.
+2. **Which lifecycles give work.** Only `active` does. `blocked` and `dropped` suspend the
+   approach's directions; `delivered` has nothing new to explore. `next` returns nothing
+   for all three and says why.
+3. **Blocking rules shared with tickets.** A blocked approach is a dead route by the same
+   predicate as a ticket (`ac.is_dead_route`); `blocked_by` passes the ticket rule
+   (`ac.RE_BLOCKED_BY`) and is neither the target nor the approach. Reopening
+   (`blocked -> active`) needs a note of at least three words naming the new mechanism,
+   recorded as `reopened: ...`; `blocked -> dropped` takes an ordinary note;
+   `blocked -> delivered` needs a note saying what delivered it.
+4. **An approach's tickets move with it, within the chain gate.** Only a ticket's
+   receiver (or Roey) may block it. `approach set ... blocked --apply` therefore moves
+   (through `board.py`'s `transition_ticket`, dead route with a `tried:` line) only the
+   tickets addressed to the Researcher's own instance, and prints the exact `board.py
+   transition ... --as <receiver>` command for the others; `active --apply` and the
+   printed commands do the same for `--reopen`. Tickets not yet moved are **held**:
+   `approach tickets --held` lists them and the driver skips them at dispatch, at no
+   cost to `--agents`. Tickets are found by `refs` through the board store, on any backend.
+5. **History keeps its block-list style.** `approach set` edits only the touched
+   frontmatter lines and puts the new history row first, JSON-quoted, as the templates do.
+6. **`approach status`** prints, per approach, lifecycle, waiting-on-decision and open
+   tickets, and `PAUSE` when every active approach waits on a decision.
+7. **`approach check --campaign TARGET`** checks that at least four approaches aim at the
+   target and each has a direction.
+8. **Waiting on decision** is derived: an approach waits when any ticket naming it or its
+   directions is `blocked` with `human` in `waiting_on`. Nothing is recorded on the
+   approach.
+9. **Caps are enforced by the driver.** No code counts `--agents`, `--rounds` or `--runs`
+   or detects a cloud session. `notebook.py campaign-check` validates that the required
+   caps are present, forces K to 0 under `--cloud` or `CLAUDE_CODE_REMOTE` /
+   `ACADEMY_CLOUD`, requires `--profile` for K above 0, and prints the normalized caps.
+10. **`inbox --campaign` lifts the cap of 3 by itself** (each instance's list is not cut at
+    three; `--n` still bounds it). Across instances the order is the fixed
+    Author, Expert, Researcher, Scientist one, and "in-progress first" holds inside each
+    instance's list, not globally.
+11. **Each rule once.** The skill keeps the flags, the round loop and pointers; the
+    final report is `honest-reporting`'s plus the tickets filed and the subagent runs
+    against the caps. The plugin tests check that the skill points at `budget.md`, not
+    that it repeats it.
+12. **The agent cap ends the round; the round cap ends the campaign.**
