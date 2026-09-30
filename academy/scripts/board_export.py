@@ -5,7 +5,7 @@
 Writes a deterministic manifest of everything a transport must create so that issue
 number == ticket number: one entry per number 1..max (ids that were never used become
 closed 'not planned' placeholders), the label set, and the relations (sub-issue parent,
-blocked-by) to apply once every issue exists. Nothing is sent anywhere; the migration
+dependency: a ticket waiting on tickets) to apply once every issue exists. Nothing is sent anywhere; the migration
 runbook (/academy:board-migrate) executes the manifest through the github MCP, or
 ``board_project.py``/a token does. Packets are not exported (they stay files).
 """
@@ -55,8 +55,8 @@ def build(board, repo=""):
         if i["parent"]:
             relations.append({"type": "sub_issue", "parent": bc.ticket_number(i["parent"]),
                               "child": i["number"]})
-        for t in i["blocked_by"]:
-            relations.append({"type": "blocked_by", "issue": i["number"],
+        for t in i["waits_on"]:
+            relations.append({"type": "dependency", "issue": i["number"],
                               "blocker": bc.ticket_number(t)})
     problems = []
     for i in issues:

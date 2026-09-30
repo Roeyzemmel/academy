@@ -22,7 +22,7 @@ numbering is empty; an id that was never used is a closed placeholder issue).
 | `waiting_on` / `blocks` | native issue dependencies for ticket targets; the rest in the meta line; `status:blocked` is the queryable signal |
 | `## Ask`, `## Result` | issue body, after the line `<!-- academy:meta {json} -->` that carries the other fields |
 | `## Thread` | one comment per entry, marked `<!-- academy:thread -->`; other comments are conversation, not Thread |
-| `campaign`, `blocked_by`, `reopen_if` | the meta line (ticket-only fields, `docs/protocol.md` section 4 and the campaign design); a dead-route ticket is `status:blocked` like a pending one, told apart by `blocked_by` + `reopen_if` in the meta line. `blocked_by` is **not** a native issue dependency: only `waiting_on` ticket ids are, so a dead route never shows as "blocked by" an issue |
+| `campaign`, `blocked_by`, `reopen_if` | the meta line (ticket-only fields, `docs/protocol.md` section 4 and the campaign design); a dead-route ticket is `status:blocked` like a pending one, told apart by `blocked_by` + `reopen_if` in the meta line. `blocked_by` is **not** a native issue dependency: only `waiting_on` ticket ids are (codec payload key `waits_on`, manifest relation `dependency`), so the ticket field `blocked_by` never gets confused with GitHub's "blocked by" relation |
 | `agenda` | Project text field **Agenda**; milestones stay free for the paper's milestones |
 | packets, `.render/`, `deep-dives/` | stay files in the board repo (`packets/`) |
 

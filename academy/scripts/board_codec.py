@@ -133,7 +133,7 @@ def encode(meta, body):
         "assign_human": meta["to"] == ac.HUMAN,
         "comments": [encode_comment(d, w, t) for d, w, t in entries],
         "parent": meta.get("parent") or None,
-        "blocked_by": [t for t in (meta.get("waiting_on") or [])
+        "waits_on": [t for t in (meta.get("waiting_on") or [])
                        if ac.RE_TICKET_ID.match(str(t))],
     }
 
@@ -143,7 +143,7 @@ def placeholder(number):
     return {"number": number, "title": "T-%04d: (unused id)" % number,
             "body": "Reserved so that issue numbers equal ticket ids.\n",
             "labels": ["placeholder"], "state": "closed", "state_reason": "not_planned",
-            "assign_human": False, "comments": [], "parent": None, "blocked_by": []}
+            "assign_human": False, "comments": [], "parent": None, "waits_on": []}
 
 
 # ----------------------------------------------------------------------------

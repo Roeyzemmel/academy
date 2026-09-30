@@ -34,7 +34,7 @@ subagents in blocks of ~10 issues (strictly in order: numbers must come out equa
 3. one `add_issue_comment` per entry of `comments`, in order;
 4. if `state` is closed: `issue_write update state=closed state_reason=<reason>`.
 After all issues: apply `relations` (`sub_issue_write add` with the child's issue id for
-`sub_issue`; `blocked_by` is not in the MCP: list them in the report for Roey/`board_project`).
+`sub_issue`; `dependency` (a ticket's `waiting_on` ticket ids; unrelated to the ticket field `blocked_by`) is not in the MCP: list them in the report for Roey/`board_project`).
 Before any create, `search_issues "T-NNNN: in:title repo:R"` to make a retry idempotent.
 
 **verify.** Fetch every issue (`issue_read` issue + comments) into a dump

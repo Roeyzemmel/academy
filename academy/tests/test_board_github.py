@@ -70,7 +70,7 @@ class TestCodec(GithubBoardCase):
                              as_instance="expert@main", date="2026-09-30")
         for path, meta, body in bd.iter_tickets(self.board):
             e = bc.encode(meta, body)
-            self.assertEqual([], e["blocked_by"], "dead route is not a native dependency")
+            self.assertEqual([], e["waits_on"], "dead route is not a native dependency")
             m2, b2 = bc.decode(issue_of(e), e["comments"])
             with open(path, encoding="utf-8", newline="") as fh:
                 self.assertEqual(fh.read(), bc.render(m2, b2), path)
