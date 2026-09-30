@@ -24,7 +24,11 @@ Mode: ``gate_mode(config, branch)`` -- ``gate.commit`` with the per-branch overr
 ``????-??-??/*/*``). ``strict`` also fails on warnings; ``warn`` reports the new
 findings on stderr (``commit gate (warn):``) and lets the commit through (exit 0).
 ``gate_check(home, cfg, branch)`` is the importable core (``scripts/ship.py`` in the
-workspace calls it before committing): ``(mode, new_findings)``, no blocking.
+workspace calls it before committing): ``(mode, new_findings)``, no blocking;
+``gate_check_detail`` adds the cause text when mode is 'unavailable' (the checker
+could not run, or exited non-zero without one parseable finding line -- a parse
+error, or build-log errors it counts but does not list). The hook lets such a
+commit through with ``commit gate: checker unavailable (...) - not checked``.
 Baseline: ``gate.baseline`` (default ``.claude/paper-gate-baseline.txt``), one
 ``file|label|rule`` key per line. Regenerate it, from inside the home, with
 
@@ -87,8 +91,23 @@ def homes_to_gate(command, cwd):
     return out
 
 
+CAUSE_LINES = 20
+
+
+def _cause(output):
+    """The last CAUSE_LINES non-blank lines of the checker's output (or error text)."""
+    lines = [ln.rstrip() for ln in (output or "").splitlines() if ln.strip()]
+    return "\n".join(lines[-CAUSE_LINES:]) or "checker exited non-zero with no output"
+
+
 def _gate_run(home, cfg, branch):
-    """(mode, new findings, checker exit code, checker output) -- gate_check's core."""
+    """(mode, new findings, checker exit code, checker output) -- gate_check's core.
+
+    A checker that exits non-zero without printing a single parseable finding
+    (check_paper.py's PARSE/IO error exit 2, its exit 1 for build-log errors and
+    undefined references, which it counts but does not list, or a missing script)
+    did not check anything the baseline can judge: that is 'unavailable', not clean.
+    """
     mode = ac.gate_mode(cfg, branch)
     if mode == "off":
         return "off", {}, None, ""
@@ -97,20 +116,34 @@ def _gate_run(home, cfg, branch):
         return "unavailable", {}, None, output
     if code == 0:
         return mode, {}, code, output
+    if not au.findings(output):
+        return "unavailable", {}, code, output
     return mode, au.new_findings(home, cfg, output), code, output
+
+
+def gate_check_detail(home, cfg, branch):
+    """``(mode, new_findings, cause)``: gate_check plus, for 'unavailable', why.
+
+    cause is the last lines of the checker's output (or the OSError / timeout text)
+    when mode is 'unavailable', else ''.
+    """
+    mode, new, _code, output = _gate_run(home, cfg, branch)
+    return mode, new, (_cause(output) if mode == "unavailable" else "")
 
 
 def gate_check(home, cfg, branch):
     """``(mode, new_findings)`` for a commit to the Author home ``home`` on ``branch``.
 
     mode is ``gate_mode(cfg, branch)`` ('strict'|'normal'|'warn'|'off'), or
-    'unavailable' when the checker could not run. new_findings maps the finding key
-    ``file|label|rule`` to the checker's line for every finding outside the recorded
-    baseline (all of them when no baseline is recorded); it is empty for 'off'
-    (checker not run), 'unavailable', and a checker exit 0. The checker inspects the
-    working tree (cwd=home), not the index. Deciding what to do is the caller's.
+    'unavailable' when the checker could not run, or exited non-zero without a single
+    parseable finding line (see ``gate_check_detail`` for the cause). new_findings
+    maps the finding key ``file|label|rule`` to the checker's line for every finding
+    outside the recorded baseline (all of them when no baseline is recorded); it is
+    empty for 'off' (checker not run), 'unavailable', and a checker exit 0. The
+    checker inspects the working tree (cwd=home), not the index. Deciding what to do
+    is the caller's.
     """
-    mode, new, _code, _output = _gate_run(home, cfg, branch)
+    mode, new, _cause_text = gate_check_detail(home, cfg, branch)
     return mode, new
 
 
@@ -121,6 +154,11 @@ def check_home(home, cfg, repo):
     the commit goes ahead.
     """
     mode, new, code, output = _gate_run(home, cfg, current_branch(repo))
+    if mode == "unavailable":
+        # permissive, as before, but no longer silent
+        sys.stderr.write("commit gate: checker unavailable (%s) - not checked\n"
+                         % _cause(output).splitlines()[0])
+        return None
     if not new:
         return None
     if mode == "warn":

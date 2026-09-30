@@ -273,6 +273,57 @@ class CommitGateHookTests(unittest.TestCase):
         # and for real: a home whose directory vanished cannot be the checker's cwd
         gone = os.path.join(self.sb.root, "gone")
         self.assertEqual(commit_gate.gate_check(gone, cfg, "main"), ("unavailable", {}))
+        mode, new, cause = commit_gate.gate_check_detail(gone, cfg, "main")
+        self.assertEqual((mode, new), ("unavailable", {}))
+        self.assertIn("checker could not run", cause)
+
+    # -- I1: a non-zero exit with no parseable finding is 'unavailable', not clean --
+
+    def assert_unavailable(self, needle):
+        home, cfg = self.loaded()
+        mode, new, cause = commit_gate.gate_check_detail(home, cfg, "main")
+        self.assertEqual((mode, new), ("unavailable", {}))
+        self.assertTrue(cause.strip())
+        self.assertIn(needle, cause)
+        self.assertEqual(commit_gate.gate_check(home, cfg, "main"), ("unavailable", {}))
+
+    def test_missing_checker_script_is_unavailable(self):
+        cfg =json.loads(self.sb.read(os.path.join(self.sb.home, ".claude", "academy.json")))
+        author = cfg["author"]
+        author["checker"]["script"] = os.path.join(self.sb.tools, "no_such_checker.py")
+        self.sb.write_config(author=author)
+        self.assert_unavailable("no_such_checker.py")
+
+    def test_parse_error_exit_two_is_unavailable(self):
+        self.sb.set_checker("PARSE ERROR: unbalanced braces in sections/a.tex\n", 2)
+        self.assert_unavailable("PARSE ERROR")
+
+    def test_exit_one_without_finding_lines_is_unavailable(self):
+        # undefined references / ?? are counted in the exit code but not printed
+        self.sb.set_checker("Build log: 2 undefined reference(s)\n", 1)
+        self.assert_unavailable("undefined reference")
+
+    def test_cause_is_the_last_twenty_lines(self):
+        self.sb.set_checker("".join("noise %d\n" % i for i in range(40)), 2)
+        home, cfg = self.loaded()
+        _mode, _new, cause = commit_gate.gate_check_detail(home, cfg, "main")
+        self.assertIn("noise 39", cause)
+        self.assertNotIn("noise 5\n", cause + "\n")
+        self.assertLessEqual(len(cause.strip().splitlines()), 20)
+
+    def test_findings_all_in_baseline_stay_normal(self):
+        # exit 1 with parseable findings, all accepted -> normal, not unavailable
+        self.sb.set_baseline([KEY])
+        home, cfg = self.loaded()
+        mode, new, cause = commit_gate.gate_check_detail(home, cfg, "main")
+        self.assertEqual((mode, new), ("normal", {}))
+
+    def test_hook_allows_unavailable_with_a_warning(self):
+        self.sb.set_checker("PARSE ERROR: unbalanced braces\n", 2)
+        code, _out, err = self.gate('git commit -m "x"', self.sb.home)
+        self.assertEqual(code, 0, err)
+        self.assertIn("commit gate: checker unavailable (PARSE ERROR: unbalanced braces)"
+                      " - not checked", err)
 
     def test_write_baseline(self):
         import contextlib
