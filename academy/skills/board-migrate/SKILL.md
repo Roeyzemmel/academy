@@ -44,6 +44,6 @@ Before any create, `search_issues "T-NNNN: in:title repo:R"` to make a retry ide
 
 **cutover** (Roey confirms first). Copy `templates/github-board/.github/` and
 `scripts/{board_sync,board_codec}.py` + `lib/academy_common.py` into the board repo's
-`.github/academy/{scripts,lib}/`; set `boardBackend: github` (docs/github-board.md);
+`.github/academy/{scripts,lib}/`; set `board.backend: github` in `workspace.json` (`docs/github-board.md`, `docs/migration-campaign-mode.md` section 6);
 leave the file tickets in place with a `MIGRATED.md` pointer. Commits go on the session
 branch; report the branches pushed.

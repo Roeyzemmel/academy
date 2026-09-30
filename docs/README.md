@@ -3,6 +3,11 @@
 One front desk, four kinds of worker, one board between them. Nothing runs on its
 own: every run starts from something you type.
 
+## Migrating
+
+Moving to campaign mode, the board as the Author's only queue and retiring the roadmap:
+`docs/migration-campaign-mode.md`. The GitHub board: `docs/github-board.md`.
+
 ## Where to start
 
 - **`/academy:desk <request in plain words>`**: the front desk. The concierge decides
