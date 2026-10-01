@@ -338,6 +338,28 @@ class TestTickets(McpTestBase):
         err, pl = human.call("packets_list", instance="expert@t")
         self.assertEqual(pl["packets"][0]["pending_decisions"], [])
 
+    def test_budget_max_model_is_optional_and_not_stamped(self):
+        # T-0071: the model comes from the agent file. A new ticket's default budget
+        # is runs only; a sender may give runs alone, or add max_model as a note.
+        human = self.server()
+        err, t = human.call("tickets_create", title="Default budget", kind="question",
+                            to="expert@t", ask="q", deliverable="d")
+        self.assertFalse(err, t)
+        err, g = human.call("tickets_get", id=t["id"])
+        self.assertEqual(g["meta"]["budget"], {"runs": 1})
+        err, t = human.call("tickets_create", title="Runs only", kind="question",
+                            to="expert@t", ask="q", deliverable="d", budget={"runs": 2})
+        self.assertFalse(err, t)
+        err, g = human.call("tickets_get", id=t["id"])
+        self.assertEqual(g["meta"]["budget"], {"runs": 2})
+        err, t = human.call("tickets_create", title="Advisory note", kind="question",
+                            to="expert@t", ask="q", deliverable="d",
+                            budget={"runs": 1, "max_model": "haiku"})
+        self.assertFalse(err, t)
+        err, g = human.call("tickets_get", id=t["id"])
+        self.assertEqual(g["meta"]["budget"], {"runs": 1, "max_model": "haiku"})
+        self.assertEqual(g["problems"], [])
+
     def test_human_reroutes_and_blocking(self):
         human = self.server()
         err, a = human.call("tickets_create", title="First", kind="question",

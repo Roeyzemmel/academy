@@ -22,7 +22,8 @@ mechanics. The main session is the driver.
    inbox names for that ticket (`py <role plugin>/scripts/inbox.py --instance <name>
    --json`).
 3. The subagent moves the ticket `accepted`, then `in-progress`, works, and delivers or
-   blocks it with a thread line, under the ticket's own `budget.runs` and `max_model`.
+   blocks it with a thread line, under the ticket's own `budget.runs` (the agent runs on its agent file's model;
+   a `budget.max_model` is only an advisory note, T-0071).
 4. **Checkpoint** as in `/academy:inbox` step 3: the driver runs `inbox.py --instance
    <name> --check T-NNNN` once per ticket (the subagent does not; a finished ticket's
    `--check` also runs the workspace's ship.py checkpoint); exit 3 means unfinished: not

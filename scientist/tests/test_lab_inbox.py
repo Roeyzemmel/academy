@@ -88,9 +88,28 @@ class InboxTest(unittest.TestCase):
         self.assertEqual([r["kind"] for r in rows], ["test", "code", "experiment"])
         self.assertEqual(rows[0]["route"]["target"], "experimenter")
         self.assertEqual(rows[1]["route"]["target"], "developer")
-        self.assertTrue(rows[1]["over_budget"])                # developer is opus
+        self.assertIsNone(rows[1]["over_budget"])              # T-0071: model is no gate
         rows, _ = inbox.select(self.sb.board, "scientist@main", 3, take_all=True)
         self.assertEqual(rows[-1]["route"]["how"], "reject")
+
+    def test_max_model_never_blocks_a_route(self):
+        # T-0071: the agent file sets the model; a ticket's budget.max_model is at
+        # most an advisory note and never marks a ticket over budget.
+        self.ticket("code", "refactor the runner", max_model="haiku")   # developer: opus
+        self.ticket("experiment", "run EW", max_model="haiku")          # experimenter: sonnet
+        rows, _ = inbox.select(self.sb.board, "scientist@main", 3)
+        self.assertEqual([r["route"]["target"] for r in rows], ["developer", "experimenter"])
+        for r in rows:
+            self.assertIsNone(r["over_budget"])
+            self.assertNotIn("over_budget", r["route"])
+
+    def test_ticket_without_max_model_is_taken(self):
+        self.board.create_ticket(self.sb.board, "scientist@main", "refactor", "ask", "done",
+                                 kind="code", budget={"runs": 2},
+                                 as_instance="researcher@alpha")
+        rows, _ = inbox.select(self.sb.board, "scientist@main", 3)
+        self.assertEqual(rows[0]["route"]["target"], "developer")
+        self.assertIsNone(rows[0]["over_budget"])
 
     def test_upstream_code_ticket_goes_to_upstream_contributor(self):
         self.ticket("code", "Upstream: saddle_connections ignores the bound")

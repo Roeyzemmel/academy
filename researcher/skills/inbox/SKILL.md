@@ -13,7 +13,8 @@ description: 'Work this Researcher''s board inbox: take at most three open or ac
 `$A` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. The ticket lifecycle is
 docs/protocol.md section 4; the budget rules are `academy/references/budget.md` — at
 most `budget.itemsPerRun` tickets, one after another, each within its own
-`budget.runs` and `budget.max_model`.
+`budget.runs`. Each agent runs on its agent file's model; a ticket's
+`budget.max_model`, if present, is an advisory note and never blocks a route.
 
 1. **Take.** `py $R/inbox.py` (or `--all` to list without taking). It prints the
    tickets to handle and the route of each, and how many more wait; a ticket still

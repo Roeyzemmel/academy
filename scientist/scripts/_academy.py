@@ -245,7 +245,7 @@ def find_home(path):
 #: defaults merged under every config (see docs/config.md)
 CONFIG_DEFAULTS = {
     "budget": {"itemsPerRun": 3, "serial": True, "orchestratorModel": "sonnet",
-               "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+               "maxModel": "fable", "ticketDefault": {"runs": 1}},
     "gate": {"commit": "normal", "build": True, "baseline": None, "branches": {}},
     "paths": {},
 }
@@ -377,6 +377,19 @@ def load_config(home):
         raise ConfigError("%s: %s" % (path, "; ".join(probs)))
     cfg["_home"] = os.path.abspath(str(home)).replace("\\", "/")
     return cfg
+
+
+def default_ticket_budget(config):
+    """The budget a new ticket gets when its sender gives none: ``{"runs": n}``.
+
+    ``n`` is ``budget.ticketDefault.runs`` of ``config`` (a loaded academy.json, or
+    None), else 1. A ``max_model`` there (written before T-0071) is ignored: the model
+    an agent runs on is its agent file's, and ``budget.max_model`` on a ticket is only
+    an advisory note its sender may add (docs/protocol.md section 3).
+    """
+    b = ((config or {}).get("budget") or {}).get("ticketDefault") or {}
+    runs = b.get("runs") if isinstance(b, dict) else None
+    return {"runs": runs if isinstance(runs, int) and runs >= 1 else 1}
 
 
 def gate_mode(config, branch=None):
@@ -1542,12 +1555,14 @@ def validate_ticket(meta, body=None):
     b = meta.get("budget")
     if b is not None:
         if not isinstance(b, dict):
-            probs.append("budget must be a map {runs, max_model}")
+            probs.append("budget must be a map {runs[, max_model]}")
         else:
             if not (isinstance(b.get("runs"), int) and b["runs"] >= 1):
                 probs.append("budget.runs must be a positive integer")
-            if b.get("max_model") not in MODELS:
-                probs.append("budget.max_model must be one of %s" % ", ".join(MODELS))
+            # optional advisory note, never a gate (T-0071); checked only for typos
+            if b.get("max_model") is not None and b["max_model"] not in MODELS:
+                probs.append("budget.max_model, when given, must be one of %s"
+                             % ", ".join(MODELS))
     for f in ("blocked_by", "reopen_if"):
         v = meta.get(f)
         if v is not None and (not isinstance(v, str) or "\n" in v):

@@ -1,10 +1,10 @@
 """routes.py -- the lab's routing table: who takes a ticket, by kind.
 
 The one part of the Scientist's inbox that is not shared (``inbox.py`` wraps the
-academy's ``inbox_core``). ``route(meta)`` gives ``{how, target, why}``, plus
-``over_budget`` when the routed agent is heavier than the ticket's ``budget.max_model``
-(the receiver then moves the ticket to ``blocked`` with ``waiting_on: [human]`` instead
-of running it, academy references/budget.md rule 7):
+academy's ``inbox_core``). ``route(meta)`` gives ``{how, target, why}``. The routed
+agent runs on its agent file's model; a ticket's ``budget.max_model``, if present, is
+an advisory note and never blocks a route, so no row is ``over_budget`` on the model
+(T-0071; academy references/budget.md rules 6 and 7):
 
 ==================  ============================================================
 kind                route
@@ -26,10 +26,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-WEIGHT = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}
-#: primary model of each Scientist agent (plan section 3.5)
-AGENT_MODEL = {"experimenter": "sonnet", "developer": "opus", "test-engineer": "sonnet",
-               "upstream-contributor": "sonnet", "api-prober": "sonnet"}
 ROUTES = {
     "experiment": ("experimenter", "design, header approval, script, queue, report"),
     "test": ("experimenter", "test the falsifier first; the report goes back to the sender"),
@@ -56,10 +52,4 @@ def route(meta):
         row = {"how": "reject", "target": None,
                "why": "not the lab's work; usually for %s"
                % ELSEWHERE.get(kind, "another instance")}
-    budget = meta.get("budget") or {}
-    mm = budget.get("max_model") if isinstance(budget, dict) else None
-    need = AGENT_MODEL.get(row["target"])
-    if need and mm in WEIGHT and WEIGHT[need] > WEIGHT[mm]:
-        row["over_budget"] = "%s runs on %s; the ticket allows at most %s" % (
-            row["target"], need, mm)
     return row

@@ -160,7 +160,26 @@ class TestTickets(BoardCase):
         p2 = self.new(title="Second", budget=None)
         meta, _ = bd.read_ticket(p2)
         self.assertEqual(meta["id"], "T-0002")
-        self.assertEqual(meta["budget"], ac.CONFIG_DEFAULTS["budget"]["ticketDefault"])
+        self.assertEqual(meta["budget"], {"runs": 1})       # T-0071: no max_model stamped
+
+    def test_default_budget_ignores_a_home_max_model(self):
+        # a home's ticketDefault written before T-0071 carries max_model; new tickets
+        # take only its runs
+        home = os.path.join(self.tmp, "paperhome")
+        with open(os.path.join(PLUGIN, "templates", "academy-json", "author.json"),
+                  encoding="utf-8") as fh:
+            text = fh.read()
+        for k, v in (("instance", "author@main"), ("domain", "dom-a"), ("ns", "paper"),
+                     ("noteMacro", "\\\\Roey")):
+            text = text.replace("{{%s}}" % k, v)
+        cfg = json.loads(text)
+        cfg["budget"]["ticketDefault"] = {"runs": 2, "max_model": "sonnet"}
+        os.makedirs(os.path.join(home, ".claude"))
+        with open(os.path.join(home, ".claude", "academy.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        self.assertEqual(ac.load_config(home)["instance"], "author@main")   # valid home
+        self.assertEqual(bd._default_budget(home), {"runs": 2})
 
     def test_create_rejects_unknown_receiver(self):
         with self.assertRaises(ac.AcademyError):
@@ -418,7 +437,7 @@ class TestTickets(BoardCase):
         meta, _ = bd.read_ticket(out.getvalue().strip())
         self.assertEqual(meta["from"], "human")
         self.assertEqual(meta["refs"], ["paper:lem:x", "bib:LMW16"])
-        self.assertEqual(meta["budget"]["runs"], 2)
+        self.assertEqual(meta["budget"], {"runs": 2})       # T-0071: no max_model stamped
         out = io.StringIO()
         with redirect_stdout(out):
             bd.main(base + ["list", "--json"])

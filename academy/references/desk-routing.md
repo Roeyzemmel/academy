@@ -44,9 +44,10 @@ ticket:                               (ticket)
   deliverable: <one sentence, checkable>
   refs: [<refs>]
   priority: normal
-  budget: {runs: <n>, max_model: <model>}
+  budget: {runs: <n>}
 why: <one line: why this route>
 ```
 
-Keep budgets small: the receiver's `budget.ticketDefault` unless the ask plainly needs
-more, and never above the receiver's `budget.maxModel`.
+Keep budgets small: the receiver's `budget.ticketDefault` runs unless the ask plainly
+needs more. The desk does not choose a model: the receiving agent runs on its agent
+file's model (`budget.md` rule 6).

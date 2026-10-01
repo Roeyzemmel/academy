@@ -11,9 +11,11 @@ to this Scientist instance, in-progress ones first (resume), then ``open`` and
 ``accepted`` ones in the protocol's order (priority, agenda position, id); never
 dead-route or pending blocked ones. It keeps the first ``budget.itemsPerRun`` (at most 3);
 ``--all`` lists everything without the cut. Each row carries the route, decided here and
-not by the model, from ``routes.py`` (the routing table lives there), and ``over_budget``
-when the routed agent is heavier than the ticket's ``max_model``. Exit 0 with rows, 1
-with nothing to take, 2 on error.
+not by the model, from ``routes.py`` (the routing table lives there). The routed agent
+runs on its agent file's model; a ticket's ``budget.max_model``, if present, is an
+advisory note from the sender and never blocks a route (T-0071); the ticket's limit is
+``budget.runs`` (academy references/budget.md rules 6 and 7). Exit 0 with rows, 1 with
+nothing to take, 2 on error.
 """
 
 import os
