@@ -171,6 +171,25 @@ class InboxPlanTests(InboxBase):
         code, out, err = self.run_cli("--check", "T-0002")
         self.assertEqual(code, 0)
 
+    def test_check_of_a_finished_ticket_runs_the_ship_checkpoint_as_author(self):
+        # the workspace's scripts/ship.py (a stub logging its arguments); T-0002 is a
+        # landing (to researcher@t, filed by this Author): the work is the Author's
+        # (the sandbox root is the workspace: the home 'paper' and 'board' are submodules,
+        # and the session runs inside it)
+        log = os.path.join(self.sb.root, "scripts", "calls.log")
+        self.sb.write(os.path.join(self.sb.root, "scripts", "ship.py"),
+                      "import sys\nopen(%r, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+                      % log)
+        self.sb.write(os.path.join(self.sb.root, ".gitmodules"),
+                      "".join('[submodule "%s"]\n\tpath = %s\n\turl = x\n' % (s, s)
+                              for s in ("paper", "board", "lab")))
+        self.sb.env["CLAUDE_PROJECT_DIR"] = self.sb.root
+        code, out, err = self.run_cli("--check", "T-0002")
+        self.assertEqual(code, 0, err)
+        with open(log) as fh:
+            self.assertEqual(fh.read().splitlines(),
+                             ["checkpoint --ticket T-0002 --role author --only paper board"])
+
     def test_the_old_filing_and_item_commands_are_gone(self):
         for cmd in ("sync", "file", "mark", "add"):
             code, out, err = self.run_cli(cmd)

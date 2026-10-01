@@ -288,7 +288,7 @@ def run_inbox(args):
     """The selection: the core with the Author's extras (sweep first, landings, gaps)."""
     if args.check:
         store = core.open_inbox_store(args)
-        return core.run(args, "", store, 3, route)
+        return core.run(args, "", store, 3, route, role="author")
     args.items = args.n
     ctx = load_context(args, require_agenda=False)     # the tickets need no agenda
     if not ctx.board:

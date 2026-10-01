@@ -49,13 +49,16 @@ with the row's route (`/author:inbox`, `/expert:inbox`, `/researcher:inbox` or
 An Author instance sweeps first (`/author:inbox` step 1) and this sweep counts against no
 cap.
 
-**Checkpoint before the next ticket** (serial, `budget.md` rule 2). `py <role
-plugin>/scripts/inbox.py --instance <name> --check T-NNNN`: exit 0 means delivered,
+**Checkpoint before the next ticket** (serial, `budget.md` rule 2). The role skill's own
+step already ends with `py <role plugin>/scripts/inbox.py --check T-NNNN`: that run
+counts; do not run `--check` again here (a finished ticket's `--check` also runs the
+workspace's `scripts/ship.py checkpoint`, `docs/protocol.md` section 4, so a second run
+would checkpoint twice). Read its exit code: exit 0 means delivered,
 blocked with its reason or rejected. Exit 3 means unfinished: report it, do not
 redispatch it in this run, and take nothing more from that instance while it is
-unfinished (it comes first next run). Then take the next row. Tickets a role files while
-running (a relay, a child) are picked up by the run that reaches their receiver; do not
-restart from the top.
+unfinished (it comes first next run). Then take the next row. Tickets a role files
+while running (a relay, a child) are picked up by the run that reaches their receiver;
+do not restart from the top.
 
 **Stop at once** on a usage or rate-limit error: record in the ticket thread what was and
 was not done, launch nothing further, and report (`budget.md` rule 4).

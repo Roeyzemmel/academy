@@ -403,5 +403,286 @@ class CliTests(Board):
         self.assertEqual(data["take"][0]["id"], "T-0001")
 
 
+STUB = r'''import json, os, sys, time
+mode = %r
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "calls.log"), "a") as f:
+    f.write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd()}) + "\n")
+if mode == "sleep":
+    time.sleep(30)
+print("checkpoint stub: pushed")
+sys.exit(1 if mode == "fail" else 0)
+'''
+
+
+class ShipCheckpointHookTests(Board):
+    """``--check`` on a ticket settled as finished runs the workspace's
+    ``scripts/ship.py checkpoint --ticket <id> --role <role>`` (non-fatal, never for an
+    unfinished or blocked ticket, a board that is not the workspace's, an absent ship.py,
+    or ``"shipCheckpoint": false``)."""
+
+    def setUp(self):
+        self.ws = tempfile.mkdtemp(prefix="inbox-ws-")
+        self.board = os.path.join(self.ws, "board")
+        os.makedirs(self.board)
+        os.makedirs(os.path.join(self.ws, "scripts"))
+        with open(os.path.join(self.ws, ".gitmodules"), "w") as f:
+            for sub in ("home", "board", "library", "a"):
+                f.write('[submodule "%s"]\n\tpath = %s\n\turl = x\n' % (sub, sub))
+        self.write_ws()
+        self.stub("ok")
+        from unittest import mock
+        p = mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": self.ws})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def tearDown(self):
+        shutil.rmtree(self.ws, ignore_errors=True)
+
+    def write_ws(self, **extra):
+        doc = {"board": self.board.replace("\\", "/"),
+               "instances": {INST: {"role": "researcher", "home": self.ws + "/home",
+                                    "domains": ["d"]},
+                             "expert@t": {"role": "expert", "home": self.ws + "/library",
+                                          "domains": ["d"]},
+                             "author@t": {"role": "author", "home": self.ws + "/a",
+                                          "domains": ["d"]}}}
+        doc.update(extra)
+        with open(os.path.join(self.ws, "workspace.json"), "w") as f:
+            json.dump(doc, f)
+
+    def stub(self, mode):
+        with open(os.path.join(self.ws, "scripts", "ship.py"), "w") as f:
+            f.write(STUB % mode)
+
+    def calls(self):
+        log = os.path.join(self.ws, "scripts", "calls.log")
+        if not os.path.isfile(log):
+            return []
+        with open(log) as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+    def check(self, tid, board=None, instance=INST, **kw):
+        args = core.parser("d").parse_args(["--check", tid, "--workspace",
+                                            os.path.join(self.ws, "workspace.json")])
+        out, err = io.StringIO(), io.StringIO()
+        from unittest import mock
+        with mock.patch("sys.stderr", err):
+            code = core.run(args, instance, board or self.board, 3, route, out=out, **kw)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_delivered_ticket_runs_checkpoint_once(self):
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        calls = self.calls()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["argv"],
+                         ["checkpoint", "--ticket", "T-0001", "--role", "researcher",
+                          "--only", "home", "board"])
+        self.assertEqual(os.path.normcase(os.path.realpath(calls[0]["cwd"])),
+                         os.path.normcase(os.path.realpath(self.ws)))
+        self.assertEqual(err, "")
+
+    def test_closed_rejected_cancelled_run_checkpoint(self):
+        for i, st in enumerate(("closed", "rejected", "cancelled"), 1):
+            self.put("T-000%d" % i, status=st)
+            self.assertEqual(self.check("T-000%d" % i)[0], 0)
+        self.assertEqual([c["argv"][2] for c in self.calls()], ["T-0001", "T-0002", "T-0003"])
+
+    def test_unfinished_blocked_and_problem_tickets_do_not_run_it(self):
+        self.put("T-0001", status="in-progress")
+        self.put("T-0002", status="blocked", waiting_on=["human"])
+        self.put("T-0003", status="delivered")
+        self.write_ticket_without_result("T-0003")
+        self.assertEqual(self.check("T-0001")[0], 3)
+        self.assertEqual(self.check("T-0002")[0], 0)
+        self.assertEqual(self.check("T-0003")[0], 3)
+        self.assertEqual(self.calls(), [])
+
+    def write_ticket_without_result(self, tid):
+        store = ac.as_store(self.board)
+        ref, meta, body = store.get(tid)
+        meta.pop("result", None)
+        store.save(meta, body, ref=ref)
+
+    def test_opt_out_key_disables_it(self):
+        self.write_ws(shipCheckpoint=False)
+        self.put("T-0001", status="delivered")
+        self.assertEqual(self.check("T-0001")[0], 0)
+        self.assertEqual(self.calls(), [])
+
+    def test_absent_ship_py_is_silent(self):
+        os.remove(os.path.join(self.ws, "scripts", "ship.py"))
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual((code, err), (0, ""))
+
+    def test_other_board_than_the_workspace_one_does_not_run_it(self):
+        other = tempfile.mkdtemp(prefix="inbox-other-")
+        self.addCleanup(shutil.rmtree, other, True)
+        saved, self.board = self.board, other
+        self.put("T-0001", status="delivered")
+        self.board = saved
+        self.assertEqual(self.check("T-0001", board=other)[0], 0)
+        self.assertEqual(self.calls(), [])
+
+    def test_failure_is_a_warning_and_keeps_the_exit_code(self):
+        self.stub("fail")
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.calls()), 1)
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("warning", err)
+        self.assertIn("T-0001: delivered", out)
+
+    def test_timeout_is_a_warning_and_keeps_the_exit_code(self):
+        self.stub("sleep")
+        self.put("T-0001", status="delivered")
+        from unittest import mock
+        with mock.patch.object(core, "SHIP_TIMEOUT", 2):
+            code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("timed out", err)
+
+    def role_and_only(self):
+        argv = self.calls()[0]["argv"]
+        return argv[argv.index("--role") + 1], argv[argv.index("--only") + 1:]
+
+    def test_role_without_instance_comes_from_the_addressee(self):
+        self.put("T-0001", status="delivered", to="author@t", frm=INST)
+        self.assertEqual(self.check("T-0001", instance="")[0], 0)
+        self.assertEqual(self.role_and_only(), ("author", ["a", "board"]))
+
+    def test_explicit_role_wins(self):
+        # the Author's --check: no instance, role author; a landing addressed elsewhere
+        self.put("T-0001", status="delivered")
+        self.assertEqual(self.check("T-0001", instance="", role="author")[0], 0)
+        self.assertEqual(self.role_and_only(), ("author", ["a", "board"]))
+
+    def test_expert_scope_is_its_home_board_and_library(self):
+        self.put("T-0001", status="delivered", to="expert@t")
+        self.assertEqual(self.check("T-0001", instance="expert@t")[0], 0)
+        self.assertEqual(self.role_and_only(), ("expert", ["library", "board"]))
+
+    def test_expert_with_a_home_elsewhere_still_gets_library(self):
+        self.write_ws(instances={
+            "expert@t": {"role": "expert", "home": self.ws + "/a", "domains": ["d"]}})
+        self.put("T-0001", status="delivered", to="expert@t")
+        self.assertEqual(self.check("T-0001", instance="expert@t")[0], 0)
+        self.assertEqual(self.role_and_only(), ("expert", ["a", "board", "library"]))
+
+    def test_unmappable_home_scopes_to_board_only_and_says_so(self):
+        self.write_ws(instances={INST: {"role": "researcher", "home": self.ws + "/elsewhere",
+                                        "domains": ["d"]}})
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.role_and_only(), ("researcher", ["board"]))
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("board only", err)
+
+    def test_session_outside_the_workspace_does_not_run_it(self):
+        outside = tempfile.mkdtemp(prefix="inbox-outside-")
+        self.addCleanup(shutil.rmtree, outside, True)
+        self.put("T-0001", status="delivered")
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": outside}):
+            code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(err.strip(), "checkpoint not run: session is outside %s; run it by "
+                         "hand: py scripts/ship.py checkpoint --ticket T-0001 --role researcher"
+                         " --only home board" % os.path.realpath(self.ws))
+
+    def session_at(self, *parts):
+        d = os.path.join(self.ws, *parts)
+        os.makedirs(d, exist_ok=True)
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d}):
+            return self.check("T-0001")
+
+    def test_a_worktree_session_inside_the_root_does_not_run_it(self):
+        self.put("T-0001", status="delivered")
+        for parts in ((".claude", "worktrees", "x"),               # a workspace worktree
+                      ("home", ".claude", "worktrees", "y"),       # ship.py start --worktree
+                      (".claude", "worktrees", "x", "home")):      # deeper inside one
+            code, out, err = self.session_at(*parts)
+            self.assertEqual(code, 0)
+            self.assertIn("checkpoint not run: session is outside", err, parts)
+            self.assertIn("--only home board", err)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_session_at_the_root_or_in_a_submodule_home_runs_it(self):
+        self.put("T-0001", status="delivered")
+        self.assertEqual(self.session_at()[0], 0)
+        self.assertEqual(self.session_at("home", "sub", "dir")[0], 0)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_without_a_scope_the_by_hand_command_still_names_only(self):
+        os.remove(os.path.join(self.ws, ".gitmodules"))
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("py scripts/ship.py checkpoint --ticket T-0001 --role researcher "
+                      "--only <your home submodule> board", err)
+
+    def test_exit_1_advice_is_scoped_and_names_start(self):
+        self.stub("fail")
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("exited 1", err)
+        self.assertIn("py scripts/ship.py start <sub> <topic>", err)
+        self.assertIn("py scripts/ship.py checkpoint --ticket T-0001 --role researcher "
+                      "--only home board", err)
+
+    def test_timeout_advice_is_scoped(self):
+        self.stub("sleep")
+        self.put("T-0001", status="delivered")
+        from unittest import mock
+        with mock.patch.object(core, "SHIP_TIMEOUT", 2):
+            code, out, err = self.check("T-0001")
+        self.assertIn("--only home board", err)
+
+    def test_cwd_is_used_without_claude_project_dir(self):
+        self.put("T-0001", status="delivered")
+        from unittest import mock
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch("os.getcwd", return_value=os.path.join(self.ws, "home")):
+            self.assertEqual(self.check("T-0001")[0], 0)
+        self.assertEqual(len(self.calls()), 1)
+
+    def test_an_unexpected_error_is_one_warning_never_raised(self):
+        self.put("T-0001", status="delivered")
+
+        class Boom(io.StringIO):
+            def write(self, s):
+                if "stub" in s:
+                    raise UnicodeEncodeError("cp1252", s, 0, 1, "boom")
+                return super().write(s)
+        args = core.parser("d").parse_args(["--check", "T-0001", "--workspace",
+                                            os.path.join(self.ws, "workspace.json")])
+        err = io.StringIO()
+        from unittest import mock
+        with mock.patch("sys.stderr", err):
+            code = core.run(args, INST, self.board, 3, route, out=Boom())
+        self.assertEqual(code, 0)
+        self.assertEqual(len(err.getvalue().strip().splitlines()), 1)
+        self.assertIn("warning", err.getvalue())
+
+    def test_timeout_is_90_seconds(self):
+        self.assertEqual(core.SHIP_TIMEOUT, 90)
+
+    def test_check_help_names_the_side_effect(self):
+        helps = {a.dest: a.help for a in core.parser("d")._actions}
+        self.assertIn("ship.py checkpoint", helps["check"])
+
+
 if __name__ == "__main__":
     unittest.main()
