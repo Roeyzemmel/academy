@@ -579,6 +579,16 @@ class TestKeeperRouting(unittest.TestCase):
         self.assertFalse(err, res)
         self.assertEqual(res["to"], "researcher@beta")
 
+    def test_a_proposal_from_outside_every_home_is_not_from_human(self):
+        # the main session outside a home is the human for tickets in general, but a
+        # status proposal is the owning notebook's work: T-0065/T-0066 were stamped
+        # 'from: human' although researcher@flat filed them
+        s = self.server()
+        err, res = s.call("claims_propose_status", id="flat:some-claim", status="sketch",
+                          reason="complete attempt")
+        self.assertFalse(err, res)
+        self.assertEqual(res["from"], "researcher@beta")
+
     def test_the_other_researcher_still_gets_its_own(self):
         s = self.server()
         err, res = s.call("claims_propose_status", id="s1:OBS-22", status="sketch",

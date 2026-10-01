@@ -121,6 +121,40 @@ class TestTickets(BoardCase):
                          [(DATE, "author@main/math-writer", "opened")])
         self.assertEqual(ac.write_frontmatter(meta, body), text)   # canonical
 
+    def test_reassign_moves_the_file_and_logs_it(self):
+        p = self.new()
+        tid = bd.read_ticket(p)[0]["id"]
+        with self.assertRaises(ac.AcademyError):             # human only
+            bd.reassign_ticket(self.board, tid, "researcher@r1", "x",
+                               as_instance="expert@main", workspace=self.ws)
+        with self.assertRaises(ac.AcademyError):             # needs a reason
+            bd.reassign_ticket(self.board, tid, "researcher@r1", " ", workspace=self.ws)
+        with self.assertRaises(ac.AcademyError):             # must be an instance
+            bd.reassign_ticket(self.board, tid, "researcher@nope", "x", workspace=self.ws)
+        new = bd.reassign_ticket(self.board, tid, "researcher@r1", "wrong notebook",
+                                 workspace=self.ws, date=DATE)
+        self.assertEqual(os.path.dirname(new), os.path.join(self.board, "researcher@r1"))
+        self.assertFalse(os.path.exists(p))
+        meta, body = bd.read_ticket(new)
+        self.assertEqual(meta["to"], "researcher@r1")
+        self.assertIn("reassigned expert@main -> researcher@r1: wrong notebook", body)
+        self.assertEqual(ac.validate_ticket(meta, body, self.ws), [])
+
+    def test_reassign_refuses_a_finished_ticket(self):
+        tid = bd.read_ticket(self.new())[0]["id"]
+        bd.transition_ticket(self.board, tid, "rejected", reason="no", as_instance="expert@main")
+        with self.assertRaises(ac.AcademyError):
+            bd.reassign_ticket(self.board, tid, "researcher@r1", "x", workspace=self.ws)
+
+    def test_transition_rejects_a_dead_addressee_when_given_the_workspace(self):
+        p = self.new()
+        meta, body = bd.read_ticket(p)
+        meta["to"] = "expert@gone"
+        bd.write_ticket(p, meta, body)
+        with self.assertRaises(ac.AcademyError) as cm:
+            bd.transition_ticket(self.board, meta["id"], "accepted", workspace=self.ws)
+        self.assertIn("expert@gone", str(cm.exception))
+
     def test_new_requires_as(self):
         with self.assertRaises(ac.AcademyError) as cm:
             bd.create_ticket(self.board, "expert@main", "T", "a", "d", workspace=self.ws)

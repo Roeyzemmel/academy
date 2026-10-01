@@ -417,6 +417,13 @@ def load_workspace(path=None):
             raise ConfigError("%s: instance %r: role must match its name" % (chosen, name))
         if not inst.get("home") or not inst.get("domains"):
             raise ConfigError("%s: instance %r needs home and domains" % (chosen, name))
+    seen = {}
+    for name, inst in ws["instances"].items():
+        key = (inst["role"], _norm(inst["home"]))
+        if key in seen:
+            raise ConfigError("%s: instances %r and %r have the same role and home; "
+                              "an (role, home) pair is one instance" % (chosen, seen[key], name))
+        seen[key] = name
     ws.setdefault("human", {"name": "human"})
     ws["_path"] = os.path.abspath(chosen).replace("\\", "/")
     return ws
@@ -1333,8 +1340,13 @@ def editable_fields(party_set, human=False):
     return out
 
 
-def validate_ticket(meta, body=None):
-    """Return a list of problems with a ticket (empty when valid). See docs/protocol.md."""
+def validate_ticket(meta, body=None, workspace=None):
+    """Return a list of problems with a ticket (empty when valid). See docs/protocol.md.
+
+    With ``workspace`` (a loaded workspace.json), ``from``, ``to`` and an instance
+    ``final_to`` must also name an instance of it (or ``human``): a ticket addressed to
+    an instance that was renamed or removed is a problem, not a silent dead letter.
+    """
     probs = []
     for f in REQUIRED_TICKET_FIELDS:
         if meta.get(f) in (None, ""):
@@ -1350,6 +1362,15 @@ def validate_ticket(meta, body=None):
     for f in ("from", "to"):
         if meta.get(f) and not is_party(meta[f]):
             probs.append("%s must be an instance name or 'human'" % f)
+    if workspace is not None:
+        known_inst = (workspace.get("instances") or {})
+        for f in ("from", "to"):
+            v = meta.get(f)
+            if v and is_party(v) and v != HUMAN and v not in known_inst:
+                probs.append("%s %r is not an instance of workspace.json" % (f, v))
+        ft = meta.get("final_to")
+        if ft and ft not in ROLES and RE_INSTANCE.match(str(ft)) and ft not in known_inst:
+            probs.append("final_to %r is not an instance of workspace.json" % ft)
     st = meta.get("status")
     if st and st not in TICKET_STATUSES:
         probs.append("status %r is not one of %s" % (st, ", ".join(TICKET_STATUSES)))
