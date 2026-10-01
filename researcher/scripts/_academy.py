@@ -1968,8 +1968,8 @@ def open_store(workspace=None, transport=None, board=None):
 
     ``board`` (an explicit path) always opens the file board there. ``github`` needs a
     transport: the object passed in, or the one ``board.transport`` (``"module:factory"``,
-    called with the board's config dict) names; without either it is a ConfigError, because
-    the real MCP/REST transport is not part of this library. A github backend never
+    called with the board's config dict) names, e.g. ``board_gh:transport`` (REST through gh,
+    academy/lib/board_gh.py); without either it is a ConfigError. A github backend never
     degrades to the file board: anything that cannot be opened raises.
     """
     if board:
@@ -1981,6 +1981,7 @@ def open_store(workspace=None, transport=None, board=None):
         return FileBoardStore(ws["board"])
     if transport is None and cfg.get("transport"):
         import importlib
+        _import_board_store()         # puts academy/lib, where board_gh lives, on the path
         mod, _, fn = str(cfg["transport"]).partition(":")
         transport = getattr(importlib.import_module(mod), fn or "transport")(cfg)
     if transport is None:

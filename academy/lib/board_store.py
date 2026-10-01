@@ -181,7 +181,8 @@ class GithubBoardStore(ac.BoardStore):
             raise self.lib.AcademyError("%s: issue #%d is not a ticket of %s"
                                         % (meta["id"], n, self.describe()))
         comments = self._comments(n)
-        have = [c for c in comments if c.startswith(bc.THREAD_MARK)]
+        # read as decode reads them: a session's posts carry the attribution footer
+        have = [bc.strip_footer(c) for c in comments if c.startswith(bc.THREAD_MARK)]
         if e["comments"][:len(have)] != have:
             raise self.lib.AcademyError("%s: the Thread is append-only on GitHub too"
                                         % meta["id"])
