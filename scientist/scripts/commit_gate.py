@@ -17,8 +17,10 @@ home (``_common.lab_config``: its ``.claude/academy.json`` has role scientist an
 workspace.json lists the instance as a scientist). Anywhere else it is silent.
 
 Mode comes from the home's ``gate`` block (``gate_mode`` with the current branch):
-``off`` is silent, ``normal`` blocks on checker errors, ``strict`` on warnings too.
-The author can always override by running the commit themselves.
+``off`` is silent, ``normal`` blocks on checker errors, ``strict`` on warnings too,
+``warn`` reports what ``normal`` would block (stderr, ``commit gate (warn):``) and lets
+the commit go ahead, as the Author gate does. The author can always override by running
+the commit themselves.
 """
 
 import os
@@ -64,9 +66,15 @@ def orphaned_results(root, files, exp_dir="experiments", res_dir="results",
 
 def check_repo(root, cfg):
     """Complaints for a commit in the lab repo ``root`` (list of strings)."""
+    return check_repo_mode(root, cfg)[1]
+
+
+def check_repo_mode(root, cfg):
+    """``(mode, complaints)`` for a commit in the lab repo ``root``; in mode 'warn' the
+    complaints are those of 'normal' (checker errors, orphaned results)."""
     mode = ac.gate_mode(cfg, c.git_branch(root))
     if mode == "off":
-        return []
+        return mode, []
     files = staged(root)
     home = cfg["_home"]
     complaints = []
@@ -86,7 +94,7 @@ def check_repo(root, cfg):
         complaints.append(
             "%s is staged but %s is neither staged nor in history. Commit the script "
             "with the result it produced, or the result cannot be rerun." % (rel, script))
-    return complaints
+    return mode, complaints
 
 
 def main():
@@ -106,7 +114,13 @@ def main():
         cfg = c.lab_config(root)
         if cfg is None:
             continue
-        complaints.extend(check_repo(root, cfg))
+        mode, found = check_repo_mode(root, cfg)
+        if mode == "warn" and found:
+            sys.stderr.write("commit gate (warn): %s: %d finding(s); not blocking on this "
+                             "branch.\n%s\n" % (cfg.get("instance", root), len(found),
+                                                  "\n\n".join(found)))
+            continue
+        complaints.extend(found)
     if not complaints:
         return 0
     return c.speak(

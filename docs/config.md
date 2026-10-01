@@ -142,16 +142,16 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 | `serial` | bool | true | Items run one after another |
 | `orchestratorModel` | model | `sonnet` | Model for skill orchestrators |
 | `maxModel` | model | `fable` | Heaviest model any agent in this home may use |
-| `ticketDefault` | `{runs, max_model}` | `{1, sonnet}` | Budget written into new tickets when the sender gives none |
+| `ticketDefault` | `{runs}` | `{1}` | Budget written into new tickets when the sender gives none. A `max_model` here is ignored: an agent runs on its agent file's model (T-0071) |
 
 **`gate`:**
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `commit` | `strict` \| `normal` \| `off` | `normal` | `commit_gate` mode: strict fails on warnings, off disables |
+| `commit` | `strict` \| `normal` \| `warn` \| `off` | `normal` | `commit_gate` mode: strict fails on warnings, warn reports what would block without blocking (Author and Scientist gates), off disables |
 | `build` | bool | true | `build_gate` runs on SubagentStop of a writer agent (author) |
 | `baseline` | path \| null | null | Accepted open findings; a finding outside it blocks a commit |
-| `branches` | map branch → `{commit}` | `{}` | Per-branch override; `academy-migration` sets `off` (plan 9b) |
+| `branches` | map branch or glob → `{commit}` | `{}` | Per-branch override; `academy-migration` sets `off` (plan 9b). An exact name wins, else the first matching glob in map order (`fnmatch`, case-sensitive, `*` also matches `/`), e.g. `"????-??-??/*/*": {"commit": "warn"}` for work branches |
 
 ## 3. Role blocks
 
@@ -268,7 +268,7 @@ a shim until phase 8.
                "statusKeeper": "claim-keeper",
                "legacy": {"claims": "py ../<lab>/scripts/claims.py --repo ."}},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
-             "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+             "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": true,
            "baseline": ".claude/paper-gate-baseline.txt",
            "branches": {"academy-migration": {"commit": "off"}}},
@@ -319,7 +319,7 @@ a shim until phase 8.
                "statusKeeper": "claim-keeper",
                "legacy": {"kb": "py tools/kb.py"}},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
-             "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+             "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": false, "baseline": null,
            "branches": {"academy-migration": {"commit": "off"}}},
   "researcher": {
@@ -352,7 +352,7 @@ a shim until phase 8.
   },
   "registry": {"profile": "none", "db": ".claude/academy.sqlite"},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
-             "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+             "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "off", "build": false, "baseline": null, "branches": {}},
   "expert": {
     "bibs": ["author@main:references.bib"],
@@ -387,7 +387,7 @@ a shim until phase 8.
                "statusKeeper": "claim-keeper",
                "legacy": {"claims": "py scripts/claims.py"}},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
-             "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+             "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": false, "baseline": null,
            "branches": {"academy-migration": {"commit": "off"}}},
   "scientist": {
@@ -416,7 +416,7 @@ a shim until phase 8.
 - `registry.profile` is unknown, or `ns` is missing when a registry is used;
 - a required path key for the role is missing, or the role block is missing;
 - `budget.itemsPerRun` is outside 1..3, or a model name is unknown;
-- `gate.commit` (or a branch override) is outside `strict | normal | off`;
+- `gate.commit` (or a branch override) is outside `strict | normal | warn | off`;
 - for a scientist: any profile `kind` is outside `wsl | local | ssh`, an ssh profile
   has no `host`, a wsl profile has no `distro`, or a `policy` entry names no
   existing profile.

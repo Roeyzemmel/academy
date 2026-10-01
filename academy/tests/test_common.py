@@ -182,6 +182,46 @@ class ConfigTests(TempDir):
         self.assertEqual(ac.gate_mode(cfg, "academy-migration"), "off")
         self.assertEqual(ac.gate_mode(cfg), "normal")
 
+    def test_gate_mode_glob_matches_template_branch(self):
+        cfg = {"gate": {"commit": "normal",
+                        "branches": {"????-??-??/*/*": {"commit": "warn"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/t-0059/author"), "warn")
+        self.assertEqual(ac.gate_mode(cfg, "main"), "normal")
+
+    def test_gate_mode_exact_beats_glob(self):
+        # the exact key comes after the glob in dict order and still wins
+        cfg = {"gate": {"commit": "normal",
+                        "branches": {"????-??-??/*/*": {"commit": "warn"},
+                                     "2026-09-30/release/author": {"commit": "strict"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/release/author"), "strict")
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/other/author"), "warn")
+
+    def test_gate_mode_no_match_falls_back_to_default(self):
+        cfg = {"gate": {"commit": "strict",
+                        "branches": {"????-??-??/*/*": {"commit": "warn"},
+                                     "academy-migration": {"commit": "off"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "feature/x"), "strict")
+        self.assertEqual(ac.gate_mode(cfg, None), "strict")
+        self.assertEqual(ac.gate_mode({}, "2026-09-30/a/b"), "normal")
+
+    def test_gate_mode_glob_first_match_wins(self):
+        cfg = {"gate": {"commit": "normal",
+                        "branches": {"*/*/author": {"commit": "off"},
+                                     "????-??-??/*/*": {"commit": "warn"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/t/author"), "off")
+        self.assertEqual(ac.gate_mode(cfg, "2026-09-30/t/expert"), "warn")
+
+    def test_gate_mode_glob_is_case_sensitive(self):
+        cfg = {"gate": {"commit": "normal", "branches": {"WIP/*": {"commit": "off"}}}}
+        self.assertEqual(ac.gate_mode(cfg, "wip/x"), "normal")
+        self.assertEqual(ac.gate_mode(cfg, "WIP/x"), "off")
+
+    def test_validate_config_accepts_warn(self):
+        base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["author@main"])
+        cfg = dict(base, gate=dict(base["gate"], commit="warn",
+                                   branches={"????-??-??/*/*": {"commit": "warn"}}))
+        self.assertEqual(ac.validate_config(cfg), [])
+
     def test_find_home(self):
         home = self.make_home(config_examples()["expert@main"])
         deep = os.path.join(home, "a", "b")
@@ -269,6 +309,28 @@ class WorkspaceTests(TempDir):
         self.assertEqual(unrelated["instances"]["author@main"]["home"],
                          os.path.join(self.tmp, "paper"))
         self.assertEqual(ac.env_home_name("researcher@alpha"), "ACADEMY_HOME_RESEARCHER_ALPHA")
+
+    def test_one_instance_per_role_and_home(self):
+        ws = json.load(open(self.fixture_workspace(), encoding="utf-8"))
+        ws["instances"]["researcher@gamma"] = dict(ws["instances"]["researcher@beta"])
+        path = self.write("dup/workspace.json", json.dumps(ws))
+        with self.assertRaises(ac.ConfigError) as cm:
+            ac.load_workspace(path)
+        self.assertIn("same role and home", str(cm.exception))
+
+    def test_validate_ticket_resolves_parties_against_the_workspace(self):
+        ws = ac.load_workspace(self.fixture_workspace())
+        meta = {"id": "T-0001", "title": "t", "kind": "question", "from": "author@main",
+                "to": "researcher@beta", "status": "open", "priority": "normal",
+                "ask": "a", "deliverable": "d", "budget": {"runs": 1, "max_model": "sonnet"},
+                "created": "2026-09-28", "updated": "2026-09-28"}
+        self.assertEqual(ac.validate_ticket(meta, workspace=ws), [])
+        meta["to"] = "researcher@bi"            # renamed away: a dead letter
+        meta["final_to"] = "expert@gone"
+        probs = ac.validate_ticket(meta, workspace=ws)
+        self.assertTrue(any("to 'researcher@bi'" in p for p in probs), probs)
+        self.assertTrue(any("final_to 'expert@gone'" in p for p in probs), probs)
+        self.assertEqual(ac.validate_ticket(meta), [])      # no workspace: unchanged
 
     def test_default_lookup_is_beside_the_academy(self):
         # the workspace layout: <workspace>/workspace.json and <workspace>/academy
@@ -560,6 +622,24 @@ def protocol_example():
 
 
 class TicketTests(TempDir):
+    def test_budget_max_model_is_optional(self):
+        # T-0071: the model comes from the agent file; budget.max_model is an
+        # optional advisory note, and a budget of runs alone is valid.
+        meta, body = ac.read_frontmatter(protocol_example())
+        for budget in ({"runs": 2}, {"runs": 1, "max_model": "haiku"}):
+            m = dict(meta, budget=budget)
+            self.assertEqual(ac.validate_ticket(m, body), [], budget)
+
+    def test_default_ticket_budget_is_runs_only(self):
+        self.assertEqual(ac.CONFIG_DEFAULTS["budget"]["ticketDefault"], {"runs": 1})
+        self.assertEqual(ac.default_ticket_budget(None), {"runs": 1})
+        self.assertEqual(ac.default_ticket_budget({}), {"runs": 1})
+        # a home's ticketDefault written before T-0071 still carries max_model: ignored
+        cfg = {"budget": {"ticketDefault": {"runs": 2, "max_model": "opus"}}}
+        self.assertEqual(ac.default_ticket_budget(cfg), {"runs": 2})
+        self.assertEqual(ac.default_ticket_budget({"budget": {"ticketDefault": None}}),
+                         {"runs": 1})
+
     def test_protocol_example_is_valid(self):
         meta, body = ac.read_frontmatter(protocol_example())
         self.assertEqual(ac.validate_ticket(meta, body), [])

@@ -48,6 +48,7 @@ Shell commands (which repository a ``git commit`` runs in)
 """
 
 import datetime as _dt
+import fnmatch
 import hashlib
 import json
 import os
@@ -245,7 +246,7 @@ def find_home(path):
 #: defaults merged under every config (see docs/config.md)
 CONFIG_DEFAULTS = {
     "budget": {"itemsPerRun": 3, "serial": True, "orchestratorModel": "sonnet",
-               "maxModel": "fable", "ticketDefault": {"runs": 1, "max_model": "sonnet"}},
+               "maxModel": "fable", "ticketDefault": {"runs": 1}},
     "gate": {"commit": "normal", "build": True, "baseline": None, "branches": {}},
     "paths": {},
 }
@@ -263,7 +264,7 @@ REQUIRED_PATHS = {
 REGISTRY_PROFILES = ("paper", "s1", "lab", "none")
 ENV_KINDS = ("wsl", "local", "ssh")
 POLICY_KEYS = ("probe", "test", "run")
-COMMIT_MODES = ("strict", "normal", "off")
+COMMIT_MODES = ("strict", "normal", "warn", "off")
 
 
 def _deep_merge(base, over):
@@ -379,14 +380,40 @@ def load_config(home):
     return cfg
 
 
+def default_ticket_budget(config):
+    """The budget a new ticket gets when its sender gives none: ``{"runs": n}``.
+
+    ``n`` is ``budget.ticketDefault.runs`` of ``config`` (a loaded academy.json, or
+    None), else 1. A ``max_model`` there (written before T-0071) is ignored: the model
+    an agent runs on is its agent file's, and ``budget.max_model`` on a ticket is only
+    an advisory note its sender may add (docs/protocol.md section 3).
+    """
+    b = ((config or {}).get("budget") or {}).get("ticketDefault") or {}
+    runs = b.get("runs") if isinstance(b, dict) else None
+    return {"runs": runs if isinstance(runs, int) and runs >= 1 else 1}
+
+
 def gate_mode(config, branch=None):
-    """The effective commit-gate mode for ``branch`` ('strict'|'normal'|'off')."""
+    """The effective commit-gate mode for ``branch`` ('strict'|'normal'|'warn'|'off').
+
+    ``gate.branches`` maps a branch name or a glob (``fnmatch``, case-sensitive; ``*``
+    also matches ``/``) to ``{"commit": mode}``. An exact-name key wins; otherwise the
+    first glob key, in the map's order, that matches ``branch``; otherwise
+    ``gate.commit`` (default 'normal'). Any configured string passes through.
+    """
     gate = config.get("gate") or {}
     mode = gate.get("commit", "normal")
-    if branch:
-        over = (gate.get("branches") or {}).get(branch)
-        if isinstance(over, dict) and "commit" in over:
-            mode = over["commit"]
+    if not branch:
+        return mode
+    branches = gate.get("branches") or {}
+    over = branches.get(branch)
+    if isinstance(over, dict) and "commit" in over:
+        return over["commit"]
+    for pattern, over in branches.items():
+        if pattern == branch or not isinstance(over, dict) or "commit" not in over:
+            continue
+        if fnmatch.fnmatchcase(branch, str(pattern)):
+            return over["commit"]
     return mode
 
 
@@ -436,6 +463,13 @@ def load_workspace(path=None):
             raise ConfigError("%s: instance %r: role must match its name" % (chosen, name))
         if not inst.get("home") or not inst.get("domains"):
             raise ConfigError("%s: instance %r needs home and domains" % (chosen, name))
+    seen = {}
+    for name, inst in ws["instances"].items():
+        key = (inst["role"], _norm(inst["home"]))
+        if key in seen:
+            raise ConfigError("%s: instances %r and %r have the same role and home; "
+                              "an (role, home) pair is one instance" % (chosen, seen[key], name))
+        seen[key] = name
     ws.setdefault("human", {"name": "human"})
     ws["_path"] = os.path.abspath(chosen).replace("\\", "/")
     return ws
@@ -1496,8 +1530,13 @@ def mirror_blocks(store, tid, waiting_on, date):
     return done
 
 
-def validate_ticket(meta, body=None):
-    """Return a list of problems with a ticket (empty when valid). See docs/protocol.md."""
+def validate_ticket(meta, body=None, workspace=None):
+    """Return a list of problems with a ticket (empty when valid). See docs/protocol.md.
+
+    With ``workspace`` (a loaded workspace.json), ``from``, ``to`` and an instance
+    ``final_to`` must also name an instance of it (or ``human``): a ticket addressed to
+    an instance that was renamed or removed is a problem, not a silent dead letter.
+    """
     probs = []
     for f in REQUIRED_TICKET_FIELDS:
         if meta.get(f) in (None, ""):
@@ -1513,6 +1552,15 @@ def validate_ticket(meta, body=None):
     for f in ("from", "to"):
         if meta.get(f) and not is_party(meta[f]):
             probs.append("%s must be an instance name or 'human'" % f)
+    if workspace is not None:
+        known_inst = (workspace.get("instances") or {})
+        for f in ("from", "to"):
+            v = meta.get(f)
+            if v and is_party(v) and v != HUMAN and v not in known_inst:
+                probs.append("%s %r is not an instance of workspace.json" % (f, v))
+        ft = meta.get("final_to")
+        if ft and ft not in ROLES and RE_INSTANCE.match(str(ft)) and ft not in known_inst:
+            probs.append("final_to %r is not an instance of workspace.json" % ft)
     st = meta.get("status")
     if st and st not in TICKET_STATUSES:
         probs.append("status %r is not one of %s" % (st, ", ".join(TICKET_STATUSES)))
@@ -1542,12 +1590,14 @@ def validate_ticket(meta, body=None):
     b = meta.get("budget")
     if b is not None:
         if not isinstance(b, dict):
-            probs.append("budget must be a map {runs, max_model}")
+            probs.append("budget must be a map {runs[, max_model]}")
         else:
             if not (isinstance(b.get("runs"), int) and b["runs"] >= 1):
                 probs.append("budget.runs must be a positive integer")
-            if b.get("max_model") not in MODELS:
-                probs.append("budget.max_model must be one of %s" % ", ".join(MODELS))
+            # optional advisory note, never a gate (T-0071); checked only for typos
+            if b.get("max_model") is not None and b["max_model"] not in MODELS:
+                probs.append("budget.max_model, when given, must be one of %s"
+                             % ", ".join(MODELS))
     for f in ("blocked_by", "reopen_if"):
         v = meta.get(f)
         if v is not None and (not isinstance(v, str) or "\n" in v):

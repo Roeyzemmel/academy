@@ -338,6 +338,28 @@ class TestTickets(McpTestBase):
         err, pl = human.call("packets_list", instance="expert@t")
         self.assertEqual(pl["packets"][0]["pending_decisions"], [])
 
+    def test_budget_max_model_is_optional_and_not_stamped(self):
+        # T-0071: the model comes from the agent file. A new ticket's default budget
+        # is runs only; a sender may give runs alone, or add max_model as a note.
+        human = self.server()
+        err, t = human.call("tickets_create", title="Default budget", kind="question",
+                            to="expert@t", ask="q", deliverable="d")
+        self.assertFalse(err, t)
+        err, g = human.call("tickets_get", id=t["id"])
+        self.assertEqual(g["meta"]["budget"], {"runs": 1})
+        err, t = human.call("tickets_create", title="Runs only", kind="question",
+                            to="expert@t", ask="q", deliverable="d", budget={"runs": 2})
+        self.assertFalse(err, t)
+        err, g = human.call("tickets_get", id=t["id"])
+        self.assertEqual(g["meta"]["budget"], {"runs": 2})
+        err, t = human.call("tickets_create", title="Advisory note", kind="question",
+                            to="expert@t", ask="q", deliverable="d",
+                            budget={"runs": 1, "max_model": "haiku"})
+        self.assertFalse(err, t)
+        err, g = human.call("tickets_get", id=t["id"])
+        self.assertEqual(g["meta"]["budget"], {"runs": 1, "max_model": "haiku"})
+        self.assertEqual(g["problems"], [])
+
     def test_human_reroutes_and_blocking(self):
         human = self.server()
         err, a = human.call("tickets_create", title="First", kind="question",
@@ -632,6 +654,16 @@ class TestKeeperRouting(unittest.TestCase):
                           reason="complete attempt")
         self.assertFalse(err, res)
         self.assertEqual(res["to"], "researcher@beta")
+
+    def test_a_proposal_from_outside_every_home_is_not_from_human(self):
+        # the main session outside a home is the human for tickets in general, but a
+        # status proposal is the owning notebook's work: T-0065/T-0066 were stamped
+        # 'from: human' although researcher@flat filed them
+        s = self.server()
+        err, res = s.call("claims_propose_status", id="flat:some-claim", status="sketch",
+                          reason="complete attempt")
+        self.assertFalse(err, res)
+        self.assertEqual(res["from"], "researcher@beta")
 
     def test_the_other_researcher_still_gets_its_own(self):
         s = self.server()

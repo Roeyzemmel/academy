@@ -61,9 +61,9 @@ def _section_text(body, heading):
     return "\n".join(ac._sections(body).get(heading, [])).strip()
 
 
-def lint_ticket(meta, body, rel):
+def lint_ticket(meta, body, rel, workspace=None):
     """Schema and layout problems of one ticket file."""
-    probs = list(ac.validate_ticket(meta, body))
+    probs = list(ac.validate_ticket(meta, body, workspace))
     folder, name = rel.split("/")[0], rel.split("/")[-1]
     m = RE_TICKET_FILE.match(name)
     if m and meta.get("id") and meta["id"] != m.group(1):
@@ -159,7 +159,7 @@ def check(event, workspace=None):
         return ["frontmatter: %s" % exc]
     if kind == "packet":
         return ac.validate_packet(meta, body)
-    probs = lint_ticket(meta, body, rel)
+    probs = lint_ticket(meta, body, rel, ws)
     human = ac.is_human(event)
     ns, bare = ac.agent_identity(event)
     if not human:

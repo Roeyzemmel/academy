@@ -121,6 +121,40 @@ class TestTickets(BoardCase):
                          [(DATE, "author@main/math-writer", "opened")])
         self.assertEqual(ac.write_frontmatter(meta, body), text)   # canonical
 
+    def test_reassign_moves_the_file_and_logs_it(self):
+        p = self.new()
+        tid = bd.read_ticket(p)[0]["id"]
+        with self.assertRaises(ac.AcademyError):             # human only
+            bd.reassign_ticket(self.board, tid, "researcher@r1", "x",
+                               as_instance="expert@main", workspace=self.ws)
+        with self.assertRaises(ac.AcademyError):             # needs a reason
+            bd.reassign_ticket(self.board, tid, "researcher@r1", " ", workspace=self.ws)
+        with self.assertRaises(ac.AcademyError):             # must be an instance
+            bd.reassign_ticket(self.board, tid, "researcher@nope", "x", workspace=self.ws)
+        new = bd.reassign_ticket(self.board, tid, "researcher@r1", "wrong notebook",
+                                 workspace=self.ws, date=DATE)
+        self.assertEqual(os.path.dirname(new), os.path.join(self.board, "researcher@r1"))
+        self.assertFalse(os.path.exists(p))
+        meta, body = bd.read_ticket(new)
+        self.assertEqual(meta["to"], "researcher@r1")
+        self.assertIn("reassigned expert@main -> researcher@r1: wrong notebook", body)
+        self.assertEqual(ac.validate_ticket(meta, body, self.ws), [])
+
+    def test_reassign_refuses_a_finished_ticket(self):
+        tid = bd.read_ticket(self.new())[0]["id"]
+        bd.transition_ticket(self.board, tid, "rejected", reason="no", as_instance="expert@main")
+        with self.assertRaises(ac.AcademyError):
+            bd.reassign_ticket(self.board, tid, "researcher@r1", "x", workspace=self.ws)
+
+    def test_transition_rejects_a_dead_addressee_when_given_the_workspace(self):
+        p = self.new()
+        meta, body = bd.read_ticket(p)
+        meta["to"] = "expert@gone"
+        bd.write_ticket(p, meta, body)
+        with self.assertRaises(ac.AcademyError) as cm:
+            bd.transition_ticket(self.board, meta["id"], "accepted", workspace=self.ws)
+        self.assertIn("expert@gone", str(cm.exception))
+
     def test_new_requires_as(self):
         with self.assertRaises(ac.AcademyError) as cm:
             bd.create_ticket(self.board, "expert@main", "T", "a", "d", workspace=self.ws)
@@ -160,7 +194,26 @@ class TestTickets(BoardCase):
         p2 = self.new(title="Second", budget=None)
         meta, _ = bd.read_ticket(p2)
         self.assertEqual(meta["id"], "T-0002")
-        self.assertEqual(meta["budget"], ac.CONFIG_DEFAULTS["budget"]["ticketDefault"])
+        self.assertEqual(meta["budget"], {"runs": 1})       # T-0071: no max_model stamped
+
+    def test_default_budget_ignores_a_home_max_model(self):
+        # a home's ticketDefault written before T-0071 carries max_model; new tickets
+        # take only its runs
+        home = os.path.join(self.tmp, "paperhome")
+        with open(os.path.join(PLUGIN, "templates", "academy-json", "author.json"),
+                  encoding="utf-8") as fh:
+            text = fh.read()
+        for k, v in (("instance", "author@main"), ("domain", "dom-a"), ("ns", "paper"),
+                     ("noteMacro", "\\\\Roey")):
+            text = text.replace("{{%s}}" % k, v)
+        cfg = json.loads(text)
+        cfg["budget"]["ticketDefault"] = {"runs": 2, "max_model": "sonnet"}
+        os.makedirs(os.path.join(home, ".claude"))
+        with open(os.path.join(home, ".claude", "academy.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        self.assertEqual(ac.load_config(home)["instance"], "author@main")   # valid home
+        self.assertEqual(bd._default_budget(home), {"runs": 2})
 
     def test_create_rejects_unknown_receiver(self):
         with self.assertRaises(ac.AcademyError):
@@ -359,11 +412,13 @@ class TestTickets(BoardCase):
 
     def test_cli_blocked_by_and_reopen_flags(self):
         self.new()
-        rc = bd.main(["--board", self.board, "transition", "T-0001", "blocked",
+        rc = bd.main(["--board", self.board, "--workspace", self.ws_path, "transition",
+                      "T-0001", "blocked",
                       "--blocked-by", "paper:lem:x", "--reopen-if", "a new invariant",
                       "--reason", "tried the sum formula", "--as", "expert@main"])
         self.assertEqual(rc, 0)
-        rc = bd.main(["--board", self.board, "transition", "T-0001", "accepted",
+        rc = bd.main(["--board", self.board, "--workspace", self.ws_path, "transition",
+                      "T-0001", "accepted",
                       "--reopen", "a new mechanism", "--as", "expert@main"])
         self.assertEqual(rc, 0)
         meta, _ = bd.read_ticket(ac.find_ticket(self.board, "T-0001"))
@@ -418,7 +473,7 @@ class TestTickets(BoardCase):
         meta, _ = bd.read_ticket(out.getvalue().strip())
         self.assertEqual(meta["from"], "human")
         self.assertEqual(meta["refs"], ["paper:lem:x", "bib:LMW16"])
-        self.assertEqual(meta["budget"]["runs"], 2)
+        self.assertEqual(meta["budget"], {"runs": 2})       # T-0071: no max_model stamped
         out = io.StringIO()
         with redirect_stdout(out):
             bd.main(base + ["list", "--json"])
