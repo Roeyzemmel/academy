@@ -23,9 +23,10 @@ mechanics. The main session is the driver.
    --json`).
 3. The subagent moves the ticket `accepted`, then `in-progress`, works, and delivers or
    blocks it with a thread line, under the ticket's own `budget.runs` and `max_model`.
-4. **Checkpoint** as in `/academy:inbox` step 3 (`inbox.py --instance <name> --check
-   T-NNNN`; exit 3 means unfinished: not redispatched this round, first in line next
-   time), then the next ticket. Relay tickets whose children delivered get their return
+4. **Checkpoint** as in `/academy:inbox` step 3: the driver runs `inbox.py --instance
+   <name> --check T-NNNN` once per ticket (the subagent does not; a finished ticket's
+   `--check` also runs the workspace's ship.py checkpoint); exit 3 means unfinished: not
+   redispatched this round, first in line next time. Then the next ticket. Relay tickets whose children delivered get their return
    leg the same way.
 
 Subagents cannot spawn subagents: the driver stays in the main session. Roles that

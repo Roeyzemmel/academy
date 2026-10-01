@@ -2153,8 +2153,10 @@ class inbox_core(object):
     def check(board, tid):
         return inbox_core.serial_checkpoint(as_store(board).get(tid)[1])
 
-    #: seconds the workspace's ship.py checkpoint may take before it is abandoned
-    SHIP_TIMEOUT = 120
+    #: seconds the workspace's ship.py checkpoint may take before it is abandoned: below
+    #: the agent shell's default command timeout (120 s), so the --check call that runs it
+    #: still returns its own result in time
+    SHIP_TIMEOUT = 90
     #: the ticket states (``serial_checkpoint``) after which the role's work is finished
     SHIP_STATES = ("delivered", "rejected")
 
@@ -2162,11 +2164,64 @@ class inbox_core(object):
     def ship_checkpoint(args, instance, board, r, role=None, out=None):
         """After ``--check`` found ticket ``r`` finished (delivered or closed, rejected or
         cancelled, with no problem), run ``<workspace>/scripts/ship.py checkpoint --ticket
-        <id> --role <role>`` in the workspace root, so the ticket's work is committed and
-        pushed on its own branch. Only for the workspace's own board, when ship.py exists and
-        workspace.json does not say ``"shipCheckpoint": false``. ``role``: given, else the
-        role of ``instance``, else of the ticket's addressee. Never fatal: a failure or a
-        timeout is one warning line on stderr; the --check result is unchanged."""
+        <id> --role <role> --only <the ticket's repos>`` in the workspace root, so the
+        ticket's work is committed and pushed on its own branch.
+
+        Only for the workspace's own board, when ship.py exists, workspace.json does not
+        say ``"shipCheckpoint": false``, and the session (``$CLAUDE_PROJECT_DIR``, else the
+        cwd) is inside the workspace root; otherwise one line says to run it by hand.
+        ``role``: given, else the role of ``instance``, else of the ticket's addressee. The
+        repos (``--only``): the instance's home submodule, ``board``, and ``library`` for
+        the Expert; a home that is no submodule leaves ``board`` only, said on stderr. Never
+        fatal and never raises: anything that goes wrong is one warning line on stderr; the
+        --check result is unchanged."""
+        try:
+            return inbox_core._ship_checkpoint(args, instance, board, r, role, out)
+        except Exception as exc:                     # noqa: BLE001 -- never break --check
+            try:
+                sys.stderr.write("warning: ship.py checkpoint for %s failed: %s: %s\n"
+                                 % (r.get("id"), type(exc).__name__, exc))
+            except Exception:                        # noqa: BLE001
+                pass
+            return None
+
+    @staticmethod
+    def _ship_scope(root, ws, name, role):
+        """``(only, note)``: the submodules of ``root`` (``.gitmodules``) a checkpoint of
+        instance ``name`` touches, and a note when its home is not one of them."""
+        subs = []
+        try:
+            with open(os.path.join(root, ".gitmodules"), encoding="utf-8") as fh:
+                for line in fh:
+                    m = re.match(r"^\s*path\s*=\s*(.+?)\s*$", line)
+                    if m:
+                        subs.append(m.group(1).replace("\\", "/"))
+        except OSError:
+            pass
+
+        def real(p):
+            return os.path.normcase(os.path.realpath(p))
+        home = ((ws.get("instances") or {}).get(name) or {}).get("home") or ""
+        home_sub = None
+        if home:
+            h = real(home)
+            for s in subs:
+                sp = real(os.path.join(root, s))
+                if (h == sp or h.startswith(sp + os.sep)) and (
+                        home_sub is None or len(s) > len(home_sub)):
+                    home_sub = s
+        only = [home_sub] if home_sub else []
+        for s in ("board",) + (("library",) if role == "expert" else ()):
+            if s in subs and s not in only:
+                only.append(s)
+        note = None
+        if not home_sub:
+            note = ("the home of %s (%s) is not a submodule of %s"
+                    % (name or "the instance", home or "unknown", root))
+        return only, note
+
+    @staticmethod
+    def _ship_checkpoint(args, instance, board, r, role, out):
         if r["unfinished"] or r["state"] not in inbox_core.SHIP_STATES:
             return None
         try:
@@ -2177,25 +2232,47 @@ class inbox_core(object):
             return None
         if ws.get("shipCheckpoint") is False:
             return None
-        root = os.path.dirname(ws["_path"])
+        root = os.path.realpath(os.path.dirname(ws["_path"]))
         ship = os.path.join(root, "scripts", "ship.py")
         if not os.path.isfile(ship):
             return None
         insts = ws.get("instances", {})
+        name = instance if instance in insts else None
+        if not name:
+            try:
+                to = as_store(board).get(r["id"])[1].get("to") or ""
+            except (AcademyError, OSError):
+                to = ""
+            if not role or (insts.get(to) or {}).get("role") == role:
+                name = to
+            else:
+                mine = sorted(n for n, i in insts.items() if i.get("role") == role)
+                name = mine[0] if len(mine) == 1 else None
         if not role:
-            to = instance or ""
-            if not to:
-                try:
-                    to = as_store(board).get(r["id"])[1].get("to") or ""
-                except (AcademyError, OSError):
-                    to = ""
-            role = (insts.get(to) or {}).get("role") or to.split("@", 1)[0]
+            role = (insts.get(name) or {}).get("role") or (name or "").split("@", 1)[0]
         if role not in ROLES:
             sys.stderr.write("warning: ship.py checkpoint not run for %s: no role (%r)\n"
                              % (r["id"], role))
             return None
+        by_hand = "py scripts/ship.py checkpoint --ticket %s --role %s" % (r["id"], role)
+        here = os.path.normcase(os.path.realpath(os.environ.get("CLAUDE_PROJECT_DIR")
+                                                 or os.getcwd()))
+        top = os.path.normcase(root)
+        if not (here == top or here.startswith(top.rstrip(os.sep) + os.sep)):
+            sys.stderr.write("checkpoint not run: session is outside %s; run it by hand: %s\n"
+                             % (root, by_hand))
+            return None
+        only, note = inbox_core._ship_scope(root, ws, name, role)
+        if not only:
+            sys.stderr.write("checkpoint not run: no submodule of %s holds %s's work (%s); "
+                             "run it by hand: %s\n" % (root, r["id"], note, by_hand))
+            return None
+        if note:
+            sys.stderr.write("checkpoint for %s scoped to %s only: %s\n"
+                             % (r["id"], " and ".join(only), note))
         import subprocess
-        cmd = [sys.executable, ship, "checkpoint", "--ticket", r["id"], "--role", role]
+        cmd = [sys.executable, ship, "checkpoint", "--ticket", r["id"], "--role", role,
+               "--only"] + only
         # output goes to a file, not a pipe: a git grandchild holding a pipe open would
         # outlive the timeout's kill and hang the read
         with tempfile.TemporaryFile() as log:
@@ -2236,7 +2313,9 @@ class inbox_core(object):
         ap.add_argument("--campaign", metavar="TARGET",
                         help="only tickets carrying `campaign: TARGET`")
         ap.add_argument("--check", metavar="T-NNNN",
-                        help="the serial checkpoint of one ticket (exit 3 if unfinished)")
+                        help="the serial checkpoint of one ticket (exit 3 if unfinished); a "
+                             "finished ticket also runs the workspace's ship.py checkpoint "
+                             "(commit and push the ticket's repos; docs/protocol.md section 4)")
         return ap
 
     @staticmethod

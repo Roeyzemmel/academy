@@ -425,8 +425,15 @@ class ShipCheckpointHookTests(Board):
         self.board = os.path.join(self.ws, "board")
         os.makedirs(self.board)
         os.makedirs(os.path.join(self.ws, "scripts"))
+        with open(os.path.join(self.ws, ".gitmodules"), "w") as f:
+            for sub in ("home", "board", "library", "a"):
+                f.write('[submodule "%s"]\n\tpath = %s\n\turl = x\n' % (sub, sub))
         self.write_ws()
         self.stub("ok")
+        from unittest import mock
+        p = mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": self.ws})
+        p.start()
+        self.addCleanup(p.stop)
 
     def tearDown(self):
         shutil.rmtree(self.ws, ignore_errors=True)
@@ -435,6 +442,8 @@ class ShipCheckpointHookTests(Board):
         doc = {"board": self.board.replace("\\", "/"),
                "instances": {INST: {"role": "researcher", "home": self.ws + "/home",
                                     "domains": ["d"]},
+                             "expert@t": {"role": "expert", "home": self.ws + "/library",
+                                          "domains": ["d"]},
                              "author@t": {"role": "author", "home": self.ws + "/a",
                                           "domains": ["d"]}}}
         doc.update(extra)
@@ -468,7 +477,8 @@ class ShipCheckpointHookTests(Board):
         calls = self.calls()
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["argv"],
-                         ["checkpoint", "--ticket", "T-0001", "--role", "researcher"])
+                         ["checkpoint", "--ticket", "T-0001", "--role", "researcher",
+                          "--only", "home", "board"])
         self.assertEqual(os.path.normcase(os.path.realpath(calls[0]["cwd"])),
                          os.path.normcase(os.path.realpath(self.ws)))
         self.assertEqual(err, "")
@@ -536,15 +546,90 @@ class ShipCheckpointHookTests(Board):
         self.assertEqual(len(err.strip().splitlines()), 1)
         self.assertIn("timed out", err)
 
+    def role_and_only(self):
+        argv = self.calls()[0]["argv"]
+        return argv[argv.index("--role") + 1], argv[argv.index("--only") + 1:]
+
     def test_role_without_instance_comes_from_the_addressee(self):
         self.put("T-0001", status="delivered", to="author@t", frm=INST)
         self.assertEqual(self.check("T-0001", instance="")[0], 0)
-        self.assertEqual(self.calls()[0]["argv"][-1], "author")
+        self.assertEqual(self.role_and_only(), ("author", ["a", "board"]))
 
     def test_explicit_role_wins(self):
+        # the Author's --check: no instance, role author; a landing addressed elsewhere
         self.put("T-0001", status="delivered")
         self.assertEqual(self.check("T-0001", instance="", role="author")[0], 0)
-        self.assertEqual(self.calls()[0]["argv"][-1], "author")
+        self.assertEqual(self.role_and_only(), ("author", ["a", "board"]))
+
+    def test_expert_scope_is_its_home_board_and_library(self):
+        self.put("T-0001", status="delivered", to="expert@t")
+        self.assertEqual(self.check("T-0001", instance="expert@t")[0], 0)
+        self.assertEqual(self.role_and_only(), ("expert", ["library", "board"]))
+
+    def test_expert_with_a_home_elsewhere_still_gets_library(self):
+        self.write_ws(instances={
+            "expert@t": {"role": "expert", "home": self.ws + "/a", "domains": ["d"]}})
+        self.put("T-0001", status="delivered", to="expert@t")
+        self.assertEqual(self.check("T-0001", instance="expert@t")[0], 0)
+        self.assertEqual(self.role_and_only(), ("expert", ["a", "board", "library"]))
+
+    def test_unmappable_home_scopes_to_board_only_and_says_so(self):
+        self.write_ws(instances={INST: {"role": "researcher", "home": self.ws + "/elsewhere",
+                                        "domains": ["d"]}})
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.role_and_only(), ("researcher", ["board"]))
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("board only", err)
+
+    def test_session_outside_the_workspace_does_not_run_it(self):
+        outside = tempfile.mkdtemp(prefix="inbox-outside-")
+        self.addCleanup(shutil.rmtree, outside, True)
+        self.put("T-0001", status="delivered")
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": outside}):
+            code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(err.strip(), "checkpoint not run: session is outside %s; run it by "
+                         "hand: py scripts/ship.py checkpoint --ticket T-0001 --role researcher"
+                         % os.path.realpath(self.ws))
+
+    def test_cwd_is_used_without_claude_project_dir(self):
+        self.put("T-0001", status="delivered")
+        from unittest import mock
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch("os.getcwd", return_value=os.path.join(self.ws, "home")):
+            self.assertEqual(self.check("T-0001")[0], 0)
+        self.assertEqual(len(self.calls()), 1)
+
+    def test_an_unexpected_error_is_one_warning_never_raised(self):
+        self.put("T-0001", status="delivered")
+
+        class Boom(io.StringIO):
+            def write(self, s):
+                if "stub" in s:
+                    raise UnicodeEncodeError("cp1252", s, 0, 1, "boom")
+                return super().write(s)
+        args = core.parser("d").parse_args(["--check", "T-0001", "--workspace",
+                                            os.path.join(self.ws, "workspace.json")])
+        err = io.StringIO()
+        from unittest import mock
+        with mock.patch("sys.stderr", err):
+            code = core.run(args, INST, self.board, 3, route, out=Boom())
+        self.assertEqual(code, 0)
+        self.assertEqual(len(err.getvalue().strip().splitlines()), 1)
+        self.assertIn("warning", err.getvalue())
+
+    def test_timeout_is_90_seconds(self):
+        self.assertEqual(core.SHIP_TIMEOUT, 90)
+
+    def test_check_help_names_the_side_effect(self):
+        helps = {a.dest: a.help for a in core.parser("d")._actions}
+        self.assertIn("ship.py checkpoint", helps["check"])
 
 
 if __name__ == "__main__":

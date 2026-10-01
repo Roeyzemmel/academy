@@ -365,10 +365,15 @@ each one the ticket must be `delivered`, `blocked` with its reason, or `rejected
 other ticket is taken while it is unfinished. When the checkpoint finds the ticket
 finished (`delivered` or `closed`, `rejected` or `cancelled`; not `blocked`) on the
 workspace's own board, it runs the workspace's `scripts/ship.py checkpoint --ticket
-T-NNNN --role <role>` (in the workspace root, 120 s timeout) to commit and push the
-ticket's work on its branch; skipped when that script is absent or workspace.json says
-`"shipCheckpoint": false`, and never fatal (a failure is one warning line on stderr,
-the exit code is the checkpoint's). Selection, ordering, return legs and the
+T-NNNN --role <role> --only <repos>` (in the workspace root, 90 s timeout) to commit and
+push the ticket's work on its branch. The repos are the instance's home submodule,
+`board`, and `library` for the Expert (`board` alone, said on stderr, when the home is
+not a submodule); under `--only` no other repo is touched and a dirty repo still on
+`main` is refused, not moved. Skipped when that script is absent, when workspace.json
+says `"shipCheckpoint": false`, or when the session (`$CLAUDE_PROJECT_DIR`, else the cwd)
+is outside the workspace root (one stderr line gives the command to run by hand). Never
+fatal: anything that goes wrong is one warning line on stderr, and the exit code is
+`--check`'s, unchanged. Selection, ordering, return legs and the
 checkpoint live once, in the academy library (`inbox_core` in `academy_common.py`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
