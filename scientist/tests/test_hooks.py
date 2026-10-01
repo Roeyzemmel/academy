@@ -194,6 +194,42 @@ class HookTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("[W1]", err)
 
+    def set_gate(self, **gate):
+        cfg_path = os.path.join(self.sb.lab, ".claude", "academy.json")
+        with open(cfg_path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        cfg["gate"].update(gate)
+        self.sb.write_json(cfg_path, cfg)
+
+    def test_warn_mode_reports_without_blocking(self):
+        self.set_gate(commit="warn")
+        self.stage_orphan()
+        self.sb.write("experiments/2026-09-28_bad.py", '"""x"""\n')
+        self.sb.write("experiments/2026-09-28_warn.py", '"""x"""\n')
+        self.sb.git("add", "experiments")
+        code, out, err = self.gate(bash("git commit -m x", self.sb.lab))
+        self.assertEqual(code, 0)
+        self.assertIn("commit gate (warn): scientist@main", err)
+        self.assertIn("not blocking on this branch", err)
+        self.assertIn("[E3]", err)                       # errors reported, as in normal
+        self.assertNotIn("[W1]", err)                    # checker warnings stay silent
+        self.assertIn("results/orphan.json is staged", err)
+
+    def test_warn_mode_clean_commit_is_silent(self):
+        self.set_gate(commit="warn")
+        code, out, err = self.gate(bash("git commit -m x", self.sb.lab))
+        self.assertEqual((code, err), (0, ""))
+
+    def test_warn_glob_branch_override(self):
+        self.set_gate(branches={"????-??-??/*/*": {"commit": "warn"}})
+        self.stage_orphan()
+        code, out, err = self.gate(bash("git commit -m x", self.sb.lab))
+        self.assertEqual(code, 2)                        # main still blocks (normal)
+        self.sb.git("checkout", "-q", "-b", "2026-10-01/t-0080/scientist")
+        code, out, err = self.gate(bash("git commit -m x", self.sb.lab))
+        self.assertEqual(code, 0)
+        self.assertIn("commit gate (warn)", err)
+
     def test_not_a_commit_is_silent(self):
         self.stage_orphan()
         code, out, err = self.gate(bash("git status", self.sb.lab))

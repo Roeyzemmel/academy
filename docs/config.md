@@ -148,7 +148,7 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `commit` | `strict` \| `normal` \| `warn` \| `off` | `normal` | `commit_gate` mode: strict fails on warnings, warn reports new findings without blocking (Author gate), off disables |
+| `commit` | `strict` \| `normal` \| `warn` \| `off` | `normal` | `commit_gate` mode: strict fails on warnings, warn reports what would block without blocking (Author and Scientist gates), off disables |
 | `build` | bool | true | `build_gate` runs on SubagentStop of a writer agent (author) |
 | `baseline` | path \| null | null | Accepted open findings; a finding outside it blocks a commit |
 | `branches` | map branch or glob → `{commit}` | `{}` | Per-branch override; `academy-migration` sets `off` (plan 9b). An exact name wins, else the first matching glob in map order (`fnmatch`, case-sensitive, `*` also matches `/`), e.g. `"????-??-??/*/*": {"commit": "warn"}` for work branches |
