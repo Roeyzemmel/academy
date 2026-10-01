@@ -7,17 +7,18 @@ description: 'Work this Researcher''s board inbox: take at most three open or ac
 
 ## Scope notes
 
-- Tickets are taken in order of priority, then agenda position, then id (`inbox.py`).
+- The shared inbox core orders them (`inbox.py` is its thin wrapper; routes are `scripts/routes.py`): tickets in progress first (resume), then return legs, then `open` and `accepted` by priority, agenda position, id. Dead-route and pending blocked tickets are never taken.
 
-`$ARGUMENTS` is empty (take the next items) or `--all` (list only). Scripts: `$R`,
+`$ARGUMENTS` is empty (take the next items), `--n N` (fewer than the limit) or `--all` (list only). Scripts: `$R`,
 `$A` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. The ticket lifecycle is
 docs/protocol.md section 4; the budget rules are `academy/references/budget.md` — at
 most `budget.itemsPerRun` tickets, one after another, each within its own
 `budget.runs` and `budget.max_model`.
 
 1. **Take.** `py $R/inbox.py` (or `--all` to list without taking). It prints the
-   tickets to handle and the route of each, and how many more wait. Besides `open` and
-   `accepted` tickets it takes a relay ticket ready for its **return leg**: `blocked`,
+   tickets to handle and the route of each, and how many more wait; a ticket still
+   `in-progress` from an earlier run comes first and is resumed before anything new
+   starts. Besides `open` and `accepted` tickets it takes a relay ticket ready for its **return leg**: `blocked`,
    routed to a relay by its `final_to`, waiting only on ticket ids (never `human`),
    every one of them `delivered` or terminal; it is marked `(return)` (`"return": true`
    in `--json`).
@@ -39,8 +40,9 @@ most `budget.itemsPerRun` tickets, one after another, each within its own
      `research` ticket without `final_to` goes to `lead-researcher`.
    - If the work needs more runs or a heavier model than `budget` allows, move it
      `blocked` with `--waiting-on human` and a thread line asking for more budget.
-   - The route delivers the ticket with a one-line result. Check it did before taking
-     the next.
+   - The route delivers the ticket with a one-line result. **Checkpoint** before taking
+     the next: `py $R/inbox.py --check T-NNNN` (exit 0: delivered, blocked with its
+     reason or rejected; exit 3: unfinished, so report it and take nothing more).
 3. **Stop** after the last taken ticket, or at once on a usage or rate-limit error:
    record what was and was not done in the ticket thread and report. No relaunch.
 4. **Report**: each ticket, its route and outcome (delivered / blocked / rejected),

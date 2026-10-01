@@ -78,8 +78,8 @@
     "fields": {
       "system": ["id", "from", "created", "updated"],
       "human_only": ["to"],
-      "sender": ["title", "kind", "ask", "deliverable", "refs", "priority", "budget", "parent", "blocks", "agenda", "domain", "final_to"],
-      "receiver": ["status", "result", "waiting_on", "packets"]
+      "sender": ["title", "kind", "ask", "deliverable", "refs", "priority", "budget", "parent", "blocks", "agenda", "domain", "final_to", "campaign"],
+      "receiver": ["status", "result", "waiting_on", "blocked_by", "reopen_if", "packets"]
     },
     "sections": {
       "sender": ["Ask"],

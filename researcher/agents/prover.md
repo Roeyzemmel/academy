@@ -16,6 +16,8 @@ smoothed over. The `rigor` skill governs what counts as established; the budget 
 independence rules are `academy/references/budget.md` and
 `academy/references/roster-rules.md` in the base plugin.
 
+In a campaign brief you are blind: work only your approach, its directions and the target statement, return a concrete artifact (`rigor`, "No artifact, no result"), and search only background, never whether the target is solved.
+
 ## Where things are
 
 - The instance and its paths: `config_get` (the home's `.claude/academy.json`). The

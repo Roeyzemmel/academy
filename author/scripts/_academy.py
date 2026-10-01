@@ -29,6 +29,10 @@ Tickets
     TICKET_STATUSES, TRANSITIONS, can_transition(...), validate_ticket(...)
     slugify, ticket_filename, find_ticket, thread_lines, append_thread,
     thread_is_append_only, new_ticket, parties, editable_fields
+Inbox (one core, thin per-role wrappers)
+    inbox_core.select(board, instance, limit, all=False, route=..., campaign=None)
+    inbox_core.serial_checkpoint(meta) / check(board, tid), is_dead_route(meta)
+    inbox_core.parser(desc) / run(args, instance, board, limit, route)   the shared CLI
 Packets
     PACKET_KEY_ORDER, validate_packet, packet_decisions, packet_answers,
     record_decision, packet_is_decided, packet_filename, find_packet
@@ -69,6 +73,7 @@ RE_TICKET_ID = re.compile(r"^T-\d{4,}$")
 RE_PACKET_ID = re.compile(r"^P-\d{4,}$")
 
 CONFIG_REL = os.path.join(".claude", "academy.json")
+BOARD_BACKENDS = ("files", "github")
 
 def _same_file(a, b):
     return bool(a and b) and os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
@@ -244,9 +249,11 @@ CONFIG_DEFAULTS = {
     "paths": {},
 }
 
-#: path keys each role must define in ``paths`` (docs/config.md)
+#: path keys each role must define in ``paths`` (docs/config.md). Keys not listed are
+#: never rejected: an old Author config that still carries ``paths.roadmap`` (the
+#: roadmap was dropped, the board is the only queue) validates and the key is ignored.
 REQUIRED_PATHS = {
-    "author": ("tex", "bib", "drafts", "agenda", "roadmap", "records", "views"),
+    "author": ("tex", "bib", "drafts", "agenda", "records", "views"),
     "researcher": ("objects", "proofs", "journal", "audits", "records", "views"),
     "expert": ("index", "cards", "ledgers", "reviews", "hot", "cache", "views"),
     "scientist": ("package", "experiments", "results", "queue", "records", "views"),
@@ -402,6 +409,17 @@ def load_workspace(path=None):
     ws = _read_json(chosen)
     if not isinstance(ws, dict) or not isinstance(ws.get("instances"), dict):
         raise ConfigError("%s: 'instances' object missing" % chosen)
+    # ``board`` is a path (the file board) or {"path", "backend": files|github, ...}; the
+    # path stays in ws["board"] (packets and deep-dives are files either way), the rest in
+    # ws["board_config"] (see open_store)
+    if isinstance(ws.get("board"), dict):
+        ws["board_config"] = dict(ws["board"])
+        ws["board"] = ws["board_config"].get("path")
+    else:
+        ws["board_config"] = {}
+    if ws["board_config"].get("backend", "files") not in BOARD_BACKENDS:
+        raise ConfigError("%s: board.backend must be one of %s" % (chosen,
+                                                                   ", ".join(BOARD_BACKENDS)))
     if _same_file(chosen, os.environ.get("ACADEMY_ENV_WORKSPACE")):
         if os.environ.get("ACADEMY_BOARD"):
             ws["board"] = os.environ["ACADEMY_BOARD"]
@@ -1113,7 +1131,8 @@ TICKET_STATUSES = ("open", "accepted", "in-progress", "delivered", "closed",
 TERMINAL = ("closed", "rejected", "cancelled")
 TICKET_KINDS = ("verify", "cite", "lookup", "prove", "review-experiment", "generalize",
                 "experiment", "test", "code", "notation", "referee", "build", "figure",
-                "decision", "question", "research", "note", "other")
+                "decision", "question", "research", "note", "write", "apply", "copy",
+                "sweep", "other")
 PRIORITIES = ("high", "normal", "low")
 
 #: (from, to) -> parties who may make the transition; 'human' may make any, always.
@@ -1142,12 +1161,13 @@ TICKET_FIELDS = {
     "system": ("id", "from", "created", "updated"),
     "human_only": ("to",),
     "sender": ("title", "kind", "ask", "deliverable", "refs", "priority", "budget",
-               "parent", "blocks", "agenda", "domain", "final_to"),
-    "receiver": ("status", "result", "waiting_on", "packets"),
+               "parent", "blocks", "agenda", "domain", "final_to", "campaign"),
+    "receiver": ("status", "result", "waiting_on", "blocked_by", "reopen_if", "packets"),
 }
 TICKET_KEY_ORDER = ("id", "title", "kind", "from", "to", "status", "priority", "ask",
-                    "deliverable", "refs", "agenda", "domain", "parent", "final_to", "blocks",
-                    "waiting_on", "budget", "result", "packets", "created", "updated")
+                    "deliverable", "refs", "agenda", "domain", "parent", "final_to", "campaign",
+                    "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
+                    "packets", "created", "updated")
 REQUIRED_TICKET_FIELDS = ("id", "title", "kind", "from", "to", "status", "ask",
                           "deliverable", "priority", "budget", "created", "updated")
 THREAD_HEADING = "## Thread"
@@ -1199,13 +1219,12 @@ def relay_depth(board, parent):
     ticket filed against the ticket that commissioned the experiment) stops the count.
     """
     n, seen, tid = 0, set(), parent
+    store = as_store(board)
     while tid and tid not in seen:
         seen.add(tid)
-        path = find_ticket(board, tid)
-        if not path:
+        if not store.find(tid):
             break
-        with open(path, "r", encoding="utf-8") as fh:
-            meta, _ = read_frontmatter(fh.read())
+        meta = store.get(tid)[1]
         if not meta.get("final_to"):
             break
         n += 1
@@ -1232,6 +1251,17 @@ def relay_return_ready(meta, status_of, workspace=None):
             final in (None, "expert"):
         final = "researcher"
     if final is None or final == receiver:
+        return False
+    return released_waits(meta, status_of)
+
+
+def released_waits(meta, status_of):
+    """Whether a pending-blocked ticket has nothing left to wait for: ``meta`` is ``blocked``
+    (not a dead route), ``waiting_on`` holds ticket ids only (no ``human``, no instance),
+    and every one of them is ``delivered`` or terminal. ``status_of`` maps a ticket id to
+    its status (None when not found). The shared wait rule of the relay return leg and of
+    a wrapper that releases its own blocked tickets (the Author's)."""
+    if meta.get("status") != "blocked" or is_dead_route(meta):
         return False
     waits = [str(w) for w in (meta.get("waiting_on") or [])]
     if not waits or not all(RE_TICKET_ID.match(w) for w in waits):
@@ -1333,6 +1363,138 @@ def editable_fields(party_set, human=False):
     return out
 
 
+def is_dead_route(meta):
+    """A ticket whose route was abandoned: both ``blocked_by`` and ``reopen_if`` (the one
+    predicate of validate_ticket, apply_blocking, the inbox core and the board codec)."""
+    return bool(meta.get("blocked_by") and meta.get("reopen_if"))
+
+
+#: ``blocked_by`` names a ticket or a registry object: ``T-0007``, ``GEO-31``, ``Q1``,
+#: ``EX-L3``, ``PA-5w``, or namespaced (``paper:lem:x``, ``lab:foo``, ``s1:GEO-31``)
+RE_BLOCKED_BY = re.compile(r"^(?:[a-z][a-z0-9]*:[^\s:]+(?::[^\s:]+)*"
+                           r"|[A-Z][A-Z0-9]*(?:-[A-Za-z0-9.]+)+|[A-Z]+\d+)$")
+
+BLOCK_FIELDS = ("waiting_on", "blocked_by", "reopen_if")
+REOPEN_ONLY = "reopen applies only to blocked -> accepted of a dead-route ticket"
+
+
+def reason_needed(old, new):
+    """Whether moving a ticket ``old -> new`` must carry a reason in the thread."""
+    return new in ("rejected", "cancelled") or (old, new) == ("delivered", "in-progress")
+
+
+def _has_tried_after_reopen(body):
+    """True when the thread has a ``tried:`` entry after its last ``reopened:`` entry (a
+    second dead-route block needs its own)."""
+    tried = False
+    for _date, _who, text in thread_lines(body):
+        if text.startswith("reopened:"):
+            tried = False
+        elif text.startswith("tried:"):
+            tried = True
+    return tried
+
+
+def apply_blocking(old_meta, meta, new, reason="", waiting_on=None, blocked_by=None,
+                   reopen_if=None, reopen="", human=False):
+    """The blocking rules of a status move ``old_meta['status'] -> new`` (docs/protocol.md
+    section 4), once for board.py and the MCP ``tickets_update``.
+
+    ``meta`` is the ticket being changed (mutated in place); ``old_meta`` its state before
+    the move. Returns the thread entries to append, in the one order every transport
+    writes them -- ``tried:`` and ``set blocked_by/reopen_if`` (a dead route) or ``set
+    waiting_on`` (pending) on the way into ``blocked``, ``reopened:`` on the way out of a
+    dead route; the caller appends them (after any ``set result:`` line, before its own
+    ``status old -> new`` line). Raises AcademyError.
+
+    A dead-route ticket leaves ``blocked`` only by ``accepted`` with ``reopen`` (the new
+    mechanism) or by ``cancelled``; **the human** may leave it by any transition, giving
+    ``reopen`` or ``reason`` as the record (written as ``reopened:`` when the ticket goes
+    to ``accepted``). ``reopen`` applies only to a dead-route ticket moving to ``accepted``.
+    """
+    old = old_meta.get("status")
+    was_dead = old == "blocked" and is_dead_route(old_meta)
+    reason = " ".join(str(reason or "").split())
+    reopen = " ".join(str(reopen or "").split())
+    bb = " ".join(str(blocked_by or "").split()) or None
+    ri = " ".join(str(reopen_if or "").split()) or None
+    wo = [str(w) for w in (waiting_on or [])]
+    lines = []
+    add = lines.append
+
+    if new != "blocked" and (bb or ri or wo):
+        raise AcademyError("blocked_by, reopen_if and waiting_on belong to a move to blocked")
+    if reopen and not (was_dead and new == "accepted"):
+        raise AcademyError(REOPEN_ONLY)
+    if reason_needed(old, new) and not reason:
+        raise AcademyError("%s -> %s needs a reason" % (old, new))
+    if new == "blocked":
+        if wo and (bb or ri):
+            raise AcademyError("blocked is pending (waiting_on) or a dead route "
+                               "(blocked_by and reopen_if), not both")
+        if bb or ri:
+            if not (bb and ri):
+                raise AcademyError("a dead-route block needs both blocked_by and reopen_if")
+            if not RE_BLOCKED_BY.match(bb):
+                raise AcademyError("blocked_by must be a ticket or registry id (T-0007, "
+                                   "GEO-31, paper:lem:x), not %r" % bb)
+            if not reason:
+                raise AcademyError("a dead-route block needs a reason naming what was tried")
+            meta["blocked_by"], meta["reopen_if"], meta["waiting_on"] = bb, ri, []
+            add("tried: %s" % reason)
+            add("set blocked_by: %s; reopen_if: %s" % (bb, ri))
+        else:
+            wo = wo or [str(w) for w in (meta.get("waiting_on") or [])]
+            if not wo:
+                raise AcademyError("a blocked ticket needs waiting_on, or both blocked_by "
+                                   "and reopen_if")
+            meta["waiting_on"] = wo
+            meta.pop("blocked_by", None)
+            meta.pop("reopen_if", None)
+            add("set waiting_on: [%s]" % ", ".join(wo))
+        return lines
+    if was_dead and new != "cancelled":
+        if new == "accepted":
+            if not (reopen or (human and reason)):
+                raise AcademyError("a dead-route ticket reopens by blocked -> accepted with "
+                                   "reopen (the new mechanism)")
+        elif not human:
+            raise AcademyError("a dead-route ticket reopens only by blocked -> accepted "
+                               "with reopen (the new mechanism); the sender may cancel, "
+                               "with a reason")
+        elif not reason:
+            raise AcademyError("the human leaving a dead route gives a reason (the new "
+                               "mechanism, or why the route is dropped)")
+        if new == "accepted":
+            add("reopened: %s" % (reopen or reason))
+    if meta.get("waiting_on"):
+        meta["waiting_on"] = []
+    meta.pop("blocked_by", None)
+    meta.pop("reopen_if", None)
+    return lines
+
+
+def mirror_blocks(store, tid, waiting_on, date):
+    """Add ``tid`` to the ``blocks`` list of every ticket it waits on; returns the ids
+    changed (docs/protocol.md, "Blocking bookkeeping")."""
+    store = as_store(store)
+    done = []
+    for w in waiting_on or []:
+        if not RE_TICKET_ID.match(str(w)):
+            continue
+        ref = store.find(w)
+        if not ref:
+            continue
+        _r, m, b = store.get(w)
+        blocks = list(m.get("blocks") or [])
+        if tid not in blocks:
+            m["blocks"] = blocks + [tid]
+            m["updated"] = date
+            store.save(m, b, ref)
+            done.append(w)
+    return done
+
+
 def validate_ticket(meta, body=None):
     """Return a list of problems with a ticket (empty when valid). See docs/protocol.md."""
     probs = []
@@ -1370,6 +1532,9 @@ def validate_ticket(meta, body=None):
             probs.append("packets entry %r is not a packet id" % p)
     if meta.get("parent") and not RE_TICKET_ID.match(str(meta["parent"])):
         probs.append("parent must be a ticket id")
+    if meta.get("campaign") is not None and (not isinstance(meta["campaign"], str)
+                                             or "\n" in meta["campaign"]):
+        probs.append("campaign must be a registry id (the campaign's target)")
     ft = meta.get("final_to")
     if ft and ft not in ROLES and not RE_INSTANCE.match(str(ft)):
         probs.append("final_to must be a role or an instance name, not %r" % ft)
@@ -1382,16 +1547,38 @@ def validate_ticket(meta, body=None):
                 probs.append("budget.runs must be a positive integer")
             if b.get("max_model") not in MODELS:
                 probs.append("budget.max_model must be one of %s" % ", ".join(MODELS))
-    if st == "blocked" and not meta.get("waiting_on"):
-        probs.append("a blocked ticket needs waiting_on")
-    if st != "blocked" and meta.get("waiting_on"):
-        probs.append("waiting_on must be empty unless status is blocked")
+    for f in ("blocked_by", "reopen_if"):
+        v = meta.get(f)
+        if v is not None and (not isinstance(v, str) or "\n" in v):
+            probs.append("%s must be a single line" % f)
+    pending = bool(meta.get("waiting_on"))
+    dead = is_dead_route(meta)
+    if isinstance(meta.get("blocked_by"), str) and meta["blocked_by"].strip() \
+            and "\n" not in meta["blocked_by"] and not RE_BLOCKED_BY.match(
+                meta["blocked_by"].strip()):
+        probs.append("blocked_by must be a ticket or registry id (T-0007, GEO-31, "
+                     "paper:lem:x), not %r" % meta["blocked_by"])
+    if st == "blocked":
+        if pending and (meta.get("blocked_by") or meta.get("reopen_if")):
+            probs.append("a blocked ticket is pending (waiting_on) or a dead route "
+                         "(blocked_by and reopen_if), not both")
+        elif not pending and not dead:
+            probs.append("a blocked ticket needs waiting_on, or both blocked_by and reopen_if")
+    else:
+        if pending:
+            probs.append("waiting_on must be empty unless status is blocked")
+        if meta.get("blocked_by") or meta.get("reopen_if"):
+            probs.append("blocked_by and reopen_if must be empty unless status is blocked")
     if st in ("delivered", "closed") and not meta.get("result"):
         probs.append("a %s ticket needs result" % st)
     if body is not None:
         if THREAD_HEADING not in body.split("\n"):
             probs.append("missing '## Thread' section")
         else:
+            if st == "blocked" and dead and not pending and \
+                    not _has_tried_after_reopen(body):
+                probs.append("a dead-route block needs a thread line 'tried: <what was "
+                             "tried>' (after the last 'reopened:' line, if any)")
             for ln in thread_lines(body, raw=True):
                 if not RE_THREAD_LINE.match(ln) and not ln.startswith("  "):
                     probs.append("malformed thread line: %r" % ln)
@@ -1527,6 +1714,594 @@ def new_ticket(meta, ask_detail=""):
     body = "\n## Ask\n\n%s\n\n## Result\n\n\n%s\n\n" % (
         ask_detail.strip() or ordered.get("ask", ""), THREAD_HEADING)
     return write_frontmatter(ordered, body)
+
+
+# ----------------------------------------------------------------------------
+# The board store (docs/github-board.md): tickets behind one seam
+# ----------------------------------------------------------------------------
+
+class BoardStore(object):
+    """The tickets of a board, wherever they live. A *ref* names one ticket in its store
+    (a file path, or ``github#<number>``) and is what rows report as ``path``.
+
+    ``FileBoardStore`` (here) is the file board; ``board_store.GithubBoardStore`` keeps the
+    same tickets as issues through an injected transport. Both hand out and take
+    ``(meta, body)`` pairs, so the ticket rules (``validate_ticket``, transitions) do not
+    know which one they run on.
+    """
+
+    backend = "abstract"
+
+    def describe(self):
+        return self.backend
+
+    def iter_tickets(self):
+        """Yield ``(ref, meta, body)``; an unreadable ticket has ``meta = None``."""
+        raise NotImplementedError
+
+    def iter_meta(self):
+        """Yield ``(ref, meta)`` of every readable ticket (a store may skip the bodies)."""
+        for ref, meta, _body in self.iter_tickets():
+            if meta is not None:
+                yield ref, meta
+
+    def read_all(self, instance):
+        """The metas (with ``_path`` = ref) of the tickets addressed to ``instance``."""
+        raise NotImplementedError
+
+    def find(self, tid):
+        """The ref of ticket ``tid``, or None."""
+        raise NotImplementedError
+
+    def get(self, tid):
+        """``(ref, meta, body)`` of ticket ``tid``; AcademyError when there is none."""
+        raise NotImplementedError
+
+    def save(self, meta, body, ref=None, relocate=False):
+        """Write an existing ticket (``ref`` given) or a new one; returns its ref.
+        ``relocate``: the ticket's ``to`` changed, so it moves to its new addressee."""
+        raise NotImplementedError
+
+    def create(self, meta, body):
+        """Give a new ticket its id, store it; returns ``(ref, meta)``."""
+        raise NotImplementedError
+
+    def status_of(self, tid):
+        """The status of ticket ``tid``, or None when missing or unreadable."""
+        try:
+            return self.get(tid)[1].get("status")
+        except (AcademyError, OSError, ValueError):
+            return None
+
+
+class FileBoardStore(BoardStore):
+    """The file board: ``<board>/<instance or human>/T-NNNN-slug.md`` (docs/protocol.md 2)."""
+
+    backend = "files"
+    RESERVED = ("packets", "deep-dives", ".ids", ".render", ".git")
+    _RE_FILE = re.compile(r"^T-\d{4,}(?:-.*)?\.md$")
+
+    def __init__(self, board):
+        self.board = str(board)
+
+    def describe(self):
+        return self.board
+
+    @staticmethod
+    def read_path(path):
+        """``(meta, body)`` of the ticket file at ``path``."""
+        with open(path, "r", encoding="utf-8") as fh:
+            return read_frontmatter(fh.read())
+
+    @staticmethod
+    def write_path(path, meta, body):
+        """Write ``meta`` (canonical key order) and ``body`` to the ticket file ``path``."""
+        ordered = {k: meta[k] for k in TICKET_KEY_ORDER if k in meta}
+        atomic_write(path, write_frontmatter(ordered, body))
+
+    _read = read_path
+
+    def iter_tickets(self):
+        board = self.board
+        if not os.path.isdir(board):
+            return
+        for folder in sorted(os.listdir(board)):
+            full = os.path.join(board, folder)
+            if folder in self.RESERVED or folder.startswith(".") or not os.path.isdir(full):
+                continue
+            for f in sorted(os.listdir(full)):
+                if not self._RE_FILE.match(f):
+                    continue
+                p = os.path.join(full, f)
+                try:
+                    meta, body = self._read(p)
+                except (FrontmatterError, OSError, UnicodeDecodeError):
+                    meta, body = None, ""
+                yield p, meta, body
+
+    def read_all(self, instance):
+        folder = os.path.join(self.board, instance)
+        out = []
+        if not os.path.isdir(folder):
+            return out
+        for f in sorted(os.listdir(folder)):
+            if not self._RE_FILE.match(f):
+                continue
+            path = os.path.join(folder, f)
+            try:
+                meta = self._read(path)[0]
+            except (OSError, AcademyError, UnicodeDecodeError):
+                continue
+            if not meta.get("id") or meta.get("to", instance) != instance:
+                continue
+            meta = dict(meta)
+            meta["_path"] = path.replace("\\", "/")
+            out.append(meta)
+        return out
+
+    def find(self, tid):
+        return find_ticket(self.board, tid)
+
+    def get(self, tid):
+        path = find_ticket(self.board, tid)
+        if not path:
+            raise AcademyError("no ticket %s on %s" % (tid, self.board))
+        meta, body = self._read(path)
+        return path, meta, body
+
+    def status_of(self, tid):
+        path = find_ticket(self.board, tid)
+        if not path:
+            return None
+        try:
+            return self._read(path)[0].get("status")
+        except (OSError, AcademyError):
+            return None
+
+    def save(self, meta, body, ref=None, relocate=False):
+        path = ref
+        if ref is None:
+            path = os.path.join(self.board, meta["to"],
+                                ticket_filename(meta["id"], meta["title"]))
+        elif relocate:
+            path = os.path.join(self.board, meta["to"], os.path.basename(ref))
+        self.write_path(path, meta, body)
+        if ref is not None and path != ref:
+            os.remove(ref)
+        return path
+
+    def create(self, meta, body):
+        meta = dict(meta)
+        meta["id"] = allocate_id(self.board, "ticket")
+        return self.save(meta, body), meta
+
+
+STORE_METHODS = ("iter_tickets", "iter_meta", "read_all", "find", "get", "save", "create",
+                 "status_of")
+
+
+def is_store(obj):
+    """Whether ``obj`` speaks the BoardStore protocol. Duck-typed on purpose: the library is
+    vendored into every plugin as its own module object, so ``isinstance`` against one
+    copy's ``BoardStore`` fails for a store built from another copy (the github store is
+    built from the lib's, a role plugin runs on its ``_academy``)."""
+    return isinstance(obj, BoardStore) or (
+        not isinstance(obj, (str, bytes, os.PathLike))
+        and all(callable(getattr(obj, m, None)) for m in STORE_METHODS))
+
+
+def as_store(board):
+    """``board`` as a BoardStore: a store is returned as it is, a path (str or PathLike)
+    becomes a file store; anything else is an error, never a silent file store."""
+    if is_store(board):
+        return board
+    if isinstance(board, (str, os.PathLike)):
+        return FileBoardStore(board)
+    raise AcademyError("not a board: %r (a directory or a BoardStore)" % (board,))
+
+
+def board_dir(board):
+    """The board directory behind ``board`` (a path or a store): where packets, deep dives
+    and ids live, files on every backend. A github store carries it as ``.board`` (set by
+    ``open_store`` from workspace.json's ``board.path``)."""
+    if isinstance(board, (str, os.PathLike)):
+        return str(board)
+    path = getattr(board, "board", None)
+    if not path:
+        raise AcademyError("this board store has no directory for packets (board.path)")
+    return str(path)
+
+
+def open_store(workspace=None, transport=None, board=None):
+    """The board store of a workspace: ``board.backend`` of workspace.json, ``files`` by default.
+
+    ``board`` (an explicit path) always opens the file board there. ``github`` needs a
+    transport: the object passed in, or the one ``board.transport`` (``"module:factory"``,
+    called with the board's config dict) names; without either it is a ConfigError, because
+    the real MCP/REST transport is not part of this library. A github backend never
+    degrades to the file board: anything that cannot be opened raises.
+    """
+    if board:
+        return FileBoardStore(board)
+    ws = workspace if isinstance(workspace, dict) else load_workspace(workspace)
+    cfg = ws.get("board_config") or {}
+    backend = cfg.get("backend", "files")
+    if backend == "files":
+        return FileBoardStore(ws["board"])
+    if transport is None and cfg.get("transport"):
+        import importlib
+        mod, _, fn = str(cfg["transport"]).partition(":")
+        transport = getattr(importlib.import_module(mod), fn or "transport")(cfg)
+    if transport is None:
+        raise ConfigError("board.backend is github but no transport is available: pass one "
+                          "to open_store or set board.transport to 'module:factory'")
+    board_store = _import_board_store()
+    # the store speaks through THIS copy of the library (its errors, its helpers)
+    store = board_store.GithubBoardStore(transport, cfg.get("repo", ""),
+                                         lib=sys.modules[__name__])
+    store.board = ws["board"]         # packets, deep dives and ids stay files (board_dir)
+    return store
+
+
+def _import_board_store():
+    """``board_store`` (academy/lib), found next to the academy plugin when this copy is
+    vendored elsewhere; sys.path is extended only when it is not importable already."""
+    try:
+        import board_store
+        return board_store
+    except ImportError:
+        pass
+    here = os.path.dirname(os.path.abspath(__file__))
+    for cand in (os.path.join(here, os.pardir, os.pardir, "academy", "lib"),
+                 os.path.join(here, os.pardir, "lib")):
+        cand = os.path.abspath(cand)
+        if os.path.isfile(os.path.join(cand, "board_store.py")):
+            sys.path.append(cand)
+            try:
+                import board_store
+                return board_store
+            except ImportError:
+                break
+    raise ConfigError("the github board store lives in the academy plugin "
+                      "(academy/lib/board_store.py), which is not next to this plugin")
+
+
+# ----------------------------------------------------------------------------
+# The inbox core (docs/protocol.md section 4; campaign-mode design sections 8, 10)
+# ----------------------------------------------------------------------------
+
+class inbox_core(object):
+    """Selection, ordering, return legs, the blocked filter and the serial checkpoint.
+
+    Every role's ``inbox.py`` is a thin wrapper over this: it resolves its instance and
+    its limit, and supplies ``route(meta) -> {how, target, why}`` (its routing table,
+    ``routes.py``); ``how`` is ``skill``, ``agent``, ``human`` or ``reject``. A route may
+    add ``over_budget`` (a reason string), which the row carries at top level.
+
+    ``select`` takes, in order: the instance's in-progress tickets (unfinished work is
+    resumed before anything new starts), relay parents ready for their return leg
+    (``relay_return_ready``), then ``open`` and ``accepted`` tickets. Each group is
+    ordered by priority, then agenda position (a ticket that has an ``agenda`` field
+    first, or ``position(meta)`` when the wrapper knows the agenda), then id. Dead-route
+    blocked tickets (both ``blocked_by`` and ``reopen_if``) and pending blocked ones
+    are never taken. The limit is at most 3, except for a campaign (``campaign`` names
+    its target; only tickets carrying ``campaign: <target>`` are listed).
+    """
+
+    TAKE = ("open", "accepted")
+    SHOW = ("open", "accepted", "in-progress", "blocked")
+    MAX = 3
+    PRIORITY = {"high": 0, "normal": 1, "low": 2}
+    RETURN_WHY = ("return leg: the child is back; close it and deliver this ticket "
+                  "with a result pointing at it")
+
+    is_dead_route = staticmethod(is_dead_route)
+
+    @staticmethod
+    def num(x):
+        """The number of a ticket id, or of a meta's ``id`` (0 when there is none)."""
+        tid = x.get("id", "T-0") if isinstance(x, dict) else x
+        try:
+            return int(str(tid).split("-")[1])
+        except (IndexError, ValueError):
+            return 0
+
+    _num = num
+
+    @staticmethod
+    def prio(meta):
+        """Sort rank of a ticket's priority (high first)."""
+        return inbox_core.PRIORITY.get(meta.get("priority") or "normal", 1)
+
+    @staticmethod
+    def clamp(n):
+        """An items-per-run setting as a count: at least 1, at most ``MAX`` (3)."""
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = inbox_core.MAX
+        return max(1, min(n or inbox_core.MAX, inbox_core.MAX))
+
+    @staticmethod
+    def unfinished(rows):
+        """Ids of the in-progress rows: work started and not yet settled."""
+        return [r["id"] for r in rows if r.get("status") == "in-progress"]
+
+    @staticmethod
+    def select(board, instance, limit=3, all=False, route=None, campaign=None,
+               position=None, return_legs=True, position_first=False, extra=None):
+        """``(rows, total)``: the tickets to handle, and how many were eligible.
+
+        ``all`` lists every open, accepted, in-progress and blocked ticket without the
+        cut, in-progress first, then blocked, then open and accepted (blocked ones carry
+        ``blocked``: ``pending`` or ``dead-route``). ``position_first`` orders by agenda
+        position before priority (the Author's precedence is the paper's order).
+        ``extra`` is a list of finished rows the wrapper builds itself (the Author's
+        landing legs, see ``extra_row``); they follow the in-progress rows and count
+        against the cut. With ``campaign`` only tickets carrying that campaign are
+        listed, so a non-campaign in-progress ticket is not among them: ``outside_campaign``
+        finds those.
+        """
+        pos = position or (lambda m: 0 if m.get("agenda") else 10 ** 9)
+        store = as_store(board)
+        status_of = store.status_of
+        pool = []
+        for m in store.read_all(instance):
+            st = m.get("status")
+            if campaign and m.get("campaign") != campaign:
+                continue
+            dead = is_dead_route(m)
+            ret = False
+            if all:
+                if st not in inbox_core.SHOW:
+                    continue
+                group = 0 if st == "in-progress" else 2 if st in inbox_core.TAKE else 1
+            elif dead:
+                continue
+            elif st == "in-progress":
+                group = 0
+            elif st in inbox_core.TAKE:
+                group = 2
+            elif (st == "blocked" and return_legs
+                  and relay_return_ready(m, status_of)):
+                group, ret = 1, True
+            else:
+                continue
+            m["_group"] = group
+            m["_return"] = ret
+            m["_blocked"] = ("dead-route" if dead else "pending") if st == "blocked" else None
+            pool.append(m)
+        prio, num = inbox_core.prio, inbox_core.num
+        pool.sort(key=lambda m: ((m["_group"], pos(m), prio(m), num(m))
+                                 if position_first else
+                                 (m["_group"], prio(m), pos(m), num(m))))
+        rows = [inbox_core._row(m, route) for m in pool]
+        if extra:
+            first = next((i for i, r in enumerate(rows) if r["status"] != "in-progress"),
+                         len(rows))
+            rows[first:first] = list(extra)
+        total = len(rows)
+        if not all:
+            n = max(1, int(limit))
+            rows = rows[:n if campaign else min(n, inbox_core.MAX)]
+        return rows, total
+
+    @staticmethod
+    def outside_campaign(board, instance, campaign):
+        """Ids of the instance's in-progress tickets that do not carry ``campaign``: the
+        campaign listing leaves them out, but they are unfinished work all the same."""
+        return [m["id"] for m in as_store(board).read_all(instance)
+                if m.get("status") == "in-progress" and m.get("campaign") != campaign]
+
+    @staticmethod
+    def _row(m, route):
+        """The inbox row of ticket ``m`` (``route``: a callable on the meta, or a route dict)."""
+        r = dict(route(m) if callable(route) else route) if route else {
+            "how": "human", "target": "human", "why": "no routing table"}
+        over = r.pop("over_budget", None)
+        if m.get("_return"):
+            r["why"] = inbox_core.RETURN_WHY
+        return {"id": m.get("id"), "kind": m.get("kind"), "status": m.get("status"),
+                "priority": m.get("priority") or "normal", "from": m.get("from"),
+                "title": m.get("title"), "agenda": m.get("agenda"),
+                "budget": m.get("budget"), "refs": m.get("refs") or [],
+                "campaign": m.get("campaign"), "route": r, "return": bool(m.get("_return")),
+                "over_budget": over, "blocked": m.get("_blocked"), "path": m.get("_path")}
+
+    @staticmethod
+    def extra_row(m, route, returned=False, released=False, **override):
+        """The row of a ticket a wrapper selects itself (``extra`` of ``select``): the core's
+        row shape, ``route`` the already-decided route dict, ``returned`` a landing leg
+        (``return: true``), ``released`` a blocked ticket whose waits are all back
+        (``released: true``). ``override`` replaces any field of the row (the Author's landing
+        rows are ``from`` the landing instance and ``delivered``)."""
+        m = dict(m, _return=False, _blocked=None)
+        row = inbox_core._row(m, route)
+        row["return"] = bool(returned)
+        if released:
+            row["released"] = True
+        row.update(override)
+        return row
+
+    @staticmethod
+    def serial_checkpoint(meta):
+        """Where a ticket stands after its route ran, and whether it is settled.
+
+        Settled: delivered (with a result), blocked with its reason, rejected. A ticket
+        still open, accepted or in-progress is *unfinished*: report it, do not take
+        another ticket while it is (it comes first in the next run).
+        """
+        st = meta.get("status")
+        problem = None
+        if st in ("delivered", "closed"):
+            state = "delivered"
+            if not meta.get("result"):
+                problem = "delivered without a result"
+        elif st in ("rejected", "cancelled"):
+            state = "rejected"
+        elif st == "blocked":
+            state = "blocked"
+            if not (meta.get("waiting_on") or inbox_core.is_dead_route(meta)):
+                problem = "blocked without a reason (waiting_on, or blocked_by and reopen_if)"
+        else:
+            state = "unfinished"
+        return {"id": meta.get("id"), "status": st, "state": state, "problem": problem,
+                "unfinished": state == "unfinished" or problem is not None}
+
+    @staticmethod
+    def check(board, tid):
+        return inbox_core.serial_checkpoint(as_store(board).get(tid)[1])
+
+    @staticmethod
+    def parser(description, prog=None):
+        import argparse
+        ap = argparse.ArgumentParser(prog=prog, description=description)
+        ap.add_argument("--instance")
+        ap.add_argument("--board")
+        ap.add_argument("--home")
+        ap.add_argument("--workspace")
+        ap.add_argument("--n", "--limit", dest="n", type=int,
+                        help="tickets to take (at most 3 outside a campaign; a campaign has "
+                             "no cap of its own to lower: without --n it takes them all); "
+                             "--limit is an alias")
+        ap.add_argument("--all", action="store_true", help="list without taking or cutting")
+        ap.add_argument("--json", action="store_true")
+        ap.add_argument("--campaign", metavar="TARGET",
+                        help="only tickets carrying `campaign: TARGET`")
+        ap.add_argument("--check", metavar="T-NNNN",
+                        help="the serial checkpoint of one ticket (exit 3 if unfinished)")
+        return ap
+
+    @staticmethod
+    def run(args, instance, board, budget_limit, route, out=None, position=None,
+            return_legs=True, position_first=False, extra=None, header=None):
+        """Print the inbox of ``instance``; exit 0 with rows, 1 empty, 3 for --check
+        on an unfinished ticket. ``header`` = ``{"json": {...}, "text": [lines]}`` is what
+        a wrapper reports before the rows (the Author's sweep step, its waiting lists)."""
+        out = out or sys.stdout
+        if args.check:
+            r = inbox_core.check(board, args.check)
+            out.write("%s: %s (%s)%s\n" % (r["id"], r["state"], r["status"],
+                                           ("; " + r["problem"]) if r["problem"] else ""))
+            return 3 if r["unfinished"] else 0
+        if args.campaign:
+            # a campaign lifts the cap of 3 (docs/protocol.md): --n alone bounds it
+            limit = max(1, int(args.n)) if args.n else None
+        else:
+            limit = min(max(1, int(args.n)) if args.n else inbox_core.MAX,
+                        inbox_core.clamp(budget_limit))
+        rows, total = inbox_core.select(board, instance, limit or 10 ** 9, all=args.all,
+                                        route=route, campaign=args.campaign,
+                                        position=position, return_legs=return_legs,
+                                        position_first=position_first, extra=extra)
+        header = header or {}
+        left = 0 if args.all else max(0, total - len(rows))
+        unfinished = inbox_core.unfinished(rows)
+        outside = []
+        if args.campaign and not args.all:
+            outside = inbox_core.outside_campaign(board, instance, args.campaign)
+            unfinished = unfinished + [t for t in outside if t not in unfinished]
+        if args.json:
+            doc = {"instance": instance, "limit": limit, "waiting": total,
+                   "take": rows, "remaining": left, "unfinished": unfinished}
+            if args.campaign:
+                doc["outside_campaign"] = outside
+            doc.update(header.get("json") or {})
+            out.write(json.dumps(doc, ensure_ascii=False, indent=1) + "\n")
+            return 0 if rows else 1
+        for line in header.get("text") or []:
+            out.write(line + "\n")
+        for r in rows:
+            rt = r["route"]
+            out.write("%s  %-17s %-11s %-6s from %-18s -> %-8s %-24s %s%s%s\n" % (
+                r["id"], r["kind"], r["status"], r["priority"], r["from"], rt["how"],
+                (rt["target"] or "") + (" (return)" if r["return"] else ""), r["title"],
+                ("  [over budget: %s]" % r["over_budget"]) if r["over_budget"] else "",
+                ("  [blocked: %s]" % r["blocked"]) if r["blocked"] else ""))
+        if not rows:
+            out.write("(inbox of %s is empty)\n" % instance)
+        if unfinished:
+            out.write("unfinished: %s; resume before taking anything new\n"
+                      % ", ".join(unfinished))
+        if outside:
+            out.write("(%s are in progress outside campaign %s: the campaign list leaves "
+                      "them out; resume them first)\n" % (", ".join(outside), args.campaign))
+        out.write("%d taken, %d remaining\n" % (len(rows), left))
+        for line in header.get("text_after") or []:
+            out.write(line + "\n")
+        return 0 if rows else 1
+
+    @staticmethod
+    def resolve_instance(args, role, cwd=None):
+        """``(instance, config_or_None)`` a role wrapper acts for, from its arguments.
+
+        Honours ``--instance`` (its home found in workspace.json, so its config is loaded
+        too), ``--home``, ``--workspace``; otherwise the ``role`` home containing ``cwd``
+        (by its academy.json, else by workspace.json for a home not yet switched over), or
+        the only instance of the role. Raises AcademyError when none is found.
+        """
+        try:
+            ws = load_workspace(args.workspace)
+        except ConfigError:
+            ws = None
+        insts = (ws or {}).get("instances", {})
+        home, inst = args.home, args.instance
+        if not home and inst and inst in insts:
+            home = insts[inst].get("home")
+        cwd = cwd or os.getcwd()
+        if not home:
+            home = find_home(cwd)
+            if not home and ws:
+                best = None
+                for name, i in insts.items():
+                    h = _norm(i.get("home", ""))
+                    if i.get("role") == role and h and (_norm(cwd) == h
+                                                        or _norm(cwd).startswith(h + "/")):
+                        if best is None or len(h) > len(best[0]):
+                            best = (h, i["home"])
+                home = best[1] if best else None
+        cfg = None
+        if home and os.path.isfile(os.path.join(home, CONFIG_REL)):
+            cfg = load_config(home)                  # an invalid one is an error, not a default
+            if cfg and cfg.get("role") != role:
+                if not inst:
+                    raise AcademyError("%s is a %s home, not a %s home"
+                                       % (home, cfg.get("role"), role))
+                cfg = None
+        if not inst:
+            inst = (cfg or {}).get("instance") or (instance_for_home(ws, home)
+                                                   if ws and home else None)
+            if not inst:
+                mine = sorted(n for n, i in insts.items() if i.get("role") == role)
+                inst = mine[0] if len(mine) == 1 else None
+        if not inst:
+            raise AcademyError("not in a %s home; give --instance" % role)
+        return inst, cfg
+
+    @staticmethod
+    def open_inbox_store(args):
+        """The board the inbox reads: ``--board`` (the file board there), else workspace.json's
+        ``board.backend``. Raises for a github board that cannot be opened."""
+        if args.board:
+            return FileBoardStore(os.path.abspath(args.board))
+        st = open_store(load_workspace(args.workspace))
+        return FileBoardStore(os.path.abspath(st.board)) if isinstance(st, FileBoardStore) \
+            else st
+
+    @staticmethod
+    def main(argv, description, resolve, route, prog="inbox.py", out=None, **run_kw):
+        """The body of every role's ``inbox.py``: parse, resolve the instance and its config
+        (``resolve(args) -> (instance, cfg)``; ``resolve_instance`` is the usual one), open the
+        board, clamp ``budget.itemsPerRun``, run; an error is one line on stderr and exit 2."""
+        args = inbox_core.parser(description, prog).parse_args(argv)
+        try:
+            inst, cfg = resolve(args)
+            board = inbox_core.open_inbox_store(args)
+            limit = ((cfg or {}).get("budget") or {}).get("itemsPerRun")
+            return inbox_core.run(args, inst, board, limit, route, out=out, **run_kw)
+        except (AcademyError, OSError) as exc:
+            sys.stderr.write("%s: %s\n" % (prog, exc))
+            return 2
 
 
 # ----------------------------------------------------------------------------

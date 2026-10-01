@@ -46,7 +46,8 @@
       "question",
       "example",
       "assumption",
-      "direction"
+      "direction",
+      "approach"
     ],
     "statusField": "status",
     "reviewsHome": "{{expert}}",

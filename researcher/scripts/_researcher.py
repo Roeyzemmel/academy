@@ -61,7 +61,9 @@ NOT_RECORDS = ("INDEX.md", "README.md", "OPEN.md", "STATUS.md")
 UNSETTLED = ("open", "conjectured", "sketch", "not settled", "")
 
 OBJECT_KINDS = ("definition", "claim", "conjecture", "question", "example",
-                "assumption", "direction")
+                "assumption", "direction", "approach")
+#: an approach's lifecycle (campaign mode): a lifecycle like a direction's, not a status
+APPROACH_LIFECYCLES = ("active", "blocked", "delivered", "dropped")
 #: the kinds that carry a status (plan section 3.3)
 STATUS_KINDS = ("claim", "conjecture", "question")
 

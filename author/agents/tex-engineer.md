@@ -1,6 +1,6 @@
 ---
 name: tex-engineer
-description: Owns the paper's LaTeX toolchain — build errors and render defects (compile errors, undefined or duplicate labels, "??", BibTeX warnings, broken macros, unclosed braces in margin notes, overfull boxes crossing the margin, missing figures), the MiKTeX / latexmk / pdftohtml / synctex setup, LaTeX Workshop settings (including honouring the build lock), the plugin's check_paper.py and its tests, and bibliography and style mechanics — without changing any mathematics or prose. Use when a build fails, the PDF shows a defect, a [build] item or build ticket comes up, or the checker needs a change.
+description: Owns the paper's LaTeX toolchain — build errors and render defects (compile errors, undefined or duplicate labels, "??", BibTeX warnings, broken macros, unclosed braces in margin notes, overfull boxes crossing the margin, missing figures), the MiKTeX / latexmk / pdftohtml / synctex setup, LaTeX Workshop settings (including honouring the build lock), the plugin's check_paper.py and its tests, and bibliography and style mechanics — without changing any mathematics or prose. Use when a build fails, the PDF shows a defect, a build ticket comes up, or the checker needs a change.
 model: sonnet
 effort: medium
 fallback: opus
@@ -36,8 +36,8 @@ line-ending rule (`crlf`). The standing rules are
    a display, allow a hyphenation point, break a long formula; never reword prose. A
    margin note that falls off the page is split into two notes, verbatim.
 4. **Bibliography**: a missing-field warning is fixed only by the Expert's librarian,
-   and the bib gate refuses your edit. Hand it back in your report as a `[cite]`
-   roadmap item with the key and the warning, which `/author:next` files; you are not
+   and the bib gate refuses your edit. Hand it back in your report as a `cite` request
+   with the key and the warning (the main session files the ticket to the Expert); you are not
    the Author's liaison to the Expert.
 
 ## The toolchain
@@ -57,14 +57,13 @@ line-ending rule (`crlf`). The standing rules are
   and `author.noteMacros` in academy.json, never from constants.
 - The commit baseline: `py ${CLAUDE_PLUGIN_ROOT}/scripts/commit_gate.py
   --write-baseline --root <home>` only on Roey's word; shrinking it is progress.
-- Preamble changes are proposed, not made, unless the item says so.
+- Preamble changes are proposed, not made, unless the ticket says so.
 
 ## Recolouring
 
 Not yours any more: math-editor does the recolouring edit when a verification lands.
 
-Record each item: `py ${CLAUDE_PLUGIN_ROOT}/scripts/next.py mark R-NNNN --status done
---note "<how>"`, or for a ticket, `tickets_update` with the result and `delivered`.
+Record each ticket: `tickets_update` with the result "<how>" and `delivered`.
 
 **Report**: the build before and after (exit code, errors, undefined, `??`, BibTeX
 warnings, overfull boxes crossing the margin); every fix as file, line, before, after;

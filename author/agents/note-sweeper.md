@@ -1,6 +1,6 @@
 ---
 name: note-sweeper
-description: Runs the machine-note sweep over the paper's tex — inventories every machine margin note, decides from the roadmap, the board, the human's later notes and the registry whether each is answered (folds the answer into the roadmap item and deletes the note) or still open (leaves it untouched), and reports counts per section before and after. Use via /author:sweep, after a run of /author:next that closed items, or before presync.
+description: Runs the machine-note sweep over the paper's tex — inventories every machine margin note, decides from the board, the human's later notes and the registry whether each is answered (folds the answer into the thread of the ticket it belongs to and deletes the note) or still open (leaves it untouched), and reports counts per section before and after. Use via /author:sweep, after a run of /author:inbox that closed tickets, or before presync.
 model: sonnet
 effort: medium
 fallback: opus
@@ -21,11 +21,12 @@ pass, because the margin is the only place it was written down.
 
 Where an answer can live, checked in this order:
 
-1. **The roadmap** (`paths.roadmap`): an item that records the decision.
+1. **The board** (the Author's only queue; there is no roadmap): a ticket whose thread
+   or result records the decision, open, delivered or closed (`tickets_list`,
+   `tickets_get`), or a packet whose `## Decision` does (`packets_get`).
 2. **The human's later margin notes** (`author.noteMacros.human` and `coauthors`): a
-   reply, usually adjacent. Quote it into the roadmap item before deleting the note.
-3. **The board**: a delivered or closed ticket whose result answers it
-   (`tickets_get`), or a packet whose `## Decision` does (`packets_get`).
+   reply, usually adjacent. Quote it into the thread of the ticket the note belongs to
+   before deleting the note.
 4. **The library**: a card for that key and pinpoint answers "was this pinpoint
    checked" (`library_lookup`).
 5. **The registry** (`claims_show`): a claim whose status is settled (`proved`,
@@ -40,15 +41,22 @@ Where an answer can live, checked in this order:
 1. **Inventory.** Grep the tex files (`paths.tex`) for the machine macros, taking the
    whole brace group; record file, line, the nearest label, and the text. Count per
    file: the "before" number. Inline notes count too.
-2. **Decide per note.** *Answered*: fold the answer into the roadmap item (create one
-   with `py ${CLAUDE_PLUGIN_ROOT}/scripts/next.py add --tag apply --title ...
-   --attach <label>` and mark it done if none exists: the roadmap is the durable
-   record, the margin is not), then delete the note. *Open*: leave it exactly as it is.
+2. **Decide per note.** *Answered*: fold the answer into the thread of the ticket the
+   note belongs to (`py ${CLAUDE_PLUGIN_ROOT}/../academy/scripts/board.py append
+   T-NNNN --text "<the answer, quoting the human's reply>" --as <this instance>
+   --agent note-sweeper`). If no ticket carries it, file one to this Author as the
+   record (`board.py new --as <this instance> --to <this instance> --kind apply --title
+   "Record: <label> note" --ask "<the question>" --deliverable "answer recorded"
+   --agenda <ns>:<label> --detail "<the note, file:line, and its answer>"`) and walk it
+   `accepted`, `in-progress`, `delivered` (`--result "<the answer>"`), `closed` with
+   `board.py transition`: the board is the durable record, the margin is not. Then
+   delete the note. *Open*: leave it exactly as it is.
    *Partly answered*: narrow it to the part still open and record the rest.
 3. A deleted note often leaves a doubled space or a stranded blank line; clean that and
    nothing else. Respect the file's line endings (`author.crlf`).
 
 **Report**: a table of file / before / deleted / narrowed / after; each deleted note
-with its text, the answer that justified deleting it, and where that answer now lives;
+with its text, the answer that justified deleting it, and where that answer now lives
+(ticket id);
 each narrowed note before and after; every note left open with what it waits for and
 who owes it (an instance, a ticket, Roey); the build result. Never ask a question.

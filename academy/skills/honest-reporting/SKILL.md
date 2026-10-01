@@ -24,6 +24,15 @@ see at once what is established, what is assumed and what was not done.
 3. **Evidence by reference.** Point at the file, id, commit or run; do not paraphrase
    a result from memory.
 
+## The final report of a long run
+
+A campaign or any multi-round run ends with, in this order: the **status first**
+(the audited proof, or the strongest rigorously proved derivation and the exact
+remaining gap as a claim id); the **table of routes** (each with its lifecycle, what
+blocks it and what would reopen it); the **open tickets** and what each waits for;
+what could not be done and why. No "best effort" summary, and no explanation of why
+the problem is hard.
+
 ## Machine notes
 
 Mark every judgement call, sketched step and unverified claim where it lives, with the

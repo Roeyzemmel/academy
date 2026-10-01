@@ -254,6 +254,16 @@ class InitInstanceTest(Sandbox):
         self.assertEqual(cfg["author"]["noteMacros"]["human"], ["\\Roey"])
         self.assertEqual(cfg["ns"], "x")
 
+    def test_author_template_has_no_roadmap_path_but_an_old_config_validates(self):
+        ws = ac.load_workspace(self.ws_path)
+        cfg = init_instance.build_config("author@x", ["d"], workspace=ws)
+        self.assertNotIn("roadmap", cfg["paths"])
+        self.assertNotIn("roadmap", ac.REQUIRED_PATHS["author"])
+        # the roadmap was dropped (the board is the only queue): an old config that still
+        # names it is accepted and the key is ignored
+        cfg["paths"]["roadmap"] = "Drafts/roadmap.md"
+        self.assertEqual(ac.validate_config(cfg), [])
+
     def test_bad_name(self):
         with self.assertRaises(ac.ConfigError):
             init_instance.build_config("wizard@x", ["d"])
@@ -391,7 +401,7 @@ class ChainDocsTests(unittest.TestCase):
     CASES = {
         os.path.join("author", "agents", "math-writer.md"): "final_to",
         os.path.join("author", "agents", "figure-maker.md"): "final_to",
-        os.path.join("author", "skills", "next", "references", "routing.md"): "final_to",
+        os.path.join("author", "skills", "inbox", "references", "routing.md"): "final_to",
         os.path.join("expert", "skills", "verify", "references", "conclude.md"): "final_to",
         os.path.join("expert", "agents", "review-chair.md"): "final_to",
         os.path.join("scientist", "skills", "examples-audit", "SKILL.md"): "final_to",
@@ -457,7 +467,7 @@ class ChainDocsTests(unittest.TestCase):
         """F2: tex-engineer is no author->expert liaison."""
         text = self.read("author", "agents", "tex-engineer.md")
         self.assertNotRegex(text, r"(?i)file a `cite` ticket")
-        self.assertIn("`[cite]`", text)
+        self.assertIn("`cite` request", text)
 
     def test_lead_researcher_reaches_paper_owners_through_the_expert(self):
         text = self.read("researcher", "agents", "lead-researcher.md")
@@ -472,7 +482,7 @@ class ChainDocsTests(unittest.TestCase):
         return text[text.index(start):text.index(end)]
 
     def test_protocol_research_flow_names_the_research_kind(self):
-        """M4: research-intake forwards a `research` child; /author:next files as main."""
+        """M4: research-intake forwards a `research` child; /author:inbox files as main."""
         flow = self.section(self.read("docs", "protocol.md"),
                             "### 6.4", "### 6.5")
         self.assertNotIn("`lead`", flow)

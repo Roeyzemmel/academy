@@ -32,13 +32,13 @@ If a pass fails or comes back blocked, say so and continue with the rest.
 
 ## The summary (in the chat, not a file)
 
-- **What changed** since the last sync, by section, one line each (from the roadmap
-  items marked done since then).
-- **What the coauthors are asked for**: every `needs-human` item and every open machine
+- **What changed** since the last sync, by section, one line each (from the tickets
+  delivered or closed since then).
+- **What the coauthors are asked for**: every ticket parked on `human` (`py $S/inbox.py --all`) and every open machine
   note, grouped by section, each quoted in its own words.
 - **What is not established**: every agenda entry below its required status that the
   introduction mentions, with what it waits for (`py $S/agenda.py gaps` and
-  `py $S/next.py plan`).
+  `py $S/inbox.py --all`).
 - **Milestone progress**: `py $S/agenda.py milestones`.
 - **Tickets filed**: the literature-watch and referee ticket ids; their results arrive
   as packets.

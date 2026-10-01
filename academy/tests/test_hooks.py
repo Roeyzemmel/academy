@@ -359,7 +359,7 @@ class GeneratedViewGuardTests(Fixture):
     def test_relative_path_uses_cwd(self):
         self.write(os.path.join(self.author_home, "Drafts", "statements.md"), "old\n")
         self.assertEqual(self.guard("Drafts/statements.md", cwd=self.author_home), "deny")
-        self.assertIsNone(self.guard("Drafts/roadmap.md", cwd=self.author_home))
+        self.assertIsNone(self.guard("Drafts/agenda.md", cwd=self.author_home))
 
 
 # ---------------------------------------------------------------------------

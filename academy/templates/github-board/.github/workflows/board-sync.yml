@@ -9,6 +9,11 @@ on:
   workflow_dispatch:
 permissions:
   issues: write
+# one run per issue at a time, queued not cancelled: two runs on one issue must not race on
+# the hidden state comment
+concurrency:
+  group: board-sync-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -17,3 +22,8 @@ jobs:
       - run: python3 .github/academy/scripts/board_sync.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # the human's GitHub login(s), comma separated (repository variable): the human may
+          # leave a dead route by any move; the sender of the event is compared with this
+          ACADEMY_HUMAN_LOGINS: ${{ vars.ACADEMY_HUMAN_LOGINS }}
+          # the only author whose hidden state comment is trusted
+          ACADEMY_STATE_AUTHOR: github-actions[bot]

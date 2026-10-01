@@ -83,10 +83,11 @@ def check_human_where(ctx, grounds):
         raise ToolError("refused: basis 'human' from an agent needs grounds.where naming "
                         "the ticket or packet that holds the quote")
     ref = m.group(0)
-    loader = _tickets.load_ticket if ref.startswith("T-") else _packets.load_packet
-    path, _, _ = loader(ctx, ref)
-    with open(path, encoding="utf-8") as fh:
-        text = fh.read()
+    if ref.startswith("T-"):
+        text = _tickets.ticket_text(ctx, ref)          # through the store, either backend
+    else:
+        with open(_packets.load_packet(ctx, ref)[0], encoding="utf-8") as fh:
+            text = fh.read()
     if quote not in _squash(text):
         raise ToolError("refused: %s does not contain the quote %r verbatim" % (ref, quote))
 

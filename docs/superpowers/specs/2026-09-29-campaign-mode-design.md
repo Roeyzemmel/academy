@@ -57,8 +57,9 @@ the informal phrase in `academy/skills/rigor/SKILL.md` §4.
 10. **Two kinds of blocked ticket** (section 9): pending (`waiting_on`, unchanged)
     and dead route (`blocked_by` + `reopen_if`, new). The `approach` object's
     blocking (section 3) uses the same fields and words.
-11. **The Author works through `/author:inbox`** (section 10): roadmap items become
-    self-tickets, and the note sweep runs on every invocation.
+11. **The Author works through `/author:inbox`** (section 10), and the board is its
+    only queue: the roadmap is dropped (Roey, 2026-09-30), work items are tickets, and
+    the note sweep runs on every invocation.
 4. **Discipline rules are shared and stated once** (`rigor`, `honest-reporting`,
    `budget.md`, `roster-rules.md`); everything else points to them.
 5. **Search discipline deviates from the CDC prompt on purpose** (section 6).
@@ -153,7 +154,8 @@ the state. Waiting on a ticket that section 4.1 can dispatch is not a pause: the
 campaign dispatches it.
 
 **Stop conditions, only these:** the target has two agreeing verify reviews (then
-claim-keeper sets the status); the round or agent cap; a limit error.
+claim-keeper sets the status); the round cap; a limit error; a pause (below). Reaching
+`--agents` ends the round, not the campaign (review decision 12).
 
 **Final report**, status first: the audited proof, or the strongest rigorously
 proved derivation plus the exact remaining gap as a claim id; the approach table
@@ -212,7 +214,7 @@ environments still applies: K is forced to 0 there.
 The campaign never records a human decision and never applies a recommended
 option. A packet or ticket that needs Roey is created or left `blocked` with
 `waiting_on: [human]`, and the approach it concerns is marked `waiting on
-decision`; other approaches continue. If every approach waits on a human, the
+decision` (derived from the tickets, review decision 8); other approaches continue. If every approach waits on a human, the
 campaign pauses. The report lists them and points at `/academy:decide`. An
 unattended run writes `board/human/RESUME.md` as budget rule 4 describes. Status
 changes still go only through claim-keeper on two agreeing reviews.
@@ -264,8 +266,8 @@ Outside campaign mode the scout is unchanged.
 Tests first (TDD) within each phase. Three phases, each its own plan, in order:
 
 **Phase 1, shared inbox and `/author:inbox` (sections 8, 10).** Vendored core and its
-tests; the three role wrappers ported; `/academy:inbox`; the Author's inbox,
-self-tickets and sweep-first; `next` retired; docs and skill tables.
+tests; the three role wrappers ported; `/academy:inbox`; the Author's inbox
+(tickets only, no roadmap), landings and sweep-first; `next` retired; docs and skill tables.
 
 **Phase 2, ticket blocking (section 9).** `validate_ticket`, `transition_ticket`,
 `docs/protocol.md`, the MCP `tickets_update`; the core's dead-route filter.
@@ -310,7 +312,8 @@ change to the shared library is made there and re-vendored.
 **Today** the researcher, expert and scientist `scripts/inbox.py` are three copies
 with their own selection, ordering, limit flag (`--n` / `--limit`) and return-leg
 handling (the scientist's has none); the Author has no inbox, and
-`author/scripts/next.py` mixes roadmap items and tickets.
+`author/scripts/next.py` mixes roadmap items and tickets (the roadmap is dropped in
+section 10).
 
 **Design.** One library `inbox_core` in `academy/lib/academy_common.py` (vendored
 into every plugin's `_academy.py` like the rest, `test_vendored_lib_is_in_sync`):
@@ -384,28 +387,110 @@ reason is required, and nothing records why a route was abandoned
 the tickets to the instance together, and `author:next` is how the Author runs its
 own work. The Author has no `inbox`.
 
+**Amendment (Roey, 2026-09-30): the roadmap is dropped.** The first version of this
+section kept `Drafts/roadmap.md` (R-NNNN items, `inbox.py sync` / `file` / `mark` /
+`add`) as a second queue that was filed into the board. That was a mistake: two queues
+with a sync between them. **The board is the Author's only queue.** There is no roadmap
+file, no `R-NNNN` id, no item store and no sync. The text below is the design as
+amended.
+
 **Design.**
 - **`/author:inbox` replaces `/author:next`.** Same interface as the other roles:
   the shared core (section 8) plus the Author's routing table.
-- **Roadmap items become self-tickets.** Each item on the agenda's roadmap is filed
-  as a ticket from the author instance to itself (allowed by the chain gate: same
-  role), carrying the claim id, the item kind and its agenda position. `next.py
-  file` keeps its rule for items that leave the Author (verify, cite, referee to the
-  Expert; lead and experiment as `research` tickets with `final_to`), and filing
-  becomes idempotent so an item is never ticketed twice. The board is the single
-  queue; the roadmap stays the place the human edits.
-- **Routing by kind** (the existing `TICKET_KIND_ROUTES`, extended with the item
-  kinds): write to math-writer, apply and copy to math-editor, figure to
-  figure-maker, build to tex-engineer, notation to notation-auditor, a delivered
-  verify or cite ticket landed by math-editor, a returned experiment or proof
-  landed by math-writer. A ticket of no known kind is `human` (asked, never guessed).
+- **Work items are tickets.** The Author's own work is a ticket from the author
+  instance to itself (allowed by the chain gate: same role) of kind `write`, `apply`,
+  `copy`, `figure`, `build`, `notation` or `sweep`; an ask that leaves the Author is a
+  ticket to the Expert (`verify`, `cite`, `referee`; `research` with `final_to:
+  researcher` or `scientist` for a proof or an experiment). Every such ticket carries the
+  claim in `refs` and, in `agenda`, the claim id of the agenda entry it serves (its
+  position in the paper). They are filed with `board.py new` / `tickets_create`; the
+  margin-notes skill files one per note, and `agenda.py gaps --file` files one per
+  agenda gap through `board.create_ticket` (no separate item store, no `inbox.py file`).
+  An agenda entry is a gap only while no non-terminal ticket to or from the Author
+  carries its `agenda`, so filing is idempotent: the same gap twice is one ticket. A
+  `verify` for an entry whose own inputs are below their required status is held, as
+  before.
+- **Dependencies are ticket waits.** A ticket that must wait is `blocked` with
+  `waiting_on` (other tickets, or `human` for a decision only Roey can make). The
+  Author's inbox offers a blocked ticket again (a "released" row) once every ticket it
+  waits on is `delivered` or terminal; a wait on an agenda entry reaching a status is
+  not filed until it does.
+- **Returned tickets land.** A ticket the Author filed to another role that comes back
+  `delivered` is a landing row (ahead of the open tickets, after those in progress); the
+  Author closes it after landing.
+- **Routing by kind** (the existing `TICKET_KIND_ROUTES`, extended): write to
+  math-writer, apply and copy to math-editor, figure to figure-maker, build to
+  tex-engineer, notation to notation-auditor, a delivered verify or cite ticket landed
+  by math-editor, a returned experiment or proof landed by math-writer. A ticket of no
+  known kind is `human` (asked, never guessed).
+- **Agenda, milestones, status** are computed from the registry's claim statuses and
+  the tickets attached to each entry (`agenda.py show`, `milestones`), not from items.
 - **Sweep on every run.** Before it takes tickets, `/author:inbox` runs the machine
   note sweep (`note-sweeper`, as `/author:sweep` does), so answered notes are folded
-  into items first and open ones are left. `/author:sweep` stays as a standalone
-  entry. The sweep counts against no item cap and is reported first.
+  into the thread of their ticket first and open ones are left. `/author:sweep` stays
+  as a standalone entry. The sweep counts against no item cap and is reported first.
 - **Kept:** `agenda`, `audit-notation`, `notes`, `presync`, `status`, `sweep`.
   **Retired:** `next` (its planning moves into the inbox wrapper; `author:status`
   points at `/author:inbox --all`).
-- **Tests:** `author/tests/test_next.py` is ported to the inbox; a new
+- **Migration of an existing roadmap.** `author/scripts/agenda_migrate.py` is a
+  one-shot converter from a `Drafts/roadmap.md` to tickets: dry run by default, `--apply`
+  files them, idempotent, and the roadmap file is only read; the human archives it
+  afterwards. `paths.roadmap` is no longer required in `academy.json`; an old config
+  that still has the key validates and the key is ignored.
+- **Tests:** `author/tests/test_next.py` is ported to the inbox (tickets only); a new
   `author/tests/test_plugin.py` lists the Author's skills; the generated skill
-  tables in `author/README.md` are regenerated with `skill_index.py`.
+  tables in `author/README.md` are regenerated with `skill_index.py`. Added: no code
+  path reads or writes a roadmap; gap filing is idempotent; the converter is dry-run by
+  default and maps items to tickets; an old config with a `roadmap` key validates.
+
+## 11. Review decisions (2026-09-30)
+
+Four reviewers checked the first implementation of campaign mode; these decisions
+settle what they found. The rules themselves live where section 5 says (`budget.md`
+"Campaigns" for caps, suspension, serial dispatch and K; the dispatch reference for the
+mechanics and decisions); this section only records the choices.
+
+1. **One approach per direction is enforced.** `approach:` is a scalar naming one existing
+   approach object of this notebook. A list, a second id, a dangling id, an id that is
+   not an approach object or a foreign namespace is a problem of `notebook.py approach
+   check` (without an id) and makes `next` fail with an error; it never silently lifts a
+   block.
+2. **Which lifecycles give work.** Only `active` does. `blocked` and `dropped` suspend the
+   approach's directions; `delivered` has nothing new to explore. `next` returns nothing
+   for all three and says why.
+3. **Blocking rules shared with tickets.** A blocked approach is a dead route by the same
+   predicate as a ticket (`ac.is_dead_route`); `blocked_by` passes the ticket rule
+   (`ac.RE_BLOCKED_BY`) and is neither the target nor the approach. Reopening
+   (`blocked -> active`) needs a note of at least three words naming the new mechanism,
+   recorded as `reopened: ...`; `blocked -> dropped` takes an ordinary note;
+   `blocked -> delivered` needs a note saying what delivered it.
+4. **An approach's tickets move with it, within the chain gate.** Only a ticket's
+   receiver (or Roey) may block it. `approach set ... blocked --apply` therefore moves
+   (through `board.py`'s `transition_ticket`, dead route with a `tried:` line) only the
+   tickets addressed to the Researcher's own instance, and prints the exact `board.py
+   transition ... --as <receiver>` command for the others; `active --apply` and the
+   printed commands do the same for `--reopen`. Tickets not yet moved are **held**:
+   `approach tickets --held` lists them and the driver skips them at dispatch, at no
+   cost to `--agents`. Tickets are found by `refs` through the board store, on any backend.
+5. **History keeps its block-list style.** `approach set` edits only the touched
+   frontmatter lines and puts the new history row first, JSON-quoted, as the templates do.
+6. **`approach status`** prints, per approach, lifecycle, waiting-on-decision and open
+   tickets, and `PAUSE` when every active approach waits on a decision.
+7. **`approach check --campaign TARGET`** checks that at least four approaches aim at the
+   target and each has a direction.
+8. **Waiting on decision** is derived: an approach waits when any ticket naming it or its
+   directions is `blocked` with `human` in `waiting_on`. Nothing is recorded on the
+   approach.
+9. **Caps are enforced by the driver.** No code counts `--agents`, `--rounds` or `--runs`
+   or detects a cloud session. `notebook.py campaign-check` validates that the required
+   caps are present, forces K to 0 under `--cloud` or `CLAUDE_CODE_REMOTE` /
+   `ACADEMY_CLOUD`, requires `--profile` for K above 0, and prints the normalized caps.
+10. **`inbox --campaign` lifts the cap of 3 by itself** (each instance's list is not cut at
+    three; `--n` still bounds it). Across instances the order is the fixed
+    Author, Expert, Researcher, Scientist one, and "in-progress first" holds inside each
+    instance's list, not globally.
+11. **Each rule once.** The skill keeps the flags, the round loop and pointers; the
+    final report is `honest-reporting`'s plus the tickets filed and the subagent runs
+    against the caps. The plugin tests check that the skill points at `budget.md`, not
+    that it repeats it.
+12. **The agent cap ends the round; the round cap ends the campaign.**

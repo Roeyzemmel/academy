@@ -176,6 +176,7 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 | `domain` | pack name | no | sender | Routing record; defaults to the receiver's first domain |
 | `parent` | ticket id \| empty | no | sender | The ticket this one was spawned from |
 | `final_to` | role \| instance \| empty | no | sender | The role (or instance) the request is really for; set on relayed tickets; a receiver whose role is not `final_to` hands the ticket to its relay |
+| `campaign` | registry id \| empty | no | sender | The target of the campaign this ticket belongs to; `inbox.py --campaign <target>` lists only such tickets. Omitted unless set |
 | `blocks` | list of ticket ids | no | sender (server mirrors) | Tickets waiting on this one |
 | `waiting_on` | list of ticket ids, instances or `human` | iff `blocked` | receiver | What the receiver waits for |
 | `budget` | map `{runs: int >= 1, max_model: fable\|opus\|sonnet\|haiku}` | yes | sender | Agent runs allowed and the heaviest model; default from `academy.json` `budget.ticketDefault` |
@@ -199,7 +200,7 @@ section 5.1 restricts to the receiver's neighbours in the chain (or the same rol
 | `referee` | → expert | the Author | a whole-paper referee packet |
 | `prove` | → researcher | the Expert (a repair after a review), or the Researcher itself | a proof, or a new argument the Author may not invent (an Author asks through `research`) |
 | `research` | → expert, then → researcher, relayed with `final_to` | the Author to the Expert; the Expert's research-intake to the Researcher | a research request (a new argument, an experiment) the Author may not invent; research-intake prepares it and relays it toward `final_to` (5.1) |
-| `note` | → author, informational | the Expert | a literature result the Author should know, unsolicited; lands with math-writer as a roadmap item |
+| `note` | → author, informational | the Expert | a literature result the Author should know, unsolicited; lands with math-writer |
 | `review-experiment` | → researcher | the Scientist | two experiment-reviewer runs on a finished report |
 | `generalize` | → researcher | the Researcher itself | conjectured generalizations of a reviewed experiment's `## Conclusion` (see 6.2) |
 | `experiment` | → scientist | only the Researcher, from its researcher -> scientist liaisons (5.1); the Scientist also to itself | a new experiment and its report |
@@ -207,6 +208,7 @@ section 5.1 restricts to the receiver's neighbours in the chain (or the same rol
 | `code` | → scientist | only the Researcher, from its researcher -> scientist liaisons (5.1); the Scientist also to itself (an "Upstream:" ticket) | developer or test-engineer work, including academy scripts |
 | `notation` | → expert / author | the Author to the Expert (a domain-notation change; the Scientist's goes through the Researcher with `final_to: expert`); the Expert or the Author itself to an Author | a domain-notation change or a project notation decision |
 | `build` / `figure` | → author | the Author itself, or the Expert | toolchain or figure work |
+| `write` / `apply` / `copy` / `sweep` | → author, the Author's own | the Author itself (filed with `board.py new`, the margin-notes skill or `agenda.py gaps --file`; `refs` carries the claim and `agenda` its entry; the Author has no roadmap, the board is its only queue) | prose, a mechanical edit, a copy-edit, or the note sweep, routed by kind to math-writer, math-editor or note-sweeper |
 | `decision` | → human, or → the claim-keeper via `claims_propose_status` | any role (`claims_propose_status` is exempt from the chain) | a choice only the receiver may make |
 | `question` | → a neighbour, or the same role | any role, within 5.1 | a question that needs more than a lookup |
 | `other` | → a neighbour, or the same role | any role, within 5.1 | anything else |
@@ -277,23 +279,23 @@ any non-terminal state --> cancelled (sender)
 
 Here is the full table (`TRANSITIONS` in the lib, `tickets.transitions` in
 permissions.json). **The human may make any transition**, including re-opening
-`closed` / `rejected` / `cancelled` to `open`.
+`closed` / `rejected` / `cancelled` to `open` and leaving a dead route (below).
 
 | From | To | Who | Also required |
 |---|---|---|---|
 | open | accepted | receiver | |
 | open | rejected | receiver | reason in thread |
-| open | blocked | receiver | `waiting_on` non-empty |
+| open | blocked | receiver | `waiting_on` non-empty, or a dead route (below) |
 | open | cancelled | sender | reason in thread |
 | accepted | in-progress | receiver | |
-| accepted | blocked | receiver | `waiting_on` non-empty |
+| accepted | blocked | receiver | `waiting_on` non-empty, or a dead route |
 | accepted | rejected | receiver | reason in thread |
 | accepted | cancelled | sender | reason in thread |
 | in-progress | delivered | receiver | `result` non-empty |
-| in-progress | blocked | receiver | `waiting_on` non-empty |
+| in-progress | blocked | receiver | `waiting_on` non-empty, or a dead route |
 | in-progress | cancelled | sender | reason in thread |
-| blocked | accepted | receiver | `waiting_on` cleared |
-| blocked | in-progress | receiver | `waiting_on` cleared |
+| blocked | accepted | receiver | `waiting_on` cleared; a dead route needs `--reopen` |
+| blocked | in-progress | receiver | `waiting_on` cleared (never a dead route, except by the human) |
 | blocked | cancelled | sender | reason in thread |
 | delivered | closed | sender | |
 | delivered | in-progress | sender | reason in thread ("returned") |
@@ -315,14 +317,60 @@ Terminal states: `closed`, `rejected`, `cancelled`.
 - The human may edit anything, in VS Code too. `ticket_edit_check` then validates
   the file (`validate_ticket`) and the append-only thread.
 
+**Two kinds of `blocked`**, told apart by their fields (receiver fields):
+
+| kind | fields | meaning | inbox |
+|---|---|---|---|
+| pending | `waiting_on` non-empty (ticket ids, instances or `human`) | waiting for a ticket, an instance or Roey | not taken; return legs as above |
+| dead route | `blocked_by` (a ticket or registry id: `T-0007`, `GEO-31`, `paper:lem:x`) and `reopen_if` (one line) | the route ends at a result as strong as the goal, or at a refutation; reopens only for a materially new mechanism, invariant or construction | never taken |
+
+- `blocked` needs `waiting_on` **or** both `blocked_by` and `reopen_if`; both kinds at
+  once is an error. A dead-route block also needs a thread line `tried: <what was
+  tried>` (`board.py transition ... blocked --blocked-by ID --reopen-if LINE --reason
+  "<what was tried>"` writes it); after a reopening the ticket needs a fresh `tried:` line
+  of its own for the next dead-route block. `blocked_by` must be a ticket id or a registry
+  id (`GEO-31`, `Q1`, `ns:id`), not free text. `validate_ticket` and the one shared rule
+  function (`apply_blocking`, used by `board.py transition` and the MCP `tickets_update`,
+  which write the same thread lines in the same order: `tried:`, `set blocked_by ...` or
+  `set waiting_on ...`, `reopened:`, then the status line) enforce this; the transitions
+  themselves are unchanged.
+- **Reopening** a dead-route ticket is `blocked -> accepted` by the receiver with
+  `--reopen "<the new mechanism>"` (MCP: `tickets_update` argument `reopen`); it
+  appends a `reopened: <mechanism>` thread line and clears both fields. Nothing else
+  reopens one (not `blocked -> in-progress`, not the sender). The sender may still
+  cancel, with a reason. A pending block reopens as before, with no `--reopen`, and
+  `--reopen` / `reopen` on anything but a dead route's `blocked -> accepted` is an error
+  (also without a status change).
+- **The human** may leave a dead route by any transition (`accepted`, `in-progress`,
+  `open`, `cancelled`, ...), giving a `--reason` (or `--reopen`) as the record: it clears
+  both fields, and a move to `accepted` writes it as the `reopened:` line. (`board-sync` exempts the human's move when the
+  event's sender is a configured human login or the new last thread entry is `human`'s; see
+  `docs/github-board.md`.)
+- In a campaign, an approach object's `blocked_by` / `reopen_if` are the same fields
+  with the same rules.
+
 **Blocking bookkeeping.** When a ticket enters `blocked` with a ticket id in
 `waiting_on`, the server adds this ticket's id to that ticket's `blocks`. When the
 awaited ticket closes, `session_start` lists the blocked tickets it frees; they are
 not auto-resumed.
 
-**Execution.** Nothing runs on its own. `/<role>:inbox` takes the receiver's `open`
-and `accepted` tickets, ordered by priority, then agenda position, then id. It
-handles at most `budget.itemsPerRun` (at most 3) of them, serially. Each ticket
+**Execution.** Nothing runs on its own. `/<role>:inbox` takes, in this order, the
+receiver's `in-progress` tickets (unfinished work is resumed before anything new
+starts), the relay parents ready for their return leg (5.2), then its `open` and
+`accepted` tickets, ordered by priority, then agenda position, then id. Blocked
+tickets are never taken except a return leg (a ticket carrying both `blocked_by` and
+`reopen_if` is a dead route and is never taken, return leg or not). It handles at most `budget.itemsPerRun` (at most 3) of them, serially, and after
+each one the ticket must be `delivered`, `blocked` with its reason, or `rejected`
+(`inbox.py --check T-NNNN`); an unfinished ticket is reported, not redispatched, and no
+other ticket is taken while it is unfinished. Selection, ordering, return legs and the
+checkpoint live once, in the academy library (`inbox_core` in `academy_common.py`); each
+role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
+`--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
+`--campaign <target>` lists only tickets carrying `campaign: <target>` and lifts the cap
+of 3 on its own (a campaign has its own caps; `--n` still lowers it). An in-progress ticket
+of the instance outside the campaign is not listed but is reported in `unfinished` (and as
+`outside_campaign` in `--json`): resume it first. `/academy:inbox` runs every instance in turn
+(Author, Expert, Researcher, Scientist) under one cap. Each ticket
 spends at most its own `budget.runs` agent runs at no heavier model than
 `budget.max_model`. If the ticket needs more, the receiver moves it to `blocked` with
 `waiting_on: [human]` and a thread line asking for more budget.
@@ -461,7 +509,7 @@ the packet's ticket: `- <date> human: decision on P-NNNN D<k>: (<letter>) <optio
 
 ### 6.4 A research request from the Author
 
-1. The Author's main session (`/author:next` files as `main`) or an Author agent
+1. The Author's main session (`/author:inbox` files as `main`) or an Author agent
    (math-writer, figure-maker) files a `research` ticket to the Expert with
    `final_to: researcher`.
 2. The Expert's inbox sees that `final_to` is not the Expert and hands it to

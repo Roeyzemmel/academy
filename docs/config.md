@@ -138,7 +138,7 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `itemsPerRun` | int 1..3 | 3 | Most tickets or agenda items one inbox or next run takes |
+| `itemsPerRun` | int 1..3 | 3 | Most tickets one inbox run takes (a campaign lifts the cap) |
 | `serial` | bool | true | Items run one after another |
 | `orchestratorModel` | model | `sonnet` | Model for skill orchestrators |
 | `maxModel` | model | `fable` | Heaviest model any agent in this home may use |
@@ -171,13 +171,15 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 | `writers` | list of bare agents | Agents whose SubagentStop triggers `build_gate` |
 | `bibWriters` | list of bare agents | Agents allowed to edit `paths.bib` (`bib_gate`) |
 
-**Required paths:** `tex`, `bib`, `drafts`, `agenda`, `roadmap`, `records`, `views`.
+**Required paths:** `tex`, `bib`, `drafts`, `agenda`, `records`, `views`. (`paths.roadmap`
+was required until 2026-09-30, when the roadmap was dropped and the board became the
+Author's only queue; a config that still has the key validates and the key is ignored.)
 
 ### `researcher`
 
 | Key | Type | Meaning |
 |---|---|---|
-| `objectKinds` | list | `definition claim conjecture question example assumption direction` |
+| `objectKinds` | list | `definition claim conjecture question example assumption direction` (`approach` too, for campaigns) |
 | `statusField` | str | The frontmatter key guarded by `status_guard` (`status`) |
 | `reviewsHome` | instance | Where proof reviews live (`expert@main`) |
 | `lab` | instance | The Scientist instance experiments go to |
@@ -256,7 +258,6 @@ a shim until phase 8.
     "bib": "references.bib",
     "drafts": "Drafts",
     "agenda": "Drafts/agenda.md",
-    "roadmap": "Drafts/roadmap.md",
     "records": "claims",
     "figures": "figures",
     "views": ["Drafts/statements.md", "Drafts/experiments.md", "Drafts/verdicts.md",

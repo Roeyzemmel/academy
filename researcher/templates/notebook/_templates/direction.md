@@ -7,6 +7,7 @@ depends_on: []
 bears_on: []
 supersedes: []
 lifecycle: active
+approach: {{approach}}
 aliases: []
 domain: {{domain}}
 tags: []

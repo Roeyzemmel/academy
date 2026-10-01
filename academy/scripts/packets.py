@@ -51,8 +51,9 @@ def write_packet(path, meta, body):
 
 
 def iter_packets(board):
-    """Yield ``(path, meta, body)`` for every packet under ``board/packets/``."""
-    root = os.path.join(board, "packets")
+    """Yield ``(path, meta, body)`` for every packet under ``board/packets/`` (``board``: a
+    directory or a store; packets are files on every backend)."""
+    root = os.path.join(ac.board_dir(board), "packets")
     rx = re.compile(r"^P-\d{4,}(?:-.*)?\.md$")
     if not os.path.isdir(root):
         return
@@ -89,9 +90,9 @@ def list_packets(board, only_open=False, instance=None):
 
 
 def get_packet(board, pid):
-    path = ac.find_packet(board, pid)
+    path = ac.find_packet(ac.board_dir(board), pid)
     if not path:
-        raise ac.AcademyError("no packet %s on %s" % (pid, board))
+        raise ac.AcademyError("no packet %s on %s" % (pid, ac.board_dir(board)))
     meta, body = read_packet(path)
     return path, meta, body
 
@@ -121,24 +122,26 @@ def create_packet(board, instance, title, kind="other", by=None, ticket=None,
         probs.append("## Decision must be empty at creation")
     if probs:
         raise ac.AcademyError("invalid packet: " + "; ".join(probs))
-    tpath = None
+    store = ac.as_store(board)
+    tref = None
     if ticket:
-        tpath = ac.find_ticket(board, ticket)
-        if not tpath:
+        tref = store.find(ticket)
+        if not tref:
             raise ac.AcademyError("no ticket %s on the board" % ticket)
-    pid = ac.allocate_id(board, "packet")
+    pid = ac.allocate_id(ac.board_dir(board), "packet")
     meta["packet"] = pid
-    path = os.path.join(board, "packets", instance, ac.packet_filename(pid, title))
+    path = os.path.join(ac.board_dir(board), "packets", instance,
+                        ac.packet_filename(pid, title))
     write_packet(path, meta, body)
-    if tpath:
-        tm, tb = boardlib.read_ticket(tpath)
+    if tref:
+        _r, tm, tb = store.get(ticket)
         pk = list(tm.get("packets") or [])
         if pid not in pk:
             pk.append(pid)
         tm["packets"] = pk
         tm["updated"] = date
         tb = ac.append_thread(tb, meta["by"], "packet %s filed: %s" % (pid, title), date)
-        boardlib.write_ticket(tpath, tm, tb)
+        store.save(tm, tb, tref)
     return path
 
 
@@ -189,8 +192,9 @@ def decide_packet(board, pid, choice, decision=None, comment="", date=None):
     write_packet(path, meta, body)
     tid = meta.get("ticket")
     if tid:
-        tpath = ac.find_ticket(board, tid)
-        if tpath:
+        store = ac.as_store(board)
+        tref = store.find(tid)
+        if tref:
             if letter == "other":
                 text = "decision on %s D%d: %s" % (pid, k, " ".join(comment.split()))
             elif letter == "ack":
@@ -200,10 +204,10 @@ def decide_packet(board, pid, choice, decision=None, comment="", date=None):
                                                         asked[k]["options"][letter])
             if comment.strip() and letter != "other":
                 text += "\n" + " ".join(comment.split())
-            tm, tb = boardlib.read_ticket(tpath)
+            _r, tm, tb = store.get(tid)
             tb = ac.append_thread(tb, ac.HUMAN, text, date)
             tm["updated"] = date
-            boardlib.write_ticket(tpath, tm, tb)
+            store.save(tm, tb, tref)
     return path, k, decided
 
 
@@ -235,7 +239,7 @@ def main(argv=None):
     boardlib._utf8_stdout()
     try:
         ws = boardlib._workspace_or_none(a.workspace)
-        board = boardlib.resolve_board(a.board, a.workspace)
+        board = boardlib.resolve_store(a.board, a.workspace)
         if a.cmd == "new":
             body = None
             if a.body:

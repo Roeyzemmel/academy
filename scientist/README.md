@@ -39,7 +39,7 @@ rule: `academy/references/roster-rules.md`, "Model fallback").
 | `check_experiments.py` | the lab's experiment-header checker, finding the lab from `--home` / `$ACADEMY_LAB_HOME` / the cwd, dirs from `academy.json` | `tests/test_check_experiments_home.py`; the rules: the lab's `tests/test_check_experiments.py` through its shim |
 | `report.py` | `check` / `render` / `file` the experiment-report packet from the header, the result JSON and the report draft; refuses without a type or `## Conclusion`; files the review ticket to the Researcher (`--ask-prefix` marks its ask) | `tests/test_report.py` (real result JSONs in `tests/fixtures/lab/`, golden in `tests/fixtures/expected/`) |
 | `lab.py` | `home`, `cmd <queue\|run\|vpn\|check>` (the command that runs it: `env.py` / the plugin checker, else the lab's scripts), `status` | `tests/test_lab_inbox.py` |
-| `inbox.py` | the ≤3 tickets to take and each one's route | `tests/test_lab_inbox.py` |
+| `inbox.py`, `routes.py` | the ≤3 tickets to take and each one's route; a wrapper over the academy's `inbox_core` | `tests/test_lab_inbox.py` |
 | `commit_gate.py` | PreToolUse `Bash\|PowerShell` hook on `git commit` in the lab repo | `tests/test_hooks.py` |
 | `experiment_edit_check.py` | PostToolUse hook: the header checker on an edited lab experiment | `tests/test_hooks.py` |
 | `_common.py` | lab scoping, the checker, git, commit-target parsing | via the above |

@@ -45,7 +45,7 @@ except ImportError:  # vendored copy
 
 TEMPLATES = os.path.join(PLUGIN, "templates", "academy-json")
 OBJECT_KINDS = ("definition", "claim", "conjecture", "question", "example",
-                "assumption", "direction")
+                "assumption", "direction", "approach")
 NOTEBOOK_DIRS = ("proofs", "journal", "audits", "views")
 NOTEBOOK_README = """# Notebook objects
 
