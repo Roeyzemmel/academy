@@ -130,6 +130,21 @@ class TestCodec(GithubBoardCase):
         _m2, b2 = bc.decode(issue_of(e), e["comments"] + ["lgtm, thanks"])
         self.assertEqual(ac.thread_lines(b), ac.thread_lines(b2))
 
+    def test_attribution_footer_is_not_thread_text(self):
+        # the github MCP appends its attribution footer to every comment it posts
+        self.make()
+        _p, m, b = next(iter(bd.iter_tickets(self.board)))
+        e = bc.encode(m, b)
+        posted = [c + bc.ATTRIBUTION_FOOTERS[0] for c in e["comments"]]
+        _m2, b2 = bc.decode(issue_of(e), posted)
+        self.assertEqual(ac.thread_lines(b), ac.thread_lines(b2))
+        crlf = [c.replace("\n", "\r\n") + "\r\n" for c in posted]
+        self.assertEqual(ac.thread_lines(b), ac.thread_lines(bc.decode(issue_of(e), crlf)[1]))
+
+    def test_footer_text_inside_an_entry_is_kept(self):
+        txt = "quoting it: " + bc.ATTRIBUTION_FOOTERS[0] + "\nand more"
+        self.assertEqual(txt, bc.strip_footer(txt))
+
     def test_check_transition_follows_the_protocol_table(self):
         self.assertEqual([], bc.check_transition("open", "accepted", "receiver"))
         self.assertTrue(bc.check_transition("open", "accepted", "sender"))
