@@ -293,6 +293,20 @@ class TestRouteLabel(GithubBoardCase):
                 r["parent"] = None
         self.assertTrue(any("#2: parent" in d for d in bv.verify(self.board, recs)))
 
+    def test_a_github_dump_gives_relations_as_issue_numbers(self):
+        # get_parent returns the parent's number, not its ticket id
+        self.make()
+        m = be.build(self.board)
+        recs = bv.from_manifest(m)
+        for r in recs:
+            r["parent"] = bc.ticket_number(r["parent"]) if r["parent"] else None
+            r["waits_on"] = [bc.ticket_number(t) for t in r["waits_on"]]
+        self.assertEqual([], bv.verify(self.board, recs))
+        for r in recs:
+            if r["issue"]["number"] == 2:
+                r["parent"] = 3
+        self.assertTrue(any("#2: parent" in d for d in bv.verify(self.board, recs)))
+
     def test_export_prints_the_counts_when_writing_the_manifest(self):
         self.make()
         out = os.path.join(self.tmp, "m.json")

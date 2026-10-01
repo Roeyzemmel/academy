@@ -50,6 +50,14 @@ def unverified_relations(records, key=None):
             and "placeholder" not in bc.label_names(r["issue"].get("labels"))]
 
 
+def _num(ref):
+    """An issue number from a relation reference: a dump gives numbers (``get_parent``),
+    a manifest gives ticket ids (``T-0055``)."""
+    if not ref:
+        return None
+    return ref if isinstance(ref, int) else bc.ticket_number(ref)
+
+
 def verify(board, records, relations=None):
     """List of drift messages (empty when the issues reproduce the board exactly).
 
@@ -84,10 +92,11 @@ def verify(board, records, relations=None):
                 out.append("#%d: rendered ticket differs from %s" % (n, os.path.basename(files[n])))
         if "parent" in r or "waits_on" in r:
             want = bc.encode(meta, body)
-            if "parent" in r and (r.get("parent") or None) != want["parent"]:
+            if "parent" in r and _num(r.get("parent")) != _num(want["parent"]):
                 out.append("#%d: parent is %s, the ticket says %s"
                            % (n, r.get("parent"), want["parent"]))
-            if "waits_on" in r and sorted(r.get("waits_on") or []) != sorted(want["waits_on"]):
+            if "waits_on" in r and (sorted(map(_num, r.get("waits_on") or []))
+                                    != sorted(map(_num, want["waits_on"]))):
                 out.append("#%d: waits_on is %s, the ticket says %s"
                            % (n, r.get("waits_on"), want["waits_on"]))
     for n in sorted(set(files) - seen):
