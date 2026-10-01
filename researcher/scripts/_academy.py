@@ -48,6 +48,7 @@ Shell commands (which repository a ``git commit`` runs in)
 """
 
 import datetime as _dt
+import fnmatch
 import hashlib
 import json
 import os
@@ -263,7 +264,7 @@ REQUIRED_PATHS = {
 REGISTRY_PROFILES = ("paper", "s1", "lab", "none")
 ENV_KINDS = ("wsl", "local", "ssh")
 POLICY_KEYS = ("probe", "test", "run")
-COMMIT_MODES = ("strict", "normal", "off")
+COMMIT_MODES = ("strict", "normal", "warn", "off")
 
 
 def _deep_merge(base, over):
@@ -393,13 +394,26 @@ def default_ticket_budget(config):
 
 
 def gate_mode(config, branch=None):
-    """The effective commit-gate mode for ``branch`` ('strict'|'normal'|'off')."""
+    """The effective commit-gate mode for ``branch`` ('strict'|'normal'|'warn'|'off').
+
+    ``gate.branches`` maps a branch name or a glob (``fnmatch``, case-sensitive; ``*``
+    also matches ``/``) to ``{"commit": mode}``. An exact-name key wins; otherwise the
+    first glob key, in the map's order, that matches ``branch``; otherwise
+    ``gate.commit`` (default 'normal'). Any configured string passes through.
+    """
     gate = config.get("gate") or {}
     mode = gate.get("commit", "normal")
-    if branch:
-        over = (gate.get("branches") or {}).get(branch)
-        if isinstance(over, dict) and "commit" in over:
-            mode = over["commit"]
+    if not branch:
+        return mode
+    branches = gate.get("branches") or {}
+    over = branches.get(branch)
+    if isinstance(over, dict) and "commit" in over:
+        return over["commit"]
+    for pattern, over in branches.items():
+        if pattern == branch or not isinstance(over, dict) or "commit" not in over:
+            continue
+        if fnmatch.fnmatchcase(branch, str(pattern)):
+            return over["commit"]
     return mode
 
 
