@@ -594,7 +594,59 @@ class ShipCheckpointHookTests(Board):
         self.assertEqual(self.calls(), [])
         self.assertEqual(err.strip(), "checkpoint not run: session is outside %s; run it by "
                          "hand: py scripts/ship.py checkpoint --ticket T-0001 --role researcher"
-                         % os.path.realpath(self.ws))
+                         " --only home board" % os.path.realpath(self.ws))
+
+    def session_at(self, *parts):
+        d = os.path.join(self.ws, *parts)
+        os.makedirs(d, exist_ok=True)
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d}):
+            return self.check("T-0001")
+
+    def test_a_worktree_session_inside_the_root_does_not_run_it(self):
+        self.put("T-0001", status="delivered")
+        for parts in ((".claude", "worktrees", "x"),               # a workspace worktree
+                      ("home", ".claude", "worktrees", "y"),       # ship.py start --worktree
+                      (".claude", "worktrees", "x", "home")):      # deeper inside one
+            code, out, err = self.session_at(*parts)
+            self.assertEqual(code, 0)
+            self.assertIn("checkpoint not run: session is outside", err, parts)
+            self.assertIn("--only home board", err)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_session_at_the_root_or_in_a_submodule_home_runs_it(self):
+        self.put("T-0001", status="delivered")
+        self.assertEqual(self.session_at()[0], 0)
+        self.assertEqual(self.session_at("home", "sub", "dir")[0], 0)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_without_a_scope_the_by_hand_command_still_names_only(self):
+        os.remove(os.path.join(self.ws, ".gitmodules"))
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("py scripts/ship.py checkpoint --ticket T-0001 --role researcher "
+                      "--only <your home submodule> board", err)
+
+    def test_exit_1_advice_is_scoped_and_names_start(self):
+        self.stub("fail")
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("exited 1", err)
+        self.assertIn("py scripts/ship.py start <sub> <topic>", err)
+        self.assertIn("py scripts/ship.py checkpoint --ticket T-0001 --role researcher "
+                      "--only home board", err)
+
+    def test_timeout_advice_is_scoped(self):
+        self.stub("sleep")
+        self.put("T-0001", status="delivered")
+        from unittest import mock
+        with mock.patch.object(core, "SHIP_TIMEOUT", 2):
+            code, out, err = self.check("T-0001")
+        self.assertIn("--only home board", err)
 
     def test_cwd_is_used_without_claude_project_dir(self):
         self.put("T-0001", status="delivered")

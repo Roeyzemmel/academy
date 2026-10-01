@@ -2169,7 +2169,8 @@ class inbox_core(object):
 
         Only for the workspace's own board, when ship.py exists, workspace.json does not
         say ``"shipCheckpoint": false``, and the session (``$CLAUDE_PROJECT_DIR``, else the
-        cwd) is inside the workspace root; otherwise one line says to run it by hand.
+        cwd) is inside the workspace root and not in a worktree under it
+        (``_session_inside``); otherwise one line gives the scoped command to run by hand.
         ``role``: given, else the role of ``instance``, else of the ticket's addressee. The
         repos (``--only``): the instance's home submodule, ``board``, and ``library`` for
         the Expert; a home that is no submodule leaves ``board`` only, said on stderr. Never
@@ -2254,15 +2255,15 @@ class inbox_core(object):
             sys.stderr.write("warning: ship.py checkpoint not run for %s: no role (%r)\n"
                              % (r["id"], role))
             return None
-        by_hand = "py scripts/ship.py checkpoint --ticket %s --role %s" % (r["id"], role)
-        here = os.path.normcase(os.path.realpath(os.environ.get("CLAUDE_PROJECT_DIR")
-                                                 or os.getcwd()))
-        top = os.path.normcase(root)
-        if not (here == top or here.startswith(top.rstrip(os.sep) + os.sep)):
+        only, note = inbox_core._ship_scope(root, ws, name, role)
+        # every by-hand command is scoped: the unscoped manual run sweeps every dirty
+        # submodule and is for the human or cloud session that owns the checkout
+        by_hand = "py scripts/ship.py checkpoint --ticket %s --role %s --only %s" % (
+            r["id"], role, " ".join(only) or "<your home submodule> board")
+        if not inbox_core._session_inside(root):
             sys.stderr.write("checkpoint not run: session is outside %s; run it by hand: %s\n"
                              % (root, by_hand))
             return None
-        only, note = inbox_core._ship_scope(root, ws, name, role)
         if not only:
             sys.stderr.write("checkpoint not run: no submodule of %s holds %s's work (%s); "
                              "run it by hand: %s\n" % (root, r["id"], note, by_hand))
@@ -2281,20 +2282,38 @@ class inbox_core(object):
                                    stderr=subprocess.STDOUT, timeout=inbox_core.SHIP_TIMEOUT)
             except subprocess.TimeoutExpired:
                 sys.stderr.write("warning: ship.py checkpoint for %s timed out after %ss; "
-                                 "run it by hand\n" % (r["id"], inbox_core.SHIP_TIMEOUT))
+                                 "run it by hand: %s\n"
+                                 % (r["id"], inbox_core.SHIP_TIMEOUT, by_hand))
                 return None
             except OSError as exc:
-                sys.stderr.write("warning: ship.py checkpoint for %s could not start: %s\n"
-                                 % (r["id"], exc))
+                sys.stderr.write("warning: ship.py checkpoint for %s could not start: %s; "
+                                 "run it by hand: %s\n" % (r["id"], exc, by_hand))
                 return None
             log.seek(0)
             text = log.read().decode("utf-8", "replace")
         if out is not None and text:
             out.write(text if text.endswith("\n") else text + "\n")
         if p.returncode != 0:
-            sys.stderr.write("warning: ship.py checkpoint for %s exited %d; see its output "
-                             "and run it by hand\n" % (r["id"], p.returncode))
+            sys.stderr.write("warning: checkpoint for %s exited %d (see its output). If a "
+                             "repo is dirty on main: start a branch first with py "
+                             "scripts/ship.py start <sub> <topic>, then re-run: %s\n"
+                             % (r["id"], p.returncode, by_hand))
         return p.returncode
+
+    @staticmethod
+    def _session_inside(root):
+        """Whether this session (``$CLAUDE_PROJECT_DIR``, else the cwd) works in the
+        checkout at ``root``: at or under it, and not inside a worktree kept under it
+        (a ``.claude/worktrees`` segment: Claude Code's workspace worktrees and
+        ``ship.py start --worktree``'s submodule worktrees are separate checkouts)."""
+        here = os.path.normcase(os.path.realpath(os.environ.get("CLAUDE_PROJECT_DIR")
+                                                 or os.getcwd()))
+        top = os.path.normcase(os.path.realpath(root))
+        if here != top and not here.startswith(top.rstrip(os.sep) + os.sep):
+            return False
+        parts = os.path.relpath(here, top).split(os.sep)
+        return not any(a == os.path.normcase(".claude") and b == "worktrees"
+                       for a, b in zip(parts, parts[1:]))
 
     @staticmethod
     def parser(description, prog=None):

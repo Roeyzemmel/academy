@@ -371,7 +371,9 @@ push the ticket's work on its branch. The repos are the instance's home submodul
 not a submodule); under `--only` no other repo is touched and a dirty repo still on
 `main` is refused, not moved. Skipped when that script is absent, when workspace.json
 says `"shipCheckpoint": false`, or when the session (`$CLAUDE_PROJECT_DIR`, else the cwd)
-is outside the workspace root (one stderr line gives the command to run by hand). Never
+is outside the workspace root or in a worktree under it (a `.claude/worktrees` path
+segment); one stderr line then gives the command to run by hand, always with the same
+`--only` (the unscoped manual run is for the session that owns the checkout). Never
 fatal: anything that goes wrong is one warning line on stderr, and the exit code is
 `--check`'s, unchanged. Selection, ordering, return legs and the
 checkpoint live once, in the academy library (`inbox_core` in `academy_common.py`); each
