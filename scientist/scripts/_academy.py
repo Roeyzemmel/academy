@@ -33,6 +33,7 @@ Inbox (one core, thin per-role wrappers)
     inbox_core.select(board, instance, limit, all=False, route=..., campaign=None)
     inbox_core.serial_checkpoint(meta) / check(board, tid), is_dead_route(meta)
     inbox_core.parser(desc) / run(args, instance, board, limit, route)   the shared CLI
+    inbox_core.ship_checkpoint(...)  a finished --check runs the workspace's ship.py checkpoint
 Packets
     PACKET_KEY_ORDER, validate_packet, packet_decisions, packet_answers,
     record_decision, packet_is_decided, packet_filename, find_packet
@@ -2152,6 +2153,72 @@ class inbox_core(object):
     def check(board, tid):
         return inbox_core.serial_checkpoint(as_store(board).get(tid)[1])
 
+    #: seconds the workspace's ship.py checkpoint may take before it is abandoned
+    SHIP_TIMEOUT = 120
+    #: the ticket states (``serial_checkpoint``) after which the role's work is finished
+    SHIP_STATES = ("delivered", "rejected")
+
+    @staticmethod
+    def ship_checkpoint(args, instance, board, r, role=None, out=None):
+        """After ``--check`` found ticket ``r`` finished (delivered or closed, rejected or
+        cancelled, with no problem), run ``<workspace>/scripts/ship.py checkpoint --ticket
+        <id> --role <role>`` in the workspace root, so the ticket's work is committed and
+        pushed on its own branch. Only for the workspace's own board, when ship.py exists and
+        workspace.json does not say ``"shipCheckpoint": false``. ``role``: given, else the
+        role of ``instance``, else of the ticket's addressee. Never fatal: a failure or a
+        timeout is one warning line on stderr; the --check result is unchanged."""
+        if r["unfinished"] or r["state"] not in inbox_core.SHIP_STATES:
+            return None
+        try:
+            ws = load_workspace(getattr(args, "workspace", None))
+            if not _same_file(board_dir(board), ws["board"]):
+                return None
+        except AcademyError:
+            return None
+        if ws.get("shipCheckpoint") is False:
+            return None
+        root = os.path.dirname(ws["_path"])
+        ship = os.path.join(root, "scripts", "ship.py")
+        if not os.path.isfile(ship):
+            return None
+        insts = ws.get("instances", {})
+        if not role:
+            to = instance or ""
+            if not to:
+                try:
+                    to = as_store(board).get(r["id"])[1].get("to") or ""
+                except (AcademyError, OSError):
+                    to = ""
+            role = (insts.get(to) or {}).get("role") or to.split("@", 1)[0]
+        if role not in ROLES:
+            sys.stderr.write("warning: ship.py checkpoint not run for %s: no role (%r)\n"
+                             % (r["id"], role))
+            return None
+        import subprocess
+        cmd = [sys.executable, ship, "checkpoint", "--ticket", r["id"], "--role", role]
+        # output goes to a file, not a pipe: a git grandchild holding a pipe open would
+        # outlive the timeout's kill and hang the read
+        with tempfile.TemporaryFile() as log:
+            try:
+                p = subprocess.run(cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=log,
+                                   stderr=subprocess.STDOUT, timeout=inbox_core.SHIP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                sys.stderr.write("warning: ship.py checkpoint for %s timed out after %ss; "
+                                 "run it by hand\n" % (r["id"], inbox_core.SHIP_TIMEOUT))
+                return None
+            except OSError as exc:
+                sys.stderr.write("warning: ship.py checkpoint for %s could not start: %s\n"
+                                 % (r["id"], exc))
+                return None
+            log.seek(0)
+            text = log.read().decode("utf-8", "replace")
+        if out is not None and text:
+            out.write(text if text.endswith("\n") else text + "\n")
+        if p.returncode != 0:
+            sys.stderr.write("warning: ship.py checkpoint for %s exited %d; see its output "
+                             "and run it by hand\n" % (r["id"], p.returncode))
+        return p.returncode
+
     @staticmethod
     def parser(description, prog=None):
         import argparse
@@ -2174,15 +2241,18 @@ class inbox_core(object):
 
     @staticmethod
     def run(args, instance, board, budget_limit, route, out=None, position=None,
-            return_legs=True, position_first=False, extra=None, header=None):
+            return_legs=True, position_first=False, extra=None, header=None, role=None):
         """Print the inbox of ``instance``; exit 0 with rows, 1 empty, 3 for --check
         on an unfinished ticket. ``header`` = ``{"json": {...}, "text": [lines]}`` is what
-        a wrapper reports before the rows (the Author's sweep step, its waiting lists)."""
+        a wrapper reports before the rows (the Author's sweep step, its waiting lists).
+        A --check that finds the ticket finished runs ``ship_checkpoint`` (``role`` is the
+        wrapper's role when ``instance`` is not resolved)."""
         out = out or sys.stdout
         if args.check:
             r = inbox_core.check(board, args.check)
             out.write("%s: %s (%s)%s\n" % (r["id"], r["state"], r["status"],
                                            ("; " + r["problem"]) if r["problem"] else ""))
+            inbox_core.ship_checkpoint(args, instance, board, r, role=role, out=out)
             return 3 if r["unfinished"] else 0
         if args.campaign:
             # a campaign lifts the cap of 3 (docs/protocol.md): --n alone bounds it

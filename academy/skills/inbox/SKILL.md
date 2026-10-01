@@ -53,7 +53,9 @@ cap.
 plugin>/scripts/inbox.py --instance <name> --check T-NNNN`: exit 0 means delivered,
 blocked with its reason or rejected. Exit 3 means unfinished: report it, do not
 redispatch it in this run, and take nothing more from that instance while it is
-unfinished (it comes first next run). Then take the next row. Tickets a role files while
+unfinished (it comes first next run). A finished ticket's `--check` also runs the
+workspace's `scripts/ship.py checkpoint` (commit and push its work; a warning on failure,
+`docs/protocol.md` section 4). Then take the next row. Tickets a role files while
 running (a relay, a child) are picked up by the run that reaches their receiver; do not
 restart from the top.
 

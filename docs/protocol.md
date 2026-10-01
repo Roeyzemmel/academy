@@ -362,7 +362,13 @@ tickets are never taken except a return leg (a ticket carrying both `blocked_by`
 `reopen_if` is a dead route and is never taken, return leg or not). It handles at most `budget.itemsPerRun` (at most 3) of them, serially, and after
 each one the ticket must be `delivered`, `blocked` with its reason, or `rejected`
 (`inbox.py --check T-NNNN`); an unfinished ticket is reported, not redispatched, and no
-other ticket is taken while it is unfinished. Selection, ordering, return legs and the
+other ticket is taken while it is unfinished. When the checkpoint finds the ticket
+finished (`delivered` or `closed`, `rejected` or `cancelled`; not `blocked`) on the
+workspace's own board, it runs the workspace's `scripts/ship.py checkpoint --ticket
+T-NNNN --role <role>` (in the workspace root, 120 s timeout) to commit and push the
+ticket's work on its branch; skipped when that script is absent or workspace.json says
+`"shipCheckpoint": false`, and never fatal (a failure is one warning line on stderr,
+the exit code is the checkpoint's). Selection, ordering, return legs and the
 checkpoint live once, in the academy library (`inbox_core` in `academy_common.py`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,

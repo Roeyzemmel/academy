@@ -403,5 +403,149 @@ class CliTests(Board):
         self.assertEqual(data["take"][0]["id"], "T-0001")
 
 
+STUB = r'''import json, os, sys, time
+mode = %r
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "calls.log"), "a") as f:
+    f.write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd()}) + "\n")
+if mode == "sleep":
+    time.sleep(30)
+print("checkpoint stub: pushed")
+sys.exit(1 if mode == "fail" else 0)
+'''
+
+
+class ShipCheckpointHookTests(Board):
+    """``--check`` on a ticket settled as finished runs the workspace's
+    ``scripts/ship.py checkpoint --ticket <id> --role <role>`` (non-fatal, never for an
+    unfinished or blocked ticket, a board that is not the workspace's, an absent ship.py,
+    or ``"shipCheckpoint": false``)."""
+
+    def setUp(self):
+        self.ws = tempfile.mkdtemp(prefix="inbox-ws-")
+        self.board = os.path.join(self.ws, "board")
+        os.makedirs(self.board)
+        os.makedirs(os.path.join(self.ws, "scripts"))
+        self.write_ws()
+        self.stub("ok")
+
+    def tearDown(self):
+        shutil.rmtree(self.ws, ignore_errors=True)
+
+    def write_ws(self, **extra):
+        doc = {"board": self.board.replace("\\", "/"),
+               "instances": {INST: {"role": "researcher", "home": self.ws + "/home",
+                                    "domains": ["d"]},
+                             "author@t": {"role": "author", "home": self.ws + "/a",
+                                          "domains": ["d"]}}}
+        doc.update(extra)
+        with open(os.path.join(self.ws, "workspace.json"), "w") as f:
+            json.dump(doc, f)
+
+    def stub(self, mode):
+        with open(os.path.join(self.ws, "scripts", "ship.py"), "w") as f:
+            f.write(STUB % mode)
+
+    def calls(self):
+        log = os.path.join(self.ws, "scripts", "calls.log")
+        if not os.path.isfile(log):
+            return []
+        with open(log) as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+    def check(self, tid, board=None, instance=INST, **kw):
+        args = core.parser("d").parse_args(["--check", tid, "--workspace",
+                                            os.path.join(self.ws, "workspace.json")])
+        out, err = io.StringIO(), io.StringIO()
+        from unittest import mock
+        with mock.patch("sys.stderr", err):
+            code = core.run(args, instance, board or self.board, 3, route, out=out, **kw)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_delivered_ticket_runs_checkpoint_once(self):
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        calls = self.calls()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["argv"],
+                         ["checkpoint", "--ticket", "T-0001", "--role", "researcher"])
+        self.assertEqual(os.path.normcase(os.path.realpath(calls[0]["cwd"])),
+                         os.path.normcase(os.path.realpath(self.ws)))
+        self.assertEqual(err, "")
+
+    def test_closed_rejected_cancelled_run_checkpoint(self):
+        for i, st in enumerate(("closed", "rejected", "cancelled"), 1):
+            self.put("T-000%d" % i, status=st)
+            self.assertEqual(self.check("T-000%d" % i)[0], 0)
+        self.assertEqual([c["argv"][2] for c in self.calls()], ["T-0001", "T-0002", "T-0003"])
+
+    def test_unfinished_blocked_and_problem_tickets_do_not_run_it(self):
+        self.put("T-0001", status="in-progress")
+        self.put("T-0002", status="blocked", waiting_on=["human"])
+        self.put("T-0003", status="delivered")
+        self.write_ticket_without_result("T-0003")
+        self.assertEqual(self.check("T-0001")[0], 3)
+        self.assertEqual(self.check("T-0002")[0], 0)
+        self.assertEqual(self.check("T-0003")[0], 3)
+        self.assertEqual(self.calls(), [])
+
+    def write_ticket_without_result(self, tid):
+        store = ac.as_store(self.board)
+        ref, meta, body = store.get(tid)
+        meta.pop("result", None)
+        store.save(meta, body, ref=ref)
+
+    def test_opt_out_key_disables_it(self):
+        self.write_ws(shipCheckpoint=False)
+        self.put("T-0001", status="delivered")
+        self.assertEqual(self.check("T-0001")[0], 0)
+        self.assertEqual(self.calls(), [])
+
+    def test_absent_ship_py_is_silent(self):
+        os.remove(os.path.join(self.ws, "scripts", "ship.py"))
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual((code, err), (0, ""))
+
+    def test_other_board_than_the_workspace_one_does_not_run_it(self):
+        other = tempfile.mkdtemp(prefix="inbox-other-")
+        self.addCleanup(shutil.rmtree, other, True)
+        saved, self.board = self.board, other
+        self.put("T-0001", status="delivered")
+        self.board = saved
+        self.assertEqual(self.check("T-0001", board=other)[0], 0)
+        self.assertEqual(self.calls(), [])
+
+    def test_failure_is_a_warning_and_keeps_the_exit_code(self):
+        self.stub("fail")
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.calls()), 1)
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("warning", err)
+        self.assertIn("T-0001: delivered", out)
+
+    def test_timeout_is_a_warning_and_keeps_the_exit_code(self):
+        self.stub("sleep")
+        self.put("T-0001", status="delivered")
+        from unittest import mock
+        with mock.patch.object(core, "SHIP_TIMEOUT", 2):
+            code, out, err = self.check("T-0001")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("timed out", err)
+
+    def test_role_without_instance_comes_from_the_addressee(self):
+        self.put("T-0001", status="delivered", to="author@t", frm=INST)
+        self.assertEqual(self.check("T-0001", instance="")[0], 0)
+        self.assertEqual(self.calls()[0]["argv"][-1], "author")
+
+    def test_explicit_role_wins(self):
+        self.put("T-0001", status="delivered")
+        self.assertEqual(self.check("T-0001", instance="", role="author")[0], 0)
+        self.assertEqual(self.calls()[0]["argv"][-1], "author")
+
+
 if __name__ == "__main__":
     unittest.main()
