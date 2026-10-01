@@ -11,7 +11,10 @@ decodes ``\\uXXXX`` text in parameters.
 
 ``run`` is injectable: ``run(args, stdin_text) -> (returncode, stdout, stderr)``; the tests
 pass a fake. Transient failures (HTTP 5xx, 429, connection errors) are retried up to four
-times with backoff 2, 4, 8, 16 s; any other failure raises ``GhError``.
+times with backoff 2, 4, 8, 16 s; a secondary rate limit (GitHub blocks bursts of content
+creation: the live run met it after ~350 writes in 7 minutes) is waited out for 1, 2, 4, 8
+and 15 minutes; any other failure raises ``GhError``. Writes are spaced ``write_interval``
+seconds apart (default 1 s, GitHub's guidance for content creation).
 """
 
 import json
@@ -20,6 +23,11 @@ import time
 
 API_VERSION = "2022-11-28"
 RETRY_DELAYS = (2, 4, 8, 16)
+#: waits after a secondary rate limit ("blocked from content creation"), which lasts minutes
+RATE_LIMIT_DELAYS = (60, 120, 240, 480, 900)
+#: seconds between writes (GitHub: at least one second between content-creating requests)
+WRITE_INTERVAL = 1.0
+RATE_LIMITED = ("secondary rate limit", "rate limit exceeded")
 TRANSIENT = ("HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 429",
              "connection reset", "connection refused", "timeout", "EOF", "TLS handshake")
 
@@ -44,12 +52,16 @@ def _status(err):
 
 
 class GhTransport(object):
-    def __init__(self, repo, run=None, sleep=time.sleep):
+    def __init__(self, repo, run=None, sleep=time.sleep, clock=time.monotonic,
+                 write_interval=WRITE_INTERVAL):
         if repo.count("/") != 1:
             raise ValueError("repo must be OWNER/NAME, got %r" % repo)
         self.repo = repo
         self.run = run or _run_gh
         self.sleep = sleep
+        self.clock = clock
+        self.write_interval = write_interval
+        self._last_write = None
         self._ids = {}
 
     # -- plumbing -------------------------------------------------------------
@@ -62,17 +74,35 @@ class GhTransport(object):
         if payload is not None:
             args += ["--input", "-"]
             stdin = json.dumps(payload, ensure_ascii=False)
-        for attempt in range(len(RETRY_DELAYS) + 1):
+        transient = limited = 0
+        while True:
+            if method != "GET":
+                self._space()
             code, out, err = self.run(args, stdin)
             if code == 0:
                 return json.loads(out) if out.strip() else None
-            status = _status(err + out)
+            text = err + out
+            status = _status(text)
             if status == 404 and missing_ok:
                 return None
-            if attempt < len(RETRY_DELAYS) and any(t in err + out for t in TRANSIENT):
-                self.sleep(RETRY_DELAYS[attempt])
+            if any(t in text.lower() for t in RATE_LIMITED) and limited < len(RATE_LIMIT_DELAYS):
+                self.sleep(RATE_LIMIT_DELAYS[limited])
+                limited += 1
+                continue
+            if any(t in text for t in TRANSIENT) and transient < len(RETRY_DELAYS):
+                self.sleep(RETRY_DELAYS[transient])
+                transient += 1
                 continue
             raise GhError("%s %s: %s" % (method, path, (err or out).strip()), status)
+
+    def _space(self):
+        now = self.clock()
+        if self._last_write is not None and self.write_interval:
+            wait = self.write_interval - (now - self._last_write)
+            if wait > 0:
+                self.sleep(wait)
+                now += wait
+        self._last_write = now
 
     def _id(self, number):
         if number not in self._ids:

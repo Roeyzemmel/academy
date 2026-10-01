@@ -212,6 +212,26 @@ class TestGhTransport(unittest.TestCase):
             t.create_label("x")
         self.assertEqual(422, e.exception.status)
 
+    def test_a_secondary_rate_limit_is_waited_out(self):
+        slept = []
+        msg = ("gh: You have exceeded a secondary rate limit and have been temporarily "
+               "blocked from content creation. (HTTP 403)")
+        fake = FakeGh([(1, "", msg), (0, json.dumps({"id": 1}), "")])
+        t = gh.GhTransport("me/repo", run=fake, sleep=slept.append, write_interval=0)
+        t.add_comment(3, "x")
+        self.assertEqual([gh.RATE_LIMIT_DELAYS[0]], slept)
+
+    def test_writes_are_spaced(self):
+        slept, now = [], [100.0]
+        fake = FakeGh([(0, "{}", "")] * 3)
+        t = gh.GhTransport("me/repo", run=fake, sleep=slept.append, clock=lambda: now[0],
+                           write_interval=1.0)
+        t.add_comment(1, "a")
+        t.add_comment(1, "b")                 # no time passed: waits a full interval
+        now[0] += 5
+        t.add_comment(1, "c")                 # enough time passed: no wait
+        self.assertEqual([1.0], slept)
+
     def test_missing_parent_is_none(self):
         t = gh.GhTransport("me/repo", run=FakeGh([(1, "", "gh: Not Found (HTTP 404)")]))
         self.assertIsNone(t.get_parent(7))
