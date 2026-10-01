@@ -12,8 +12,9 @@ Exit 1 on any drift. Placeholders are checked to be closed.
 Relations (sub-issue ``parent``, dependency ``waits_on``): a manifest is checked completely
 (each issue's ``parent`` / ``waits_on`` and the manifest's ``relations`` list must equal what
 the ticket files give). An issues dump is checked only when its records carry ``parent`` /
-``waits_on`` (the runbook adds them from the native links); without them the relations are
-**unverified** and ``main`` says so.
+``waits_on`` (the runbook adds ``parent`` from the native links; the github MCP cannot read
+dependencies, so its dumps leave ``waits_on`` out). Each key is checked only where a record
+has it; without it that relation is **unverified** and ``main`` says so.
 """
 
 import argparse
@@ -37,10 +38,15 @@ def from_manifest(m):
             for i in m["issues"]]
 
 
-def unverified_relations(records):
-    """Numbers of the records that carry no relation data (their links are not checked)."""
+def unverified_relations(records, key=None):
+    """Numbers of the records that carry no relation data (their links are not checked).
+
+    With ``key`` (``parent`` or ``waits_on``), the records that lack that one key: a dump
+    from the github MCP has ``parent`` but cannot read dependencies, so ``waits_on`` is
+    checked only where the dump has it."""
+    keys = (key,) if key else ("parent", "waits_on")
     return [r["issue"]["number"] for r in records
-            if "parent" not in r and "waits_on" not in r
+            if all(k not in r for k in keys)
             and "placeholder" not in bc.label_names(r["issue"].get("labels"))]
 
 
@@ -78,10 +84,10 @@ def verify(board, records, relations=None):
                 out.append("#%d: rendered ticket differs from %s" % (n, os.path.basename(files[n])))
         if "parent" in r or "waits_on" in r:
             want = bc.encode(meta, body)
-            if (r.get("parent") or None) != want["parent"]:
+            if "parent" in r and (r.get("parent") or None) != want["parent"]:
                 out.append("#%d: parent is %s, the ticket says %s"
                            % (n, r.get("parent"), want["parent"]))
-            if sorted(r.get("waits_on") or []) != sorted(want["waits_on"]):
+            if "waits_on" in r and sorted(r.get("waits_on") or []) != sorted(want["waits_on"]):
                 out.append("#%d: waits_on is %s, the ticket says %s"
                            % (n, r.get("waits_on"), want["waits_on"]))
     for n in sorted(set(files) - seen):
@@ -111,10 +117,11 @@ def main(argv=None):
                    data.get("relations", []) if a.manifest else None)
     for d in drift:
         print(d)
-    skipped = unverified_relations(recs)
-    if skipped:
-        print("note: relations (parent, waits_on) of %d issue(s) are unverified: the dump "
-              "carries no link data" % len(skipped))
+    for key in ("parent", "waits_on"):
+        skipped = unverified_relations(recs, key)
+        if skipped:
+            print("note: %s of %d issue(s) is unverified: the dump carries no %s data"
+                  % (key, len(skipped), key))
     print("%d issue(s) checked, %d drift" % (len(recs), len(drift)))
     return 1 if drift else 0
 

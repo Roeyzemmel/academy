@@ -3,6 +3,8 @@
 Run from the repo root:  py -m unittest discover academy/tests
 """
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -260,6 +262,30 @@ class TestRouteLabel(GithubBoardCase):
         self.assertTrue(any("#2: parent" in d for d in bv.verify(self.board, recs)))
         bare = [{"issue": r["issue"], "comments": r["comments"]} for r in recs]
         self.assertEqual([1, 2, 3], bv.unverified_relations(bare))
+
+    def test_a_dump_with_parent_only_checks_parent_and_not_waits_on(self):
+        # the github MCP reads sub-issue parents but not dependencies
+        self.make()
+        m = be.build(self.board)
+        recs = bv.from_manifest(m)
+        for r in recs:
+            r.pop("waits_on")
+        self.assertEqual([], bv.verify(self.board, recs))
+        self.assertEqual([], bv.unverified_relations(recs, "parent"))
+        self.assertEqual([1, 2, 3], bv.unverified_relations(recs, "waits_on"))
+        for r in recs:
+            if r["issue"]["number"] == 2:
+                r["parent"] = None
+        self.assertTrue(any("#2: parent" in d for d in bv.verify(self.board, recs)))
+
+    def test_export_prints_the_counts_when_writing_the_manifest(self):
+        self.make()
+        out = os.path.join(self.tmp, "m.json")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            be.main(["--board", self.board, "--out", out])
+        self.assertTrue(os.path.exists(out))
+        self.assertIn('"tickets"', buf.getvalue())
 
     def test_export_of_a_board_without_dead_routes_has_no_route_label(self):
         self.make()

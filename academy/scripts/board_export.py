@@ -84,9 +84,9 @@ def main(argv=None):
         with open(a.out, "w", encoding="utf-8") as fh:
             json.dump(m, fh, ensure_ascii=False, indent=1)
             fh.write("\n")
-    if a.summary or not a.out:
-        json.dump(m["summary"], sys.stdout, indent=1)
-        sys.stdout.write("\n")
+    # The counts are always printed: the runbook reads them after writing --out.
+    json.dump(m["summary"], sys.stdout, indent=1)
+    sys.stdout.write("\n")
     return 1 if m["summary"]["unreadable"] or m["summary"]["problems"] else 0
 
 
