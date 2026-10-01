@@ -310,6 +310,28 @@ class WorkspaceTests(TempDir):
                          os.path.join(self.tmp, "paper"))
         self.assertEqual(ac.env_home_name("researcher@alpha"), "ACADEMY_HOME_RESEARCHER_ALPHA")
 
+    def test_one_instance_per_role_and_home(self):
+        ws = json.load(open(self.fixture_workspace(), encoding="utf-8"))
+        ws["instances"]["researcher@gamma"] = dict(ws["instances"]["researcher@beta"])
+        path = self.write("dup/workspace.json", json.dumps(ws))
+        with self.assertRaises(ac.ConfigError) as cm:
+            ac.load_workspace(path)
+        self.assertIn("same role and home", str(cm.exception))
+
+    def test_validate_ticket_resolves_parties_against_the_workspace(self):
+        ws = ac.load_workspace(self.fixture_workspace())
+        meta = {"id": "T-0001", "title": "t", "kind": "question", "from": "author@main",
+                "to": "researcher@beta", "status": "open", "priority": "normal",
+                "ask": "a", "deliverable": "d", "budget": {"runs": 1, "max_model": "sonnet"},
+                "created": "2026-09-28", "updated": "2026-09-28"}
+        self.assertEqual(ac.validate_ticket(meta, workspace=ws), [])
+        meta["to"] = "researcher@bi"            # renamed away: a dead letter
+        meta["final_to"] = "expert@gone"
+        probs = ac.validate_ticket(meta, workspace=ws)
+        self.assertTrue(any("to 'researcher@bi'" in p for p in probs), probs)
+        self.assertTrue(any("final_to 'expert@gone'" in p for p in probs), probs)
+        self.assertEqual(ac.validate_ticket(meta), [])      # no workspace: unchanged
+
     def test_default_lookup_is_beside_the_academy(self):
         # the workspace layout: <workspace>/workspace.json and <workspace>/academy
         os.makedirs(os.path.join(self.tmp, "academy"))

@@ -71,6 +71,13 @@ def replace_section(body, heading, text):
 def create_ticket(ctx, a, clerical=False):
     """Create a ticket from ``a`` (title, kind, to, ask, deliverable, ...)."""
     sender, agent = ctx.filer(bool(a.get("as_human")))
+    if sender == ac.HUMAN and not a.get("as_human") and a.get("on_behalf_of"):
+        # a main session outside every home would stamp 'from: human' on work an instance
+        # did (T-0065/T-0066); a caller that knows the instance says so
+        if a["on_behalf_of"] not in ctx.instances():
+            raise ToolError("on_behalf_of must be a workspace instance, got %r"
+                            % a["on_behalf_of"])
+        sender, agent = a["on_behalf_of"], ac.MAIN_AGENT
     if not sender:
         raise ToolError("agent %r runs outside every academy home; it cannot file tickets"
                         % ctx.agent)

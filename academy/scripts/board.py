@@ -209,9 +209,40 @@ def append_to_ticket(board, tid, text, as_instance=ac.HUMAN, agent="", date=None
     return store.save(meta, body, path)
 
 
+def reassign_ticket(board, tid, new_to, reason, as_instance=ac.HUMAN, agent="",
+                    workspace=None, date=None):
+    """Re-address ticket ``tid`` to ``new_to``: rewrite ``to``, move it to its new
+    addressee (``board/<new_to>/`` on the file board; the store relocates it on either
+    backend) and log it, as one step. Human only (``to`` is a human-only field); the
+    reason is required. Returns the new ref."""
+    if as_instance != ac.HUMAN:
+        raise ac.AcademyError("%s: only the human re-addresses a ticket" % tid)
+    if not (reason or "").strip():
+        raise ac.AcademyError("%s: reassign needs a reason" % tid)
+    ws = workspace if workspace is not None else _workspace_or_none()
+    _check_party(new_to, ws, "new addressee")
+    store = ac.as_store(board)
+    path, meta, body = store.get(tid)
+    old_to = meta.get("to")
+    if old_to == new_to:
+        return path
+    if meta.get("status") in ("delivered", "closed", "rejected", "cancelled"):
+        raise ac.AcademyError("%s is %s; a finished ticket is not re-addressed"
+                              % (tid, meta["status"]))
+    date = date or ac.today()
+    meta["to"] = new_to
+    meta["updated"] = date
+    body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent)),
+                            "reassigned %s -> %s: %s" % (old_to, new_to, reason.strip()), date)
+    probs = ac.validate_ticket(meta, body, ws)
+    if probs:
+        raise ac.AcademyError("%s would be invalid: %s" % (tid, "; ".join(probs)))
+    return store.save(meta, body, path, relocate=True)
+
+
 def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
                       as_instance=ac.HUMAN, agent="", date=None, blocked_by=None,
-                      reopen_if=None, reopen=None):
+                      reopen_if=None, reopen=None, workspace=None):
     """Move a ticket to ``new`` under the lifecycle rules. Returns the path.
 
     Raises AcademyError when the caller may not make the move or a requirement
@@ -258,7 +289,7 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
     if (reason or "").strip() and not (new == "blocked" and ac.is_dead_route(meta)):
         line += ": " + reason.strip()
     body = ac.append_thread(body, who, line, date)
-    probs = ac.validate_ticket(meta, body)
+    probs = ac.validate_ticket(meta, body, workspace)
     if probs:
         raise ac.AcademyError("%s would be invalid: %s" % (tid, "; ".join(probs)))
     path = store.save(meta, body, path)
@@ -329,6 +360,12 @@ def main(argv=None):
     p.add_argument("--as", dest="as_instance", default=ac.HUMAN)
     p.add_argument("--agent", default="")
 
+    p = sub.add_parser("reassign", help="re-address a ticket to another instance (human only)")
+    p.add_argument("id"); p.add_argument("--to", required=True)
+    p.add_argument("--reason", required=True)
+    p.add_argument("--as", dest="as_instance", default=ac.HUMAN)
+    p.add_argument("--agent", default="")
+
     p = sub.add_parser("append", help="append a line to a ticket's thread")
     p.add_argument("id"); p.add_argument("--text", required=True)
     p.add_argument("--as", dest="as_instance", default=ac.HUMAN)
@@ -363,7 +400,7 @@ def main(argv=None):
             if a.json:
                 print(json.dumps({"path": path, "meta": meta, "body": body,
                                   "thread": ac.thread_lines(body),
-                                  "problems": ac.validate_ticket(meta, body)},
+                                  "problems": ac.validate_ticket(meta, body, ws)},
                                  indent=2, ensure_ascii=False))
             else:
                 if os.path.isfile(path):
@@ -372,14 +409,16 @@ def main(argv=None):
                 else:                                   # a ticket of the github board
                     sys.stdout.write(ac.write_frontmatter(
                         {k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}, body))
-                probs = ac.validate_ticket(meta, body)
+                probs = ac.validate_ticket(meta, body, ws)
                 if probs:
                     print("\n# problems: " + "; ".join(probs))
+        elif a.cmd == "reassign":
+            print(reassign_ticket(board, a.id, a.to, a.reason, a.as_instance, a.agent, ws))
         elif a.cmd == "transition":
             print(transition_ticket(board, a.id, a.status, a.reason, a.result,
                                     _split(a.waiting_on), a.as_instance, a.agent,
                                     blocked_by=a.blocked_by, reopen_if=a.reopen_if,
-                                    reopen=a.reopen))
+                                    reopen=a.reopen, workspace=ws))
         elif a.cmd == "append":
             print(append_to_ticket(board, a.id, a.text, a.as_instance, a.agent))
     except ac.AcademyError as e:

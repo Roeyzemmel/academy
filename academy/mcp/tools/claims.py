@@ -670,7 +670,7 @@ def _propose(ctx, a):
     detail = (a.get("reason") or "").strip()
     return _tickets.create_ticket(ctx, {
         "title": "Status of %s -> %s" % (cid, a["status"]),
-        "kind": "decision", "to": to, "ask": ask,
+        "kind": "decision", "to": to, "ask": ask, "on_behalf_of": to,
         "deliverable": "The status is set with grounds, or the ticket is rejected "
                        "with the reason.",
         "refs": [cid] + list(a.get("refs") or []),
