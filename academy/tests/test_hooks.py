@@ -738,6 +738,7 @@ class HooksJsonTests(unittest.TestCase):
             "generated_view_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|Bash|PowerShell"),
             "explainer_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
             "ticket_edit_check.py": ("PostToolUse", "Edit|Write|MultiEdit"),
+            "error_ledger.py": ("PostToolUseFailure", None),
         })
 
     def test_scripts_import_the_vendored_copy(self):
