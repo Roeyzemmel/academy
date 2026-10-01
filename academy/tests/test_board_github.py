@@ -141,6 +141,17 @@ class TestCodec(GithubBoardCase):
         crlf = [c.replace("\n", "\r\n") + "\r\n" for c in posted]
         self.assertEqual(ac.thread_lines(b), ac.thread_lines(bc.decode(issue_of(e), crlf)[1]))
 
+    def test_attribution_footer_on_the_issue_body_is_not_ticket_text(self):
+        # REST creates from a session get the footer on the issue body too
+        self.make()
+        for path, meta, body in bd.iter_tickets(self.board):
+            e = bc.encode(meta, body)
+            iss = dict(issue_of(e), body=e["body"] + bc.ATTRIBUTION_FOOTERS[0])
+            self.assertEqual([], bc.validate_issue(iss, e["comments"]))
+            m2, b2 = bc.decode(iss, e["comments"])
+            with open(path, encoding="utf-8", newline="") as fh:
+                self.assertEqual(fh.read(), bc.render(m2, b2), path)
+
     def test_footer_text_inside_an_entry_is_kept(self):
         txt = "quoting it: " + bc.ATTRIBUTION_FOOTERS[0] + "\nand more"
         self.assertEqual(txt, bc.strip_footer(txt))

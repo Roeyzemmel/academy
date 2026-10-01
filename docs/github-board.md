@@ -75,7 +75,10 @@ in the comment; the write hook and `board-sync` check the rules, not the account
 
 `board_codec.py` (offline encode/decode/validate/transition), `board_export.py` (manifest),
 `board_verify.py` (issues or manifest against the files, byte for byte; a manifest's relations and each issue's `parent`/`waits_on` are compared too, a dump without link data reports them as unverified), `board_import.py`
-(issues back to files: backup, rollback), `board_sync.py` (the workflow), `board_project.py`
+(issues back to files: backup, rollback), `board_push.py` (the manifest executed over REST
+through `gh api`, resumable, numbering checked by reading issues by number) and
+`board_dump.py` (the byte-exact verify dump, parents and dependencies included), both on the
+`lib/board_gh.py` transport, `board_sync.py` (the workflow), `board_project.py`
 (the Project fields and their option sets as a JSON spec derived from the codec and the
 academy constants: Status incl. Accepted/Blocked/Delivered, Instance, Role, Kind = every
 ticket kind, Priority, Agenda, Block; `--check` proves it covers every kind and status,

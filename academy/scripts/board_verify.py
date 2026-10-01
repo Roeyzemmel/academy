@@ -26,6 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
 sys.path.insert(0, HERE)
 
+import academy_common as ac  # noqa: E402
 import board as bd  # noqa: E402
 import board_codec as bc  # noqa: E402
 
@@ -90,6 +91,9 @@ def verify(board, records, relations=None):
         with open(files[n], encoding="utf-8", newline="") as fh:
             if fh.read() != bc.render(meta, body):
                 out.append("#%d: rendered ticket differs from %s" % (n, os.path.basename(files[n])))
+        if "assignees" in iss and bool(iss["assignees"]) != (meta["to"] == ac.HUMAN):
+            out.append("#%d: assignees are %s, the ticket is addressed to %s"
+                       % (n, iss["assignees"], meta["to"]))
         if "parent" in r or "waits_on" in r:
             want = bc.encode(meta, body)
             if "parent" in r and _num(r.get("parent")) != _num(want["parent"]):
