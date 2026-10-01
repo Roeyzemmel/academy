@@ -207,7 +207,7 @@ class GithubBoardStore(ac.BoardStore):
                 self._skip({"type": "dependency", "issue": n, "blocker": bc.ticket_number(w)})
         want = {"title": e["title"], "body": e["body"], "labels": e["labels"],
                 "state": e["state"], "state_reason": e["state_reason"]}
-        have_issue = {"title": cur.get("title"), "body": cur.get("body"),
+        have_issue = {"title": cur.get("title"), "body": bc.strip_footer(cur.get("body") or ""),
                       "labels": sorted(bc.label_names(cur.get("labels"))),
                       "state": cur.get("state"), "state_reason": cur.get("state_reason")}
         if dict(want, labels=sorted(want["labels"])) != have_issue:
@@ -254,6 +254,7 @@ class MemoryTransport(object):
         self.comments = {}
         self.parents = {}
         self.dependencies = []
+        self.labels = {}
         self.calls = []
         self.max_page = max_page
         self._failures = {}
@@ -319,20 +320,24 @@ class MemoryTransport(object):
         self._tick("get_issue", number)
         return self._pub(number) if number in self.issues else None
 
-    def create_issue(self, title, body, labels):
+    def create_issue(self, title, body, labels, assignees=None):
         self._tick("create_issue", title)
         n = max(self.issues, default=0) + 1
         self.issues[n] = {"number": n, "title": title, "body": body, "labels": list(labels),
-                          "state": "open", "state_reason": None}
+                          "state": "open", "state_reason": None,
+                          "assignees": list(assignees or [])}
+        for name in labels:
+            self.labels.setdefault(name, {"name": name, "color": "ededed", "description": ""})
         self.comments[n] = []
         self._cids[n] = []
         return self._pub(n)
 
     def update_issue(self, number, title=None, body=None, labels=None, state=None,
-                     state_reason=None):
+                     state_reason=None, assignees=None):
         self._tick("update_issue", number)
         i = self.issues[number]
-        for k, v in (("title", title), ("body", body), ("labels", labels), ("state", state)):
+        for k, v in (("title", title), ("body", body), ("labels", labels), ("state", state),
+                     ("assignees", assignees)):
             if v is not None:
                 i[k] = copy.deepcopy(v)
         i["state_reason"] = state_reason if state == "closed" else None
@@ -358,10 +363,38 @@ class MemoryTransport(object):
         self._tick("set_parent", number)
         self.parents[number] = parent
 
+    def get_parent(self, number):
+        self._tick("get_parent", number)
+        return self.parents.get(number)
+
     def add_dependency(self, number, blocker):
         self._tick("add_dependency", number)
         if (number, blocker) not in self.dependencies:
             self.dependencies.append((number, blocker))
+
+    def remove_dependency(self, number, blocker):
+        self._tick("remove_dependency", number)
+        if (number, blocker) in self.dependencies:
+            self.dependencies.remove((number, blocker))
+
+    def list_dependencies(self, number):
+        self._tick("list_dependencies", number)
+        return [b for n, b in self.dependencies if n == number]
+
+    def last_number(self):
+        self._tick("last_number")
+        return max(self.issues, default=0)
+
+    def list_labels(self):
+        self._tick("list_labels")
+        return [dict(v) for _k, v in sorted(self.labels.items())]
+
+    def create_label(self, name, color="ededed", description=""):
+        self._tick("create_label", name)
+        if name in self.labels:
+            raise RuntimeError("label %s already exists" % name)
+        self.labels[name] = {"name": name, "color": color, "description": description}
+        return dict(self.labels[name])
 
     def thread_comments(self, number):
         """The comment bodies of an issue, oldest first (for tests)."""

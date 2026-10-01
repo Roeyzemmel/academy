@@ -130,6 +130,32 @@ class TestCodec(GithubBoardCase):
         _m2, b2 = bc.decode(issue_of(e), e["comments"] + ["lgtm, thanks"])
         self.assertEqual(ac.thread_lines(b), ac.thread_lines(b2))
 
+    def test_attribution_footer_is_not_thread_text(self):
+        # the github MCP appends its attribution footer to every comment it posts
+        self.make()
+        _p, m, b = next(iter(bd.iter_tickets(self.board)))
+        e = bc.encode(m, b)
+        posted = [c + bc.ATTRIBUTION_FOOTERS[0] for c in e["comments"]]
+        _m2, b2 = bc.decode(issue_of(e), posted)
+        self.assertEqual(ac.thread_lines(b), ac.thread_lines(b2))
+        crlf = [c.replace("\n", "\r\n") + "\r\n" for c in posted]
+        self.assertEqual(ac.thread_lines(b), ac.thread_lines(bc.decode(issue_of(e), crlf)[1]))
+
+    def test_attribution_footer_on_the_issue_body_is_not_ticket_text(self):
+        # REST creates from a session get the footer on the issue body too
+        self.make()
+        for path, meta, body in bd.iter_tickets(self.board):
+            e = bc.encode(meta, body)
+            iss = dict(issue_of(e), body=e["body"] + bc.ATTRIBUTION_FOOTERS[0])
+            self.assertEqual([], bc.validate_issue(iss, e["comments"]))
+            m2, b2 = bc.decode(iss, e["comments"])
+            with open(path, encoding="utf-8", newline="") as fh:
+                self.assertEqual(fh.read(), bc.render(m2, b2), path)
+
+    def test_footer_text_inside_an_entry_is_kept(self):
+        txt = "quoting it: " + bc.ATTRIBUTION_FOOTERS[0] + "\nand more"
+        self.assertEqual(txt, bc.strip_footer(txt))
+
     def test_check_transition_follows_the_protocol_table(self):
         self.assertEqual([], bc.check_transition("open", "accepted", "receiver"))
         self.assertTrue(bc.check_transition("open", "accepted", "sender"))
@@ -276,6 +302,20 @@ class TestRouteLabel(GithubBoardCase):
         for r in recs:
             if r["issue"]["number"] == 2:
                 r["parent"] = None
+        self.assertTrue(any("#2: parent" in d for d in bv.verify(self.board, recs)))
+
+    def test_a_github_dump_gives_relations_as_issue_numbers(self):
+        # get_parent returns the parent's number, not its ticket id
+        self.make()
+        m = be.build(self.board)
+        recs = bv.from_manifest(m)
+        for r in recs:
+            r["parent"] = bc.ticket_number(r["parent"]) if r["parent"] else None
+            r["waits_on"] = [bc.ticket_number(t) for t in r["waits_on"]]
+        self.assertEqual([], bv.verify(self.board, recs))
+        for r in recs:
+            if r["issue"]["number"] == 2:
+                r["parent"] = 3
         self.assertTrue(any("#2: parent" in d for d in bv.verify(self.board, recs)))
 
     def test_export_prints_the_counts_when_writing_the_manifest(self):

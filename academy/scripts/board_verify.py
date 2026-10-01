@@ -26,6 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
 sys.path.insert(0, HERE)
 
+import academy_common as ac  # noqa: E402
 import board as bd  # noqa: E402
 import board_codec as bc  # noqa: E402
 
@@ -48,6 +49,14 @@ def unverified_relations(records, key=None):
     return [r["issue"]["number"] for r in records
             if all(k not in r for k in keys)
             and "placeholder" not in bc.label_names(r["issue"].get("labels"))]
+
+
+def _num(ref):
+    """An issue number from a relation reference: a dump gives numbers (``get_parent``),
+    a manifest gives ticket ids (``T-0055``)."""
+    if not ref:
+        return None
+    return ref if isinstance(ref, int) else bc.ticket_number(ref)
 
 
 def verify(board, records, relations=None):
@@ -82,12 +91,16 @@ def verify(board, records, relations=None):
         with open(files[n], encoding="utf-8", newline="") as fh:
             if fh.read() != bc.render(meta, body):
                 out.append("#%d: rendered ticket differs from %s" % (n, os.path.basename(files[n])))
+        if "assignees" in iss and bool(iss["assignees"]) != (meta["to"] == ac.HUMAN):
+            out.append("#%d: assignees are %s, the ticket is addressed to %s"
+                       % (n, iss["assignees"], meta["to"]))
         if "parent" in r or "waits_on" in r:
             want = bc.encode(meta, body)
-            if "parent" in r and (r.get("parent") or None) != want["parent"]:
+            if "parent" in r and _num(r.get("parent")) != _num(want["parent"]):
                 out.append("#%d: parent is %s, the ticket says %s"
                            % (n, r.get("parent"), want["parent"]))
-            if "waits_on" in r and sorted(r.get("waits_on") or []) != sorted(want["waits_on"]):
+            if "waits_on" in r and (sorted(map(_num, r.get("waits_on") or []))
+                                    != sorted(map(_num, want["waits_on"]))):
                 out.append("#%d: waits_on is %s, the ticket says %s"
                            % (n, r.get("waits_on"), want["waits_on"]))
     for n in sorted(set(files) - seen):
