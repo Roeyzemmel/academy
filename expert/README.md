@@ -41,7 +41,7 @@ Each script's usage is in its docstring.
 
 | Script | Does |
 |---|---|
-| `inbox.py` | The tickets to take this run and each one's route, including relay return legs |
+| `inbox.py`, `routes.py` | The tickets to take this run (`--n`/`--limit`, `--all`) and each one's route, including relay return legs; a wrapper over the academy's `inbox_core` |
 | `decision_table.py` | The proof-review decision table, applied mechanically to runs A and B |
 | `reviews.py` | Where review records live (`reviews/<ns>/<id>/<pass>/`), pass names, the statement hash |
 | `cards.py` | The citation card: schema, scaffold, validation |

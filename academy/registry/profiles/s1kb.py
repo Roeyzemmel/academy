@@ -185,7 +185,9 @@ S1_EXTENSION = ("summary", "status_note", "level", "status_by_level", "examples"
                 "cites", "source", "added", "body_status_ack", "old", "implies",
                 "implies_pending", "incomparable_with", "construction", "r", "u", "n",
                 "G_order", "normal", "stratum", "genus", "Lambda", "q2", "q2_by", "K_min",
-                "claims")
+                "claims", "approach")
+#: (``approach``: a direction's optional link to an ``objects/approach/`` file, campaign
+#: mode; the approach folder itself is not loaded by the registry)
 #: the canonical order of a v2 s1 file: the core fields, s1's, then the rows
 V2_ORDER = _schema.FIELD_ORDER[:-2] + S1_EXTENSION + ("evidence", "history")
 #: the v2 kind of each s1 kind, and back (the internal kind of a v2 file without form)

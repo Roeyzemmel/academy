@@ -23,7 +23,7 @@ for the home they run in. It has no README; its agents are:
 |---|---|
 | `concierge` | Behind `/academy:desk`: routes Roey's requests |
 | `explainer` | Behind `/academy:deep-dive`: read-only, grades nothing |
-| `usage-analyst` | The weekly usage packet |
+| `usage-analyst` | The weekly usage packet, with the week's accumulated tool errors (`error_ledger.py`) and their weekly settle |
 | `secretary` | Behind `/academy:decide`: phrases pending-decision batches in plain language; read-only, records nothing |
 
 Skills: `desk`, `board`, `review`, `decide`, `deep-dive`, `status`, `init`, `usage`,
@@ -43,7 +43,7 @@ Researcher. Relays: `research-intake` (author -> researcher) and `paper-liaison`
 
 ## Researcher (one per research domain): `researcher/README.md`
 
-Owns the research notebook and the claim statuses (`claim-keeper`). Neighbours: the
+Owns the research notebook and the claim statuses (`claim-keeper`); `/researcher:campaign` runs a capped portfolio of approaches on one claim. Neighbours: the
 Expert and the Scientist. Relays: `experiment-spec` (expert -> scientist) and
 `lit-request` (scientist -> expert / author).
 

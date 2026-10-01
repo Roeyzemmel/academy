@@ -5,13 +5,10 @@ decided by its instance against the ticket's ``from`` / ``to``; the human may do
 anything, and is the only party on a ticket addressed to ``human``.
 """
 
-import os
-
 import academy_common as ac
 
 from . import Tool, ToolError, obj, S, B, L
 
-REASON_NEEDED = {("delivered", "in-progress")}
 PRIORITY_ORDER = {"high": 0, "normal": 1, "low": 2}
 FROZEN = ("id", "created", "updated")
 
@@ -37,24 +34,20 @@ def _default_budget(ctx):
     return {"runs": int(b.get("runs", 1)), "max_model": b.get("max_model", "sonnet")}
 
 
-def _read(path):
-    with open(path, "r", encoding="utf-8") as fh:
-        return fh.read()
-
-
 def load_ticket(ctx, tid):
+    """``(ref, meta, body)`` of ticket ``tid`` on the caller's store (one fetch)."""
     if not ac.RE_TICKET_ID.match(str(tid or "")):
         raise ToolError("a ticket id looks like T-0007, got %r" % tid)
-    path = ac.find_ticket(ctx.board, tid)
-    if not path:
+    try:
+        return ctx.store.get(tid)
+    except ac.AcademyError:
         raise ToolError("no ticket %s on the board %s" % (tid, ctx.board))
-    meta, body = ac.read_frontmatter(_read(path))
-    return path, meta, body
 
 
-def _write(path, meta, body):
-    ordered = {k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}
-    ac.atomic_write(path, ac.write_frontmatter(ordered, body))
+def ticket_text(ctx, tid):
+    """The ticket as a file would read (frontmatter and body), on either backend."""
+    _ref, meta, body = load_ticket(ctx, tid)
+    return ac.write_frontmatter({k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}, body)
 
 
 def replace_section(body, heading, text):
@@ -86,9 +79,9 @@ def create_ticket(ctx, a, clerical=False):
         raise ToolError("to must be a workspace instance or 'human', got %r" % to)
     final_to = _one_line("final_to", a.get("final_to"), required=False)
     parent = a.get("parent") or None
-    if parent and not ac.find_ticket(ctx.board, parent):
+    if parent and not ctx.store.find(parent):
         raise ToolError("parent %s is not on the board" % parent)
-    depth = ac.relay_depth(ctx.board, parent) if final_to and parent else 0
+    depth = ac.relay_depth(ctx.store, parent) if final_to and parent else 0
     ok, why = ac.ticket_edge_allowed(sender, to, agent, ctx.perms, ctx.workspace,
                                      final_to, depth, clerical=clerical)
     if not ok:
@@ -127,13 +120,14 @@ def create_ticket(ctx, a, clerical=False):
         "created": today,
         "updated": today,
     }
+    campaign = _one_line("campaign", a.get("campaign"), required=False)
+    if campaign:
+        meta["campaign"] = campaign     # the campaign's target id (inbox --campaign)
     meta["id"] = "T-0000"                           # placeholder for validation
     probs = ac.validate_ticket(meta)
     if probs:
         raise ToolError("invalid ticket: " + "; ".join(probs))
     speaker = ac.format_who(sender, agent)
-    tid = ac.allocate_id(ctx.board, "ticket")
-    meta["id"] = tid
     text = ac.new_ticket(meta, a.get("ask_detail") or "")
     fm, body = ac.read_frontmatter(text)
     note = (a.get("note") or "").strip()
@@ -141,8 +135,8 @@ def create_ticket(ctx, a, clerical=False):
     probs = ac.validate_ticket(fm, body)
     if probs:
         raise ToolError("invalid ticket: " + "; ".join(probs))
-    path = os.path.join(ctx.board, to, ac.ticket_filename(tid, meta["title"]))
-    _write(path, fm, body)
+    path, fm = ctx.store.create(fm, body)
+    tid = fm["id"]
     return {"id": tid, "path": path.replace("\\", "/"), "to": to, "from": sender,
             "status": "open"}
 
@@ -158,6 +152,7 @@ def _fmt_val(v):
 def update_ticket(ctx, a):
     path, meta, body = load_ticket(ctx, a.get("id"))
     old_meta = dict(meta)
+    old_body = body
     human = ctx.is_human
     me = ctx.instance
     if not me:
@@ -169,6 +164,9 @@ def update_ticket(ctx, a):
     note = (a.get("note") or "").strip()
     speaker = ctx.speaker
     lines = []
+    old_status = old_meta.get("status")
+    status_change = bool(new_status and new_status != old_status)
+    staged = {}          # blocking fields of a status move: apply_blocking writes them
 
     # -- fields -----------------------------------------------------------
     allowed = ac.editable_fields(pset, human)
@@ -189,6 +187,9 @@ def update_ticket(ctx, a):
                 k, owner, me, " and ".join(sorted(pset)) or "no party", meta["id"]))
         if k in ("title", "ask", "deliverable", "result"):
             v = _one_line(k, v, required=(k != "result"))
+        if k in ac.BLOCK_FIELDS and status_change:
+            staged[k] = v
+            continue
         if meta.get(k) != v:
             meta[k] = v
             lines.append("set %s: %s" % (k, _fmt_val(v)))
@@ -206,28 +207,29 @@ def update_ticket(ctx, a):
         lines.append("set ## Result")
 
     # -- status -----------------------------------------------------------
-    old_status = old_meta.get("status")
-    if new_status and new_status != old_status:
+    if status_change:
         if meta.get("to") == ac.HUMAN and not human:
             raise ToolError("refused: a ticket addressed to human changes status only "
                             "by the human")
         ok, why = ac.can_transition(old_status, new_status, pset, human)
         if not ok:
             raise ToolError("refused: %s" % why)
-        if (new_status in ("rejected", "cancelled")
-                or (old_status, new_status) in REASON_NEEDED) and not reason:
-            raise ToolError("%s -> %s needs a reason in the same write"
-                            % (old_status, new_status))
-        if new_status == "blocked" and not meta.get("waiting_on"):
-            raise ToolError("blocked needs waiting_on (fields.waiting_on)")
-        if old_status == "blocked" and new_status != "blocked" and meta.get("waiting_on"):
-            meta["waiting_on"] = []
-            lines.append("set waiting_on: []")
+        try:
+            blines = ac.apply_blocking(
+                old_meta, meta, new_status, reason, staged.get("waiting_on"),
+                staged.get("blocked_by"), staged.get("reopen_if"), a.get("reopen"), human)
+        except ac.AcademyError as exc:
+            raise ToolError(str(exc))
+        lines.extend(blines)
         if new_status in ("delivered", "closed") and not meta.get("result"):
             raise ToolError("%s needs result (fields.result)" % new_status)
         meta["status"] = new_status
+        dead_block = new_status == "blocked" and ac.is_dead_route(meta)
         lines.append("status %s -> %s%s" % (old_status, new_status,
-                                            (": " + reason) if reason else ""))
+                                            (": " + " ".join(reason.split()))
+                                            if reason and not dead_block else ""))
+    elif a.get("reopen"):
+        raise ToolError(ac.REOPEN_ONLY)
     elif reason and not note:
         note = reason
     if note:
@@ -241,33 +243,20 @@ def update_ticket(ctx, a):
     probs = ac.validate_ticket(meta, body)
     if probs:
         raise ToolError("the update would leave an invalid ticket: " + "; ".join(probs))
-    if not ac.thread_is_append_only(ac.read_frontmatter(_read(path))[1], body):
+    if not ac.thread_is_append_only(old_body, body):
         raise ToolError("internal: thread is not append-only")
 
-    new_path = path
-    if meta.get("to") != old_meta.get("to"):
+    relocate = meta.get("to") != old_meta.get("to")
+    if relocate:
         to = meta["to"]
         if to != ac.HUMAN and to not in ctx.instances():
             raise ToolError("to must be a workspace instance or 'human'")
-        new_path = os.path.join(ctx.board, to, os.path.basename(path))
-    _write(new_path, meta, body)
-    if new_path != path:
-        os.remove(path)
+    new_path = ctx.store.save(meta, body, path, relocate=relocate)
 
     # blocking bookkeeping: mirror into the awaited tickets' blocks
     freed = []
     if meta.get("status") == "blocked":
-        for w in meta.get("waiting_on") or []:
-            if ac.RE_TICKET_ID.match(str(w)):
-                wp = ac.find_ticket(ctx.board, w)
-                if not wp:
-                    continue
-                wm, wb = ac.read_frontmatter(_read(wp))
-                if meta["id"] not in (wm.get("blocks") or []):
-                    wm["blocks"] = list(wm.get("blocks") or []) + [meta["id"]]
-                    wm["updated"] = ac.today()
-                    _write(wp, wm, wb)
-                    freed.append(w)
+        freed = ac.mirror_blocks(ctx.store, meta["id"], meta.get("waiting_on"), ac.today())
     return {"id": meta["id"], "path": new_path.replace("\\", "/"),
             "status": meta["status"], "thread": lines, "mirrored_blocks_into": freed}
 
@@ -278,31 +267,12 @@ def _summary(path, meta):
         "path": path.replace("\\", "/")}
 
 
-def iter_tickets(board):
-    import re
-    rx = re.compile(r"^T-\d{4,}-.*\.md$")
-    if not os.path.isdir(board):
-        return
-    for d in sorted(os.listdir(board)):
-        full = os.path.join(board, d)
-        if d in ("packets", "deep-dives", ".ids", ".git") or not os.path.isdir(full):
-            continue
-        for f in sorted(os.listdir(full)):
-            if rx.match(f):
-                p = os.path.join(full, f)
-                try:
-                    meta, _ = ac.read_frontmatter(_read(p))
-                except ac.FrontmatterError:
-                    continue
-                yield p, meta
-
-
 def _list(ctx, a):
     out = []
     statuses = a.get("status")
     if isinstance(statuses, str):
         statuses = [statuses]
-    for p, m in iter_tickets(ctx.board):
+    for p, m in ctx.store.iter_meta():
         if a.get("to") and m.get("to") != a["to"]:
             continue
         if a.get("from") and m.get("from") != a["from"]:
@@ -340,14 +310,15 @@ TOOLS = [
               "to": S, "ask": S, "deliverable": S, "ask_detail": S,
               "priority": {"type": "string", "enum": list(ac.PRIORITIES)},
               "refs": L, "agenda": S, "domain": S, "parent": S,
-              "budget": {"type": "object"}, "note": S, "final_to": S, "as_human": B},
+              "budget": {"type": "object"}, "note": S, "final_to": S, "campaign": S,
+              "as_human": B},
              ["title", "kind", "to", "ask", "deliverable"]),
          lambda ctx, a: create_ticket(ctx, a), write=True),
     Tool("tickets_update", "Change a ticket: a status transition (with reason where the "
          "protocol needs one), owned fields, ## Ask / ## Result detail, and/or a thread "
          "note. Field ownership and transitions per docs/protocol.md.",
          obj({"id": S, "status": {"type": "string", "enum": list(ac.TICKET_STATUSES)},
-              "reason": S, "fields": {"type": "object"}, "ask_detail": S,
+              "reason": S, "reopen": S, "fields": {"type": "object"}, "ask_detail": S,
               "result_detail": S, "note": S}, ["id"]),
          update_ticket, write=True),
 ]

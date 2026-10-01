@@ -31,6 +31,8 @@ rule is `academy/references/roster-rules.md`, "Model fallback".
 
 - Entry points: `/researcher:status` and `/researcher:inbox` (at most three tickets,
   each routed by kind or by `final_to`).
+- `/researcher:campaign <target> --rounds N --agents M` (opt-in, capped: independent
+  approaches, blocked routes, serial ticket dispatch; `--runs K` lab runs, default 0).
 - `/researcher:explore <direction>`, `/researcher:prove <claim>`,
   `/researcher:corollaries`, `/researcher:generalize`, `/researcher:review-experiment`
   (with its `checklist.md`), `/researcher:settle`, `/researcher:claims`.
@@ -85,6 +87,7 @@ direction is `academy/permissions.json` `tickets.edges`, described in
 
 | Skill | What it does |
 |---|---|
+| /researcher:campaign | Run an opt-in, capped, autonomous campaign on one target claim: independent approaches, blocked routes, a concrete artifact per round, serial ticket dispatch. Use for "/researcher:campaign <target> --rounds N --agents M", "attack this claim with several approaches". |
 | /researcher:claims | Answer "what is known about X" from the claim registry: show, list, search and query objects with status and evidence, follow dependents, route status changes to claim-keeper. Use whenever a statement's status is asked or before relying on a result. |
 | /researcher:corollaries | Derive corollaries of one claim (any non-refuted status; conditional if unsettled): prover writes each as a new unsettled object (sketch at most) depending on the source, with a short proof attempt. Use for "/researcher:corollaries <claim>" and after a claim turns proved. |
 | /researcher:explore | Work one research direction forward, at most three unsettled items per run, in the order falsify, prior art, prove (probes to the Scientist as experiment tickets, arguments to prover). Use for "/researcher:explore <direction>", "what should we try next on X", question tickets. |

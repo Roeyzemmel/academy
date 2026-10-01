@@ -166,9 +166,9 @@ def land(event, text, workspace, home, now=None):
         notes.append("land_referee: reduced-strength report (model %s, not a primary: %s); "
                      "its clean sections are not treated as cleared" % (model or "unnamed",
                                                                         PRIMARY))
-    board_dir = workspace["board"]
+    store = ac.open_store(workspace)                # the ticket board, either backend
     packets = ex.base_script("packets")
-    if ticket and not ac.find_ticket(board_dir, ticket):
+    if ticket and not store.find(ticket):
         notes.append("land_referee: ticket %s named by the referee is not on the board; "
                      "the packet is filed unlinked" % ticket)
         ticket = None
@@ -177,7 +177,7 @@ def land(event, text, workspace, home, now=None):
     title = "Referee report on %s (%s)%s" % (subject or "the paper", date,
                                               " - reduced strength" if reduced else "")
     subj = ["file:%s/main.tex" % subject] if ac.RE_INSTANCE.match(subject or "") else []
-    ppath = packets.create_packet(board_dir, expert, title, kind="referee",
+    ppath = packets.create_packet(store, expert, title, kind="referee",
                                   by=expert + "/referee", ticket=ticket, subject=subj,
                                   body=body, workspace=workspace, date=date)
     return cpath, ppath

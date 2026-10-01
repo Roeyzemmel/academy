@@ -3,6 +3,11 @@
 One front desk, four kinds of worker, one board between them. Nothing runs on its
 own: every run starts from something you type.
 
+## Migrating
+
+Moving to campaign mode, the board as the Author's only queue and retiring the roadmap:
+`docs/migration-campaign-mode.md`. The GitHub board: `docs/github-board.md`.
+
 ## Where to start
 
 - **`/academy:desk <request in plain words>`**: the front desk. The concierge decides
@@ -20,7 +25,8 @@ own: every run starts from something you type.
 - **`/academy:board`**, **`/academy:status`**, **`/academy:usage`**: the tickets, the
   health of every instance, and the usage report.
 
-Each role keeps its own public skills (`/author:next`, `/expert:lookup`,
+`/academy:inbox` works every instance's inbox in one run (Author, Expert, Researcher,
+Scientist, one ticket at a time). Each role keeps its own public skills (`/author:inbox`, `/expert:lookup`,
 `/scientist:queue`, ...); the desk only routes to them.
 
 ## Reviewing packets
@@ -49,7 +55,7 @@ a Slope1 definition object is refused, because definitions carry no status; see
 
 | Role (instance, home) | Start with | Also |
 |---|---|---|
-| Author (`author@<name>`) | `/author:status`, `/author:next` (at most 3 items, chosen by script from `Drafts/agenda.md`, `Drafts/roadmap.md` and the board) | `/author:notes` (files your `\Roey` notes), `/author:agenda`, `/author:sweep`, `/author:audit-notation`, `/author:presync` |
+| Author (`author@<name>`) | `/author:status`, `/author:inbox` (at most 3 tickets, chosen by script from the board, ordered by `Drafts/agenda.md`; the board is the Author's only queue) | `/author:notes` (files your `\Roey` notes), `/author:agenda`, `/author:sweep`, `/author:audit-notation`, `/author:presync` |
 | Researcher (`researcher@<name>`) | `/researcher:status`, `/researcher:inbox` | `/researcher:explore <DIR-n>`, `/researcher:prove <id>`, `/researcher:corollaries`, `/researcher:generalize`, `/researcher:review-experiment`, `/researcher:settle`, `/researcher:claims` |
 | Expert (`expert@<name>`) | `/expert:lookup <question>` (the clerk, answered inline), `/expert:inbox` | `/expert:cite`, `/expert:verify <id>`, `/expert:referee`, `/expert:litwatch`, `/expert:library-index`, `/expert:domain`, `/expert:status` |
 | Scientist (`scientist@<name>`) | `/scientist:status`, `/scientist:inbox` | `/scientist:experiment`, `/scientist:queue`, `/scientist:env check lingo`, `/scientist:api-check`, `/scientist:examples-audit` |

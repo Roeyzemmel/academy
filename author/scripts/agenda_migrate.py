@@ -1,435 +1,421 @@
-"""agenda_migrate.py -- a legacy comment_roadmap.md -> agenda.md + roadmap.md (plan 4, 9.5).
+"""agenda_migrate.py -- one-shot converter: an old Drafts/roadmap.md -> board tickets.
 
-    py agenda_migrate.py --roadmap OLD.md --out DIR [--paper-root HOME]
-        [--statuses FILE.json | --claims-cmd "py ../<lab>/scripts/claims.py --repo ."]
-        [--instance author@main] [--ns paper] [--date YYYY-MM-DD]
+    py agenda_migrate.py --roadmap Drafts/roadmap.md [--home DIR] [--apply] [--json]
+        [--board DIR --workspace FILE --instance NAME --ns NS --agenda FILE]
 
-Writes ``DIR/agenda.md``, ``DIR/roadmap.md`` and ``DIR/migration-report.md``. Reads
-only: the old roadmap, the paper sources (through check_paper's parser) and the
-registry. It never writes into the home; the output is for Roey's review (plan 9b:
-"paper roadmap -> agenda" is a review-gated step).
+The roadmap was dropped (docs/superpowers/specs/2026-09-29-campaign-mode-design.md,
+section 10): the board is the Author's only queue. This script turns the items of an
+existing roadmap into tickets, once. It is the only code that still knows the roadmap
+format, and it only *reads* the file: the human archives ``Drafts/roadmap.md`` (for
+example ``git mv Drafts/roadmap.md Drafts/archive/``) after a run, and nothing writes it.
 
-The agenda
-----------
-The paper's labelled statements in ``\\input`` order (check_paper.build_paper), one
-entry per statement that has a registry record ``<ns>:<label>`` or is of a provable
-environment, a conjecture or a definition. ``depends_on`` is the statement's
-theorem references (statement and proof) that are themselves entries; commentary
-environments (``rmk``, ``quest``) carry none, as in the checker's R1. ``required`` is
-``conjectured`` for a conjecture or a claim now recorded as conjectured, and
-``proved`` otherwise. ``status`` is the registry's (``missing`` when there is no
-record, ``?`` when no registry was read). Without ``--paper-root`` the agenda is the
-labels the live items mention, in order of first mention.
+**Dry run by default.** Without ``--apply`` it prints the mapping and files nothing.
+With ``--apply`` it files the tickets through ``board.create_ticket`` (from this Author
+instance) and is idempotent: an item whose ticket carries its ``roadmap item R-NNNN``
+provenance line (whatever became of that ticket: a rejected or cancelled one is reported,
+not filed again), or that already names a ticket (``ticketed``), is never filed again, so
+a second run files nothing new.
 
-The roadmap
------------
-Only live work moves: every numbered item (``N. ...`` at column 0) of each ``## Tier``
-section and every tagged bullet (``- **[tag]** ...``) of the other sections, whose
-block carries no final ``**[done ...]**`` or ``[dropped ...]`` marker, plus one
-``[verify]`` item per line of ``## Verification queue``. Each keeps its original text
-verbatim as its body and its origin in ``source``. Tags map as: apply, write, lead,
-verify (and any other new-vocabulary tag, e.g. ``notation``) as they are; a
-``[verify]`` whose text names a pinpoint, ``sources.md`` or ``source-checker`` ->
-``[cite]``; ``[needs Roey]`` (also inside ``[needs Roey / notation]``) -> status
-``needs-human``, the tag coming from the rest of the brackets, else ``write``; a done marker qualified by "blocked", "in part", "partly",
-"pending" or "except" is not done. The agenda entry is the first backticked label in
-the item that is an agenda entry, else ``global``. Every such call is listed in the
-report, which is what Roey reviews.
+Mapping, by item status:
+
+| roadmap item | ticket |
+|---|---|
+| ``done``, ``dropped`` | none (counted; the ticket history and the paper are the record) |
+| ``ticketed`` | none: it already has a ticket (named in the report; a ticket missing from the board is reported as a problem) |
+| ``open``, tag ``write apply figure build notation sweep`` (or a ``route:`` agent) | a self-ticket, kind ``write apply figure build notation sweep`` (the ``route`` agent's kind wins) |
+| ``open``, tag ``lead verify cite experiment referee`` | an ask to the Expert instance sharing a domain (``lead`` and ``experiment`` as ``research`` with ``final_to``; ``verify``, ``cite``, ``referee`` as themselves) |
+| ``needs-human``, ``blocked`` | a self-ticket (kind by tag; ``question`` for an ask tag), parked ``blocked`` on ``human`` |
+
+``agenda`` is the item's entry as the claim id (else the label, else ``global``);
+``refs`` the claim and any ``<ns>:<id>`` the item depends on; ``priority`` and the body
+carry over, the body prefixed by a provenance line and any dependency text.
+
+Dependencies: an item depending on another item or on a ticket becomes a ticket
+``waiting_on`` the other's ticket (a self-ticket only; parked blocked, released by the
+inbox when the ticket it waits on is delivered), or, for an ask that leaves the Author,
+*held* (not filed; run again once the dependency is met). A dependency on an agenda
+entry or a claim becomes a line in the ticket body, not a wait. A dropped item, a rejected or cancelled ticket
+(named directly, or the ticket of an already converted or ``ticketed`` item), and a ticket
+that is not on the board hold the item. Everything held, and every judgement call, is in the report.
+
+Exit codes: 0 ok; 1 nothing to convert; 2 error.
 """
 
 import argparse
 import json
 import os
 import re
-import shlex
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+import _academy as ac  # noqa: E402
 import agenda_lib as al  # noqa: E402
+import gaps as gp  # noqa: E402
+import inbox as nx  # noqa: E402
+import routes as rt  # noqa: E402
 
-LABEL_PREFIXES = ("thm", "prop", "lem", "cor", "conj", "defn", "fact", "ex", "rmk", "quest",
-                  "claim", "exer", "exc", "problem", "case")
-RE_LABEL_REF = re.compile(r"`((?:%s):[A-Za-z0-9:_\-]+)`" % "|".join(LABEL_PREFIXES))
-RE_NUMBERED = re.compile(r"^(\d+)\.\s+(.*)$")
-RE_TAGGED_BULLET = re.compile(r"^-\s+\*\*\[([^\]]+)\]\*\*\s*(.*)$")
-RE_BOLD_TAG = re.compile(r"\*\*\[([^\]]+)\]\*\*")
-RE_PLAIN_TAG = re.compile(r"\[(apply|write|verify|lead|needs Roey|dropped|done)[^\]]*\]")
-RE_DONE_MARK = re.compile(r"\*\*\[(done|dropped)([^\]]*)\]\*\*", re.IGNORECASE)
-RE_QUEUE_LINE = re.compile(r"^-\s+`([^`]+)`\s+—\s+(.*)$")
-PARTIAL_WORDS = ("blocked", "in part", "partly", "pending", "except", "outcome pending")
-CITE_WORDS = ("source-checker", "pinpoint", "/paper:cite", "sources.md", "cite ")
-BASE_TAGS = ("apply", "write", "verify", "lead")
+TAGS = ("write", "apply", "lead", "verify", "cite", "experiment", "figure", "build",
+        "notation", "sweep", "referee")
+STATUSES = ("open", "ticketed", "blocked", "needs-human", "done", "dropped")
+#: an item's ``route:`` agent -> the ticket kind that routes back to it
+AGENT_KINDS = {"math-writer": "write", "math-editor": "apply", "figure-maker": "figure",
+               "tex-engineer": "build", "notation-auditor": "notation",
+               "note-sweeper": "sweep"}
+SELF_TAG_KINDS = {"write": "write", "apply": "apply", "figure": "figure", "build": "build",
+                  "notation": "notation", "sweep": "sweep"}
+
+RE_ITEM_HEAD = re.compile(r"^## (R-\d{4,}) \[([a-z][a-z-]*)\] ?(.*)$")
+RE_FIELD = re.compile(r"^- ([a-z_]+):(?: (.*))?$")
+RE_ITEM_ID = re.compile(r"^R-\d{4,}$")
+RE_PROVENANCE = re.compile(r"roadmap item (R-\d{4,})")
 
 
-class Legacy(object):
-    """One live item found in the old roadmap."""
+class Item(object):
+    """One legacy roadmap item (read-only)."""
 
-    def __init__(self, section, number, first, lines):
-        self.section = section
-        self.number = number
-        self.first = first
-        self.lines = lines
-        self.tag = None
-        self.status = "open"
-        self.calls = []
+    def __init__(self, id, tag, title, fields, body):
+        self.id, self.tag, self.title = id, tag, title
+        self.fields, self.body = fields, body
 
     @property
-    def text(self):
-        return "\n".join(self.lines)
+    def status(self):
+        return (self.fields.get("status") or "open").strip()
+
+    @property
+    def agenda(self):
+        return (self.fields.get("agenda") or "").strip().strip("`")
+
+    @property
+    def priority(self):
+        p = (self.fields.get("priority") or "normal").strip()
+        return p if p in al.PRIORITIES else "normal"
+
+    @property
+    def depends_on(self):
+        return al.split_list(self.fields.get("depends_on", ""))
+
+    @property
+    def ticket(self):
+        return (self.fields.get("ticket") or "").strip()
+
+    @property
+    def route(self):
+        return (self.fields.get("route") or "").strip()
+
+
+def parse_items(text):
+    """The ``## R-NNNN [tag] title`` items of a roadmap file's text, in order. Other
+    ``##`` sections are ignored. Raises AgendaError on a duplicate id."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    items, seen, i = [], set(), 0
+    while i < len(lines):
+        m = RE_ITEM_HEAD.match(lines[i])
+        j = i + 1
+        while j < len(lines) and not lines[j].startswith("## "):
+            j += 1
+        if m:
+            if m.group(1) in seen:
+                raise al.AgendaError("duplicate roadmap item %s" % m.group(1))
+            seen.add(m.group(1))
+            chunk, k, fields = lines[i + 1:j], 0, {}
+            while k < len(chunk) and not chunk[k].strip():
+                k += 1
+            while k < len(chunk):
+                fm = RE_FIELD.match(chunk[k])
+                if not fm:
+                    break
+                fields[fm.group(1)] = (fm.group(2) or "").strip()
+                k += 1
+            items.append(Item(m.group(1), m.group(2), m.group(3).strip(), fields,
+                              "\n".join(chunk[k:]).strip("\n")))
+        i = j
+    return items
+
+
+def _one_line(text, limit=240):
+    for para in (text or "").split("\n\n"):
+        s = " ".join(para.split())
+        if s and not s.startswith("<!--"):
+            return s if len(s) <= limit else s[:limit - 3].rstrip() + "..."
+    return ""
+
+
+def _ask_line(it, limit=240):
+    """``<title> -- <first paragraph>``, one line."""
+    first = re.sub(r"^(?:[-*+]|\d+\.)\s+", "", _one_line(it.body, limit))
+    if not first or first == it.title:
+        return it.title
+    s = "%s -- %s" % (it.title, first)
+    return s if len(s) <= limit else s[:limit - 3].rstrip() + "..."
 
 
 # ----------------------------------------------------------------------------
-# Reading the legacy roadmap
+# The mapping
 # ----------------------------------------------------------------------------
 
-def sections(text):
-    """[(title, [lines])] for every '## ' section."""
-    out, cur, title = [], [], None
-    for ln in text.replace("\r\n", "\n").split("\n"):
-        if ln.startswith("## "):
-            if title is not None:
-                out.append((title, cur))
-            title, cur = ln[3:].strip(), []
-        elif title is not None:
-            cur.append(ln)
-    if title is not None:
-        out.append((title, cur))
-    return out
+def local_kind(it):
+    """The ticket kind of an item that stays in the Author, or None for an ask."""
+    if it.route:
+        return AGENT_KINDS.get(it.route) or SELF_TAG_KINDS.get(it.tag)
+    return SELF_TAG_KINDS.get(it.tag)
 
 
-def section_name(title):
-    """'Tier 5b — Roey's replies ... **[...]**' -> 'Tier 5b'; others unchanged (short)."""
-    m = re.match(r"^(Tier\s+\S+)", title)
-    if m:
-        return m.group(1)
-    return re.sub(r"\s*\*\*\[.*$", "", title).strip()
+def _claim_of(ctx, it):
+    """(agenda field value, claim id or None) of an item's agenda attachment: the entry's
+    qualified label (unique), the claim in ``refs``."""
+    if not it.agenda or it.agenda == "global":
+        return "global", None
+    e = ctx.agenda.lookup(it.agenda, ctx.ns)
+    if e is not None:
+        return gp.entry_ref(ctx, e), (e.claim if e.claim not in ("", "-") else None)
+    return it.agenda, None
 
 
-def blocks(lines, numbered):
-    """Split a section's lines into item blocks: (number|None, first line, lines)."""
-    out, cur = [], None
-    for ln in lines:
-        m_num = RE_NUMBERED.match(ln) if numbered else None
-        m_tag = RE_TAGGED_BULLET.match(ln)
-        if m_num or m_tag:
-            if cur:
-                out.append(cur)
-            cur = [m_num.group(1) if m_num else None, ln, [ln]]
-            continue
-        if cur is None:
-            continue
-        if ln.strip() and not ln[:1].isspace():
-            out.append(cur)            # a column-0 line that is not an item ends it
-            cur = None
-            continue
-        cur[2].append(ln)
-    if cur:
-        out.append(cur)
-    for b in out:
-        while b[2] and not b[2][-1].strip():
-            b[2].pop()
-    return out
-
-
-def classify(item):
-    """Set item.tag and item.status from its markers; record the calls made."""
-    first = item.first
-    tags = RE_BOLD_TAG.findall(first) or RE_PLAIN_TAG.findall(first)
-    tagtxt = [t.strip() for t in tags]
-    status = "open"
-    tag = None
-    for t in tagtxt:
-        low = t.lower()
-        if low.startswith("done") or low.startswith("dropped"):
-            continue
-        for part in re.split(r"\s*/\s*", low):
-            if part.startswith("needs roey"):
-                status = "needs-human"
-                continue
-            word = re.split(r"[,\s]", part.strip(), 1)[0]
-            if word in al.TAGS and tag is None:
-                tag = word
-                if "optional" in part:
-                    item.calls.append("tag [%s] marked optional; priority set low" % t)
-    marks = RE_DONE_MARK.findall(item.text)
-    if marks:
-        kind, rest = marks[-1]
-        kind = kind.lower()
-        qualified = any(w in rest.lower() for w in PARTIAL_WORDS)
-        if kind == "dropped":
-            status = "dropped"
-        elif qualified:
-            item.calls.append("done marker qualified (%r): kept open" % ("[done" + rest + "]"))
-        else:
-            status = "done"
-    if tag is None:
-        tag = "write"
-        if status in ("open", "needs-human"):
-            item.calls.append("no apply/write/verify/lead tag on the first line: tagged "
-                              "[write]")
-    low_text = item.text.lower()
-    if tag == "verify" and any(w in low_text for w in CITE_WORDS):
-        tag = "cite"
-        item.calls.append("[verify] of a source (mentions a pinpoint, sources.md or "
-                          "source-checker): tagged [cite]")
-    item.tag, item.status = tag, status
-    return item
-
-
-def read_legacy(text):
-    """(live items, counts) from a legacy roadmap's text."""
-    live, counts = [], {"done": 0, "dropped": 0, "open": 0, "needs-human": 0, "queue": 0}
-    for title, lines in sections(text):
-        name = section_name(title)
-        if title.lower().startswith("verification queue"):
-            for ln in lines:
-                m = RE_QUEUE_LINE.match(ln)
-                if not m:
-                    if ln.startswith("- `"):
-                        it = Legacy(name, None, ln, [ln])
-                        it.tag, it.status = "verify", "open"
-                        it.calls.append("queue line not in the '`label` — `file` — why' "
-                                        "shape; kept verbatim")
-                        live.append(it)
-                        counts["queue"] += 1
-                    continue
-                it = Legacy(name, None, ln, [ln])
-                it.tag, it.status = "verify", "open"
-                it.queue_label = m.group(1)
-                live.append(it)
-                counts["queue"] += 1
-            continue
-        numbered = title.lower().startswith("tier")
-        for number, first, blines in blocks(lines, numbered):
-            it = classify(Legacy(name, number, first, blines))
-            counts[it.status] = counts.get(it.status, 0) + 1
-            if it.status in ("done", "dropped"):
-                continue
-            live.append(it)
-    return live, counts
-
-
-def item_title(it):
-    s = it.first
-    s = RE_NUMBERED.sub(r"\2", s) if RE_NUMBERED.match(s) else s
-    s = re.sub(r"^-\s+", "", s)
-    s = RE_BOLD_TAG.sub("", s)
-    s = RE_PLAIN_TAG.sub("", s)
-    s = s.replace("**", "").strip(" .:—-")
-    if getattr(it, "queue_label", None):
-        return "Verify %s" % it.queue_label
-    s = " ".join(s.split())
-    if len(s) > 90:
-        cut = s[:90]
-        s = cut[:cut.rfind(" ")] + " ..." if " " in cut else cut + "..."
-    return s or "(untitled)"
-
-
-def dedent(lines):
-    ind = [len(l) - len(l.lstrip(" ")) for l in lines[1:] if l.strip()]
-    k = min(ind) if ind else 0
-    return "\n".join([lines[0]] + [l[k:] if len(l) >= k else l.strip() for l in lines[1:]])
-
-
-# ----------------------------------------------------------------------------
-# The agenda
-# ----------------------------------------------------------------------------
-
-def registry_statuses(cmd, cwd):
-    argv = shlex.split(cmd, posix=False)
-    if argv and argv[0].lower() in ("py", "python", "python3"):
-        argv = [sys.executable] + argv[1:]
-    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
-    p = subprocess.run(argv + ["sql", "select id, status from claims"], cwd=cwd,
-                       capture_output=True, timeout=120, env=env)
-    if p.returncode != 0:
-        raise SystemExit("claims command exited %d: %s" % (
-            p.returncode, p.stderr.decode("utf-8", "replace")[:300]))
+def _existing(ctx):
+    """{item id: ticket id} of the tickets this instance filed for an item, whatever became
+    of them (a live one is preferred): an item with such a ticket is converted."""
     out = {}
-    for ln in p.stdout.decode("utf-8", "replace").splitlines()[1:]:
-        parts = [x.strip() for x in ln.split(" | ")]
-        if len(parts) == 2 and parts[0]:
-            out[parts[0]] = parts[1]
+    for tid in sorted(ctx.tickets, key=ac.inbox_core.num):
+        t = ctx.tickets[tid]
+        if t.get("from") != ctx.instance:
+            continue
+        m = RE_PROVENANCE.search(ctx.body(tid))
+        if m:
+            cur = out.get(m.group(1))
+            if cur is None or (ctx.tickets[cur].get("status") in gp.DEAD
+                               and t.get("status") not in gp.DEAD):
+                out[m.group(1)] = tid
     return out
 
 
-def paper_entries(root, ns, instance, statuses):
-    """Agenda entries from the paper's statements, in \\input order."""
-    import check_paper as cp
-    block, _note = cp.load_author_block(cp.find_config(root))
-    cp.configure(block)
-    paper = cp.build_paper(root)
-    keep = set(cp.PROVABLE_ENVS) | {"conj", "defn"}
-    chosen = []
-    seen = set()
-    for st in paper.statements:
-        if st.label == "(unlabelled)" or st.label in seen:
-            continue
-        cid = "%s:%s" % (ns, st.label)
-        if cid not in statuses and st.env not in keep:
-            continue
-        seen.add(st.label)
-        chosen.append(st)
-    labels = {s.label for s in chosen}
-    entries = []
-    for st in chosen:
-        cid = "%s:%s" % (ns, st.label)
-        cur = statuses.get(cid, "missing" if statuses else "?")
-        required = "conjectured" if (st.env == "conj" or cur == "conjectured") else "proved"
-        if cur in al.FALSE_STATUSES:
-            required = cur
-        deps = [] if st.env in cp.COMMENTARY_ENVS else [u for u in st.uses if u in labels]
-        entries.append(al.Entry(st.label, cid, required, deps, instance, cur))
-    return entries
+def _dep_lines(deps):
+    return "Depends on: " + ", ".join("`%s`" % d for d in deps) if deps else ""
 
 
-def attach(it, agenda, ns):
-    """(agenda ref, note) for a live item."""
-    if getattr(it, "queue_label", None):
-        e = agenda.lookup(it.queue_label, ns)
-        if e is not None:
-            return e.claim if e.claim != "-" else "%s:%s" % (ns, e.label), None
-        return "global", "queue label %s is not an agenda entry" % it.queue_label
-    for lab in RE_LABEL_REF.findall(it.text):
-        e = agenda.lookup(lab, ns)
-        if e is not None:
-            return e.claim if e.claim != "-" else "%s:%s" % (ns, e.label), None
-    return "global", None
-
-
-def migrate(legacy_text, instance, ns, paper_root=None, statuses=None, date=""):
-    statuses = statuses or {}
-    live, counts = read_legacy(legacy_text)
-    if paper_root:
-        entries = paper_entries(paper_root, ns, instance, statuses)
+def draft(ctx, it, waits, text_deps):
+    """The ticket an open (or parked) item becomes, as a dict."""
+    agenda, claim = _claim_of(ctx, it)
+    refs = [claim] if claim else []
+    for d in text_deps:
+        if ":" in d and d not in refs:
+            refs.append(d)
+    parked = it.status in ("needs-human", "blocked")
+    kind = local_kind(it)
+    ask_tag = it.tag in rt.OUT_ROUTES and not it.route
+    final_to, note = None, ""
+    if ask_tag and not parked:
+        role, kind, final_to, dkey = rt.OUT_ROUTES[it.tag]
+        to, note = gp.target_instance(ctx, role)
+        deliverable = rt.DELIVERABLES[dkey]
     else:
-        entries, seen = [], set()
-        for it in live:
-            for lab in RE_LABEL_REF.findall(it.text):
-                if lab not in seen:
-                    seen.add(lab)
-                    cid = "%s:%s" % (ns, lab)
-                    entries.append(al.Entry(lab, cid, "proved", [], instance,
-                                            statuses.get(cid, "?")))
-    for n, e in enumerate(entries, 1):
-        e.position = n
-    agenda = al.Agenda("Agenda: " + instance, "", entries, "")
-    items, report_rows = [], []
-    for n, it in enumerate(live, 1):
-        ref, note = attach(it, agenda, ns)
-        if note:
-            it.calls.append(note)
-        src = it.section + (" item %s" % it.number if it.number else "")
-        if getattr(it, "queue_label", None):
-            src = "Verification queue: %s" % it.queue_label
-        fields = {"status": it.status, "agenda": ref,
-                  "priority": "low" if any("optional" in c for c in it.calls) else "normal",
-                  "depends_on": "[]", "source": "comment_roadmap.md, " + src}
-        if date:
-            fields["created"] = date
-        low = it.text.lower()
-        if it.tag == "write" and ("figure-maker" in low or "illustration" in low):
-            fields["route"] = "figure-maker"
-            it.calls.append("illustration: route figure-maker")
-        iid = "R-%04d" % n
-        items.append(al.Item(iid, it.tag, item_title(it), fields, dedent(it.lines)))
-        report_rows.append((iid, it.tag, it.status, ref, src, it.calls))
-    agenda_text = al.new_agenda_text(instance, entries)
-    roadmap_text = al.new_roadmap_text(
-        instance, items,
-        preface="Migrated %sfrom `Drafts/comment_roadmap.md` by agenda_migrate.py; the "
-                "old file stays as the record of the settled tiers. Each item keeps its "
-                "original text; `source` says where it came from." % (
-                    ("on %s " % date) if date else ""))
-    return agenda_text, roadmap_text, items, entries, counts, report_rows
+        to, deliverable = ctx.instance, rt.SELF_DELIVERABLE
+        kind = kind or "question"
+    prov = "Migrated from roadmap item %s (status %s) by agenda_migrate.py." % (it.id,
+                                                                                it.status)
+    body = "\n\n".join(x for x in (prov, _dep_lines(text_deps), it.body.strip()) if x)
+    return {"item": it.id, "to": to, "kind": kind, "title": it.title, "ask": _ask_line(it),
+            "deliverable": deliverable, "refs": refs, "agenda": agenda,
+            "priority": it.priority, "domain": (ctx.domains or [None])[0],
+            "detail": body, "final_to": final_to, "note": note, "waiting_on": waits,
+            "parked": parked}
 
 
-def report(items, entries, counts, rows, legacy_path, paper_root, statuses_src):
-    by_tag, by_status, global_n = {}, {}, 0
+def plan(ctx, items):
+    """The conversion as a dict: ``convert`` (drafts, dependency order), ``skipped``
+    (already ticketed, done, dropped), ``held`` (reason each), ``problems``."""
+    existing = _existing(ctx)
+    by_id = {it.id: it for it in items}
+    convert, skipped, held, problems = [], [], [], []
+    counts = {"done": 0, "dropped": 0}
+    ticket_of = {}                      # item id -> ticket id (real) or None (to be filed)
+    state = {}                          # item id -> "filed" | "held" | "skipped" | "gone"
+    pending = []
     for it in items:
-        by_tag[it.tag] = by_tag.get(it.tag, 0) + 1
-        by_status[it.status] = by_status.get(it.status, 0) + 1
-        global_n += it.agenda == "global"
-    missing = [e.label for e in entries if e.status == "missing"]
-    out = ["# Agenda migration report", "",
-           "Source: `%s`. Paper: `%s`. Statuses: %s." % (
-               legacy_path, paper_root or "(none)", statuses_src), "",
-           "## Counts", "",
-           "- Agenda entries: %d (%d below their required status; %d with no registry "
-           "record)." % (len(entries), sum(1 for e in entries if not e.done), len(missing)),
-           "- Legacy items read: done %d, dropped %d, open %d, needs-human %d; "
-           "verification-queue lines %d." % (counts.get("done", 0), counts.get("dropped", 0),
-                                              counts.get("open", 0),
-                                              counts.get("needs-human", 0),
-                                              counts.get("queue", 0)),
-           "- Roadmap items written: %d (by tag: %s; by status: %s); %d attached to "
-           "`global`." % (len(items), ", ".join("%s %d" % kv for kv in sorted(by_tag.items())),
-                          ", ".join("%s %d" % kv for kv in sorted(by_status.items())),
-                          global_n), "",
-           "## Items", "", "| id | tag | status | agenda | source | calls |",
-           "|---|---|---|---|---|---|"]
-    for iid, tag, st, ref, src, calls in rows:
-        out.append("| %s | %s | %s | %s | %s | %s |" % (
-            iid, tag, st, ref, src.replace("|", "/"),
-            "; ".join(c.replace("|", "/") for c in calls) or "-"))
-    out += ["", "## Judgement calls for review", "",
-            "- Only live items moved; done and dropped items stay in the old roadmap and "
-            "its archive, which remain the record.",
-            "- Item dependencies (\"issue 2 needs issue 1\", \"verify after X\") were "
-            "not parsed from prose: every `depends_on` is `[]`. A `[verify]` item still "
-            "waits for its entry's inputs through the agenda (next.py).",
-            "- Every entry that is not a conjecture has `required: proved`; lower it (to "
-            "`sketch`) for results the paper will state as sketches, or set milestones.",
-            "- Agenda membership: a labelled statement with a registry record, or of a "
-            "provable environment, a conjecture or a definition.",
-            "- Priorities are all `normal` (optional items `low`): tier order is replaced "
-            "by agenda position."]
-    if missing:
-        out += ["", "## Entries with no registry record", "",
-                ", ".join("`%s`" % m for m in missing)]
-    return "\n".join(out) + "\n"
+        if it.tag not in TAGS:
+            problems.append("%s: unknown tag [%s]; not converted" % (it.id, it.tag))
+            state[it.id] = "held"
+            held.append({"item": it.id, "why": "unknown tag [%s]" % it.tag})
+            continue
+        if it.status not in STATUSES:
+            problems.append("%s: unknown status %r; not converted" % (it.id, it.status))
+            state[it.id] = "held"
+            held.append({"item": it.id, "why": "unknown status %r" % it.status})
+            continue
+        if it.status in ("done", "dropped"):
+            counts[it.status] += 1
+            state[it.id] = "gone" if it.status == "dropped" else "done"
+            continue
+        if it.id in existing:
+            tid = existing[it.id]
+            ticket_of[it.id] = tid
+            state[it.id] = "skipped"
+            st = ctx.tickets[tid].get("status")
+            skipped.append({"item": it.id, "ticket": tid, "why": "already converted" + (
+                "; its ticket was %s and is not filed again (file it by hand if it is "
+                "still wanted)" % st if st in gp.DEAD else "")})
+            continue
+        if it.status == "ticketed":
+            state[it.id] = "skipped"
+            ticket_of[it.id] = it.ticket
+            skipped.append({"item": it.id, "ticket": it.ticket, "why": "already ticketed"})
+            if it.ticket not in ctx.tickets:
+                problems.append("%s: ticketed as %s, which is not on the board" % (
+                    it.id, it.ticket or "(no ticket named)"))
+            continue
+        pending.append(it)
+    # dependency order: an item waits until the items it depends on are settled
+    remaining, progress = list(pending), True
+    while remaining and progress:
+        progress = False
+        for it in list(remaining):
+            unmet, text_deps, dead = [], [], None
+            for d in it.depends_on:
+                if RE_ITEM_ID.match(d):
+                    if d not in by_id:
+                        dead = "depends on unknown item %s" % d
+                    elif state.get(d) == "gone":
+                        dead = "depends on %s, which was dropped" % d
+                    elif state.get(d) == "done":
+                        continue
+                    elif state.get(d) == "held":
+                        dead = "depends on %s, which is held" % d
+                    elif state.get(d) == "skipped":   # ticketed or already converted
+                        tid = ticket_of.get(d)
+                        t = ctx.tickets.get(tid)
+                        if t is None:
+                            dead = "depends on %s, whose ticket %s is not on the board" % (
+                                d, tid or "(none named)")
+                        elif t.get("status") in gp.DEAD:
+                            dead = "depends on %s, whose ticket %s was %s" % (
+                                d, tid, t.get("status"))
+                        elif t.get("status") not in ("delivered", "closed"):
+                            unmet.append(("ticket", tid))
+                    elif state.get(d) == "filed":
+                        unmet.append(("item", d))
+                    else:
+                        break                       # not decided yet: next pass
+                elif al.RE_TICKET_ID.match(d):
+                    t = ctx.tickets.get(d)
+                    if t is None:
+                        dead = "depends on unknown ticket %s" % d
+                    elif t.get("status") in gp.DEAD:
+                        dead = "depends on ticket %s, which was %s" % (d, t.get("status"))
+                    elif t.get("status") not in ("delivered", "closed"):
+                        unmet.append(("ticket", d))
+                else:
+                    text_deps.append(d)
+            else:
+                remaining.remove(it)
+                progress = True
+                if dead:
+                    state[it.id] = "held"
+                    held.append({"item": it.id, "why": dead})
+                    continue
+                waits = []
+                for kind, d in unmet:
+                    waits.append(d)                 # an item id until it is filed
+                dr = draft(ctx, it, waits, text_deps)
+                if dr["parked"]:
+                    dr["waits_human"] = True
+                if waits and dr["to"] != ctx.instance:
+                    state[it.id] = "held"
+                    held.append({"item": it.id, "why": "an ask to %s that waits for %s: "
+                                 "run again once it is delivered" % (dr["to"], ", ".join(
+                                     waits))})
+                    continue
+                if not dr["to"]:
+                    state[it.id] = "held"
+                    held.append({"item": it.id, "why": "no receiver: " + dr["note"]})
+                    continue
+                state[it.id] = "filed"
+                convert.append(dr)
+    for it in remaining:                    # a cycle
+        state[it.id] = "held"
+        held.append({"item": it.id, "why": "dependency cycle or unresolved dependency"})
+    return {"convert": convert, "skipped": skipped, "held": held, "problems": problems,
+            "counts": counts}
+
+
+def apply(ctx, pl, campaign=None):
+    """File the planned tickets; returns ``{item id: ticket id}``. Never writes the
+    roadmap file."""
+    if not ctx.board:
+        raise al.AgendaError("no board (workspace.json 'board', or --board)")
+    bd = gp.board_module()
+    made = {}
+    for dr in pl["convert"]:
+        made[dr["item"]] = gp.file_ticket(ctx, dr, detail=dr["detail"], campaign=campaign)
+    for dr in pl["convert"]:
+        waits = [made.get(w, w) for w in dr["waiting_on"]]
+        waits = [w for w in waits if al.RE_TICKET_ID.match(w)]
+        if dr["parked"]:
+            waits = ["human"] + waits
+        if not waits:
+            continue
+        reason = ("roadmap item %s was %s" % (dr["item"], "parked for Roey"
+                                            if dr["parked"] else "waiting on %s"
+                                            % ", ".join(waits)))
+        bd.transition_ticket(ctx.board, made[dr["item"]], "blocked", waiting_on=waits,
+                             reason=reason, as_instance=ctx.instance, agent=ac.MAIN_AGENT)
+    return made
+
+
+def render(pl, made, dry):
+    out = ["%s: %d ticket(s) %s, %d skipped, %d held, done %d, dropped %d." % (
+        "DRY RUN" if dry else "APPLIED", len(pl["convert"]),
+        "to file" if dry else "filed", len(pl["skipped"]), len(pl["held"]),
+        pl["counts"]["done"], pl["counts"]["dropped"]), ""]
+    for dr in pl["convert"]:
+        out.append("  %s -> %s %s (%s) agenda %s%s%s" % (
+            dr["item"], made.get(dr["item"], "(new)"), dr["to"], dr["kind"], dr["agenda"],
+            "  parked on human" if dr["parked"] else "",
+            ("  waits for " + ", ".join(dr["waiting_on"])) if dr["waiting_on"] else ""))
+    for s in pl["skipped"]:
+        out.append("  %s: skipped, %s (%s)" % (s["item"], s["why"], s["ticket"] or "?"))
+    for h in pl["held"]:
+        out.append("  %s: HELD, %s" % (h["item"], h["why"]))
+    for p in pl["problems"]:
+        out.append("  problem: " + p)
+    if dry:
+        out += ["", "Nothing was written. Re-run with --apply to file the tickets; then "
+                    "archive the roadmap file by hand."]
+    return "\n".join(out)
 
 
 def main(argv=None):
-    for s in (sys.stdout, sys.stderr):
-        try:
-            s.reconfigure(encoding="utf-8", errors="replace")
-        except (AttributeError, ValueError):
-            pass
-    p = argparse.ArgumentParser(description="Legacy comment_roadmap.md -> agenda + roadmap.")
-    p.add_argument("--roadmap", required=True)
-    p.add_argument("--out", required=True)
-    p.add_argument("--paper-root", default=None)
-    p.add_argument("--statuses", default=None)
-    p.add_argument("--claims-cmd", default=None)
-    p.add_argument("--claims-cwd", default=None)
-    p.add_argument("--instance", default="author@main")
-    p.add_argument("--ns", default="paper")
-    p.add_argument("--date", default="")
+    nx._utf8()
+    p = argparse.ArgumentParser(
+        description="One-shot converter: an old Drafts/roadmap.md -> board tickets "
+                    "(dry run unless --apply; never writes the roadmap).")
+    p.add_argument("--roadmap", required=True, help="the old roadmap file (read only)")
+    p.add_argument("--apply", action="store_true", help="file the tickets (default: dry run)")
+    p.add_argument("--json", action="store_true")
+    for opt in ("--home", "--agenda", "--board", "--workspace", "--instance", "--ns"):
+        p.add_argument(opt, default=None)
+    p.add_argument("--campaign", metavar="TARGET", default=None,
+                   help="tag each filed ticket `campaign: TARGET`")
     a = p.parse_args(argv)
-    statuses, src = {}, "none read"
-    if a.statuses:
-        with open(a.statuses, "r", encoding="utf-8") as fh:
-            statuses = json.load(fh)
-        src = "`%s`" % a.statuses
-    elif a.claims_cmd:
-        statuses = registry_statuses(a.claims_cmd, a.claims_cwd or a.paper_root or ".")
-        src = "`%s sql ...`" % a.claims_cmd
-    legacy = al.read_text(a.roadmap)
-    agenda_text, roadmap_text, items, entries, counts, rows = migrate(
-        legacy, a.instance, a.ns, a.paper_root, statuses, a.date)
-    os.makedirs(a.out, exist_ok=True)
-    al.write_text(os.path.join(a.out, "agenda.md"), agenda_text)
-    al.write_text(os.path.join(a.out, "roadmap.md"), roadmap_text)
-    al.write_text(os.path.join(a.out, "migration-report.md"),
-                  report(items, entries, counts, rows, a.roadmap, a.paper_root, src))
-    print("agenda: %d entries; roadmap: %d items; written to %s" % (
-        len(entries), len(items), a.out))
-    return 0
+    try:
+        ns_args = argparse.Namespace(home=a.home, agenda=a.agenda, board=a.board,
+                                     workspace=a.workspace, instance=a.instance, ns=a.ns,
+                                     items=None)
+        ctx = nx.load_context(ns_args)
+        items = parse_items(al.read_text(a.roadmap))
+        pl = plan(ctx, items)
+        made = apply(ctx, pl, a.campaign) if a.apply and pl["convert"] else {}
+        if a.json:
+            print(json.dumps({"dry_run": not a.apply, "made": made, **{
+                k: pl[k] for k in ("convert", "skipped", "held", "problems", "counts")}},
+                indent=2, ensure_ascii=False))
+        else:
+            print(render(pl, made, not a.apply))
+        return 0 if pl["convert"] else 1
+    except (nx.InboxError, al.AgendaError, ac.AcademyError, OSError, ValueError) as exc:
+        sys.stderr.write("agenda_migrate.py: %s\n" % exc)
+        return 2
 
 
 if __name__ == "__main__":

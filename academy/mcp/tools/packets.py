@@ -11,7 +11,7 @@ import re
 import academy_common as ac
 
 from . import Tool, ToolError, obj, S, I, L
-from .tickets import load_ticket, _write as _write_ticket, _read
+from .tickets import load_ticket
 
 SECTION_ARGS = (("summary", "## Summary"), ("produced", "## Produced"),
                 ("established_vs_assumed", "## Established vs assumed"),
@@ -45,7 +45,8 @@ def load_packet(ctx, pid):
     path = ac.find_packet(ctx.board, pid)
     if not path:
         raise ToolError("no packet %s on the board" % pid)
-    meta, body = ac.read_frontmatter(_read(path))
+    with open(path, "r", encoding="utf-8") as fh:
+        meta, body = ac.read_frontmatter(fh.read())
     return path, meta, body
 
 
@@ -92,15 +93,15 @@ def create_packet(ctx, a):
     probs = ac.validate_packet(meta, body)
     if probs:
         raise ToolError("invalid packet: " + "; ".join(probs))
-    tpath = None
+    tref = None
     if meta["ticket"]:
-        tpath, tmeta, tbody = load_ticket(ctx, meta["ticket"])
+        tref, tmeta, tbody = load_ticket(ctx, meta["ticket"])
     pid = ac.allocate_id(ctx.board, "packet")
     meta["packet"] = pid
     path = os.path.join(ctx.board, "packets", inst, ac.packet_filename(pid, meta["title"]))
     _write(path, meta, body)
     linked = False
-    if tpath:
+    if tref:
         pset = ac.parties(tmeta, ctx.instance)
         text = "packet %s: %s" % (pid, meta["title"])
         if ctx.is_human or "receiver" in pset:
@@ -109,7 +110,7 @@ def create_packet(ctx, a):
             linked = True
         tbody = ac.append_thread(tbody, ctx.speaker, text)
         tmeta["updated"] = ac.today()
-        _write_ticket(tpath, tmeta, tbody)
+        ctx.store.save(tmeta, tbody, tref)
     return {"packet": pid, "path": path.replace("\\", "/"), "instance": inst,
             "ticket": meta["ticket"], "linked_to_ticket": linked}
 
@@ -143,7 +144,7 @@ def decide(ctx, a):
     _write(path, meta, body)
     echoed = None
     if meta.get("ticket"):
-        tpath, tmeta, tbody = load_ticket(ctx, meta["ticket"])
+        tref, tmeta, tbody = load_ticket(ctx, meta["ticket"])
         if choice == "ack":
             text = "acknowledged %s" % meta["packet"]
         elif choice == "other":
@@ -153,7 +154,7 @@ def decide(ctx, a):
                                                     asked[k]["options"][choice])
         tbody = ac.append_thread(tbody, ac.HUMAN, text)
         tmeta["updated"] = ac.today()
-        _write_ticket(tpath, tmeta, tbody)
+        ctx.store.save(tmeta, tbody, tref)
         echoed = meta["ticket"]
     return {"packet": meta["packet"], "state": meta["state"], "echoed_into": echoed}
 
@@ -171,7 +172,8 @@ def iter_packets(board):
             if rx.match(f):
                 p = os.path.join(full, f)
                 try:
-                    meta, body = ac.read_frontmatter(_read(p))
+                    with open(p, "r", encoding="utf-8") as fh:
+                        meta, body = ac.read_frontmatter(fh.read())
                 except ac.FrontmatterError:
                     continue
                 yield p, meta, body

@@ -1,0 +1,497 @@
+"""board_codec.py -- ticket <-> GitHub issue codec (docs/github-board.md).
+
+Pure and offline: no network, no board directory. The same rules serve every transport
+(the github MCP in a cloud session, a token over REST, the migration manifest).
+
+Mapping (one ticket = one issue, ``issue number == ticket number``):
+
+    title            ``T-0042: <title>``
+    state            open, or closed for a terminal status
+                     (closed -> completed; rejected / cancelled -> not_planned)
+    labels           ``status:`` ``to:`` ``role:`` (derived from ``to``) ``from:`` ``kind:``
+                     ``prio:``; exactly one of each; plus ``route:dead`` (zero or one,
+                     derived from ``blocked_by`` + ``reopen_if``: a dead-route block)
+    body             ``<!-- academy:meta {json} -->`` (the fields no label carries) followed
+                     by the ticket body up to, not including, ``## Thread``
+    comments         one per thread entry: ``<!-- academy:thread -->`` ``**who** date`` text
+
+Labels are the write surface; the meta line never carries a label's field (or id/title):
+decode refuses a meta line that does. ``route:dead`` is present exactly when the ticket is
+``blocked`` with both ``blocked_by`` and ``reopen_if`` (``is_dead_block``). Usage:
+
+    py board_codec.py encode   < ticket.json    {"meta": {...}, "body": "..."}
+    py board_codec.py decode   < issue.json     {"issue": {...}, "comments": [...]}
+    py board_codec.py validate < issue.json     problems as a JSON list (exit 1 if any)
+    py board_codec.py transition < req.json     {"old": "open", "new": "accepted", "party": "receiver"}
+"""
+
+import hashlib
+import json
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
+
+import academy_common as ac  # noqa: E402
+
+META_PREFIX = "<!-- academy:meta "
+META_SUFFIX = " -->"
+THREAD_MARK = "<!-- academy:thread -->"
+LABEL_FIELDS = (("status", "status"), ("to", "to"), ("from", "from"),
+                ("kind", "kind"), ("priority", "prio"))
+ROLES = tuple(ac.ROLES) + (ac.HUMAN,)
+#: label prefixes that are derived from other fields (rewritten by board-sync), and the
+#: others; every module takes its label prefixes from here
+ROLE_PREFIX = "role"
+ROUTE_PREFIX = "route"
+PLACEHOLDER = "placeholder"
+DERIVED_PREFIXES = (ROLE_PREFIX, ROUTE_PREFIX)
+LABEL_PREFIXES = tuple(p for _f, p in LABEL_FIELDS) + DERIVED_PREFIXES
+#: the thread-entry prefixes the reopen rule reads (``apply_blocking`` writes them)
+REOPENED = "reopened:"
+TRIED = "tried:"
+ROUTE_DEAD = "%s:dead" % ROUTE_PREFIX
+#: fields the meta line must not carry: a label or the title is their one source
+NOT_IN_META = ("id", "title") + tuple(f for f, _p in LABEL_FIELDS)
+RE_TITLE = re.compile(r"^(T-\d{4,}): (.*)$", re.S)
+RE_META = re.compile(r"^<!-- academy:meta (.*) -->$")
+RE_COMMENT = re.compile(r"^<!-- academy:thread -->\n\*\*(\S+)\*\* (\d{4}-\d{2}-\d{2})\n\n(.*)$", re.S)
+MAX_BODY = 65000
+
+
+class CodecError(ac.AcademyError):
+    pass
+
+
+# ----------------------------------------------------------------------------
+# Small helpers
+# ----------------------------------------------------------------------------
+
+def ticket_number(tid):
+    return int(str(tid).split("-", 1)[1])
+
+
+def role_of(to):
+    """The role label value for a ``to``: 'human' or the instance's role."""
+    if to == ac.HUMAN:
+        return "human"
+    m = ac.RE_INSTANCE.match(str(to))
+    if not m:
+        raise CodecError("cannot derive a role from to=%r" % (to,))
+    return m.group(1)
+
+
+def is_dead_block(meta):
+    """The one dead-route predicate of the board: a *blocked* ticket that has both
+    ``blocked_by`` and ``reopen_if`` (``ac.is_dead_route``). ``route:dead``, the state's
+    ``dead`` and the Project's Block all derive from it; a ticket that is not blocked but
+    still carries both fields is a ``validate_ticket`` error, not a dead route."""
+    return meta.get("status") == "blocked" and ac.is_dead_route(meta)
+
+
+def route_labels(meta):
+    """The derived ``route:`` label list of a ticket: ``["route:dead"]`` or ``[]``."""
+    return [ROUTE_DEAD] if is_dead_block(meta) else []
+
+
+def derived_labels(meta):
+    """The labels derived from other fields (``role:`` from ``to``, ``route:`` from the block)."""
+    return ["%s:%s" % (ROLE_PREFIX, role_of(meta["to"]))] + route_labels(meta)
+
+
+def is_derived_label(name):
+    return name.split(":", 1)[0] in DERIVED_PREFIXES
+
+
+def label_prefix(name):
+    return name.split(":", 1)[0]
+
+
+def corrected_labels(meta, names):
+    """``names`` with the derived labels replaced by what ``meta`` wants (order kept)."""
+    return [n for n in names if not is_derived_label(n)] + derived_labels(meta)
+
+
+def label_names(labels):
+    """Label names from the strings or ``{"name": ...}`` dicts an API returns."""
+    return [x["name"] if isinstance(x, dict) else str(x) for x in labels or []]
+
+
+def state_of(status):
+    """``(state, state_reason)`` of an issue for a ticket status."""
+    if status in ac.TERMINAL:
+        return "closed", ("completed" if status == "closed" else "not_planned")
+    return "open", None
+
+
+def ordered_meta(meta):
+    """``meta`` with the keys in ticket order; a key the schema does not know follows,
+    in its own order (so a round trip neither drops nor reshuffles it)."""
+    out = {k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}
+    for k in meta:
+        out.setdefault(k, meta[k])
+    return out
+
+
+def _dump_meta(fields):
+    text = json.dumps(fields, ensure_ascii=False, separators=(",", ":"))
+    return META_PREFIX + text.replace(">", "\\u003e") + META_SUFFIX
+
+
+def _split_thread(body):
+    """``(pre, entries)``: the body before ``## Thread`` and the thread entries."""
+    lines = body.replace("\r\n", "\n").split("\n")
+    if ac.THREAD_HEADING not in lines:
+        return body, []
+    i = lines.index(ac.THREAD_HEADING)
+    pre = "\n".join(lines[:i]) + "\n"
+    return pre, ac.thread_lines(body)
+
+
+# ----------------------------------------------------------------------------
+# Ticket -> issue
+# ----------------------------------------------------------------------------
+
+def labels_for(meta):
+    out = []
+    for field, prefix in LABEL_FIELDS:
+        if meta.get(field) not in (None, ""):
+            out.append("%s:%s" % (prefix, meta[field]))
+    return out[:2] + derived_labels(meta)[:1] + out[2:] + route_labels(meta)
+
+
+def encode_comment(date, who, text):
+    return "%s\n**%s** %s\n\n%s" % (THREAD_MARK, who, date, text)
+
+
+def encode(meta, body):
+    """The issue payload of a ticket: number, title, body, labels, state, comments, links."""
+    fields = {k: meta[k] for k in ordered_meta(meta) if k not in NOT_IN_META}
+    pre, entries = _split_thread(body)
+    issue_body = _dump_meta(fields) + "\n" + pre
+    status = meta["status"]
+    state, reason = state_of(status)
+    return {
+        "number": ticket_number(meta["id"]),
+        "title": "%s: %s" % (meta["id"], meta["title"]),
+        "body": issue_body,
+        "labels": labels_for(meta),
+        "state": state,
+        "state_reason": reason,
+        # the receiving human gets the native assignee; instances are not GitHub users
+        "assign_human": meta["to"] == ac.HUMAN,
+        "comments": [encode_comment(d, w, t) for d, w, t in entries],
+        "parent": meta.get("parent") or None,
+        "waits_on": [t for t in (meta.get("waiting_on") or [])
+                       if ac.RE_TICKET_ID.match(str(t))],
+    }
+
+
+def relations(issues):
+    """The native relations of encoded issues, in order: ``sub_issue`` (parent, child) and
+    ``dependency`` (issue, blocker), as the manifest lists them."""
+    out = []
+    for i in issues:
+        if i["parent"]:
+            out.append({"type": "sub_issue", "parent": ticket_number(i["parent"]),
+                        "child": i["number"]})
+        for t in i["waits_on"]:
+            out.append({"type": "dependency", "issue": i["number"],
+                        "blocker": ticket_number(t)})
+    return out
+
+
+def placeholder(number):
+    """A closed 'not planned' issue that keeps ``number`` reserved for a missing ticket id."""
+    return {"number": number, "title": "T-%04d: (unused id)" % number,
+            "body": "Reserved so that issue numbers equal ticket ids.\n",
+            "labels": [PLACEHOLDER], "state": "closed", "state_reason": "not_planned",
+            "assign_human": False, "comments": [], "parent": None, "waits_on": []}
+
+
+# ----------------------------------------------------------------------------
+# Issue -> ticket
+# ----------------------------------------------------------------------------
+
+def _one_label(names, prefix):
+    vals = [n[len(prefix) + 1:] for n in names if n.startswith(prefix + ":")]
+    return vals
+
+
+def decode(issue, comments=()):
+    """``(meta, body)`` of an issue. ``comments`` are the comment bodies, oldest first.
+
+    Comments that are not thread entries (no marker) are ignored: people may talk on the
+    issue; only marked comments are the ticket's Thread.
+    """
+    m = RE_TITLE.match(issue.get("title") or "")
+    if not m:
+        raise CodecError("issue #%s: title does not start with 'T-NNNN: '" % issue.get("number"))
+    tid, title = m.group(1), m.group(2)
+    if ticket_number(tid) != issue.get("number"):
+        raise CodecError("issue #%s carries %s" % (issue.get("number"), tid))
+    text = issue.get("body") or ""
+    first, _, pre = text.partition("\n")
+    mm = RE_META.match(first)
+    if not mm:
+        raise CodecError("issue #%s: no academy:meta line" % issue["number"])
+    fields = json.loads(mm.group(1))
+    if not isinstance(fields, dict):
+        raise CodecError("issue #%s: the academy:meta line is not a JSON object" % issue["number"])
+    shadow = [k for k in fields if k in NOT_IN_META]
+    if shadow:
+        raise CodecError("issue #%s: the academy:meta line carries %s, which a label or the "
+                         "title owns (edit that, not the meta line)"
+                         % (issue["number"], ", ".join(sorted(shadow))))
+    names = label_names(issue.get("labels"))
+    meta = {"id": tid, "title": title}
+    routes = _one_label(names, ROUTE_PREFIX)
+    if len(routes) > 1 or (routes and routes != ["dead"]):
+        raise CodecError("issue #%s: at most one route: label, and only route:dead "
+                         "(found %s)" % (issue["number"], ", ".join("route:" + r for r in routes)))
+    for field, prefix in LABEL_FIELDS:
+        vals = _one_label(names, prefix)
+        if len(vals) != 1:
+            raise CodecError("issue #%s: need exactly one %s: label, found %d"
+                             % (issue["number"], prefix, len(vals)))
+        meta[field] = vals[0]
+    meta.update(fields)
+    ordered = ordered_meta(meta)
+    body = pre + ac.THREAD_HEADING + "\n\n"
+    entries = []
+    for c in comments:
+        cm = RE_COMMENT.match(c.replace("\r\n", "\n"))
+        if not cm:
+            continue
+        who, date, txt = cm.groups()
+        parts = txt.strip("\n").split("\n")
+        entries.append("- %s %s: %s" % (date, who, parts[0]))
+        entries.extend("  " + p for p in parts[1:])
+    body += "\n".join(entries) + "\n" if entries else ""
+    return ordered, body
+
+
+def render(meta, body):
+    """The ticket file text for ``(meta, body)`` (what board.py writes)."""
+    return ac.write_frontmatter(ordered_meta(meta), body)
+
+
+# ----------------------------------------------------------------------------
+# Validation
+# ----------------------------------------------------------------------------
+
+def validate_issue(issue, comments=()):
+    """Problems with an issue as a ticket (empty when consistent)."""
+    try:
+        meta, body = decode(issue, comments)
+    except (CodecError, ValueError) as e:
+        return [str(e)]
+    probs = ac.validate_ticket(meta, body)
+    names = label_names(issue.get("labels"))
+    roles = _one_label(names, ROLE_PREFIX)
+    try:
+        want = role_of(meta["to"])
+    except CodecError as e:
+        return probs + [str(e)]
+    if roles != [want]:
+        probs.append("role label %s does not match to=%s (want role:%s)" % (roles, meta["to"], want))
+    want_routes = [r[len(ROUTE_PREFIX) + 1:] for r in route_labels(meta)]
+    if _one_label(names, ROUTE_PREFIX) != want_routes:
+        probs.append("route label %s does not match the block (blocked + blocked_by + "
+                     "reopen_if; want %s)" % (
+            [ROUTE_PREFIX + ":" + r for r in _one_label(names, ROUTE_PREFIX)],
+            route_labels(meta) or "no route: label"))
+    state, reason = state_of(meta["status"])
+    if issue.get("state") and issue["state"] != state:
+        probs.append("issue is %s but status %s wants %s" % (issue["state"], meta["status"], state))
+    if state == "closed" and issue.get("state_reason") not in (None, reason):
+        probs.append("state_reason %s but status %s wants %s"
+                     % (issue.get("state_reason"), meta["status"], reason))
+    if len(issue.get("body") or "") > MAX_BODY:
+        probs.append("issue body exceeds %d characters" % MAX_BODY)
+    return probs
+
+
+# ----------------------------------------------------------------------------
+# Server-side reopen rule (needs the previous state)
+# ----------------------------------------------------------------------------
+
+def thread_digest(entries):
+    """A SHA-256 of thread entries (``(date, who, text)`` each), in order."""
+    h = hashlib.sha256()
+    for e in entries:
+        h.update(json.dumps(list(e), ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()
+
+
+def ticket_state(meta, body=""):
+    """The compact state ``check_reopen`` compares: what a sync run remembers of a ticket.
+
+    ``status``, ``dead`` (a dead-route block, ``is_dead_block``), ``reopened`` (the count
+    of ``reopened:`` thread entries spoken by a valid speaker), ``entries`` (the count of
+    thread entries) and ``digest`` (a SHA-256 of all of them, so that an entry edited or
+    replaced later is seen, not only one removed).
+    """
+    entries = ac.thread_lines(body)
+    return {"status": meta.get("status"),
+            "dead": is_dead_block(meta),
+            "reopened": sum(1 for e in entries
+                            if e[2].startswith(REOPENED) and ac.RE_WHO.match(e[1])),
+            "entries": len(entries),
+            "digest": thread_digest(entries)}
+
+
+def parse_state(obj):
+    """The state dict when ``obj`` is a well-formed ``ticket_state`` (right keys, right
+    types), else None. ``digest`` is optional (older states); nothing else is."""
+    if not isinstance(obj, dict):
+        return None
+    st, dead, re_, en = (obj.get("status"), obj.get("dead"), obj.get("reopened"),
+                         obj.get("entries"))
+    if st not in ac.TICKET_STATUSES or not isinstance(dead, bool):
+        return None
+    for v in (re_, en):
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            return None
+    if re_ > en:
+        return None
+    dg = obj.get("digest")
+    if dg is not None and not (isinstance(dg, str) and re.match(r"^[0-9a-f]{64}$", dg)):
+        return None
+    out = {"status": st, "dead": dead, "reopened": re_, "entries": en}
+    if dg is not None:
+        out["digest"] = dg
+    return out
+
+
+def state_of_issue(issue, comments=()):
+    """``ticket_state`` of an issue (raises CodecError when it does not decode)."""
+    meta, body = decode(issue, comments)
+    return ticket_state(meta, body)
+
+
+def unreopened_dead_route(body):
+    """True when the thread shows a dead-route block (``tried:``) with no ``reopened:``
+    entry after it (the same reading as ``academy_common``'s second-block rule)."""
+    tried = False
+    for _d, _w, text in ac.thread_lines(body):
+        if text.startswith(REOPENED):
+            tried = False
+        elif text.startswith(TRIED):
+            tried = True
+    return tried
+
+
+def check_reopen(previous, current, body=None, human=False):
+    """Problems with the move from ``previous`` to ``current`` (two ``ticket_state`` dicts).
+
+    ``body`` is the current ticket body (optional; it enables the digest and human checks),
+    ``human`` whether the editor is known to be the human (the workflow's actor input).
+    What is checked, and nothing more:
+
+      * a dead-route block may end only by ``blocked -> accepted`` with a new
+        ``reopened: <the new mechanism>`` thread entry, or by cancellation (the server
+        cannot tell whose); the **human** may leave it by any transition, so the check is
+        skipped when ``human`` is set or when the new last thread entry is spoken by
+        ``human`` (a *speaker name*, which any commenter can write: GitHub identity is one
+        account, so this is a convention the server cannot verify);
+      * a dead route may not turn pending or plain (``blocked_by`` / ``reopen_if`` cleared
+        while still blocked) without that entry either;
+      * the Thread is append-only as far as the state can show: fewer entries than before,
+        or (with ``body`` and a stored ``digest``) any earlier entry edited or replaced,
+        is reported. It cannot tell a forged new entry from a real one;
+      * with **no** previous state, a ticket that is not blocked (nor cancelled) and whose
+        thread shows a dead-route block (``tried:``) never followed by ``reopened:`` is
+        reported as ``state missing``: the remembered state was deleted or never written
+        and the route was left. A ticket that is still blocked, or clean, passes.
+    """
+    entries = ac.thread_lines(body) if body is not None else None
+    if not previous:
+        if body is not None and current.get("status") not in ("blocked", "cancelled") \
+                and unreopened_dead_route(body) \
+                and not human and not _human_spoke(entries, 0):
+            return ["state missing: the thread shows a dead-route block never reopened "
+                    "('reopened:' entry), the ticket is %s and no earlier state is "
+                    "remembered (deleted?)" % current.get("status")]
+        return []
+    probs = []
+    human = human or (entries is not None and _human_spoke(entries, previous.get("entries", 0)))
+    if previous.get("dead") and not human:
+        st = current.get("status")
+        if st == "blocked" and current.get("dead"):
+            pass
+        elif st == "cancelled":
+            pass
+        elif st == "accepted" and current.get("reopened", 0) > previous.get("reopened", 0):
+            pass
+        elif st == "accepted":
+            probs.append("a dead-route ticket was reopened (blocked -> accepted) without a new "
+                         "'reopened: <the new mechanism>' thread entry")
+        elif st == "blocked":
+            probs.append("a dead-route block was changed to pending by editing blocked_by/"
+                         "reopen_if or the route label; a dead route reopens only "
+                         "blocked -> accepted with a 'reopened:' thread entry")
+        else:
+            probs.append("a dead-route ticket left blocked for %s; it reopens only "
+                         "blocked -> accepted with a 'reopened:' thread entry (or is "
+                         "cancelled; the human may make any move)" % st)
+    n = previous.get("entries", 0)
+    if current.get("entries", 0) < n:
+        probs.append("thread entries were removed (the Thread is append-only)")
+    elif entries is not None and previous.get("digest") \
+            and thread_digest(entries[:n]) != previous["digest"]:
+        probs.append("thread entries were edited or replaced (the Thread is append-only)")
+    return probs
+
+
+def _human_spoke(entries, since):
+    """True when a thread entry after the first ``since`` entries is spoken by ``human``
+    (the last one: a human move is recorded by the human's own entry)."""
+    return bool(entries) and len(entries) > since and entries[-1][1] == ac.HUMAN
+
+
+def check_transition(old, new, party, human=False):
+    """Problems with a status change by ``party`` in {'sender', 'receiver'} (or human)."""
+    if old == new:
+        return []
+    if human:
+        return []
+    allowed = ac.TRANSITIONS.get((old, new))
+    if allowed is None:
+        return ["%s -> %s is not a legal transition" % (old, new)]
+    if party not in allowed:
+        return ["%s -> %s is the %s's move, not the %s's" % (old, new, allowed[0], party)]
+    return []
+
+
+# ----------------------------------------------------------------------------
+# CLI
+# ----------------------------------------------------------------------------
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or argv[0] not in ("encode", "decode", "validate", "transition"):
+        sys.stderr.write(__doc__)
+        return 2
+    req = json.load(sys.stdin)
+    cmd = argv[0]
+    if cmd == "encode":
+        out = encode(req["meta"], req["body"])
+    elif cmd == "decode":
+        meta, body = decode(req["issue"], req.get("comments", []))
+        out = {"meta": meta, "body": body}
+    elif cmd == "validate":
+        out = validate_issue(req["issue"], req.get("comments", []))
+    else:
+        out = check_transition(req["old"], req["new"], req.get("party", "receiver"),
+                               bool(req.get("human")))
+    json.dump(out, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    return 1 if cmd in ("validate", "transition") and out else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

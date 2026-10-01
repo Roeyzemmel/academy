@@ -35,7 +35,10 @@ same in every namespace:
 
 A **direction** is itself an object: a research program listing its questions,
 candidate claims and falsifiers. `/researcher:explore` works directions -> questions
--> claims.
+-> claims. An **approach** (`objects/approach/`, campaign mode) is a mathematical idea
+gathering directions (a direction's optional `approach:` names it; membership is
+computed); its `lifecycle` is active, blocked (needs `blocked_by` and `reopen_if`),
+delivered or dropped, with a history row for every change.
 
 ## Who writes what
 

@@ -1,0 +1,29 @@
+# Keeps every ticket issue consistent with the academy ticket rules (docs/github-board.md).
+# board_sync.py and its library files are vendored under .github/academy/ by /academy:board-migrate.
+name: board-sync
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled, closed, reopened]
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_dispatch:
+permissions:
+  issues: write
+# one run per issue at a time, queued not cancelled: two runs on one issue must not race on
+# the hidden state comment
+concurrency:
+  group: board-sync-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 .github/academy/scripts/board_sync.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # the human's GitHub login(s), comma separated (repository variable): the human may
+          # leave a dead route by any move; the sender of the event is compared with this
+          ACADEMY_HUMAN_LOGINS: ${{ vars.ACADEMY_HUMAN_LOGINS }}
+          # the only author whose hidden state comment is trusted
+          ACADEMY_STATE_AUTHOR: github-actions[bot]

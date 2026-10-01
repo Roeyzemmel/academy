@@ -95,7 +95,7 @@ class HookTest(unittest.TestCase):
         self.sb.write(".claude/academy.json", json.dumps({
             "schema": 1, "role": "author", "instance": "author@main",
             "domains": ["translation-surfaces"], "ns": "paper",
-            "paths": {"tex": "x", "bib": "b", "drafts": "d", "agenda": "a", "roadmap": "r",
+            "paths": {"tex": "x", "bib": "b", "drafts": "d", "agenda": "a",
                       "records": "c", "views": []},
             "registry": {"profile": "paper", "root": "c"}, "author": {}}),
             base=self.sb.other)

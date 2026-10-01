@@ -58,7 +58,8 @@ L = {"type": "array", "items": {"type": "string"}}
 class Context(object):
     """Per-call view of the workspace, the caller and its instance."""
 
-    def __init__(self, cwd=None, agent="", workspace=None, agent_ns="", verified=True):
+    def __init__(self, cwd=None, agent="", workspace=None, agent_ns="", verified=True,
+                 store=None):
         self.cwd = os.path.abspath(cwd or os.environ.get("ACADEMY_CWD") or os.getcwd())
         self.agent = agent or ""
         self.agent_ns = agent_ns or ""
@@ -66,6 +67,7 @@ class Context(object):
         self.verified = verified
         self._ws = workspace
         self._perms = None
+        self._store = store
 
     # -- workspace ---------------------------------------------------------
     @property
@@ -81,6 +83,14 @@ class Context(object):
     @property
     def board(self):
         return self.workspace["board"]
+
+    @property
+    def store(self):
+        """The ticket store: workspace.json's ``board.backend`` (files by default), or the
+        one injected (tests, a session with a github transport)."""
+        if self._store is None:
+            self._store = ac.open_store(self.workspace)
+        return self._store
 
     @property
     def perms(self):
@@ -177,7 +187,7 @@ class Context(object):
         """``(instance, agent)`` a new ticket is filed as (docs/protocol.md section 5).
 
         An agent files as its instance. The main session files as the home it runs in,
-        with agent ``main`` -- a role skill such as /author:next is its role -- unless
+        with agent ``main`` -- a role skill such as /author:inbox is its role -- unless
         ``as_human`` (only /academy:board, desk and decide pass it, after Roey
         confirms); outside every home it is the human.
         """

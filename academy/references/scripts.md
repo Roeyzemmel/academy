@@ -18,6 +18,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `deep_dive_index.py` | deep-dive, review | `id SUBJECT` · `get ID` (exit 1 if none) · `set ID --url U [--kind K] [--title T] [--subject S]` · `path ID` · `list` |
 | `init_instance.py` | init | `<role>@<name> --home PATH --domain D [--domain D2] [--ns NS] [--expert I] [--scientist I] [--no-board] [--force] [--dry-run]` |
 | `usage_report.py` | usage, usage-analyst, desk | `[--days 7\|--since YYYY-MM-DD] [--max-subagents 12] [--json\|--brief]` |
+| `error_ledger.py` | usage-analyst, the PostToolUseFailure hook | `hook` (event on stdin) · `report [--days 7\|--since D] [--json]` · `settle --packet P-NNNN [--quiet-days 7]` · `resolve SIG... [--note T]`: the error ledger `<board>/.errors/<instance>.jsonl` |
 | `session_usage.py` | usage | `<session-id> [--project DIR]`: one session, per subagent |
 | `session_start.py` | the SessionStart hook | (no arguments; reads the hook event) |
 

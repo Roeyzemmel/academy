@@ -23,6 +23,11 @@ the ticket protocol is `docs/protocol.md`.
 6. **Only the human decides a packet.** Agents propose; `packets_decide` is
    human-only.
 
+7. **Blind provers are independent by their brief.** Provers working on different
+   approaches to one target are briefed only with their own approach, its directions
+   and the target statement: no other approach's text, status or result. Independence
+   comes from the brief, not from concurrency (they run one after another).
+
 ## Explaining is not grading
 
 `explainer` and `clerk` are read-only. They report the status the registry holds and

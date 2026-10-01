@@ -136,6 +136,15 @@ class TestObjectsLayout(unittest.TestCase):
         errors, warnings = s1kb.run_check(kb)
         self.assertEqual((errors, warnings), ([], []))
 
+    def test_a_direction_may_name_an_approach_and_the_approach_folder_is_ignored(self):
+        write(self.root / "objects" / "direction" / "DIR-1.md",
+              DIR.replace("lifecycle: active\n", "lifecycle: active\napproach: AP-1\n", 1))
+        write(self.root / "objects" / "approach" / "AP-1.md",
+              "---\nid: AP-1\nkind: approach\ntitle: a\nlifecycle: active\n---\nx\n")
+        kb = s1kb.load_kb(self.root)
+        self.assertNotIn("AP-1", kb.entities)
+        self.assertEqual(s1kb.run_check(kb), ([], []))
+
     def test_a_record_in_the_wrong_folder_is_an_error(self):
         shutil.move(str(self.root / "objects" / "question" / "Q1.md"),
                     str(self.root / "objects" / "claim" / "Q1.md"))

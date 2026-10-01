@@ -10,7 +10,7 @@ more than one clerk lookup.
 |---|---|---|---|
 | `answered` | A quick factual question the library or a registry answers: what a cited result says or assumes, the status of an id, where something is proved, what a ticket or packet says | the Expert's `clerk` (library, cards, `hot.md`), or the read tools directly for a status or a ticket | asks once, returns the answer with its source; on a clerk miss, becomes `ticket` (kind `lookup` or `cite`) |
 | `explain` | "explain", "walk me through", "what is", "give me an overview of" a concept, definition, claim and its proof, paper, experiment or direction | `/academy:deep-dive` | resolves the subject to an id (`<ns>:<id>`, `bib:<key>`, a result path, `concept:<term>`) |
-| `action` | One step that a role's public skill does as it stands: cite a key, verify one label, run one queued experiment, show the agenda | that skill, e.g. `/expert:cite`, `/researcher:prove`, `/scientist:queue`, `/author:next` | names the skill and the exact arguments |
+| `action` | One step that a role's public skill does as it stands: cite a key, verify one label, run one queued experiment, show the agenda | that skill, e.g. `/expert:cite`, `/researcher:prove`, `/scientist:queue`, `/author:inbox` | names the skill and the exact arguments |
 | `ticket` | Anything larger, or anything crossing roles: a new argument, a new experiment, a review, a notation change | the receiving instance, chosen below | drafts the ticket |
 | `unclear` | The request has two readings that route differently | none | states the one question that separates them |
 

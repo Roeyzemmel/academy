@@ -9,8 +9,13 @@ Usage (from anywhere; the board comes from workspace.json unless --board is give
                     [--final-to ROLE]
     py board.py show T-NNNN [--json]
     py board.py transition T-NNNN STATUS [--reason R] [--result R] [--waiting-on a,b]
+                    [--blocked-by ID --reopen-if LINE] [--reopen LINE]
                     [--as INSTANCE] [--agent NAME]
     py board.py append T-NNNN --text TEXT [--as INSTANCE] [--agent NAME]
+
+Every function takes ``board`` as a directory or as a ``BoardStore`` (``ac.as_store``,
+``ac.open_store``): the same rules run on the file board and on the GitHub one
+(docs/github-board.md); a directory is the file board, as before.
 
 ``--as`` names the caller's instance; ``new`` requires it (``--as human`` only from
 /academy:board, desk and decide); for ``transition`` and ``append``, without it the
@@ -29,7 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
 
 import academy_common as ac  # noqa: E402
 
-RESERVED = ("packets", "deep-dives", ".ids", ".render", ".git")
+RESERVED = ac.FileBoardStore.RESERVED
 PRIORITY_ORDER = {"high": 0, "normal": 1, "low": 2}
 
 
@@ -42,6 +47,17 @@ def resolve_board(board=None, workspace=None):
     if board:
         return os.path.abspath(board)
     return os.path.abspath(ac.load_workspace(workspace)["board"])
+
+
+def resolve_store(board=None, workspace=None, transport=None):
+    """The BoardStore to work on: ``board`` (a path) is the file board there; otherwise
+    the workspace's ``board.backend`` decides (``files`` by default, see ``ac.open_store``)."""
+    if board:
+        return ac.FileBoardStore(resolve_board(board))
+    st = ac.open_store(ac.load_workspace(workspace), transport)
+    if isinstance(st, ac.FileBoardStore):
+        st = ac.FileBoardStore(resolve_board(st.board))
+    return st
 
 
 def _workspace_or_none(workspace=None):
@@ -72,40 +88,17 @@ def _split(s):
 # Reading tickets
 # ----------------------------------------------------------------------------
 
-def read_ticket(path):
-    with open(path, "r", encoding="utf-8") as fh:
-        meta, body = ac.read_frontmatter(fh.read())
-    return meta, body
-
-
-def write_ticket(path, meta, body):
-    ordered = {k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}
-    ac.atomic_write(path, ac.write_frontmatter(ordered, body))
+read_ticket = ac.FileBoardStore.read_path
+write_ticket = ac.FileBoardStore.write_path
 
 
 def iter_tickets(board):
-    """Yield ``(path, meta, body)`` for every ticket file on the board.
+    """Yield ``(ref, meta, body)`` for every ticket on the board (a directory or a store).
 
-    Only files named ``T-NNNN-*.md`` inside instance folders and ``human/`` count
-    (protocol.md section 2). An unreadable file is yielded with ``meta = None``.
+    On the file board only ``T-NNNN-*.md`` files inside instance folders and ``human/``
+    count (protocol.md section 2). An unreadable ticket is yielded with ``meta = None``.
     """
-    import re
-    rx = re.compile(r"^T-\d{4,}(?:-.*)?\.md$")
-    if not os.path.isdir(board):
-        return
-    for folder in sorted(os.listdir(board)):
-        full = os.path.join(board, folder)
-        if folder in RESERVED or folder.startswith(".") or not os.path.isdir(full):
-            continue
-        for f in sorted(os.listdir(full)):
-            if not rx.match(f):
-                continue
-            p = os.path.join(full, f)
-            try:
-                meta, body = read_ticket(p)
-            except (ac.FrontmatterError, OSError, UnicodeDecodeError):
-                meta, body = None, ""
-            yield p, meta, body
+    return ac.as_store(board).iter_tickets()
 
 
 def list_tickets(board, to=None, frm=None, status=None, include_terminal=False):
@@ -136,11 +129,7 @@ def list_tickets(board, to=None, frm=None, status=None, include_terminal=False):
 
 
 def get_ticket(board, tid):
-    path = ac.find_ticket(board, tid)
-    if not path:
-        raise ac.AcademyError("no ticket %s on %s" % (tid, board))
-    meta, body = read_ticket(path)
-    return path, meta, body
+    return ac.as_store(board).get(tid)
 
 
 # ----------------------------------------------------------------------------
@@ -163,8 +152,12 @@ def _check_party(name, workspace, what):
 def create_ticket(board, to, title, ask, deliverable, kind="other", priority="normal",
                   refs=None, agenda=None, domain=None, parent=None, budget=None,
                   detail="", as_instance=None, agent="", workspace=None, date=None,
-                  final_to=None, perms=None):
-    """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path."""
+                  final_to=None, perms=None, campaign=None):
+    """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path.
+
+    ``campaign`` (a registry id, the campaign's target) tags the ticket so
+    ``inbox.py --campaign <target>`` selects it; omitted, the field is not written.
+    """
     ws = workspace if workspace is not None else _workspace_or_none()
     if not as_instance:
         raise ac.AcademyError("--as is required: the filing instance ('human' only from "
@@ -172,7 +165,8 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     _check_party(to, ws, "to")
     _check_party(as_instance, ws, "from")
     who = bare_agent(agent) or (ac.MAIN_AGENT if as_instance != ac.HUMAN else "")
-    depth = ac.relay_depth(board, parent) if final_to and parent else 0
+    store = ac.as_store(board)
+    depth = ac.relay_depth(store, parent) if final_to and parent else 0
     ok, why = ac.ticket_edge_allowed(as_instance, to, who,
                                      perms if perms is not None else ac.load_permissions(),
                                      ws, final_to, depth)
@@ -191,55 +185,46 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
         "blocks": [], "waiting_on": [], "budget": dict(budget or _default_budget()),
         "result": None, "packets": [], "created": date, "updated": date,
     }
+    if campaign:
+        meta["campaign"] = campaign
     probs = ac.validate_ticket(meta)
     if probs:
         raise ac.AcademyError("invalid ticket: " + "; ".join(probs))
-    tid = ac.allocate_id(board, "ticket")
-    meta["id"] = tid
     text = ac.new_ticket(meta, detail)
     fm, body = ac.read_frontmatter(text)
     body = ac.append_thread(body, ac.format_who(as_instance, who), "opened", date)
-    path = os.path.join(board, to, ac.ticket_filename(tid, title))
-    write_ticket(path, fm, body)
+    path, _fm = store.create(fm, body)
     return path
 
 
 def append_to_ticket(board, tid, text, as_instance=ac.HUMAN, agent="", date=None):
     """Append one entry to the ticket's thread. Returns the path."""
-    path, meta, body = get_ticket(board, tid)
+    store = ac.as_store(board)
+    path, meta, body = store.get(tid)
     date = date or ac.today()
     body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent)), text, date)
     meta["updated"] = date
-    write_ticket(path, meta, body)
-    return path
-
-
-def _mirror_blocks(board, tid, waiting_on, date):
-    """Add ``tid`` to the ``blocks`` list of every ticket it now waits on."""
-    for w in waiting_on or []:
-        if not ac.RE_TICKET_ID.match(str(w)):
-            continue
-        p = ac.find_ticket(board, w)
-        if not p:
-            continue
-        m, b = read_ticket(p)
-        blocks = list(m.get("blocks") or [])
-        if tid not in blocks:
-            blocks.append(tid)
-            m["blocks"] = blocks
-            m["updated"] = date
-            write_ticket(p, m, b)
+    return store.save(meta, body, path)
 
 
 def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
-                      as_instance=ac.HUMAN, agent="", date=None):
+                      as_instance=ac.HUMAN, agent="", date=None, blocked_by=None,
+                      reopen_if=None, reopen=None):
     """Move a ticket to ``new`` under the lifecycle rules. Returns the path.
 
     Raises AcademyError when the caller may not make the move or a requirement
     (reason, result, waiting_on) is missing. The thread gets one line per field set
     and one ``status <old> -> <new>[: reason]`` line.
+
+    Blocking (docs/protocol.md section 4): ``blocked`` is pending (``waiting_on``) or a
+    dead route (``blocked_by`` and ``reopen_if``, plus ``reason``: what was tried,
+    recorded as a ``tried:`` thread line), never both. A dead-route ticket reopens only
+    by ``blocked -> accepted`` with ``reopen`` (the new mechanism), which appends a
+    ``reopened:`` thread line and clears both fields; the human may leave one by any
+    transition, giving ``reason`` (or ``reopen``) as the record (``ac.apply_blocking``).
     """
-    path, meta, body = get_ticket(board, tid)
+    store = ac.as_store(board)
+    path, meta, body = store.get(tid)
     date = date or ac.today()
     as_instance = as_instance or ac.HUMAN
     human = as_instance == ac.HUMAN
@@ -248,37 +233,35 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
     if not ok:
         raise ac.AcademyError("%s: %s" % (tid, why))
     if old == new:
+        if (reopen or "").strip():
+            raise ac.AcademyError("%s: %s" % (tid, ac.REOPEN_ONLY))
         return path
-    needs_reason = new in ("rejected", "cancelled") or (old, new) == ("delivered",
-                                                                      "in-progress")
-    if needs_reason and not (reason or "").strip():
-        raise ac.AcademyError("%s: %s -> %s needs a reason" % (tid, old, new))
+    old_meta = dict(meta)
     who = ac.format_who(as_instance, bare_agent(agent))
     if result is not None and str(result).strip():
         meta["result"] = " ".join(str(result).split())
         body = ac.append_thread(body, who, "set result: %s" % meta["result"], date)
-    if new == "blocked":
-        wo = list(waiting_on or meta.get("waiting_on") or [])
-        if not wo:
-            raise ac.AcademyError("%s: a blocked ticket needs --waiting-on" % tid)
-        meta["waiting_on"] = wo
-        body = ac.append_thread(body, who, "set waiting_on: [%s]" % ", ".join(wo), date)
-    elif meta.get("waiting_on"):
-        meta["waiting_on"] = []
+    try:
+        entries = ac.apply_blocking(old_meta, meta, new, reason, waiting_on, blocked_by,
+                                    reopen_if, reopen, human)
+    except ac.AcademyError as exc:
+        raise ac.AcademyError("%s: %s" % (tid, exc))
+    for text in entries:
+        body = ac.append_thread(body, who, text, date)
     if new in ("delivered", "closed") and not meta.get("result"):
         raise ac.AcademyError("%s: %s needs a result (--result)" % (tid, new))
     meta["status"] = new
     meta["updated"] = date
     line = "status %s -> %s" % (old, new)
-    if (reason or "").strip():
+    if (reason or "").strip() and not (new == "blocked" and ac.is_dead_route(meta)):
         line += ": " + reason.strip()
     body = ac.append_thread(body, who, line, date)
     probs = ac.validate_ticket(meta, body)
     if probs:
         raise ac.AcademyError("%s would be invalid: %s" % (tid, "; ".join(probs)))
-    write_ticket(path, meta, body)
-    if new == "blocked":
-        _mirror_blocks(board, tid, meta["waiting_on"], date)
+    path = store.save(meta, body, path)
+    if new == "blocked" and meta.get("waiting_on"):
+        ac.mirror_blocks(store, tid, meta["waiting_on"], date)
     return path
 
 
@@ -302,7 +285,8 @@ def _utf8_stdout():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="board.py", description=__doc__.split("\n")[0])
-    ap.add_argument("--board", help="board directory (default: workspace.json 'board')")
+    ap.add_argument("--board", help="board directory (default: workspace.json 'board'; its "
+                                    "board.backend picks files or github)")
     ap.add_argument("--workspace", help="workspace.json to use")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -321,6 +305,7 @@ def main(argv=None):
     p.add_argument("--max-model", choices=ac.MODELS); p.add_argument("--detail", default="")
     p.add_argument("--as", dest="as_instance", required=True)
     p.add_argument("--final-to", dest="final_to")
+    p.add_argument("--campaign", help="the campaign's target id (inbox --campaign selects it)")
     p.add_argument("--agent", default="")
 
     p = sub.add_parser("show", help="print one ticket")
@@ -330,6 +315,12 @@ def main(argv=None):
     p.add_argument("id"); p.add_argument("status", choices=ac.TICKET_STATUSES)
     p.add_argument("--reason", default=""); p.add_argument("--result")
     p.add_argument("--waiting-on")
+    p.add_argument("--blocked-by", dest="blocked_by",
+                   help="dead route: the ticket or claim id whose result ends the route")
+    p.add_argument("--reopen-if", dest="reopen_if",
+                   help="dead route: one line, the new mechanism that would reopen it")
+    p.add_argument("--reopen", help="blocked -> accepted of a dead-route ticket: the new "
+                                    "mechanism (required for one)")
     p.add_argument("--as", dest="as_instance", default=ac.HUMAN)
     p.add_argument("--agent", default="")
 
@@ -342,7 +333,7 @@ def main(argv=None):
     _utf8_stdout()
     try:
         ws = _workspace_or_none(a.workspace)
-        board = resolve_board(a.board, a.workspace)
+        board = resolve_store(a.board, a.workspace)
         if a.cmd == "list":
             rows = list_tickets(board, a.to, a.frm, a.status, a.all)
             if a.json:
@@ -360,7 +351,7 @@ def main(argv=None):
             path = create_ticket(board, a.to, a.title, a.ask, a.deliverable, a.kind,
                                  a.priority, _split(a.refs), a.agenda, a.domain, a.parent,
                                  budget, a.detail, a.as_instance, a.agent, ws,
-                                 final_to=a.final_to)
+                                 final_to=a.final_to, campaign=a.campaign)
             print(path)
         elif a.cmd == "show":
             path, meta, body = get_ticket(board, a.id)
@@ -370,14 +361,20 @@ def main(argv=None):
                                   "problems": ac.validate_ticket(meta, body)},
                                  indent=2, ensure_ascii=False))
             else:
-                with open(path, "r", encoding="utf-8") as fh:
-                    sys.stdout.write(fh.read())
+                if os.path.isfile(path):
+                    with open(path, "r", encoding="utf-8") as fh:
+                        sys.stdout.write(fh.read())
+                else:                                   # a ticket of the github board
+                    sys.stdout.write(ac.write_frontmatter(
+                        {k: meta[k] for k in ac.TICKET_KEY_ORDER if k in meta}, body))
                 probs = ac.validate_ticket(meta, body)
                 if probs:
                     print("\n# problems: " + "; ".join(probs))
         elif a.cmd == "transition":
             print(transition_ticket(board, a.id, a.status, a.reason, a.result,
-                                    _split(a.waiting_on), a.as_instance, a.agent))
+                                    _split(a.waiting_on), a.as_instance, a.agent,
+                                    blocked_by=a.blocked_by, reopen_if=a.reopen_if,
+                                    reopen=a.reopen))
         elif a.cmd == "append":
             print(append_to_ticket(board, a.id, a.text, a.as_instance, a.agent))
     except ac.AcademyError as e:

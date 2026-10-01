@@ -5,7 +5,7 @@ precedence: paper order by default. Edit label, claim, required, depends_on and 
 by hand or with /author:agenda; the status column is refreshed by
 `agenda.py status` from the registry and is never edited by hand. -->
 
-The paper's results in paper order. `/author:next` works on the items that unblock
+The paper's results in paper order. `/author:inbox` works on the items that unblock
 the earliest entry first. `required` is the status an entry must reach; `status` is
 what the registry says now (vocabulary: the academy `status-vocabulary` skill).
 

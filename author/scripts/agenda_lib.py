@@ -1,7 +1,9 @@
-"""agenda_lib -- the Author's agenda (Drafts/agenda.md) and roadmap (Drafts/roadmap.md).
+"""agenda_lib -- the Author's agenda (Drafts/agenda.md).
 
-Plan section 4. Both files are plain Markdown that Roey reads and edits; this module
-is their one parser and writer. Formats (also in references/formats.md):
+The agenda is plain Markdown that Roey reads and edits; this module is its one parser
+and writer. There is no roadmap: the board is the Author's only queue (work items are
+tickets; docs/superpowers/specs/2026-09-29-campaign-mode-design.md section 10).
+Format (also in references/formats.md):
 
 agenda.md
 ---------
@@ -27,21 +29,6 @@ agenda.md
 * ``depends_on`` lists labels of other entries (or claim ids), comma separated.
 * ``owner`` is the instance that must deliver it (default: this Author instance).
 * ``status`` is generated (``agenda.py status``); never hand-edited.
-
-roadmap.md
-----------
-One work item per ``## R-NNNN [tag] title`` heading, then its fields as
-``- key: value`` lines, then free Markdown::
-
-    ## R-0007 [apply] Delete the stale note after lem:thick-part-compact
-    - status: open
-    - agenda: paper:lem:thick-part-compact
-    - priority: normal
-    - depends_on: [R-0003, T-0012]
-
-    Free text (what to do, quotes, history).
-
-Other ``##`` headings (sections of prose) are kept verbatim between items.
 """
 
 import os
@@ -53,24 +40,16 @@ FALSE_STATUSES = ("refuted", "refuted-as-stated")
 CLAIM_STATUSES = ("open", "conjectured", "sketch", "supported", "proved-modulo", "proved",
                   "refuted", "refuted-as-stated")
 
-TAGS = ("write", "apply", "lead", "verify", "cite", "experiment", "figure", "build",
-        "notation", "sweep", "referee")
-ITEM_STATUSES = ("open", "ticketed", "blocked", "needs-human", "done", "dropped")
 PRIORITIES = ("high", "normal", "low")
 PRIORITY_RANK = {"high": 0, "normal": 1, "low": 2}
-ITEM_FIELD_ORDER = ("status", "agenda", "priority", "depends_on", "ticket", "route",
-                    "source", "created", "updated")
 AGENDA_COLUMNS = ("#", "label", "claim", "required", "depends_on", "owner", "status")
 
-RE_ITEM_HEAD = re.compile(r"^## (R-\d{4,}) \[([a-z][a-z-]*)\] ?(.*)$")
-RE_FIELD = re.compile(r"^- ([a-z_]+):(?: (.*))?$")
-RE_ITEM_ID = re.compile(r"^R-(\d{4,})$")
 RE_TICKET_ID = re.compile(r"^T-\d{4,}$")
 RE_MILESTONE = re.compile(r"^- `?([A-Za-z0-9][A-Za-z0-9_.-]*)`?:\s*(.*)$")
 
 
 class AgendaError(Exception):
-    """A malformed agenda or roadmap."""
+    """A malformed agenda."""
 
 
 # ----------------------------------------------------------------------------
@@ -303,7 +282,7 @@ precedence: paper order by default. Edit label, claim, required, depends_on and 
 by hand or with /author:agenda; the status column is refreshed by
 `agenda.py status` from the registry and is never edited by hand. -->
 
-The paper's results in paper order. `/author:next` works on the items that unblock
+The paper's results in paper order. `/author:inbox` works on the items that unblock
 the earliest entry first. `required` is the status an entry must reach; `status` is
 what the registry says now (vocabulary: the academy `status-vocabulary` skill).
 """
@@ -325,168 +304,23 @@ def new_agenda_text(instance, entries, milestones=None, preface=""):
 
 
 # ----------------------------------------------------------------------------
-# Roadmap
-# ----------------------------------------------------------------------------
-
-class Item(object):
-    """One roadmap work item."""
-
-    def __init__(self, id, tag, title, fields=None, body=""):
-        self.id = id
-        self.tag = tag
-        self.title = title
-        self.fields = dict(fields or {})
-        self.body = body
-
-    @property
-    def status(self):
-        return (self.fields.get("status") or "open").strip()
-
-    @property
-    def agenda(self):
-        return (self.fields.get("agenda") or "").strip().strip("`")
-
-    @property
-    def priority(self):
-        p = (self.fields.get("priority") or "normal").strip()
-        return p if p in PRIORITIES else "normal"
-
-    @property
-    def depends_on(self):
-        return split_list(self.fields.get("depends_on", ""))
-
-    @property
-    def ticket(self):
-        return (self.fields.get("ticket") or "").strip()
-
-    @property
-    def number(self):
-        return int(RE_ITEM_ID.match(self.id).group(1))
-
-    def as_dict(self):
-        return {"id": self.id, "tag": self.tag, "title": self.title, "status": self.status,
-                "agenda": self.agenda, "priority": self.priority,
-                "depends_on": self.depends_on, "ticket": self.ticket,
-                "route": (self.fields.get("route") or "").strip(),
-                "source": (self.fields.get("source") or "").strip()}
-
-
-class Roadmap(object):
-    """``preamble`` text, then ``blocks``: Items and raw text blocks (str)."""
-
-    def __init__(self, preamble="", blocks=None):
-        self.preamble = preamble
-        self.blocks = list(blocks or [])
-
-    @property
-    def items(self):
-        return [b for b in self.blocks if isinstance(b, Item)]
-
-    def get(self, iid):
-        for it in self.items:
-            if it.id == iid:
-                return it
-        return None
-
-    def next_id(self):
-        nums = [it.number for it in self.items]
-        return "R-%04d" % ((max(nums) if nums else 0) + 1)
-
-
-def parse_roadmap(text):
-    lines = text.replace("\r\n", "\n").split("\n")
-    pre, blocks = [], []
-    i = 0
-    while i < len(lines) and not lines[i].startswith("## "):
-        pre.append(lines[i])
-        i += 1
-    seen = set()
-    while i < len(lines):
-        head = lines[i]
-        j = i + 1
-        while j < len(lines) and not lines[j].startswith("## "):
-            j += 1
-        chunk = lines[i + 1:j]
-        m = RE_ITEM_HEAD.match(head)
-        if not m:
-            blocks.append("\n".join([head] + chunk))
-            i = j
-            continue
-        iid, tag, title = m.group(1), m.group(2), m.group(3).strip()
-        if iid in seen:
-            raise AgendaError("duplicate roadmap item %s" % iid)
-        seen.add(iid)
-        fields, k = {}, 0
-        while k < len(chunk) and not chunk[k].strip():
-            k += 1
-        while k < len(chunk):
-            fm = RE_FIELD.match(chunk[k])
-            if not fm:
-                break
-            fields[fm.group(1)] = (fm.group(2) or "").strip()
-            k += 1
-        body = "\n".join(chunk[k:]).strip("\n")
-        blocks.append(Item(iid, tag, title, fields, body))
-        i = j
-    return Roadmap("\n".join(pre), blocks)
-
-
-def render_item(it):
-    out = ["## %s [%s] %s" % (it.id, it.tag, it.title)]
-    keys = [k for k in ITEM_FIELD_ORDER if k in it.fields]
-    keys += [k for k in it.fields if k not in ITEM_FIELD_ORDER]
-    for k in keys:
-        v = it.fields[k]
-        out.append("- %s:%s" % (k, (" " + v) if v not in (None, "") else ""))
-    text = "\n".join(out) + "\n"
-    if it.body.strip():
-        text += "\n" + it.body.strip("\n") + "\n"
-    return text
-
-
-def write_roadmap(rm):
-    parts = [rm.preamble.rstrip("\n") + "\n"] if rm.preamble.strip() else []
-    for b in rm.blocks:
-        if isinstance(b, Item):
-            parts.append(render_item(b))
-        else:
-            parts.append(b.strip("\n") + "\n")
-    return "\n".join(parts)
-
-
-ROADMAP_HEADER = """# Roadmap: {instance}
-
-<!-- academy roadmap v1 (author plugin, references/formats.md). One work item per
-`## R-NNNN [tag] title` heading, then `- key: value` fields, then free text.
-Tags: write apply lead verify cite experiment figure build notation sweep referee.
-Status: open ticketed blocked needs-human done dropped. `/author:next` picks from
-here and from the board; `/author:notes` and `/author:agenda` file new items. -->
-
-The Author's own work items. Items needing another role (a proof, a verification, a
-citation, an experiment) become board tickets when `/author:next` reaches them; the
-item then waits in `ticketed` until the ticket is delivered.
-"""
-
-
-def new_roadmap_text(instance, items, preface=""):
-    pre = ROADMAP_HEADER.format(instance=instance)
-    if preface:
-        pre += "\n" + preface.strip("\n") + "\n"
-    return write_roadmap(Roadmap(pre, items))
-
-
-# ----------------------------------------------------------------------------
 # Validation
 # ----------------------------------------------------------------------------
 
-def check(agenda, roadmap, ns=""):
-    """Problems (list of str) with an agenda and a roadmap taken together."""
+def check(agenda, ns=""):
+    """Problems (list of str) with an agenda."""
     probs = []
-    labels = {}
+    labels, claims = {}, {}
     for e in agenda.entries:
         if e.label in labels:
             probs.append("agenda: duplicate label %s" % e.label)
         labels[e.label] = e
+        if e.claim not in ("", "-"):
+            if e.claim in claims:
+                probs.append("agenda: %s and %s share the claim %s (one entry per claim: a "
+                             "ticket's agenda names one entry)" % (claims[e.claim], e.label,
+                                                                   e.claim))
+            claims.setdefault(e.claim, e.label)
         if e.required not in CLAIM_STATUSES:
             probs.append("agenda: %s: required %r is not a status" % (e.label, e.required))
         if e.status and e.status not in ("?",) + CLAIM_STATUSES + ("superseded", "dropped",
@@ -519,23 +353,4 @@ def check(agenda, roadmap, ns=""):
                 probs.append("milestone %s: unknown entry %s" % (name, lab))
             if st not in CLAIM_STATUSES:
                 probs.append("milestone %s: %s=%s is not a status" % (name, lab, st))
-    ids = {it.id for it in roadmap.items}
-    for it in roadmap.items:
-        if it.tag not in TAGS:
-            probs.append("roadmap: %s: unknown tag [%s]" % (it.id, it.tag))
-        if it.status not in ITEM_STATUSES:
-            probs.append("roadmap: %s: unknown status %r" % (it.id, it.status))
-        if it.fields.get("priority") and it.priority != it.fields["priority"].strip():
-            probs.append("roadmap: %s: priority must be high, normal or low" % it.id)
-        if it.agenda and it.agenda != "global" and agenda.lookup(it.agenda, ns) is None:
-            probs.append("roadmap: %s: agenda entry %s is not in the agenda"
-                         % (it.id, it.agenda))
-        for d in it.depends_on:
-            if RE_ITEM_ID.match(d):
-                if d not in ids:
-                    probs.append("roadmap: %s depends on unknown item %s" % (it.id, d))
-            elif not RE_TICKET_ID.match(d) and agenda.lookup(d, ns) is None and ":" not in d:
-                probs.append("roadmap: %s depends on unknown %s" % (it.id, d))
-        if it.status == "ticketed" and not RE_TICKET_ID.match(it.ticket or ""):
-            probs.append("roadmap: %s is ticketed but names no ticket" % it.id)
     return probs

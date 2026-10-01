@@ -9,7 +9,7 @@ description: 'Work the lab''s board inbox: take at most three open or accepted t
 
 - Routes by kind: `experiment`, `test` and `question` tickets to the experimenter (a `question` is answered from the lab's records, no new compute); `code` tickets to the developer with test-engineer review; a `code` ticket titled "Upstream: ..." to upstream-contributor.
 
-`$ARGUMENTS`: nothing (take the next ones), or ticket ids to take in that order.
+`$ARGUMENTS`: nothing (take the next ones), `--n N`, `--all` (list only), or ticket ids to take in that order.
 
 ## 1. Select (script, not judgement)
 
@@ -17,9 +17,10 @@ description: 'Work the lab''s board inbox: take at most three open or accepted t
 py "${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py" --json
 ```
 
-It returns up to `budget.itemsPerRun` (at most 3) tickets addressed to this
-instance, status `open` or `accepted`, ordered by priority then id, each with its
-**route** and, when the routed agent is heavier than the ticket's `max_model`,
+It is the shared inbox core (routes: `scripts/routes.py`). It returns up to
+`budget.itemsPerRun` (at most 3) tickets addressed to this instance: an `in-progress`
+ticket from an earlier run first (resume it), then `open` or `accepted` ones ordered by
+priority, agenda position, id; each with its **route** and, when the routed agent is heavier than the ticket's `max_model`,
 `over_budget`. With ticket ids as arguments, take those, still at most three.
 Say how many remain.
 
@@ -43,7 +44,9 @@ Say how many remain.
      budget. Do not run it.
 3. Finish: `delivered` with a one-line `result` (and `packets` when a packet came
    out), or `blocked` with what it waits on. Nothing else starts because a ticket
-   was delivered.
+   was delivered. Checkpoint before the next: `py "${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py"
+   --check T-NNNN` (exit 0: delivered, blocked with its reason or rejected; exit 3:
+   unfinished, so report it and take nothing more).
 
 ## Rules
 

@@ -359,7 +359,7 @@ class GeneratedViewGuardTests(Fixture):
     def test_relative_path_uses_cwd(self):
         self.write(os.path.join(self.author_home, "Drafts", "statements.md"), "old\n")
         self.assertEqual(self.guard("Drafts/statements.md", cwd=self.author_home), "deny")
-        self.assertIsNone(self.guard("Drafts/roadmap.md", cwd=self.author_home))
+        self.assertIsNone(self.guard("Drafts/agenda.md", cwd=self.author_home))
 
 
 # ---------------------------------------------------------------------------
@@ -738,6 +738,7 @@ class HooksJsonTests(unittest.TestCase):
             "generated_view_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|Bash|PowerShell"),
             "explainer_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
             "ticket_edit_check.py": ("PostToolUse", "Edit|Write|MultiEdit"),
+            "error_ledger.py": ("PostToolUseFailure", None),
         })
 
     def test_scripts_import_the_vendored_copy(self):

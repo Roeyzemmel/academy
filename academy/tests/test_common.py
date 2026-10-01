@@ -1013,6 +1013,46 @@ class TicketEdgeTests(unittest.TestCase):
         meta["kind"] = "note"
         self.assertEqual(ac.validate_ticket(meta), [])
 
+    def _blocked(self, **extra):
+        meta = {"id": "T-0001", "title": "t", "kind": "prove", "from": "author@main",
+                "to": "expert@main", "status": "blocked", "ask": "a", "deliverable": "d",
+                "priority": "normal", "budget": {"runs": 1, "max_model": "sonnet"},
+                "created": "2026-09-29", "updated": "2026-09-29"}
+        meta.update(extra)
+        return meta
+
+    def test_blocked_needs_one_of_the_two_kinds(self):
+        self.assertTrue(ac.validate_ticket(self._blocked()))                 # neither
+        self.assertEqual(ac.validate_ticket(self._blocked(waiting_on=["human"])), [])
+        self.assertTrue(ac.validate_ticket(self._blocked(blocked_by="T-0009")))
+        self.assertTrue(ac.validate_ticket(self._blocked(reopen_if="new")))  # dead-route half
+        self.assertEqual(ac.validate_ticket(
+            self._blocked(blocked_by="T-0009", reopen_if="a new construction")), [])
+
+    def test_both_kinds_at_once_is_an_error(self):
+        probs = ac.validate_ticket(self._blocked(
+            waiting_on=["human"], blocked_by="T-0009", reopen_if="new"))
+        self.assertTrue(any("both" in p for p in probs))
+
+    def test_dead_route_needs_a_tried_thread_line(self):
+        meta = self._blocked(blocked_by="T-0009", reopen_if="new")
+        head = "## Ask\n\nx\n\n## Thread\n\n- 2026-09-29 expert@main: opened\n"
+        self.assertTrue(any("tried" in p for p in ac.validate_ticket(meta, head)))
+        ok = head + "- 2026-09-29 expert@main: tried: the induction, circular\n"
+        self.assertEqual(ac.validate_ticket(meta, ok), [])
+
+    def test_dead_route_fields_only_on_blocked_and_one_line(self):
+        meta = self._blocked(blocked_by="T-0009", reopen_if="new")
+        meta["status"] = "accepted"
+        self.assertTrue(ac.validate_ticket(meta))
+        meta = self._blocked(blocked_by="T-0009", reopen_if="two\nlines")
+        self.assertTrue(ac.validate_ticket(meta))
+
+    def test_new_fields_are_receiver_writable_and_ordered(self):
+        for f in ("blocked_by", "reopen_if"):
+            self.assertIn(f, ac.TICKET_FIELDS["receiver"])
+            self.assertIn(f, ac.TICKET_KEY_ORDER)
+
     def test_hop_limit_counts_only_relay_ancestors(self):
         board = tempfile.mkdtemp(prefix="edges-")
         def put(tid, parent, final_to):

@@ -41,6 +41,34 @@ happen again.
 9. **Short briefs.** Point the agent at the ticket, packet or object id; it reads the
    files. Text pasted into a brief is paid again on every turn of the agent.
 
+## Campaigns
+
+The one place the campaign rules are stated (`/researcher:campaign` and its dispatch
+reference point here). A campaign runs under caps Roey sets per invocation:
+
+- `--rounds N` (required): the campaign ends after N rounds.
+- `--agents M` (required): subagent runs per round, provers and dispatched tickets
+  together. Reaching M **ends the round, not the campaign**: what is left waits for the
+  next round. Tickets filed are reported, not counted.
+- `--runs K` (default 0): lab runs preapproved on `--profile`. **K is 0 unless given, and
+  forced to 0 in a cloud session** (the workspace rule against heavy environments).
+
+Without the two required caps it does not start. Inside the caps, and for nothing else:
+
+- **Rule 3 is suspended** for dispatching tickets through the inbox and for lab runs up to
+  `--runs`; rule 1 is replaced by the caps (`inbox.py --campaign` lists without the cut of
+  three).
+- **Rule 2 is never suspended.** Dispatch is one subagent at a time, each checkpointed
+  before the next; there is no fan-out, so a limit error loses at most the ticket in hand.
+- **Rule 4 holds**: a limit error ends the campaign with a report. Rules 5 to 9 hold for
+  every dispatched subagent.
+
+**Who enforces the caps.** The driver (the main session), not code: nothing counts
+`--agents`, `--rounds` or `--runs`, or detects a cloud session. `notebook.py
+campaign-check` only validates that the caps are present and normalizes them (forcing
+K to 0 when `--cloud` or the cloud environment variable says so); the driver then keeps
+count.
+
 ## Measuring
 
 `/academy:usage` reports turns and cache volume by instance, role and agent, with
