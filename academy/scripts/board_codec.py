@@ -185,7 +185,7 @@ def encode(meta, body):
         "state": state,
         "state_reason": reason,
         # the receiving human gets the native assignee; instances are not GitHub users
-        "assign_human": meta["to"] == ac.HUMAN,
+        "assign_human": wants_human(meta),
         "comments": [encode_comment(d, w, t) for d, w, t in entries],
         "parent": meta.get("parent") or None,
         "waits_on": [t for t in (meta.get("waiting_on") or [])
@@ -231,6 +231,41 @@ def strip_footer(text):
         if body.endswith(f):
             return body[:-len(f)]
     return text
+
+
+#: statuses in which a ticket addressed to the human is waiting on the human
+HUMAN_LIVE = ("open", "accepted", "in-progress", "blocked")
+
+
+def wants_human(meta):
+    """Whether the ticket needs the human now, so the issue is assigned to them: addressed
+    to ``human`` and still live, or blocked with ``human`` in ``waiting_on`` (the two ticket
+    cases of decisions.py). Instances are not GitHub users; the human is the only assignee."""
+    status = meta.get("status")
+    if meta.get("to") == ac.HUMAN and status in HUMAN_LIVE:
+        return True
+    return status == "blocked" and ac.HUMAN in [str(w) for w in meta.get("waiting_on") or []]
+
+
+def assignees_for(meta, current, login):
+    """The issue's assignee logins as they should be (``login`` added or removed by
+    ``wants_human``, anyone else kept), or None when ``current`` is already right."""
+    have = [a.get("login") if isinstance(a, dict) else a for a in current or []]
+    want = [a for a in have if a != login] + ([login] if wants_human(meta) else [])
+    return None if sorted(want) == sorted(have) else want
+
+
+def is_board_issue(issue):
+    """Whether an issue belongs to the board: a ``T-`` title (``T-XXXX:`` from the issue
+    form included), an academy label (or the placeholder label), or the academy:meta line.
+    The board shares its repository with ordinary issues and pull requests; those, and the
+    store's half-made ``(new ticket)`` issue, are not board issues."""
+    if (issue.get("title") or "").startswith("T-"):
+        return True
+    names = label_names(issue.get("labels"))
+    if any(n == PLACEHOLDER or label_prefix(n) in LABEL_PREFIXES for n in names):
+        return True
+    return (issue.get("body") or "").startswith(META_PREFIX)
 
 
 def decode(issue, comments=()):

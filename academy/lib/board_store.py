@@ -77,9 +77,12 @@ def _ordered(comments):
 class GithubBoardStore(ac.BoardStore):
     backend = "github"
 
-    def __init__(self, transport, repo="", lib=None):
+    def __init__(self, transport, repo="", lib=None, assignee=None):
         self.t = transport
         self.repo = repo
+        #: the human's GitHub login (``board.assignee``): a saved ticket is assigned to them
+        #: exactly when ``board_codec.wants_human``; None leaves assignees alone
+        self.assignee = assignee
         #: the academy_common module this store speaks through (its AcademyError, its
         #: ticket-id pattern): a role plugin passes its vendored copy (see open_store)
         self.lib = lib or ac
@@ -211,7 +214,11 @@ class GithubBoardStore(ac.BoardStore):
         have_issue = {"title": cur.get("title"), "body": bc.strip_footer(cur.get("body") or ""),
                       "labels": sorted(bc.label_names(cur.get("labels"))),
                       "state": cur.get("state"), "state_reason": cur.get("state_reason")}
-        if dict(want, labels=sorted(want["labels"])) != have_issue:
+        assignees = bc.assignees_for(meta, cur.get("assignees"), self.assignee) \
+            if self.assignee else None
+        if dict(want, labels=sorted(want["labels"])) != have_issue or assignees is not None:
+            if assignees is not None:
+                want["assignees"] = assignees
             self.t.update_issue(n, **want)
         return self.ref(n)
 

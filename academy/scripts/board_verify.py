@@ -91,9 +91,10 @@ def verify(board, records, relations=None):
         with open(files[n], encoding="utf-8", newline="") as fh:
             if fh.read() != bc.render(meta, body):
                 out.append("#%d: rendered ticket differs from %s" % (n, os.path.basename(files[n])))
-        if "assignees" in iss and bool(iss["assignees"]) != (meta["to"] == ac.HUMAN):
-            out.append("#%d: assignees are %s, the ticket is addressed to %s"
-                       % (n, iss["assignees"], meta["to"]))
+        if "assignees" in iss and bool(iss["assignees"]) != bc.wants_human(meta):
+            out.append("#%d: assignees are %s, but the ticket %s the human (to %s, %s)"
+                       % (n, iss["assignees"], "needs" if bc.wants_human(meta) else
+                          "does not need", meta["to"], meta["status"]))
         if "parent" in r or "waits_on" in r:
             want = bc.encode(meta, body)
             if "parent" in r and _num(r.get("parent")) != _num(want["parent"]):
