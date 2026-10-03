@@ -180,3 +180,14 @@ class GhTransport(object):
         rows = self.api("GET", "issues/%d/dependencies/blocked_by?per_page=100" % number,
                         missing_ok=True)
         return [r["number"] for r in rows or []]
+
+
+def transport(cfg):
+    """The ``board.transport`` factory of workspace.json (``"board_gh:transport"``): a
+    GhTransport on ``board.repo``. Needs ``gh`` installed and authenticated on the machine."""
+    import academy_common as ac
+    repo = (cfg or {}).get("repo")
+    if not repo or repo.count("/") != 1:
+        raise ac.ConfigError("board.transport board_gh:transport needs board.repo as "
+                             "OWNER/NAME (got %r)" % (repo,))
+    return GhTransport(repo)

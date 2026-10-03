@@ -208,12 +208,14 @@ first), `verify`, `cutover`. Before you do:
 
    A plain string (`"board": "<dir>"`) stays the file board. A `github` backend without a
    transport fails with an error and never falls back to files.
-4. **Not ready yet.** The real transport (the github MCP or REST behind the
-   `transport` factory) is **not built**: the GitHub store has only been run against an
-   in-memory fake, and the Project half of `board-sync` (writing Project fields to a live
-   Project) is not built. Until both exist, stay on the file board, and treat part C as a
-   rehearsal-only exercise. `packets`, `decisions`, `session_start` and `land_referee`
-   are routed through the store, but no real GitHub run of them has been made.
+4. **State (2026-10-01).** The REST transport is built: `academy/lib/board_gh.py`
+   (`"transport": "board_gh:transport"`, through an authenticated `gh` on the machine).
+   The board was pushed to `Roeyzemmel/BilliardIlluminationWorkspace` (106 tickets, 0 drift,
+   round trip to files exact), the GitHub store reads it identical to the files, and a full
+   ticket lifecycle (new, accept, append, in-progress, deliver, close) ran live through
+   `board.py` on the scratch repo. Still not built: the Project half of `board-sync`
+   (writing Project fields to a live Project; the Project itself needs a token with the
+   `project` scope).
 
 ## 7. Open items and risks
 

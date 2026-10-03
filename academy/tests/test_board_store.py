@@ -304,6 +304,34 @@ class TestTransitionParity(StoreCase):
                           if c[0] in ("update_issue", "add_comment", "create_issue")])
 
 
+class FootedTransport(bs.MemoryTransport):
+    """GitHub as a session's posts reach it: every body and comment gets the footer."""
+    FOOT = bc.ATTRIBUTION_FOOTERS[0]
+
+    def _add_comment(self, number, body):
+        return bs.MemoryTransport._add_comment(self, number, body + self.FOOT)
+
+    def add_encoded(self, e):
+        return bs.MemoryTransport.add_encoded(self, dict(e, body=e["body"] + self.FOOT))
+
+    def create_issue(self, title, body, labels, assignees=None):
+        return bs.MemoryTransport.create_issue(self, title, body + self.FOOT, labels, assignees)
+
+    def update_issue(self, number, title=None, body=None, **kw):
+        return bs.MemoryTransport.update_issue(
+            self, number, title=title, body=None if body is None else body + self.FOOT, **kw)
+
+
+class TestTransitionParityFooted(TestTransitionParity):
+    """The same moves on a board whose posts all carry the footer (the live cutover
+    rehearsal: the second write to a ticket was refused as a Thread edit)."""
+
+    def setUp(self):
+        super().setUp()
+        self.transport = bs.from_file_board(self.board, FootedTransport())
+        self.gh = bs.GithubBoardStore(self.transport, "o/r")
+
+
 class TestCreateParity(StoreCase):
     def test_new_ticket_is_identical_with_campaign_and_the_next_id(self):
         kw = dict(to="expert@main", title="Check lemma", ask="Verify it", deliverable="A packet",
@@ -483,6 +511,19 @@ class TestOpenStore(BoardCase):
         ws = self.write_ws({"path": self.board, "backend": "github",
                             "transport": "test_board_store:make_transport"})
         self.assertIsInstance(ac.open_store(ws).t, bs.MemoryTransport)
+
+    def test_the_rest_transport_by_name(self):
+        # the cutover switch: workspace.json names board_gh's factory
+        import board_gh
+        ws = self.write_ws({"path": self.board, "backend": "github", "repo": "o/r",
+                            "transport": "board_gh:transport"})
+        st = ac.open_store(ws)
+        self.assertIsInstance(st.t, board_gh.GhTransport)
+        self.assertEqual("o/r", st.t.repo)
+        ws = self.write_ws({"path": self.board, "backend": "github",
+                            "transport": "board_gh:transport"})
+        with self.assertRaises(ac.ConfigError):
+            ac.open_store(ws)                      # no repo: refused, never a guess
 
     def test_an_explicit_board_path_always_means_files(self):
         ws = self.write_ws({"path": self.board, "backend": "github"})
