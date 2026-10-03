@@ -54,8 +54,10 @@ noted at preflight. Fix or report drift, never "fix" by editing the file board. 
 
 **cutover** (Roey confirms first). Copy `templates/github-board/.github/` and
 `scripts/{board_sync,board_codec}.py` + `lib/academy_common.py` into the board repo's
-`.github/academy/{scripts,lib}/` (from a checkout that has the footer-tolerant codec); set
-`board.backend: github` in `workspace.json` (`docs/github-board.md`,
+`.github/academy/{scripts,lib}/` (from a checkout that has the footer-tolerant codec), and set the
+repository variable `ACADEMY_HUMAN_LOGINS` to Roey's login; set the board in `workspace.json`
+(`workspace.template.json` + `bootstrap.py`) to `{"path", "backend": "github", "repo",
+"transport": "board_gh:transport", "assignee": <Roey's login>}` (`docs/github-board.md`,
 `docs/migration-campaign-mode.md` section 6); leave the file tickets in place with a
 `MIGRATED.md` pointer. The Project needs a token with the `project` scope (no MCP tools,
 no GraphQL from a cloud session): `board_project.py` gives the fields and each item's
