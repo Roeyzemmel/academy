@@ -26,7 +26,7 @@ class TestPlan(GithubBoardCase):
     def test_consistent_issue_needs_nothing(self):
         iss, cs = self.first()
         p = bs.plan(iss, cs)
-        self.assertEqual({"labels": None, "state": None, "problems": []}, p)
+        self.assertEqual({"labels": None, "state": None, "assignees": None, "problems": []}, p)
 
     def test_wrong_role_is_rewritten(self):
         iss, cs = self.first()
@@ -52,7 +52,7 @@ class TestPlan(GithubBoardCase):
 
     def test_placeholder_is_left_alone(self):
         p = bs.plan(bc.placeholder(4), [])
-        self.assertEqual({"labels": None, "state": None, "problems": []}, p)
+        self.assertEqual({"labels": None, "state": None, "assignees": None, "problems": []}, p)
 
 
 class ReopenBase(GithubBoardCase):
@@ -100,7 +100,7 @@ class TestRouteAndReopen(ReopenBase):
         self.assertNotIn("route:dead", p["labels"])
 
     def test_consistent_dead_route_needs_nothing(self):
-        self.assertEqual({"labels": None, "state": None, "problems": []},
+        self.assertEqual({"labels": None, "state": None, "assignees": None, "problems": []},
                          bs.plan(self.iss, self.cs, self.prev))
 
     def test_proper_reopen_passes(self):
@@ -438,3 +438,78 @@ class TestSyncRun(ReopenBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNonTicketIssues(unittest.TestCase):
+    """The board shares its repo with ordinary issues: only board issues are synced."""
+
+    def test_what_counts_as_a_board_issue(self):
+        t = bc.is_board_issue
+        self.assertTrue(t({"title": "T-0007: x", "labels": [], "body": ""}))
+        self.assertTrue(t({"title": "T-XXXX: from the form", "labels": ["status:open"],
+                           "body": ""}))
+        self.assertTrue(t({"title": "typo", "labels": [{"name": "kind:cite"}], "body": ""}))
+        self.assertTrue(t({"title": "x", "labels": [], "body": bc.META_PREFIX + "{} -->"}))
+        self.assertTrue(t({"title": "T-0015: (unused id)", "labels": ["placeholder"],
+                           "body": ""}))
+        self.assertFalse(t({"title": "Bootstrap fails on Windows", "labels": ["bug"],
+                            "body": "steps..."}))
+        self.assertFalse(t({"title": "(new ticket)", "labels": [], "body": ""}))
+        self.assertFalse(t({"title": "Tidy notes", "labels": [], "body": None}))
+
+    def test_the_workflow_leaves_an_ordinary_issue_alone(self):
+        import tempfile
+        ev = {"issue": {"number": 9, "title": "Bootstrap fails on Windows", "labels": [],
+                        "body": "steps"}, "sender": {"login": "someone"}}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(ev, fh)
+        self.addCleanup(os.unlink, fh.name)
+
+        def no_network(*_a, **_k):
+            raise AssertionError("an ordinary issue must not be fetched or commented on")
+        old_call = bs._call
+        bs._call = no_network
+        self.addCleanup(setattr, bs, "_call", old_call)
+        env = {"GITHUB_TOKEN": "t", "GITHUB_EVENT_PATH": fh.name,
+               "GITHUB_REPOSITORY": "o/r"}
+        old_env = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        self.addCleanup(lambda: [os.environ.pop(k, None) if v is None else
+                                 os.environ.__setitem__(k, v) for k, v in old_env.items()])
+        self.assertEqual(0, bs.main([]))
+
+
+class TestAssignment(GithubBoardCase):
+    """The human is the only assignee, exactly while a ticket needs them."""
+
+    def test_who_needs_the_human(self):
+        w = bc.wants_human
+        self.assertTrue(w({"to": "human", "status": "open"}))
+        self.assertTrue(w({"to": "human", "status": "blocked"}))
+        self.assertFalse(w({"to": "human", "status": "delivered"}))
+        self.assertFalse(w({"to": "human", "status": "closed"}))
+        self.assertTrue(w({"to": "expert@ts", "status": "blocked", "waiting_on": ["human"]}))
+        self.assertFalse(w({"to": "expert@ts", "status": "open", "waiting_on": ["human"]}))
+        self.assertFalse(w({"to": "expert@ts", "status": "blocked", "waiting_on": ["T-0001"]}))
+
+    def test_assignees_keep_other_people(self):
+        meta = {"to": "human", "status": "open"}
+        self.assertIsNone(bc.assignees_for(meta, [{"login": "roey"}], "roey"))
+        self.assertEqual(["carlos", "roey"], bc.assignees_for(meta, ["carlos"], "roey"))
+        done = {"to": "human", "status": "closed"}
+        self.assertEqual(["carlos"], bc.assignees_for(done, ["carlos", "roey"], "roey"))
+
+    def test_the_backstop_fixes_a_missing_assignee(self):
+        self.make()
+        e = [bc.encode(m, b) for _p, m, b in bd.iter_tickets(self.board)
+             if m["to"] == "human"][0]
+        iss = dict(issue_of(e), assignees=[])
+        p = bs.plan(iss, e["comments"], assignee="roey")
+        self.assertEqual(["roey"], p["assignees"])
+        self.assertIsNone(bs.plan(dict(iss, assignees=["roey"]), e["comments"],
+                                  assignee="roey")["assignees"])
+        self.assertIsNone(bs.plan(iss, e["comments"])["assignees"])   # no login: hands off
+        calls = []
+        bs.sync(iss, [{"body": c, "url": "u%d" % i} for i, c in enumerate(e["comments"])],
+                lambda m, u, payload: calls.append((m, u, payload)), "api", assignee="roey")
+        self.assertIn(("PATCH", "api", {"assignees": ["roey"]}), calls)

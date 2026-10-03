@@ -1990,7 +1990,8 @@ def open_store(workspace=None, transport=None, board=None):
     board_store = _import_board_store()
     # the store speaks through THIS copy of the library (its errors, its helpers)
     store = board_store.GithubBoardStore(transport, cfg.get("repo", ""),
-                                         lib=sys.modules[__name__])
+                                         lib=sys.modules[__name__],
+                                         assignee=cfg.get("assignee"))
     store.board = ws["board"]         # packets, deep dives and ids stay files (board_dir)
     return store
 

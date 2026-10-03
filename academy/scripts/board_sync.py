@@ -67,26 +67,28 @@ def previous_state(previous):
     return bc.parse_state(previous)
 
 
-def plan(issue, comments, previous=None, human=False):
+def plan(issue, comments, previous=None, human=False, assignee=None):
     """Actions for one issue: ``{"labels": [...]|None, "state": ..., "problems": [...]}``.
 
     ``labels`` is the corrected full label list when it must change, ``state`` a
     ``(state, reason)`` when the open/closed state must change, ``problems`` what a human
     must fix (unfixable here). ``previous`` (see ``previous_state``) adds the reopen-rule
-    check of ``board_codec.check_reopen``; ``human`` says the editor is the human. Never
+    check of ``board_codec.check_reopen``; ``human`` says the editor is the human. With
+    ``assignee`` (the human's login), ``assignees`` is the corrected assignee list when it
+    must change (``board_codec.wants_human``), else None. Never
     raises: an unexpected failure is itself a problem, so one bad issue does not stop a run.
     """
     try:
-        return _plan(issue, comments, previous, human)
+        return _plan(issue, comments, previous, human, assignee)
     except Exception as e:  # noqa: BLE001 -- the backstop must report, not crash
-        return {"labels": None, "state": None,
+        return {"labels": None, "state": None, "assignees": None,
                 "problems": ["board-sync could not check this ticket: %s: %s"
                              % (type(e).__name__, e)]}
 
 
-def _plan(issue, comments, previous, human):
+def _plan(issue, comments, previous, human, assignee=None):
     names = bc.label_names(issue.get("labels"))
-    out = {"labels": None, "state": None, "problems": []}
+    out = {"labels": None, "state": None, "assignees": None, "problems": []}
     if bc.PLACEHOLDER in names:
         return out
     try:
@@ -101,6 +103,8 @@ def _plan(issue, comments, previous, human):
     if issue.get("state") != state or (state == "closed"
                                        and issue.get("state_reason") != reason):
         out["state"] = (state, reason)
+    if assignee:
+        out["assignees"] = bc.assignees_for(meta, issue.get("assignees"), assignee)
     fixed = dict(issue, labels=out["labels"] or names)
     out["problems"] = [p for p in bc.validate_issue(fixed, comments)
                        if not p.startswith("issue is ") and "state_reason" not in p]
@@ -166,7 +170,8 @@ def _state_comments(comments, bot=BOT_LOGIN):
     return c, state, mine[:-1], notes
 
 
-def sync(iss, comments, call, api, previous=None, human=False, bot=BOT_LOGIN):
+def sync(iss, comments, call, api, previous=None, human=False, bot=BOT_LOGIN,
+         assignee=None):
     """Plan and apply one issue with ``call(method, url, payload)``; returns the plan.
 
     ``comments`` are API comment objects (``body``, ``url``, ``user``). ``previous``
@@ -176,11 +181,13 @@ def sync(iss, comments, call, api, previous=None, human=False, bot=BOT_LOGIN):
     bodies = [c.get("body") or "" for c in comments]
     state_c, stored, dupes, notes = _state_comments(comments, bot)
     prev = previous if previous is not None else stored
-    p = plan(iss, bodies, prev, human)
+    p = plan(iss, bodies, prev, human, assignee)
     p["problems"] += notes
     patch = {}
     if p["labels"] is not None:
         patch["labels"] = p["labels"]
+    if p.get("assignees") is not None:
+        patch["assignees"] = p["assignees"]
     if p["state"]:
         patch["state"], reason = p["state"]
         if reason:
@@ -236,7 +243,8 @@ def main(argv=None):
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as fh:
         event = json.load(fh)
     iss = event.get("issue")
-    if not iss or "pull_request" in iss:
+    # pull requests and ordinary issues share the repository: only board issues are synced
+    if not iss or "pull_request" in iss or not bc.is_board_issue(iss):
         return 0
     api = "%s/repos/%s/issues/%d" % (os.environ.get("GITHUB_API_URL", "https://api.github.com"),
                                      os.environ["GITHUB_REPOSITORY"], iss["number"])
@@ -247,7 +255,8 @@ def main(argv=None):
     actor = (event.get("sender") or {}).get("login") or os.environ.get("GITHUB_ACTOR")
     sync(iss, comments, lambda m, u, payload: _call(m, u, token, payload), api,
          human=bool(actor and actor in humans),
-         bot=os.environ.get("ACADEMY_STATE_AUTHOR", BOT_LOGIN))
+         bot=os.environ.get("ACADEMY_STATE_AUTHOR", BOT_LOGIN),
+         assignee=humans[0] if humans else None)
     return 0
 
 

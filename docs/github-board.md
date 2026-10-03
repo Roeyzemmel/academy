@@ -15,7 +15,7 @@ numbering is empty; an id that was never used is a closed placeholder issue).
 |---|---|
 | open / closed | native issue state; `closed` completed, `rejected`/`cancelled` not planned |
 | `status` | label `status:<s>`; Project **Status**: `Todo` = open, `In Progress`, `Done` = closed keep their meaning, `Accepted`, `Blocked`, `Delivered` are added |
-| `to` | label `to:<instance>`; Project **Instance**; native *assignee* only for `to: human` and real collaborators (instances are not GitHub users) |
+| `to` | label `to:<instance>`; Project **Instance**; native *assignee*: the human, exactly while `board_codec.wants_human` (addressed to human and live, or blocked with `human` in `waiting_on`); instances are not GitHub users. The store sets it when `board.assignee` is configured, `board-sync` with `ACADEMY_HUMAN_LOGINS`; other assignees are kept |
 | role of `to` | label `role:<author\|researcher\|expert\|scientist\|human>`, derived from `to` and rewritten by `board-sync`; Project **Role** |
 | dead route | label `route:dead`, zero or one, derived from the block (present exactly when the ticket is `blocked` with both `blocked_by` and `reopen_if`, `board_codec.is_dead_block` over `ac.is_dead_route`; like `role:` from `to`; a ticket that is not blocked but carries both fields is a validation error, not a dead route) and rewritten by `board-sync`; Project **Block** = `pending` \| `dead-route` on a blocked ticket |
 | `from`, `kind`, `priority` | labels `from:`, `kind:`, `prio:`; Project **Kind**, **Priority** (P0/P1/P2 = high/normal/low) |
@@ -36,8 +36,10 @@ in the comment; the write hook and `board-sync` check the rules, not the account
 
 - Client (hook and skills, before a write): `board_codec.py transition|validate`, i.e. the
   academy's `TRANSITIONS`, `validate_ticket`, edges and required fields.
-- Server backstop (`.github/workflows/board-sync.yml` -> `board_sync.py`): one label of each
-  kind, role derived from `to`, state follows status, ticket decodes and validates; one
+- Server backstop (`.github/workflows/board-sync.yml` -> `board_sync.py`), on board issues
+  only (`board_codec.is_board_issue`: a `T-` title, an academy label or the meta line; the
+  repository's ordinary issues and pull requests are left alone): one label of each
+  kind, role derived from `to`, state follows status, the human's assignee, ticket decodes and validates; one
   comment lists what a human must fix, and is edited to a "resolved" line when it clears.
   The workflow runs one job per issue at a time (`concurrency`). It does not see who made a
   status move, but it keeps the previous state of each ticket (one hidden
@@ -78,7 +80,9 @@ in the comment; the write hook and `board-sync` check the rules, not the account
 (issues back to files: backup, rollback), `board_push.py` (the manifest executed over REST
 through `gh api`, resumable, numbering checked by reading issues by number) and
 `board_dump.py` (the byte-exact verify dump, parents and dependencies included), both on the
-`lib/board_gh.py` transport, `board_sync.py` (the workflow), `board_project.py`
+`lib/board_gh.py` transport, `board_batch.py` (a reviewed batch of board changes applied as the
+human through the MCP tools' code, `--dry-run` on a copy of the file board, resumable),
+`board_sync.py` (the workflow), `board_project.py`
 (the Project fields and their option sets as a JSON spec derived from the codec and the
 academy constants: Status incl. Accepted/Blocked/Delivered, Instance, Role, Kind = every
 ticket kind, Priority, Agenda, Block; `--check` proves it covers every kind and status,
@@ -109,7 +113,9 @@ per_page)` return one page (1-based) and an empty list past the last; a transpor
 `per_page` (the REST API caps it at 100), so the store reads until a page is empty. The REST API lists
 pull requests among the issues (`"pull_request"` key); the store skips them. Comments are read oldest
 first by `id` (else `created_at`) when the transport gives them. `save` writes in this order: the thread
-comments, the native links (only those that changed), then the issue's title, body, labels and state
+comments, the native links (only those that changed, both ways: a moved parent is replaced, a cleared
+one removed, a dependency that left `waiting_on` removed), then the issue's title, body, labels, state
+and the human's assignee
 (the commit point), so a failure half way leaves something a retry repairs; a failed `create` turns the
 new issue into a closed `placeholder` instead of leaving an open "(new ticket)". The store and the
 library copy it runs on: `as_store` recognises a store by its methods, not by `isinstance`, because every

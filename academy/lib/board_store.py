@@ -77,9 +77,12 @@ def _ordered(comments):
 class GithubBoardStore(ac.BoardStore):
     backend = "github"
 
-    def __init__(self, transport, repo="", lib=None):
+    def __init__(self, transport, repo="", lib=None, assignee=None):
         self.t = transport
         self.repo = repo
+        #: the human's GitHub login (``board.assignee``): a saved ticket is assigned to them
+        #: exactly when ``board_codec.wants_human``; None leaves assignees alone
+        self.assignee = assignee
         #: the academy_common module this store speaks through (its AcademyError, its
         #: ticket-id pattern): a role plugin passes its vendored copy (see open_store)
         self.lib = lib or ac
@@ -192,13 +195,18 @@ class GithubBoardStore(ac.BoardStore):
             old = bc.decode(cur, ())[0]
         except (bc.CodecError, ValueError):
             old = {}                                 # a fresh '(new ticket)' issue
-        if e["parent"] and e["parent"] != old.get("parent"):
+        # native links follow the ticket both ways: added, moved and removed
+        old_parent = old.get("parent") or None
+        if e["parent"] and e["parent"] != old_parent:
             if hasattr(self.t, "set_parent"):
-                self.t.set_parent(n, bc.ticket_number(e["parent"]))
+                self.t.set_parent(n, bc.ticket_number(e["parent"]))   # replaces an old one
             else:
                 self._skip({"type": "sub_issue", "parent": bc.ticket_number(e["parent"]),
                             "child": n})
-        had = set(str(w) for w in old.get("waiting_on") or [])
+        elif not e["parent"] and old_parent and ac.RE_TICKET_ID.match(str(old_parent)) \
+                and hasattr(self.t, "remove_parent"):
+            self.t.remove_parent(n, bc.ticket_number(old_parent))
+        had = [str(w) for w in old.get("waiting_on") or [] if ac.RE_TICKET_ID.match(str(w))]
         for w in e["waits_on"]:
             if w in had:
                 continue
@@ -206,12 +214,19 @@ class GithubBoardStore(ac.BoardStore):
                 self.t.add_dependency(n, bc.ticket_number(w))
             else:
                 self._skip({"type": "dependency", "issue": n, "blocker": bc.ticket_number(w)})
+        for w in had:
+            if w not in e["waits_on"] and hasattr(self.t, "remove_dependency"):
+                self.t.remove_dependency(n, bc.ticket_number(w))
         want = {"title": e["title"], "body": e["body"], "labels": e["labels"],
                 "state": e["state"], "state_reason": e["state_reason"]}
         have_issue = {"title": cur.get("title"), "body": bc.strip_footer(cur.get("body") or ""),
                       "labels": sorted(bc.label_names(cur.get("labels"))),
                       "state": cur.get("state"), "state_reason": cur.get("state_reason")}
-        if dict(want, labels=sorted(want["labels"])) != have_issue:
+        assignees = bc.assignees_for(meta, cur.get("assignees"), self.assignee) \
+            if self.assignee else None
+        if dict(want, labels=sorted(want["labels"])) != have_issue or assignees is not None:
+            if assignees is not None:
+                want["assignees"] = assignees
             self.t.update_issue(n, **want)
         return self.ref(n)
 
@@ -367,6 +382,11 @@ class MemoryTransport(object):
     def get_parent(self, number):
         self._tick("get_parent", number)
         return self.parents.get(number)
+
+    def remove_parent(self, number, parent):
+        self._tick("remove_parent", number)
+        if self.parents.get(number) == parent:
+            del self.parents[number]
 
     def add_dependency(self, number, blocker):
         self._tick("add_dependency", number)
