@@ -89,6 +89,21 @@ ticket kind, Priority, Agenda, Block; `--check` proves it covers every kind and 
 `--live` reports what a live Project lacks; `fields_for(meta)` is a ticket's values). The runbook is
 `/academy:board-migrate`. Templates: `academy/templates/github-board/.github/`.
 
+## The Project
+
+The board's Project (v2) is `users/Roeyzemmel/projects/2` ("BilliardIllumination Board"), created
+on 2026-10-03 with the fields of `board_project.py` and every issue as an item. `board-sync` keeps
+it current: after `board_sync.py`, `board_project_sync.py` adds the event's issue to the Project
+(new issues join on their first event) and sets its fields to `board_project.fields_for` of the
+decoded ticket; a value the Project has no option for (a new instance) is appended as an option,
+keeping the others' ids. A non-ticket issue joins with Status from its state only. It writes the
+Project only, never the issue. A `workflow_dispatch` run syncs every issue (backfill, repair).
+It needs the repository secret `ACADEMY_PROJECT_TOKEN` (a classic token with the `project`
+scope: a fine-grained token cannot reach a user-owned Project, and `GITHUB_TOKEN` cannot reach
+any Project) and the variable `ACADEMY_PROJECT` (`users/<login>/<n>`); without them the step is
+skipped and the board works from labels alone. Views (per instance, per role, blocked) are made
+in the GitHub UI: the API has no mutation for them.
+
 ## Permissions (connector or token)
 
 Issues read/write, Metadata read, Contents read/write (packets, workflow files), Actions read;
@@ -151,9 +166,9 @@ Still needs the real transport, which is not in this repository and was never ex
 an object with the transport methods above over the github MCP (in a session) or REST with a token,
 named by `board.transport`; native sub-issue and dependency calls (`set_parent`, `add_dependency`);
 the label filter on a large repo (the store asks for `to:<instance>` only, and never reads comments
-while selecting). Not exercised here: `list_issues` paging against a live repo. Also not done: writing the Project fields (and creating the
-Project's fields/views from `board_project.py`) on a live Project, the Project-field half of
-`board-sync`, the write hook on github mode, the Author's agenda-gap filing and `packets.py`,
+while selecting). Not exercised here: `list_issues` paging against a live repo. The Project-field half of
+`board-sync` is done (`board_project_sync.py`, below); creating the Project's views is still by
+hand. Also not done: the write hook on github mode, the Author's agenda-gap filing and `packets.py`,
 `session_start.py`, which still reads tickets from the files of the board directory (`packets.py`,
 `decisions.py`, `land_referee.py` and the MCP packets/claims tools go through the store now) (the Author's ticket filing already goes through `board.create_ticket`, so it
 follows a store only once its `ctx.board` is one). Until the transport exists, run a github board's
