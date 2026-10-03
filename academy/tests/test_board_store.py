@@ -350,6 +350,31 @@ class TestStoreAssignment(StoreCase):
         self.assertEqual(["carlos"], self.transport.issues[1]["assignees"])
 
 
+class TestStoreRelationsFollowTheTicket(StoreCase):
+    """Native links follow the ticket both ways: a moved parent is replaced, a cleared one
+    removed, and an unblocked ticket loses its dependency (not only gains them)."""
+
+    def test_parent_is_replaced_and_removed(self):
+        ref, meta, body = self.gh.get("T-0002")
+        self.gh.save(dict(meta, parent="T-0001"), body, ref)
+        self.assertEqual(1, self.transport.parents[2])
+        ref, meta, body = self.gh.get("T-0002")
+        self.gh.save(dict(meta, parent="T-0004"), body, ref)
+        self.assertEqual(4, self.transport.parents[2])
+        ref, meta, body = self.gh.get("T-0002")
+        self.gh.save(dict(meta, parent=None), body, ref)
+        self.assertNotIn(2, self.transport.parents)
+
+    def test_unblocking_removes_the_dependency(self):
+        bd.transition_ticket(self.gh, "T-0001", "accepted", as_instance=INST, date=DATE)
+        bd.transition_ticket(self.gh, "T-0001", "blocked", waiting_on=["T-0006"],
+                             reason="needs T-0006", as_instance=INST, date=DATE)
+        self.assertEqual([(1, 6)], self.transport.dependencies)
+        bd.transition_ticket(self.gh, "T-0001", "accepted", reason="T-0006 is in",
+                             as_instance=INST, date=DATE)
+        self.assertEqual([], self.transport.dependencies)
+
+
 class TestCreateParity(StoreCase):
     def test_new_ticket_is_identical_with_campaign_and_the_next_id(self):
         kw = dict(to="expert@main", title="Check lemma", ask="Verify it", deliverable="A packet",

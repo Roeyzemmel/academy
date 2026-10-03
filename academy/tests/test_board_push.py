@@ -197,9 +197,20 @@ class TestGhTransport(unittest.TestCase):
         t.set_parent(5, 3)
         t.add_dependency(5, 2)
         self.assertIn("repos/me/repo/issues/3/sub_issues", fake.calls[1][0])
-        self.assertEqual({"sub_issue_id": 500}, fake.calls[1][1])
+        self.assertEqual({"sub_issue_id": 500, "replace_parent": True}, fake.calls[1][1])
         self.assertIn("repos/me/repo/issues/5/dependencies/blocked_by", fake.calls[3][0])
         self.assertEqual({"issue_id": 200}, fake.calls[3][1])
+
+    def test_a_new_parent_replaces_the_old_and_a_parent_can_be_removed(self):
+        fake = FakeGh([(0, json.dumps({"number": 5, "id": 500}), ""), (0, "{}", ""),
+                       (0, "{}", "")])
+        t = gh.GhTransport("me/repo", run=fake, write_interval=0)
+        t.set_parent(5, 3)
+        t.remove_parent(5, 3)
+        self.assertEqual({"sub_issue_id": 500, "replace_parent": True}, fake.calls[1][1])
+        self.assertEqual(["api", "-X", "DELETE"], fake.calls[2][0][:3])
+        self.assertIn("repos/me/repo/issues/3/sub_issue", fake.calls[2][0])
+        self.assertEqual({"sub_issue_id": 500}, fake.calls[2][1])
 
     def test_transient_errors_are_retried_and_others_raise(self):
         slept = []

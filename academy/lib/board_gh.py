@@ -163,7 +163,12 @@ class GhTransport(object):
                                            "description": description})
 
     def set_parent(self, number, parent):
-        self.api("POST", "issues/%d/sub_issues" % parent, {"sub_issue_id": self._id(number)})
+        """Make ``number`` a sub-issue of ``parent``, replacing any parent it had."""
+        self.api("POST", "issues/%d/sub_issues" % parent,
+                 {"sub_issue_id": self._id(number), "replace_parent": True})
+
+    def remove_parent(self, number, parent):
+        self.api("DELETE", "issues/%d/sub_issue" % parent, {"sub_issue_id": self._id(number)})
 
     def get_parent(self, number):
         p = self.api("GET", "issues/%d/parent" % number, missing_ok=True)
