@@ -37,3 +37,5 @@ jobs:
         env:
           ACADEMY_PROJECT_TOKEN: ${{ secrets.ACADEMY_PROJECT_TOKEN }}
           ACADEMY_PROJECT: ${{ vars.ACADEMY_PROJECT }}
+          # reads the issues (the project token may have no repository access)
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

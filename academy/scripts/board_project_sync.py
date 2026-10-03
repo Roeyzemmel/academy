@@ -192,10 +192,12 @@ def main(argv=None):
     iss = event.get("issue")
     if iss and "pull_request" in iss:
         return 0
+    # issues are read with the workflow's token: a project-only token cannot read a private repo
+    rest = os.environ.get("GITHUB_TOKEN") or token
     if iss:   # fresh: board_sync.py may just have corrected its labels
-        issues = [_request("%s/repos/%s/issues/%d" % (api, repo, iss["number"]), token)]
+        issues = [_request("%s/repos/%s/issues/%d" % (api, repo, iss["number"]), rest)]
     else:
-        issues = _all_issues(api, repo, token)
+        issues = _all_issues(api, repo, rest)
     problems = []
     for i in issues:
         problems += sync_issue(gql, project, i)
