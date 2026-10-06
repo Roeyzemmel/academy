@@ -8,9 +8,13 @@ on:
     types: [created, edited, deleted]
   workflow_dispatch:
 permissions:
+  # naming one permission sets every other to none: without contents: read the checkout of
+  # a private repository fails ("Repository not found") and the job never runs
+  contents: read
   issues: write
-# one run per issue at a time, queued not cancelled: two runs on one issue must not race on
-# the hidden state comment
+# one run per issue at a time, so two runs never race on the hidden state comment. GitHub
+# keeps only the newest pending run of a group (older pending ones show as cancelled);
+# that is enough, since every run reads the issue fresh
 concurrency:
   group: board-sync-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: false

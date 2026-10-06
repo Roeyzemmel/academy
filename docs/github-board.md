@@ -89,6 +89,29 @@ ticket kind, Priority, Agenda, Block; `--check` proves it covers every kind and 
 `--live` reports what a live Project lacks; `fields_for(meta)` is a ticket's values). The runbook is
 `/academy:board-migrate`. Templates: `academy/templates/github-board/.github/`.
 
+## The Project
+
+The board's Project (v2) is `users/Roeyzemmel/projects/2` ("BilliardIllumination Board"), created
+on 2026-10-03 with the fields of `board_project.py` and every issue as an item.
+
+- **New issues join it** by the Project's built-in workflow "Auto-add to project" (filter
+  `is:issue`, set in the Project's UI), and "Item closed" / "Item reopened" keep its Status
+  Done / Todo. These run on GitHub's side with no token.
+- **The fields** (Status, Instance, Role, Kind, Priority, Agenda, Block) are written by
+  `board_project_sync.py` on the human's machine, through `gh` logged in with the `project`
+  scope (`gh auth login -s project`). It reads every issue, compares each item's fields
+  with `board_project.fields_for` of the decoded ticket, and writes only what differs
+  (adding the item if it is missing); a value with no option yet (a new instance) is
+  appended, keeping the other options' ids; a non-ticket issue gets Status from its state.
+  It writes the Project only, never an issue. `--repo` / `--project` default to `board.repo`
+  and `board.project` in workspace.json; `--issue N` limits it. About 10 s for 106 issues
+  when nothing changed.
+- **Why not in `board-sync`:** a user-owned Project cannot be reached by the workflow's
+  `GITHUB_TOKEN` nor by a fine-grained token, and no long-lived classic token is stored in the
+  repo. Between runs a new issue sits in the Project with Status only; its labels carry the
+  rest.
+- Views (per instance, per role, blocked) are made in the UI: the API has no mutation for them.
+
 ## Permissions (connector or token)
 
 Issues read/write, Metadata read, Contents read/write (packets, workflow files), Actions read;
@@ -151,9 +174,9 @@ Still needs the real transport, which is not in this repository and was never ex
 an object with the transport methods above over the github MCP (in a session) or REST with a token,
 named by `board.transport`; native sub-issue and dependency calls (`set_parent`, `add_dependency`);
 the label filter on a large repo (the store asks for `to:<instance>` only, and never reads comments
-while selecting). Not exercised here: `list_issues` paging against a live repo. Also not done: writing the Project fields (and creating the
-Project's fields/views from `board_project.py`) on a live Project, the Project-field half of
-`board-sync`, the write hook on github mode, the Author's agenda-gap filing and `packets.py`,
+while selecting). Not exercised here: `list_issues` paging against a live repo. The Project's fields are kept by
+`board_project_sync.py` from the human's machine (below), not by `board-sync`; its views are
+made by hand. Also not done: the write hook on github mode, the Author's agenda-gap filing and `packets.py`,
 `session_start.py`, which still reads tickets from the files of the board directory (`packets.py`,
 `decisions.py`, `land_referee.py` and the MCP packets/claims tools go through the store now) (the Author's ticket filing already goes through `board.create_ticket`, so it
 follows a store only once its `ctx.board` is one). Until the transport exists, run a github board's
