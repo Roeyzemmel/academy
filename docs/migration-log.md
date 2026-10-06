@@ -983,11 +983,12 @@ questions in step 5: see the entry below).
 1. *Roey:* the audit batch README's 12 open questions
    (`board/batches/2026-10-03-audit/README.md`); the new decision tickets T-0114 (flat's
    registry profile) and T-0115 (restate prop:reduced-torus-compatible) are addressed to him.
-2. *Roey, in the Project's UI:* confirm the built-in workflows "Auto-add to project" (this
-   repo, filter `is:issue`), "Item closed" and "Item reopened" are on (the API cannot read or
-   set them); make the views (per instance, per role, blocked): the API has no mutation for
-   views. Run `py academy/academy/scripts/board_project_sync.py` now and then: between runs a
-   new issue sits in the Project with Status only (its labels carry the rest).
+2. *Project:* Roey checked the Project's settings in the UI and set its permissions
+   (2026-10-06); the built-in workflows ("Auto-add to project", "Item closed", "Item
+   reopened") cannot be read through the API, so the first new ticket is the confirmation
+   that it joins on its own. Views (per instance, per role, blocked) are made in the UI.
+   Run `py academy/academy/scripts/board_project_sync.py` now and then: between runs a new
+   issue sits in the Project with Status only (its labels carry the rest).
 3. *Cloud:* the SessionStart line has not been seen in a cloud home (the read-only check ran
    at the workspace root, where the hook is silent). Check from `library/` with
    `ACADEMY_BOARD_COMMIT=0`; expect counts from GitHub (expert@ts far below the 30 the old
