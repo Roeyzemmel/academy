@@ -633,6 +633,50 @@ class SessionStartTests(Fixture):
         line = self.start(self.expert_home)
         self.assertTrue(line.endswith("; freed: T-0030"), line)
 
+    def github_board(self, factory="transport"):
+        """Switch the fixture workspace to the GitHub backend, its issues being the current
+        file tickets (seeded into a MemoryTransport by a factory module on PYTHONPATH), and
+        return the env for the hook."""
+        sys.path.insert(0, SCRIPTS)
+        import board_codec as bc
+        issues = [bc.encode(m, b) for _r, m, b in ac.FileBoardStore(self.board).iter_tickets()]
+        mods = os.path.join(self.tmp, "mods")
+        fixture = self.write(os.path.join(mods, "issues.json"), json.dumps(issues))
+        self.write(os.path.join(mods, "fake_gh_board.py"),
+                   "import json, board_store as bs\n"
+                   "def transport(cfg):\n"
+                   "    t = bs.MemoryTransport()\n"
+                   "    for e in json.load(open(cfg['fixture'], encoding='utf-8')):\n"
+                   "        t.add_encoded(e)\n"
+                   "    return t\n"
+                   "def broken(cfg):\n"
+                   "    raise RuntimeError('gh api: HTTP 401 Bad credentials')\n")
+        with open(self.ws_path, encoding="utf-8") as fh:
+            ws = json.load(fh)
+        ws["board"] = {"path": ws["board"], "backend": "github", "repo": "o/r",
+                       "transport": "fake_gh_board:" + factory, "fixture": fixture}
+        self.write(self.ws_path, json.dumps(ws))
+        return {"PYTHONPATH": os.pathsep.join([mods, os.path.join(PLUGIN, "lib")])}
+
+    def test_status_line_on_the_github_backend_reads_the_issues(self):
+        """The ticket files of a GitHub board are the frozen snapshot: the counts come from
+        the issues, so a ticket file removed after the switch changes nothing."""
+        self.populate()
+        env = self.github_board()
+        os.remove(os.path.join(self.board, "author@t", "T-0001-a.md"))
+        os.remove(os.path.join(self.board, "author@t", "T-0002-b.md"))
+        line = self.start(self.author_home, env)
+        self.assertEqual(line, "academy: author@t — 2 open tickets to you, "
+                               "1 packet awaiting Roey; freed: T-0004")
+
+    def test_status_line_when_github_is_unreachable(self):
+        self.populate()
+        env = self.github_board("broken")
+        line = self.start(self.author_home, env)
+        self.assertTrue(line.startswith("academy: author@t — tickets not read: GitHub board "
+                                        "unreachable (gh api: HTTP 401 Bad credentials)"), line)
+        self.assertTrue(line.endswith("; 1 packet awaiting Roey"), line)
+
     def test_ids_reconciled(self):
         self.populate()
         self.write(os.path.join(self.board, ".ids", "next-packet"), "3\n")
