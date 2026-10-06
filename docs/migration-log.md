@@ -923,7 +923,8 @@ the shims; retire the old paper/flatsurf links at merge (no guard); delete BI ma
 - A concurrent session is setting up the GitHub Project and the workflows. Coordinate on
   `.github/` (merge one, refresh the other).
 
-**Next, in order.**
+**Next, in order** (as of 2026-10-03; done on 2026-10-06 except the audit README's open
+questions in step 5: see the entry below).
 1. Merge the three branches: academy first, because the workspace's vendored scripts come
    from it.
 2. Roey: the repo variable `ACADEMY_HUMAN_LOGINS` = `Roeyzemmel`; Actions allowed to write
@@ -940,3 +941,77 @@ the shims; retire the old paper/flatsurf links at merge (no guard); delete BI ma
    README's 12 open questions.
 6. The Project needs a token with the `project` scope; `board_project.py` has the field
    spec. The scratch repos A and B can be kept for rehearsals or deleted.
+
+## Board switch and after (2026-10-03 .. 2026-10-06)
+
+**Done.**
+- Cloud branches merged (academy #12, workspace #108, board #2). Pre-switch verify:
+  `board_dump` + `board_verify`, 106 issues, 611 comments, 30 sub-issue links, 1 dependency,
+  0 drift.
+- **The switch** (workspace #109): `board` in `workspace.template.json` is `{path: board,
+  backend: github, repo: Roeyzemmel/BilliardIlluminationWorkspace, transport:
+  board_gh:transport, assignee: Roeyzemmel, project: users/Roeyzemmel/2}`; bootstrapped on
+  Roey's machine. Repo variable `ACADEMY_HUMAN_LOGINS=Roeyzemmel`.
+- **board-sync never ran before 2026-10-06**: the workflow named only `issues: write`, which
+  sets `contents` to none, so every checkout of the private repo failed ("Repository not
+  found"). Fixed with `contents: read` (workspace #111, academy template #14).
+- **Smoke test and audit batch**: op 1 alone (T-0056), then ops 2-33; T-0112..T-0116 created,
+  P-0018..P-0022 repointed (board #3). board-sync: 44 runs green, 56 cancelled (a newer run
+  per issue supersedes the pending one), every touched issue has one state comment and no
+  problems comment.
+- **The Project** `users/Roeyzemmel/projects/2` ("BilliardIllumination Board"): the fields of
+  `board_project.py`, every issue an item. Its fields are written by `board_project_sync.py`
+  from Roey's machine through `gh` (project scope), writing only what differs (#13). Not in
+  board-sync: Roey keeps no long-lived token in the repo, and a user-owned Project is out of
+  reach of `GITHUB_TOKEN` and of fine-grained tokens (tried: "Resource not accessible by
+  personal access token").
+- **Cloud and local reads** (#15): SessionStart counts from the issues (`iter_meta`, no
+  comments; 2 s on the scratch repo B) and says "tickets not read: ..." when GitHub cannot be
+  read; `board.py list` reads metas only (1m45s -> 3s live); a missing `gh` is one clear
+  error. Bootstrap warns when `gh` cannot read the board (workspace #117). `board_batch
+  --dry-run` leaves `.claude/` out of its copy (a session worktree in `board/.claude/` made
+  the dry run stop at op 5).
+- **Checked in a cloud session** (2026-10-06, read only): `cloud-setup.sh` wrote the GitHub
+  board config and reported "gh can read it"; `board.py list --to human` gave the same 11
+  tickets as locally. A first run had crashed (`board_gh` has no `transport`) because the
+  cloud environment attached academy at the old branch `claude/busy-cannon-dirqg2`
+  (5283a7f, 2026-10-01); Roey set the environment to attach `main`.
+- Superproject bump f400658: academy 8bfaeb7, board 20c0330, FlatSurfLab 95fae78,
+  Slope1illuminationResearch ed16a22.
+
+**Leftovers.**
+1. *Roey:* the audit batch README's 12 open questions
+   (`board/batches/2026-10-03-audit/README.md`); the new decision tickets T-0114 (flat's
+   registry profile) and T-0115 (restate prop:reduced-torus-compatible) are addressed to him.
+2. *Project:* Roey checked the Project's settings in the UI and set its permissions
+   (2026-10-06); the built-in workflows ("Auto-add to project", "Item closed", "Item
+   reopened") cannot be read through the API, so the first new ticket is the confirmation
+   that it joins on its own. Views (per instance, per role, blocked) are made in the UI.
+   Run `py academy/academy/scripts/board_project_sync.py` now and then: between runs a new
+   issue sits in the Project with Status only (its labels carry the rest).
+3. *Cloud:* the SessionStart line has not been seen in a cloud home (the read-only check ran
+   at the workspace root, where the hook is silent). Check from `library/` with
+   `ACADEMY_BOARD_COMMIT=0`; expect counts from GitHub (expert@ts far below the 30 the old
+   files gave).
+4. *Cloud:* three permission rules in `scripts/permissions.json` name
+   `{USER}/.claude/skills/academy` (`packets.py`, `usage_report.py`, a Read rule). That link
+   exists on Roey's machine, not in the cloud, where plugins come from the marketplace, so the
+   rules match nothing there and those two scripts prompt. Fix: render them with the
+   installed plugin root.
+5. *Cloud environment:* every repo must be attached at `main`. A stale attached branch is
+   adopted as is (bootstrap does not move a checkout; switching it automatically was refused
+   by the auto-mode check as modifying shared resources). The merged branch
+   `claude/busy-cannon-dirqg2` in academy can be deleted so it is not picked again.
+6. *Housekeeping:* `board/.claude/worktrees/obs23` (branch `cloud/2026-09-29-obs23`) is a
+   session worktree inside the board checkout; remove it once that branch is settled. The
+   cloud session's check left one line in its own `board/.errors/other.jsonl` (a failed
+   read-only `git status`): nothing to keep.
+7. *Numbering:* pull requests share the issue numbers, so ticket ids now skip them (#107-#111,
+   #117, #118 are PRs; T-0112..T-0116 are tickets; the next ticket is at least #119).
+8. *Still not done in code* (from `github-board.md`, not re-checked here): the write hook in
+   github mode; the Author's agenda-gap filing; `session_start`'s `reconcile_ids` still
+   reconciles the file ticket counter, harmless on GitHub.
+9. *Tests on Windows:* `test_bootstrap_adopt` (two symlink tests) fails without Developer
+   Mode; `test_common.FileTests.test_concurrent_allocation_unique` failed once under full-suite
+   load and passed 5/5 alone.
+10. The scratch repos `Roeyzemmel/A` and `Roeyzemmel/B` stay, for rehearsals.
