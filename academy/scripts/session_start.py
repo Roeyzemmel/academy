@@ -59,6 +59,22 @@ def tickets(board):
     return out
 
 
+def board_tickets(ws):
+    """``(tickets, unread)``: every readable ticket as ``(folder, meta)``, from the files or,
+    on the GitHub backend, from the issues (labels and meta line only: two or three REST
+    pages, no comments), where ``folder`` is the addressee as on the file board; ``unread``
+    says why the tickets could not be read (None when they were). A GitHub board never
+    falls back to its ticket files, which are the frozen pre-migration snapshot."""
+    if (ws.get("board_config") or {}).get("backend", "files") == "files":
+        return tickets(ws["board"]), None
+    try:
+        store = ac.open_store(ws)
+        return [(m.get("to"), m) for _ref, m in store.iter_meta()], None
+    except Exception as exc:                     # gh missing, offline, not logged in
+        msg = " ".join(str(exc).split())
+        return [], "GitHub board unreachable (%s)" % (msg[:160] or type(exc).__name__)
+
+
 def open_packets(board):
     """Packets (all instances) whose state is 'open', i.e. awaiting the human."""
     root = os.path.join(board, "packets")
@@ -233,7 +249,7 @@ def status_line(event):
     else:
         reconcile_ids(board)
         commit_board(board)
-        all_t = tickets(board)
+        all_t, unread = board_tickets(ws)
         n = sum(1 for folder, m in all_t
                 if folder == instance and m.get("to") == instance
                 and m.get("status") in INBOX_STATES)
@@ -246,6 +262,9 @@ def status_line(event):
         d = decisions_waiting(board, all_t)
         if d:
             line += "; %d decision%s waiting — /academy:decide" % (d, "" if d == 1 else "s")
+        if unread:
+            line = "academy: %s — tickets not read: %s; %d packet%s awaiting %s" % (
+                instance, unread, m_, "" if m_ == 1 else "s", human)
     if probs:
         line += "; config: %s" % "; ".join(probs)
     return line

@@ -18,6 +18,7 @@ seconds apart (default 1 s, GitHub's guidance for content creation).
 """
 
 import json
+import shutil
 import subprocess
 import time
 
@@ -38,9 +39,17 @@ class GhError(RuntimeError):
         self.status = status
 
 
+GH_MISSING = ("gh is not installed: the board is on GitHub (board.backend github) and its "
+              "transport runs 'gh api'; install the GitHub CLI and log in (gh auth login), "
+              "or in a cloud session check that the environment provides gh")
+
+
 def _run_gh(args, stdin_text):
-    p = subprocess.run(["gh"] + args, input=stdin_text, capture_output=True, text=True,
-                       encoding="utf-8")
+    try:
+        p = subprocess.run(["gh"] + args, input=stdin_text, capture_output=True, text=True,
+                           encoding="utf-8")
+    except FileNotFoundError:
+        raise GhError(GH_MISSING)
     return p.returncode, p.stdout, p.stderr
 
 
@@ -195,4 +204,6 @@ def transport(cfg):
     if not repo or repo.count("/") != 1:
         raise ac.ConfigError("board.transport board_gh:transport needs board.repo as "
                              "OWNER/NAME (got %r)" % (repo,))
+    if not shutil.which("gh"):
+        raise ac.ConfigError(GH_MISSING)
     return GhTransport(repo)

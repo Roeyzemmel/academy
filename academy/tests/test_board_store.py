@@ -558,15 +558,33 @@ class TestOpenStore(BoardCase):
     def test_the_rest_transport_by_name(self):
         # the cutover switch: workspace.json names board_gh's factory
         import board_gh
+        from unittest import mock
         ws = self.write_ws({"path": self.board, "backend": "github", "repo": "o/r",
                             "transport": "board_gh:transport"})
-        st = ac.open_store(ws)
+        with mock.patch("board_gh.shutil.which", return_value="/usr/bin/gh"):
+            st = ac.open_store(ws)
         self.assertIsInstance(st.t, board_gh.GhTransport)
         self.assertEqual("o/r", st.t.repo)
         ws = self.write_ws({"path": self.board, "backend": "github",
                             "transport": "board_gh:transport"})
         with self.assertRaises(ac.ConfigError):
             ac.open_store(ws)                      # no repo: refused, never a guess
+
+    def test_the_rest_transport_without_gh_says_so(self):
+        # a machine or cloud image without the GitHub CLI: one clear error, not a traceback
+        import board_gh
+        from unittest import mock
+        ws = self.write_ws({"path": self.board, "backend": "github", "repo": "o/r",
+                            "transport": "board_gh:transport"})
+        with mock.patch("board_gh.shutil.which", return_value=None):
+            with self.assertRaises(ac.ConfigError) as cm:
+                ac.open_store(ws)
+        self.assertIn("gh is not installed", str(cm.exception))
+        t = board_gh.GhTransport("o/r", run=board_gh._run_gh, sleep=lambda s: None)
+        with mock.patch("board_gh.subprocess.run", side_effect=FileNotFoundError("gh")):
+            with self.assertRaises(board_gh.GhError) as cm:
+                t.get_issue(1)
+        self.assertIn("gh is not installed", str(cm.exception))
 
     def test_an_explicit_board_path_always_means_files(self):
         ws = self.write_ws({"path": self.board, "backend": "github"})

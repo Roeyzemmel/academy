@@ -110,7 +110,8 @@ def list_tickets(board, to=None, frm=None, status=None, include_terminal=False):
     rejected, cancelled) are left out.
     """
     out = []
-    for path, meta, _body in iter_tickets(board):
+    # metas only: on the GitHub backend that is the issue list, without every issue's comments
+    for path, meta in ac.as_store(board).iter_meta():
         if meta is None:
             continue
         if to and meta.get("to") != to:
