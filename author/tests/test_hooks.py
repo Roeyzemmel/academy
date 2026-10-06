@@ -51,6 +51,7 @@ class CommitTargetsTests(unittest.TestCase):
         self.assertEqual(self.targets("cd ../lab; git add -A; git commit -m x"),
                          [self.at("..", "lab")])
 
+    @unittest.skipUnless(os.name == "nt", "a backslash separates paths only on Windows")
     def test_powershell_set_location_and_call_operator(self):
         self.assertEqual(self.targets("Set-Location ..\\lab; git commit -m x"),
                          [self.at("..", "lab")])

@@ -151,6 +151,7 @@ class PluginTests(unittest.TestCase):
         "author/scripts/agenda_migrate.py", "author/tests/test_agenda_migrate.py",
         "author/tests/test_agenda.py", "author/tests/test_inbox.py",
         "author/tests/test_plugin.py", "academy/tests/test_interface_scripts.py",
+        "docs/migration-campaign-mode.md",
         "scientist/tests/fixtures/lab/experiments/2026-09-24_torus_cover_periodic_growth.py",
     }
     SKIP_DIRS = {".git", "__pycache__", "golden", "goldens", "_import", "docs-notes",
@@ -162,7 +163,9 @@ class PluginTests(unittest.TestCase):
         stale = []
         for dirpath, dirs, files in os.walk(REPO):
             dirs[:] = [d for d in dirs if d not in self.SKIP_DIRS
-                       and not (d == "superpowers" and os.path.basename(dirpath) == "docs")]
+                       and not (d == "superpowers" and os.path.basename(dirpath) == "docs")
+                       # other checkouts of this repo (git worktrees), not this one
+                       and not (d == "worktrees" and os.path.basename(dirpath) == ".claude")]
             for f in files:
                 if f in self.SKIP_FILES or not f.endswith((".md", ".py", ".json", ".sh",
                                                            ".yml", ".yaml", ".toml")):
