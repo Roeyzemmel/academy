@@ -170,14 +170,9 @@ coverage check), and the `BoardStore` seam behind `inbox_core`, `board.py`, the 
 the MCP `tickets_*` tools, with a file and a GitHub implementation proven equivalent offline. Campaign
 mode (kinds `write` `apply` `copy` `sweep`, `campaign:`, dead-route blocking) runs through the seam.
 
-Still needs the real transport, which is not in this repository and was never exercised against GitHub:
-an object with the transport methods above over the github MCP (in a session) or REST with a token,
-named by `board.transport`; native sub-issue and dependency calls (`set_parent`, `add_dependency`);
-the label filter on a large repo (the store asks for `to:<instance>` only, and never reads comments
-while selecting). Not exercised here: `list_issues` paging against a live repo. The Project's fields are kept by
-`board_project_sync.py` from the human's machine (below), not by `board-sync`; its views are
-made by hand. Also not done: the write hook on github mode, the Author's agenda-gap filing and `packets.py`,
-`session_start.py`, which still reads tickets from the files of the board directory (`packets.py`,
-`decisions.py`, `land_referee.py` and the MCP packets/claims tools go through the store now) (the Author's ticket filing already goes through `board.create_ticket`, so it
-follows a store only once its `ctx.board` is one). Until the transport exists, run a github board's
-inbox from a checkout made by `board_import.py`.
+Live since 2026-10-06 (`docs/migration-log.md`): the REST transport `board_gh:transport` (through `gh
+api`, native sub-issues and dependencies), board-sync on every issue event, SessionStart and
+`board.py list` reading metas only, and the Project kept by `board_project_sync.py` from the
+human's machine (below), not by `board-sync`; its views are made by hand. Not done: the write
+hook in github mode and the Author's agenda-gap filing; the leftovers are listed in the
+migration log.
