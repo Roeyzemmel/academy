@@ -153,8 +153,13 @@ class TestProjectRef(unittest.TestCase):
             ps.load_project(FakeGql({"user": {"projectV2": None}}), "users/Roeyzemmel/9")
 
     def test_main_without_repo_or_project_is_an_error(self):
-        empty = os.path.join(HERE, "no-such-workspace.json")
-        self.assertEqual(2, ps.main(["--workspace", empty]))
+        # independent of the machine: ACADEMY_WORKSPACE may name a real, configured workspace
+        from unittest import mock
+        with mock.patch.object(ps.ac, "load_workspace", side_effect=ps.ac.ConfigError("none")):
+            self.assertEqual(2, ps.main([]))
+        with mock.patch.object(ps.ac, "load_workspace",
+                               return_value={"board_config": {"repo": "o/r"}}):
+            self.assertEqual(2, ps.main([]))       # a repo but no project
 
     def test_project_items_reads_values_by_field_name(self):
         page = {"node": {"items": {"pageInfo": {"hasNextPage": False, "endCursor": None},
