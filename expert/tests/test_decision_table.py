@@ -1,6 +1,7 @@
 """decision_table.py: every row of the old /paper:verify decision table, in the
 academy's verdict words, plus the mechanical rules added on top of it."""
 
+import json
 import os
 import tempfile
 import unittest
@@ -8,6 +9,30 @@ import unittest
 import fixtures  # noqa: F401  (puts the plugin's scripts on sys.path)
 import _expert as ex
 import decision_table as dt
+
+_WS = {}
+
+
+def setUpModule():
+    # grounds.producer_role comes from the namespace owner in workspace.json: give the
+    # module its own workspace (paper: -> author) instead of whatever the machine has
+    _WS["dir"] = tempfile.TemporaryDirectory()
+    path = os.path.join(_WS["dir"].name, "workspace.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"board": os.path.join(_WS["dir"].name, "board"),
+                   "instances": {"author@bi": {"role": "author", "ns": "paper",
+                                               "home": os.path.join(_WS["dir"].name, "bi"),
+                                               "domains": ["translation-surfaces"]}}}, fh)
+    _WS["old"] = os.environ.get("ACADEMY_WORKSPACE")
+    os.environ["ACADEMY_WORKSPACE"] = path
+
+
+def tearDownModule():
+    if _WS["old"] is None:
+        os.environ.pop("ACADEMY_WORKSPACE", None)
+    else:
+        os.environ["ACADEMY_WORKSPACE"] = _WS["old"]
+    _WS["dir"].cleanup()
 
 
 def rec(verdict, run="A", run_id=None, modulo="none", model="claude-fable-5-1",

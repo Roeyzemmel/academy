@@ -1,0 +1,45 @@
+# Runs every plugin's unittest suite on each push (any branch) and on demand.
+# Standard library only: no install step. Each suite runs even when an earlier one failed.
+name: tests
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: git identity (tests make commits in temp repos)
+        run: |
+          git config --global user.name "academy-ci"
+          git config --global user.email "academy-ci@users.noreply.github.com"
+          git config --global init.defaultBranch main
+      - name: academy
+        run: python -m unittest discover -s academy/tests -t academy/tests
+      - name: registry
+        if: ${{ !cancelled() }}
+        run: python -m unittest discover -s academy/registry/tests -t academy/registry/tests
+      - name: author
+        if: ${{ !cancelled() }}
+        run: python -m unittest discover -s author/tests -t author/tests
+      - name: expert
+        if: ${{ !cancelled() }}
+        run: python -m unittest discover -s expert/tests -t expert/tests
+      - name: researcher
+        if: ${{ !cancelled() }}
+        run: python -m unittest discover -s researcher/tests -t researcher/tests
+      - name: scientist
+        if: ${{ !cancelled() }}
+        run: python -m unittest discover -s scientist/tests -t scientist/tests
+      - name: translation-surfaces domain pack
+        if: ${{ !cancelled() }}
+        run: python -m unittest discover -s domains/translation-surfaces/tests -t domains/translation-surfaces/tests
