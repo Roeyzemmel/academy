@@ -73,7 +73,7 @@ class TestValues(GithubBoardCase):
         project["fields"]["Instance"]["options"].append(
             {"id": "O_Instance_%s" % m["to"], "name": m["to"]})
         gql = FakeGql()
-        self.assertEqual([], ps.sync_issue(gql, project, iss))
+        self.assertEqual(([], True), ps.sync_issue(gql, project, iss))
         (add_q, add_v), (set_q, _v) = gql.calls
         self.assertIn("addProjectV2ItemById", add_q)
         self.assertEqual({"p": "PVT_1", "c": iss["node_id"]}, add_v)
@@ -95,7 +95,7 @@ class TestValues(GithubBoardCase):
         m, iss = self.issues()[0]
         before = list(project["fields"]["Instance"]["options"])
         gql = FakeGql()
-        self.assertEqual([], ps.sync_issue(gql, project, iss))
+        self.assertEqual(([], True), ps.sync_issue(gql, project, iss))
         upd = [(q, v) for q, v in gql.calls if "updateProjectV2Field(" in q]
         self.assertEqual(1, len(upd))
         sent = upd[0][1]["o"]
@@ -108,9 +108,21 @@ class TestValues(GithubBoardCase):
         del project["fields"]["Agenda"]
         _m, iss = self.issues()[0]
         gql = FakeGql()
-        problems = ps.sync_issue(gql, project, iss)
+        problems, _w = ps.sync_issue(gql, project, iss)
         self.assertTrue(any("no field 'Agenda'" in p for p in problems))
         self.assertNotIn('"F_Agenda"', gql.calls[-1][0])
+
+    def test_an_item_already_right_is_left_alone(self):
+        project = project_of(bp.build([m["to"] for m, _i in self.issues()]))
+        _m, iss = self.issues()[0]
+        values, _ = ps.values_for(iss)
+        gql = FakeGql()
+        self.assertEqual(([], False), ps.sync_issue(gql, project, iss, ("PVTI_x", dict(values))))
+        self.assertEqual([], gql.calls)
+        stale = dict(values, Status="Done" if values["Status"] != "Done" else "Todo")
+        self.assertEqual(([], True), ps.sync_issue(gql, project, iss, ("PVTI_x", stale)))
+        self.assertNotIn("addProjectV2ItemById", " ".join(q for q, _v in gql.calls))
+        self.assertIn('itemId:"PVTI_x"', gql.calls[-1][0])
 
     def test_sync_never_writes_the_issue(self):
         project = project_of(bp.build([m["to"] for m, _i in self.issues()]))
@@ -140,13 +152,22 @@ class TestProjectRef(unittest.TestCase):
         with self.assertRaises(LookupError):
             ps.load_project(FakeGql({"user": {"projectV2": None}}), "users/Roeyzemmel/9")
 
-    def test_main_without_configuration_is_a_no_op(self):
-        env = {k: os.environ.pop(k) for k in ("ACADEMY_PROJECT_TOKEN", "ACADEMY_PROJECT")
-               if k in os.environ}
-        try:
-            self.assertEqual(0, ps.main([]))
-        finally:
-            os.environ.update(env)
+    def test_main_without_repo_or_project_is_an_error(self):
+        empty = os.path.join(HERE, "no-such-workspace.json")
+        self.assertEqual(2, ps.main(["--workspace", empty]))
+
+    def test_project_items_reads_values_by_field_name(self):
+        page = {"node": {"items": {"pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": [
+                    {"id": "PVTI_1", "content": {"number": 5, "repository": {
+                        "nameWithOwner": "o/r"}}, "fieldValues": {"nodes": [
+                        {"name": "Todo", "field": {"name": "Status"}},
+                        {"text": "paper:lem:x", "field": {"name": "Agenda"}}, {}]}},
+                    {"id": "PVTI_2", "content": {"number": 5, "repository": {
+                        "nameWithOwner": "o/other"}}, "fieldValues": {"nodes": []}},
+                    {"id": "PVTI_3", "content": None, "fieldValues": {"nodes": []}}]}}}
+        got = ps.project_items(FakeGql(page), {"id": "PVT_1"}, "o/r")
+        self.assertEqual({5: ("PVTI_1", {"Status": "Todo", "Agenda": "paper:lem:x"})}, got)
 
 
 if __name__ == "__main__":

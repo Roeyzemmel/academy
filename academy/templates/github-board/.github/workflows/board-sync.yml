@@ -27,15 +27,3 @@ jobs:
           ACADEMY_HUMAN_LOGINS: ${{ vars.ACADEMY_HUMAN_LOGINS }}
           # the only author whose hidden state comment is trusted
           ACADEMY_STATE_AUTHOR: github-actions[bot]
-      # then the Project (v2): add the issue (new issues join automatically) and set its
-      # fields from the ticket. A user-owned Project needs a classic token with the
-      # `project` scope (secret ACADEMY_PROJECT_TOKEN; GITHUB_TOKEN cannot reach it) and the
-      # Project as users/<login>/<n> (variable ACADEMY_PROJECT); without them it is skipped.
-      # workflow_dispatch syncs every issue (backfill, repair).
-      - if: github.event_name != 'issue_comment'
-        run: python3 .github/academy/scripts/board_project_sync.py
-        env:
-          ACADEMY_PROJECT_TOKEN: ${{ secrets.ACADEMY_PROJECT_TOKEN }}
-          ACADEMY_PROJECT: ${{ vars.ACADEMY_PROJECT }}
-          # reads the issues (the project token may have no repository access)
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

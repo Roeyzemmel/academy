@@ -1,39 +1,39 @@
 """board_project_sync.py -- keep the board's GitHub Project (v2) in step with the issues.
 
-Run by board-sync.yml after ``board_sync.py``: the issue of the event is added to the
-Project (idempotent: ``addProjectV2ItemById`` returns the existing item) and its fields are
-set to ``board_project.fields_for`` of the decoded ticket (Status, Instance, Role, Kind,
-Priority, Agenda, Block; a field with no value is cleared, and a single-select value the
-Project has no option for yet -- a new instance -- is added as an option first). An issue that does not decode as
-a ticket (a stray issue, a placeholder) still joins the Project, with Status from its state
-only. With no issue in the event (``workflow_dispatch``) every issue of the repository is
-synced: that is the backfill and the repair.
+Every ticket issue becomes an item of the Project, with its fields set to
+``board_project.fields_for`` of the decoded ticket (Status, Instance, Role, Kind, Priority,
+Agenda, Block; a field with no value is cleared, and a single-select value the Project has
+no option for yet -- a new instance -- is appended as an option first). An issue that does
+not decode as a ticket still joins, with Status from its state only. Only the Project is
+written; the issue is never touched. Items already right are left alone.
 
-Only the Project is written; the issue is never touched. A user-owned Project cannot be
-reached with the workflow's ``GITHUB_TOKEN`` nor with a fine-grained token, so the step needs
-``ACADEMY_PROJECT_TOKEN`` (a classic token with the ``project`` scope, or an App token) and
-``ACADEMY_PROJECT`` (``users/<login>/<number>``, ``orgs/<login>/<number>`` or the Project's
-URL). Without either it prints why and exits 0, and the board works from labels alone.
+It runs on the human's machine, through ``gh`` logged in with the ``project`` scope
+(``gh auth login -s project``): a user-owned Project cannot be reached by a workflow's
+``GITHUB_TOKEN`` nor by a fine-grained token, and no long-lived token is stored in the repo.
+New issues join the Project through its built-in "Auto-add to project" workflow; this script
+fills their fields when it next runs:
 
-Offline:
+    py board_project_sync.py [--repo OWNER/NAME] [--project users/<login>/<n>] [--issue N]...
+    py board_project_sync.py --decode issue.json     # offline: the values, as JSON
 
-    py board_project_sync.py --issue issue.json
-
-prints the field values as JSON. ``values_for()`` is pure; ``sync_issue()`` takes an
-injected ``gql(query, variables) -> data`` so the tests need no network.
+``--repo`` and ``--project`` default to ``board.repo`` and ``board.project`` in
+workspace.json. Exit 0 when clean, 1 with problems listed, 2 on an error. ``values_for()`` is
+pure; ``sync_issue()`` takes an injected ``gql(query, variables) -> data`` so the tests need
+no network.
 """
 
 import argparse
 import json
 import os
 import re
+import subprocess
 import sys
-import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
 sys.path.insert(0, HERE)
 
+import academy_common as ac  # noqa: E402
 import board_codec as bc  # noqa: E402
 import board_project as bp  # noqa: E402
 
@@ -105,13 +105,17 @@ def _value(gql, field, v):
     return '{singleSelectOptionId:"%s"}' % oid if oid else None
 
 
-def sync_issue(gql, project, issue):
-    """Add ``issue`` to the Project and set its fields. Returns the problems (a field the
-    Project lacks, a non-ticket issue); never edits the issue."""
+def sync_issue(gql, project, issue, current=None):
+    """Add ``issue`` to the Project and set its fields; ``current`` is its item as
+    ``(item id, {field: value})`` when it is already there. Returns ``(problems, written)``:
+    the problems (a field the Project lacks, a non-ticket issue) and whether anything was
+    written (nothing when the item already holds every value). Never edits the issue."""
     values, problem = values_for(issue)
     problems = ["#%s: %s" % (issue["number"], problem)] if problem else []
-    item = gql(ADD_ITEM, {"p": project["id"], "c": issue["node_id"]}
-               )["addProjectV2ItemById"]["item"]["id"]
+    if current and all(current[1].get(k) == v for k, v in values.items()):
+        return problems, False
+    item = current[0] if current else gql(ADD_ITEM, {"p": project["id"], "c": issue["node_id"]}
+                                          )["addProjectV2ItemById"]["item"]["id"]
     parts = []
     for k, (name, v) in enumerate(sorted(values.items())):
         field = project["fields"].get(name)
@@ -131,80 +135,112 @@ def sync_issue(gql, project, issue):
                      % (k, where, value))
     if parts:
         gql("mutation{ %s }" % " ".join(parts), {})
-    return problems
+    return problems, True
 
 
 # ----------------------------------------------------------------------------
-# HTTP (only what the workflow needs)
+# gh (the human's login)
 # ----------------------------------------------------------------------------
 
-def _request(url, token, payload=None):
-    req = urllib.request.Request(url, method="POST" if payload is not None else "GET", data=(
-        json.dumps(payload).encode() if payload is not None else None), headers={
-        "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
-        "Content-Type": "application/json", "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req) as r:
-        return json.loads(r.read() or b"null")
+GH = os.environ.get("GH", "gh")
+
+ITEMS_QUERY = """
+query($p:ID!,$a:String){ node(id:$p){ ... on ProjectV2 { items(first:100,after:$a){
+  pageInfo{ hasNextPage endCursor }
+  nodes{ id content{ ... on Issue{ number repository{ nameWithOwner } } }
+    fieldValues(first:30){ nodes{
+      ... on ProjectV2ItemFieldSingleSelectValue{ name
+        field{ ... on ProjectV2FieldCommon{ name } } }
+      ... on ProjectV2ItemFieldTextValue{ text
+        field{ ... on ProjectV2FieldCommon{ name } } } } } } } } } }"""
 
 
-def make_gql(api, token):
-    def gql(query, variables):
-        out = _request(api + "/graphql", token, {"query": query, "variables": variables})
-        if out.get("errors"):
-            raise RuntimeError("GraphQL: %s" % json.dumps(out["errors"])[:500])
-        return out["data"]
-    return gql
+def _gh(args, stdin=None):
+    p = subprocess.run([GH] + args, input=stdin, capture_output=True, text=True,
+                       encoding="utf-8")
+    if p.returncode:
+        raise RuntimeError("gh %s: %s" % (" ".join(args[:2]), (p.stderr or p.stdout).strip()))
+    return p.stdout
 
 
-def _all_issues(api, repo, token):
-    out, page = [], 1
+def gh_gql(query, variables):
+    out = json.loads(_gh(["api", "graphql", "--input", "-"],
+                         json.dumps({"query": query, "variables": variables})))
+    if out.get("errors"):
+        raise RuntimeError("GraphQL: %s" % json.dumps(out["errors"])[:500])
+    return out["data"]
+
+
+def gh_issues(repo, numbers=None):
+    if numbers:
+        return [json.loads(_gh(["api", "repos/%s/issues/%d" % (repo, n)])) for n in numbers]
+    pages = json.loads(_gh(["api", "--paginate", "--slurp",
+                            "repos/%s/issues?state=all&per_page=100" % repo]))
+    return [i for page in pages for i in page if "pull_request" not in i]
+
+
+def project_items(gql, project, repo):
+    """``{issue number: (item id, {field: value})}`` of the Project's items from ``repo``."""
+    out, after = {}, None
     while True:
-        batch = _request("%s/repos/%s/issues?state=all&per_page=100&page=%d"
-                         % (api, repo, page), token)
-        if not batch:
-            return [i for i in out if "pull_request" not in i]
-        out += batch
-        page += 1
+        page = gql(ITEMS_QUERY, {"p": project["id"], "a": after})["node"]["items"]
+        for n in page["nodes"]:
+            c = n.get("content") or {}
+            if (c.get("repository") or {}).get("nameWithOwner") != repo:
+                continue
+            vals = {}
+            for v in n["fieldValues"]["nodes"]:
+                if v and v.get("field"):
+                    vals[v["field"]["name"]] = v["name"] if "name" in v else v.get("text")
+            out[c["number"]] = (n["id"], vals)
+        if not page["pageInfo"]["hasNextPage"]:
+            return out
+        after = page["pageInfo"]["endCursor"]
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--issue", help="offline: an issue JSON file (prints the field values)")
+    ap.add_argument("--repo", help="OWNER/NAME (default: board.repo in workspace.json)")
+    ap.add_argument("--project", help="users/<login>/<n>, orgs/<login>/<n> or the Project URL "
+                                      "(default: board.project in workspace.json)")
+    ap.add_argument("--issue", type=int, action="append", help="only this issue (repeatable)")
+    ap.add_argument("--workspace", help="workspace.json (default: the one academy_common finds)")
+    ap.add_argument("--decode", help="offline: an issue JSON file (prints the field values)")
     a = ap.parse_args(argv)
-    if a.issue:
-        with open(a.issue, encoding="utf-8") as fh:
+    if a.decode:
+        with open(a.decode, encoding="utf-8") as fh:
             values, problem = values_for(json.load(fh))
         json.dump({"values": values, "problem": problem}, sys.stdout, ensure_ascii=False,
                   indent=1)
         sys.stdout.write("\n")
         return 0
-    token, ref = os.environ.get("ACADEMY_PROJECT_TOKEN"), os.environ.get("ACADEMY_PROJECT")
-    if not token or not ref:
-        print("board_project_sync: ACADEMY_PROJECT_TOKEN or ACADEMY_PROJECT not set; "
-              "the Project is not synced (labels still are)")
-        return 0
-    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-    repo = os.environ["GITHUB_REPOSITORY"]
-    with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as fh:
-        event = json.load(fh)
-    gql = make_gql(api, token)
-    project = load_project(gql, ref)
-    iss = event.get("issue")
-    if iss and "pull_request" in iss:
-        return 0
-    # issues are read with the workflow's token: a project-only token cannot read a private repo
-    rest = os.environ.get("GITHUB_TOKEN") or token
-    if iss:   # fresh: board_sync.py may just have corrected its labels
-        issues = [_request("%s/repos/%s/issues/%d" % (api, repo, iss["number"]), rest)]
-    else:
-        issues = _all_issues(api, repo, rest)
-    problems = []
-    for i in issues:
-        problems += sync_issue(gql, project, i)
-    print("board_project_sync: %d issue(s) synced" % len(issues))
+    cfg = {}
+    if not (a.repo and a.project):
+        try:
+            cfg = ac.load_workspace(a.workspace).get("board_config") or {}
+        except ac.ConfigError:   # no workspace: the flags must say it all
+            cfg = {}
+    repo, ref = a.repo or cfg.get("repo"), a.project or cfg.get("project")
+    if not repo or not ref:
+        sys.stderr.write("board_project_sync: give --repo and --project (or board.repo and "
+                         "board.project in workspace.json)\n")
+        return 2
+    try:
+        project = load_project(gh_gql, ref)
+        items = project_items(gh_gql, project, repo)
+        issues = gh_issues(repo, a.issue)
+        problems, written = [], 0
+        for i in sorted(issues, key=lambda i: i["number"]):
+            p, w = sync_issue(gh_gql, project, i, items.get(i["number"]))
+            problems += p
+            written += w
+    except (RuntimeError, LookupError, ValueError) as e:
+        sys.stderr.write("board_project_sync: %s\n" % e)
+        return 2
+    print("board_project_sync: %d issue(s) checked, %d updated" % (len(issues), written))
     for p in problems:
         print("  " + p)
-    return 0
+    return 1 if problems else 0
 
 
 if __name__ == "__main__":
