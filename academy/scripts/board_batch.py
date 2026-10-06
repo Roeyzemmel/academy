@@ -144,7 +144,7 @@ def main(argv=None):
             try:
                 copy_to = os.path.join(tmp, "board")
                 shutil.copytree(a.board or ws["board"], copy_to,
-                                ignore=shutil.ignore_patterns(".git"))
+                                ignore=shutil.ignore_patterns(".git", ".claude"))
                 ws2 = copy.deepcopy(ws)
                 ws2["board"], ws2["board_config"] = copy_to, {}
                 run(batch, human_context(ws2, ac.FileBoardStore(copy_to)))
