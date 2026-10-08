@@ -144,6 +144,31 @@ class TestSetStatus(Homes):
         self.assertEqual([e for e in errs if "bar" in e], [])
 
 
+class TestModuloWrite(unittest.TestCase):
+    """proved-modulo writes the grounds' inputs as the record's `modulo`; proved drops it."""
+
+    def doc(self, text):
+        import tempfile, pathlib
+        from registry.core.edit import Doc
+        d = pathlib.Path(tempfile.mkdtemp()) / "x.md"
+        d.write_bytes(text.encode())
+        return Doc(d)
+
+    def test_set_list_replaces_and_remove_drops(self):
+        doc = self.doc("---\nid: a\nstatus: sketch\ndepends_on: [b]\nevidence:\n  - x\n---\nbody\n")
+        after = ("id", "kind", "form", "title", "status", "statement")
+        doc.set_list("modulo", ["paper:lem:p", "paper:lem:q"], after=after)
+        self.assertEqual(doc.list_items("modulo"), ["paper:lem:p", "paper:lem:q"])
+        self.assertLess(doc.find("status"), doc.find("modulo"))
+        self.assertLess(doc.find("modulo"), doc.find("depends_on"))
+        doc.set_list("modulo", ["paper:lem:r"], after=after)
+        self.assertEqual(doc.list_items("modulo"), ["paper:lem:r"])
+        doc.remove("modulo")
+        self.assertIsNone(doc.find("modulo"))
+        self.assertEqual(doc.list_items("depends_on"), ["b"])
+        self.assertEqual(doc.list_items("evidence"), ["x"])
+
+
 class TestS1(Homes):
     def test_sql_is_in_memory_and_writes_nothing(self):
         import contextlib
