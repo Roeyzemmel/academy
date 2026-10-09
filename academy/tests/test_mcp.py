@@ -1135,6 +1135,36 @@ class TestRegistryBackend(McpTestBase):
         self.assertTrue(err)
         self.assertIn("does not exist", msg)
 
+    def test_proved_modulo_end_to_end(self):
+        # 2026-10-08: every proved-modulo change was refused ("the edit would leave the
+        # record inconsistent") because the record's `modulo` was never written
+        lab = self.homes["scientist@t"]
+        write(os.path.join(lab, "claims", "lab", "pm.md"),
+              "---\nid: lab:pm\nkind: claim\ntitle: PM\nstatus: sketch\n"
+              "lifecycle: active\nevidence: []\nhistory:\n"
+              "  - 2026-09-28 | sketch | created\n---\nBody.\n")
+        path = os.path.join(lab, "claims", "lab", "pm.md")
+        s = self.server("researcher@t")
+        err, msg = s.call("claims_set_status", id="lab:pm", status="proved-modulo",
+                          grounds={"basis": "human", "quote": "fine modulo Q"})
+        self.assertTrue(err)                       # no inputs: the record check refuses
+        self.assertIn("modulo", msg)
+        err, res = s.call("claims_set_status", id="lab:pm", status="proved-modulo",
+                          grounds={"basis": "human", "quote": "fine modulo Q",
+                                   "modulo": ["lab:ew"]})
+        self.assertFalse(err, res)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: proved-modulo", text)
+        self.assertIn("modulo:\n  - lab:ew", text)
+        err, res = s.call("claims_set_status", id="lab:pm", status="proved",
+                          grounds={"basis": "human", "quote": "Q is in"})
+        self.assertFalse(err, res)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: proved", text)
+        self.assertNotIn("modulo:", text)
+
     def test_s1_set_status(self):
         s = self.server("researcher@t")
         vfile = "computation/verdicts/2026-09-28_GEO-1.md"
