@@ -12,7 +12,7 @@ Three sources, merged 2026-09-28:
   `academy:rigor` (listed in the migration notes, `removed-domain-examples.md`, now archived outside
   the marketplace);
 - **C**, the API traps of the old `flatsurf-computation` skill (and, 2026-10-09, those
-  FlatSurfLab's `docs/api-traps.md` had met, merged here).
+  a lab's API-traps notes had met, merged here).
 
 ## A. Mathematical traps (the four that cost the most)
 

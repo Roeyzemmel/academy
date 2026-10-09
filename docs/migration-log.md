@@ -1015,3 +1015,51 @@ questions in step 5: see the entry below).
    Mode; `test_common.FileTests.test_concurrent_allocation_unique` failed once under full-suite
    load and passed 5/5 alone.
 10. The scratch repos `Roeyzemmel/A` and `Roeyzemmel/B` stay, for rehearsals.
+
+## A generic marketplace; the board in the workspace (2026-10-09)
+
+The board branches were merged into `main` in one plan (streams `ship`, `compute`, `fixes`,
+`roles`, `generic`, `text`). What changed, by theme:
+
+- **The board is folded into the workspace.** `board/` is a plain directory of the
+  workspace repository, no longer a repository of its own. Its files (packets,
+  deep-dives, the pre-migration `T-*.md` snapshot) are committed with the ticket's work by
+  `ship.py checkpoint --only board`, on the ticket's `<date>/<topic>/<role>` branch;
+  `session_start` commits a board only when it is still a repository of its own
+  (`docs/protocol.md` section 2). The old board repository is obsolete.
+- **Workspace tooling moved into the plugin.** `academy/scripts/ship.py` (branch, commit,
+  push, checkpoint, merge, publish; the root from `ACADEMY_WORKSPACE` / `--workspace`) and
+  `academy/scripts/workspace_bootstrap.py` (plugins derived from the instances' domains),
+  with `academy/templates/workspace/` (cloud setup, the permissions template). The
+  workspace keeps one-line shims at `scripts/ship.py` and `scripts/bootstrap.py`, so the
+  allowlist strings keep matching. The branch and ship protocol is `docs/branching.md`.
+- **The marketplace is generic.** New config keys (`docs/config.md`): workspace.json
+  `human.name` / `human.login`, `grading.primaryModels`, `plugins` and the `compute` block
+  (remote workers and the gateways in front of them, replacing the machine defaults in the
+  Scientist); academy.json `registry.prefixes`, `registry.assumptionGroups`, the env
+  profiles' `worker`, `author.provenance`, `paths.verifyChecklist`. Registry rule sets are
+  generic (`paper`, `notebook`, `lab`; `s1` and `s1-kb` stay as aliases of `notebook`).
+  Runtime strings, prompts and docs say "the human" (the name comes from workspace.json),
+  grader prompts name the grading primaries from config, examples use neutral names
+  (`Ada`, `remote-a`, `nb:`), and `academy/tests/test_generic.py` fails on a project name
+  anywhere in the plugin trees outside a short allowlist of history files.
+- **Role cut and the pinned guard.** One table in `academy/references/roster-rules.md`
+  ("Role cut") says what each role writes, never writes and hands off; a cross-role write
+  guard enforces it, and the Author's pinned-statement guard keeps a cleared statement's
+  text from changing without a fresh review.
+- **The Author's aesthetic vision**: a reference, a per-home `vision.md`, an aesthetic pass
+  and a referee check.
+- **`/academy:cowork`**: a focused goal worked with the human; the session orchestrates,
+  files the approved plan's tasks as tickets (as the human), and the human decides.
+  Campaigns reach other roles only by tickets.
+- **Workflow fixes** (`docs/workflow-triage-2026-10-09.md`): per-call instance, `claims_new`
+  across instances, `domain_get`, `library_search`, `land_verdict` (now also keeps the
+  VERDICT block's `gap_class`), `new-pass`, the error ledger, `packets_create`'s refusals.
+- **Migrations archived.** The one-time migration scripts, their goldens and the
+  real-home acceptance tests left the marketplace; they are kept in the workspace's
+  `archive/academy-migrations/`.
+
+**Left for later:** `scientist/scripts/check_experiments.py` still reads the lab's
+registry through the home's `scripts/claims.py`, which the lab no longer has, so E7 (a
+`Claims:` id missing from the registry) is dormant until it reads the academy registry
+engine instead.

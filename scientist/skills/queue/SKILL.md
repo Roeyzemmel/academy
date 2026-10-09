@@ -48,7 +48,7 @@ under PowerShell 5.1. `-Tick` submits pending jobs, reads the remote spool, move
 each local job to the state the spool reports, then fetches and settles finished
 ones. The remote runner starts the next job by itself; ticking only brings results
 home. If `-Tick` says the remote runner differs from the plugin's copy, deploying it
-is Roey's call: it changes the remote host.
+is the human's call: it changes the remote host.
 
 ## Four rules that decide what you do next
 
@@ -57,7 +57,7 @@ is Roey's call: it changes the remote host.
    follow it, then stop. Do not debug ssh, do not try another host, do not fall back
    to running here. The queue waits; that is what it is for.
 2. **A job whose script is uncommitted or not in HEAD is skipped**, and the tick says
-   which. The fix is Roey's commit, not a retry.
+   which. The fix is the human's commit, not a retry.
 3. **The runner holds the cap** (`maxJobs`, default 1, at most 3). Filing many jobs is
    fine. A submit that "returned exit 255" is not a failed start: the lines after it
    show what the remote accepted. Never resubmit or re-add a job to retry it; a job
@@ -70,7 +70,7 @@ is Roey's call: it changes the remote host.
 With pending or running jobs, watch rather than declare victory: `/loop 15m
 /scientist:queue`, or a wake-up matched to the job. Report only transitions (a job
 started or finished, the target came or went). Stop when the queue is empty, when
-Roey says so, or when the answer is "waiting on the gateway" and another check will
+the human says so, or when the answer is "waiting on the gateway" and another check will
 not change it.
 
 ## Settling a finished job

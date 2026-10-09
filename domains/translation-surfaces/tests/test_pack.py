@@ -54,7 +54,8 @@ class PackTest(unittest.TestCase):
         self.assertTrue(text.startswith("---\nname: translation-surfaces\ndescription: "))
 
     def test_no_machine_records_in_computation(self):
-        bad = re.compile(r"lingo|roeyzemmel|/home/roey|\(Q2\)|gapinv|gap_reverify|20260920-123729")
+        # machine and project names are academy/tests/test_generic.py's
+        bad = re.compile(r"/home/|\(Q2\)|gapinv|gap_reverify|20260920-123729")
         api = os.path.join(PACK, "computation", "api")
         for name in sorted(os.listdir(api)):
             with self.subTest(file=name):

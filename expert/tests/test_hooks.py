@@ -102,6 +102,14 @@ class LandVerdictTests(unittest.TestCase):
         self.assertEqual(meta["modulo"], [])
         self.assertIn("Obligation ledger", body)
 
+    def test_the_gap_class_is_kept_in_the_record(self):
+        text = REPORT.replace("verdict: CONFIRMED", "verdict: GAP").replace(
+            "blocking: none", "blocking: step 2\ngap_class: statement")
+        fixtures.run_script("land_verdict.py", stop_event("expert:rigor-reviewer", text))
+        with open(os.path.join(self.pass_dir(), "A.md"), encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertEqual(meta["gap_class"], "statement")
+
     def test_idempotent_by_run(self):
         # 2026-10-08: a second landing of the same run made A-2.md duplicates
         for _ in range(2):

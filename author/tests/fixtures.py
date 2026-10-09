@@ -102,7 +102,7 @@ class Sandbox(object):
                                  "domains": ["dom"], "ns": "s1"},
                 "scientist@t": {"role": "scientist", "home": self.other,
                                 "domains": ["dom"], "ns": "lab"}},
-            "board": self.board, "human": {"name": "Roey", "noteMacro": "\\Roey"}}))
+            "board": self.board, "human": {"name": "Ada", "noteMacro": "\\Ada"}}))
         self.env = dict(os.environ, ACADEMY_WORKSPACE=self.workspace,
                         ACADEMY_CALLER_DIR=os.path.join(self.root, "callers"),
                         PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")

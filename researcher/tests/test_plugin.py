@@ -24,7 +24,7 @@ SHELL_AND_WRITE = {"Bash", "PowerShell", "Write", "Edit", "MultiEdit", "Notebook
 #: words that would mean domain mathematics leaked into the role plugin
 DOMAIN_WORDS = ("translation surface", "origami", "flatsurf", "sage", "veech", "saddle",
                 "billiard", "wollmilchsau", "christoffel", "stratum", "surface_dynamics",
-                "lingo", "slope1", "kb.py")
+                "slope1", "kb.py")   # machine and project names: academy/tests/test_generic.py
 
 
 def frontmatter(path):

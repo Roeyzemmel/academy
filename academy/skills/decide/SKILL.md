@@ -1,6 +1,6 @@
 ---
 name: decide
-description: 'Ask Roey about every pending decision (packet decisions, tickets to or blocked on human) in plain-language batches and record each answer. Use for "what needs my decision", "ask me", "decisions", or when the desk reports decisions waiting.'
+description: 'Ask the human about every pending decision (packet decisions, tickets to or blocked on human) in plain-language batches and record each answer. Use for "what needs my decision", "ask me", "decisions", or when the desk reports decisions waiting.'
 ---
 
 # Decide
@@ -13,7 +13,7 @@ session may call `AskUserQuestion` (`references/budget.md` rule 5).
 
 Subagents cannot call `AskUserQuestion`, which is why this is two pieces: the
 `decisions.py` script collects and records; the read-only `secretary` agent only
-phrases the questions. Neither one asks Roey or records on its own.
+phrases the questions. Neither one asks the human or records on its own.
 
 ## Procedure
 
@@ -29,7 +29,7 @@ phrases the questions. Neither one asks Roey or records on its own.
 3. **Ask, batch by batch.** For each phrased batch, one `AskUserQuestion` call, at
    most four questions (`decisions.py batches` already sized them so), using the
    secretary's `header`/`question`/`options` verbatim. Show any `flag` as part of the
-   question text, not hidden. Roey may answer free text ("other") on any question, or
+   question text, not hidden. The human may answer free text ("other") on any question, or
    decline to answer (skip it — nothing is recorded for a skipped question).
 4. **Record before asking the next batch.** For every answered question in the batch,
    immediately:
@@ -52,11 +52,11 @@ phrases the questions. Neither one asks Roey or records on its own.
    that nothing was started: the ticket or packet's owner picks the result up on its
    own next inbox run, not here (`references/budget.md` rule 3;
    `docs/protocol.md` section 6.3). If a math-editor, claim-keeper or other agent's
-   next run should now proceed, that is a separate step Roey asks for explicitly.
+   next run should now proceed, that is a separate step the human asks for explicitly.
 
 ## Notes
 
-- File as the human (`--as human`) only after Roey confirmed any ticket it files through AskUserQuestion; this is the one sanctioned way to file as Roey from inside a home (docs/protocol.md section 5). This skill files no new tickets itself; it records answers.
+- File as the human (`--as human`) only after they confirmed any ticket it files through AskUserQuestion; besides an approved /academy:cowork plan, this is the only way to file as them from inside a home (docs/protocol.md section 5). This skill files no new tickets itself; it records answers.
 - `decisions.py accept-recommended` (used above only in the mechanical-only shortcut)
   never touches a ticket-sourced decision: a raw ticket carries no recorded
   recommendation, so it is always answered explicitly with `record`.

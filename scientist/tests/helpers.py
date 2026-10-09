@@ -75,7 +75,7 @@ class Sandbox(object):
                                       "ns": researcher_ns},
                 "author@main": {"role": "author", "home": self.other,
                               "domains": ["translation-surfaces"], "ns": "paper"}},
-            "board": self.board, "human": {"name": "Roey"},
+            "board": self.board, "human": {"name": "Ada"},
             "compute": {"workers": {"remote-a": {"transport": "ssh", "host": "remote-a",
                                                  "maxJobs": 1, "gateway": "gw-a",
                                                  "conda": {"env": "sci"}}},

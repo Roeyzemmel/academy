@@ -42,7 +42,7 @@ class PushCase(GithubBoardCase):
 
     def push(self, t, state=None, **kw):
         return bp.push(t, self.m, state if state is not None else {}, self.state_path,
-                       assignee="roey", log=quiet, **kw)
+                       assignee="ada", log=quiet, **kw)
 
     def drift(self, t):
         return bv.verify(self.board, bdump.dump(t))
@@ -55,7 +55,7 @@ class TestPush(PushCase):
         self.assertEqual([], self.drift(t))
         self.assertEqual({2: 1}, t.parents)
         self.assertEqual([(4, 1)], t.dependencies)
-        self.assertEqual(["roey"], t.issues[3]["assignees"])
+        self.assertEqual(["ada"], t.issues[3]["assignees"])
         self.assertEqual("closed", t.issues[2]["state"])
         self.assertEqual("not_planned", t.issues[2]["state_reason"])
 
@@ -181,12 +181,12 @@ class TestGhTransport(unittest.TestCase):
         body = "<!-- academy:meta {\"a\":\"x \\u003e y\"} -->\n\n## Ask\n\n"
         fake = FakeGh([(0, json.dumps({"number": 1, "id": 99}), "")])
         t = gh.GhTransport("me/repo", run=fake)
-        t.create_issue("T-0001: x", body, ["status:open"], assignees=["roey"])
+        t.create_issue("T-0001: x", body, ["status:open"], assignees=["ada"])
         args, payload = fake.calls[0]
         self.assertEqual(["api", "-X", "POST"], args[:3])
         self.assertIn("repos/me/repo/issues", args)
         self.assertEqual(body, payload["body"])
-        self.assertEqual(["roey"], payload["assignees"])
+        self.assertEqual(["ada"], payload["assignees"])
 
     def test_parent_and_dependency_use_issue_ids(self):
         fake = FakeGh([(0, json.dumps({"number": 5, "id": 500}), ""),

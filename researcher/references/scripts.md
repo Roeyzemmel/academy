@@ -15,7 +15,7 @@ message on stderr; a skill reports a non-zero exit as it is and does not retry.
 | `settle.py` | settle | `plan SUBJECT --candidates FILE [--max N] [--json]` · `decide SUBJECT --candidates FILE [--json]` · `record SUBJECT --candidates FILE [--partial]` |
 | `generalize.py` | generalize | `source P-NNNN\|<lab-id> [--json]` · `validate FILE --lab-claim ID` · `create FILE --lab-claim ID [--apply]` · `tickets FILE --lab-claim ID --parent T-NNNN [--to I] [--as I] [--apply]` · `packet-body FILE --lab-claim ID --report P-NNNN --out PATH` |
 | `inbox.py` | inbox | `[--instance I] [--n N] [--all] [--json] [--campaign T]` · `--check T-NNNN` (exit 3: unfinished); a wrapper over the academy's `inbox_core`, routes in `routes.py` |
-| `status_guard.py` | hook, PreToolUse Edit\|Write\|MultiEdit | only claim-keeper or Roey changes a `status:` line in any registry record |
+| `status_guard.py` | hook, PreToolUse Edit\|Write\|MultiEdit | only claim-keeper or the human changes a `status:` line in any registry record |
 | `claims_edit_check.py` | hook, PostToolUse Edit\|Write\|MultiEdit | the registry engine's `check <file>` on an edited record, plus a blocking `build` where the profile asks (s1-kb); silent in a home whose legacy hook is still registered |
 | `land_review.py` | hook, SubagentStop | lands an experiment-reviewer report as `audits/<lab-id>/<date>-<A\|B>.md` |
 

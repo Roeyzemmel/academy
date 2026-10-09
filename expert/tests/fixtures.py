@@ -72,7 +72,7 @@ class Sandbox(object):
                           "domains": ["translation-surfaces"]},
             "author@main": {"role": "author", "home": self.paperhome.replace("\\", "/"),
                           "domains": ["translation-surfaces"], "ns": "paper"}},
-            "board": self.board.replace("\\", "/"), "human": {"name": "Roey"}}
+            "board": self.board.replace("\\", "/"), "human": {"name": "Ada"}}
         with open(self.ws_path, "w", encoding="utf-8") as fh:
             json.dump(ws, fh)
         self.write("papers/index.md", INDEX)

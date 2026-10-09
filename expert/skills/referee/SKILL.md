@@ -1,6 +1,6 @@
 ---
 name: referee
-description: 'Whole-paper referee report for one Author instance: the read-only referee agent reads the built PDF cold, and its report lands as a referee packet for Roey. Use for a referee ticket (from presync), before a coauthor round or submission.'
+description: 'Whole-paper referee report for one Author instance: the read-only referee agent reads the built PDF cold, and its report lands as a referee packet for the human. Use for a referee ticket (from presync), before a coauthor round or submission.'
 ---
 
 # Referee the whole paper
@@ -23,14 +23,14 @@ other failure mode: every proof fine and the document not holding together.
 3. **Dispatch one `referee`** (`subagent_type: expert:referee`), in the background:
 
    > Referee `<instance>` cold. The PDF is `<absolute path>`, built `<date>`. <What
-   > changed since the last report, if there was one, and its date.> <Anything Roey
-   > wants looked at hardest, if he said.> Do not read the agenda or tickets
+   > changed since the last report, if there was one, and its date.> <Anything the human
+   > wants looked at hardest, if they said.> Do not read the agenda or tickets
    > before your cold reading. After it, check the paper against its vision,
    > `<Author home>/Drafts/vision.md` <or: there is none>. Ticket: `<T-NNNN or none>`.
 
    Add nothing else: telling a referee where the weak parts are destroys the pass.
-   Pass no `model` override. Fable and Opus 5.5 are equal primaries; a run on any
-   other model marks itself reduced-strength.
+   Pass no `model` override. Every one of the grading primaries (`grading.primaryModels`)
+   counts equally; a run on any other model marks itself reduced-strength.
 4. **The landing is automatic**: the `land_referee` hook keeps the report at
    `reviews/referee/<instance>/<date>.md` and files a `referee` packet, linked to the
    ticket. Find the packet id in the hook's message or with `packets_list`.

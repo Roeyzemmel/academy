@@ -27,7 +27,7 @@ def at(days_ago):
     return el._stamp(NOW - dt.timedelta(days=days_ago))
 
 
-def err(days_ago, sig, session="s1", instance="author@bi"):
+def err(days_ago, sig, session="s1", instance="author@x"):
     return {"t": "error", "ts": at(days_ago), "session": session, "instance": instance,
             "tool": "Bash", "sig": sig, "msg": sig}
 
@@ -57,9 +57,9 @@ class HookRecordTests(unittest.TestCase):
     def test_record_has_no_tool_input(self):
         ev = {"tool_name": "Bash", "tool_input": {"command": "curl -H 'Bearer supersecrettoken1'"},
               "error": "Exit code 22\ncurl failed", "session_id": "S"}
-        rec = el.hook_record(ev, "author@bi", NOW)
+        rec = el.hook_record(ev, "author@x", NOW)
         self.assertEqual(rec["tool"], "Bash")
-        self.assertEqual(rec["instance"], "author@bi")
+        self.assertEqual(rec["instance"], "author@x")
         self.assertNotIn("supersecrettoken1", json.dumps(rec))
 
     def test_interrupt_and_empty_are_skipped(self):
@@ -76,7 +76,7 @@ class ContextTests(unittest.TestCase):
               "tool_input": {"command": "py scripts/x.py --token=abc123secret\nsecond line"},
               "error": "Exit code 2\nTraceback (most recent call last):\n  File x\n"
                        "ValueError: bad thing"}
-        rec = el.hook_record(ev, "author@bi", NOW)
+        rec = el.hook_record(ev, "author@x", NOW)
         self.assertIn("Traceback", rec["detail"])
         self.assertIn("ValueError: bad thing", rec["detail"])
         self.assertTrue(rec["cmd"].startswith("py scripts/x.py"))
@@ -84,15 +84,15 @@ class ContextTests(unittest.TestCase):
         self.assertNotIn("abc123secret", json.dumps(rec))
 
     def test_file_tools_record_cwd_and_path(self):
-        ev = {"tool_name": "Read", "session_id": "S", "cwd": "/w/BilliardIllumination",
+        ev = {"tool_name": "Read", "session_id": "S", "cwd": "/w/PaperHome",
               "tool_input": {"file_path": "/w/board"},
               "error": "EISDIR: illegal operation on a directory, read"}
-        rec = el.hook_record(ev, "author@bi", NOW)
-        self.assertEqual((rec["cwd"], rec["path"]), ("/w/BilliardIllumination", "/w/board"))
+        rec = el.hook_record(ev, "author@x", NOW)
+        self.assertEqual((rec["cwd"], rec["path"]), ("/w/PaperHome", "/w/board"))
         ev = {"tool_name": "Glob", "cwd": "/w/library",
               "tool_input": {"pattern": "**/*.tex", "path": "/w/library/Mo06.src"},
               "error": "Directory does not exist"}
-        rec = el.hook_record(ev, "expert@ts", NOW)
+        rec = el.hook_record(ev, "expert@x", NOW)
         self.assertEqual(rec["path"], "/w/library/Mo06.src")
         self.assertEqual(rec["pattern"], "**/*.tex")
 

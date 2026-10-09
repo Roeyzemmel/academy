@@ -61,4 +61,4 @@ Where an answer can live, checked in this order:
 with its text, the answer that justified deleting it, and where that answer now lives
 (ticket id);
 each narrowed note before and after; every note left open with what it waits for and
-who owes it (an instance, a ticket, Roey); the build result. Never ask a question.
+who owes it (an instance, a ticket, the human); the build result. Never ask a question.

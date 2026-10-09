@@ -9,7 +9,7 @@ for every Author home; the home's own `.claude/rules/` add only what is particul
 Scientist for this paper are the instances of those roles that share one of the home's
 `domains` (`.claude/academy.json`), listed in the workspace map (`workspace.json`,
 MCP `workspace_get`); their homes are in the same map, and in the environment as
-`$ACADEMY_HOME_<ROLE>_<NAME>` (for example `ACADEMY_HOME_SCIENTIST_TS` for `scientist@ts`). Where several share the domain, `agenda.py gaps --file`
+`$ACADEMY_HOME_<ROLE>_<NAME>` (for example `ACADEMY_HOME_SCIENTIST_X` for `scientist@x`). Where several share the domain, `agenda.py gaps --file`
 takes the first by name and says so; file by hand (`board.py new`) to choose. The ticket
 kinds and receivers are the routing tables in `../skills/inbox/references/routing.md`
 (generated from `scripts/routes.py`); the role cut is

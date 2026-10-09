@@ -20,7 +20,7 @@ def setUpModule():
     path = os.path.join(_WS["dir"].name, "workspace.json")
     with open(path, "w", encoding="utf-8") as fh:
         json.dump({"board": os.path.join(_WS["dir"].name, "board"),
-                   "instances": {"author@bi": {"role": "author", "ns": "paper",
+                   "instances": {"author@x": {"role": "author", "ns": "paper",
                                                "home": os.path.join(_WS["dir"].name, "bi"),
                                                "domains": ["translation-surfaces"]}}}, fh)
     _WS["old"] = os.environ.get("ACADEMY_WORKSPACE")
@@ -193,7 +193,7 @@ class TableTests(unittest.TestCase):
             with self.subTest(model=m):
                 self.assertFalse(dt.should_launch_b(rec("CONFIRMED", model=m)))
 
-    # --- Opus 5.5 is an equal primary (Roey 2026-09-24, reconfirmed 2026-09-28) ------
+    # --- Opus 5.5 is an equal primary (the default grading.primaryModels) ----------
 
     def test_opus_55_confirmed_counts(self):
         for m in ("claude-opus-5-5", "claude-opus-5-5[1m]", "Opus 5.5", "opus-5.5"):

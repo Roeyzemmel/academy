@@ -187,7 +187,7 @@ class DispatchLoop(unittest.TestCase):
 
 
 class CampaignReachesOtherRolesOnlyByTickets(unittest.TestCase):
-    """Roey: campaign tooling acts on other roles only by issuing tickets and waiting for
+    """The rule: campaign tooling acts on other roles only by issuing tickets and waiting for
     the next actor. The campaign skill and its dispatch reference never name another
     role's agent, and never tell the driver to dispatch one."""
 

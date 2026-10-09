@@ -23,7 +23,7 @@ The status column is generated; never edit it by hand.
 ## check
 
 `py $S/agenda.py check`: unknown labels, bad statuses, dependency cycles. Relay the problems; fix the agenda file
-only for mechanical ones (a renamed label), and ask Roey about the rest.
+only for mechanical ones (a renamed label), and ask the human about the rest.
 
 ## gaps: file the missing work
 
@@ -34,12 +34,12 @@ field), with a proposed kind of ticket:
 - `verify`: an argument exists (`sketch`); the paper needs two agreeing verdicts. Held
   (`waits_for`) while the entry's own inputs are below their required status.
 - `lead`: no argument yet; a proof must come from the Researcher, asked through the Expert (`final_to: researcher`).
-- `hold`: only Roey can close it, so `--file` reports it and files nothing: the claim is
+- `hold`: only the human can close it, so `--file` reports it and files nothing: the claim is
   `refuted` (nobody verifies or proves it: change what the entry requires, repair the
   statement, or drop it), or it has no registry record (`missing`: create it with
   `claims_new` at an unsettled status; claim records are not the math-editor's).
 
-Show the list and ask Roey with `AskUserQuestion` which to file (all / a subset /
+Show the list and ask the human with `AskUserQuestion` which to file (all / a subset /
 none, and whether any entry's `required` should be lowered instead). For each one to
 file: `py $S/agenda.py gaps --file` files every proposed ticket (add `--dry-run` to see
 them first, `--campaign TARGET` to tag them for a campaign; to file a subset, file those by hand with `board.py new --agenda
@@ -54,7 +54,7 @@ this paper's own taste is `Drafts/vision.md`). One section per run: the one name
 the first section holding an entry of the next milestone. Launch one `math-editor` in
 **vision mode** with the section file, `Drafts/vision.md` and the pinned list
 (`py $S/pinned.py`); it returns at most five proposals, each with its owner. Show them
-and ask Roey with `AskUserQuestion` which to file (all / a subset / none).
+and ask the human with `AskUserQuestion` which to file (all / a subset / none).
 
 Filing, as the role cut says (`${CLAUDE_PLUGIN_ROOT}/../academy/references/roster-rules.md`,
 "Role cut"): an `author` proposal is a `write` or `apply` ticket to this Author; a
@@ -75,8 +75,8 @@ many of its entries reach their target. To add one, edit the `## Milestones` sec
 
 ## edit
 
-Order, `required`, `depends_on` and `owner` are Roey's decisions: make an edit only
-when he states it, with the Edit tool on the agenda file, then run `check`. The default
+Order, `required`, `depends_on` and `owner` are the human's decisions: make an edit only
+when they state it, with the Edit tool on the agenda file, then run `check`. The default
 order is paper order; moving an entry up moves every ticket that unblocks it up in
 `/author:inbox`.
 

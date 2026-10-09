@@ -135,11 +135,11 @@ class TestValues(GithubBoardCase):
 
 class TestProjectRef(unittest.TestCase):
     def test_forms(self):
-        self.assertEqual(("user", "Roeyzemmel", 2), ps.parse_project("users/Roeyzemmel/2"))
+        self.assertEqual(("user", "ada", 2), ps.parse_project("users/ada/2"))
         self.assertEqual(("organization", "acme", 5), ps.parse_project("orgs/acme/5"))
-        self.assertEqual(("user", "Roeyzemmel", 2),
-                         ps.parse_project("https://github.com/users/Roeyzemmel/projects/2"))
-        for bad in ("", "Roeyzemmel/2", "users/x/projects"):
+        self.assertEqual(("user", "ada", 2),
+                         ps.parse_project("https://github.com/users/ada/projects/2"))
+        for bad in ("", "ada/2", "users/x/projects"):
             with self.assertRaises(ValueError):
                 ps.parse_project(bad)
 
@@ -147,10 +147,10 @@ class TestProjectRef(unittest.TestCase):
         live = project_of(bp.build())
         data = {"user": {"projectV2": {"id": "PVT_1",
                                        "fields": {"nodes": list(live["fields"].values()) + [{}]}}}}
-        got = ps.load_project(FakeGql(data), "users/Roeyzemmel/2")
+        got = ps.load_project(FakeGql(data), "users/ada/2")
         self.assertEqual(live, got)
         with self.assertRaises(LookupError):
-            ps.load_project(FakeGql({"user": {"projectV2": None}}), "users/Roeyzemmel/9")
+            ps.load_project(FakeGql({"user": {"projectV2": None}}), "users/ada/9")
 
     def test_main_without_repo_or_project_is_an_error(self):
         # independent of the machine: ACADEMY_WORKSPACE may name a real, configured workspace

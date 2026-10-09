@@ -8,7 +8,7 @@ Usage:
 SUBJECT is one of
 
     <ns>:<id>              a registry object (claim, definition, direction, ...),
-                           e.g. paper:lem:strip-bound, lab:ew-check, s1:BOUND-2
+                           e.g. paper:lem:strip-bound, lab:ew-check, nb:BOUND-2
     bib:<key>[#pinpoint]   a cited paper (a bare key found in the library works too)
     <path>.json            a lab result, relative to the Scientist home or absolute
                            (also file:<instance>/<path>)

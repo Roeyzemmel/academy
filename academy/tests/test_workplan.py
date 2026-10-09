@@ -112,7 +112,7 @@ class TagAndCapsTests(unittest.TestCase):
     def test_caps(self):
         with self.assertRaises(wp.WorkplanError):
             wp.caps("campaign", agents=4)                       # rounds required
-        c = wp.caps("campaign", 3, 4, 2, "lingo", cloud=True)
+        c = wp.caps("campaign", 3, 4, 2, "remote-a", cloud=True)
         self.assertEqual((0, True), (c["runs"], c["runs_forced_to_zero"]))
         c = wp.caps("cowork")
         self.assertEqual((1, ["agents"]), (c["agents"], c["binding"]))

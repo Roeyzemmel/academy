@@ -234,7 +234,7 @@ class TestForeignRefsPreferTheWorktree(Homes):
 
     def test_repo_path_ref_resolves_in_the_sibling_worktree_first(self):
         write(self.s1 / "audits" / "E1" / "v.md", VERDICT)
-        p = fsl.resolve_ref("Slope1illuminationResearch:audits/E1/v.md", self.lab)
+        p = fsl.resolve_ref("NotebookHome:audits/E1/v.md", self.lab)
         self.assertEqual(p, self.s1 / "audits" / "E1" / "v.md")
         self.assertTrue(p.exists())
 

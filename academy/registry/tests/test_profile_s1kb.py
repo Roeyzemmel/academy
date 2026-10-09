@@ -1,5 +1,5 @@
 """The ``s1-kb`` profile (a notebook registry: aliases, assumptions, views, mutations).
-Moved from Slope1illuminationResearch's ``tools/test_kb.py`` on 2026-10-09; the fixture
+Moved from a notebook home's ``tools/test_kb.py`` on 2026-10-09; the fixture
 is self-contained."""
 from __future__ import annotations
 

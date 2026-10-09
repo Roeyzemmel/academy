@@ -4,7 +4,7 @@ The one part of the Scientist's inbox that is not shared (``inbox.py`` wraps the
 academy's ``inbox_core``). ``route(meta)`` gives ``{how, target, why}``. The routed
 agent runs on its agent file's model; a ticket's ``budget.max_model``, if present, is
 an advisory note and never blocks a route, so no row is ``over_budget`` on the model
-(T-0071; academy references/budget.md rules 6 and 7):
+(academy references/budget.md rules 6 and 7):
 
 ==================  ============================================================
 kind                route

@@ -1,4 +1,4 @@
-# The academy, for Roey
+# The academy, for its human
 
 One front desk, four kinds of worker, one board between them. Nothing runs on its
 own: every run starts from something you type.
@@ -42,23 +42,23 @@ to its ticket's thread. From a shell, the same is:
 
 ## Deep-dives
 
-`/academy:deep-dive <subject>` takes `s1:BOUND-2`, `paper:lem:...`, `lab:<name>`,
+`/academy:deep-dive <subject>` takes `nb:BOUND-2`, `paper:lem:...`, `lab:<name>`,
 `bib:MS91` (or `MS91`), `concept:<term>` or a direction id. A script gathers the input
 (`gather_deep_dive.py`), the read-only explainer writes the prose, and
 `render_packets.py --deep-dive` renders it. The renderer refuses a page on which any
 statement lacks a status. A copy stays at `$ACADEMY_BOARD/deep-dives/`, and a
 re-run updates the same page. Known gap (2026-09-28): a claim whose dependencies include
-a Slope1 definition object is refused, because definitions carry no status; see
+a notebook's definition object is refused, because definitions carry no status; see
 `board/human/SUMMARY.md`.
 
 ## Each role's entry skills
 
 | Role (instance, home) | Start with | Also |
 |---|---|---|
-| Author (`author@<name>`) | `/author:status`, `/author:inbox` (at most 3 tickets, chosen by script from the board, ordered by `Drafts/agenda.md`; the board is the Author's only queue) | `/author:notes` (files your `\Roey` notes), `/author:agenda`, `/author:sweep`, `/author:audit-notation`, `/author:presync` |
+| Author (`author@<name>`) | `/author:status`, `/author:inbox` (at most 3 tickets, chosen by script from the board, ordered by `Drafts/agenda.md`; the board is the Author's only queue) | `/author:notes` (files your margin notes, `human.noteMacro`), `/author:agenda`, `/author:sweep`, `/author:audit-notation`, `/author:presync` |
 | Researcher (`researcher@<name>`) | `/researcher:status`, `/researcher:inbox` | `/researcher:explore <DIR-n>`, `/researcher:prove <id>`, `/researcher:corollaries`, `/researcher:generalize`, `/researcher:review-experiment`, `/researcher:settle`, `/researcher:claims` |
 | Expert (`expert@<name>`) | `/expert:lookup <question>` (the clerk, answered inline), `/expert:inbox` | `/expert:cite`, `/expert:verify <id>`, `/expert:referee`, `/expert:litwatch`, `/expert:library-index`, `/expert:domain`, `/expert:status` |
-| Scientist (`scientist@<name>`) | `/scientist:status`, `/scientist:inbox` | `/scientist:experiment`, `/scientist:queue`, `/scientist:env check lingo`, `/scientist:api-check`, `/scientist:examples-audit` |
+| Scientist (`scientist@<name>`) | `/scientist:status`, `/scientist:inbox` | `/scientist:experiment`, `/scientist:queue`, `/scientist:env check <profile>`, `/scientist:api-check`, `/scientist:examples-audit` |
 | All roles | `/academy:desk`, `/academy:review` | `/academy:board`, `/academy:status`, `/academy:usage`, `/academy:deep-dive`, `/academy:init` |
 
 Only a status keeper changes a status: the Researcher's `claim-keeper`, or you. Without

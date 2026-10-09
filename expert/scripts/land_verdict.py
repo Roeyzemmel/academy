@@ -47,12 +47,13 @@ import decision_table as dt  # noqa: E402
 import reviews  # noqa: E402
 
 AGENT = "rigor-reviewer"
+#: ``gap_class`` (the blocking finding's class) is read back by decision_table.py
 RECORD_KEYS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
-               "statement_hash", "blocking", "ticket", "agent", "landed")
+               "statement_hash", "blocking", "gap_class", "ticket", "agent", "landed")
 
 ASK = ("Close your report with the VERDICT block, exactly in the shape your "
        "instructions give (VERDICT, then subject, pass, run, verdict, modulo, model, "
-       "statement_hash, blocking, ticket), as the last thing in your final message. "
+       "statement_hash, blocking, gap_class, ticket), as the last thing in your final message. "
        "The hook that lands your verdict reads only that block.")
 
 
@@ -153,6 +154,7 @@ def land(event, text, home, now=None, report=None):
         "model": block.get("model") or None,
         "statement_hash": block.get("statement_hash") or None,
         "blocking": rec["blocking"] or None,
+        "gap_class": rec.get("gap_class") or None,
         "ticket": block.get("ticket") or None,
         "agent": ("%s:%s" % (ns, name)) if ns else name,
         "landed": now.strftime("%Y-%m-%d"),

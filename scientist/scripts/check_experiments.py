@@ -26,8 +26,8 @@ The rules exist because each of them has already gone wrong here:
       reporting "no counterexample below bound B over class C"
   E5  the script never calls env.save_result
   E6  the script never calls env.banner, so its output carries no provenance
-  E7  a `Claims:` id is not in the claim registry (docs/claims.md); `paper:` and
-      `s1:` ids are not checked until the registry moves
+  E7  a `Claims:` id is not in the claim registry (docs/claims.md); an id in a
+      namespace with another rule set (a paper's, a notebook's) is not checked here
   E8  no `Kind:` (search / measure / verify) on a script dated from CUTOVER on, or
       an unknown kind
   E9  a search whose constraint has no [reason] tag, whose Properties name no
@@ -97,7 +97,6 @@ KIND_FIELDS = {
 LEGACY_FIELDS = ("Claim tested", "Refuted by", "Validation", "Search class")
 FIELDS = tuple(dict.fromkeys(
     ("Kind", "Claims") + LEGACY_FIELDS + sum(KIND_FIELDS.values(), ()) + ("Needs Sage", "Result")))
-UNCHECKED_NS = ("paper", "s1")   # other registries, validated once the registry moves
 # Scripts dated before this predate the kinds and the claim registry.
 CUTOVER = "2026-09-25"
 CONSTRAINT_TAG_RE = re.compile(r"\[(feasibility|setting|excludes\b[^\]]*)\]", re.IGNORECASE)
@@ -190,6 +189,37 @@ def calls(text):
             elif isinstance(f, ast.Name):
                 names.add(f.id)
     return names
+
+
+def _rule_set_of(ns):
+    """The rule set (``lab``, ``paper``, ``notebook``) of namespace ``ns``: its instance's
+    ``registry.profile`` in workspace.json, else the namespace's own name read as a rule
+    set (``paper``; ``s1`` is an alias of ``notebook``), else ``lab``."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import _academy as ac
+    except ImportError:  # the checker must not fail over its own tooling
+        return "lab"
+    try:
+        ws = ac.load_workspace()
+    except Exception:
+        ws = {}
+    for inst in (ws.get("instances") or {}).values():
+        if isinstance(inst, dict) and inst.get("ns") == ns and inst.get("home"):
+            try:
+                prof = ac.load_config(inst["home"]).get("registry", {}).get("profile")
+            except Exception:
+                break
+            return ac.registry_rule_set(prof) or "lab"
+    return ac.registry_rule_set(ns) or "lab"
+
+
+def unchecked_namespace(ns, _cache={}):
+    """True when ``ns`` is another kind of registry (rule set ``paper`` or ``notebook``),
+    whose ids this checker does not validate."""
+    if ns not in _cache:
+        _cache[ns] = _rule_set_of(ns) in ("paper", "notebook")
+    return _cache[ns]
 
 
 def registry_ids():
@@ -315,12 +345,13 @@ def check_script(path, report, results_index, known_ids=None):
         for cid in (t.strip() for t in value.split(",")):
             if not cid or PLACEHOLDER_RE.search(cid):
                 continue
-            if cid.split(":", 1)[0] in UNCHECKED_NS:
+            if ":" in cid and unchecked_namespace(cid.split(":", 1)[0]):
                 continue
             if cid not in known_ids:
                 report.error(path, line, "E7",
                              "claim %r is not in the registry; create it with "
-                             "`py scripts\\claims.py new %s --title ...`" % (cid, cid))
+                             "`registry.py new %s --title ...` (academy/scripts/registry.py)"
+                             % (cid, cid))
 
     if kind == "search":
         check_search(path, header, report)

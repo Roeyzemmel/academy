@@ -53,7 +53,7 @@ The runner is `py "${CLAUDE_PLUGIN_ROOT}/scripts/env.py" [--home <lab>] <command
 - `setup <profile>`: `env.py setup <profile>` installs the conda environment the
   profile names (`setup_env.sh`, with the packages of the home's domain packs,
   `domains/<pack>/computation/env.txt`; `--dry-run` prints the commands). On an `ssh` profile
-  this changes a remote machine: show Roey the commands and run them only on his
+  this changes a remote machine: show the human the commands and run them only on their
   word (`AskUserQuestion`).
 - `switch <work> <profile>` and `add <name> <kind> ...`: edit
   `scientist.envs` / `scientist.policy` in `.claude/academy.json` (a remote machine
@@ -69,7 +69,7 @@ The runner is `py "${CLAUDE_PLUGIN_ROOT}/scripts/env.py" [--home <lab>] <command
 are thin frontends to it, `run.sh` is the Linux side of `wsl` / `local` runs,
 `workers.py` resolves workers and checks gateways, and `vpn.ps1` is the Windows
 GlobalProtect check one kind of gateway uses. A switched-over lab keeps one-line shims at the old paths.
-`fsq.sh` is deployed from the plugin's copy; deploying is Roey's call. The
+`fsq.sh` is deployed from the plugin's copy; deploying is the human's call. The
 byte-exact originals stay in `${CLAUDE_PLUGIN_ROOT}/scripts/legacy/` until the old
 plugins are retired.
 

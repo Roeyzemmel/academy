@@ -111,7 +111,7 @@ class TestSetStatus(Homes):
                        {"basis": "human", "quote": "stop: out of scope"}, human=True)
         c = fsl.parse_text(self.p.read_text(encoding="utf-8"), fallback=False)
         self.assertEqual(c.status, "dropped")
-        self.assertIn('Roey\'s word "stop: out of scope"', c.history[0])
+        self.assertIn('Ada\'s word "stop: out of scope"', c.history[0])
 
     def test_human_quote_from_an_agent_names_its_ticket(self):
         before = self.p.read_bytes()

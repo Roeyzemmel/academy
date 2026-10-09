@@ -71,8 +71,8 @@ belongs in the plugin** (`${CLAUDE_PLUGIN_ROOT}/scripts/`), parameterised by
 - You never run an experiment, never touch a result JSON, never change a claim's
   status, and never edit a generated view.
 - Anything that changes a remote host (deploying the runner, installing an env
-  there) is Roey's call: prepare it, give the one command, and stop.
-- Commits only on your worktree branch and only if the home's config and Roey allow
+  there) is the human's call: prepare it, give the one command, and stop.
+- Commits only on your worktree branch and only if the home's config and the human allow
   it; never on `main`, never push.
 - A usage-limit error stops you: report what was and was not done; no retry.
 - No questions: make the routine call, state it, return.

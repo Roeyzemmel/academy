@@ -45,7 +45,7 @@ returns, the `land_verdict` hook has written `<pass dir>/A.md`. Then
 
     py $E/decision_table.py "<pass dir>/A.md" --json
 
-- `launch_b: true` (A CONFIRMED on a primary, Fable or Opus 5.5): re-hash the
+- `launch_b: true` (A CONFIRMED on one of the grading primaries (`grading.primaryModels`)): re-hash the
   statement; if the hash changed, stop — the statement moved under the review; record
   that and conclude nothing. Otherwise launch run B with the identical brief and `run: B`, telling it
   nothing of A.
@@ -57,11 +57,11 @@ run was lost in the ticket thread, stop (`budget.md` rule 4). Any other stall or
 empty result: relaunch once from the same brief; the record says the kept run is the
 relaunch. A second failure: conclude on what you have — the protocol needs two.
 
-**A fallback.** Pass no `model` override while Fable is available. If it is genuinely
-unavailable, relaunch with `model: opus`, name the substitution in the ticket thread
-and the record. Opus 5.5 is an equal primary (roster-rules.md), so that run counts in
-full; a run on any other model (Sonnet, Haiku, an older Opus) the table reads as
-PLAUSIBLE, so nothing is proposed on it.
+**A fallback.** Pass no `model` override while the agent's own model is available. If
+it is genuinely unavailable, relaunch with the agent's frontmatter `fallback`, and name
+the substitution in the ticket thread and the record. A run on any of the grading
+primaries (`grading.primaryModels`, roster-rules.md) counts in full; a run on any other
+model the table reads as PLAUSIBLE, so nothing is proposed on it.
 
 ## 2. The table, input by input
 
@@ -132,8 +132,8 @@ LF, Markdown, written by you:
    `### Dk. question`, 2-4 `- (a) option` lines and a `- Recommendation:` line;
    docs/packet-template.md section 3).
    `## Established vs assumed` names every input with its status; `## Evidence` the
-   two records, run ids and the statement hash; `## Decisions needed` asks Roey only
-   what the table leaves to him (a DISPROVED counterexample; a disagreement's next
+   two records, run ids and the statement hash; `## Decisions needed` asks the human only
+   what the table leaves to them (a DISPROVED counterexample; a disagreement's next
    step; a modulo input nobody owns) — otherwise `None.`.
 5. **The ticket**: `result` one line (e.g. `CONFIRMED x2; proved proposed; recolour
    earned`), `packets` set, then `in-progress -> delivered`.

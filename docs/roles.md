@@ -4,7 +4,7 @@ Plan section 3. The roster that the code enforces is `academy/permissions.json`
 (`roster`, `groups`, `tools`); this page explains it. Each role plugin's `README.md`
 lists its agents with their jobs, its skills, scripts and hooks; each agent's model,
 effort and fallback are in its file's frontmatter, and the fallback rule (with the
-graders' two equal primaries, Fable and Opus 5.5) is
+graders' equal primaries, `grading.primaryModels`) is
 `academy/references/roster-rules.md`, "Model fallback".
 
 **The role cut.** What each role writes, never writes and hands off to whom is one
@@ -27,7 +27,7 @@ for the home they run in. It has no README; its agents are:
 
 | Agent | Job |
 |---|---|
-| `concierge` | Behind `/academy:desk`: routes Roey's requests |
+| `concierge` | Behind `/academy:desk`: routes the human's requests |
 | `explainer` | Behind `/academy:deep-dive`: read-only, grades nothing |
 | `usage-analyst` | The weekly usage packet, with the week's accumulated tool errors (`error_ledger.py`) and their weekly settle |
 | `secretary` | Behind `/academy:decide`: phrases pending-decision batches in plain language; read-only, records nothing |

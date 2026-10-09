@@ -14,8 +14,8 @@ a pass closed without one. ``new-pass`` notes the pass it opens as
 ``<subject dir>/.open/<pass>`` (outside the pass folder, which stays empty while a run
 is in flight), and refuses a second pass on the same statement while one is open -- a
 pass folder or note with neither ``decision.md`` nor ``abandoned.md`` -- since two
-concurrent passes on one statement are forbidden (Roey, 2026-10-08). ``<id-slug>`` is the
-id with every character outside ``[A-Za-z0-9._-]`` turned into ``-``
+concurrent passes on one statement are forbidden (verify/references/conclude.md).
+``<id-slug>`` is the id with every character outside ``[A-Za-z0-9._-]`` turned into ``-``
 (``paper:lem:strip-bound`` -> ``paper/lem-strip-bound``).
 """
 

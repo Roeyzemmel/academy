@@ -85,7 +85,7 @@ class Workspace(unittest.TestCase):
             "scientist@t": {"role": "scientist", "home": self.L,
                             "domains": ["test-domain"], "ns": "lab"},
             "expert@t": {"role": "expert", "home": self.E, "domains": ["test-domain"]}},
-            "board": self.B, "human": {"name": "Roey"}}
+            "board": self.B, "human": {"name": "Ada"}}
         with open(self.ws_path, "w", encoding="utf-8") as fh:
             json.dump(ws, fh)
         write(os.path.join(self.R, ".claude", "academy.json"),

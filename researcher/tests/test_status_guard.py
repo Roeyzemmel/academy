@@ -109,7 +109,7 @@ class StatusGuardTests(Workspace):
         self.assertEqual(self.d(ev), "deny")
 
     def test_legacy_status_keeper_passes_only_before_switch_over(self):
-        # Slope1's own status-keeper keeps working until phase 6 retires it
+        # A notebook's own status-keeper keeps working until phase 6 retires it
         old = write(os.path.join(self.O, "claims", "Q-2.md"),
                     record("Not settled", "Q-2"))
         ev = edit(old, "status: Not settled", "status: Proved", "status-keeper")

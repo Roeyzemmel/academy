@@ -37,7 +37,7 @@ them valid.
     }
   },
   "board": "C:/absolute/path/of/the/board",
-  "human": {"name": "Roey", "noteMacro": "\\Roey"},
+  "human": {"name": "Ada", "noteMacro": "\\ada"},
   "compute": {
     "workers": {"<worker>": {"transport": "ssh", "host": "...", "gateway": "<gateway>", "...": "..."}},
     "gateways": {"<gateway>": {"kind": "vpn", "check": "...", "...": "..."}}
@@ -51,8 +51,8 @@ them valid.
 | `instances.*.role` | enum | yes | Equals the name's prefix |
 | `instances.*.home` | abs path | yes | Contains `.claude/academy.json` once the instance is switched over |
 | `instances.*.domains` | non-empty list | yes | Pack names under `domains/`; used for routing |
-| `instances.*.ns` | str | iff the instance has a registry | Claim-id prefix (`paper`, `s1`, `lab`) |
-| `board` | abs path | yes | The board repo (protocol.md section 2) |
+| `instances.*.ns` | str | iff the instance has a registry | Claim-id prefix (`paper`, `nb`, `lab`) |
+| `board` | abs path | yes | The board directory, normally the workspace's `board/` (protocol.md section 2) |
 | `human` | map | no | `name` for display (default `human`; prompts and scripts say "the human" then), `noteMacro` for the human's margin-note macro, `login` the human's GitHub login (default: `board.assignee`; the GitHub board's ticket form and `board-migrate` use it) |
 | `compute` | map | no | The workspace's remote workers and the gateways in front of them (below) |
 | `grading` | map | no | `primaryModels`: the grading primaries, equal in authority (default `["fable", "opus-5.5"]`). A positive verdict on any other model is capped (`roster-rules.md`, "Graders degrade"); read by the Expert's `decision_table.py` and `land_referee.py` and the Researcher's experiment reviews |
@@ -69,7 +69,7 @@ as environment variables, so no code or document needs a literal path:
 |---|---|
 | `ACADEMY_ROOT` | the academy repo (plugins, scripts) |
 | `ACADEMY_WORKSPACE` | the `workspace.json` above |
-| `ACADEMY_BOARD` | the board repo (overrides `board`) |
+| `ACADEMY_BOARD` | the board directory (overrides `board`) |
 | `ACADEMY_HOME_<ROLE>_<NAME>` | the home of instance `<role>@<name>` (overrides its `home`) |
 | `ACADEMY_LIBRARY` | the home of the first Expert instance |
 | `ACADEMY_ENV_WORKSPACE` | the file the variables were derived from; the overrides apply to that file only |
@@ -188,8 +188,8 @@ Expert's library, `<library>/reviews/s1/<claim>/`, and s1 records cite them as
 `claims_set_status`, `grounds.verdict_file`) accepts such a ref, or a path into the
 library's `reviews/`, as the verdict anchor; the instance's home comes from
 workspace.json (`registry/core/workspace.instance_home`, a worktree sibling first).
-`check` reports a review ref whose file is missing. The old copies in Slope1's
-`computation/verdicts/` stay until phase 8.
+`check` reports a review ref whose file is missing. The old copies in the notebook's
+`computation/verdicts/` were deleted in phase 8.
 
 **`budget`:**
 
@@ -305,9 +305,8 @@ profile.
 
 ## 4. Examples (the four homes)
 
-These are the target configs after each home's switch-over. Paths that do not exist
-yet are created by that phase. A `legacy` entry names the old command kept alive by
-a shim until phase 8.
+One config per role, for a workspace whose human is "Ada", with a paper (`paper`), a
+notebook (`nb`) and a lab (`lab`). The tests read these blocks, so they stay valid.
 
 ### Example: author@main
 
@@ -330,8 +329,7 @@ a shim until phase 8.
               "claims/index.html"]
   },
   "registry": {"profile": "paper", "root": "claims", "db": ".claude/academy.sqlite",
-               "statusKeeper": "claim-keeper",
-               "legacy": {"claims": "py ../<lab>/scripts/claims.py --repo ."}},
+               "statusKeeper": "claim-keeper"},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
              "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": true,
@@ -351,8 +349,8 @@ a shim until phase 8.
     "envs": {"sketch": "sketch", "conjectural": "conjectural", "meta": "meta"},
     "colourCommands": {"\\Sketch": "sketch", "\\Conjectural": "conjectural", "\\Meta": "meta"},
     "colours": {"established": "black", "sketch": "blue", "conjectural": "red", "meta": "brown"},
-    "noteMacros": {"human": ["\\Roey", "\\rz"],
-                   "coauthors": ["\\Barak", "\\Carlos", "\\Victoria", "\\Hayim", "\\bw"],
+    "noteMacros": {"human": ["\\ada"],
+                   "coauthors": ["\\Bo", "\\Cy"],
                    "machine": ["\\Claude", "\\cl"]},
     "crlf": ["sections/*.tex", "tikz/*.tex"],
     "writers": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper"],
@@ -369,7 +367,7 @@ a shim until phase 8.
   "role": "researcher",
   "instance": "researcher@alpha",
   "domains": ["translation-surfaces"],
-  "ns": "s1",
+  "ns": "nb",
   "paths": {
     "objects": "objects",
     "proofs": "proofs",
@@ -381,8 +379,7 @@ a shim until phase 8.
               "kb/claims.json", "computation/verdicts.md", "computation/runs.md"]
   },
   "registry": {"profile": "notebook", "root": "objects", "db": ".claude/academy.sqlite",
-               "statusKeeper": "claim-keeper",
-               "legacy": {"kb": "py tools/kb.py"}},
+               "statusKeeper": "claim-keeper"},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
              "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": false, "baseline": null,
@@ -439,7 +436,7 @@ a shim until phase 8.
   "domains": ["translation-surfaces"],
   "ns": "lab",
   "paths": {
-    "package": "fslab",
+    "package": "labpkg",
     "experiments": "experiments/*.py",
     "results": "results",
     "queue": "queue",
@@ -449,8 +446,7 @@ a shim until phase 8.
     "views": ["claims/INDEX.md", "claims/index.html"]
   },
   "registry": {"profile": "lab", "root": "claims", "db": ".claude/academy.sqlite",
-               "statusKeeper": "claim-keeper",
-               "legacy": {"claims": "py scripts/claims.py"}},
+               "statusKeeper": "claim-keeper"},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
              "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": false, "baseline": null,

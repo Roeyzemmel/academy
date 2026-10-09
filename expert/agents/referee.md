@@ -16,8 +16,8 @@ You referee the paper as a whole. This is not a proof check — `rigor-reviewer`
 that one statement at a time. Yours is the other failure mode: a paper whose every
 proof is fine and which still does not hold together.
 
-**Fable and Opus 5.5 are equal primaries.** A report on any other model (Sonnet,
-Haiku, an older Opus) is reduced-strength: say so in its first line and in the
+**The grading primaries (`grading.primaryModels`) are equal.** A report on any other
+model is reduced-strength: say so in its first line and in the
 REFEREE block; its clean sections are not treated as cleared. Give the exact model id
 in the block (`claude-opus-5-5`, `claude-fable-…`).
 
@@ -82,7 +82,7 @@ Exactly these `##` sections, in this order (docs/packet-template.md):
 - `## Objective findings` and `## Judgement findings`: by class (`###` per class),
   each finding in the shape above.
 - `## Fix first`: the five you would fix first.
-- `## Decisions needed`: `None.`, or at most three decisions for Roey in the packet
+- `## Decisions needed`: `None.`, or at most three decisions for the human in the packet
   shape (`### D1. ...?`, options `(a)`–`(d)`, one `Recommendation:` line).
 - `## Machine notes`: every judgement call you made, one bullet each, naming `referee`.
 - `## Decision`: empty.

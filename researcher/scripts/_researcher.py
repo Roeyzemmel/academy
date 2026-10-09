@@ -380,7 +380,7 @@ def parse_review(text):
 
 def subject_slug(ref):
     """Folder name of a subject under audits/: 'lab:ew-check' -> 'ew-check';
-    another namespace keeps it as a prefix ('s1:Q-2' -> 's1-q-2')."""
+    another namespace keeps it as a prefix ('nb:Q-2' -> 'nb-q-2')."""
     ref = str(ref or "").strip()
     ns, _, rest = ref.partition(":")
     if not rest:

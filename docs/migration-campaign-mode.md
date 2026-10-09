@@ -1,5 +1,9 @@
 # Migrating to campaign mode: the board as the only queue
 
+> **Note (2026-10-09).** This page is history. Since then the board was folded into the
+> workspace: where it says "board repo", read the workspace's `board/` directory, committed
+> by `ship.py checkpoint --only board` (`docs/protocol.md` section 2, `docs/branching.md`).
+
 Status: written 2026-09-30 for the branch `claude/adoring-archimedes-qzvk5s` (PR #3), which
 carries the design `docs/superpowers/specs/2026-09-29-campaign-mode-design.md` and the
 GitHub board of `docs/github-board.md`. Read this page before merging the PR and before

@@ -350,7 +350,7 @@ GRADER_ROLE = "expert"    # every proof review here is run by an Expert instance
 
 def producer_role_for(subject, override=None, workspace=None):
     """The role of the instance that produced the reviewed proof: the role that owns
-    ``subject``'s namespace in workspace.json (``paper:`` -> ``author``, ``s1:`` ->
+    ``subject``'s namespace in workspace.json (``paper:`` -> ``author``, ``nb:`` ->
     ``researcher``, ``lab:`` -> ``scientist``). ``override`` (a CLI flag) always wins;
     '' when the namespace has no owning instance or workspace.json cannot be read."""
     if override:

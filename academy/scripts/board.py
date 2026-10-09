@@ -18,9 +18,10 @@ Every function takes ``board`` as a directory or as a ``BoardStore`` (``ac.as_st
 (docs/github-board.md); a directory is the file board, as before.
 
 ``--as`` names the caller's instance; ``new`` requires it (``--as human`` only from
-/academy:board, desk and decide); for ``transition`` and ``append``, without it the
-caller is the human. The functions below are the implementation
-and may be imported (the MCP server and the tests do); the CLI is a thin wrapper.
+/academy:board, desk and decide, and /academy:cowork for an approved plan's tasks); for
+``transition`` and ``append``, without it the caller is the human. The functions below
+are the implementation and may be imported (the MCP server and the tests do); the CLI is
+a thin wrapper.
 Nothing here commits: board commits are made by session_start / board sync.
 """
 
@@ -69,7 +70,7 @@ def _workspace_or_none(workspace=None):
 
 def _default_budget(cwd=None):
     """``{"runs": n}`` from ``budget.ticketDefault`` of the caller's home config, or the
-    library default (``ac.default_ticket_budget``; no ``max_model``, T-0071)."""
+    library default (``ac.default_ticket_budget``; no ``max_model``: references/budget.md rule 6)."""
     home = ac.find_home(cwd or os.getcwd())
     cfg = None
     if home:
@@ -343,7 +344,7 @@ def main(argv=None):
     p.add_argument("--parent"); p.add_argument("--runs", type=int)
     p.add_argument("--max-model", choices=ac.MODELS,
                    help="optional advisory note for budget.max_model; never a gate: the "
-                        "agent file sets the model (T-0071)")
+                        "agent file sets the model (references/budget.md rule 6)")
     p.add_argument("--detail", default="")
     p.add_argument("--as", dest="as_instance", required=True)
     p.add_argument("--final-to", dest="final_to")

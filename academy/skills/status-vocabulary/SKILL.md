@@ -30,7 +30,7 @@ object `supersedes` it), `dropped` (withdrawn). A superseded or dropped object
 projects to `n/a` whatever its status. Nothing is deleted; a false claim becomes
 `refuted`, never removed.
 
-**Who moves a status:** only the status keeper (`claim-keeper`), with grounds, or Roey.
+**Who moves a status:** only the status keeper (`claim-keeper`), with grounds, or the human.
 Everyone else proposes (`claims_propose_status`).
 
 ## Draft colours (Author homes)
@@ -52,7 +52,7 @@ statement never rests on a blue or red one. The Author checker enforces the draf
 
 | Proof review (Expert, `rigor-reviewer`) | Meaning |
 |---|---|
-| CONFIRMED | Valid from its stated inputs; cited results used within their real hypotheses; on a primary model (Fable or Opus 5.5, equal) |
+| CONFIRMED | Valid from its stated inputs; cited results used within their real hypotheses; on one of the grading primaries (`grading.primaryModels`), all equal |
 | PLAUSIBLE | No gap found, but on a non-primary model (Sonnet, Haiku, an older Opus) or with reduced strength; never counts toward `proved` |
 | GAP | A step does not follow; the verdict names the step and what would close it |
 | DISPROVED | False, with an explicit verified counterexample |
@@ -75,7 +75,7 @@ statement never rests on a blue or red one. The Author checker enforces the draf
 | Two SOUND (or SOUND MODULO the same assumption, recorded in the evidence note), commit hash, validation case reproduced, no counterexample | `supported` |
 | The same, with a verified counterexample | `refuted` or `refuted-as-stated` |
 | Any GAP or BROKEN on an experiment | no change |
-| Roey's word | any status; the history line says so |
+| The human's word | any status; the history line says so |
 
 Computation never reaches `proved` or `proved-modulo`.
 

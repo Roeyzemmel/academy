@@ -1,6 +1,6 @@
 """The ``fsl`` profile (a lab's claim registry, ``claims/<ns>/``): the record checks and
 the federation into sibling homes (paper labels, a notebook's ids). Moved from
-FlatSurfLab's ``tests/test_claims.py`` on 2026-10-09; each case builds a throwaway lab
+a lab home's ``tests/test_claims.py`` on 2026-10-09; each case builds a throwaway lab
 in a temp directory, with its own workspace.json.
 """
 
@@ -22,9 +22,9 @@ def setUpModule():
     # instead of whatever the machine has, so it runs the same on a clean CI runner
     _WS["dir"] = tempfile.TemporaryDirectory()
     base = Path(_WS["dir"].name)
-    homes = {"scientist@ts": ("lab", "FlatSurfLab"),
-             "author@bi": ("paper", "BilliardIllumination"),
-             "researcher@slope1": ("s1", "Slope1illuminationResearch")}
+    homes = {"scientist@x": ("lab", "LabHome"),
+             "author@x": ("paper", "PaperHome"),
+             "researcher@x": ("s1", "NotebookHome")}
     ws = {"board": str(base / "board"),
           "instances": {name: {"role": name.split("@")[0], "ns": ns, "home": str(base / home),
                                "domains": ["translation-surfaces"]}
@@ -64,7 +64,7 @@ Body.
 class Repo:
     def __init__(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = Path(self.tmp.name) / "FlatSurfLab"
+        self.path = Path(self.tmp.name) / "LabHome"
         claims._cache.clear()
         for d in ("claims/lab", "results", "experiments", "queue"):
             (self.path / d).mkdir(parents=True)
@@ -189,12 +189,12 @@ evidence:
 
 
 class TestFederation(unittest.TestCase):
-    """Links into the sibling repos: paper labels, Slope1's kb ids, home namespaces."""
+    """Links into the sibling repos: paper labels, a notebook's kb ids, home namespaces."""
 
     def setUp(self):
         self.r = Repo()
         top = self.r.path.parent
-        self.bi = top / "BilliardIllumination"
+        self.bi = top / "PaperHome"
         (self.bi / "sections").mkdir(parents=True)
         (self.bi / "Drafts").mkdir()
         (self.bi / "sections" / "a.tex").write_text(
@@ -203,7 +203,7 @@ class TestFederation(unittest.TestCase):
             "| label | env | title | colour | proof |\n|---|---|---|---|---|\n"
             "| `prop:foo` | prop | Foo | established | yes |\n"
             "| `lem:bar` | lem |  | sketch | sketched |\n", encoding="utf-8")
-        s1 = top / "Slope1illuminationResearch"
+        s1 = top / "NotebookHome"
         (s1 / "claims").mkdir(parents=True)
         (s1 / "claims" / "CEX-1.md").write_text(
             "---\nid: CEX-1\naliases: [N8]\ntitle: \"t\"\nstatus: Disproved\n---\nbody\n", encoding="utf-8")
@@ -248,7 +248,7 @@ class TestFederation(unittest.TestCase):
         p.parent.mkdir()
         p.write_text(PAPER_CLAIM.format(status="open", evidence=""), encoding="utf-8")
         _, errs, _ = self.r.run()
-        self.assertTrue(any("live in BilliardIllumination" in e for e in errs), errs)
+        self.assertTrue(any("live in PaperHome" in e for e in errs), errs)
 
     def paper_run(self, status, evidence=""):
         p = self.bi / "claims" / "paper" / "prop__foo.md"

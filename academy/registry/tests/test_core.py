@@ -124,11 +124,11 @@ class TestHomes(Homes):
 
 
 class TestWorktreeSiblings(Homes):
-    """Homes named FlatSurfLab-wt etc. (worktrees) find each other, not the plain names."""
+    """Homes named LabHome-wt etc. (worktrees) find each other, not the plain names."""
     suffix = "-wt"
 
     def test_suffix_siblings_first(self):
-        write(self.tmp / "BilliardIllumination" / "sections" / "a.tex", "\\label{other}\n")
+        write(self.tmp / "PaperHome" / "sections" / "a.tex", "\\label{other}\n")
         self.assertEqual(workspace.repo_ns(self.lab), "lab")
         self.assertEqual(workspace.home_of("paper", self.lab), self.bi)
         self.assertEqual(workspace.home_of("s1", self.bi), self.s1)
