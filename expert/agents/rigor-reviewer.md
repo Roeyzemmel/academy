@@ -36,7 +36,8 @@ Gather, in their current wording and never from memory: the statement
 (`claims_show`), the proof, every definition and lemma it uses (grep the labels or
 `claims_deps`), every citation it relies on, and the project's standing conventions
 (its `CLAUDE.md` and `.claude/rules/`). If the subject's home has a verification
-checklist rule (`.claude/rules/verification-checklist.md`), read it too and work every
+checklist (the file its `.claude/academy.json` names at `paths.verifyChecklist`, default
+`.claude/rules/verification-checklist.md`; `config_get` shows it), read it too and work every
 item it lists as part of steps 3 and 4 below: an item you cannot check is named as such in
 the report, and an item that fails is a finding. The checklist is the home's
 subject-specific knowledge; it adds obligations and never removes one of the steps below. The domain pack's `traps.md` and
