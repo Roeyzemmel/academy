@@ -147,9 +147,8 @@ class PluginTests(unittest.TestCase):
     RETIREMENT_NOTES = {
         "author/skills/next/SKILL.md", "author/skills/inbox/SKILL.md",
         "author/skills/inbox/references/routing.md", "author/README.md",
-        "author/references/formats.md", "author/references/scripts.md",
-        "author/scripts/agenda_migrate.py", "author/tests/test_agenda_migrate.py",
-        "author/tests/test_agenda.py", "author/tests/test_inbox.py",
+        "author/references/formats.md",
+        "author/tests/test_inbox.py",
         "author/tests/test_plugin.py", "academy/tests/test_interface_scripts.py",
         "docs/migration-campaign-mode.md",
         "scientist/tests/fixtures/lab/experiments/2026-09-24_torus_cover_periodic_growth.py",

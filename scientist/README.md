@@ -32,7 +32,7 @@ rule: `academy/references/roster-rules.md`, "Model fallback").
 | Script | Does | Tests |
 |---|---|---|
 | `env.py` | env profiles (`wsl` / `local` / `ssh`) and the policy: `list`, `check <profile> [--live]`, `run <profile> ...` (wsl/local only), `setup`, `vpn`, and the job queue over the fsq runner protocol (`queue add\|list\|check\|tick\|fetch\|status\|log\|preflight\|deploy\|pause\|resume`, legacy `queue.ps1` flags too); job state in `<lab>/queue/` | `tests/test_env.py` (fake ssh/scp `tests/fixtures/fake_ssh.py`, a temp git lab, no network) |
-| `queue.ps1`, `run.ps1` | thin PowerShell frontends to `env.py` with the lab's old flags (`-LabHome` is set by the lab's shims) | via `test_env.py`; golden: `queue.ps1 -List` = `goldens/queue_list.txt` |
+| `queue.ps1`, `run.ps1` | thin PowerShell frontends to `env.py` with the lab's old flags (`-LabHome` is set by the lab's shims) | via `test_env.py` |
 | `run.sh` | the Linux side of a `wsl`/`local` run: sourced `conda activate`, `LAB_ROOT` on `PYTHONPATH` (the lab keeps its own `scripts/run.sh` for the remote runner) | — |
 | `fsq.sh` | the remote runner, deployed to `<fsqHome>/bin/fsq` by `env.py queue deploy` (Roey's call); byte-identical to `legacy/fsq.sh` | `test_env.py` pins the bytes |
 | `vpn.ps1`, `setup_env.sh` | the `vpn:globalprotect` preflight; the conda env installer (`env.py setup`) | — |

@@ -14,9 +14,9 @@ Layout:
 * ``requote.py``: the one-time R2 requote with its data-equality report;
 * ``core/schema.py``: the academy object schema (schema v2, R5): one field set, one
   status vocabulary, the lifecycle, evidence and history rows, and the generic rules
-  every profile applies before its home rules; both profiles read v1 and v2 records;
-* ``migrate_v2.py``: the one-time R5 migration (``py -m registry.migrate_v2``) with its
-  mapping report, the pre-migration snapshot and the proposed verdict moves.
+  every profile applies before its home rules; both profiles read v1 and v2 records.
+  (The one-time R5 and R6 migrations, ``migrate_v2.py`` and ``migrate_r6.py``, moved out
+  of the marketplace with their goldens once every home had run them.)
 
 The command line is ``academy/scripts/registry.py`` (the lab's ``scripts/claims.py`` and
 the first notebook's ``tools/kb.py`` shims were removed 2026-09-28). Standard library only.

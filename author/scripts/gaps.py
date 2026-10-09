@@ -1,7 +1,7 @@
 """gaps -- the agenda entries with no ticket working on them, and filing a ticket.
 
 The one module that ``inbox.py`` (the header), ``agenda.py`` (``gaps``, ``gaps --file``,
-``show``, ``milestones``) and ``agenda_migrate.py`` (the converter) all import, so that
+``show``, ``milestones``) and the one-shot roadmap converter all imported, so that
 none of them imports another (``agenda.py`` used to import ``inbox.py`` while ``inbox.py``
 lazily imported ``agenda.py``). It knows a *context* only by its attributes (``agenda``,
 ``tickets``, ``board``, ``instance``, ``ns``, ``domains``, ``workspace``), never by class.

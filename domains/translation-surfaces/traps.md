@@ -9,7 +9,8 @@ with the experiment-review checklist (computation review).
 Three sources, merged 2026-09-28:
 - **A**, the old `translation-surfaces` skill's "traps that cost the most";
 - **B**, the domain-flavoured examples cut from `math-proof-writing` when it became
-  `academy:rigor` (listed in `docs-notes/removed-domain-examples.md`);
+  `academy:rigor` (listed in the migration notes, `removed-domain-examples.md`, now archived outside
+  the marketplace);
 - **C**, the API traps of the old `flatsurf-computation` skill.
 
 ## A. Mathematical traps (the four that cost the most)
