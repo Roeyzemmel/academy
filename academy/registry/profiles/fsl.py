@@ -967,7 +967,8 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     if not ok:
         raise Refused("the grounds do not support %s -> %s:\n- %s"
                       % (cid, status, "\n- ".join(why)))
-    evidence = list(evidence) + _verdict_rows(grounds, evidence)
+    held = [str(r) for r in (claim.fields.get("evidence") or [])]
+    evidence = list(evidence) + _verdict_rows(grounds, list(evidence) + held)
     evidence = [_row_for(claim, r) for r in evidence]
     for row in evidence:
         _validate_row(row, repo, claim.v2)
@@ -983,6 +984,14 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
             doc.set_scalar("lifecycle", status, after=V2_AFTER[:V2_AFTER.index("lifecycle")])
         else:
             doc.set_scalar("status", status, after=("form", "title") if claim.v2 else ("title",))
+        if claim.v2 and not lifecycle:
+            # the record's `modulo` is the grounds' missing inputs: written with
+            # proved-modulo, dropped with proved (the schema refuses either without it)
+            if status == "proved-modulo":
+                doc.set_list("modulo", [str(m) for m in (grounds or {}).get("modulo") or []],
+                             after=V2_AFTER[:V2_AFTER.index("modulo")])
+            elif status == "proved":
+                doc.remove("modulo")
         doc.add_item("history", row, first=True, after=("evidence",))
         if status == "superseded" and new_id and not claim.v2:
             doc.set_scalar("superseded_by", new_id, after=FIELD_ORDER[:5])

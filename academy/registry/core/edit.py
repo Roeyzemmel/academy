@@ -84,6 +84,31 @@ class Doc:
             return
         self.insert(self._after(after), text)
 
+    def remove(self, key):
+        """Drop field ``key`` with its block; a missing field is left alone."""
+        i = self.find(key)
+        if i is None:
+            return
+        end = self.block_end(i)
+        del self.lines[i:end]
+        self.close -= end - i
+
+    def set_list(self, key, items, after=()):
+        """Make list field ``key`` exactly ``items`` (a block list); no items drops it."""
+        at = None
+        i = self.find(key)
+        if i is not None:
+            at = i
+            self.remove(key)
+        items = list(items or [])
+        if not items:
+            return
+        if at is None:
+            at = self._after(after)
+        self.insert(at, f"{key}:")
+        for n, it in enumerate(items, 1):
+            self.insert(at + n, f"  - {self.fmt(it)}")
+
     def list_items(self, key):
         """The items of list field ``key`` as written (inline or block), or None."""
         i = self.find(key)
