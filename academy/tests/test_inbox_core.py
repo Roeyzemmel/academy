@@ -415,10 +415,10 @@ sys.exit(1 if mode == "fail" else 0)
 
 
 class ShipCheckpointHookTests(Board):
-    """``--check`` on a ticket settled as finished runs the workspace's
-    ``scripts/ship.py checkpoint --ticket <id> --role <role>`` (non-fatal, never for an
-    unfinished or blocked ticket, a board that is not the workspace's, an absent ship.py,
-    or ``"shipCheckpoint": false``)."""
+    """``--check`` on a ticket settled as finished runs the academy's
+    ``ship.py --workspace <root> checkpoint --ticket <id> --role <role>`` (non-fatal, never
+    for an unfinished or blocked ticket, a board that is not the workspace's, an absent
+    ship.py, or ``"shipCheckpoint": false``). The script is a stub (``SHIP_SCRIPT``)."""
 
     def setUp(self):
         self.ws = tempfile.mkdtemp(prefix="inbox-ws-")
@@ -434,6 +434,9 @@ class ShipCheckpointHookTests(Board):
         p = mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": self.ws})
         p.start()
         self.addCleanup(p.stop)
+        q = mock.patch.object(core, "SHIP_SCRIPT", os.path.join(self.ws, "scripts", "ship.py"))
+        q.start()
+        self.addCleanup(q.stop)
 
     def tearDown(self):
         shutil.rmtree(self.ws, ignore_errors=True)
@@ -477,8 +480,8 @@ class ShipCheckpointHookTests(Board):
         calls = self.calls()
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["argv"],
-                         ["checkpoint", "--ticket", "T-0001", "--role", "researcher",
-                          "--only", "home", "board"])
+                         ["--workspace", os.path.realpath(self.ws), "checkpoint", "--ticket",
+                          "T-0001", "--role", "researcher", "--only", "home", "board"])
         self.assertEqual(os.path.normcase(os.path.realpath(calls[0]["cwd"])),
                          os.path.normcase(os.path.realpath(self.ws)))
         self.assertEqual(err, "")
@@ -487,7 +490,7 @@ class ShipCheckpointHookTests(Board):
         for i, st in enumerate(("closed", "rejected", "cancelled"), 1):
             self.put("T-000%d" % i, status=st)
             self.assertEqual(self.check("T-000%d" % i)[0], 0)
-        self.assertEqual([c["argv"][2] for c in self.calls()], ["T-0001", "T-0002", "T-0003"])
+        self.assertEqual([c["argv"][4] for c in self.calls()], ["T-0001", "T-0002", "T-0003"])
 
     def test_unfinished_blocked_and_problem_tickets_do_not_run_it(self):
         self.put("T-0001", status="in-progress")
@@ -620,10 +623,44 @@ class ShipCheckpointHookTests(Board):
         self.assertEqual(self.session_at("home", "sub", "dir")[0], 0)
         self.assertEqual(len(self.calls()), 2)
 
-    def test_without_a_scope_the_by_hand_command_still_names_only(self):
-        os.remove(os.path.join(self.ws, ".gitmodules"))
+    def gitmodules(self, *subs):
+        with open(os.path.join(self.ws, ".gitmodules"), "w") as f:
+            for sub in subs:
+                f.write('[submodule "%s"]\n\tpath = %s\n\turl = x\n' % (sub, sub))
+
+    def test_a_plain_board_directory_of_the_workspace_is_in_scope(self):
+        # the folded layout: board/ is a directory of the workspace repo, not a submodule
+        self.gitmodules("home", "library", "a")
         self.put("T-0001", status="delivered")
-        code, out, err = self.check("T-0001")
+        self.assertEqual(self.check("T-0001")[0], 0)
+        self.assertEqual(self.role_and_only(), ("researcher", ["home", "board"]))
+
+    def test_a_board_that_is_its_own_repository_is_not_in_scope(self):
+        self.gitmodules("home", "library", "a")
+        os.makedirs(os.path.join(self.board, ".git"))
+        self.put("T-0001", status="delivered")
+        self.assertEqual(self.check("T-0001")[0], 0)
+        self.assertEqual(self.role_and_only(), ("researcher", ["home"]))
+
+    def test_the_plugin_script_is_used_by_default(self):
+        from unittest import mock
+        with mock.patch.object(core, "SHIP_SCRIPT", None):
+            script = core.ship_script(self.ws)
+        self.assertTrue(script.endswith(os.path.join("academy", "scripts", "ship.py")), script)
+        self.assertTrue(os.path.isfile(script))
+        self.assertNotEqual(os.path.dirname(os.path.dirname(script)),
+                            os.path.join(self.ws, "scripts"))
+
+    def test_without_a_scope_the_by_hand_command_still_names_only(self):
+        # neither submodules nor a board inside the workspace: nothing to scope to
+        os.remove(os.path.join(self.ws, ".gitmodules"))
+        other = tempfile.mkdtemp(prefix="inbox-board-")
+        self.addCleanup(shutil.rmtree, other, True)
+        self.write_ws(board=other.replace("\\", "/"))
+        saved, self.board = self.board, other
+        self.put("T-0001", status="delivered")
+        code, out, err = self.check("T-0001", board=other)
+        self.board = saved
         self.assertEqual(code, 0)
         self.assertEqual(self.calls(), [])
         self.assertIn("py scripts/ship.py checkpoint --ticket T-0001 --role researcher "

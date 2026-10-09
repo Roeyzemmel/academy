@@ -1,0 +1,55 @@
+{
+  "_about": "Permission rules that name machine paths. The academy's workspace bootstrap (academy/scripts/workspace_bootstrap.py, run through a workspace's scripts/bootstrap.py shim) renders them into each home's git-ignored .claude/settings.local.json (Claude Code cannot expand variables inside settings.json rules), after merging the workspace's own workspace.permissions.json (same keys; its rules are appended). Placeholders: {EACH_HOME} expands to one rule per home of the workspace, {ROOT} academy repo, {WORKSPACE} the workspace root (where the scripts/ship.py shim lives), {BOARD}, {LIBRARY}, {SCIENTIST} scientist home, {AUTHOR} author home, {USER} the user's home directory. A 'Bash(py ...)' rule also gets its PowerShell twin (forward slashes become backslashes), and one whose script path is relative a second, forward-slash PowerShell twin; 'PS:' rules are PowerShell-only. The key 'workspace' is rendered, alone (not with 'common'), into the workspace root's own settings.local.json: the safe scripts/ship.py verbs (merge, publish and accept-baseline are deliberately absent, so they always prompt), in the absolute form and in the relative form a session at the root types. 'Read(...)' and 'Edit(...)' paths are written in the //c/... form.",
+  "workspace": [
+    "Bash(py {WORKSPACE}/scripts/ship.py status:*)",
+    "Bash(py {WORKSPACE}/scripts/ship.py start:*)",
+    "Bash(py {WORKSPACE}/scripts/ship.py commit:*)",
+    "Bash(py {WORKSPACE}/scripts/ship.py push:*)",
+    "Bash(py {WORKSPACE}/scripts/ship.py ship:*)",
+    "Bash(py {WORKSPACE}/scripts/ship.py checkpoint:*)",
+    "Bash(py scripts/ship.py status:*)",
+    "Bash(py scripts/ship.py start:*)",
+    "Bash(py scripts/ship.py commit:*)",
+    "Bash(py scripts/ship.py push:*)",
+    "Bash(py scripts/ship.py ship:*)",
+    "Bash(py scripts/ship.py checkpoint:*)"
+  ],
+  "common": [
+    "Bash(py {ROOT}/academy/scripts/registry.py:*)",
+    "Bash(py {ROOT}/academy/scripts/registry.py *)",
+    "Bash(py {ROOT}/academy/scripts/usage_report.py:*)",
+    "Bash(py {ROOT}/academy/scripts/packets.py:*)",
+    "Bash(py {USER}/.claude/skills/academy/scripts/usage_report.py:*)",
+    "Bash(py {USER}/.claude/skills/academy/scripts/packets.py:*)",
+    "Read({USER}/.claude/skills/academy/**)",
+    "Read({ROOT}/**)",
+    "Read({EACH_HOME}/**)",
+    "Read({BOARD}/**)",
+    "Read({LIBRARY}/**)",
+    "Read({USER}/.claude/skills/**)"
+  ],
+  "scientist": [
+    "Bash(py {ROOT}/scientist/scripts/check_experiments.py:*)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home . queue list)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home . queue check)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home . queue tick)",
+    "Read({BOARD}/**)",
+    "Edit({BOARD}/.render/**)"
+  ],
+  "researcher": [
+    "Read({SCIENTIST}/**)",
+    "Read({LIBRARY}/**)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/check_experiments.py --home {SCIENTIST}:*)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home {SCIENTIST} queue list)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home {SCIENTIST} queue check)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home {SCIENTIST} queue tick)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home {SCIENTIST} queue log:*)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home {SCIENTIST} vpn:*)",
+    "Bash(PYTHONIOENCODING=utf-8 py {ROOT}/academy/scripts/registry.py *)"
+  ],
+  "author": [
+    "Bash(py {ROOT}/author/scripts/check_paper.py*)",
+    "Bash(py {ROOT}/academy/scripts/registry.py*)",
+    "Read({SCIENTIST}/**)"
+  ]
+}

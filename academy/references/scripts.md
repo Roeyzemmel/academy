@@ -21,6 +21,8 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `error_ledger.py` | usage-analyst, the PostToolUseFailure hook | `hook` (event on stdin) · `report [--days 7\|--since D] [--json]` · `settle --packet P-NNNN [--quiet-days 7]` · `resolve SIG... [--note T]`: the error ledger `<board>/.errors/<instance>.jsonl` |
 | `session_usage.py` | usage | `<session-id> [--project DIR]`: one session, per subagent |
 | `session_start.py` | the SessionStart hook | (no arguments; reads the hook event) |
+| `ship.py` | inbox `--check` (checkpoint hook), board `sync`, sessions at a workspace root | `[--workspace DIR] status` · `start <sub> <topic>` · `commit\|ship <sub> -m MSG (--paths P...\|--all)` · `push <sub>` · `checkpoint --ticket T [--role R] [--title T] [--only SUB...]` · (the human's) `merge`, `publish`, `accept-baseline`; `docs/branching.md`. A workspace runs it through its `scripts/ship.py` shim |
+| `workspace_bootstrap.py` | a workspace's `scripts/bootstrap.py` shim, `cloud-setup.sh` | `[--workspace DIR] [--no-submodules] [--no-plugins] [--strict] [--adopt-siblings]`: writes `workspace.json`, the environment and the permission rules (`templates/workspace/`) |
 
 `board.py new` requires `--as <instance>` (the main session inside a home files as
 `<instance>`, agent `main`; `--agent <name>` names another agent) and applies the
@@ -32,5 +34,7 @@ confirms. For `transition` and `append`, `--as` is optional and the caller is th
 without it; `packets.py` acts as `human` unless `--as <instance>` is given. Only the
 main session runs `packets.py decide`.
 
-Board commits: tool writes never commit. `session_start` commits pending board
-changes, and `/academy:board sync` does the same on demand.
+Board commits: tool writes never commit. `session_start` commits pending board changes
+only when the board is a standalone clone; a board that is a plain directory of the
+workspace (or a submodule) is committed by `ship.py checkpoint --only board` (the inbox
+hook, and `/academy:board sync` on demand), on a `<date>/<ticket>/<role>` branch.
