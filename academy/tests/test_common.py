@@ -843,7 +843,7 @@ class PacketTests(unittest.TestCase):
         meta, body = ac.read_frontmatter(packet_doc_example())
         for patch, needle in (({"kind": "memo"}, "kind"), ({"state": "done"}, "state"),
                               ({"status_proposed": "true"}, "status_proposed"),
-                              ({"ticket": "P-1"}, "ticket"), ({"by": "Roey"}, "by"),
+                              ({"ticket": "P-1"}, "ticket"), ({"by": "Ada"}, "by"),
                               ({"instance": "human"}, "instance"),
                               ({"extra": 1}, "unknown field")):
             m = dict(meta)

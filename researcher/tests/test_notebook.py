@@ -557,11 +557,11 @@ class CampaignCapsTests(unittest.TestCase):
     def test_runs_need_a_profile_and_are_forced_to_zero_in_a_cloud(self):
         with self.assertRaises(ac.AcademyError):
             notebook.campaign_caps(3, 4, 2, env={})
-        caps = notebook.campaign_caps(3, 4, 2, "lingo", env={})
-        self.assertEqual((caps["runs"], caps["profile"], caps["cloud"]), (2, "lingo", False))
+        caps = notebook.campaign_caps(3, 4, 2, "remote-a", env={})
+        self.assertEqual((caps["runs"], caps["profile"], caps["cloud"]), (2, "remote-a", False))
         for env, cloud in (({}, True), ({"CLAUDE_CODE_REMOTE": "true"}, False),
                            ({"ACADEMY_CLOUD": "1"}, False)):
-            caps = notebook.campaign_caps(3, 4, 2, "lingo", cloud, env)
+            caps = notebook.campaign_caps(3, 4, 2, "remote-a", cloud, env)
             self.assertEqual((caps["runs"], caps["runs_forced_to_zero"], caps["cloud"]),
                              (0, True, True), env)
 
@@ -572,7 +572,7 @@ class CampaignCapsTests(unittest.TestCase):
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         env.pop("CLAUDE_CODE_REMOTE", None)
         r = subprocess.run([sys.executable, script, "campaign-check", "--rounds", "3",
-                            "--agents", "4", "--runs", "2", "--profile", "lingo", "--cloud"],
+                            "--agents", "4", "--runs", "2", "--profile", "remote-a", "--cloud"],
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("runs=0", r.stdout)

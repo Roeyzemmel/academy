@@ -488,9 +488,9 @@ class TestAssignment(GithubBoardCase):
         self.assertTrue(w({"to": "human", "status": "blocked"}))
         self.assertFalse(w({"to": "human", "status": "delivered"}))
         self.assertFalse(w({"to": "human", "status": "closed"}))
-        self.assertTrue(w({"to": "expert@ts", "status": "blocked", "waiting_on": ["human"]}))
-        self.assertFalse(w({"to": "expert@ts", "status": "open", "waiting_on": ["human"]}))
-        self.assertFalse(w({"to": "expert@ts", "status": "blocked", "waiting_on": ["T-0001"]}))
+        self.assertTrue(w({"to": "expert@x", "status": "blocked", "waiting_on": ["human"]}))
+        self.assertFalse(w({"to": "expert@x", "status": "open", "waiting_on": ["human"]}))
+        self.assertFalse(w({"to": "expert@x", "status": "blocked", "waiting_on": ["T-0001"]}))
 
     def test_assignees_keep_other_people(self):
         meta = {"to": "human", "status": "open"}

@@ -9,7 +9,7 @@ Goal:           on the maximal torus T(X) = R^2/L(X) (defn:maximal-torus,
                 thm:torus-periodic-points item 1 (sections/markings.tex), for every v
                 in the box, and (2) the truncated periodic set |union S_v| as the box
                 grows, to see growth rather than a plateau on torus covers. Context:
-                PaperHome Tier 4 issue 5 (Drafts/comment_roadmap.md), Roey's
+                PaperHome Tier 4 issue 5 (Drafts/comment_roadmap.md), Ada's
                 question at sections/slope_blocking.tex:27 on AW21 Lemma 2.13 (bears on
                 paper:thm:torus-periodic-points and paper:rmk:slope-values).
 Class:          four square-tiled torus covers, built in fslab.pslit_covers:
@@ -55,7 +55,7 @@ Needs Sage:     no (fslab.ptranslation / pslit_covers / null_holonomy / torus_pe
                 (docs/code-audit.md); this script runs once at the current commit
                 before that, and its JSON is the C3 regression target.
 
-Result:         Measured at commit a929eca (job 20260924-175705, lingo, dirty false,
+Result:         Measured at commit a929eca (job 20260924-175705, remote-a, dirty false,
                 exit 0; pure Python). Validation passed. |S_v| = (sum v_k)^2 on every v
                 checked (13546 per 4-mark example, 6 per 1-mark example), and S_v is all
                 solutions on every v with |v_k| <= 2 (270 / 2 by brute force); no

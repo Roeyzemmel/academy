@@ -60,7 +60,7 @@ class Sandbox(unittest.TestCase):
             "author@p": {"role": "author", "home": self.home_a, "domains": ["dom"],
                          "ns": "paper"},
             "expert@d": {"role": "expert", "home": self.home_e, "domains": ["dom"]}},
-            "board": self.board, "human": {"name": "Roey", "noteMacro": "\\Roey"}}
+            "board": self.board, "human": {"name": "Ada", "noteMacro": "\\Ada"}}
         write(self.ws_path, json.dumps(ws, indent=2) + "\n")
         self._saved = os.environ.get("ACADEMY_WORKSPACE")
         os.environ["ACADEMY_WORKSPACE"] = self.ws_path
@@ -251,7 +251,7 @@ class InitInstanceTest(Sandbox):
             self.assertNotIn("{{", text, role)
         self.assertNotIn("ns", init_instance.build_config("expert@x", ["d"], workspace=ws))
         cfg = init_instance.build_config("author@x", ["d"], workspace=ws)
-        self.assertEqual(cfg["author"]["noteMacros"]["human"], ["\\Roey"])
+        self.assertEqual(cfg["author"]["noteMacros"]["human"], ["\\Ada"])
         self.assertEqual(cfg["ns"], "x")
 
     def test_author_template_has_no_roadmap_path_but_an_old_config_validates(self):

@@ -84,7 +84,7 @@ class PinsFromReviews(PinnedBase):
     def test_the_human_release_list_unpins(self):
         self.land("A", "CONFIRMED")
         self.sb.write(os.path.join(self.sb.home, ".claude", "pinned-release.txt"),
-                      "lem:lift  # Roey: restate with compactness\n")
+                      "lem:lift  # Ada: restate with compactness\n")
         self.assertTrue(self.pins()["lem:lift"]["released"])
 
     def test_the_environment_is_the_statement_and_a_nested_label_pins_its_lemma(self):

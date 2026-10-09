@@ -89,7 +89,7 @@ Needs Sage:     yes -- the generators, stratum_component, veech_group, Lyapunov 
 
 Result:         Previous run (legacy format, before the verify header):
                 No counterexample to (Q2) over class C at SciLab commit 34552b0
-                (job 20260923-123800, lingo, clean per-job worktree, dirty false, exit
+                (job 20260923-123800, remote-a, clean per-job worktree, dirty false, exit
                 0, Sage 10.7 / surface_dynamics 0.7.0, defaults). C: exactly three
                 labelled records of two origamis, every square corner marked — EW =
                 `EierlegendeWollmilchsau()` tuples (1,2,3,0,5,6,7,4)/(4,7,6,5,2,1,0,3);
@@ -111,7 +111,7 @@ Result:         Previous run (legacy format, before the verify header):
                 realisability; the (2T′)/(CT′)/(D0) fields as verified facts. Its
                 refuting power beyond the cleared E0 row was on the pipeline, and no
                 pipeline check fired.
-                Verify rerun (job 20260924-175705, commit a929eca, lingo, dirty false,
+                Verify rerun (job 20260924-175705, commit a929eca, remote-a, dirty false,
                 exit 0): all 18 properties hold. Reproduces the numbers above: K_min = 2
                 on all three, raw BFS 24/24/648, |W| = 6/6/45, |G| = 8/8/108, ORN
                 block systems and cycle types match the predictions, empty

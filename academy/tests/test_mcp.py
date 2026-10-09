@@ -122,7 +122,7 @@ class McpTestBase(unittest.TestCase):
                             "domains": ["test-pack"], "ns": "lab"},
             "researcher@t": {"role": "researcher", "home": cls.homes["researcher@t"],
                              "domains": ["test-pack"], "ns": "s1"}},
-            "board": cls.board, "human": {"name": "Roey"}}
+            "board": cls.board, "human": {"name": "Ada"}}
         cls.ws_path = os.path.join(cls.tmp, "workspace.json")
         write(cls.ws_path, json.dumps(ws, indent=2))
         write(os.path.join(cls.tmp, "domains", "test-pack", "notation.md"), "# Notation\n")
@@ -685,7 +685,7 @@ class TestKeeperRouting(unittest.TestCase):
                                 "domains": ["test-pack"], "ns": "flat"},
             "author@t": {"role": "author", "home": self.homes["author@t"],
                          "domains": ["test-pack"], "ns": "paper"}},
-            "board": self.board, "human": {"name": "Roey"}}
+            "board": self.board, "human": {"name": "Ada"}}
         self.ws_path = os.path.join(self.tmp, "workspace.json")
         write(self.ws_path, json.dumps(ws, indent=2))
         self.env = dict(os.environ, ACADEMY_WORKSPACE=self.ws_path, PYTHONUTF8="1",
@@ -913,7 +913,7 @@ class TestGrounds(unittest.TestCase):
     def test_no_grounds(self):
         self.no("proved", None)
         self.no("supported", {})
-        self.ok("proved", None, human=True)          # Roey's word
+        self.ok("proved", None, human=True)          # the human's word
 
     def test_unknown_status(self):
         self.no("Disproved", {"basis": "proof"})
@@ -1157,7 +1157,7 @@ class TestRegistryBackend(McpTestBase):
         self.assertTrue(err)                               # not pinned to the board
         self.assertIn("ticket or packet", msg)
         err, t = self.server().call("tickets_create", title="lab:ew", kind="decision",
-                                    to="researcher@t", ask="Roey: drop it, it is false.",
+                                    to="researcher@t", ask="Ada: drop it, it is false.",
                                     deliverable="d")
         self.assertFalse(err, t)
         err, msg = s.call("claims_set_status", caller="researcher:claim-keeper",
@@ -1170,8 +1170,8 @@ class TestRegistryBackend(McpTestBase):
         self.assertFalse(err, res)
         text = self.lab_text()
         self.assertIn("status: refuted", text)
-        self.assertIn('Roey\'s word "drop it" (%s)' % t["id"], text)
-        self.assertIn("hand | %s | Roey's word" % t["id"], text)
+        self.assertIn('Ada\'s word "drop it" (%s)' % t["id"], text)
+        self.assertIn("hand | %s | Ada's word" % t["id"], text)
 
     def test_lifecycle_move(self):
         write(os.path.join(self.homes["scientist@t"], "claims", "lab", "ew2.md"),

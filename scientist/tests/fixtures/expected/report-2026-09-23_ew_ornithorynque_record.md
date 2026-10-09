@@ -20,7 +20,7 @@ Proposed status: lab:q2-ew-ornithorynque -> supported, pending two experiment re
 
 - Result `file:scientist@main/results/2026-09-23_ew_ornithorynque_record.json`: outcome `holds`, commit `a929eca` (clean tree), run 2026-09-24T18:36:51.
 - Validation case: reproduced (from the draft).
-- The script's own Result field: Previous run (legacy format, before the verify header): No counterexample to (Q2) over class C at SciLab commit 34552b0 (job 20260923-123800, lingo, clean per-job worktree, dirty false, exit 0, Sage 10.7 / surface_dynamics 0.7.0, defaults). C: exactly three labelled records of two origamis, every square corner marked — EW = `EierlegendeWollmilchsau()` tuples (1,2,3,0,5,6,7,4)/(4,7,6,5,2,1,0,3); M_4(1,1,1,1) = `CyclicCover([1,1,1,1])` tuples (1,4,7,2,5,0,3,6)/(7,2,5,0,3,6,1,4), isomorphic to the EW; ORN = `CyclicCover([1,1,1,3])` tuples (1,8,7,2,5,0,11,6,9,4,3,10)/(7,6,5,0,11,10,9,4,3,2,1,8). W enumerated completely (raw BFS 24/24/648 states, |W| = 6/6/45). Every record closes at K_min = 2...
+- The script's own Result field: Previous run (legacy format, before the verify header): No counterexample to (Q2) over class C at SciLab commit 34552b0 (job 20260923-123800, remote-a, clean per-job worktree, dirty false, exit 0, Sage 10.7 / surface_dynamics 0.7.0, defaults). C: exactly three labelled records of two origamis, every square corner marked — EW = `EierlegendeWollmilchsau()` tuples (1,2,3,0,5,6,7,4)/(4,7,6,5,2,1,0,3); M_4(1,1,1,1) = `CyclicCover([1,1,1,1])` tuples (1,4,7,2,5,0,3,6)/(7,2,5,0,3,6,1,4), isomorphic to the EW; ORN = `CyclicCover([1,1,1,3])` tuples (1,8,7,2,5,0,11,6,9,4,3,10)/(7,6,5,0,11,10,9,4,3,2,1,8). W enumerated completely (raw BFS 24/24/648 states, |W| = 6/6/45). Every record closes at K_min ...
 
 ## Question
 

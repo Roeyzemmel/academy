@@ -204,7 +204,7 @@ class TestTickets(BoardCase):
                   encoding="utf-8") as fh:
             text = fh.read()
         for k, v in (("instance", "author@main"), ("domain", "dom-a"), ("ns", "paper"),
-                     ("noteMacro", "\\\\Roey")):
+                     ("noteMacro", "\\\\Ada")):
             text = text.replace("{{%s}}" % k, v)
         cfg = json.loads(text)
         cfg["budget"]["ticketDefault"] = {"runs": 2, "max_model": "sonnet"}

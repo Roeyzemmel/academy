@@ -338,9 +338,9 @@ class TestStoreAssignment(StoreCase):
         bd.transition_ticket(st, "T-0001", "accepted", as_instance=INST, date=DATE)
         self.assertEqual([], self.transport.issues[1].get("assignees", []))
         bd.transition_ticket(st, "T-0001", "blocked", waiting_on=["human"],
-                             reason="needs Roey's reading", as_instance=INST, date=DATE)
+                             reason="needs Ada's reading", as_instance=INST, date=DATE)
         self.assertEqual(["roey"], self.transport.issues[1]["assignees"])
-        bd.transition_ticket(st, "T-0001", "accepted", reason="Roey answered",
+        bd.transition_ticket(st, "T-0001", "accepted", reason="Ada answered",
                              as_instance=INST, date=DATE)
         self.assertEqual([], self.transport.issues[1]["assignees"])
 

@@ -95,7 +95,7 @@ def write(path, text, newline="\n"):
 class Homes(unittest.TestCase):
     """Three sibling homes in a temp dir (lab, paper, s1) and a workspace naming them.
 
-    ``suffix`` makes them worktree-like (``FlatSurfLab-wt`` ...); the workspace still
+    ``suffix`` makes them worktree-like (``LabHome-wt`` ...); the workspace still
     names the plain directories, which exist only when ``plain`` is true."""
 
     suffix = ""
@@ -103,18 +103,18 @@ class Homes(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="registry-test-"))
         sfx = self.suffix
-        self.lab = self.tmp / ("FlatSurfLab" + sfx)
-        self.bi = self.tmp / ("BilliardIllumination" + sfx)
-        self.s1 = self.tmp / ("Slope1illuminationResearch" + sfx)
+        self.lab = self.tmp / ("LabHome" + sfx)
+        self.bi = self.tmp / ("PaperHome" + sfx)
+        self.s1 = self.tmp / ("NotebookHome" + sfx)
         ws = {"instances": {
-            "scientist@t": {"role": "scientist", "home": str(self.tmp / "FlatSurfLab"),
+            "scientist@t": {"role": "scientist", "home": str(self.tmp / "LabHome"),
                             "domains": ["d"], "ns": "lab"},
-            "author@t": {"role": "author", "home": str(self.tmp / "BilliardIllumination"),
+            "author@t": {"role": "author", "home": str(self.tmp / "PaperHome"),
                          "domains": ["d"], "ns": "paper"},
             "researcher@t": {"role": "researcher",
-                             "home": str(self.tmp / "Slope1illuminationResearch"),
+                             "home": str(self.tmp / "NotebookHome"),
                              "domains": ["d"], "ns": "s1"}},
-            "board": str(self.tmp / "board"), "human": {"name": "Roey"}}
+            "board": str(self.tmp / "board"), "human": {"name": "Ada"}}
         self.ws = write(self.tmp / "workspace.json", json.dumps(ws))
         self._env = os.environ.get("ACADEMY_WORKSPACE")
         os.environ["ACADEMY_WORKSPACE"] = str(self.ws)
@@ -130,7 +130,7 @@ class Homes(unittest.TestCase):
         write(self.bi / "Drafts" / "statements.md",
               "| label | env | title | colour | proof |\n|---|---|---|---|---|\n"
               "| `prop:foo` | prop | Foo | established | yes |\n")
-        # Slope1
+        # the notebook
         write(self.s1 / "claims" / "CEX-1.md", S1_Q)
         write(self.s1 / "assumptions" / "GA-2T′.md", S1_GA)
         write(self.s1 / "computation" / "verdicts" / "2026-09-24_G8.md", S1_VERDICT)

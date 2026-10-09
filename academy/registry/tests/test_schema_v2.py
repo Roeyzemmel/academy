@@ -69,7 +69,7 @@ class Migrated(Homes):
 
     def setUp(self):
         super().setUp()
-        homes = {"FlatSurfLab": self.lab, "Slope1illuminationResearch": self.s1}
+        homes = {"LabHome": self.lab, "NotebookHome": self.s1}
         for (home, rel), text in V2_FILES.items():
             write(homes[home] / rel, text)
         from registry.core import federation
@@ -109,9 +109,9 @@ class TestV2Mutations(Migrated):
         c = fsl.parse_text(p.read_text(encoding="utf-8"), p)
         self.assertEqual((c.status, c.fields["lifecycle"]), ("supported", "dropped"))
         self.assertTrue(c.history[0].startswith("2026-09-29 | dropped |"))
-        fsl.attach_evidence(self.lab, "lab:foo", "hand | chat | Roey | a note")
+        fsl.attach_evidence(self.lab, "lab:foo", "hand | chat | Ada | a note")
         c = fsl.parse_text(p.read_text(encoding="utf-8"), p)
-        self.assertIn("hand | chat | Roey | - | a note", c.evidence)
+        self.assertIn("hand | chat | Ada | - | a note", c.evidence)
         claims, _ = fsl.load(fsl.registry_root(self.lab))
         self.assertEqual(fsl.check(claims, repo=self.lab)[0], [])
 

@@ -6,7 +6,7 @@
 The same as ``py -m registry`` run from ``<academy>/academy`` (see registry/cli.py for
 the commands), for every registry: the repo (default: the current directory) decides
 the namespace and the profile. It replaces the lab's ``scripts/claims.py``, the paper's
-use of it and Slope1's ``tools/kb.py``, which were shims onto the same engine.
+use of it and a notebook's ``tools/kb.py``, which were shims onto the same engine.
 """
 import os
 import sys

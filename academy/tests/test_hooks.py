@@ -96,7 +96,7 @@ class Fixture(unittest.TestCase):
                          "domains": ["test-domain"], "ns": "paper"},
             "expert@t": {"role": "expert", "home": self.expert_home.replace("\\", "/"),
                          "domains": ["test-domain"]}},
-            "board": self.board.replace("\\", "/"), "human": {"name": "Roey"}}
+            "board": self.board.replace("\\", "/"), "human": {"name": "Ada"}}
         self.ws_path = self.write(os.path.join(self.tmp, "workspace.json"), json.dumps(ws))
         self.write(os.path.join(self.author_home, ".claude", "academy.json"),
                    json.dumps(config_for("author", "author@t", ns="paper")))
@@ -648,13 +648,13 @@ class SessionStartTests(Fixture):
         self.populate()
         line = self.start(self.author_home)
         self.assertEqual(line, "academy: author@t — 2 open tickets to you, "
-                               "1 packet awaiting Roey; freed: T-0004")
+                               "1 packet awaiting Ada; freed: T-0004")
         self.assertNotIn("\n", line)
         cards = os.path.join(self.expert_home, "cards")
         os.makedirs(cards)
         line = self.start(cards)                            # a subdirectory of the home
         self.assertEqual(line, "academy: expert@t — 1 open ticket to you, "
-                               "1 packet awaiting Roey")
+                               "1 packet awaiting Ada")
 
     def test_relay_parent_freed_by_a_delivered_child(self):
         b = self.board
@@ -706,7 +706,7 @@ class SessionStartTests(Fixture):
         os.remove(os.path.join(self.board, "author@t", "T-0002-b.md"))
         line = self.start(self.author_home, env)
         self.assertEqual(line, "academy: author@t — 2 open tickets to you, "
-                               "1 packet awaiting Roey; freed: T-0004")
+                               "1 packet awaiting Ada; freed: T-0004")
 
     def test_status_line_when_github_is_unreachable(self):
         self.populate()
@@ -714,7 +714,7 @@ class SessionStartTests(Fixture):
         line = self.start(self.author_home, env)
         self.assertTrue(line.startswith("academy: author@t — tickets not read: GitHub board "
                                         "unreachable (gh api: HTTP 401 Bad credentials)"), line)
-        self.assertTrue(line.endswith("; 1 packet awaiting Roey"), line)
+        self.assertTrue(line.endswith("; 1 packet awaiting Ada"), line)
 
     def test_ids_reconciled(self):
         self.populate()
@@ -734,7 +734,7 @@ class SessionStartTests(Fixture):
     def test_empty_board(self):
         self.assertEqual(self.start(self.author_home),
                          "academy: author@t — 0 open tickets to you, "
-                         "0 packets awaiting Roey")
+                         "0 packets awaiting Ada")
 
     def test_decisions_waiting_line(self):
         self.write(os.path.join(self.board, "human", "T-0020-x.md"),
