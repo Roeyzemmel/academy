@@ -232,6 +232,25 @@ class TableTests(unittest.TestCase):
                 self.assertEqual(dt.model_label(name), want)
         self.assertEqual(dt.PRIMARY_MODELS, ("fable", "opus-5.5"))
 
+    def test_primaries_from_workspace_config(self):
+        a = rec("CONFIRMED", model="claude-opus-5-5")
+        self.assertEqual(dt.configured_primaries(), ("fable", "opus-5.5"))   # the default
+        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8") as fh:
+            ws = json.load(fh)
+        path = os.path.join(_WS["dir"].name, "ws-fable-only.json")
+        ws["grading"] = {"primaryModels": ["fable"]}
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(ws, fh)
+        old = os.environ["ACADEMY_WORKSPACE"]
+        os.environ["ACADEMY_WORKSPACE"] = path
+        try:
+            self.assertEqual(dt.configured_primaries(), ("fable",))
+            self.assertFalse(dt.should_launch_b(a))
+            self.assertEqual(dt.decide(a)["outcome"], "degraded")
+        finally:
+            os.environ["ACADEMY_WORKSPACE"] = old
+        self.assertTrue(dt.should_launch_b(a))
+
     def test_plausible_b_never_counts(self):
         r = dt.decide(rec("CONFIRMED"), rec("PLAUSIBLE", run="B"))
         self.assertEqual(r["outcome"], "degraded")

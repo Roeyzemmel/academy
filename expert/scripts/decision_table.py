@@ -1,6 +1,6 @@
 """decision_table.py -- the proof-review decision table, applied mechanically.
 
-    py decision_table.py A.md [B.md|-] [--established id1,id2] [--primary fable,opus-5.5] [--json]
+    py decision_table.py A.md [B.md|-] [--established id1,id2] [--primary M1,M2] [--json]
 
 Takes the verdict records of run A and (optionally) run B -- files landed by
 ``land_verdict.py`` under ``<expert home>/reviews/<ns>/<id>/<pass>/`` or any text
@@ -25,11 +25,11 @@ The table (from the old /paper:verify, in the academy's verdict words):
 
 Mechanical rules applied before the table:
 
-* The primaries are ``PRIMARY_MODELS`` = Fable and Opus 5.5, equal in authority
-  (Roey, 2026-09-24, reconfirmed 2026-09-28); ``--primary`` takes a comma-separated
-  list and defaults to both. A CONFIRMED given on any other model (Sonnet, Haiku, an
-  older Opus, a bare ``opus`` that names no version, or no model at all) is read as
-  PLAUSIBLE (roster-rules.md, "Graders degrade"). Every run's recorded model is kept
+* The primaries are workspace.json's ``grading.primaryModels``, equal in authority
+  (``PRIMARY_MODELS``, Fable and Opus 5.5, when the workspace sets none); ``--primary``
+  takes a comma-separated list instead. A CONFIRMED given on any other model (Sonnet,
+  Haiku, an older Opus, a bare ``opus`` that names no version, or no model at all) is
+  read as PLAUSIBLE (roster-rules.md, "Graders degrade"). Every run's recorded model is kept
   in ``runs[].model``.
 * B present after a non-CONFIRMED A is a process anomaly (B should not have run);
   it is reported, and the outcome is taken from A alone.
@@ -210,7 +210,13 @@ def read_record(path):
 # The table
 # ----------------------------------------------------------------------------
 
-PRIMARY_MODELS = ("fable", "opus-5.5")
+#: the primaries when workspace.json sets no ``grading.primaryModels`` (docs/config.md)
+PRIMARY_MODELS = ac.DEFAULT_PRIMARY_MODELS
+
+
+def configured_primaries(workspace=None):
+    """The grading primaries of the workspace (``grading.primaryModels``)."""
+    return ac.primary_models(workspace)
 
 RE_OPUS_55 = re.compile(r"opus-?5-5(?![0-9])")
 
@@ -238,14 +244,14 @@ def model_label(name):
 
 def _primaries(primary=None):
     if primary is None:
-        primary = PRIMARY_MODELS
+        primary = configured_primaries()
     if isinstance(primary, str):
         primary = [p for p in re.split(r"[,;]", primary) if p.strip()]
     return tuple(sorted({model_label(p) for p in primary if model_label(p)}))
 
 
 def is_primary(model, primary=None):
-    """True when ``model`` is one of the primaries (default ``PRIMARY_MODELS``)."""
+    """True when ``model`` is one of the primaries (default: the configured ones)."""
     lab = model_label(model)
     return bool(lab) and lab in _primaries(primary)
 
@@ -500,8 +506,9 @@ def main(argv=None):
     ap.add_argument("b", nargs="?", default=None, help="run B's verdict file, or - / omitted")
     ap.add_argument("--established", default="",
                     help="comma-separated modulo inputs known to be established")
-    ap.add_argument("--primary", default=",".join(PRIMARY_MODELS),
-                    help="comma-separated primary models (default: fable,opus-5.5)")
+    ap.add_argument("--primary", default=None,
+                    help="comma-separated primary models (default: workspace.json "
+                         "grading.primaryModels, else %s)" % ",".join(PRIMARY_MODELS))
     ap.add_argument("--producer-role", default=None,
                     help="override the namespace-owner lookup for grounds.producer_role")
     ap.add_argument("--json", action="store_true")

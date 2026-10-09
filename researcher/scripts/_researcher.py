@@ -22,9 +22,10 @@ Review records (the experiment-reviewer's final message)
     norm_verdict(v)                     'sound-modulo x' -> ('SOUND MODULO', 'x')
     subject_slug(ref)                   'lab:ew-check' -> 'ew-check'
 Models (roster-rules.md, "Graders degrade")
-    PRIMARY_MODELS                      ('fable', 'opus-5.5'): equal primaries
+    PRIMARY_MODELS                      ('fable', 'opus-5.5'): the default primaries
+    primary_models()                    workspace.json grading.primaryModels, else those
     model_label(name)                   'claude-opus-5-5' -> 'opus-5.5', else the family
-    is_primary(name)                    the name is one of PRIMARY_MODELS
+    is_primary(name)                    the name is one of primary_models()
 """
 
 import os
@@ -70,10 +71,11 @@ STATUS_KINDS = ("claim", "conjecture", "question")
 EXPERIMENT_VERDICTS = ("SOUND", "SOUND MODULO", "GAP", "BROKEN")
 POSITIVE = ("SOUND", "SOUND MODULO")
 
-#: the grader primaries, equal in authority (Roey, 2026-09-24, reconfirmed 2026-09-28).
-#: A positive verdict on any other model (Sonnet, Haiku, an older Opus, a bare "opus"
-#: that names no version) is capped. Kept in step with expert decision_table.py.
-PRIMARY_MODELS = ("fable", "opus-5.5")
+#: the grader primaries, equal in authority, when workspace.json sets no
+#: ``grading.primaryModels``. A positive verdict on any other model (Sonnet, Haiku, an
+#: older Opus, a bare "opus" that names no version) is capped. Kept in step with expert
+#: decision_table.py.
+PRIMARY_MODELS = ac.DEFAULT_PRIMARY_MODELS
 RE_OPUS_55 = re.compile(r"opus-?5-5(?![0-9])")
 
 
@@ -95,9 +97,14 @@ def model_label(name):
     return n
 
 
-def is_primary(name):
-    """True when ``name`` is one of ``PRIMARY_MODELS``."""
-    return model_label(name) in PRIMARY_MODELS
+def primary_models(workspace=None):
+    """The configured primaries as model labels (``grading.primaryModels``)."""
+    return tuple(model_label(m) for m in ac.primary_models(workspace))
+
+
+def is_primary(name, workspace=None):
+    """True when ``name`` is one of the configured primaries."""
+    return model_label(name) in primary_models(workspace)
 
 
 # ----------------------------------------------------------------------------
