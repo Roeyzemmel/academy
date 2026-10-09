@@ -23,6 +23,8 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `session_start.py` | the SessionStart hook | (no arguments; reads the hook event) |
 | `ship.py` | inbox `--check` (checkpoint hook), board `sync`, sessions at a workspace root | `[--workspace DIR] status` · `start <sub> <topic>` · `commit\|ship <sub> -m MSG (--paths P...\|--all)` · `push <sub>` · `checkpoint --ticket T [--role R] [--title T] [--only SUB...]` · (the human's) `merge`, `publish`, `accept-baseline`; `docs/branching.md`. A workspace runs it through its `scripts/ship.py` shim |
 | `workspace_bootstrap.py` | a workspace's `scripts/bootstrap.py` shim, `cloud-setup.sh` | `[--workspace DIR] [--no-submodules] [--no-plugins] [--strict] [--adopt-siblings]`: writes `workspace.json`, the environment and the permission rules (`templates/workspace/`) |
+| `cowork.py` | cowork, desk, inbox | `new SLUG --goal G [--agents A]` (the plan `<board>/cowork/<slug>.md`) · `status SLUG [--json]` (state from the tagged tickets: ACTIVE, WAITING, PAUSE, DONE) · `list [--kind cowork\|campaign\|all] [--json]` (the active workplans; exit 1 none); the mechanics are `academy/lib/workplan.py` |
+| `role_write_guard.py` | the PreToolUse hook (Edit/Write) | (hook: `permissions.json` `files.cross_role`; roster-rules.md, "Role cut") |
 
 `board.py new` requires `--as <instance>` (the main session inside a home files as
 `<instance>`, agent `main`; `--agent <name>` names another agent) and applies the

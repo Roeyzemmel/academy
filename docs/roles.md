@@ -7,6 +7,12 @@ effort and fallback are in its file's frontmatter, and the fallback rule (with t
 graders' two equal primaries, Fable and Opus 5.5) is
 `academy/references/roster-rules.md`, "Model fallback".
 
+**The role cut.** What each role writes, never writes and hands off to whom is one
+table, `academy/references/roster-rules.md` ("Role cut"): the Researcher proves and the
+Author only lands; nobody edits a pinned statement; hypothesis-level findings go to the
+Researcher; each role files as itself; no role does another role's work. Every role and
+agent prompt points to it.
+
 **The ticket chain.** Tickets between role plugins go only to a neighbour in
 `[author, expert, researcher, scientist]`, filed by a liaison of that direction; a
 request that crosses a middle plugin carries `final_to` and is forwarded by that
@@ -27,6 +33,8 @@ for the home they run in. It has no README; its agents are:
 | `secretary` | Behind `/academy:decide`: phrases pending-decision batches in plain language; read-only, records nothing |
 
 Skills: `desk`, `board`, `review`, `decide`, `deep-dive`, `status`, `init`, `usage`,
+`inbox`, `cowork` (the human leads, the main session orchestrates:
+`academy/references/orchestrator.md`),
 and the best-practice skills `rigor`, `status-vocabulary`, `citation-discipline`,
 `notation-discipline`, `honest-reporting`.
 
@@ -58,10 +66,16 @@ a request for the Expert or the Author goes to the Researcher with `final_to`.
   the commissioning agent never grades.
 - The read-only group (`explainer`, `clerk`, `secretary`, and the graders) calls no
   write tool. A grader's verdict reaches the files through a SubagentStop hook;
-  `secretary` never writes at all, and `/academy:decide` is the only caller of
-  `AskUserQuestion` and the only one that records an answer.
+  `secretary` never writes at all, and `/academy:decide` is the only one that
+  records a packet answer. `AskUserQuestion` is asked only from the main session
+  (`/academy:decide`, the desk, and `/academy:cowork`, whose orchestrator brings every
+  decision to the human).
 - Proofs reach `proved` / `proved-modulo` only through two agreeing proof reviews;
   computations reach `supported` / `refuted` / `refuted-as-stated` only, never
   `proved`.
 - An agent of a role plugin acts only for an instance of its own role
   (`docs/protocol.md` section 1).
+- Work for another role is a ticket, never an inline run of that role's agents: a
+  campaign (`/researcher:campaign`, led by the Researcher) and a cowork
+  (`/academy:cowork`, led by the human with the main session as orchestrator,
+  `academy/references/orchestrator.md`) both file tickets and wait for the next actor.

@@ -434,6 +434,33 @@ class ApproachTests(Workspace):
         set_refs(self.B, "T-0001", ["s9:AP-1"], status="blocked", waiting_on=["T-0002"])
         self.assertFalse(self.nb.approach_status(store)["pause"])
 
+    def test_status_tells_waiting_on_another_actor_from_pause(self):
+        """WAITING (tickets out with another role's next actor) is not PAUSE (a human
+        decision): academy/lib/workplan.py, from the tickets."""
+        self.put_approach("AP-1")
+        self.put_approach("AP-2")
+        self.put_direction("D-1", "AP-1")
+        self.put_direction("D-2", "AP-2")
+        store = ac.FileBoardStore(self.B)
+        st = self.nb.approach_status(store)
+        self.assertEqual("ACTIVE", st["state"])                     # nothing out: work
+        ticket(self.B, "scientist@t", "T-0001")
+        ticket(self.B, "expert@t", "T-0002")
+        set_refs(self.B, "T-0001", ["s9:AP-1"])
+        set_refs(self.B, "T-0002", ["s9:D-2"])
+        st = self.nb.approach_status(store)
+        rows = {r["approach"]: r for r in st["approaches"]}
+        self.assertEqual("WAITING", rows["s9:AP-1"]["state"])
+        self.assertEqual(["T-0001"], rows["s9:AP-1"]["waiting_tickets"])
+        self.assertEqual(("WAITING", False), (st["state"], st["pause"]))
+        rc, out, _ = self.run_script("notebook.py", "approach", "status", "--board", self.B)
+        self.assertIn("WAITING: every active approach waits", out)
+        self.assertNotIn("PAUSE:", out)
+        set_refs(self.B, "T-0002", ["s9:D-2"], status="blocked", waiting_on=["human"])
+        rows = {r["approach"]: r for r in self.nb.approach_status(store)["approaches"]}
+        self.assertEqual("PAUSE", rows["s9:AP-2"]["state"])
+        self.assertEqual("WAITING", self.nb.approach_status(store)["state"])
+
     # -- P2, P3: tickets of an approach, through the store; moves ----------------------------
     def seed_tickets(self):
         self.put_approach("AP-1")

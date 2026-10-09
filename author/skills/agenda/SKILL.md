@@ -5,8 +5,8 @@ description: 'Maintain the paper''s agenda (Drafts/agenda.md): results in paper 
 
 # /author:agenda
 
-`$ARGUMENTS` is one of `status` (default), `check`, `gaps`, `milestones`, `edit
-<what>`. Formats: `${CLAUDE_PLUGIN_ROOT}/references/formats.md`. Scripts: `$S` =
+`$ARGUMENTS` is one of `status` (default), `check`, `gaps`, `milestones`, `vision
+[<section>]`, `edit <what>`. Formats: `${CLAUDE_PLUGIN_ROOT}/references/formats.md`. Scripts: `$S` =
 `${CLAUDE_PLUGIN_ROOT}/scripts`. Run from the Author home.
 
 ## status: refresh the generated column
@@ -46,6 +46,26 @@ them first, `--campaign TARGET` to tag them for a campaign; to file a subset, fi
 <ns>:<label> --refs <claim id> ...`). Filing is idempotent (a filed gap has a ticket,
 so it is no longer a gap) and starts no work: `/author:inbox` picks the tickets up in
 agenda order (budget.md rule 3). `milestones` and `show` list each entry's tickets.
+
+## vision: the aesthetic pass
+
+The Author owns the paper's form and taste (`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`;
+this paper's own taste is `Drafts/vision.md`). One section per run: the one named, else
+the first section holding an entry of the next milestone. Launch one `math-editor` in
+**vision mode** with the section file, `Drafts/vision.md` and the pinned list
+(`py $S/pinned.py`); it returns at most five proposals, each with its owner. Show them
+and ask Roey with `AskUserQuestion` which to file (all / a subset / none).
+
+Filing, as the role cut says (`${CLAUDE_PLUGIN_ROOT}/../academy/references/roster-rules.md`,
+"Role cut"): an `author` proposal is a `write` or `apply` ticket to this Author; a
+`researcher` one (a different statement, a unifying lemma, a cleaner definition) is a
+`research` ticket to the Expert with `final_to: researcher`, which must pass
+`routes.check_filed`; an `expert` one is a `notation` ticket; a `human` one is a line
+in the report. A proposal touching a pinned statement (`py $S/pinned.py`) is never an
+Author ticket. Skip a proposal already ticketed. Nothing is edited during the pass.
+
+If `Drafts/vision.md` is missing, say so and stop: `/academy:init` scaffolds it, or copy
+`${CLAUDE_PLUGIN_ROOT}/templates/vision.md`; its content is the human's to state.
 
 ## milestones
 

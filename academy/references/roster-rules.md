@@ -28,6 +28,46 @@ the ticket protocol is `docs/protocol.md`.
    and the target statement: no other approach's text, status or result. Independence
    comes from the brief, not from concurrency (they run one after another).
 
+## Role cut
+
+Who writes what, and what each role hands off to whom. Every role and agent prompt
+points here; `docs/roles.md` explains the roles and the chain. Five rules, learnt from
+the campaigns:
+
+1. **The Researcher proves; the Author only lands.** Every new argument (a proof, a
+   missing step, a repaired hypothesis, a cleaner formulation) is constructed in a
+   Researcher notebook. The Author organises the paper, asks for what it needs, and
+   lands what was delivered.
+2. **Editors never touch a pinned or verified statement.** A statement whose hash is
+   recorded by a CONFIRMED review run (`author/scripts/pinned.py`) keeps its
+   environment byte for byte; its proof body stays free, since the hash covers the
+   statement only. The `pinned_guard` hook refuses the edit; only the human releases a
+   pin.
+3. **Hypothesis-level findings go to the Researcher.** A review finding that touches a
+   hypothesis or the statement, or needs a new argument, is a `prove` ticket to the
+   Researcher with the falsifier, never an Author `apply` or `write` ticket
+   (`expert/scripts/decision_table.py` `follow_up`).
+4. **Each role files as itself.** A ticket's `from` is the instance whose agent did the
+   work, never `human` on an agent's behalf (per-call instance resolution of the MCP
+   server). Only the main session acting for the human files as `human`.
+5. **No role does another role's work.** Work for another role is a ticket to it, and
+   waits for that role's next actor (its `/<role>:inbox`). A campaign or a cowork never
+   runs another role's agents inline.
+
+| Role | Writes | Never writes | Hands off (ticket kind, to whom) |
+|---|---|---|---|
+| Researcher | notebook objects, proof attempts, directions, journal (`prover`, `lead-researcher`); statuses in any namespace, with grounds (`claim-keeper` only) | tex, a bibliography, library cards, lab code | `verify` / `cite` / `lookup` to the Expert; `experiment` / `test` to the Scientist; a delivered proof the paper needs reaches the Author through the Expert (`paper-liaison`) |
+| Author | the paper's tex outside pinned statements, figures, `Drafts/` (agenda, `vision.md`); lands delivered results; owns form and taste (`author/references/aesthetic-vision.md`) | a new argument, a pinned statement's environment, notebook objects or records in a Researcher home, a status, the bibliography | a missing argument, a hypothesis question, a cleaner formulation: `research` to the Expert with `final_to: researcher`; `verify`, `cite`, `referee` and domain `notation` to the Expert |
+| Expert | the library: cards, `index.md`, the bibliography (`librarian`); review records and decisions (`review-chair`); domain packs | tex, notebook objects, a status; graders write nothing at all | a hypothesis, statement or proof-step GAP: `prove` to the Researcher; a wording-only finding on a paper statement: `question` to the Author; a status: a proposal to the claim-keeper |
+| Scientist | lab code, experiments, results, lab claims (`experimenter`, `developer`) | proofs, tex, notebook objects | a result to review: `review-experiment` to the Researcher; anything for the Expert or Author: to the Researcher with `final_to` |
+| Human | anything by hand; decides packets; attests; releases a pin; leads a cowork | — | — |
+| Orchestrator (the main session in `/academy:cowork`), campaign lead | the plan file, tickets, the campaign's approach objects (lead) | mathematics, tex or code in another role's remit; a grade; a status | everything, as tickets to the owning role (`academy/references/orchestrator.md`) |
+
+The hooks that make part of this mechanical: `academy:role_write_guard`
+(`permissions.json` `files.cross_role`: an Author agent writes nothing in a Researcher
+home, a Researcher agent edits no tex), `author:pinned_guard`, `researcher:status_guard`,
+`author:bib_gate`, and the chain gate on `tickets_create`.
+
 ## Explaining is not grading
 
 `explainer` and `clerk` are read-only. They report the status the registry holds and

@@ -21,6 +21,8 @@ Steps (each reported on stdout, nothing committed):
    ``objects/<kind>/`` for every object kind, ``proofs/``, ``journal/``,
    ``audits/``, ``views/``, each with a ``.gitkeep``, plus a short
    ``objects/README.md``. Existing files are never overwritten.
+   For an author, scaffold ``Drafts/vision.md`` (the paper's form and taste) from
+   ``author/templates/vision.md`` unless it exists.
 4. Unless ``--no-board``, create the board folder ``<board>/<instance>/`` with a
    ``.gitkeep``, so tickets can be addressed to it.
 
@@ -44,6 +46,9 @@ except ImportError:  # vendored copy
     import _academy as ac  # noqa: E402
 
 TEMPLATES = os.path.join(PLUGIN, "templates", "academy-json")
+#: the Author's vision scaffold (author/references/aesthetic-vision.md), beside this plugin
+VISION_TEMPLATE = os.path.join(os.path.dirname(PLUGIN), "author", "templates", "vision.md")
+VISION_REL = os.path.join("Drafts", "vision.md")
 OBJECT_KINDS = ("definition", "claim", "conjecture", "question", "example",
                 "assumption", "direction", "approach")
 NOTEBOOK_DIRS = ("proofs", "journal", "audits", "views")
@@ -170,6 +175,17 @@ def scaffold_notebook(home):
     return made
 
 
+def scaffold_vision(home, instance):
+    """Write ``Drafts/vision.md`` from the Author template unless it exists; returns the
+    path written, or None (present, or no template beside this plugin)."""
+    path = os.path.join(home, VISION_REL)
+    if os.path.exists(path) or not os.path.isfile(VISION_TEMPLATE):
+        return None
+    with open(VISION_TEMPLATE, encoding="utf-8") as fh:
+        text = fh.read().replace("{{instance}}", instance)
+    return path if _touch(path, text) else None
+
+
 def init_instance(instance, home, domains, ns=None, workspace_path=None, board=True,
                   force=False, dry_run=False, expert=None, scientist=None):
     """Run the four steps; returns a list of report lines."""
@@ -190,6 +206,8 @@ def init_instance(instance, home, domains, ns=None, workspace_path=None, board=T
             lines.append("would write %s/.gitattributes" % home)
         if role == "researcher":
             lines.append("would scaffold the notebook under %s" % home)
+        if role == "author" and not os.path.exists(os.path.join(home, VISION_REL)):
+            lines.append("would write %s/%s" % (home, VISION_REL.replace("\\", "/")))
         if board:
             lines.append("would create %s" % board_dir.replace("\\", "/"))
         return lines
@@ -207,6 +225,10 @@ def init_instance(instance, home, domains, ns=None, workspace_path=None, board=T
     if role == "researcher":
         made = scaffold_notebook(home)
         lines.append("notebook: %d file(s) created" % len(made))
+    if role == "author":
+        made = scaffold_vision(home, instance)
+        lines.append("vision: %s" % ("wrote " + made.replace("\\", "/") if made
+                                     else "present, left alone"))
     if board:
         if _touch(os.path.join(board_dir, ".gitkeep")):
             lines.append("board: created %s" % board_dir.replace("\\", "/"))

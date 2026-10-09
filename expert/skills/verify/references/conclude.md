@@ -107,16 +107,21 @@ LF, Markdown, written by you:
    grounds: <the script's grounds object>, refs: [<ticket>, <packet>]}`. This files a
    decision ticket to the claim-keeper; it sets nothing. Never call
    `claims_set_status`.
-3. **Follow-ups**, from the script's `file_items`: for each `repair` or
-   `verify-input`, one ticket (`tickets_create`) to the instance that owns the
-   statement or input:
-   - a repair to a notebook claim (an `s1:`-type claim): kind `prove`, to its
-     Researcher;
-   - a write-up repair to a `paper:` claim: kind `question`, to the Author, a
-     neighbour;
+3. **Follow-ups**, from the script's `file_items`: every item carries its `route`
+   (`kind`, `to_role`, `final_to`, `gap_class`), computed by the role cut
+   (`academy/references/roster-rules.md`, rule 3). File one ticket (`tickets_create`)
+   per item, as routed; never re-route one by your own reading:
+   - a `hypothesis`, `statement` or `proof` finding, on any claim (a `paper:` claim
+     included): kind `prove`, to the Researcher of the claim's domain, with the
+     falsifier the run gave. **Never an Author `apply` or `write` ticket**: the
+     Researcher proves, the Author only lands what comes back;
+   - a `wording` finding alone: kind `question`, to the statement's owner (the
+     Author for a `paper:` claim). A pinned statement (`author/scripts/pinned.py`)
+     is not edited for wording: the ticket says it waits for the human's batch;
    - a `lab:` claim: to the Researcher with `final_to: scientist`, since the
      Scientist is not a neighbour of the Expert;
    - an input that is itself a proof to review: kind `verify`, back to the Expert;
+   - a counterexample, or runs that disagree on the inputs: to the human;
    - a missing card: kind `cite`.
 
    Each ticket says where the defect lives, what exactly is missing, the repair both

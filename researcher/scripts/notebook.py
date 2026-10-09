@@ -30,8 +30,10 @@ Usage (from a Researcher home, or with --home):
                                                     store; --held: open tickets of a blocked,
                                                     dropped or delivered approach (skip them)
     py notebook.py approach status [--board DIR] [--json]
-                                                    per approach: lifecycle, waiting on a
-                                                    decision, tickets; whether to pause
+                                                    per approach: lifecycle, state (ACTIVE,
+                                                    WAITING on another role's next actor,
+                                                    PAUSE on a human decision, DONE),
+                                                    tickets; the campaign's state
     py notebook.py campaign-check --rounds N --agents M [--runs K --profile P] [--cloud]
                                                     validate and normalize the campaign caps
     py notebook.py attempt ID [--create] [--by WHO]  path of the next proof attempt
@@ -61,6 +63,32 @@ sys.path.insert(0, HERE)
 
 import _academy as ac  # noqa: E402
 import _researcher as rs  # noqa: E402
+
+
+def import_workplan():
+    """academy/lib/workplan.py (the shared campaign/cowork mechanics), found as
+    ``_board_module`` finds board.py: ``$ACADEMY_ROOT/academy``, then beside this plugin."""
+    try:
+        import workplan
+        return workplan
+    except ImportError:
+        pass
+    import importlib.util
+    cands = [os.path.join(os.environ["ACADEMY_ROOT"], "academy")] \
+        if os.environ.get("ACADEMY_ROOT") else []
+    cands.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "academy"))
+    for c in cands:
+        path = os.path.join(c, "lib", "workplan.py")
+        if os.path.isfile(path):
+            spec = importlib.util.spec_from_file_location("workplan", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            sys.modules["workplan"] = mod
+            return mod
+    raise ac.AcademyError("academy/lib/workplan.py not found (set ACADEMY_ROOT)")
+
+
+wp = import_workplan()
 
 SCAFFOLD = os.path.join(rs.TEMPLATES, "notebook")
 TEMPLATE_DIR = os.path.join(SCAFFOLD, "_templates")
@@ -489,21 +517,29 @@ class Notebook(object):
         return out
 
     def approach_status(self, store):
-        """Per approach: lifecycle, directions, open tickets and ``waiting_on_decision``:
-        true when any of its tickets is blocked with ``human`` in ``waiting_on`` (derived
-        from the tickets, never hand-kept). ``pause`` is true when there is an active
-        approach and every active approach waits on a decision."""
+        """Per approach: lifecycle, directions, open tickets, ``waiting_on_decision``
+        (any of its tickets blocked with ``human`` in ``waiting_on``) and ``state``
+        (academy/lib/workplan.py, from its tickets, never hand-kept): ``WAITING`` when
+        its tickets are out with another role's next actor and nothing is the lead's,
+        ``PAUSE`` when it waits on a human decision, else ``ACTIVE``. ``state`` of the
+        campaign combines the active approaches; ``pause`` is true when every active
+        approach waits on a decision."""
         rows = []
         for a in self.objects("approach"):
             ts = self.approach_tickets(a["id"], store, OPEN_STATES + ("blocked",))
             wait = [t["id"] for t in ts if t["status"] == "blocked"
                     and "human" in [str(w) for w in (t["waiting_on"] or [])]]
+            st = wp.group_state(ts, lead=self.instance, pause_on_any=True)
             rows.append({"approach": a["ref"], "lifecycle": a["lifecycle"],
                          "directions": [m["ref"] for m in self.approach_members(a["id"])],
                          "open_tickets": [t["id"] for t in ts if t["status"] in OPEN_STATES],
-                         "waiting_on_decision": bool(wait), "decision_tickets": wait})
+                         "waiting_on_decision": bool(wait), "decision_tickets": wait,
+                         "state": st["state"] if a["lifecycle"] == "active"
+                         else a["lifecycle"].upper(),
+                         "waiting_tickets": st["out"]})
         active = [r for r in rows if r["lifecycle"] == "active"]
         return {"approaches": rows,
+                "state": wp.combine([r["state"] for r in active]) if active else "DONE",
                 "pause": bool(active) and all(r["waiting_on_decision"] for r in active)}
 
     # -- writing -----------------------------------------------------------
@@ -711,13 +747,17 @@ def _approach_cmd(nb, args):
             print(json.dumps(st, ensure_ascii=False, indent=1))
         else:
             for r in st["approaches"]:
-                print("%-14s %-10s waiting-on-decision: %-3s open tickets: %s"
-                      % (r["approach"], r["lifecycle"],
+                print("%-14s %-10s %-8s waiting-on-decision: %-3s open tickets: %s"
+                      % (r["approach"], r["lifecycle"], r["state"],
                          "yes" if r["waiting_on_decision"] else "no",
                          ", ".join(r["open_tickets"]) or "-"))
             if st["pause"]:
                 print("PAUSE: every active approach waits on a human decision "
                       "(/academy:decide)")
+            elif st["state"] == "WAITING":
+                print("WAITING: every active approach waits on tickets out with another "
+                      "role's next actor (its /<role>:inbox --campaign); nothing for the "
+                      "lead until they move")
         return 0
     if args.action == "tickets":
         if args.held:
@@ -775,25 +815,14 @@ def campaign_caps(rounds=None, agents=None, runs=None, profile="", cloud=False, 
     driver (the main session) enforces the caps it is given. ``cloud`` (or one of
     ``CLOUD_ENV`` set) forces ``runs`` to 0; ``runs`` > 0 needs ``profile``."""
     env = os.environ if env is None else env
-    for name, v in (("--rounds", rounds), ("--agents", agents)):
-        if v is None:
-            raise ac.AcademyError("%s is required: stop and ask (suggest 3 rounds, 4 agents)"
-                                  % name)
-        if v < 1:
-            raise ac.AcademyError("%s must be at least 1" % name)
-    runs = 0 if runs is None else runs
-    if runs < 0:
-        raise ac.AcademyError("--runs must not be negative")
     in_cloud = bool(cloud) or any(str(env.get(k, "")).lower() in ("1", "true", "yes")
                                   for k in CLOUD_ENV)
-    forced = in_cloud and runs > 0
-    if forced:
-        runs = 0
-    if runs > 0 and not profile:
-        raise ac.AcademyError("--runs %d needs --profile (the one lab profile to queue on)"
-                              % runs)
-    return {"rounds": rounds, "agents": agents, "runs": runs,
-            "profile": profile or None, "cloud": in_cloud, "runs_forced_to_zero": forced}
+    try:
+        c = wp.caps("campaign", rounds, agents, runs, profile, in_cloud)
+    except wp.WorkplanError as exc:
+        raise ac.AcademyError(str(exc))
+    return {k: c[k] for k in ("rounds", "agents", "runs", "profile", "cloud",
+                              "runs_forced_to_zero")}
 
 
 def main(argv=None):

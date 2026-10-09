@@ -1,5 +1,7 @@
 # scientist — the lab role
 
+Role cut: what each role writes, never writes and hands off, and to whom, is one table, `academy/references/roster-rules.md` ("Role cut").
+
 The academy's coding department (plan sections 3.5 and 3.6): experiments with
 provenance, the lab's code, its tests, upstream drafts, and API checks. One instance
 per lab home. Generic

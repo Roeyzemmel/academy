@@ -22,7 +22,8 @@ config fields are `docs/config.md`; the notebook layout is plan section 3.3.
 5. **Check.** `py $S/academy_status.py --instances-only`; the new instance must read
    `ok`.
 6. **Tell Roey** what is left by hand: the role-specific settings the template leaves
-   generic (an Author's coauthor note macros, CRLF files, checker baseline; a
+   generic (an Author's coauthor note macros, CRLF files, checker baseline, and the
+   human's taste in the scaffolded `Drafts/vision.md`, `author/references/aesthetic-vision.md`; a
    Scientist's environment profiles and `knownCases`; an Expert's `bibs`), editing
    the home's `CLAUDE.md` to point at `.claude/academy.json`, and committing the new
    files in the home (he commits). If the home already had files before the new

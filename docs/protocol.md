@@ -205,6 +205,7 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 | `parent` | ticket id \| empty | no | sender | The ticket this one was spawned from |
 | `final_to` | role \| instance \| empty | no | sender | The role (or instance) the request is really for; set on relayed tickets; a receiver whose role is not `final_to` hands the ticket to its relay |
 | `campaign` | registry id \| empty | no | sender | The target of the campaign this ticket belongs to; `inbox.py --campaign <target>` lists only such tickets. Omitted unless set |
+| `cowork` | slug \| empty | no | sender | The cowork this ticket belongs to (`/academy:cowork`, plan `<board>/cowork/<slug>.md`); `inbox.py --cowork <slug>` lists only such tickets. At most one of `campaign` and `cowork`. Omitted unless set |
 | `blocks` | list of ticket ids | no | sender (server mirrors) | Tickets waiting on this one |
 | `waiting_on` | list of ticket ids, instances or `human` | iff `blocked` | receiver | What the receiver waits for |
 | `budget` | map `{runs: int >= 1}`, optionally `max_model: fable\|opus\|sonnet\|haiku` | yes | sender | Agent runs allowed; default `runs` from `academy.json` `budget.ticketDefault`. The model is not the sender's: an agent runs on its agent file's `model:`. `max_model`, if given, is an advisory note and never blocks a route |
@@ -407,8 +408,9 @@ fatal: anything that goes wrong is one warning line on stderr, and the exit code
 checkpoint live once, in the academy library (`inbox_core` in `academy_common.py`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
-`--campaign <target>` lists only tickets carrying `campaign: <target>` and lifts the cap
-of 3 on its own (a campaign has its own caps; `--n` still lowers it). An in-progress ticket
+`--campaign <target>` (and `--cowork <slug>`, the same way, for a cowork's tickets;
+the shared state mechanics are `academy/lib/workplan.py`) lists only tickets carrying
+`campaign: <target>` and lifts the cap of 3 on its own (a campaign has its own caps; `--n` still lowers it). An in-progress ticket
 of the instance outside the campaign is not listed but is reported in `unfinished` (and as
 `outside_campaign` in `--json`): resume it first. `/academy:inbox` runs every instance in turn
 (Author, Expert, Researcher, Scientist) under one cap. Each ticket

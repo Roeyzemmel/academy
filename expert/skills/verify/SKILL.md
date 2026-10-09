@@ -57,6 +57,10 @@ as PLAUSIBLE.
 - **A recolouring** is the Author's edit, never the Expert's: the ticket result says
   "recolour earned" and the sending Author instance's `math-editor` makes it when its
   next run closes the ticket.
+- **A repair** goes where the script's `route` sends it (`academy/references/roster-rules.md`,
+  "Role cut"): a hypothesis, statement or proof-step finding is a `prove` ticket to the
+  Researcher with the falsifier, for a `paper:` claim too; never an Author `apply` or
+  `write` ticket. Only a wording finding goes back to the statement's owner.
 - **A counterexample** (DISPROVED) goes to Roey at once: relay it in full.
 - The status itself moves only when the claim-keeper accepts the proposal ticket the
   chair filed (`claims_propose_status`).

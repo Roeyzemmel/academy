@@ -47,20 +47,25 @@ happen again.
 ## Campaigns
 
 The one place the campaign rules are stated (`/researcher:campaign` and its dispatch
-reference point here). A campaign runs under caps Roey sets per invocation:
+reference point here). A campaign is autonomous and led by the Researcher; it reaches
+other roles only by tickets tagged `campaign: <target>` and waits for their next actor
+(roster-rules.md, "Role cut"). It runs under caps the human sets per invocation:
 
 - `--rounds N` (required): the campaign ends after N rounds.
-- `--agents M` (required): subagent runs per round, provers and dispatched tickets
-  together. Reaching M **ends the round, not the campaign**: what is left waits for the
-  next round. Tickets filed are reported, not counted.
+- `--agents M` (required): subagent runs per round, provers and the Researcher's own
+  ticket runs together. Reaching M **ends the round, not the campaign**: what is left
+  waits for the next round. Tickets filed are reported, not counted; a ticket out with
+  another role costs the campaign nothing while it waits.
 - `--runs K` (default 0): lab runs preapproved on `--profile`. **K is 0 unless given, and
   forced to 0 in a cloud session** (the workspace rule against heavy environments).
 
 Without the two required caps it does not start. Inside the caps, and for nothing else:
 
-- **Rule 3 is suspended** for dispatching tickets through the inbox and for lab runs up to
-  `--runs`; rule 1 is replaced by the caps (`inbox.py --campaign` lists without the cut of
-  three).
+- **Rule 3 is suspended** for the Researcher's own work on the campaign's tickets
+  (`/researcher:inbox --campaign`) and for lab runs up to `--runs`, preapproved in the
+  experiment tickets; rule 1 is replaced by the caps (`inbox.py --campaign` lists
+  without the cut of three). Another role's tickets start only when that role's inbox
+  runs (its session, or `/academy:inbox --campaign` run by the human).
 - **Rule 2 is never suspended.** Dispatch is one subagent at a time, each checkpointed
   before the next; there is no fan-out, so a limit error loses at most the ticket in hand.
 - **Rule 4 holds**: a limit error ends the campaign with a report. Rules 5 to 9 hold for
@@ -69,8 +74,30 @@ Without the two required caps it does not start. Inside the caps, and for nothin
 **Who enforces the caps.** The driver (the main session), not code: nothing counts
 `--agents`, `--rounds` or `--runs`, or detects a cloud session. `notebook.py
 campaign-check` only validates that the caps are present and normalizes them (forcing
-K to 0 when `--cloud` or the cloud environment variable says so); the driver then keeps
-count.
+K to 0 when `--cloud` or the cloud environment variable says so; the shared validation
+is `academy/lib/workplan.py` `caps`); the driver then keeps count.
+
+## Cowork
+
+`/academy:cowork` is interactive: the human leads, and the main session runs as the
+orchestrator (`academy/references/orchestrator.md`). Its caps:
+
+- `--agents A` (default 1) **binds**: at most A tickets in flight at once, independent
+  ones only, each released in dependency order. With A = 1 the cowork is serial.
+- Everything else is **advisory**: the cost estimate of the seeding step (tasks x runs
+  x average tokens from `usage_report.py`) is shown to the human before any dispatch,
+  and the human decides how far to go. There is no round cap.
+
+Inside a cowork, for the tickets carrying its tag and nothing else:
+
+- **Rule 1 is replaced** by the human's go-ahead on each batch (`inbox.py --cowork`
+  lists without the cut of three), and **rule 3 is suspended** only for running the
+  next actor of a released ticket, which the human approved with the plan.
+- **Rule 2 holds per ticket**: each ticket is checkpointed (`--check`, `ship.py
+  checkpoint`) before its dependants are released; with `--agents` above 1, independent
+  tickets may be in flight together.
+- **Rules 4 to 9 hold**: a limit error stops the cowork with a note in the plan file;
+  only the main session asks the human (rule 5), and that is its job here.
 
 ## Measuring
 

@@ -296,6 +296,27 @@ class InitInstanceTest(Sandbox):
                                             workspace_path=self.ws_path, force=True)
         self.assertTrue(any("present" in l for l in lines))
 
+    def test_author_scaffold_writes_the_vision_file_once(self):
+        home = os.path.join(self.tmp, "Paper")
+        os.makedirs(home)
+        lines = init_instance.init_instance("author@pp", home, ["dom"], ns="pp",
+                                            workspace_path=self.ws_path)
+        path = os.path.join(home, "Drafts", "vision.md")
+        self.assertTrue(any(l.startswith("vision: wrote") for l in lines), lines)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("# Vision: author@pp", text)
+        self.assertNotIn("{{", text)
+        for head in ("## The arc", "## Statements", "## Proofs", "## Decisions log"):
+            self.assertIn(head, text)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("kept\n")
+        lines = init_instance.init_instance("author@pp", home, ["dom"], ns="pp",
+                                            workspace_path=self.ws_path, force=True)
+        self.assertIn("vision: present, left alone", lines)
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual("kept\n", fh.read())
+
     def test_gitattributes(self):
         home = os.path.join(self.tmp, "Attrs")
         os.makedirs(home)
@@ -370,7 +391,7 @@ class AcademyStatusTest(Sandbox):
 
 class AsHumanLintTests(unittest.TestCase):
     ALLOWED = {os.path.join("academy", "skills", s, "SKILL.md")
-               for s in ("board", "desk", "decide")}
+               for s in ("board", "desk", "decide", "cowork")}
     PATTERN = re.compile(r"as_human|--as\s+human")
 
     def test_only_board_desk_decide_file_as_human(self):
@@ -391,8 +412,10 @@ class AsHumanLintTests(unittest.TestCase):
                             if rel not in self.ALLOWED and rel != os.path.join(
                                     "academy", "scripts", "board.py"):
                                 bad.append(rel)
-        self.assertEqual(bad, [], "only /academy:board, desk and decide file as human")
-        self.assertTrue(self.ALLOWED <= seen, "the three skills must say --as human")
+        self.assertEqual(bad, [], "only /academy:board, desk, decide and cowork (the "
+                                  "orchestrator, after the human approved the plan) "
+                                  "file as human")
+        self.assertTrue(self.ALLOWED <= seen, "the four skills must say --as human")
 
 
 class ChainDocsTests(unittest.TestCase):
