@@ -1,6 +1,7 @@
 # researcher — the research-notebook role
 
 Role cut: what each role writes, never writes and hands off, and to whom, is one table, `academy/references/roster-rules.md` ("Role cut").
+Notebook editing contract: `references/notebook-editing.md`.
 
 One Researcher instance per research domain (plan section 3.3; the instances are in
 `workspace.json`). The instance's home is a notebook: typed objects under

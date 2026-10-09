@@ -1,5 +1,5 @@
 {
-  "_about": "Permission rules that name machine paths. The academy's workspace bootstrap (academy/scripts/workspace_bootstrap.py, run through a workspace's scripts/bootstrap.py shim) renders them into each home's git-ignored .claude/settings.local.json (Claude Code cannot expand variables inside settings.json rules), after merging the workspace's own workspace.permissions.json (same keys; its rules are appended). Placeholders: {EACH_HOME} expands to one rule per home of the workspace, {ROOT} academy repo, {WORKSPACE} the workspace root (where the scripts/ship.py shim lives), {BOARD}, {LIBRARY}, {SCIENTIST} scientist home, {AUTHOR} author home, {USER} the user's home directory. A 'Bash(py ...)' rule also gets its PowerShell twin (forward slashes become backslashes), and one whose script path is relative a second, forward-slash PowerShell twin; 'PS:' rules are PowerShell-only. The key 'workspace' is rendered, alone (not with 'common'), into the workspace root's own settings.local.json: the safe scripts/ship.py verbs (merge, publish and accept-baseline are deliberately absent, so they always prompt), in the absolute form and in the relative form a session at the root types. 'Read(...)' and 'Edit(...)' paths are written in the //c/... form.",
+  "_about": "The permission rules of every home, per role ('common' for all homes, then the role's key): the ones that name machine paths, and the role's generic read-only and build rules (homes keep in their tracked settings.json only what is theirs). The academy's workspace bootstrap (academy/scripts/workspace_bootstrap.py, run through a workspace's scripts/bootstrap.py shim) renders them into each home's git-ignored .claude/settings.local.json (Claude Code cannot expand variables inside settings.json rules), after merging the workspace's own workspace.permissions.json (same keys; its rules are appended). Placeholders: {EACH_HOME} expands to one rule per home of the workspace, {ROOT} academy repo, {WORKSPACE} the workspace root (where the scripts/ship.py shim lives), {BOARD}, {LIBRARY}, {SCIENTIST} scientist home, {AUTHOR} author home, {USER} the user's home directory. A 'Bash(py ...)' rule also gets its PowerShell twin (forward slashes become backslashes), and one whose script path is relative a second, forward-slash PowerShell twin; 'PS:' rules are PowerShell-only. The key 'workspace' is rendered, alone (not with 'common'), into the workspace root's own settings.local.json: the safe scripts/ship.py verbs (merge, publish and accept-baseline are deliberately absent, so they always prompt), in the absolute form and in the relative form a session at the root types. 'Read(...)' and 'Edit(...)' paths are written in the //c/... form.",
   "workspace": [
     "Bash(py {WORKSPACE}/scripts/ship.py status:*)",
     "Bash(py {WORKSPACE}/scripts/ship.py start:*)",
@@ -26,9 +26,14 @@
     "Read({EACH_HOME}/**)",
     "Read({BOARD}/**)",
     "Read({LIBRARY}/**)",
-    "Read({USER}/.claude/skills/**)"
+    "Read({USER}/.claude/skills/**)",
+    "Bash(git grep *)",
+    "Bash(git diff *)",
+    "Bash(git status*)",
+    "Bash(git log *)"
   ],
   "scientist": [
+    "mcp__plugin_academy_academy",
     "Bash(py {ROOT}/scientist/scripts/check_experiments.py:*)",
     "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home . queue list)",
     "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home . queue check)",
@@ -45,11 +50,17 @@
     "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home {SCIENTIST} queue tick)",
     "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home {SCIENTIST} queue log:*)",
     "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home {SCIENTIST} vpn:*)",
+    "PS:PowerShell(py {ROOT}/scientist/scripts/env.py --home {SCIENTIST} gateway:*)",
     "Bash(PYTHONIOENCODING=utf-8 py {ROOT}/academy/scripts/registry.py *)"
   ],
   "author": [
     "Bash(py {ROOT}/author/scripts/check_paper.py*)",
     "Bash(py {ROOT}/academy/scripts/registry.py*)",
-    "Read({SCIENTIST}/**)"
+    "Read({SCIENTIST}/**)",
+    "Bash(latexmk -pdf main.tex)",
+    "Bash(latexmk -pdf -g main.tex)",
+    "Bash(latexmk -pdf -interaction=nonstopmode main.tex)",
+    "Bash(pdftotext *)",
+    "Bash(pdftoppm *)"
   ]
 }

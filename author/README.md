@@ -54,7 +54,9 @@ the Scientist is a `research` ticket to the Expert with `final_to`, which the Ex
 `research-intake` relays. Which agents may file to the Expert is `academy/permissions.json`
 `tickets.edges`, described in `docs/protocol.md` section 5.1.
 
-Scripts and formats: `references/scripts.md`, `references/formats.md`. Tests:
+Scripts and formats: `references/scripts.md`, `references/formats.md`; what the Author
+delegates to the Expert and the Scientist: `references/delegation.md`; tex mechanics and
+colours: `skills/paper-method/references/editing-tex.md`, `draft-colours.md`. Tests:
 `py -m unittest discover -s author/tests -t author/tests` from the academy repo.
 
 ## Skills

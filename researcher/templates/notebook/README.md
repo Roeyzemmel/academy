@@ -49,3 +49,7 @@ delivered or dropped, with a history row for every change.
 - `audits/` is written by the `land_review` hook; `views/` by scripts. Neither is
   edited by hand.
 - Nothing is deleted: a false claim becomes `refuted`, a replaced one `superseded`.
+
+The full editing contract (frontmatter fields, verbatim bodies, frozen cleared
+statements, superseding, assumptions, directions) is the Researcher plugin's
+`references/notebook-editing.md`.

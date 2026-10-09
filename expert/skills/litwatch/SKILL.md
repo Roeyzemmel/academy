@@ -15,8 +15,11 @@ draft is noticed in a week rather than by a referee. The per-statement search an
 "has this been proved already".
 
 1. **Check the header exists**: `ledgers/<instance>/_header.md` in the library home
-   (keywords, authors, anchor keys, the priority list of statements). If it is
-   missing, say so and stop: the watch has nothing to search with.
+   (the priority list of statements, and the search vocabulary below). The vocabulary
+   is the header's `## Search vocabulary` block or, when the header has none, the one
+   block with that heading under the watched home's `.claude/rules/` (an Author home
+   may keep its paper's vocabulary there). If neither exists, say so and stop: the
+   watch has nothing to search with.
 2. **Dispatch one `related-work-scout`** (`subagent_type: expert:related-work-scout`),
    in the background:
 
@@ -33,6 +36,26 @@ draft is noticed in a week rather than by a referee. The per-statement search an
 3. **Hits worth citing** come back as `cite` requests: relay them; each becomes
    `/expert:cite` or a `cite` ticket when Roey says so. A hit that overlaps a statement
    of the paper is reported first, with the statement's id.
+
+## The search vocabulary block
+
+One block per watched instance, written by whoever owns the paper's or notebook's scope
+(the human or the Author; the scout only proposes drift in its report). Four labelled
+lines, items separated by ` · ` or commas, each optional except `Keywords`:
+
+```markdown
+## Search vocabulary
+
+Keywords: first phrase · second phrase · third phrase · ...
+Authors: Surname, Surname, ...        (searched with a keyword when a keyword alone is too broad)
+Anchors: `KEY1`, `KEY2`, ...          (library keys whose citing lists are worth walking)
+Categories: `math.DS`, `math.GT`      (primary arXiv listings; others in brackets)
+```
+
+`Keywords` are phrases searched one by one; `Authors` narrow a broad keyword; `Anchors`
+are bibkeys of the library (`index.md`), whose recent-citations lists are walked;
+`Categories` are the arXiv listing pages read for new submissions. The scout runs every
+item and says which it ran.
 
 ## Scheduling it
 

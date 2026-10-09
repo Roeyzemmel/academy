@@ -50,6 +50,12 @@ verdict word (Roey's word stands in for the runs, not for the file). An unsettle
 lifecycle target on such a record needs only a `note`. A schema-v2 record takes every
 status word.
 
+An attestation (the human's word on a status) is recorded as the `status-vocabulary`
+skill says: the words verbatim in a verdict file of `kind: attestation` (written by the
+session acting for the human; you only check it exists and quotes them), cited as the
+`verdict_file`, and the `status_note` "attested by the human; not machine-verified".
+You never infer an attestation; without the quoted words, there is none.
+
 A capped verdict (`capped: true` in the landed file), a PLAUSIBLE, a single run, a
 disagreement, or grounds you cannot find: **no status change**. Attach what exists
 as evidence (`claims_attach_evidence`, a row `type | ref | verdict | run_id | note`)
