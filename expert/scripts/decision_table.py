@@ -16,7 +16,7 @@ The table (from the old /paper:verify, in the academy's verdict words):
 | CONFIRMED modulo X | CONFIRMED modulo X (same set) | ``confirmed-modulo``: propose ``proved-modulo``; recolour only if every input in X is established |
 | CONFIRMED (modulo X) | CONFIRMED modulo Y, Y != X | ``disagreement`` |
 | CONFIRMED | GAP | ``disagreement``: no status; file the weaker run's blocking step |
-| DISPROVED (either run) | any | ``disproved``: no status; the counterexample goes to Roey at once |
+| DISPROVED (either run) | any | ``disproved``: no status; the counterexample goes to the human at once |
 | GAP | not run | ``single-negative``: no status; A's blocking step is the repair item; B skipped by design |
 | PLAUSIBLE (either run) | any non-DISPROVED | ``degraded``: a fallback verdict never counts; re-run that run on a primary |
 | two CONFIRMED with a shared run id, differing statement hashes or subjects | | ``invalid-pair``: no status; the pair is not two independent reviews of one statement |
@@ -368,8 +368,9 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
             res["summary"] = "both runs DISPROVED: propose refuted"
         else:
             res["summary"] = ("DISPROVED by run %s: no status change; the counterexample "
-                              "goes to Roey at once" % ", ".join(r.get("run") or "?"
-                                                                 for r in who))
+                              "goes to %s at once"
+                              % (", ".join(r.get("run") or "?" for r in who),
+                                 ac.human_name()))
         return res
 
     if b is None:

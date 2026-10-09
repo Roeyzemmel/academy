@@ -139,6 +139,8 @@ class TableTests(unittest.TestCase):
         self.assertTrue(r["needs_human"])
         self.assertIsNone(r["proposed_status"])
         self.assertEqual(r["file_items"][0]["kind"], "counterexample")
+        # the module's workspace names no human: the generic wording
+        self.assertIn("goes to the human at once", r["summary"])
 
     def test_disproved_in_b_whatever_a_said(self):
         r = dt.decide(rec("CONFIRMED"), rec("DISPROVED", run="B"))

@@ -60,14 +60,23 @@ LAND_ROUTES = {"verify": "math-editor", "cite": "math-editor", "research": "math
                "prove": "math-writer", "experiment": "math-writer"}
 
 
+def _human():
+    """The human's name from workspace.json (``human.name``), else 'the human'."""
+    try:
+        import _academy as ac
+        return ac.human_name()
+    except Exception:       # a routing table must answer even without a workspace
+        return "the human"
+
+
 def route(meta):
     kind = meta.get("kind") or "other"
     if kind in KIND_ROUTES:
         how, target, why = KIND_ROUTES[kind]
         return {"how": how, "target": target, "why": why}
     return {"how": "human", "target": "human",
-            "why": "no Author route for a %s ticket: ask Roey (accept and file a work "
-                   "ticket, reject with a reason, forward)" % kind}
+            "why": "no Author route for a %s ticket: ask %s (accept and file a work "
+                   "ticket, reject with a reason, forward)" % (kind, _human())}
 
 
 def land_route(kind):

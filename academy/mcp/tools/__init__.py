@@ -188,7 +188,7 @@ class Context(object):
 
         An agent files as its instance. The main session files as the home it runs in,
         with agent ``main`` -- a role skill such as /author:inbox is its role -- unless
-        ``as_human`` (only /academy:board, desk and decide pass it, after Roey
+        ``as_human`` (only /academy:board, desk and decide pass it, after the human
         confirms); outside every home it is the human.
         """
         if self.is_human:
@@ -197,7 +197,8 @@ class Context(object):
             name = self.home_instance()
             return (name, ac.MAIN_AGENT) if name else (ac.HUMAN, "")
         if as_human:
-            raise ToolError("as_human is for the main session only (Roey's own tickets)")
+            raise ToolError("as_human is for the main session only (%s's own tickets)"
+                            % ac.human_name())
         return self.instance, self.agent
 
     def my_domains(self):
