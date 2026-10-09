@@ -26,10 +26,9 @@ matter. Disagreement is reported, never averaged.
 3. **Launch one run.** One `experiment-reviewer` agent, with the brief from
    `py $R/reviews.py brief <lab-id> --run <A|B> --report P-NNNN --ticket T-NNNN`, and
    nothing else pasted in. On its primary model; never pass a model override except
-   the named fallback (`fallback:` in its frontmatter), and say so if you do. Fable and
-   Opus 5.5 are equal primaries, so the `opus` fallback (Opus 5.5) counts in full; a
-   verdict on any other model (Sonnet, Haiku, an older Opus) is capped at GAP and
-   cannot clear. When it stops, the
+   the named fallback (`fallback:` in its frontmatter), and say so if you do. The
+   grading primaries (`grading.primaryModels`) are equal, so a fallback that is one of
+   them counts in full; a verdict on any other model is capped at GAP and cannot clear. When it stops, the
    `land_review` hook writes `audits/<lab-id>/<date>-<A|B>.md`.
 4. **Decide.** `py $R/reviews.py decide <lab-id>` again. `need-B`: go back to step 3
    for run B, a fresh agent that is told nothing of A. Otherwise continue. If the run

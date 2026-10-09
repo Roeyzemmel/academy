@@ -52,7 +52,7 @@ statement never rests on a blue or red one. The Author checker enforces the draf
 
 | Proof review (Expert, `rigor-reviewer`) | Meaning |
 |---|---|
-| CONFIRMED | Valid from its stated inputs; cited results used within their real hypotheses; on a primary model (Fable or Opus 5.5, equal) |
+| CONFIRMED | Valid from its stated inputs; cited results used within their real hypotheses; on one of the grading primaries (`grading.primaryModels`), all equal |
 | PLAUSIBLE | No gap found, but on a non-primary model (Sonnet, Haiku, an older Opus) or with reduced strength; never counts toward `proved` |
 | GAP | A step does not follow; the verdict names the step and what would close it |
 | DISPROVED | False, with an explicit verified counterexample |

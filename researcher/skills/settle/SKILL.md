@@ -49,8 +49,8 @@ is the most dangerous kind. Nothing is recorded until it clears.
 4. **Collect.** When the Expert's verification packets come back (a later run: nothing
    waits in a loop), copy each candidate's verdicts into the file (`run`, `verdict`,
    `model`, `run_id`, `packet`). Give `model` as the exact id each run reports
-   (`claude-opus-5-5`, `claude-fable-…`): Fable and Opus 5.5 are equal primaries, and a
-   run on any other model (Sonnet, Haiku, an older Opus) counts as not positive.
+   (e.g. `claude-opus-5-5`): the grading primaries (`grading.primaryModels`) are
+   equal, and a run on any other model counts as not positive.
 5. **Decide and record.** `py $R/settle.py decide <lab-id> --candidates <file>`, then
    `py $R/settle.py record <lab-id> --candidates <file>`, which writes the decision
    record `audits/<lab-id>/<date>-settle.md` (never rewritten; a new pass is a new file).

@@ -42,11 +42,12 @@ knows which are an agent's word.
 - Their verdicts are landed by the `land_verdict` hook as `<pass>/A.md` and
   `<pass>/B.md`. You never write those files, and you write nothing in the pass folder
   until both runs have returned.
-- **No `model` override** while the primary is available. Fable and Opus 5.5 are
-  equal primaries: if Fable is genuinely unavailable you are the launching session;
-  set the override to `opus` (Opus 5.5) and name the substitution in your report and
-  the ticket thread; that run counts in full. A run on any other model (Sonnet, Haiku,
-  an older Opus) the table reads as PLAUSIBLE, and nothing can be proposed on it.
+- **No `model` override** while the agent's model is available. The grading
+  primaries (`grading.primaryModels`) are equal: if the agent's model is genuinely
+  unavailable you are the launching session; set the override to its frontmatter
+  `fallback` and name the substitution in your report and the ticket thread; a run on
+  any primary counts in full. A run on any other model the table reads as PLAUSIBLE,
+  and nothing can be proposed on it.
 - **A limit error stops the pass**: launch nothing further, record which run was
   lost in the ticket thread, report. Any other stall: relaunch once from the same
   brief and record that the kept run is the relaunch.

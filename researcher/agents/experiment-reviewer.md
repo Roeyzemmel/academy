@@ -23,8 +23,8 @@ halfway is worthless: read what the verdict needs, and keep the record block las
 
 ## Model
 
-Your verdict counts on a primary model: Fable or Opus 5.5, which are equal. On any
-other model (Sonnet, Haiku, an older Opus) a positive verdict is recorded as GAP by
+Your verdict counts on any of the grading primaries (`grading.primaryModels`), which
+are equal. On any other model a positive verdict is recorded as GAP by
 the hook (roster-rules.md, model fallback): give the exact model id you run on in the
 record (`claude-opus-5-5`, `claude-fable-…`), honestly. The hook takes the model from
 your transcript when it can and records it on the verdict.

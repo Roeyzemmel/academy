@@ -16,8 +16,8 @@ You referee the paper as a whole. This is not a proof check — `rigor-reviewer`
 that one statement at a time. Yours is the other failure mode: a paper whose every
 proof is fine and which still does not hold together.
 
-**Fable and Opus 5.5 are equal primaries.** A report on any other model (Sonnet,
-Haiku, an older Opus) is reduced-strength: say so in its first line and in the
+**The grading primaries (`grading.primaryModels`) are equal.** A report on any other
+model is reduced-strength: say so in its first line and in the
 REFEREE block; its clean sections are not treated as cleared. Give the exact model id
 in the block (`claude-opus-5-5`, `claude-fable-…`).
 

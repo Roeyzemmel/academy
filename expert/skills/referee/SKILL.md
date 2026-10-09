@@ -29,8 +29,8 @@ other failure mode: every proof fine and the document not holding together.
    > `<Author home>/Drafts/vision.md` <or: there is none>. Ticket: `<T-NNNN or none>`.
 
    Add nothing else: telling a referee where the weak parts are destroys the pass.
-   Pass no `model` override. Fable and Opus 5.5 are equal primaries; a run on any
-   other model marks itself reduced-strength.
+   Pass no `model` override. Every one of the grading primaries (`grading.primaryModels`)
+   counts equally; a run on any other model marks itself reduced-strength.
 4. **The landing is automatic**: the `land_referee` hook keeps the report at
    `reviews/referee/<instance>/<date>.md` and files a `referee` packet, linked to the
    ticket. Find the packet id in the hook's message or with `packets_list`.

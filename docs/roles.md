@@ -4,7 +4,7 @@ Plan section 3. The roster that the code enforces is `academy/permissions.json`
 (`roster`, `groups`, `tools`); this page explains it. Each role plugin's `README.md`
 lists its agents with their jobs, its skills, scripts and hooks; each agent's model,
 effort and fallback are in its file's frontmatter, and the fallback rule (with the
-graders' two equal primaries, Fable and Opus 5.5) is
+graders' equal primaries, `grading.primaryModels`) is
 `academy/references/roster-rules.md`, "Model fallback".
 
 **The role cut.** What each role writes, never writes and hands off to whom is one
