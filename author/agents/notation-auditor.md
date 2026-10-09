@@ -32,6 +32,11 @@ Authority inside the draft, in decreasing order:
 Read the pack's sheet with `domain_get <domain> notation.md` for each of the home's
 `domains`.
 
+Read `Drafts/vision.md` too: notation earns its place (`aesthetic-vision.md`, item 3).
+A symbol introduced and used once, or a notation the vision's principles reject, is a
+finding of its own class (**notation that does not earn its place**), reported with a
+recommendation; you change nothing for it.
+
 **Classes of finding**, each with file, line, label and the text:
 
 - one object, two symbols;

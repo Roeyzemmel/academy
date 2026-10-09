@@ -296,6 +296,27 @@ class InitInstanceTest(Sandbox):
                                             workspace_path=self.ws_path, force=True)
         self.assertTrue(any("present" in l for l in lines))
 
+    def test_author_scaffold_writes_the_vision_file_once(self):
+        home = os.path.join(self.tmp, "Paper")
+        os.makedirs(home)
+        lines = init_instance.init_instance("author@pp", home, ["dom"], ns="pp",
+                                            workspace_path=self.ws_path)
+        path = os.path.join(home, "Drafts", "vision.md")
+        self.assertTrue(any(l.startswith("vision: wrote") for l in lines), lines)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("# Vision: author@pp", text)
+        self.assertNotIn("{{", text)
+        for head in ("## The arc", "## Statements", "## Proofs", "## Decisions log"):
+            self.assertIn(head, text)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("kept\n")
+        lines = init_instance.init_instance("author@pp", home, ["dom"], ns="pp",
+                                            workspace_path=self.ws_path, force=True)
+        self.assertIn("vision: present, left alone", lines)
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual("kept\n", fh.read())
+
     def test_gitattributes(self):
         home = os.path.join(self.tmp, "Attrs")
         os.makedirs(home)

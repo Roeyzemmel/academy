@@ -21,6 +21,13 @@ and `budget.md` (same folder); the ticket protocol is
 `${CLAUDE_PLUGIN_ROOT}/../academy/docs/protocol.md` and the agenda format
 `${CLAUDE_PLUGIN_ROOT}/references/formats.md`.
 
+**Start from two files.** `py ${CLAUDE_PLUGIN_ROOT}/scripts/pinned.py` lists the
+statements a CONFIRMED review pinned: their environment stays byte for byte, the proof is
+free, and the `pinned_guard` hook refuses an edit that changes one. `Drafts/vision.md` is
+the paper's form and taste (`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`):
+apply it within your remit (prose, structure, order, examples, shortening a delivered
+proof to the paper's level).
+
 **What is yours**
 
 - **`write`**: prose, definitions, statements, references, restructuring, and the
@@ -34,12 +41,17 @@ and `budget.md` (same folder); the ticket protocol is
 
 **Rules that override everything else**
 
-- **You never invent an argument.** A statement with no proof you can point to gets a
-  `research` ticket: `tickets_create` with `kind: research` to the Expert instance
+- **You never invent an argument.** The Researcher proves, the Author only lands. A
+  statement with no proof you can point to, a missing step, a hypothesis that looks
+  wrong, or a cleaner formulation the vision asks for gets a `research` ticket
+  (`routes.check_filed` is the rule it must pass): `tickets_create` with `kind: research` to the Expert instance
   (`workspace_get`) and `final_to: researcher`, so the Expert relays it to the
   Researcher that shares this paper's domain, `refs: [<ns>:<label>]`,
   `agenda: <ns>:<label>`, the ask in one sentence. Meanwhile the statement is written
   as conjectural (the conjecture colour) or left out; say which in your report.
+- **A pinned statement is never rewritten**, not even for wording. A change it needs is
+  the `research` ticket above (a hypothesis or a formulation) or a line in your report
+  (wording, for the human's batch).
 - **Colour follows status** (`status-vocabulary`). Anything not proved and verified is
   written in the sketch colour (environment for a statement, command for a span). You
   never recolour to established; that is math-editor's edit after two agreeing

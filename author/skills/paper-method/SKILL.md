@@ -23,6 +23,14 @@ the reason: a paper with several coauthors breaks when the preamble changes unde
 them. Draft comments go through the paper's margin-note macros; **never sign a note as
 a human coauthor.**
 
+**The paper's taste comes next.** `Drafts/vision.md` records the arc, the statement
+and proof style and the voice this paper wants; `${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`
+is the generic standard behind it. Apply it within the writer's remit. A cleaner
+statement or a new argument is never written here: it is a `research` ticket to the
+Researcher (`final_to: researcher`), and a statement pinned by a review
+(`${CLAUDE_PLUGIN_ROOT}/scripts/pinned.py`) is not reworded (`academy/references/roster-rules.md`,
+"Role cut").
+
 ## Structure
 
 1. **Abstract**: the result in one or two sentences, precise enough to be useful and

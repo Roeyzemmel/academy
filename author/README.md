@@ -7,13 +7,24 @@ contracts it codes against are the academy repo's `docs/protocol.md`,
 `docs/config.md` and `docs/packet-template.md`; the standing rules are
 `academy/references/budget.md` and `roster-rules.md`.
 
+**The Author owns the paper's form and taste**, not only the typing of settled results:
+the arc, economy of statements, notation that earns its place, proofs at the right
+level, examples and figures where they carry the idea, the introduction's promise kept,
+one voice (`references/aesthetic-vision.md`). Each paper home keeps its own
+`Drafts/vision.md` (scaffolded from `templates/vision.md` by `/academy:init`; the
+human's stated taste, dated, with pending decisions marked). The writers read it first
+and apply it within their remit; `/author:agenda vision` and `/author:presync` run an
+aesthetic pass (a read-only `math-editor` in vision mode) whose proposals become Author
+tickets or `research` tickets (`final_to: researcher`), never a rewrite of a pinned statement;
+the Expert's referee checks the built paper against it.
+
 Each agent's model, effort and fallback are in its file's frontmatter (the fallback
 rule: `academy/references/roster-rules.md`, "Model fallback").
 
 | Agent | Job |
 |---|---|
 | `math-writer` | Exposition from established results; a new argument becomes a `research` ticket to the Expert (`final_to: researcher`) |
-| `math-editor` | Decided edits, `[copy]` mode (was copy-editor), landing verdicts and the recolour |
+| `math-editor` | Decided edits, `[copy]` mode (was copy-editor), landing verdicts and the recolour, vision mode (the read-only aesthetic pass) |
 | `tex-engineer` | The LaTeX toolchain, the build, `check_paper.py` and its tests (was latex-fixer) |
 | `figure-maker` | Figures, after the pack's `figures.md` |
 | `note-sweeper` | The machine-note sweep |
