@@ -1135,6 +1135,19 @@ class TestRegistryBackend(McpTestBase):
         self.assertTrue(err)
         self.assertIn("does not exist", msg)
 
+    def test_proof_review_is_an_alias_of_verdict(self):
+        # expert verify's conclude.md said type "proof-review" (5 refusals, 2026-10-08)
+        lab = self.homes["scientist@t"]
+        write(os.path.join(lab, "reviews", "ew", "A.md"), "review\n")
+        s = self.server("researcher@t")
+        err, res = s.call("claims_attach_evidence", caller="researcher:claim-keeper",
+                          id="lab:ew", row={"type": "proof-review", "ref": "reviews/ew/A.md",
+                                            "verdict": "CONFIRMED", "run_id": "A"})
+        self.assertFalse(err, res)
+        self.assertIn("verdict | reviews/ew/A.md | CONFIRMED | run A", self.lab_text())
+        self.assertNotIn("proof-review", self.lab_text())
+        shutil.rmtree(os.path.join(lab, "reviews"))
+
     def test_proved_modulo_end_to_end(self):
         # 2026-10-08: every proved-modulo change was refused ("the edit would leave the
         # record inconsistent") because the record's `modulo` was never written

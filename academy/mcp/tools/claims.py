@@ -681,10 +681,21 @@ def _new(ctx, a):
     return res
 
 
+#: evidence kinds the tool accepts for a canonical one (the record keeps the canonical
+#: word): ``proof-review`` was what expert verify's conclude.md once said
+EVIDENCE_ALIASES = {"proof-review": "verdict"}
+
+
 def _attach(ctx, a):
     ns, _ = split_id(a["id"])
     check_ns(ctx, ns)
-    return backend(ctx).attach_evidence(a["id"], a["row"])
+    row = a["row"]
+    if isinstance(row, dict):
+        key = "type" if row.get("type") is not None else "kind"
+        kind = str(row.get(key) or "").strip()
+        if kind in EVIDENCE_ALIASES:
+            row = dict(row, **{key: EVIDENCE_ALIASES[kind]})
+    return backend(ctx).attach_evidence(a["id"], row)
 
 
 def _keeper_instance(ctx, ns):
@@ -782,8 +793,11 @@ TOOLS = [
                          "ticket's thread records it)"}}, ["id", "title"]),
          _new, write=True),
     Tool("claims_attach_evidence", "Append one evidence row {type, ref, verdict, run_id, "
-         "note} to a claim (append-only). s1: a verdict file, appended to cleared_by.",
-         obj({"instance": _tickets.ACTING, "id": ID, "row": {"type": "object"}}, ["id", "row"]), _attach, write=True),
+         "note} to a claim (append-only); type is experiment, audit, verdict (a proof "
+         "review; 'proof-review' is accepted for it), hand, citation or note. s1: a "
+         "verdict file, appended to cleared_by.",
+         obj({"instance": _tickets.ACTING, "id": ID, "row": {"type": "object"}},
+             ["id", "row"]), _attach, write=True),
     Tool("claims_propose_status", "Propose a status change: files a decision ticket to "
          "the claim-keeper's instance; changes nothing itself.",
          obj({"instance": _tickets.ACTING, "id": ID, "status": S, "reason": S, "grounds": GROUNDS, "refs": L},

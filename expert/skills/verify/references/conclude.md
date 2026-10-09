@@ -95,7 +95,7 @@ LF, Markdown, written by you:
 ## 4. The registry and the board (MCP tools only)
 
 1. **Evidence**, one row per landed run, append-only:
-   `claims_attach_evidence {id, row: {type: "proof-review", ref: "file:<expert
+   `claims_attach_evidence {id, row: {type: "verdict", ref: "file:<expert
    instance>/reviews/<ns>/<id-slug>/<pass>/<run>.md", verdict, run_id,
    statement_hash, note: <blocking or "">}}`.
 2. **Status**, only when the script gives `proposed_status`:
