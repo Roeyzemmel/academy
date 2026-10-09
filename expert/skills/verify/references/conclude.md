@@ -122,7 +122,10 @@ LF, Markdown, written by you:
    Each ticket says where the defect lives, what exactly is missing, the repair both
    runs propose, and whether a citation must come first.
 4. **The packet**: `packets_create` kind `verification`, subject `[<id>]`,
-   `status_before` from `claims_show`, `status_proposed` from the script, ticket set.
+   `status_before` from `claims_show`, `status_proposed` from the script, ticket set
+   (required: `title`, `kind`, and `body` or `sections`; each decision is
+   `### Dk. question`, 2-4 `- (a) option` lines and a `- Recommendation:` line;
+   docs/packet-template.md section 3).
    `## Established vs assumed` names every input with its status; `## Evidence` the
    two records, run ids and the statement hash; `## Decisions needed` asks Roey only
    what the table leaves to him (a DISPROVED counterexample; a disagreement's next

@@ -96,6 +96,23 @@ the report's `## Question`, `## Class`, `## Method`, `## Environment`,
    `None.` if there were none.
 7. `## Decision`: the write-back section. It is empty at creation.
 
+### Creating a packet with `packets_create`
+
+The MCP tool fills `packet`, `by`, `state` and `created` itself. The caller gives:
+
+| Argument | Required | |
+|---|---|---|
+| `title` | yes | one line |
+| `kind` | yes | one of the kinds above |
+| `body` **or** `sections` | yes, exactly one | `sections` = `{summary, produced, established_vs_assumed, evidence, extra, decisions_needed, machine_notes}`; `summary` at most three lines |
+| `instance` | the human: yes; an agent: no | an agent's is its own instance |
+| `ticket`, `agenda`, `subject`, `status_before`, `status_proposed` | no | as in section 2 |
+
+`decisions_needed` is `None.` or, per decision, `### D1. <question>`, then two to four
+option lines `- (a) <text>` … `- (d) <text>`, then one `- Recommendation: <letter, why>`;
+D1..Dn without gaps. `## Decision` is empty at creation. A refusal lists every problem
+at once, followed by this shape, so one corrected retry is enough.
+
 ## 4. The `## Decision` write-back format
 
 There is one line per answered decision, appended in answer order:

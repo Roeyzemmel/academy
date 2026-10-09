@@ -695,6 +695,26 @@ class TestKeeperRouting(unittest.TestCase):
         self.assertIn(res["to"], ("researcher@s1", "researcher@beta"))
 
 
+class TestPacketValidation(McpTestBase):
+    def test_every_problem_at_once(self):
+        # 2026-10-08: one refusal per retry; now one refusal names them all, with the shape
+        s = self.server("expert@t")
+        bad = ("### D1. Which?\n- (a) only one\n\n### D3. And?\n- Recommendation: a")
+        err, msg = s.call("packets_create", caller="expert:review-chair", title="x\ny",
+                          kind="verification",
+                          sections={"summary": "s", "decisions_needed": bad})
+        self.assertTrue(err)
+        for want in ("title must be one line", "D1 needs 2-4 options",
+                     "D1 needs a Recommendation line", "numbered D1..Dn",
+                     "packets_create needs: title"):
+            self.assertIn(want, msg)
+        err, msg = s.call("packets_create", caller="expert:review-chair", title="x",
+                          kind="verification", sections={"summary": "s"}, body="b")
+        self.assertTrue(err)
+        self.assertIn("give body or sections, not both", msg)
+        self.assertIn("missing section", msg)
+
+
 class TestCallerHandshake(McpTestBase):
     def test_write_without_hook_record_refused(self):
         s = self.server("author@t")
