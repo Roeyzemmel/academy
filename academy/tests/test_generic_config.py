@@ -203,5 +203,40 @@ class TestRegistryRules(Tmp):
         self.assertEqual(ws.rule_set("elsewhere"), "lab")
 
 
+class TestLegacyBackendNamespaces(Tmp):
+    """The MCP legacy backend serves every workspace namespace, by its rule set."""
+
+    def test_rule_set_decides_the_command_line(self):
+        sys.path.insert(0, os.path.join(PLUGIN, "mcp"))
+        mod = sys.modules.get("registry")
+        if mod is not None and not hasattr(mod, "__path__"):
+            del sys.modules["registry"]
+        from tools.claims import LegacyCliBackend
+        homes = {"nb": os.path.join(self.tmp, "a"), "paper": os.path.join(self.tmp, "p")}
+        for ns, prof in (("nb", "s1"), ("paper", "paper")):
+            role = "researcher" if ns == "nb" else "author"
+            write(os.path.join(homes[ns], ".claude", "academy.json"), json.dumps({
+                "schema": 1, "role": role, "instance": role + "@x", "domains": ["d"],
+                "ns": ns, "registry": {"profile": prof, "root": "objects"},
+                "paths": {k: k for k in ac.REQUIRED_PATHS[role]}, role: {}}))
+
+        class Ctx:
+            def instance_by_ns(self, ns):
+                return ns if ns in homes else None
+
+            def home_of(self, inst):
+                return homes[inst]
+
+        be = LegacyCliBackend(Ctx())
+        self.assertIsNone(LegacyCliBackend.NAMESPACES)
+        self.assertTrue(be._is_notebook("nb"))
+        self.assertFalse(be._is_notebook("paper"))
+        calls = []
+        be._registry = lambda ns, args: calls.append((ns, args)) or {"exit": 0}
+        be.show("nb:GEO-1")
+        be.show("paper:lem:x")
+        self.assertEqual(calls, [("nb", ["show", "GEO-1"]), ("paper", ["show", "paper:lem:x"])])
+
+
 if __name__ == "__main__":
     unittest.main()

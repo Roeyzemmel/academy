@@ -322,7 +322,7 @@ a shim until phase 8.
     "views": ["views", "INDEX.md", "OPEN.md", "STATUS.md", "site/index.html",
               "kb/claims.json", "computation/verdicts.md", "computation/runs.md"]
   },
-  "registry": {"profile": "s1", "root": "objects", "db": ".claude/academy.sqlite",
+  "registry": {"profile": "notebook", "root": "objects", "db": ".claude/academy.sqlite",
                "statusKeeper": "claim-keeper",
                "legacy": {"kb": "py tools/kb.py"}},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
