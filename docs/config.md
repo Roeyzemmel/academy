@@ -68,6 +68,7 @@ as environment variables, so no code or document needs a literal path:
 | `ACADEMY_HOME_<ROLE>_<NAME>` | the home of instance `<role>@<name>` (overrides its `home`) |
 | `ACADEMY_LIBRARY` | the home of the first Expert instance |
 | `ACADEMY_ENV_WORKSPACE` | the file the variables were derived from; the overrides apply to that file only |
+| `ACADEMY_PYTHON` | the Python the plugins' hooks and MCP server run with. Unset: the hooks run `py`, else `python3` (they run in bash, Git Bash on Windows); the MCP server (`.mcp.json`, no shell) runs `py`, so a machine without `py` (Linux, macOS) sets it, e.g. to `python3` |
 
 They are set in `.claude/settings.local.json` of the workspace and of every home, and in the
 workspace's `workspace.env` for plain shells (`set -a; . ./workspace.env`). To move a home,

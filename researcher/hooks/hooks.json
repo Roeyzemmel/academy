@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/audit_blind_guard.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/audit_blind_guard.py\"",
             "timeout": 20
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/status_guard.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/status_guard.py\"",
             "statusMessage": "researcher: checking for a status change",
             "timeout": 30
           }
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/claims_edit_check.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/claims_edit_check.py\"",
             "statusMessage": "researcher: checking the registry record",
             "timeout": 90
           }
@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/land_review.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/land_review.py\"",
             "statusMessage": "researcher: landing the experiment review",
             "timeout": 60
           }

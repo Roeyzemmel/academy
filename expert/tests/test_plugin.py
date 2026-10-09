@@ -147,7 +147,8 @@ class HookConfigTests(unittest.TestCase):
         for event, groups in cfg["hooks"].items():
             for g in groups:
                 for h in g["hooks"]:
-                    m = re.match(r'^py "\$\{CLAUDE_PLUGIN_ROOT\}/scripts/(\w+\.py)"$',
+                    m = re.match(r'^"\$\{ACADEMY_PYTHON:-\$\(command -v py \|\| command -v python3\)\}" '
+                                 r'"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/(\w+\.py)"$',
                                  h["command"])
                     self.assertTrue(m, h["command"])
                     self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "scripts",

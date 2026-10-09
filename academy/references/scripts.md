@@ -2,7 +2,8 @@
 
 `$S` below is `${CLAUDE_PLUGIN_ROOT}/scripts`. If the variable is not expanded in the
 session, use `~/.claude/skills/academy/scripts` (the plugin's link). Every script is
-stdlib Python run with `py`, finds the board and the workspace through
+stdlib Python run with `py` (`python3` where there is no `py`; the plugins' hooks pick
+`$ACADEMY_PYTHON`, else `py`, else `python3`), finds the board and the workspace through
 `workspace.json` (`--board`, `--workspace` override), and prints UTF-8. Exit code 0 is
 success; 1 is "nothing found" where noted; 2 is an error with a one-line message on
 stderr. A skill reports a non-zero exit as it is and does not retry in a loop.

@@ -763,7 +763,37 @@ class SessionStartTests(Fixture):
         self.assertNotEqual(self.git("status", "--porcelain").strip(), "")
 
 
+PY_LAUNCH = '"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}" '
+
+
 class HooksJsonTests(unittest.TestCase):
+    def test_mcp_server_command_falls_back(self):
+        with open(os.path.join(PLUGIN, ".mcp.json"), encoding="utf-8") as fh:
+            server = json.load(fh)["mcpServers"]["academy"]
+        # no shell there: $ACADEMY_PYTHON (Claude Code expands ${VAR:-default}), else py
+        self.assertEqual(server["command"], "${ACADEMY_PYTHON:-py}")
+
+    def test_hook_launcher_runs_without_py(self):
+        import shutil
+        import subprocess
+        sh, py3 = shutil.which("sh"), shutil.which("python3") or sys.executable
+        if not sh or os.name == "nt":
+            self.skipTest("needs a POSIX sh")
+        tmp = tempfile.mkdtemp(prefix="academy-launch-")
+        try:
+            os.makedirs(os.path.join(tmp, "bin"))
+            os.makedirs(os.path.join(tmp, "plug", "scripts"))
+            os.symlink(py3, os.path.join(tmp, "bin", "python3"))
+            with open(os.path.join(tmp, "plug", "scripts", "x.py"), "w") as fh:
+                fh.write("import sys; print(sys.stdin.read().upper())\n")
+            cmd = PY_LAUNCH + '"${CLAUDE_PLUGIN_ROOT}/scripts/x.py"'
+            env = {"PATH": os.path.join(tmp, "bin"), "CLAUDE_PLUGIN_ROOT": os.path.join(tmp, "plug")}
+            out = subprocess.run([sh, "-c", cmd], input="event", capture_output=True,
+                                 text=True, env=env, timeout=60)
+            self.assertEqual((out.returncode, out.stdout.strip()), (0, "EVENT"), out.stderr)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_hooks_json(self):
         with open(os.path.join(PLUGIN, "hooks", "hooks.json"), encoding="utf-8") as fh:
             hooks = json.load(fh)["hooks"]
@@ -771,7 +801,9 @@ class HooksJsonTests(unittest.TestCase):
         for event, groups in hooks.items():
             for g in groups:
                 for h in g["hooks"]:
-                    self.assertTrue(h["command"].startswith('py "${CLAUDE_PLUGIN_ROOT}/'
+                    # the interpreter: $ACADEMY_PYTHON, else py, else python3 (bash, which
+                    # Claude Code runs hooks in on every platform, Git Bash on Windows)
+                    self.assertTrue(h["command"].startswith(PY_LAUNCH + '"${CLAUDE_PLUGIN_ROOT}/'
                                                             'scripts/'), h["command"])
                     script = h["command"].split("/scripts/")[1].rstrip('"')
                     self.assertTrue(os.path.isfile(os.path.join(SCRIPTS, script)), script)
