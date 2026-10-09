@@ -68,6 +68,50 @@ class HookRecordTests(unittest.TestCase):
         self.assertIsNone(el.hook_record({"tool_name": "Bash", "error": ""}, "i", NOW))
 
 
+class ContextTests(unittest.TestCase):
+    """2026-10-09 fix 9: Bash errors say what failed, file errors where."""
+
+    def test_bash_records_stderr_and_command_heads(self):
+        ev = {"tool_name": "Bash", "session_id": "S",
+              "tool_input": {"command": "py scripts/x.py --token=abc123secret\nsecond line"},
+              "error": "Exit code 2\nTraceback (most recent call last):\n  File x\n"
+                       "ValueError: bad thing"}
+        rec = el.hook_record(ev, "author@bi", NOW)
+        self.assertIn("Traceback", rec["detail"])
+        self.assertIn("ValueError: bad thing", rec["detail"])
+        self.assertTrue(rec["cmd"].startswith("py scripts/x.py"))
+        self.assertNotIn("second line", rec["cmd"])
+        self.assertNotIn("abc123secret", json.dumps(rec))
+
+    def test_file_tools_record_cwd_and_path(self):
+        ev = {"tool_name": "Read", "session_id": "S", "cwd": "/w/BilliardIllumination",
+              "tool_input": {"file_path": "/w/board"},
+              "error": "EISDIR: illegal operation on a directory, read"}
+        rec = el.hook_record(ev, "author@bi", NOW)
+        self.assertEqual((rec["cwd"], rec["path"]), ("/w/BilliardIllumination", "/w/board"))
+        ev = {"tool_name": "Glob", "cwd": "/w/library",
+              "tool_input": {"pattern": "**/*.tex", "path": "/w/library/Mo06.src"},
+              "error": "Directory does not exist"}
+        rec = el.hook_record(ev, "expert@ts", NOW)
+        self.assertEqual(rec["path"], "/w/library/Mo06.src")
+        self.assertEqual(rec["pattern"], "**/*.tex")
+
+    def test_identical_entries_are_written_once(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        rec = el.hook_record({"tool_name": "Bash", "error": "Exit code 1\nx",
+                              "session_id": "S"}, "i@x", NOW)
+        self.assertTrue(el.append(d, "i@x", rec))
+        self.assertFalse(el.append(d, "i@x", dict(rec)))
+        self.assertTrue(el.append(d, "i@x", dict(rec, msg="Exit code 2")))
+        with open(el.ledger_file(d, "i@x"), encoding="utf-8") as fh:
+            self.assertEqual(len(fh.read().splitlines()), 2)
+        # duplicates already in a ledger (before the fix) count once
+        with open(el.ledger_file(d, "i@x"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, sort_keys=True) + "\n")
+        self.assertEqual(len(el.read_all(d)), 2)
+
+
 class WeeklyCycleTests(unittest.TestCase):
     def test_open_classes_and_resolve(self):
         recs = [err(10, "A"), err(3, "A", "s2"), err(2, "B"),
