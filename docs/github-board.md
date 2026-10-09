@@ -87,7 +87,9 @@ human through the MCP tools' code, `--dry-run` on a copy of the file board, resu
 academy constants: Status incl. Accepted/Blocked/Delivered, Instance, Role, Kind = every
 ticket kind, Priority, Agenda, Block; `--check` proves it covers every kind and status,
 `--live` reports what a live Project lacks; `fields_for(meta)` is a ticket's values). The runbook is
-`/academy:board-migrate`. Templates: `academy/templates/github-board/.github/`.
+`/academy:board-migrate`. Templates: `academy/templates/github-board/.github/`, rendered
+into the board repository by `board_templates.py render --out <repo>` (the issue form's
+instance dropdown is filled from workspace.json, instances + `human`; `check` reports drift).
 
 ## The Project
 

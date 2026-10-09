@@ -7,8 +7,8 @@ description: 'Move the file board to GitHub Issues, or check it: export the mani
 
 `$ARGUMENTS` is `preflight`, `export`, `run`, `verify` or `cutover`. Scripts: `$S` as in
 `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Design, mapping and permissions:
-`docs/github-board.md`. The file board stays the source of truth until `cutover`. Ask Roey
-(AskUserQuestion) for the target repo once, and never `run` against the real repo before a
+`docs/github-board.md`. The file board stays the source of truth until `cutover`. Ask the
+human (AskUserQuestion) for the target repo once, and never `run` against the real repo before a
 rehearsal in a scratch repo has verified clean.
 
 **Transport.** Default: bulk over REST with `board_push.py` and `board_dump.py` (both through
@@ -26,10 +26,10 @@ which the tools already handle:
 **preflight** (read-only). Check, and stop with the exact remedy for the first failure:
 1. `gh api user` (or `mcp__github__get_me`) works and the target repo is in the session
    scope (else `add_repo` with `access: push`, then `read_documentation` topic
-   `github.access`). The Claude GitHub App cannot create repositories: Roey creates the
+   `github.access`). The Claude GitHub App cannot create repositories: the human creates the
    empty private repos (scratch and real) and installs the App on them.
 2. Numbering is empty: no issue and no pull request in the repo (a PR takes a number too).
-   `board_push.py` refuses a non-empty repo on a first run. Tell Roey that nobody may open
+   `board_push.py` refuses a non-empty repo on a first run. Tell the human that nobody may open
    an issue or PR there until `run` is done.
 3. Never create a test issue in the target (it would take #1).
 4. The board is frozen: no ticket writes (inbox runs, `session_start` commits) until
@@ -40,7 +40,8 @@ the counts (tickets, placeholders, comments, closed, relations). Stop if `unread
 `problems` is non-empty. Export right before `run`, from the frozen board.
 
 **run.** `py $S/board_push.py --manifest <manifest> --repo OWNER/NAME --state
-<scratchpad>/push-state.json --assignee <Roey's login>` (`--dry-run` first; `--limit N` for a
+<scratchpad>/push-state.json --assignee <login>`, the login being workspace.json
+`human.login` (else `board.assignee`; ask the human when neither is set) (`--dry-run` first; `--limit N` for a
 partial run). It creates the manifest's labels (colours, descriptions) first, then each issue
 in order with its comments, its sub-issue link and its close, then the dependencies. On a
 STOP it saves the state; fix the cause and rerun the same command, which resumes. A STOP on
@@ -52,12 +53,14 @@ labels, state, assignees, parents and dependencies). Check the board HEAD is sti
 noted at preflight. Fix or report drift, never "fix" by editing the file board. A round trip
 `board_import.py --issues <dump> --board <empty scratch dir>` must reproduce the ticket files.
 
-**cutover** (Roey confirms first). Copy `templates/github-board/.github/` and
-`scripts/{board_sync,board_codec}.py` + `lib/academy_common.py` into the board repo's
-`.github/academy/{scripts,lib}/` (from a checkout that has the footer-tolerant codec), and set the
-repository variable `ACADEMY_HUMAN_LOGINS` to Roey's login; set the board in `workspace.json`
-(`workspace.template.json` + `bootstrap.py`) to `{"path", "backend": "github", "repo",
-"transport": "board_gh:transport", "assignee": <Roey's login>}` (`docs/github-board.md`,
+**cutover** (the human confirms first). Render the repository files into the board repo
+with `py $S/board_templates.py render --out <board repo>` (the issue form's instance dropdown
+comes from workspace.json, instances + `human`; `check --out` reports drift later, e.g. after
+a new instance), copy `scripts/{board_sync,board_codec}.py` + `lib/academy_common.py` into
+the board repo's `.github/academy/{scripts,lib}/` (from a checkout that has the
+footer-tolerant codec), and set the repository variable `ACADEMY_HUMAN_LOGINS` to the
+human's login (`human.login`); set the board in `workspace.json` to `{"path", "backend":
+"github", "repo", "transport": "board_gh:transport", "assignee": <the human's login>}` (`docs/github-board.md`,
 `docs/migration-campaign-mode.md` section 6); leave the file tickets in place with a
 `MIGRATED.md` pointer. The Project needs a token with the `project` scope (no MCP tools,
 no GraphQL from a cloud session): `board_project.py` gives the fields and each item's
@@ -79,4 +82,4 @@ Batch through subagents in blocks of ~10 issues, strictly in order, with a state
    update until the body holds the literal text.
 4. One `add_issue_comment` per thread entry, in order; then close with `state_reason`.
 Dependencies are not in the MCP: add them with `board_gh`'s `add_dependency` (REST) or
-list them for Roey. Verify as above, with `board_dump.py`.
+list them for the human. Verify as above, with `board_dump.py`.

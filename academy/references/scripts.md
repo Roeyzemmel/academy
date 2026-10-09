@@ -21,6 +21,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `error_ledger.py` | usage-analyst, the PostToolUseFailure hook | `hook` (event on stdin) · `report [--days 7\|--since D] [--json]` · `settle --packet P-NNNN [--quiet-days 7]` · `resolve SIG... [--note T]`: the error ledger `<board>/.errors/<instance>.jsonl` |
 | `session_usage.py` | usage | `<session-id> [--project DIR]`: one session, per subagent |
 | `session_start.py` | the SessionStart hook | (no arguments; reads the hook event) |
+| `board_templates.py` | board-migrate | `ticket-form [--workspace F]` · `render --out REPO` · `check --out REPO` (exit 1 on drift): the GitHub board's `.github/` files, the issue form's instance dropdown filled from workspace.json |
 
 `board.py new` requires `--as <instance>` (the main session inside a home files as
 `<instance>`, agent `main`; `--agent <name>` names another agent) and applies the
