@@ -26,7 +26,7 @@ Rules:
 - Re-routing a ticket is a change of `to`, which only the human makes; the script
   moves the file. Confirm the new receiver first.
 - Print the script's output as it is. On exit 2, show the error line and stop.
-- File as the human (`--as human`) only after they confirmed this ticket through AskUserQuestion; this is the one sanctioned way to file as them from inside a home (docs/protocol.md section 5).
+- File as the human (`--as human`) only after they confirmed this ticket through AskUserQuestion; besides an approved /academy:cowork plan, this is the only way to file as them from inside a home (docs/protocol.md section 5).
 - Changing a ticket starts no work (`references/budget.md` rule 3).
 
 **sync.** Commit the board's files through the workspace's ship tool, never with a bare

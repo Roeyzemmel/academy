@@ -39,7 +39,7 @@ description: 'The human''s front desk: classifies a plain-language request and r
    - `ticket`: show the draft and ask the human with `AskUserQuestion`: file as drafted,
      change the receiver or priority, or drop it. Only on a yes, file it with
      `py $S/board.py new --as human ...`, and print the ticket id and its folder.
-     File as the human (`--as human`) only after they confirmed this ticket through AskUserQuestion; this is the one sanctioned way to file as them from inside a home (docs/protocol.md section 5).
+     File as the human (`--as human`) only after they confirmed this ticket through AskUserQuestion; besides an approved /academy:cowork plan, this is the only way to file as them from inside a home (docs/protocol.md section 5).
    - `unclear`: ask the human the card's one question with `AskUserQuestion`, then route
      again (once).
 3. If the concierge returns a limit error or nothing, report that and stop
