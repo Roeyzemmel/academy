@@ -103,7 +103,7 @@ own. A Scientist home names a worker; the worker's values live here, once:
 | `workers.<w>.transport` | no | `ssh` (the only transport; default) |
 | `workers.<w>.host` | yes | ssh host or alias (an `~/.ssh/config` alias may carry user and key) |
 | `workers.<w>.user` | no | ssh user; the destination becomes `user@host` |
-| `workers.<w>.remoteRoot` | no | Where homes are cloned on the worker: a home's remote repo is `<remoteRoot>/<home folder name>` (default `~/<home folder name>`); a profile's `repo` overrides |
+| `workers.<w>.remoteRoot` | no | Where homes are cloned on the worker: a home's remote repo is `<remoteRoot>/<home folder name>` (default `~/<home folder name>`); a profile's `repo` overrides (set it when the home is also used from a worktree with another folder name) |
 | `workers.<w>.conda` | no | `{prefix, env}`: the Miniforge prefix and the conda env jobs run in (`env.py setup` creates it, the runner activates it) |
 | `workers.<w>.maxJobs` | no | Runner concurrency cap, 1..3 |
 | `workers.<w>.gateway` | no | A key of `gateways`; none means the worker is reached directly |

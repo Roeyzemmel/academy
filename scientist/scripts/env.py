@@ -518,9 +518,8 @@ def cmd_check(lab, name, live=False):
         say("gateway " + msg)
         if code == 1:
             if kind == "ssh":
-                say("unreachable: gateway %s is down -- jobs for %s wait in the queue "
-                    "(queued, not an error). %s" % (gw["name"], name,
-                                                    wk.on_down(prof, lab.compute, name)))
+                say("unreachable: gateway %s is down; jobs for %s are queued, not failed. "
+                    "%s" % (gw["name"], name, wk.on_down(prof, lab.compute, name)))
             else:
                 say("unreachable: gateway %s is down" % gw["name"])
             return 1

@@ -237,7 +237,7 @@ def _split_hostport(s):
 def tcp_reachable(hostport, timeout_ms=4000):
     hp = _split_hostport(hostport)
     if not hp:
-        return 2, "cannot tell (probeHost %r is not host:port)" % hostport
+        return 2, "probeHost %r is not host:port" % hostport
     try:
         with socket.create_connection(hp, timeout=timeout_ms / 1000.0):
             return 0, "%s reachable" % hostport
@@ -263,38 +263,37 @@ def _check_globalprotect(gw):
             argv += ["-AdapterPattern", gw["adapter"]]
         rc, out = _run(argv)
         if rc is None:
-            return 2, "cannot tell (%s)" % out
+            return 2, out
         lines = out.splitlines()
         return (rc if rc in (0, 1, 2) else 2), (lines[-1] if lines else "exit %d" % rc)
     cli = shutil.which("globalprotect")
     if not cli:
-        return 2, "cannot tell (no GlobalProtect adapter check on this OS and no " \
-                  "globalprotect CLI)"
+        return 2, "no GlobalProtect adapter check on this OS and no globalprotect CLI"
     rc, out = _run([cli, "show", "--status"])
     if rc is None:
-        return 2, "cannot tell (%s)" % out
+        return 2, out
     if "disconnected" in out.lower():
         return 1, "GlobalProtect disconnected"
     if "connected" in out.lower():
         return 0, "GlobalProtect connected"
-    return 2, "cannot tell (globalprotect show --status: %s)" % (out[:80] or rc)
+    return 2, "globalprotect show --status: %s" % (out[:80] or rc)
 
 
 def _check_openconnect(gw):
     if os.name == "nt":
         rc, out = _run(["tasklist", "/FI", "IMAGENAME eq openconnect.exe"])
         if rc is None:
-            return 2, "cannot tell (%s)" % out
+            return 2, out
         return (0, "openconnect running") if "openconnect.exe" in out.lower() \
             else (1, "no openconnect process")
     if not shutil.which("pgrep"):
-        return 2, "cannot tell (no pgrep)"
+        return 2, "no pgrep"
     rc, _out = _run(["pgrep", "-x", "openconnect"])
     if rc == 0:
         return 0, "openconnect running"
     if rc == 1:
         return 1, "no openconnect process"
-    return 2, "cannot tell (pgrep exit %s)" % rc
+    return 2, "pgrep exit %s" % rc
 
 
 def check_gateway(gw, probe=False):
