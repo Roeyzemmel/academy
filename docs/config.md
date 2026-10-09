@@ -219,15 +219,26 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 | `main` | path | The root `.tex` file |
 | `build` | `{dir, cmd, lock}` | Output dir, build argv, and the lock file `build_gate` holds against LaTeX Workshop |
 | `checker` | `{script, args, strictArgs, statements}` | `check_paper.py` in the plugin and its arguments; `statements` is its generated registry view |
-| `theorems` | `{all, provable, commentary}` | Replaces `THEOREM_ENVS`, `PROVABLE_ENVS`, `COMMENTARY_ENVS` |
-| `envs` | map env → status | Replaces `COLOUR_ENVS`; the draft-colour environments and the status each marks |
-| `colourCommands` | map macro → status | Replaces `COLOUR_COMMANDS` |
-| `colours` | map status → colour name | For the legend and the dashboard |
+| `theorems` | `{all, provable, commentary, definitions}` | Replaces `THEOREM_ENVS`, `PROVABLE_ENVS`, `COMMENTARY_ENVS`; `definitions` (default `["defn"]`) are the definition environments of the checker's W1 |
+| `statusLevels` | list of `{name, env, command, colour, kind, statuses}` | The draft levels. `kind` is `established` (exactly one, the uncoloured level: no `env`, no `command`), `unestablished` (R1: nothing established rests on it; a sketched proof) or `commentary` (not a claim); `statuses` are the registry statuses a statement at that level may carry (a level carrying `sketch` is listed in the registry's "Sketches with nothing depending on them"); `colour` names the legend and mermaid colour. Default: established (black, `proved`), sketch (`sketch` / `\Sketch`, blue, unestablished, `sketch` `proved-modulo`), conjectural (`conjectural` / `\Conjectural`, red, unestablished, `open` `conjectured` `supported`), meta (`meta` / `\Meta`, brown, commentary). Absent: derived from `envs`, `colourCommands` and `colours` with the default meanings (a level named like a default one takes its kind; any other name is commentary). Read by `academy_common.author_status_levels` |
+| `envs` | map env → status | Older form of the levels' environments (used only without `statusLevels`) |
+| `colourCommands` | map macro → status | Older form of the levels' commands (used only without `statusLevels`) |
+| `colours` | map status → colour name | Older form of the levels' colours (used only without `statusLevels`) |
+| `preamble` | `{file, end, extraFiles, policy}` | The preamble: `file` (default `main`) up to `end` (default `\begin{document}`), plus `extraFiles` (default none). `policy`: `propose` (default: changes are filed as a proposal for the human), `locked` (the human's alone) or `free`; under `propose` and `locked` `preamble_guard` refuses tool edits of the region, and the human releases a file by hand in `.claude/preamble-release.txt` |
+| `labels` | `{prefixes, refCommand}` | Typed label prefixes (default `thm lem prop cor defn eq sec fig`) and the reference command (default `cref`, `Cref` implied; the checker also reads `\ref` and `\eqref`) |
+| `notes` | `{maxLines}` | The machine-note cap in lines (default 3), quoted by the writers, the sweep and R7 |
+| `figures` | `{dir, include}` | Standalone figure directory (default `tikz`) and include command (default `\includestandalone`) |
+| `bib` | `{acceptedWarnings}` | Bib keys whose BibTeX `Warning--` lines are accepted (default none); the checker's BUILD line counts them apart |
+| `mainResults` | `{file, labels}` | The registry's "blocking" section: the `thm:` statements of `file` (default `sections/introduction.tex`) and the `labels` listed (default none) |
 | `noteMacros` | `{human: [..], coauthors: [..], machine: [..]}` | Margin-note macros; machine notes are the `\Claude` family |
 | `crlf` | list of patterns | Files written with `newline="\r\n"`; everything else is LF |
 | `writers` | list of bare agents | Agents whose SubagentStop triggers `build_gate` |
 | `bibWriters` | list of bare agents | Agents allowed to edit `paths.bib` (`bib_gate`) |
 | `provenance` | map, optional | The provenance marker for what the authors added since the last accepted round (a new claim, an added assumption, a proof following a lead), layered on the status colour: `env` (block environment, default `added`), `command` (short-span macro, default `\Added`), `kinds` (the `%% added: <kind>` tags, default `claim`, `assumption`, `lead-proof`), `removedBy` (default `human`: writers never remove it). Absent, or `"enabled": false`: no marker. Read by `academy_common.author_provenance` |
+
+The tex-convention keys (`statusLevels`, `preamble`, `labels`, `notes`, `figures`, `bib`,
+`mainResults`) have the defaults above, which reproduce the conventions before they were
+configurable (`academy_common.author_tex`); `academy:init` writes them into a new home.
 
 **Required paths:** `tex`, `bib`, `drafts`, `agenda`, `records`, `views`. (`paths.roadmap`
 was required until 2026-09-30, when the roadmap was dropped and the board became the
@@ -354,7 +365,14 @@ notebook (`nb`) and a lab (`lab`). The tests read these blocks, so they stay val
                    "machine": ["\\Claude", "\\cl"]},
     "crlf": ["sections/*.tex", "tikz/*.tex"],
     "writers": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper"],
-    "bibWriters": ["librarian"]
+    "bibWriters": ["librarian"],
+    "preamble": {"policy": "propose", "extraFiles": []},
+    "labels": {"prefixes": ["thm", "lem", "prop", "cor", "defn", "eq", "sec", "fig"],
+               "refCommand": "cref"},
+    "notes": {"maxLines": 3},
+    "figures": {"dir": "tikz", "include": "\\includestandalone"},
+    "bib": {"acceptedWarnings": []},
+    "mainResults": {"file": "sections/introduction.tex", "labels": ["thm:main"]}
   }
 }
 ```
@@ -477,6 +495,12 @@ notebook (`nb`) and a lab (`lab`). The tests read these blocks, so they stay val
 - a required path key for the role is missing, or the role block is missing;
 - `budget.itemsPerRun` is outside 1..3, or a model name is unknown;
 - `gate.commit` (or a branch override) is outside `strict | normal | warn | off`;
+- for an author: `statusLevels` is not a list of levels with word names, kinds among
+  `established | unestablished | commentary`, exactly one `established` level (with no
+  env or command) and an env or a command on every other; or `preamble`, `labels`,
+  `notes`, `figures`, `bib`, `mainResults` is not an object, `preamble.policy` is outside
+  `propose | locked | free`, a list key is not a list of strings, or `notes.maxLines` is
+  not a positive integer (`academy_common.validate_author`);
 - for a scientist: any profile `kind` is outside `wsl | local | ssh` (a profile with
   `worker` may omit it), an ssh profile has no `host`, a wsl profile has no `distro`,
   a `worker` is empty, or a `policy` entry names no existing profile. Whether the

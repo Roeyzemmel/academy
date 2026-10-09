@@ -86,8 +86,8 @@ edit nothing: the calling skill files the tickets.
 ## Rules
 
 Never change a colour except by the landing rule above; never invent a key or a
-pinpoint; every judgement call gets a machine note (`honest-reporting`); no preamble
-edits unless the ticket says so; no git writes.
+pinpoint; every judgement call gets a machine note (`honest-reporting`); the preamble
+follows `author.preamble.policy` (`preamble_guard`); no git writes.
 
 Record each ticket: `tickets_update` status `delivered` with `result` "<how>".
 

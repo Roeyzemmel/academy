@@ -39,7 +39,9 @@ Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home:
 the notation-auditor edits only the home's `notation-decisions.md`; scoped by agent),
 `pinned_guard` (PreToolUse edits: nobody, the main session included, changes the
 environment of a statement a CONFIRMED review pinned, `scripts/pinned.py`; the proof is
-free; only the human releases a pin in `.claude/pinned-release.txt`),
+free; only the human releases a pin in `.claude/pinned-release.txt`), `preamble_guard`
+(PreToolUse edits: under `author.preamble.policy` `propose` or `locked`, no tool edit of
+the preamble; the human releases a file in `.claude/preamble-release.txt`),
 `commit_gate` (Bash|PowerShell, scoped by
 the repo actually committed), `build_gate` (SubagentStop of a writer, namespace-stripped,
 under `.build/.lock`).

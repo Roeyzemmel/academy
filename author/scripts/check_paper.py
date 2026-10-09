@@ -10,23 +10,26 @@ Configuration
 -------------
 Everything paper-specific is read from the home's ``.claude/academy.json``
 (``author`` block, docs/config.md section 3), found from ``--root`` upwards, or
-from ``--config``: ``theorems.all/provable/commentary`` replace ``THEOREM_ENVS``,
-``PROVABLE_ENVS`` and ``COMMENTARY_ENVS``; ``envs`` (env -> status) replaces
-``COLOUR_ENVS``; ``colourCommands`` (macro -> status) replaces
-``COLOUR_COMMANDS``; ``noteMacros.machine`` gives the machine-note macros;
-``main``, ``build.dir`` and ``checker.statements`` give the root file, the build
-directory and the default registry path. A missing file or key keeps the value
-below, which is the first paper's, so the output is unchanged there.
+from ``--config``: ``theorems.all/provable/commentary/definitions`` replace
+``THEOREM_ENVS``, ``PROVABLE_ENVS``, ``COMMENTARY_ENVS`` and ``DEFINITION_ENVS``;
+``statusLevels`` (or, without it, the older ``envs`` / ``colourCommands`` /
+``colours``) gives the draft levels, their environments and macros, colours and
+kinds (established / unestablished / commentary); ``noteMacros.machine`` gives the
+machine-note macros; ``labels.refCommand`` adds a reference command;
+``bib.acceptedWarnings`` the accepted BibTeX warnings; ``mainResults`` the statements
+the registry's "blocking" section follows; ``main``, ``build.dir`` and
+``checker.statements`` give the root file, the build directory and the default
+registry path. A missing file or key keeps the defaults (docs/config.md), so the
+output is unchanged for a home that sets none.
 
 What it does
 ------------
 1. Reads ``main.tex``, follows the ``\\input{sections/...}`` lines in order, and
    parses every theorem-like environment it finds in those files.
-2. Assigns each statement a draft colour --- ``sketch`` (blue), ``conjectural``
-   (red), ``meta`` (brown) or ``established`` (uncoloured) --- from the innermost
-   enclosing ``\\begin{sketch}`` / ``\\begin{conjectural}`` / ``\\begin{meta}``
-   environment, and records inline ``\\Sketch{`` / ``\\Conjectural{`` / ``\\Meta{``
-   spans as "partly" markers.
+2. Assigns each statement a draft level (by default ``sketch`` (blue),
+   ``conjectural`` (red), ``meta`` (brown) or ``established`` (uncoloured)) from the
+   innermost enclosing level environment, and records inline level macros
+   (``\\Sketch{`` ...) as "partly" markers.
 3. Attaches the first following ``proof`` environment, collects cross-references
    and citations, and applies the rules R1--R6 documented in ``CLAUDE.md``.
 4. Writes the generated registry ``Drafts/statements.md`` (LF endings).
@@ -62,6 +65,11 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import _academy as _ac  # noqa: E402  (the vendored academy_common: levels, tex defaults)
+
 # --------------------------------------------------------------------------
 # Vocabulary of the preamble: defaults, overridden by academy.json (configure)
 # --------------------------------------------------------------------------
@@ -80,15 +88,16 @@ DEFAULT_PROVABLE_ENVS = ("thm", "prop", "lem", "cor", "claim", "claim*")
 #: environments whose cross-references are commentary, not logical dependence
 DEFAULT_COMMENTARY_ENVS = ("rmk", "quest")
 
-#: the draft-status environments of the preamble, and the colour each records
-DEFAULT_COLOUR_ENVS = {"sketch": "sketch", "conjectural": "conjectural", "meta": "meta"}
+#: definition environments (W1: a definition on a sketched definition is a warning)
+DEFAULT_DEFINITION_ENVS = ("defn",)
 
-#: inline command forms of the same three
-DEFAULT_COLOUR_COMMANDS = {
-    "\\Sketch": "sketch",
-    "\\Conjectural": "conjectural",
-    "\\Meta": "meta",
-}
+#: the draft levels (``author.statusLevels``; defaults in academy_common)
+DEFAULT_STATUS_LEVELS = tuple(dict(lv) for lv in _ac.DEFAULT_STATUS_LEVELS)
+
+#: the default levels' environments and inline commands
+DEFAULT_COLOUR_ENVS = {lv["env"]: lv["name"] for lv in DEFAULT_STATUS_LEVELS if lv["env"]}
+DEFAULT_COLOUR_COMMANDS = {lv["command"]: lv["name"]
+                           for lv in DEFAULT_STATUS_LEVELS if lv["command"]}
 
 #: machine margin-note macros (R0 bookkeeping: ``claude_note`` in the registry)
 DEFAULT_MACHINE_MACROS = ("\\Claude", "\\cl")
@@ -98,6 +107,10 @@ DEFAULT_BUILD_DIR = ".build"
 DEFAULT_BUILD_CMD = ("latexmk", "-pdf", "main.tex")
 DEFAULT_REGISTRY = "Drafts/statements.md"
 
+#: the registry's "blocking" section follows these (``author.mainResults``)
+DEFAULT_MAIN_RESULTS = dict(_ac.AUTHOR_TEX_DEFAULTS["mainResults"])
+
+#: the established level's name (the uncoloured one); set by configure()
 ESTABLISHED = "established"
 
 # The live values, set by configure(); the parser reads these module globals.
@@ -106,6 +119,16 @@ PROVABLE_ENVS: Set[str] = set()
 COMMENTARY_ENVS: Set[str] = set()
 COLOUR_ENVS: Dict[str, str] = {}
 COLOUR_COMMANDS: Dict[str, str] = {}
+DEFINITION_ENVS: Set[str] = set()
+#: level name -> kind (established / unestablished / commentary)
+LEVEL_KIND: Dict[str, str] = {}
+#: level name -> colour name, and the levels that may carry the registry status sketch
+LEVEL_COLOUR: Dict[str, str] = {}
+SKETCH_LEVELS: Set[str] = set()
+LEVEL_ORDER: List[str] = []
+ACCEPTED_BIB_WARNINGS: Tuple[str, ...] = ()
+MAIN_RESULTS: Dict[str, object] = dict(DEFAULT_MAIN_RESULTS)
+NOTE_MAX_LINES = 3
 RE_CLAUDE = re.compile(r"(?!)")
 MAIN_TEX = DEFAULT_MAIN
 BUILD_DIR = DEFAULT_BUILD_DIR
@@ -125,24 +148,46 @@ def configure(author: Optional[dict] = None) -> None:
     """Set the vocabulary from an ``academy.json`` ``author`` block (None = defaults).
 
     Keys (docs/config.md section 3): ``theorems.all``, ``theorems.provable``,
-    ``theorems.commentary``, ``envs`` (env -> status), ``colourCommands``
-    (macro -> status), ``noteMacros.machine``, ``main``, ``build.dir``,
-    ``build.cmd``, ``checker.statements``. A missing key keeps its default.
+    ``theorems.commentary``, ``theorems.definitions``, ``statusLevels`` (or ``envs``
+    / ``colourCommands`` / ``colours``), ``noteMacros.machine``, ``labels``,
+    ``notes.maxLines``, ``bib.acceptedWarnings``, ``mainResults``, ``main``,
+    ``build.dir``, ``build.cmd``, ``checker.statements``. A missing key keeps its
+    default.
     """
     global THEOREM_ENVS, PROVABLE_ENVS, COMMENTARY_ENVS, COLOUR_ENVS
     global COLOUR_COMMANDS, RE_CLAUDE, MAIN_TEX, BUILD_DIR, BUILD_CMD
-    global REGISTRY_DEFAULT
+    global REGISTRY_DEFAULT, DEFINITION_ENVS, LEVEL_KIND, LEVEL_COLOUR, SKETCH_LEVELS
+    global LEVEL_ORDER, ESTABLISHED, ACCEPTED_BIB_WARNINGS, MAIN_RESULTS, RE_REF
+    global NOTE_MAX_LINES
     a = author if isinstance(author, dict) else {}
     th = a.get("theorems") if isinstance(a.get("theorems"), dict) else {}
     THEOREM_ENVS = set(th.get("all") or DEFAULT_THEOREM_ENVS)
     PROVABLE_ENVS = set(th.get("provable") or DEFAULT_PROVABLE_ENVS)
     COMMENTARY_ENVS = set(th.get("commentary") or DEFAULT_COMMENTARY_ENVS)
-    envs = a.get("envs") if isinstance(a.get("envs"), dict) else DEFAULT_COLOUR_ENVS
-    COLOUR_ENVS = {str(k): str(v) for k, v in envs.items()}
-    cmds = a.get("colourCommands")
-    if not isinstance(cmds, dict):
-        cmds = DEFAULT_COLOUR_COMMANDS
-    COLOUR_COMMANDS = {_macro_command(k): v for k, v in cmds.items()}
+    DEFINITION_ENVS = set(th.get("definitions") or DEFAULT_DEFINITION_ENVS)
+    levels = _ac.author_status_levels(a)
+    ESTABLISHED = next((lv["name"] for lv in levels if lv.get("kind") == "established"),
+                       "established")
+    LEVEL_ORDER = [str(lv["name"]) for lv in levels]
+    LEVEL_KIND = {str(lv["name"]): str(lv.get("kind") or "commentary") for lv in levels}
+    LEVEL_COLOUR = {str(lv["name"]): str(lv.get("colour") or "") for lv in levels}
+    SKETCH_LEVELS = {str(lv["name"]) for lv in levels
+                     if "sketch" in (lv.get("statuses") or [])
+                     and lv.get("kind") == "unestablished"}
+    COLOUR_ENVS = {str(lv["env"]): str(lv["name"]) for lv in levels if lv.get("env")}
+    COLOUR_COMMANDS = {_macro_command(str(lv["command"])): str(lv["name"])
+                       for lv in levels if lv.get("command")}
+    labels = _ac.author_tex(a, "labels")
+    ref_cmds = ["cref", "Cref", "ref", "eqref"]
+    extra = str(labels.get("refCommand") or "cref").lstrip("\\")
+    for cmd in (extra, extra[:1].upper() + extra[1:]):
+        if cmd and cmd not in ref_cmds:
+            ref_cmds.append(cmd)
+    RE_REF = re.compile(r"\\(%s)\*?\s*\{([^}]*)\}" % "|".join(re.escape(c) for c in ref_cmds))
+    ACCEPTED_BIB_WARNINGS = tuple(str(k) for k in
+                                  _ac.author_tex(a, "bib").get("acceptedWarnings") or ())
+    MAIN_RESULTS = _ac.author_tex(a, "mainResults")
+    NOTE_MAX_LINES = int(_ac.author_tex(a, "notes").get("maxLines") or 3)
     notes = a.get("noteMacros") if isinstance(a.get("noteMacros"), dict) else {}
     machine = [m.strip().lstrip("\\") for m in (notes.get("machine")
                                                 or DEFAULT_MACHINE_MACROS) if m.strip()]
@@ -204,8 +249,6 @@ def load_author_block(path: Optional[str]) -> Tuple[Optional[dict], str]:
     return (block if isinstance(block, dict) else None), ""
 
 
-configure(None)
-
 # --------------------------------------------------------------------------
 # Low-level LaTeX text handling
 # --------------------------------------------------------------------------
@@ -216,6 +259,17 @@ RE_CITE = re.compile(r"\\cite\s*(\[[^\]]*\])?\s*(\[[^\]]*\])?\s*\{([^}]*)\}")
 RE_LABEL = re.compile(r"\\label\s*\{([^}]*)\}")
 RE_SECTION = re.compile(r"\\(sub)?section\*?\s*\{")
 RE_INPUT = re.compile(r"\\input\s*\{([^}]*)\}")
+
+configure(None)
+
+
+def is_established(level: str) -> bool:
+    return LEVEL_KIND.get(level) == "established"
+
+
+def is_unestablished(level: str) -> bool:
+    """A level R1 refuses an established statement to rest on."""
+    return LEVEL_KIND.get(level) == "unestablished"
 
 
 class ParseError(Exception):
@@ -367,7 +421,7 @@ class Statement:
     label: str                       # "(unlabelled)" when absent
     env: str
     title: str
-    colour: str                      # sketch / conjectural / meta / established
+    colour: str                      # the draft level (author.statusLevels)
     partly: List[str]                # inline colour spans inside the statement
     section: str
     subsection: str
@@ -570,9 +624,8 @@ def parse_file(path: str, relpath: str, default_section: str) -> Tuple[
                 stmt.proof_colour = pcolour
                 stmt.proof_partly = _has_colour_command(body)
                 stmt.proof_sketched = (
-                    pcolour in ("sketch", "conjectural")
-                    or "sketch" in stmt.proof_partly
-                    or "conjectural" in stmt.proof_partly
+                    is_unestablished(pcolour)
+                    or any(is_unestablished(p) for p in stmt.proof_partly)
                 )
                 refs, cites = _collect_refs(body)
                 stmt.uses.extend(refs)
@@ -715,18 +768,20 @@ def build_paper(root: str) -> Paper:
 
 
 def rule_colour_propagation(paper: Paper) -> List[Finding]:
-    """R1: nothing established may rest on something blue or red."""
+    """R1: nothing established may rest on an unestablished level (by default
+    blue or red)."""
     out: List[Finding] = []
     for stmt in paper.statements:
-        if stmt.colour != ESTABLISHED or stmt.env in COMMENTARY_ENVS:
+        if not is_established(stmt.colour) or stmt.env in COMMENTARY_ENVS:
             continue
         for dep in stmt.uses:
             target = paper.by_label.get(dep)
-            if target is None or target.colour not in ("sketch", "conjectural"):
+            if target is None or not is_unestablished(target.colour):
                 continue
-            msg = "established %s references %s %s (%s)" % (
-                stmt.env, target.colour, dep, target.where)
-            if stmt.env == "defn" and target.env == "defn" and target.colour == "sketch":
+            msg = "%s %s references %s %s (%s)" % (
+                ESTABLISHED, stmt.env, target.colour, dep, target.where)
+            if (stmt.env in DEFINITION_ENVS and target.env in DEFINITION_ENVS
+                    and target.colour in SKETCH_LEVELS):
                 out.append(Finding("W1", "W", stmt.file, stmt.line, stmt.label,
                                    msg + " -- definition on a sketched definition"))
             else:
@@ -737,7 +792,7 @@ def rule_colour_propagation(paper: Paper) -> List[Finding]:
                       else "contains %s spans" % "/".join(stmt.proof_partly))
             out.append(Finding(
                 "R1", "V", stmt.file, stmt.proof_line or stmt.line, stmt.label,
-                "established %s has a sketched proof (%s)" % (stmt.env, detail)))
+                "%s %s has a sketched proof (%s)" % (ESTABLISHED, stmt.env, detail)))
     return out
 
 
@@ -745,7 +800,7 @@ def rule_no_proof(paper: Paper) -> List[Finding]:
     """R2 (warning): established result with neither proof nor citation."""
     out: List[Finding] = []
     for stmt in paper.statements:
-        if stmt.colour != ESTABLISHED or stmt.env not in PROVABLE_ENVS:
+        if not is_established(stmt.colour) or stmt.env not in PROVABLE_ENVS:
             continue
         if stmt.has_proof or stmt.cites:
             continue
@@ -1010,7 +1065,8 @@ def rule_margin_overflow(root: str) -> List[Finding]:
         else:
             file_field, line_field = loc_file, loc_line
             where = ""
-        msg = "clipped text on p.%d%s: \"%s\"" % (page, where, snippet)
+        msg = "clipped text on p.%d%s: \"%s\" (a machine note is at most %d lines, " \
+              "author.notes.maxLines)" % (page, where, snippet, NOTE_MAX_LINES)
         if MARGIN_HINT_TEXT in text:
             msg += (" -- already a relocated pointer; the column is still "
                     "too full")
@@ -1067,6 +1123,7 @@ class BuildSummary:
     undefined: int = 0
     multiply: int = 0
     bibtex: int = 0
+    bibtex_accepted: int = 0
     qq: int = 0
     notes: List[str] = field(default_factory=list)
 
@@ -1074,15 +1131,23 @@ class BuildSummary:
         if not self.present:
             return ("BUILD: nothing to check (no %s, .blg or .pdf)"
                     % _build_rel("log"))
-        line = ("BUILD: errors %d, undefined %d, multiply %d, bibtex warnings %d, "
+        accepted = (" (+%d accepted)" % self.bibtex_accepted
+                    if self.bibtex_accepted else "")
+        line = ("BUILD: errors %d, undefined %d, multiply %d, bibtex warnings %d%s, "
                 "?? %d" % (self.errors, self.undefined, self.multiply,
-                           self.bibtex, self.qq))
+                           self.bibtex, accepted, self.qq))
         if self.notes:
             line += "\n       " + "\n       ".join(self.notes)
         return line
 
 
 RE_LOG_ERROR = re.compile(r"^[^ ]+\.tex:[0-9]+:")
+
+
+def bib_warning_accepted(line: str) -> bool:
+    """A ``Warning--`` line about an entry in ``author.bib.acceptedWarnings``."""
+    return any(re.search(r"(?<![\w:-])%s(?![\w:-])" % re.escape(k), line)
+               for k in ACCEPTED_BIB_WARNINGS)
 
 
 def summarise_build(root: str) -> BuildSummary:
@@ -1108,7 +1173,13 @@ def summarise_build(root: str) -> BuildSummary:
     if os.path.isfile(blg_path):
         summary.present = True
         with open(blg_path, "r", encoding="utf-8", errors="replace") as handle:
-            summary.bibtex = sum(1 for line in handle if line.startswith("Warning--"))
+            for line in handle:
+                if not line.startswith("Warning--"):
+                    continue
+                if bib_warning_accepted(line):
+                    summary.bibtex_accepted += 1
+                else:
+                    summary.bibtex += 1
     else:
         summary.notes.append("no %s (bibtex warnings not checked)" % _build_rel("blg"))
 
@@ -1133,10 +1204,30 @@ def summarise_build(root: str) -> BuildSummary:
 # The registry
 # --------------------------------------------------------------------------
 
-MERMAID_CLASSES = """    classDef established fill:#ffffff,stroke:#444444,color:#111111;
-    classDef sketch fill:#dce8fb,stroke:#2c61b5,color:#10305e;
-    classDef conjectural fill:#fbdcdc,stroke:#b52c2c,color:#5e1010;
-    classDef meta fill:#f2e7d8,stroke:#8b5a2b,color:#4a3015;"""
+#: colour name -> (fill, stroke, text) of a mermaid node; an unknown colour is grey
+MERMAID_PALETTE = {
+    "black": ("#ffffff", "#444444", "#111111"),
+    "blue": ("#dce8fb", "#2c61b5", "#10305e"),
+    "red": ("#fbdcdc", "#b52c2c", "#5e1010"),
+    "brown": ("#f2e7d8", "#8b5a2b", "#4a3015"),
+    "green": ("#dcf2dc", "#2b8b3a", "#123f19"),
+    "orange": ("#fde8d0", "#c46a12", "#5a2f05"),
+    "purple": ("#ebdcf6", "#7a3fb0", "#3a1a57"),
+    "teal": ("#d6f0ef", "#1f7f7a", "#0d3b39"),
+    "magenta": ("#f8dcef", "#b02c86", "#55103f"),
+    "gray": ("#eeeeee", "#777777", "#333333"),
+    "grey": ("#eeeeee", "#777777", "#333333"),
+}
+
+
+def mermaid_classes() -> str:
+    """One ``classDef`` per draft level, coloured by the level's colour name."""
+    rows = []
+    for name in LEVEL_ORDER:
+        fill, stroke, text = MERMAID_PALETTE.get(LEVEL_COLOUR.get(name, "").lower(),
+                                                 MERMAID_PALETTE["gray"])
+        rows.append("    classDef %s fill:%s,stroke:%s,color:%s;" % (name, fill, stroke, text))
+    return "\n".join(rows)
 
 
 def _cell(items: Sequence[str], limit: int = 8) -> str:
@@ -1200,24 +1291,29 @@ def write_registry(paper: Paper, path: str, findings: List[Finding]) -> None:
     # ---- what blocks the main theorems ----------------------------------
     lines.append("## Blocking the main theorem")
     lines.append("")
-    lines.append("For each `thm:` of the introduction (and "
-                 "`thm:main-resolvable-4k` in particular), the transitive set of "
-                 "`sketch`/`conjectural` statements it rests on.")
+    main_file = str(MAIN_RESULTS.get("file") or "").replace("\\", "/")
+    main_labels = [str(x) for x in MAIN_RESULTS.get("labels") or []]
+    unest = "/".join("`%s`" % n for n in LEVEL_ORDER if is_unestablished(n)) or "unestablished"
+    named = ""
+    if main_labels:
+        named = " (and %s in particular)" % ", ".join("`%s`" % x for x in main_labels)
+    lines.append("For each `thm:` of %s%s, the transitive set of %s statements it "
+                 "rests on." % ("`%s`" % main_file if main_file else "the main file",
+                                named, unest))
     lines.append("")
-    targets: List[str] = []
-    if "thm:main-resolvable-4k" in paper.by_label:
-        targets.append("thm:main-resolvable-4k")
+    targets: List[str] = [x for x in main_labels if x in paper.by_label]
     for stmt in paper.statements:
-        if (stmt.file.endswith("introduction.tex") and stmt.env == "thm"
-                and stmt.label.startswith("thm:") and stmt.label not in targets):
+        if (main_file and (stmt.file == main_file or stmt.file.endswith("/" + main_file))
+                and stmt.env == "thm" and stmt.label.startswith("thm:")
+                and stmt.label not in targets):
             targets.append(stmt.label)
     if not targets:
-        lines.append("_No `thm:` statements found in `sections/introduction.tex`._")
+        lines.append("_No `thm:` statements found in `%s`._" % main_file)
         lines.append("")
     for label in targets:
         stmt = paper.by_label[label]
         blockers = [d for d in transitive_deps(paper, label)
-                    if paper.by_label[d].colour in ("sketch", "conjectural")]
+                    if is_unestablished(paper.by_label[d].colour)]
         lines.append("- **`%s`** (%s, %s) -- %d blocking statement%s" % (
             label, stmt.colour, stmt.where, len(blockers),
             "" if len(blockers) == 1 else "s"))
@@ -1233,7 +1329,7 @@ def write_registry(paper: Paper, path: str, findings: List[Finding]) -> None:
     lines.append("## Sketches with nothing depending on them")
     lines.append("")
     orphans = [s for s in paper.statements
-               if s.colour == "sketch" and not s.used_by
+               if s.colour in SKETCH_LEVELS and not s.used_by
                and s.label != "(unlabelled)"]
     if not orphans:
         lines.append("_None._")
@@ -1259,7 +1355,7 @@ def write_registry(paper: Paper, path: str, findings: List[Finding]) -> None:
     ids = {label: "n%d" % i for i, label in enumerate(nodes)}
     lines.append("```mermaid")
     lines.append("graph LR")
-    lines.append(MERMAID_CLASSES)
+    lines.append(mermaid_classes())
     for label in nodes:
         lines.append('    %s["%s"]:::%s' % (
             ids[label], label, paper.by_label[label].colour))

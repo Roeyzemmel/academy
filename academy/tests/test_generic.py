@@ -47,6 +47,11 @@ LINES = (
     ("domains/*/theorems/*.md", r"https?://www\.math\.tau\.ac\.il/\S+\.pdf"),  # a citation
 )
 
+#: a typed, multi-word label (``thm:main-result``): a particular paper's, not a fixture's
+PAPER_LABEL = re.compile(r"\b(?:thm|lem|prop|cor|conj|defn|rmk|claim):[a-z0-9]+(?:-[a-z0-9]+)+")
+#: the neutral example label of the docs and docstrings
+EXAMPLE_LABELS = {"lem:strip-bound"}
+
 SKIP_DIRS = {"__pycache__", ".git"}
 TEXT_EXT = {".md", ".py", ".json", ".sh", ".ps1", ".txt", ".yml", ".yaml", ".toml", ".tex",
             ".html", ".css", ".js", ".cfg", ".ini", ""}
@@ -104,6 +109,25 @@ class MarketplaceIsGeneric(unittest.TestCase):
                     hits += sum(1 for line in fh.read().splitlines() if pat.search(line))
             with self.subTest(glob=glob):
                 self.assertGreater(hits, 0, "allowance %r on %s matches nothing" % (rx, glob))
+
+    def test_no_paper_labels_in_plugin_code(self):
+        """A paper's own labels (``thm:main-...``) belong in its home's config
+        (``author.mainResults``), not in plugin code. Test files, and the checker's
+        self-test sample (one-word labels), are fixtures; the neutral example label used
+        throughout the docs is allowed."""
+        found = []
+        for rel in _files():
+            if not rel.endswith(".py") or "/tests/" in rel:
+                continue
+            if any(_match(rel, p) for p in HISTORY):
+                continue
+            with open(os.path.join(REPO, rel), encoding="utf-8") as fh:
+                for n, line in enumerate(fh.read().splitlines(), 1):
+                    for lab in PAPER_LABEL.findall(line):
+                        if lab not in EXAMPLE_LABELS:
+                            found.append("%s:%d: %s" % (rel, n, lab))
+        self.assertEqual(found, [], "paper labels in plugin code:\n" + "\n".join(found))
+        self.assertTrue(PAPER_LABEL.search('"thm:main-resolvable-4k"'))
 
     def test_the_guard_catches_a_name(self):
         self.assertTrue(NAMES.search("the job runs on lingo"))

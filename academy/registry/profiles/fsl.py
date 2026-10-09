@@ -209,9 +209,26 @@ def paper_colours(base):
         p = base / "Drafts" / "statements.md"
         if not p.exists():
             return {}
-        row = re.compile(r"^\|\s*`([^`]+)`\s*\|[^|]*\|[^|]*\|\s*([a-z]+)\s*\|", re.M)
+        row = re.compile(r"^\|\s*`([^`]+)`\s*\|[^|]*\|[^|]*\|\s*([A-Za-z][\w-]*)\s*\|", re.M)
         return dict(row.findall(p.read_text(encoding="utf-8", errors="replace")))
     return _cached(("colours", base), scan)
+
+
+def paper_established(base):
+    """The name of the home's established draft level: the level of kind `established`
+    in `author.statusLevels` of base/.claude/academy.json (docs/config.md), else
+    `established`."""
+    def scan():
+        try:
+            cfg = json.loads((base / ".claude" / "academy.json").read_text(encoding="utf-8-sig"))
+            levels = (cfg.get("author") or {}).get("statusLevels") or []
+            for lv in levels:
+                if isinstance(lv, dict) and lv.get("kind") == "established" and lv.get("name"):
+                    return str(lv["name"])
+        except (OSError, ValueError, AttributeError):
+            pass
+        return "established"
+    return _cached(("established", base), scan)
 
 
 def _is_foreign(ns, repo):
@@ -570,7 +587,7 @@ def check_paper_claim(c, repo, e, w):
         e(f"`{name}` is not a \\label in sections/")
         return
     colour = paper_colours(repo).get(name)
-    if colour == "established":
+    if colour is not None and colour == paper_established(repo):
         if c.status not in ("proved", "proved-modulo"):
             e(f"black in the draft, but status is `{c.status}`")
         elif not any(c.evidence_cells(ev)[0] in ("verdict", "citation") for ev in c.evidence):

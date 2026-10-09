@@ -59,7 +59,8 @@ line-ending rule (`crlf`). The standing rules are
   and `author.noteMacros` in academy.json, never from constants.
 - The commit baseline: `py ${CLAUDE_PLUGIN_ROOT}/scripts/commit_gate.py
   --write-baseline --root <home>` only on the human's word; shrinking it is progress.
-- Preamble changes are proposed, not made, unless the ticket says so.
+- Preamble changes follow `author.preamble.policy` (default `propose`: file them as a
+  proposal; `preamble_guard` refuses the edit until the human releases the file).
 
 ## Recolouring
 

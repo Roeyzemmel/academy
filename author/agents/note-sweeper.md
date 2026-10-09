@@ -53,7 +53,8 @@ Where an answer can live, checked in this order:
    `accepted`, `in-progress`, `delivered` (`--result "<the answer>"`), `closed` with
    `board.py transition`: the board is the durable record, the margin is not. Then
    delete the note. *Open*: leave it exactly as it is.
-   *Partly answered*: narrow it to the part still open and record the rest.
+   *Partly answered*: narrow it to the part still open and record the rest. A note
+   longer than `author.notes.maxLines` (default 3) is shortened to a pointer to its ticket.
 3. A deleted note often leaves a doubled space or a stranded blank line; clean that and
    nothing else. Respect the file's line endings (`author.crlf`).
 

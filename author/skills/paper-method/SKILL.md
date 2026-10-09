@@ -17,10 +17,11 @@ carries the field's notation and figure conventions.
 
 **The paper's own conventions come first.** The home's `CLAUDE.md` and
 `.claude/rules/` (macros, environments, colours, line endings, build) and its
-`.claude/academy.json` `author` block are authoritative. Write today's `.tex` correctly
-against the preamble as it stands, and propose infrastructure changes separately, with
-the reason: a paper with several coauthors breaks when the preamble changes underneath
-them. Draft comments go through the paper's margin-note macros; **never sign a note as
+`.claude/academy.json` `author` block are authoritative (`statusLevels`, `preamble`,
+`labels`, `notes`, `figures`, `bib`: `references/editing-tex.md`). Write today's `.tex`
+correctly against the preamble as it stands; a preamble change goes as
+`author.preamble.policy` says (default `propose`: a proposal with the reason, since a
+paper with several coauthors breaks when the preamble changes underneath them). Draft comments go through the paper's margin-note macros; **never sign a note as
 a human coauthor.**
 
 **The paper's taste comes next.** `Drafts/vision.md` records the arc, the statement
