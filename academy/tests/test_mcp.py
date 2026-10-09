@@ -431,6 +431,20 @@ class TestLibrary(McpTestBase):
         self.assertEqual(miss["indexed_without_txt"], ["K2"])
         self.assertEqual(miss["cached_without_index_row"], [])
 
+    def test_search_hyphenated_raw_query(self):
+        # 2026-10-08: bad FTS query 'cone-manifold OR "cone manifold"': no such column
+        s = self.server("author@t")
+        err, res = s.call("library_search", raw=True,
+                          query='saddle-connections OR "maximal cylinder" OR manifold')
+        self.assertFalse(err, res)
+        self.assertIn('"saddle-connections"', res["fts"])
+        err, res = s.call("library_search", query="cone-manifold saddle")
+        self.assertFalse(err, res)
+        err, res = s.call("library_search", raw=True, query="manifold:x OR saddle*")
+        self.assertFalse(err, res)
+        self.assertEqual(lib.escape_fts('a-b OR (c AND "d e") NOT f.g'),
+                         '"a-b" OR ( c AND "d e" ) NOT "f.g"')
+
     def test_parse_index(self):
         rows = lib.parse_index(INDEX)
         self.assertEqual([r["key"] for r in rows], ["K1", "K2"])

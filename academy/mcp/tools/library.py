@@ -293,6 +293,27 @@ def fts_query(q):
     return " OR ".join('"%s"' % w.replace('"', "") for w in dict.fromkeys(words))
 
 
+RE_FTS_TOKEN = re.compile(r'"(?:[^"]|"")*"|[()]|[^\s()"]+')
+FTS_OPERATORS = ("AND", "OR", "NOT")
+
+
+def escape_fts(q):
+    """A raw FTS5 query made safe: quoted phrases, parentheses, AND/OR/NOT and plain
+    words (with an optional prefix ``*``) are kept; any other bare token -- a
+    hyphenated word such as ``cone-manifold`` (read by FTS5 as a column filter: "no
+    such column: manifold"), ``a:b``, ``x.y`` -- becomes a quoted phrase."""
+    out = []
+    for tok in RE_FTS_TOKEN.findall(q or ""):
+        if tok.startswith('"') or tok in ("(", ")") or tok in FTS_OPERATORS \
+                or re.match(r"^\w+\*?$", tok) or re.match(r"^NEAR$", tok):
+            out.append(tok)
+        else:
+            out.append('"%s"' % tok.replace('"', '""'))
+    if not out:
+        raise ToolError("the query has no searchable words")
+    return " ".join(out)
+
+
 # ----------------------------------------------------------------------------
 # Handlers
 # ----------------------------------------------------------------------------
@@ -327,7 +348,7 @@ def _search(ctx, a):
     if not q:
         raise ToolError("query is required")
     limit = max(1, min(int(a.get("limit") or 10), 50))
-    match = q if a.get("raw") else fts_query(q)
+    match = escape_fts(q) if a.get("raw") else fts_query(q)
     db, changed = open_index(home)
     try:
         sql = ("select key, kind, loc, snippet(docs, 4, '[', ']', ' ... ', 16), bm25(docs) "
@@ -344,7 +365,16 @@ def _search(ctx, a):
         try:
             rows = db.execute(sql, params).fetchall()
         except sqlite3.OperationalError as exc:
-            raise ToolError("bad FTS query %r: %s" % (match, exc))
+            if not a.get("raw"):
+                raise ToolError("bad FTS query %r: %s" % (match, exc))
+            # a raw query FTS5 still rejects: search its words instead, and say so
+            fallback = fts_query(q)
+            params[0] = fallback
+            try:
+                rows = db.execute(sql, params).fetchall()
+            except sqlite3.OperationalError:
+                raise ToolError("bad FTS query %r: %s" % (match, exc))
+            match = "%s (raw query rejected: %s)" % (fallback, exc)
     finally:
         db.close()
     log_access(ctx, home, "library_search", q)
