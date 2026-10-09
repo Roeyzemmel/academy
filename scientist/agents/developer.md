@@ -47,8 +47,10 @@ belongs in the plugin** (`${CLAUDE_PLUGIN_ROOT}/scripts/`), parameterised by
 
 - **The runner and the environments.** `env.py` dispatches on the profile kind
   (`wsl`, `local`, `ssh`); `run`/`queue` are thin frontends to it; the `fsq` runner
-  works on any Linux target; preflights (the VPN check is one) are pluggable per
-  profile; "no laptop compute" is `policy.run`. It is in place (Group C,
+  works on any Linux target; a remote profile names a worker of the workspace's
+  `compute` block, whose gateway check (`workers.py`: a VPN client, tcp-reachable,
+  a command, or none) is pluggable; no machine is named in the plugin; "no laptop
+  compute" is `policy.run`. It is in place (Group C,
   `tests/test_env.py`, a fake ssh in `tests/fixtures/fake_ssh.py`); `fsq.sh` must
   stay byte-identical to what the hosts run until a redeploy is decided (a test
   pins it to `legacy/fsq.sh`). The byte-exact originals stay in

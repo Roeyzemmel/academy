@@ -66,8 +66,9 @@ is "the same thing", it checks a shadow of the claim: redesign.
    heavy environment, and the header checker (`py "${CLAUDE_PLUGIN_ROOT}/scripts/lab.py" cmd check <script>`).
    Every run, validation included, goes to the queue: `queue_add`, or the command
    `lab.py cmd queue -Add ...` prints while `queue_add` answers with a dry run.
-   An unreachable remote means its preflight failed (the VPN): the job waits, which
-   is the designed path. Never debug ssh, never try another host.
+   An unreachable remote means the run worker's gateway is down: the job waits,
+   which is the designed path; if it is down, follow its `onDown`. Never debug ssh,
+   never try another host.
 3. **Package code test-first** (`superpowers:test-driven-development`): the function
    whose docstring quotes the definition and its id, a unit test with hand-computed
    values on at least two of the pack's standard examples, then the script. Where

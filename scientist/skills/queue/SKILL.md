@@ -1,6 +1,6 @@
 ---
 name: queue
-description: 'Drive the lab''s job queue: file a run on an env profile, check preflight, tick, poll, read logs, settle finished jobs and report results. Use for anything about running an experiment, "is it done yet", "start the jobs", or watching pending jobs.'
+description: 'Drive the lab''s job queue: file a run on an env profile, check the gateway, tick, poll, read logs, settle finished jobs and report results. Use for anything about running an experiment, "is it done yet", "start the jobs", or watching pending jobs.'
 ---
 
 # The job queue
@@ -11,7 +11,7 @@ report).
 Every command below comes from
 
 ```
-py "${CLAUDE_PLUGIN_ROOT}/scripts/lab.py" cmd <queue|vpn|run> [ARGS ...]
+py "${CLAUDE_PLUGIN_ROOT}/scripts/lab.py" cmd <queue|gateway|run> [ARGS ...]
 ```
 
 which prints the one command line that performs it: the plugin's runner, `env.py
@@ -38,7 +38,7 @@ them only when something misbehaves.
 | what the remote runner sees | `-Status` |
 | tail a job's log | `-Log <id-prefix>` |
 
-The preflight alone (no network round trip): `lab.py cmd vpn`. `queue_add` (MCP)
+The run worker's gateway alone (a local check, no ssh): `lab.py cmd gateway`. `queue_add` (MCP)
 checks that the script is committed, defaults the profile to `policy.run` and builds
 the same job file; until the lab's academy.json sets `scientist.queue.mcpAdd: "on"`
 it is a dry run that returns the file and the `-Add` command instead of writing it.
@@ -52,10 +52,10 @@ is Roey's call: it changes the remote host.
 
 ## Four rules that decide what you do next
 
-1. **A failed preflight means the target is unreachable** (for a VPN-gated profile,
-   the VPN is down). Only Roey fixes that. Say so and stop: do not debug ssh, do not
-   try another host, do not fall back to running here. The queue waits; that is
-   what it is for.
+1. **A gateway that is down means the target is unreachable.** The tick prints the
+   run worker's gateway and its `onDown` (from the workspace's `compute` block):
+   follow it, then stop. Do not debug ssh, do not try another host, do not fall back
+   to running here. The queue waits; that is what it is for.
 2. **A job whose script is uncommitted or not in HEAD is skipped**, and the tick says
    which. The fix is Roey's commit, not a retry.
 3. **The runner holds the cap** (`maxJobs`, default 1, at most 3). Filing many jobs is
@@ -70,7 +70,7 @@ is Roey's call: it changes the remote host.
 With pending or running jobs, watch rather than declare victory: `/loop 15m
 /scientist:queue`, or a wake-up matched to the job. Report only transitions (a job
 started or finished, the target came or went). Stop when the queue is empty, when
-Roey says so, or when the answer is "waiting on the preflight" and another check will
+Roey says so, or when the answer is "waiting on the gateway" and another check will
 not change it.
 
 ## Settling a finished job

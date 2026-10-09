@@ -43,9 +43,9 @@ says how the environment is activated and which shortcuts break it; follow it.
 
 When the run profile (`policy.run`) is structurally different from the probe profile
 and the pipeline depends on the answer there (an import that must work without an
-optional dependency), confirm it on the run profile too. If its preflight fails (the
-VPN is down), record the probe-profile result and say plainly that the run-profile
-side is unconfirmed; do not debug the connection.
+optional dependency), confirm it on the run profile too. If the run worker's gateway is down, follow its
+`onDown`, record the probe-profile result and say plainly that the run-profile side
+is unconfirmed; do not debug the connection.
 
 ## What you record
 
