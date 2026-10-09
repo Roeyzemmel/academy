@@ -123,6 +123,62 @@ class TableTests(unittest.TestCase):
         self.assertEqual(r["outcome"], "disagreement")
         self.assertIsNone(r["proposed_status"])
 
+    # T-0148 (the human's decision, 2026-10-09): a definition used only as notation is
+    # not an input; two CONFIRMED runs differing only in definitions agree
+    def test_definition_only_difference_is_agreement_and_flagged(self):
+        kinds = {"paper:defn:affine-in-charts": "definition", "paper:lem:a": "claim"}
+        r = dt.decide(rec("CONFIRMED", modulo="paper:lem:a, paper:defn:affine-in-charts"),
+                      rec("CONFIRMED", run="B", modulo="paper:lem:a"),
+                      kind_of=kinds.get)
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:a"])
+        self.assertEqual(r["proposed_status"], "proved-modulo")
+        self.assertEqual(r["dropped_definitions"], ["paper:defn:affine-in-charts"])
+        self.assertIn("T-0148", r["grounds"]["note"])
+        self.assertEqual(r["grounds"]["modulo"], ["paper:lem:a"])
+        self.assertIn("dropped definitions", dt._text(r))
+
+    def test_definition_only_against_none_is_confirmed(self):
+        r = dt.decide(rec("CONFIRMED", modulo="paper:defn:affine-in-charts"),
+                      rec("CONFIRMED", run="B"), kind_of=lambda q: None)
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertEqual(r["proposed_status"], "proved")
+        self.assertEqual(r["dropped_definitions"], ["paper:defn:affine-in-charts"])
+
+    def test_lemma_difference_is_still_disagreement(self):
+        kinds = {"paper:defn:d": "definition", "paper:lem:b": "claim"}
+        r = dt.decide(rec("CONFIRMED", modulo="paper:defn:d, paper:lem:b"),
+                      rec("CONFIRMED", run="B"), kind_of=kinds.get)
+        self.assertEqual(r["outcome"], "disagreement")
+        self.assertIsNone(r["proposed_status"])
+        self.assertEqual(r["dropped_definitions"], [])
+        self.assertIn("paper:lem:b", r["summary"])
+        self.assertNotIn("paper:defn:d", r["summary"])
+
+    def test_citation_difference_is_still_disagreement(self):
+        r = dt.decide(rec("CONFIRMED", modulo="paper:defn:d, bib:Ha02#1.3"),
+                      rec("CONFIRMED", run="B"), kind_of=lambda q: None)
+        self.assertEqual(r["outcome"], "disagreement")
+
+    def test_registry_kind_beats_the_label(self):
+        # an id that looks like a definition but is a lemma in the registry is an input
+        r = dt.decide(rec("CONFIRMED", modulo="s1:DEF-1"), rec("CONFIRMED", run="B"),
+                      kind_of={"s1:DEF-1": "lemma"}.get)
+        self.assertEqual(r["outcome"], "disagreement")
+        self.assertTrue(dt.is_definition("s1:DEF-2", {"s1:DEF-2": "def"}.get))
+        self.assertTrue(dt.is_definition("s1:DEF-9", lambda q: None))
+        self.assertTrue(dt.is_definition("paper:defn:x", lambda q: None))
+        self.assertFalse(dt.is_definition("paper:lem:x", lambda q: None))
+        self.assertFalse(dt.is_definition("bib:defn:x", {"bib:defn:x": "definition"}.get))
+
+    def test_default_lookup_falls_back_to_the_label(self):
+        # the module's workspace names a home that does not exist: no registry, label rule
+        self.assertIsNone(dt.registry_kind("paper:defn:x"))
+        r = dt.decide(rec("CONFIRMED", modulo="paper:lem:a, paper:defn:x"),
+                      rec("CONFIRMED", run="B", modulo="paper:lem:a"))
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["dropped_definitions"], ["paper:defn:x"])
+
     def test_one_modulo_one_clean_is_disagreement(self):
         r = dt.decide(rec("CONFIRMED"), rec("CONFIRMED", run="B", modulo="paper:lem:b"))
         self.assertEqual(r["outcome"], "disagreement")

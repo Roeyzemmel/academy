@@ -14,7 +14,8 @@ The table (from the old /paper:verify, in the academy's verdict words):
 | CONFIRMED | not yet run | ``awaiting-b``: launch B with the identical brief |
 | CONFIRMED | CONFIRMED, no inputs on either | ``confirmed``: propose ``proved``; recolour earned |
 | CONFIRMED modulo X | CONFIRMED modulo X (same set) | ``confirmed-modulo``: propose ``proved-modulo``; recolour only if every input in X is established |
-| CONFIRMED (modulo X) | CONFIRMED modulo Y, Y != X | ``disagreement`` |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, X and Y differ only in definitions | as if both said modulo X & Y (the intersection); the dropped definitions are flagged (``dropped_definitions``) |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, Y != X otherwise | ``disagreement`` |
 | CONFIRMED | GAP | ``disagreement``: no status; file the weaker run's blocking step |
 | DISPROVED (either run) | any | ``disproved``: no status; the counterexample goes to the human at once |
 | GAP | not run | ``single-negative``: no status; A's blocking step is the repair item; B skipped by design |
@@ -31,6 +32,14 @@ Mechanical rules applied before the table:
   Haiku, an older Opus, a bare ``opus`` that names no version, or no model at all) is
   read as PLAUSIBLE (roster-rules.md, "Graders degrade"). Every run's recorded model is kept
   in ``runs[].model``.
+* A definition used only as notation is not an input (the human's decision,
+  2026-10-09, T-0148): when two CONFIRMED runs' modulo lists differ only in
+  definitions, the runs agree, the decided modulo list is the intersection, and the
+  definitions dropped are flagged in ``dropped_definitions`` and the grounds' note.
+  An id is a definition when its registry record's kind is a definition
+  (``definition`` / ``def`` / ``defn``, looked up through the registry engine), or,
+  when the registry cannot be read or has no such record, when its label starts with
+  ``defn:`` / ``def:`` or its id with ``DEF-``. A ``bib:`` input is never one.
 * B present after a non-CONFIRMED A is a process anomaly (B should not have run);
   it is reported, and the outcome is taken from A alone.
 
@@ -269,6 +278,53 @@ def follow_up(item, subject="", producer_role="", rec=None):
                    % (gc or "proof-step")}
 
 
+# ----------------------------------------------------------------------------
+# Definitions are not inputs (the human's decision, 2026-10-09, T-0148)
+# ----------------------------------------------------------------------------
+
+DEFINITION_KINDS = ("definition", "def", "defn")
+RE_DEF_LABEL = re.compile(r"^(?:defn?:|DEF-)")
+
+
+def registry_kind(qid):
+    """The registry kind of ``qid`` (``ns:id``): the record's ``kind`` field, else its
+    entity type; None when the registry engine, the namespace's home or the record
+    cannot be found. Loaded through the engine (``registry.core.federation``), never by
+    reading files."""
+    ns, _, name = str(qid or "").partition(":")
+    if not name or ns == "bib":
+        return None
+    try:
+        plugin = os.path.join(ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import federation, workspace as rws
+        info = rws.namespaces().get(ns)
+        home = info and info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return None
+        rec = federation.store(ns, home).get(name)
+    except Exception:        # an unreadable registry falls back to the label
+        return None
+    if rec is None:
+        return None
+    return str(rec.fields.get("kind") or rec.type or "").strip().lower() or None
+
+
+def is_definition(qid, kind_of=None):
+    """True when the input ``qid`` names a definition: by its registry kind when the
+    registry knows it (``kind_of``, default ``registry_kind``), else by its label
+    (``ns:defn:...``, ``ns:def:...``, ``ns:DEF-...``). A ``bib:`` input never is."""
+    q = str(qid or "").strip()
+    if not q or q.startswith("bib:"):
+        return False
+    kind = (kind_of or registry_kind)(q)
+    if kind:
+        return kind.lower() in DEFINITION_KINDS
+    _ns, _, name = q.partition(":")
+    return bool(RE_DEF_LABEL.match(name or q))
+
+
 def read_record(path):
     if path in (None, "", "-"):
         return None
@@ -384,10 +440,12 @@ def _grounds(recs, modulo, note, producer_role=""):
     return g
 
 
-def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
+def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
+           kind_of=None):
     """Apply the table (``_decide``) and give every item to file its ``route``
-    (``follow_up``)."""
-    res = _decide(rec_a, rec_b, established, primary, producer_role)
+    (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
+    lookup that decides which inputs are definitions."""
+    res = _decide(rec_a, rec_b, established, primary, producer_role, kind_of)
     if res.get("file_items"):
         subject = (rec_a or {}).get("subject") or ""
         prod = producer_role_for(subject, producer_role)
@@ -402,14 +460,16 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
     return res
 
 
-def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
+def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
+            kind_of=None):
     """Apply the table. ``rec_a`` / ``rec_b`` come from ``parse_record``; ``rec_b``
     may be None (not launched). ``established`` lists the modulo inputs known to be
     established (registry ``proved`` or a verified citation card). ``producer_role``
     overrides the namespace-owner lookup (``producer_role_for``) when given."""
     res = {"outcome": "", "launch_b": False, "proposed_status": None, "recolour": False,
            "needs_human": False, "modulo": [], "pending_inputs": [], "file_items": [],
-           "anomalies": [], "grounds": None, "summary": "", "runs": []}
+           "anomalies": [], "grounds": None, "summary": "", "runs": [],
+           "dropped_definitions": []}
     established = set(established or ())
 
     if rec_a is None or rec_a["problems"]:
@@ -498,21 +558,33 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None)
             res["summary"] = "the two runs are not independent reviews of one statement"
             return res
         ma, mb = set(rec_a["modulo"]), set(rec_b["modulo"])
+        dropped = []
+        if ma != mb and all(is_definition(i, kind_of) for i in ma ^ mb):
+            # T-0148: a definition used only as notation is not an input
+            dropped = sorted(ma ^ mb)
+            res["dropped_definitions"] = dropped
+            ma = mb = ma & mb
+        dnote = ("; definitions dropped from the modulo lists (not inputs, the human's "
+                 "decision 2026-10-09, T-0148): %s" % ", ".join(dropped)) if dropped else ""
         if ma != mb:
             res["outcome"] = "disagreement"
             res["modulo"] = sorted(ma | mb)
+            beyond = sorted(i for i in ma ^ mb if not is_definition(i, kind_of))
             res["file_items"] = [{"run": "A+B", "kind": "inputs",
-                                  "text": "the runs name different inputs: A %s, B %s"
-                                          % (sorted(ma) or "none", sorted(mb) or "none")}]
-            res["summary"] = "both CONFIRMED but on different inputs: no status change"
+                                  "text": "the runs name different inputs: A %s, B %s "
+                                          "(not definitions: %s)"
+                                          % (sorted(ma) or "none", sorted(mb) or "none",
+                                             ", ".join(beyond))}]
+            res["summary"] = ("both CONFIRMED but on different inputs beyond definitions "
+                              "(%s): no status change" % ", ".join(beyond))
             return res
         if not ma:
             res["outcome"] = "confirmed"
             res["proposed_status"] = "proved"
             res["recolour"] = True
-            res["grounds"] = _grounds(recs, [], "two CONFIRMED verdicts, no open inputs",
-                                      prod_role)
-            res["summary"] = "CONFIRMED x2: propose proved; recolour earned"
+            res["grounds"] = _grounds(recs, [], "two CONFIRMED verdicts, no open inputs"
+                                      + dnote, prod_role)
+            res["summary"] = "CONFIRMED x2: propose proved; recolour earned" + dnote
             return res
         res["outcome"] = "confirmed-modulo"
         res["modulo"] = sorted(ma)
@@ -520,14 +592,14 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None)
         res["proposed_status"] = "proved-modulo"
         res["recolour"] = not res["pending_inputs"]
         res["grounds"] = _grounds(recs, sorted(ma), "two CONFIRMED verdicts modulo %s"
-                                  % ", ".join(sorted(ma)), prod_role)
+                                  % ", ".join(sorted(ma)) + dnote, prod_role)
         res["file_items"] = [{"run": "A+B", "kind": "verify-input", "text": i}
                              for i in res["pending_inputs"]]
         res["summary"] = ("CONFIRMED x2 modulo %s: propose proved-modulo; %s"
                           % (", ".join(sorted(ma)),
                              "recolour earned (every input established)" if res["recolour"]
                              else "stays sketch until %s are established"
-                             % ", ".join(res["pending_inputs"])))
+                             % ", ".join(res["pending_inputs"])) + dnote)
         return res
 
     if a == "CONFIRMED" and b == "GAP":
@@ -584,6 +656,9 @@ def _text(res):
         out.append("modulo: %s" % ", ".join(res["modulo"]))
     if res["pending_inputs"]:
         out.append("pending inputs: %s" % ", ".join(res["pending_inputs"]))
+    if res.get("dropped_definitions"):
+        out.append("dropped definitions (not inputs, T-0148): %s"
+                   % ", ".join(res["dropped_definitions"]))
     for it in res["file_items"]:
         r = it.get("route") or {}
         out.append("file (%s, run %s%s): %s%s" % (

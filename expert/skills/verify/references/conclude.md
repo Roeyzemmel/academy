@@ -76,6 +76,14 @@ inputs both runs name and mark each one: `proved`, `verified citation`, `sketch`
 `conjectured` / `open` (its status), `uncited folklore`, `cached but no card`,
 `uncitable`. The script then decides whether the recolour is earned; you do not.
 
+**Definitions are not inputs** (the human's decision, 2026-10-09, T-0148): a
+definition used only as notation is not an input in a verdict's modulo list; only a
+definition whose content the argument relies on counts. The script applies it: when two
+CONFIRMED runs' modulo lists differ only in definitions (registry kind `definition`,
+else a `defn:` / `DEF-` label), it reads them as agreeing on the intersection and lists
+the dropped ids in `dropped_definitions`. Copy that list into the record; do not list a
+dropped definition among the inputs.
+
 **Check by hand only what one grep or one definition settles**, and say in the record
 which lines you checked. Where the runs differ, do not average them: say which is
 sharper and why. A disagreement is reported as a finding.
@@ -88,7 +96,7 @@ LF, Markdown, written by you:
   or the proof attempt); if an older pass exists (`py $E/reviews.py list <id>`), a
   line saying which pass this one supersedes;
 - the outcome, verbatim from the script (`outcome`, `summary`, `proposed_status`,
-  `recolour`, `modulo`, `pending_inputs`, `anomalies`);
+  `recolour`, `modulo`, `pending_inputs`, `dropped_definitions`, `anomalies`);
 - both verdicts side by side: verdict, model, run id, blocking step;
 - the findings **both** runs reached independently, numbered, then what they
   disagreed about and which was right;
