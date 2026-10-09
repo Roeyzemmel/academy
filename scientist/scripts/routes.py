@@ -14,7 +14,7 @@ test                agent experimenter, falsifier first (a conjectured generaliz
 code                agent developer, then test-engineer reviews the diff; a title
                     beginning "Upstream:" goes to upstream-contributor (drafts only)
 question            agent experimenter (answers from the lab's records; no new compute)
-other               human (Roey says what it is)
+other               human (the human says what it is)
 anything else       reject: not the lab's work (names the usual receiver)
 ==================  ============================================================
 """
@@ -38,16 +38,26 @@ ELSEWHERE = {"verify": "expert", "cite": "expert", "lookup": "expert", "referee"
              "build": "author", "figure": "author", "decision": "human or claim-keeper"}
 
 
+def _human():
+    """The human's name from workspace.json (``human.name``), else 'the human'."""
+    try:
+        import _academy as ac
+        return ac.human_name()
+    except Exception:       # a routing table must answer even without a workspace
+        return "the human"
+
+
 def route(meta):
     kind = meta.get("kind") or "other"
     if kind == "code" and str(meta.get("title") or "").lower().startswith("upstream:"):
         row = {"how": "agent", "target": "upstream-contributor",
-               "why": "draft the reproducer, issue text and patch branch; Roey files it"}
+               "why": "draft the reproducer, issue text and patch branch; %s files it"
+               % _human()}
     elif kind in ROUTES:
         agent, why = ROUTES[kind]
         row = {"how": "agent", "target": agent, "why": why}
     elif kind == "other":
-        row = {"how": "human", "target": "human", "why": "Roey says what it is"}
+        row = {"how": "human", "target": "human", "why": "%s says what it is" % _human()}
     else:
         row = {"how": "reject", "target": None,
                "why": "not the lab's work; usually for %s"

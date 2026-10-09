@@ -62,8 +62,7 @@ A work item is a **ticket** (`docs/protocol.md`), filed with `board.py new` /
 
 - Milestone progress and the agenda's status column are computed from the registry
   statuses, plus the tickets attached to each entry (`agenda.py milestones`, `show`).
-- `scripts/agenda_migrate.py` is the one-shot converter for a `Drafts/roadmap.md` that
-  still exists: dry run by default, `--apply` files the tickets, the file is only read
-  (archive it by hand afterwards); see its docstring for every rule. Nothing else reads
-  or writes a roadmap; an old `paths.roadmap` key in `academy.json` is accepted and
+- The one-shot converter for an old `Drafts/roadmap.md` (`agenda_migrate.py`) has been
+  retired from the plugin with the migration it served. Nothing reads or writes a
+  roadmap; an old `paths.roadmap` key in `academy.json` is accepted and
   ignored.

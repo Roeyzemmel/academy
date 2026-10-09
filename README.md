@@ -9,8 +9,6 @@ Role-based Claude Code plugins for research mathematics, as one local marketplac
 | `domains/<name>/` | Domain packs: knowledge only, no plugin logic |
 | `workspace.json` | The instance map: which role runs in which home, for which domains |
 | `docs/` | The contracts and the guides (start with `docs/README.md`) |
-| `goldens/` | Phase-0 reference outputs that every migration phase must reproduce |
-| `_import/` | The imported history of the two predecessor plugins, being moved into place |
 
 Status: under construction (see `docs/migration-log.md`). The design is the approved
 plan; `docs/protocol.md`, `docs/packet-template.md` and `docs/config.md` are the

@@ -96,7 +96,7 @@ class TestHomes(Homes):
         federation.CACHE.clear()
         cs, _ = fsl.load(fsl.registry_root(self.lab))
         errs, _ = fsl.check(cs, repo=self.lab)
-        self.assertTrue(any("the kb id is `s1:GA-2T′`" in e for e in errs), errs)
+        self.assertTrue(any("the id is `s1:GA-2T′`" in e for e in errs), errs)
 
     def test_graph_crosses_namespaces(self):
         write(self.lab / "claims" / "lab" / "foo.md",

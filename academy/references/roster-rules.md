@@ -85,19 +85,20 @@ Each agent's frontmatter carries `model:`, `effort:` and `fallback:`.
   run whatever authority its primary model carried.
 - The Agent tool cannot override `effort`; a task that deserves another effort gets
   its own agent.
-- **Graders have two equal primaries: Fable and Opus 5.5** (Roey, 2026-09-24,
-  reconfirmed 2026-09-28). A verdict of `rigor-reviewer`, `experiment-reviewer` or
-  `referee` on either one carries full authority; the graders' frontmatter fallback
-  `opus` resolves to Opus 5.5 and so is itself a primary. Every verdict records the
-  exact model it ran on (`claude-fable-…`, `claude-opus-5-5`), never a bare family
-  name: a bare `opus` names no version and is read as a fallback.
+- **Graders have equal primaries**, the models listed in workspace.json's
+  `grading.primaryModels` (default: Fable and Opus 5.5; docs/config.md). A verdict of
+  `rigor-reviewer`, `experiment-reviewer` or `referee` on any primary carries full
+  authority; with the default list, the graders' frontmatter fallback `opus` resolves
+  to Opus 5.5 and so is itself a primary. Every verdict records the exact model it ran
+  on (`claude-fable-…`, `claude-opus-5-5`), never a bare family name: a bare `opus`
+  names no version and is read as a fallback.
 - **Graders degrade rather than substitute.** A proof verdict reached on any other
   model (Sonnet, Haiku, an older Opus) is at most PLAUSIBLE; an experiment verdict on
   one is at most GAP; a referee report on one marks itself reduced-strength. A
   degraded verdict never counts toward the two agreeing verdicts. The scripts apply
-  this mechanically: `expert/scripts/decision_table.py` (`PRIMARY_MODELS`),
-  `researcher/scripts/_researcher.py` (`PRIMARY_MODELS`, used by `land_review.py` and
-  `settle.py`) and `expert/scripts/land_referee.py`.
+  this mechanically, reading `grading.primaryModels`: `expert/scripts/decision_table.py`
+  (`configured_primaries`), `researcher/scripts/_researcher.py` (`primary_models`, used
+  by `land_review.py` and `settle.py`) and `expert/scripts/land_referee.py`.
 - A limit error is not "unavailable": it stops the run (budget.md rule 4).
 
 ## Standing conduct

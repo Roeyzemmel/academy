@@ -51,9 +51,9 @@ line-ending rule (`crlf`). The standing rules are
   `build.lock` exists (or turn build-on-save off), and record the setting in the
   home's rules.
 - **`check_paper.py`** (`${CLAUDE_PLUGIN_ROOT}/scripts/check_paper.py`) and its tests
-  (`${CLAUDE_PLUGIN_ROOT}/tests/`): a change to the checker keeps the phase-0 golden
-  (`<academy>/goldens/check_paper.txt`, modulo R7) unless the change is the point, and
-  then the new golden is part of your report. Run
+  (`${CLAUDE_PLUGIN_ROOT}/tests/`): a change to the checker keeps its findings on the
+  paper unchanged (compare `check_paper.py` before and after, modulo R7) unless the
+  change is the point, and then the new output is part of your report. Run
   `py -m unittest discover -s ${CLAUDE_PLUGIN_ROOT}/tests -t ${CLAUDE_PLUGIN_ROOT}/tests`.
   The vocabulary comes from `author.theorems`, `author.envs`, `author.colourCommands`
   and `author.noteMacros` in academy.json, never from constants.

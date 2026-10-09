@@ -83,6 +83,13 @@ class LandReviewTests(Workspace):
             with self.subTest(name=name):
                 self.assertEqual(rs.is_primary(name), want)
 
+    def test_primary_models_from_workspace_config(self):
+        ws = {"grading": {"primaryModels": ["claude-fable-5-1"]}}
+        self.assertEqual(rs.primary_models(ws), ("fable",))
+        self.assertTrue(rs.is_primary("Fable", ws))
+        self.assertFalse(rs.is_primary("claude-opus-5-5", ws))
+        self.assertEqual(rs.primary_models({}), ("fable", "opus-5.5"))
+
     def test_report_taken_from_transcript_when_event_lacks_it(self):
         tr = write(os.path.join(self.tmp, "t.jsonl"), json.dumps(
             {"type": "assistant", "message": {"model": "claude-fable-5-1",

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/session_start.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/session_start.py\"",
             "statusMessage": "academy: reading the board",
             "timeout": 60
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/mcp_write_gate.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/mcp_write_gate.py\"",
             "statusMessage": "academy: checking tool permissions",
             "timeout": 30
           }
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/explainer_write_guard.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/explainer_write_guard.py\"",
             "statusMessage": "academy: checking the explainer's write",
             "timeout": 20
           }
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/role_write_guard.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/role_write_guard.py\"",
             "statusMessage": "academy: checking the role cut",
             "timeout": 20
           }
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/generated_view_guard.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/generated_view_guard.py\"",
             "statusMessage": "academy: checking for a generated view",
             "timeout": 30
           }
@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py\"",
             "timeout": 20
           }
         ]
@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/ticket_edit_check.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/ticket_edit_check.py\"",
             "statusMessage": "academy: checking the board file",
             "timeout": 60
           }

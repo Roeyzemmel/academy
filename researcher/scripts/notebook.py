@@ -787,7 +787,7 @@ def _approach_cmd(nb, args):
                         args.by)
         print("%s -> %s" % (a["ref"], args.lifecycle))
         note = " ".join(args.note.split())
-        # a ticket is blocked only by its receiver (or Roey): --apply moves the tickets
+        # a ticket is blocked only by its receiver (or the human): --apply moves the tickets
         # addressed to this instance, the others are printed for their receiver
         _do_moves(nb, args, _moves(nb, args, old_row, note))
         return 0

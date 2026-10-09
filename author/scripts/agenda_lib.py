@@ -1,6 +1,6 @@
 """agenda_lib -- the Author's agenda (Drafts/agenda.md).
 
-The agenda is plain Markdown that Roey reads and edits; this module is its one parser
+The agenda is plain Markdown that the human reads and edits; this module is its one parser
 and writer. There is no roadmap: the board is the Author's only queue (work items are
 tickets; docs/superpowers/specs/2026-09-29-campaign-mode-design.md section 10).
 Format (also in references/formats.md):

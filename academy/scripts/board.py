@@ -166,7 +166,8 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     ws = workspace if workspace is not None else _workspace_or_none()
     if not as_instance:
         raise ac.AcademyError("--as is required: the filing instance ('human' only from "
-                              "/academy:board, desk or decide, after Roey confirms)")
+                              "/academy:board, desk or decide, after %s confirms)"
+                              % ac.human_name(ws))
     _check_party(to, ws, "to")
     _check_party(as_instance, ws, "from")
     who = bare_agent(agent) or (ac.MAIN_AGENT if as_instance != ac.HUMAN else "")

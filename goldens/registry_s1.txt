@@ -1,2 +1,0 @@
-check: 183 entities, 0 errors, 0 warnings
-exit=0

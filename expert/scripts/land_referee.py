@@ -22,7 +22,7 @@ It then
 
 A report that does not validate as a packet body is wrapped whole into a valid one
 (its own ``##`` headings demoted), with a machine note saying so. A report on a
-model other than a primary (Fable or Opus 5.5, ``decision_table.PRIMARY_MODELS``) is
+model other than a primary (workspace.json ``grading.primaryModels``) is
 marked reduced-strength in the title and the notes.
 With no ``REFEREE`` block the stop is blocked once to ask for it.
 """
@@ -41,7 +41,11 @@ import decision_table as dt  # noqa: E402
 from _expert import ac  # noqa: E402
 
 AGENT = "referee"
-PRIMARY = ", ".join(dt.PRIMARY_MODELS)    # for messages; the test is dt.is_primary
+
+
+def primaries_text(workspace=None):
+    """The configured primaries, for messages; the test is ``dt.is_primary``."""
+    return ", ".join(dt.configured_primaries(workspace))
 ASK = ("Close your final message with the REFEREE block (REFEREE, then subject: "
        "<author instance>, ticket: <T-NNNN or none>, model: <your model>, strength: "
        "full|reduced), after the report written in the packet shape your "
@@ -143,7 +147,7 @@ def land(event, text, workspace, home, now=None):
     ticket = ticket if ac.RE_TICKET_ID.match(ticket) else None
     model = (block.get("model") or "").strip()
     reduced = (block.get("strength") or "").strip().lower().startswith("reduced") or \
-        bool(model and not dt.is_primary(model))
+        bool(model and not dt.is_primary(model, dt.configured_primaries(workspace)))
     expert = ex.expert_instance_for_home(workspace, home) or \
         (ex.expert_instances(workspace) or [None])[0]
     if not expert:
@@ -164,8 +168,8 @@ def land(event, text, workspace, home, now=None):
         body = wrap(report, ref, why + "; wrapped whole")
     if reduced:
         notes.append("land_referee: reduced-strength report (model %s, not a primary: %s); "
-                     "its clean sections are not treated as cleared" % (model or "unnamed",
-                                                                        PRIMARY))
+                     "its clean sections are not treated as cleared"
+                     % (model or "unnamed", primaries_text(workspace)))
     store = ac.open_store(workspace)                # the ticket board, either backend
     packets = ex.base_script("packets")
     if ticket and not store.find(ticket):

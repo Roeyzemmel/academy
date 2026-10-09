@@ -12,7 +12,10 @@ Homes and config
     find_home(path)                 the directory holding ``.claude/academy.json``
     load_config(home)               that file, validated, with defaults and ``_home``
     validate_config(config)         list of problems (empty when valid)
-    load_workspace(path=None)       ``workspace.json`` (the instance map)
+    load_workspace(path=None)       ``workspace.json`` (the instance map), with defaults
+    human_name / human_login / primary_models / derived_plugins   workspace.json keys
+    registry_rule_set(profile)      ``registry.profile`` with old aliases resolved
+    verify_checklist_path / author_provenance   academy.json keys with defaults
     path_in_role(path, config, role)  is ``path`` in the home / in a named path set
 Agents and permissions
     agent_identity(event)           (namespace, bare_name) of the acting agent
@@ -262,7 +265,22 @@ REQUIRED_PATHS = {
     "scientist": ("package", "experiments", "results", "queue", "records", "views"),
 }
 
-REGISTRY_PROFILES = ("paper", "s1", "lab", "none")
+REGISTRY_PROFILES = ("paper", "notebook", "lab", "none")
+#: older rule-set names, still accepted in ``registry.profile`` (docs/config.md)
+REGISTRY_PROFILE_ALIASES = {"s1": "notebook", "s1-kb": "notebook"}
+
+
+def registry_rule_set(name):
+    """``registry.profile`` mapped to its rule set (``paper``, ``notebook``, ``lab``,
+    ``none``), an old alias resolved; None when it names none."""
+    name = REGISTRY_PROFILE_ALIASES.get(name, name)
+    return name if name in REGISTRY_PROFILES else None
+
+
+#: the grading primaries when workspace.json sets no ``grading.primaryModels``
+DEFAULT_PRIMARY_MODELS = ("fable", "opus-5.5")
+#: where the rigor review's checklist lives in a home, unless ``paths.verifyChecklist``
+DEFAULT_VERIFY_CHECKLIST = ".claude/rules/verification-checklist.md"
 ENV_KINDS = ("wsl", "local", "ssh")
 POLICY_KEYS = ("probe", "test", "run")
 COMMIT_MODES = ("strict", "normal", "warn", "off")
@@ -307,10 +325,14 @@ def validate_config(config):
     if not (isinstance(doms, list) and doms and all(isinstance(d, str) and d for d in doms)):
         probs.append("domains must be a non-empty list of pack names")
     reg = config.get("registry")
-    if not isinstance(reg, dict) or reg.get("profile") not in REGISTRY_PROFILES:
+    if not isinstance(reg, dict) or registry_rule_set(reg.get("profile")) is None:
         probs.append("registry.profile must be one of %s" % ", ".join(REGISTRY_PROFILES))
     elif reg.get("profile") != "none" and not config.get("ns"):
         probs.append("ns is required when registry.profile is not 'none'")
+    else:
+        for key in ("prefixes", "assumptionGroups"):
+            if reg.get(key) is not None and not isinstance(reg[key], (dict, list)):
+                probs.append("registry.%s must be a map prefix -> name (or a list)" % key)
     paths = config.get("paths")
     if not isinstance(paths, dict):
         probs.append("paths must be an object")
@@ -392,7 +414,7 @@ def default_ticket_budget(config):
     """The budget a new ticket gets when its sender gives none: ``{"runs": n}``.
 
     ``n`` is ``budget.ticketDefault.runs`` of ``config`` (a loaded academy.json, or
-    None), else 1. A ``max_model`` there (written before T-0071) is ignored: the model
+    None), else 1. A ``max_model`` there (an older convention) is ignored: the model
     an agent runs on is its agent file's, and ``budget.max_model`` on a ticket is only
     an advisory note its sender may add (docs/protocol.md section 3).
     """
@@ -478,9 +500,115 @@ def load_workspace(path=None):
             raise ConfigError("%s: instances %r and %r have the same role and home; "
                               "an (role, home) pair is one instance" % (chosen, seen[key], name))
         seen[key] = name
-    ws.setdefault("human", {"name": "human"})
+    human = ws.get("human") if isinstance(ws.get("human"), dict) else {}
+    human.setdefault("name", "human")
+    human.setdefault("login", (ws["board_config"].get("assignee") or None))
+    ws["human"] = human
+    grading = ws.get("grading") if isinstance(ws.get("grading"), dict) else {}
+    prim = grading.get("primaryModels")
+    if not (isinstance(prim, list) and prim and all(isinstance(m, str) and m for m in prim)):
+        if prim is not None:
+            raise ConfigError("%s: grading.primaryModels must be a non-empty list of "
+                              "model names" % chosen)
+        grading["primaryModels"] = list(DEFAULT_PRIMARY_MODELS)
+    ws["grading"] = grading
+    if ws.get("plugins") is None:
+        ws["plugins"] = derived_plugins(ws)
+    elif not (isinstance(ws["plugins"], list) and all(isinstance(p, str) for p in ws["plugins"])):
+        raise ConfigError("%s: plugins must be a list of plugin names" % chosen)
     ws["_path"] = os.path.abspath(chosen).replace("\\", "/")
     return ws
+
+
+def _marketplace_domains():
+    """{domain pack name: plugin name} from the academy's marketplace.json (a pack's
+    ``source`` is ``./domains/<pack>``); empty when the file cannot be read."""
+    path = os.path.join(repo_root(), ".claude-plugin", "marketplace.json")
+    try:
+        with open(path, "r", encoding="utf-8-sig") as fh:
+            entries = json.load(fh).get("plugins") or []
+    except (OSError, ValueError, AttributeError):
+        return {}
+    out = {}
+    for e in entries:
+        src = str((e or {}).get("source") or "").replace("\\", "/").rstrip("/")
+        if src.startswith("./domains/") and e.get("name"):
+            out[src.rsplit("/", 1)[1]] = e["name"]
+    return out
+
+
+def derived_plugins(ws):
+    """The plugins a workspace needs when it names none (``plugins`` in workspace.json):
+    the base plugin, the role plugins of its instances, and the plugin of every domain
+    pack its instances name (the marketplace's name for ``domains/<pack>``, else the
+    pack name)."""
+    insts = [i for i in (ws.get("instances") or {}).values() if isinstance(i, dict)]
+    roles = {i.get("role") for i in insts}
+    packs = _marketplace_domains()
+    out = ["academy"] + [r for r in ROLES if r in roles]
+    for inst in insts:
+        for d in inst.get("domains") or []:
+            name = packs.get(d, d)
+            if name not in out:
+                out.append(name)
+    return out
+
+
+def _workspace_or_none(ws=None):
+    if ws is not None:
+        return ws
+    try:
+        return load_workspace()
+    except ConfigError:
+        return None
+
+
+def human_name(ws=None):
+    """The human's display name (workspace.json ``human.name``), else 'the human'."""
+    ws = _workspace_or_none(ws)
+    name = ((ws or {}).get("human") or {}).get("name")
+    return name if name and name != HUMAN else "the human"
+
+
+def human_login(ws=None):
+    """The human's GitHub login: ``human.login``, else ``board.assignee``, else None."""
+    ws = _workspace_or_none(ws)
+    if not ws:
+        return None
+    login = (ws.get("human") or {}).get("login")
+    return login or (ws.get("board_config") or {}).get("assignee") or None
+
+
+def primary_models(ws=None):
+    """The grading primaries (workspace.json ``grading.primaryModels``), as a tuple of
+    model labels; ``DEFAULT_PRIMARY_MODELS`` when none is configured or no workspace."""
+    ws = _workspace_or_none(ws)
+    prim = ((ws or {}).get("grading") or {}).get("primaryModels")
+    if isinstance(prim, list) and prim:
+        return tuple(str(m) for m in prim)
+    return DEFAULT_PRIMARY_MODELS
+
+
+#: the keys of ``author.provenance`` and their defaults (docs/config.md, role blocks)
+PROVENANCE_DEFAULTS = {"env": "added", "command": "\\Added",
+                       "kinds": ["claim", "assumption", "lead-proof"], "removedBy": "human"}
+
+
+def author_provenance(config):
+    """An Author home's provenance marker (``author.provenance``) with defaults filled
+    in, or None when the home sets none (no marker is used)."""
+    val = ((config or {}).get("author") or {}).get("provenance")
+    if not isinstance(val, dict) or val.get("enabled") is False:
+        return None
+    out = dict(PROVENANCE_DEFAULTS)
+    out.update({k: v for k, v in val.items() if k != "enabled"})
+    return out
+
+
+def verify_checklist_path(config):
+    """The home-relative path of the rigor review's checklist (``paths.verifyChecklist``)."""
+    val = ((config or {}).get("paths") or {}).get("verifyChecklist")
+    return val if isinstance(val, str) and val else DEFAULT_VERIFY_CHECKLIST
 
 
 def instance_for_home(workspace, home):
@@ -572,7 +700,7 @@ def agent_identity(event):
     A plugin agent arrives namespaced (``author:math-writer``); the namespace names
     the plugin that shipped it and is everything before the *last* colon, the bare
     name everything after it. Both are stripped and lower-cased. A session with no
-    agent is the human (Roey's main session).
+    agent is the human (the human's main session).
     """
     if isinstance(event, (str, bytes)):
         try:
@@ -1364,7 +1492,7 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
 def parties(meta, instance):
     """The parties ``instance`` plays on a ticket: a subset of {'sender','receiver'}.
 
-    ``instance`` is the caller's instance name, or 'human' for Roey (who is also
+    ``instance`` is the caller's instance name, or 'human' for the human (who is also
     allowed everything regardless).
     """
     out = set()
@@ -1606,7 +1734,7 @@ def validate_ticket(meta, body=None, workspace=None):
         else:
             if not (isinstance(b.get("runs"), int) and b["runs"] >= 1):
                 probs.append("budget.runs must be a positive integer")
-            # optional advisory note, never a gate (T-0071); checked only for typos
+            # optional advisory note, never a gate; checked only for typos
             if b.get("max_model") is not None and b["max_model"] not in MODELS:
                 probs.append("budget.max_model, when given, must be one of %s"
                              % ", ".join(MODELS))
@@ -2786,7 +2914,7 @@ def read_event(stream=None):
 
     Claude Code writes the event as UTF-8. A text stream's own decoding is bypassed
     (its ``buffer`` is read): on Windows, Python decodes a piped stdin with the ANSI
-    codepage, which mangles non-ASCII arguments (T-0070). A leading BOM is dropped.
+    codepage, which mangles non-ASCII arguments. A leading BOM is dropped.
     """
     stream = stream or sys.stdin
     try:

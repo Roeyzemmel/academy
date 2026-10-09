@@ -319,8 +319,9 @@ def run_inbox(args):
         header_text.append("%d agenda gap(s) have no ticket: `agenda.py gaps --file` files "
                            "them" % len(fileable))
     if len(gap_rows) > len(fileable):
-        header_text.append("%d agenda gap(s) wait for Roey (refuted or no registry record): "
-                           "`agenda.py gaps` says which" % (len(gap_rows) - len(fileable)))
+        header_text.append("%d agenda gap(s) wait for %s (refuted or no registry record): "
+                           "`agenda.py gaps` says which"
+                           % (len(gap_rows) - len(fileable), ac.human_name()))
     if not args.all:
         header_json["sweep"] = sweep_step()
         header_text.insert(0, "SWEEP FIRST: note-sweeper, before any ticket below "

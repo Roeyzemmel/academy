@@ -19,7 +19,7 @@ through ``board.create_ticket`` (``--campaign TARGET`` tags it for a campaign). 
 is a gap only while no non-terminal ticket to or from this instance carries its
 ``agenda``, so filing the same gap twice files one ticket. A gap no ticket can close (a
 refuted claim, a claim with no registry record) is *held* and reported: it waits for
-Roey. The gap logic itself is ``gaps.py``, shared with ``inbox.py`` and the converter.
+the human. The gap logic itself is ``gaps.py``, shared with ``inbox.py`` and the converter.
 The agenda file must exist (a missing one is an error, not an empty agenda). Milestones and the status column are computed from the registry statuses and
 the tickets attached to each entry.
 
@@ -31,7 +31,7 @@ Where ``status`` gets the statuses, in this order:
    ``py ../<lab>/scripts/claims.py --repo .``), run as
    ``<cmd> sql "select id, status from claims"`` in the home. Read-only.
 
-A claim id the registry does not know is written as ``missing`` (a held gap: Roey
+A claim id the registry does not know is written as ``missing`` (a held gap: the human
 creates the record with claims_new; the claim-keeper sets statuses).
 
 Exit codes: 0 ok; 1 problems found (check) / nothing to report; 2 error.

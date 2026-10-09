@@ -1,7 +1,7 @@
 """gaps -- the agenda entries with no ticket working on them, and filing a ticket.
 
 The one module that ``inbox.py`` (the header), ``agenda.py`` (``gaps``, ``gaps --file``,
-``show``, ``milestones``) and ``agenda_migrate.py`` (the converter) all import, so that
+``show``, ``milestones``) and the one-shot roadmap converter all imported, so that
 none of them imports another (``agenda.py`` used to import ``inbox.py`` while ``inbox.py``
 lazily imported ``agenda.py``). It knows a *context* only by its attributes (``agenda``,
 ``tickets``, ``board``, ``instance``, ``ns``, ``domains``, ``workspace``), never by class.
@@ -27,20 +27,20 @@ import routes as rt  # noqa: E402
 #: a ticket in one of these will never be delivered (``closed`` is terminal, but it was)
 DEAD = tuple(s for s in ac.TERMINAL if s != "closed")
 
-#: a gap no ticket can close: the entry waits for Roey, and ``--file`` reports it held
+#: a gap no ticket can close: the entry waits for the human, and ``--file`` reports it held
 HOLD = "hold"
 
 #: which ask a gap needs: (current in ..., required in ... or None, tag, why). First match
 #: wins; ``hold`` is reported, never filed.
 GAP_PROPOSALS = (
     (("missing",), None, HOLD,
-     "no registry record for the claim: Roey creates it (claims_new, unsettled status; "
+     "no registry record for the claim: {human} creates it (claims_new, unsettled status; "
      "the claim-keeper sets statuses), then the gap is seen again"),
     (("refuted", "refuted-as-stated"), None, HOLD,
-     "the claim is refuted: nobody verifies or proves it; Roey decides (change what the "
+     "the claim is refuted: nobody verifies or proves it; {human} decides (change what the "
      "entry requires, repair the statement, or drop the entry)"),
     (("superseded", "dropped"), None, HOLD,
-     "the claim's record is no longer active: Roey decides what the entry should point at"),
+     "the claim's record is no longer active: {human} decides what the entry should point at"),
     (("sketch", "supported"), ("proved-modulo", "proved"), "verify",
      "an argument exists; two agreeing verdicts are needed"),
     (("open", "conjectured", ""), ("sketch", "supported", "proved-modulo", "proved"), "lead",
@@ -117,7 +117,7 @@ def gaps(ctx):
         tag, why = None, None
         for curs, reqs, t, w in GAP_PROPOSALS:
             if cur in curs and (reqs is None or e.required in reqs):
-                tag, why = t, w
+                tag, why = t, w.replace("{human}", ac.human_name())
                 break
         if tag is None:
             tag, why = "verify", "status %s does not meet %s" % (cur or "unknown", e.required)
@@ -209,7 +209,7 @@ def file_gaps(ctx, dry_run=False, campaign=None):
 
     Idempotent: a gap is an entry with no non-terminal ticket attached, so once filed
     the entry is busy and a second run files nothing. Held (reported, not filed): a
-    verification whose inputs are not yet at their required status, a gap only Roey can
+    verification whose inputs are not yet at their required status, a gap only the human can
     close (``hold``: a refuted or missing claim), an ask with no receiver.
     """
     if not ctx.board:

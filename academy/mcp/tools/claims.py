@@ -2,7 +2,8 @@
 
 Every call goes to the registry engine ``academy/registry`` (Group D), in process,
 through :class:`RegistryBackend`: the namespaces are those of workspace.json, each
-served by its home's profile (fsl-claims for lab/paper rule sets, s1-kb for s1). Read
+served by its home's profile (fsl-claims for the lab/paper rule sets, s1-kb for the
+notebook rule set). Read
 commands return what the engine's command line prints (the same text as the old
 ``claims.py`` / ``kb.py`` command lines, which were retired 2026-09-28 in favour of
 ``scripts/registry.py``).
@@ -18,8 +19,8 @@ experiment-reviewer) and not by the producer, one statement hash (proof) or one 
 a passed validation case and a matching outcome (computation: supported / refuted /
 refuted-as-stated only); or the human's quoted word, which an agent must point at the
 ticket or packet holding it. The review records themselves are checked against the rows
-(``grounds.check_verdict_refs``): by the engine for lab/paper, here for s1, whose
-verdict file is also checked by ``s1kb.verdict_file_problems``. The lifecycle moves
+(``grounds.check_verdict_refs``): by the engine for lab/paper, here for a notebook,
+whose verdict file is also checked by ``s1kb.verdict_file_problems``. The lifecycle moves
 (superseded, dropped) are accepted as targets with a note.
 """
 
@@ -148,17 +149,28 @@ def _readonly_sql(sql):
 class LegacyCliBackend(ClaimsBackend):
     """Runs ``scripts/registry.py`` by subprocess, one process per call.
 
-    Fallback only (``$ACADEMY_CLAIMS_BACKEND=legacy``), read-only: the namespaces it
-    serves are those of the first three instances, so they are named here and nowhere
-    else in the plugin. (Before 2026-09-28 it wrapped the lab's ``claims.py`` and
-    Slope1's ``kb.py`` shims, which no longer exist.)
+    Fallback only (``$ACADEMY_CLAIMS_BACKEND=legacy``), read-only. It serves every
+    namespace of workspace.json; a namespace's rule set (its home's
+    ``registry.profile``) picks the command line: the notebook one (``find``,
+    ``deps``/``usedby``, ``kb/kb.sqlite``) or the lab/paper one. (Before 2026-09-28 it
+    wrapped the old per-home ``claims.py`` and ``kb.py`` shims, which no longer exist.)
     """
 
     TIMEOUT = 120
-    NAMESPACES = ("lab", "paper", "s1")
+    NAMESPACES = None       # all of workspace.json's
 
     def __init__(self, ctx):
         self.ctx = ctx
+
+    def _is_notebook(self, ns):
+        """Whether namespace ``ns`` is served by the notebook rule set (its home's
+        ``registry.profile``, old aliases included)."""
+        try:
+            cfg = ac.load_config(self._home_for_ns(ns))
+            prof = (cfg.get("registry") or {}).get("profile")
+        except (ToolError, ac.ConfigError):
+            prof = ns
+        return ac.registry_rule_set(prof) == "notebook"
 
     def _home_for_ns(self, ns):
         inst = self.ctx.instance_by_ns(ns)
@@ -194,17 +206,17 @@ class LegacyCliBackend(ClaimsBackend):
     def _claims_py(self, ns, args):
         return self._registry(ns, args)
 
-    def _kb_py(self, args):
-        return self._registry("s1", args)
+    def _kb_py(self, ns, args):
+        return self._registry(ns, args)
 
     def _route(self, ns, claims_args, kb_args):
-        if ns in ("lab", "paper"):
+        if self.ctx.instance_by_ns(ns) is None:
+            raise ToolError("no instance owns namespace %r in workspace.json" % ns)
+        if not self._is_notebook(ns):
             return self._claims_py(ns, claims_args)
-        if ns == "s1":
-            if kb_args is None:
-                raise NotEnabled("this operation has no kb.py equivalent for s1:")
-            return self._kb_py(kb_args)
-        raise ToolError("no legacy registry for namespace %r (known: lab, paper, s1)" % ns)
+        if kb_args is None:
+            raise NotEnabled("this operation has no notebook equivalent for %s:" % ns)
+        return self._kb_py(ns, kb_args)
 
     def show(self, cid, full=False):
         ns, rest = split_id(cid)
@@ -217,7 +229,7 @@ class LegacyCliBackend(ClaimsBackend):
             ca += ["--status", status]
         if where:
             ca += ["--where", where]
-        if ns in ("lab", "paper"):
+        if not self._is_notebook(ns):
             ca += ["--ns", ns]
         ka = ["find"]
         if status:
@@ -230,18 +242,18 @@ class LegacyCliBackend(ClaimsBackend):
 
     def query(self, ns, sql):
         _readonly_sql(sql)
-        if ns == "s1":
-            db = os.path.join(self._home_for_ns("s1"), "kb", "kb.sqlite")
+        if self._is_notebook(ns):
+            db = os.path.join(self._home_for_ns(ns), "kb", "kb.sqlite")
             if not os.path.isfile(db):
-                raise ToolError("s1: kb/kb.sqlite is not built; run 'registry.py build' "
-                                "in the Slope1 home (the server does not rebuild it, "
-                                "because the build rewrites the views)")
+                raise ToolError("%s: kb/kb.sqlite is not built; run 'registry.py build' "
+                                "in its home (the server does not rebuild it, "
+                                "because the build rewrites the views)" % ns)
         return self._route(ns, ["sql", sql], ["sql", sql])
 
     def deps(self, cid, reverse=False, transitive=False):
         ns, rest = split_id(cid)
-        if ns == "s1":
-            return self._kb_py([("usedby" if reverse else "deps"), rest]
+        if self._is_notebook(ns):
+            return self._kb_py(ns, [("usedby" if reverse else "deps"), rest]
                                + (["--transitive"] if transitive else []))
         res = self._claims_py(ns, ["sql", "select src, rel, dst from links"])
         if res["exit"] != 0:
@@ -275,7 +287,7 @@ class LegacyCliBackend(ClaimsBackend):
         ca = ["new", cid, "--title", title, "--status", status]
         if where:
             ca += ["--where", where]
-        # kb.py allocates the id itself from a prefix: the id's part after 's1:'
+        # a notebook allocates the id itself from a prefix: the id's part after '<ns>:'
         ka = ["new", rest, "--title", title] + (["--kind", kind] if kind else [])
         return self._route(ns, ca, ka)
 
@@ -430,7 +442,7 @@ class RegistryBackend(ClaimsBackend):
                     self.federation.CACHE.clear()
                 return {"id": "%s:%s" % (ns, eid), "attached": text, "field": "evidence"}
             if kind != "verdict":
-                raise NotEnabled("s1 records carry evidence only as verdict files "
+                raise NotEnabled("v1 notebook records carry evidence only as verdict files "
                                  "(cleared_by) until schema v2 (R5): give type 'verdict' "
                                  "and a ref under computation/verdicts/")
             try:
@@ -471,9 +483,9 @@ class RegistryBackend(ClaimsBackend):
             # a schema-v2 record takes the one vocabulary as is (R5); a v1 one its label
             label = status if self._s1_is_v2(home, rest) else S1_WORDS.get(status)
             if label is None:
-                raise NotEnabled("%r has no s1 word until schema v2 (R5); Slope1 records "
-                                 "Proved, Proved modulo stated inputs, Disproved, Not "
-                                 "settled" % status)
+                raise NotEnabled("%r has no word in a v1 notebook record (before schema "
+                                 "v2, R5), which records Proved, Proved modulo stated "
+                                 "inputs, Disproved, Not settled" % status)
             return self._s1_set_status(ns, home, rest, status, label, grounds or {}, note)
         if status in LIFECYCLE_TARGETS and (grounds or {}).get("superseded_by"):
             note = "; ".join(x for x in (note, "superseded by %s"
@@ -526,19 +538,19 @@ class RegistryBackend(ClaimsBackend):
             raise ToolError("refused: the review records do not match the grounds:\n- %s"
                             % "\n- ".join(why))
         if not vfile and (settling or not self._s1_is_v2(home, rest)):
-            raise ToolError("refused: the s1 profile records a status change against "
+            raise ToolError("refused: the notebook profile records a status change against "
                             "a verdict file: give grounds.verdict_file (a file under "
-                            "computation/verdicts/ or audits/ of the s1 home, or an "
+                            "computation/verdicts/ or audits/ of the home, or an "
                             "Expert review ref file:expert@<name>/reviews/...)")
         kb = self.s1kb.load_kb(home)
         eid, _ = self.s1kb.lookup(kb, rest)
         if eid is None:
-            raise ToolError("refused: no s1 entity or alias matches %r" % rest)
+            raise ToolError("refused: no %s entity or alias matches %r" % (ns, rest))
         if vfile:
             vrel = self.s1kb._verdict_relpath(kb.root, vfile)
             if vrel is None:
                 raise ToolError("refused: %r is not an existing file under "
-                                "computation/verdicts/ or audits/ of the s1 home, nor an "
+                                "computation/verdicts/ or audits/ of the home, nor an "
                                 "Expert review ref (file:expert@<name>/reviews/...)" % vfile)
             probs = self.s1kb.verdict_file_problems(kb, vrel, eid, label, human=human)
             if probs:
@@ -558,7 +570,7 @@ class RegistryBackend(ClaimsBackend):
             argv += ["--human", str(g.get("quote")).strip()]
         if status == "superseded" and g.get("superseded_by"):
             new = str(g["superseded_by"]).strip()
-            argv += ["--superseded-by", new[3:] if new.startswith("s1:") else new]
+            argv += ["--superseded-by", new[len(ns) + 1:] if new.startswith(ns + ":") else new]
         res = self._cli(ns, argv)
         if res["exit"] != 0:
             raise ToolError("refused: %s" % (res["stderr"] or res["stdout"]).strip())
@@ -765,13 +777,13 @@ GROUNDS = {"type": "object", "description": "See check_grounds: basis (proof | "
                                             "every verdict's ref is its landed review "
                                             "record; superseded: superseded_by; "
                                             "human: quote, where (an agent: the T-/P- "
-                                            "id holding the quote); s1: verdict_file"}
+                                            "id holding the quote); a notebook: verdict_file"}
 
 TOOLS = [
     Tool("claims_show", "Show one claim (any namespace) with its evidence and back-links.",
          obj({"id": ID, "full": B}, ["id"]), _show),
     Tool("claims_list", "List claims of one namespace, filtered by status / where / kind "
-         "/ free text (s1: kb.py find).",
+         "/ free text (a notebook namespace: its find command).",
          obj({"ns": NS, "status": S, "where": S, "kind": S, "text": S}, ["ns"]), _list),
     Tool("claims_query", "One read-only SQL SELECT on a namespace's derived registry "
          "tables (lab/paper: claims, evidence, history, links, open_items).",
@@ -783,8 +795,8 @@ TOOLS = [
          obj({"ns": NS, "strict": B}, ["ns"]), _check),
     Tool("claims_new", "Create a claim with an unsettled status (open, conjectured, "
          "sketch), in the caller's own namespace, or in another instance's namespace "
-         "with ticket= a live ticket addressed to it. For s1 the id part is kb.py's "
-         "prefix.",
+         "with ticket= a live ticket addressed to it. In a notebook namespace the id part "
+         "is the prefix the id is allocated from.",
          obj({"id": ID, "title": S, "status": {"type": "string", "enum": list(UNSETTLED)},
               "where": S, "kind": S, "instance": _tickets.ACTING,
               "ticket": {"type": "string", "description":
@@ -794,8 +806,8 @@ TOOLS = [
          _new, write=True),
     Tool("claims_attach_evidence", "Append one evidence row {type, ref, verdict, run_id, "
          "note} to a claim (append-only); type is experiment, audit, verdict (a proof "
-         "review; 'proof-review' is accepted for it), hand, citation or note. s1: a "
-         "verdict file, appended to cleared_by.",
+         "review; 'proof-review' is accepted for it), hand, citation or note. A v1 "
+         "notebook record: a verdict file, appended to cleared_by.",
          obj({"instance": _tickets.ACTING, "id": ID, "row": {"type": "object"}},
              ["id", "row"]), _attach, write=True),
     Tool("claims_propose_status", "Propose a status change: files a decision ticket to "

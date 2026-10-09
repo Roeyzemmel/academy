@@ -1,113 +1,15 @@
-"""R5: the academy object schema (core/schema.py), both profiles reading it, and the
-migration script (migrate_v2.py) on temp homes laid out like the migration worktrees."""
-import argparse
+"""R5: the academy object schema (core/schema.py) and both profiles reading and mutating
+schema-v2 records, on temp homes laid out like the migration worktrees (their v2 records
+are ``_v2_homes.V2_FILES``, what the one-time R5 migration made of them)."""
 import io
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 
 from _util import Homes, write
+from _v2_homes import V2_FILES
 
-from registry import migrate_v2
-from registry.core import fm, projection, schema
+from registry.core import projection, schema
 from registry.profiles import fsl, s1kb
-
-DROPPED = """---
-id: lab:old
-title: an abandoned claim
-status: dropped
-where: experiments/x.py
-evidence: []
-history:
-  - 2026-09-25 | dropped | out of scope
-  - 2026-09-20 | supported | ran once
-open:
-  - nothing
----
-"""
-
-S1_REDUCED = """---
-id: CRIT-1
-aliases: [R2 Prop 9.9]
-title: "reduced one"
-summary: "It is Reduced to OPEN-2."
-kind: prop
-status: Reduced
-status_note: "Reduced (to OPEN-2)"
-topics: [t]
-depends_on: []
-source: here
-added: 2026-09-24
----
-
-## Statement
-
-The statement is **Reduced** to OPEN-2.
-
-## History
-
-- 2026-09-24: created
-- 2026-09-25: relabelled,
-  with a continuation line.
-"""
-
-S1_OPEN2 = """---
-id: OPEN-2
-aliases: []
-title: "an open problem"
-summary: "s"
-kind: open
-status: Not settled
-topics: []
-depends_on: []
-source: here
-added: 2026-09-24
----
-
-## Statement
-
-Is it?
-"""
-
-S1_DRAFT = """---
-id: OBS-1
-aliases: []
-title: "a draft"
-summary: "s"
-kind: draft
-status: Not settled
-topics: []
-depends_on: [OPEN-2]
-source: here
-added: 2026-09-24
----
-
-## Statement
-
-X.
-
-## Proof
-
-Because.
-"""
-
-S1_PARTIAL = """---
-id: OPEN-7
-aliases: []
-title: "partly done"
-summary: "s"
-kind: open
-status: Partial
-topics: []
-depends_on: []
-source: here
-added: 2026-09-24
----
-
-## Statement
-
-Some cases are known.
-"""
-
 
 def quiet(fn, *a, **k):
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -162,23 +64,20 @@ class TestSchemaRules(unittest.TestCase):
 
 
 class Migrated(Homes):
+    """The temp homes with their records in schema v2 (``V2_FILES``)."""
     suffix = "-academy"
 
     def setUp(self):
         super().setUp()
-        write(self.lab / "claims" / "lab" / "old.md", DROPPED)
-        for name, text in (("CRIT-1", S1_REDUCED), ("OPEN-2", S1_OPEN2), ("OBS-1", S1_DRAFT),
-                           ("OPEN-7", S1_PARTIAL)):
-            write(self.s1 / "claims" / f"{name}.md", text)
-        self.rc, self.recs, self.splits = quiet(migrate_v2.run, self.tmp, "2026-09-28", True,
-                                                self.tmp / "report.md")
+        homes = {"FlatSurfLab": self.lab, "Slope1illuminationResearch": self.s1}
+        for (home, rel), text in V2_FILES.items():
+            write(homes[home] / rel, text)
         from registry.core import federation
         federation.CACHE.clear()
 
 
-class TestMigration(Migrated):
-    def test_it_applies_and_every_check_is_clean(self):
-        self.assertEqual(self.rc, 0, (self.tmp / "report.md").read_text(encoding="utf-8"))
+class TestV2Homes(Migrated):
+    def test_every_check_is_clean(self):
         claims, perrs = fsl.load(fsl.registry_root(self.lab))
         errs, warns = fsl.check(claims, repo=self.lab)
         self.assertEqual((perrs, errs), ([], []))
@@ -194,36 +93,12 @@ class TestMigration(Migrated):
         old = c["lab:old"]
         self.assertEqual((old.status, old.fields["lifecycle"], old.state),
                          ("supported", "dropped", "dropped"))
-        self.assertEqual(old.fields["open"], ["nothing"])
-        self.assertEqual(c["lab:foo"].evidence,
-                         ["experiment | results/x.json | not audited | - | "
-                          "0 counterexamples below 10"])
         kb = s1kb.load_kb(self.s1)
         v = lambda i: kb.entities[i].v2  # noqa: E731
         self.assertEqual((v("CRIT-1")["status"], v("CRIT-1")["modulo"]),
                          ("proved-modulo", ["OPEN-2"]))
-        self.assertEqual(v("OPEN-2")["status"], "open")
-        self.assertEqual(v("OBS-1")["status"], "sketch")
-        self.assertEqual((v("CEX-1")["status"], v("CEX-1")["form"], v("CEX-1")["kind"]),
-                         ("refuted", "prop", "claim"))
-        self.assertEqual(v("OPEN-7")["status"], "open")       # no split proposed for it
-        self.assertEqual(self.splits, [])
-        # the verdict naming CEX-1 became an evidence row; the history moved up
         self.assertEqual(schema.evidence_cells(v("CEX-1")["evidence"][0])[:2],
                          ("verdict", "computation/verdicts/2026-09-24_G8.md"))
-        self.assertEqual(v("CRIT-1")["history"][1:],
-                         ["2026-09-25 | | relabelled, with a continuation line.",
-                          "2026-09-24 | | created"])
-        self.assertNotIn("## History", kb.entities["CRIT-1"].body)
-
-    def test_projection_classes_are_unchanged(self):
-        for r in self.recs:
-            meta, _ = migrate_v2._reparse(r)
-            self.assertEqual(r["cls_old"], schema.project(meta), r["rel"])
-
-    def test_it_refuses_a_main_checkout(self):
-        with self.assertRaises(SystemExit):
-            quiet(migrate_v2.run, self.tmp / "nowhere", "2026-09-28")
 
 
 class TestV2Mutations(Migrated):

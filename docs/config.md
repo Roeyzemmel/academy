@@ -53,12 +53,15 @@ them valid.
 | `instances.*.domains` | non-empty list | yes | Pack names under `domains/`; used for routing |
 | `instances.*.ns` | str | iff the instance has a registry | Claim-id prefix (`paper`, `s1`, `lab`) |
 | `board` | abs path | yes | The board repo (protocol.md section 2) |
-| `human` | map | no | `name` for display, `noteMacro` for the human's margin-note macro |
+| `human` | map | no | `name` for display (default `human`; prompts and scripts say "the human" then), `noteMacro` for the human's margin-note macro, `login` the human's GitHub login (default: `board.assignee`; the GitHub board's ticket form and `board-migrate` use it) |
 | `compute` | map | no | The workspace's remote workers and the gateways in front of them (below) |
+| `grading` | map | no | `primaryModels`: the grading primaries, equal in authority (default `["fable", "opus-5.5"]`). A positive verdict on any other model is capped (`roster-rules.md`, "Graders degrade"); read by the Expert's `decision_table.py` and `land_referee.py` and the Researcher's experiment reviews |
+| `plugins` | list of str | no | The plugins the workspace needs (the bootstrap installs them). Default: `academy`, the role plugins of its instances, and the plugin of every domain pack an instance names (the marketplace's name for `domains/<pack>`) |
 
 `load_workspace` finds it at `$ACADEMY_WORKSPACE`, then `<academy repo>/workspace.json`,
 then `<academy repo>/../workspace.json` (the academy checked out inside the workspace). It
-adds `_path`. The workspace repo generates the file (`scripts/bootstrap.py`, from its
+adds `_path` and fills the defaults of `human` (`name`, `login`), `grading.primaryModels`
+and `plugins`; read them through `human_name()`, `human_login()`, `primary_models()`. The workspace repo generates the file (`scripts/bootstrap.py`, from its
 `workspace.template.json`, with this machine's absolute paths) and exports where everything is
 as environment variables, so no code or document needs a literal path:
 
@@ -70,6 +73,7 @@ as environment variables, so no code or document needs a literal path:
 | `ACADEMY_HOME_<ROLE>_<NAME>` | the home of instance `<role>@<name>` (overrides its `home`) |
 | `ACADEMY_LIBRARY` | the home of the first Expert instance |
 | `ACADEMY_ENV_WORKSPACE` | the file the variables were derived from; the overrides apply to that file only |
+| `ACADEMY_PYTHON` | the Python the plugins' hooks and MCP server run with. Unset: the hooks run `py`, else `python3` (they run in bash, Git Bash on Windows); the MCP server (`.mcp.json`, no shell) runs `py`, so a machine without `py` (Linux, macOS) sets it, e.g. to `python3` |
 
 They are set in `.claude/settings.local.json` of the workspace and of every home, and in the
 workspace's `workspace.env` for plain shells (`set -a; . ./workspace.env`). To move a home,
@@ -135,7 +139,7 @@ Adding an instance means one row here plus one `academy.json` in its home
 | `domains` | list of str | yes | | Pack names; the same as in workspace.json |
 | `ns` | str | iff `registry.profile != "none"` | | This home's claim namespace |
 | `workspace` | abs path | no | lookup order above | Override for `workspace.json` |
-| `paths` | map key → pattern(s) | yes | `{}` | Named path sets; per-role required keys below |
+| `paths` | map key → pattern(s) | yes | `{}` | Named path sets; per-role required keys below. `paths.verifyChecklist` (any role with a registry, default `.claude/rules/verification-checklist.md`): the home's own checklist the rigor review and `/researcher:settle` read, when it has one |
 | `registry` | map | yes | | See below |
 | `budget` | map | no | see below | Per-run limits |
 | `gate` | map | no | see below | Commit and build gates |
@@ -154,18 +158,20 @@ Adding an instance means one row here plus one `academy.json` in its home
 
 | Key | Type | Req. | Meaning |
 |---|---|---|---|
-| `profile` | `paper` \| `s1` \| `lab` \| `none` | yes | The engine's per-home rule profile (plan section 6) |
+| `profile` | `paper` \| `notebook` \| `lab` \| `none` | yes | The engine's per-home rule set (plan section 6). `s1` and `s1-kb`, the older names of `notebook`, are still accepted |
+| `prefixes` | map prefix → name | no, default none | `notebook` rule set: the id prefixes, in display order (ids are `PREFIX-<number or token>`; `Q` also admits `Q<n>`; `EX` is reserved for examples and `DIR` for directions when listed). Without it any slug id is allowed |
+| `assumptionGroups` | map prefix → name | no, default none | `notebook` rule set: the prefixes of assumption records and the heading of each group in `views/assumptions.md`. Without it assumptions are one ungrouped list |
 | `root` | path | iff profile != none | Directory of the object files |
 | `db` | path | no, default `.claude/academy.sqlite` | Derived SQLite + FTS index (gitignored) |
 | `statusKeeper` | bare agent | no, default `claim-keeper` | The only agent that sets a status |
 | `legacy` | map | no | Old command lines kept alive by shims during migration |
 | `check` | command | no | Replaces the engine's `check <file>` in the record hook (`{file}` is the record); for tests |
-| `build` | bool | no, default from the profile (`s1`: true) | Whether the record hook follows an edit with a blocking `build` |
+| `build` | bool | no, default from the profile (`notebook`: true) | Whether the record hook follows an edit with a blocking `build` |
 
 The engine is `academy/registry` (`py -m registry --repo <home> <command>`, cwd
 `academy/academy`); `profile` picks its rule set (`lab`, `paper`: engine profile
-fsl-claims; `s1`: s1-kb). A home without academy.json gets the rule set named like its
-workspace `ns`. `db` is not used yet: the engine builds its SQLite in memory for every
+fsl-claims; `notebook`: s1-kb). A home without academy.json gets the rule set named like
+its workspace `ns` (an old alias included), else `lab`. `db` is not used yet: the engine builds its SQLite in memory for every
 query, and s1-kb's `build` still writes `kb/kb.sqlite`.
 
 *R6 (Group D, 2026-09-28):* the s1-kb profile reads a home in the notebook layout when it
@@ -221,6 +227,7 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 | `crlf` | list of patterns | Files written with `newline="\r\n"`; everything else is LF |
 | `writers` | list of bare agents | Agents whose SubagentStop triggers `build_gate` |
 | `bibWriters` | list of bare agents | Agents allowed to edit `paths.bib` (`bib_gate`) |
+| `provenance` | map, optional | The provenance marker for what the authors added since the last accepted round (a new claim, an added assumption, a proof following a lead), layered on the status colour: `env` (block environment, default `added`), `command` (short-span macro, default `\Added`), `kinds` (the `%% added: <kind>` tags, default `claim`, `assumption`, `lead-proof`), `removedBy` (default `human`: writers never remove it). Absent, or `"enabled": false`: no marker. Read by `academy_common.author_provenance` |
 
 **Required paths:** `tex`, `bib`, `drafts`, `agenda`, `records`, `views`. (`paths.roadmap`
 was required until 2026-09-30, when the roadmap was dropped and the board became the
@@ -373,7 +380,7 @@ a shim until phase 8.
     "views": ["views", "INDEX.md", "OPEN.md", "STATUS.md", "site/index.html",
               "kb/claims.json", "computation/verdicts.md", "computation/runs.md"]
   },
-  "registry": {"profile": "s1", "root": "objects", "db": ".claude/academy.sqlite",
+  "registry": {"profile": "notebook", "root": "objects", "db": ".claude/academy.sqlite",
                "statusKeeper": "claim-keeper",
                "legacy": {"kb": "py tools/kb.py"}},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
@@ -469,7 +476,8 @@ a shim until phase 8.
 
 - `schema` is not 1, or `role` / `instance` is bad or they disagree;
 - `domains` is empty;
-- `registry.profile` is unknown, or `ns` is missing when a registry is used;
+- `registry.profile` is unknown, or `ns` is missing when a registry is used, or
+  `registry.prefixes` / `registry.assumptionGroups` is neither a map nor a list;
 - a required path key for the role is missing, or the role block is missing;
 - `budget.itemsPerRun` is outside 1..3, or a model name is unknown;
 - `gate.commit` (or a branch override) is outside `strict | normal | warn | off`;

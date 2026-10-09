@@ -1,37 +1,21 @@
-"""check_paper.py in the plugin: the self-test, the academy.json parameterisation, and
-the phase-0 equivalence against goldens/check_paper.txt (read-only on PAPER_HOME)."""
+"""check_paper.py in the plugin: the self-test and the academy.json parameterisation. (The
+phase-0 equivalence against a real paper's golden output moved out of the marketplace
+with the goldens.)"""
 
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
 import shutil
 import unittest
 
-from fixtures import SCRIPTS, REPO
+from fixtures import SCRIPTS
 
 sys.path.insert(0, SCRIPTS)
 import check_paper as cp  # noqa: E402
 
 
-def _real_home(**want):
-    """The home of the first workspace.json instance matching ``want`` (role=..., ns=...), or ''
-    when there is no workspace: these tests run against real homes only where they exist."""
-    try:
-        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8-sig") as fh:
-            ws = json.load(fh)
-    except (KeyError, OSError, ValueError):
-        return ""
-    for inst in ws.get("instances", {}).values():
-        if all(inst.get(k) == v for k, v in want.items()):
-            return inst["home"]
-    return ""
-
-
-PAPER_HOME = _real_home(role="author")
-GOLDEN = os.path.join(REPO, "goldens", "check_paper.txt")
 ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
 ENV.pop("PYTHONIOENCODING", None)          # the script must be UTF-8-safe on its own
 
@@ -120,26 +104,6 @@ class ConfigTests(unittest.TestCase):
         a = run("--root", self.tmp, "--no-log", "--no-registry", "--defaults")[1]
         b = run("--root", self.tmp, "--no-log", "--no-registry", "--config", cfg)[1]
         self.assertEqual(a, b)
-
-
-def _without_r7(text):
-    """Drop the R7 lines and the tex line numbers: findings are compared by file, label and
-    rule, because line numbers move with every edit."""
-    return [re.sub(r"\.tex:\d+:", ".tex:", ln) for ln in text.splitlines()
-            if "[R7]" not in ln and not ln.startswith("WARNINGS (")]
-
-
-@unittest.skipUnless(os.path.isfile(os.path.join(PAPER_HOME, "main.tex")) and os.path.isfile(GOLDEN),
-                     "PaperHome or the golden is not present")
-class GoldenEquivalenceTests(unittest.TestCase):
-    """plan 3.6 / 9.0: the plugin copy reproduces the phase-0 golden (modulo R7)."""
-
-    def test_matches_golden_modulo_r7(self):
-        code, out, err = run("--root", PAPER_HOME, "--no-log", "--no-registry")
-        with open(GOLDEN, encoding="utf-8") as fh:
-            golden = fh.read().replace("\r\n", "\n")
-        self.assertTrue(golden.rstrip().endswith("exit=%d" % code), (code, err))
-        self.assertEqual(_without_r7(out), _without_r7(golden.rsplit("exit=", 1)[0]))
 
 
 if __name__ == "__main__":

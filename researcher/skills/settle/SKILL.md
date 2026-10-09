@@ -41,8 +41,8 @@ is the most dangerous kind. Nothing is recorded until it clears.
      "<detail>" --as <instance>`), asking the review-chair for the rigor-reviewer pair in refutation
      mode: completeness of the enumeration first, then the re-derivation's report (it
      must exist, use another route and agree), then the witnesses. When this home has a
-     verification checklist rule (`.claude/rules/verification-checklist.md`), the ticket
-     names it: the reviewers work every item of it. File the review ticket only once the
+     verification checklist (`paths.verifyChecklist` of its `.claude/academy.json`,
+     default `.claude/rules/verification-checklist.md`), the ticket names that file: the reviewers work every item of it. File the review ticket only once the
      re-derivation report is back (a later run; nothing waits in a loop).
 
    Record both ticket ids in the candidates file. The rest are reported as deferred.

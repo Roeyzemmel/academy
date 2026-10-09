@@ -12,9 +12,8 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 |---|---|---|
 | `inbox.py` | inbox, status, notes, agenda, the agents | `[--n N] [--all] [--json] [--campaign TARGET]` (the inbox: exit 1 nothing to take; landings and released tickets first, the sweep step, the gap count) · `--check T-NNNN` (exit 3 unfinished). There is no roadmap and no filing command: tickets are filed with `board.py new` or `agenda.py gaps --file` |
 | `routes.py` | inbox, gaps | the routing table (`route(meta)`, `land_route(kind)`, `check_filed(meta)`: an argument is asked as `research` to the Expert with `final_to: researcher`; `--tables`, `--sync FILE` generate the doc tables, `OUT_ROUTES`); a module, not a command |
-| `gaps.py` | inbox, agenda, agenda_migrate | the gap logic and the one ticket-filing helper (`gaps`, `entry_tickets`, `file_gaps`, `file_ticket`); a module, not a command |
+| `gaps.py` | inbox, agenda | the gap logic and the one ticket-filing helper (`gaps`, `entry_tickets`, `file_gaps`, `file_ticket`); a module, not a command |
 | `agenda.py` | agenda, status, presync | `check` · `status [--statuses FILE]` · `gaps [--json]` · `gaps --file [--dry-run] [--json]` (one ticket per gap, idempotent) · `milestones [--json]` · `show [--json]` |
-| `agenda_migrate.py` | a one-shot conversion of an old `Drafts/roadmap.md` | `--roadmap OLD [--home HOME] [--apply] [--json]` (dry run unless `--apply`; the file is only read) |
 | `check_paper.py` | tex_edit_check, commit_gate, build_gate, inbox, presync, status | `[--root HOME] [--strict] [--registry PATH] [--no-registry] [--no-log] [--config FILE] [--defaults] [--self-test]` |
 | `commit_gate.py` | the PreToolUse hook; tex-engineer | (hook) · `--write-baseline [--root HOME]` |
 | `build_gate.py` | the SubagentStop hook | (hook) |

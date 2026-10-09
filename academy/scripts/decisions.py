@@ -1,7 +1,7 @@
 """decisions.py -- pending decisions across the board, for /academy:decide.
 
 Subagents cannot use ``AskUserQuestion`` (docs/protocol.md, budget.md rule 5), so
-asking Roey is split in two: this script collects and records; the ``secretary``
+asking the human is split in two: this script collects and records; the ``secretary``
 agent (read-only) phrases the questions; the ``/academy:decide`` skill is the only
 caller of ``AskUserQuestion``.
 
