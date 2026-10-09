@@ -10,6 +10,12 @@ import academy_common as ac
 from . import Tool, ToolError, obj, S, B, L
 
 PRIORITY_ORDER = {"high": 0, "normal": 1, "low": 2}
+#: the ``instance`` argument of a write: the instance the caller acts for
+ACTING = {"type": "string", "description":
+          "The instance you act for (workspace.json), e.g. researcher@flat. Needed only "
+          "when the server cannot tell (a cloud session, whose server runs outside the "
+          "homes); default: the ticket's party of your role, the server's home, or the "
+          "only instance of your role. A role agent can never act as 'human'."}
 FROZEN = ("id", "created", "updated")
 
 
@@ -70,7 +76,14 @@ def replace_section(body, heading, text):
 
 def create_ticket(ctx, a, clerical=False):
     """Create a ticket from ``a`` (title, kind, to, ask, deliverable, ...)."""
+    if a.get("parent") and ctx.ticket_hint is None and ctx.store.find(a["parent"]):
+        try:            # an agent filing a child acts for its party on the parent
+            ctx.ticket_hint = load_ticket(ctx, a["parent"])[1]
+        except ToolError:
+            pass
     sender, agent = ctx.filer(bool(a.get("as_human")))
+    if sender == ac.HUMAN and not ctx.is_human:
+        raise ToolError("refused: only the main session files as 'human'")
     if sender == ac.HUMAN and not a.get("as_human") and a.get("on_behalf_of"):
         # a main session outside every home would stamp 'from: human' on work an instance
         # did (T-0065/T-0066); a caller that knows the instance says so
@@ -161,9 +174,11 @@ def update_ticket(ctx, a):
     old_meta = dict(meta)
     old_body = body
     human = ctx.is_human
+    ctx.ticket_hint = old_meta          # an agent acts for its party on this ticket
     me = ctx.instance
     if not me:
-        raise ToolError("agent %r runs outside every academy home" % ctx.agent)
+        raise ToolError("agent %r runs outside every academy home and is no party of "
+                        "%s; pass instance=<its instance>" % (ctx.agent, meta.get("id")))
     pset = ac.parties(meta, me)
     fields = dict(a.get("fields") or {})
     new_status = a.get("status")
@@ -308,7 +323,7 @@ TOOLS = [
               "status": {"type": ["string", "array"], "items": {"type": "string"}},
               "include_terminal": B}), _list),
     Tool("tickets_get", "Read one ticket (frontmatter, body, validation problems).",
-         obj({"id": S}, ["id"]), _get),
+         obj({"id": S, "instance": ACTING}, ["id"]), _get),
     Tool("tickets_create", "File a ticket from the caller's instance (the human files "
          "as 'human'). The server allocates the id and dates; status is open. A ticket must pass the chain "
          "(docs/protocol.md section 5): to a neighbouring role, by a liaison; final_to "
@@ -321,7 +336,8 @@ TOOLS = [
                          "{runs: int >= 1} (default: the home's budget.ticketDefault "
                          "runs); an optional max_model is an advisory note only, never "
                          "a gate: an agent runs on its agent file's model"},
-              "note": S, "final_to": S, "campaign": S, "as_human": B},
+              "note": S, "final_to": S, "campaign": S, "as_human": B,
+              "instance": ACTING},
              ["title", "kind", "to", "ask", "deliverable"]),
          lambda ctx, a: create_ticket(ctx, a), write=True),
     Tool("tickets_update", "Change a ticket: a status transition (with reason where the "
@@ -329,6 +345,6 @@ TOOLS = [
          "note. Field ownership and transitions per docs/protocol.md.",
          obj({"id": S, "status": {"type": "string", "enum": list(ac.TICKET_STATUSES)},
               "reason": S, "reopen": S, "fields": {"type": "object"}, "ask_detail": S,
-              "result_detail": S, "note": S}, ["id"]),
+              "result_detail": S, "note": S, "instance": ACTING}, ["id"]),
          update_ticket, write=True),
 ]

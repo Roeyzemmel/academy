@@ -731,9 +731,16 @@ class TestCallerHandshake(McpTestBase):
             os.remove(os.path.join(s.caller_dir, n))
 
     def test_role_agent_outside_its_role_home_refused(self):
+        # the server's home is not the agent's (2026-10-09, fix 1): an expert agent
+        # acts for the only expert instance, never for the author home it runs in
         s = self.server("author@t")
+        err, t = s.call("tickets_create", caller="expert:librarian", title="x",
+                        kind="question", to="author@t", ask="a", deliverable="d")
+        self.assertFalse(err, t)
+        self.assertEqual(t["from"], "expert@t")
         err, msg = s.call("tickets_create", caller="expert:librarian", title="x",
-                          kind="question", to="expert@t", ask="a", deliverable="d")
+                          instance="author@t", kind="question", to="expert@t", ask="a",
+                          deliverable="d")
         self.assertTrue(err)
         self.assertIn("belongs to the expert role", msg)
         err, t = s.call("tickets_create", caller="academy:concierge", title="Desk",
