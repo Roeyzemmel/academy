@@ -1188,8 +1188,8 @@ def main(argv=None):
     p.add_argument("--status", default="open"); p.add_argument("--where", default="")
     p = sub.add_parser("set-status", help="change a status, with grounds (plan section 8)")
     p.add_argument("id"); p.add_argument("status")
-    p.add_argument("--human", "--roey", dest="human", metavar="QUOTE",
-                   help="the human's words, verbatim (--roey: the older spelling)")
+    p.add_argument("--human", dest="human", metavar="QUOTE",
+                   help="the human's words, verbatim")
     p.add_argument("--where-said", default="", help="where and when the human said it")
     p.add_argument("--grounds", metavar="JSON", help="a grounds object (JSON text or @file)")
     p.add_argument("--evidence", action="append", default=[], metavar="ROW",

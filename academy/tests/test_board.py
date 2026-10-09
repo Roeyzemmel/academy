@@ -557,7 +557,7 @@ class TestPackets(BoardCase):
         self.assertEqual(ac.packet_answers(body)[1], ("(a)", DATE, "human", "go ahead"))
         # the next call answers the first pending decision (D2) by default
         path, k, decided = pk.decide_packet(self.board, "P-0001", "other",
-                                            comment="ask Barak first", date=DATE)
+                                            comment="ask Bo first", date=DATE)
         self.assertEqual((k, decided), (2, True))
         meta, body = pk.read_packet(path)
         self.assertEqual(meta["state"], "decided")
@@ -568,7 +568,7 @@ class TestPackets(BoardCase):
         self.assertEqual(lines[-2], (DATE, "human",
                                      "decision on P-0001 D1: (a) Yes, recolour now.\n"
                                      "go ahead"))
-        self.assertEqual(lines[-1], (DATE, "human", "decision on P-0001 D2: ask Barak first"))
+        self.assertEqual(lines[-1], (DATE, "human", "decision on P-0001 D2: ask Bo first"))
         # the first line of each echo has the exact protocol form
         raw = ac.thread_lines(tb, raw=True)
         self.assertIn("- %s human: decision on P-0001 D1: (a) Yes, recolour now." % DATE, raw)

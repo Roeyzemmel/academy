@@ -25,7 +25,7 @@ TREES = ("academy", "author", "expert", "researcher", "scientist", "domains", "d
          ".claude-plugin")
 ROOT_FILES = ("README.md",)
 
-NAMES = re.compile(r"Roey|Roeyzemmel|roeyzemmel|lingo|TAU VPN|tau\.ac\.il|author@bi|expert@ts"
+NAMES = re.compile(r"Roey|\broey\b|Roeyzemmel|roeyzemmel|lingo|TAU VPN|tau\.ac\.il|author@bi|expert@ts"
                    r"|researcher@slope1|scientist@ts|BilliardIllumination|FlatSurfLab|Slope1")
 
 #: whole files that are history, kept as written

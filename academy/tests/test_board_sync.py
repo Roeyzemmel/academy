@@ -237,7 +237,7 @@ def state_comment(state, login=BOT, n=1):
 
 class TestSyncRun(ReopenBase):
     def api_comments(self, cs):
-        return [{"body": c, "url": CURL % i, "user": {"login": "roey"}}
+        return [{"body": c, "url": CURL % i, "user": {"login": "ada"}}
                 for i, c in enumerate(cs)]
 
     def hand_reopened(self):
@@ -494,22 +494,22 @@ class TestAssignment(GithubBoardCase):
 
     def test_assignees_keep_other_people(self):
         meta = {"to": "human", "status": "open"}
-        self.assertIsNone(bc.assignees_for(meta, [{"login": "roey"}], "roey"))
-        self.assertEqual(["carlos", "roey"], bc.assignees_for(meta, ["carlos"], "roey"))
+        self.assertIsNone(bc.assignees_for(meta, [{"login": "ada"}], "ada"))
+        self.assertEqual(["bo", "ada"], bc.assignees_for(meta, ["bo"], "ada"))
         done = {"to": "human", "status": "closed"}
-        self.assertEqual(["carlos"], bc.assignees_for(done, ["carlos", "roey"], "roey"))
+        self.assertEqual(["bo"], bc.assignees_for(done, ["bo", "ada"], "ada"))
 
     def test_the_backstop_fixes_a_missing_assignee(self):
         self.make()
         e = [bc.encode(m, b) for _p, m, b in bd.iter_tickets(self.board)
              if m["to"] == "human"][0]
         iss = dict(issue_of(e), assignees=[])
-        p = bs.plan(iss, e["comments"], assignee="roey")
-        self.assertEqual(["roey"], p["assignees"])
-        self.assertIsNone(bs.plan(dict(iss, assignees=["roey"]), e["comments"],
-                                  assignee="roey")["assignees"])
+        p = bs.plan(iss, e["comments"], assignee="ada")
+        self.assertEqual(["ada"], p["assignees"])
+        self.assertIsNone(bs.plan(dict(iss, assignees=["ada"]), e["comments"],
+                                  assignee="ada")["assignees"])
         self.assertIsNone(bs.plan(iss, e["comments"])["assignees"])   # no login: hands off
         calls = []
         bs.sync(iss, [{"body": c, "url": "u%d" % i} for i, c in enumerate(e["comments"])],
-                lambda m, u, payload: calls.append((m, u, payload)), "api", assignee="roey")
-        self.assertIn(("PATCH", "api", {"assignees": ["roey"]}), calls)
+                lambda m, u, payload: calls.append((m, u, payload)), "api", assignee="ada")
+        self.assertIn(("PATCH", "api", {"assignees": ["ada"]}), calls)

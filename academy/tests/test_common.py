@@ -819,9 +819,9 @@ class PacketTests(unittest.TestCase):
         b1 = ac.record_decision(body, 1, "b", "wait for 1.3", date="2026-09-29")
         self.assertIn("- D1: (b) | 2026-09-29 | human | wait for 1.3\n", b1)
         self.assertTrue(ac.packet_is_decided(b1))
-        b2 = ac.record_decision(b1, 1, "other", "ask Barak", date="2026-09-30")
+        b2 = ac.record_decision(b1, 1, "other", "ask Bo", date="2026-09-30")
         self.assertEqual(ac.packet_answers(b2)[1], ("other", "2026-09-30", "human",
-                                                    "ask Barak"))
+                                                    "ask Bo"))
         self.assertEqual(ac.validate_packet(meta, b2), [])
         for bad in ((1, "e", ""), (1, "other", " "), (1, "ack", ""), (0, "a", "")):
             with self.assertRaises(ac.AcademyError):

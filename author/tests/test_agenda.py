@@ -171,7 +171,7 @@ class AgendaCliTests(unittest.TestCase):
         self.assertEqual(self.board_files("expert@t"), [])
         self.assertEqual(self.board_files("author@t"), [])
 
-    def test_a_missing_record_is_held_for_roey_not_ticketed(self):
+    def test_a_missing_record_is_held_for_the_human_not_ticketed(self):
         # claim records are made by claims_new / the claim-keeper, not by the math-editor
         self.sb.write(self.agenda, AGENDA.replace("| proved | - | author@t | open |",
                                                   "| proved | - | author@t | missing |"))
