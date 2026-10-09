@@ -402,7 +402,7 @@ def resolve_ref(ref, repo=None):
     if m and not re.match(r"^[A-Za-z]:[\\/]", ref):
         name, rest = m.group(1), m.group(2)
         # a worktree (<lab>-academy) sees the sibling of its own suffix first, as
-        # core/workspace.home_of does for namespaces (R6: Slope1's audits/ exists only in
+        # core/workspace.home_of does for namespaces (R6: a notebook's audits/ exists only in
         # its migration worktree until that branch is merged)
         _, suffix = workspace._by_name(repo)
         cands = [repo] if name == repo.name else \

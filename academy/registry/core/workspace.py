@@ -6,7 +6,7 @@ no workspace file can be read at all.
 
 **Which home serves a namespace, seen from a repo.** A registry resolves ids of other
 namespaces in the home repos *beside it*, as claims.py always did ("a link into a home
-repo that is not beside this one, on lingo say, is not checked"):
+repo that is not beside this one, on a remote worker say, is not checked"):
 
 1. the repo itself, when it is that namespace's home;
 2. when the repo is a registered home (its path is a ``home`` in workspace.json), the

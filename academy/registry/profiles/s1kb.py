@@ -1,4 +1,5 @@
-"""Profile ``s1-kb``: Slope1's knowledge base (``s1:``), kb.py on the engine core.
+"""Profile ``s1-kb``: the ``notebook`` rule set (a Researcher's knowledge base), the first
+notebook's kb.py on the engine core.
 
 This is the first notebook's ``tools/kb.py`` (merge proposal, phase 1): the
 schema, checks, views (STATUS.md, INDEX.md, OPEN.md, assumptions/README.md, the
@@ -42,7 +43,7 @@ for: ``kind`` from ``form`` (else from the v2 kind), ``topics`` from ``tags``,
 ``cleared_by`` and ``runs`` from the evidence rows that point at verdict and run files,
 the history from the frontmatter rows. Statuses are then v2 words (open, conjectured,
 sketch, supported, proved-modulo, proved, refuted, refuted-as-stated), and every rule
-that named a Slope1 label names its v2 counterpart. The core's generic rules run on the
+that named a v1 label names its v2 counterpart. The core's generic rules run on the
 file as written; this profile keeps the home rules (prefixes, aliases, the assumption
 implication and incomparability checks, ``cites`` against the library, the body/status
 agreement, "proved rests on proved"). Verdict and run files stay in the v1 ledger shape:
@@ -120,7 +121,7 @@ OBJECT_FOLDERS = {"definition": "claim", "claim": "claim", "conjecture": "claim"
 VERDICT_DIRS = ("computation/verdicts/", "audits/")
 #: ... or a proof review in an Expert's library, written as the protocol's ref
 #: ``file:expert@<name>/reviews/<ns>/<id>/<file>.md`` (phase 7: the claim verdicts moved
-#: to ``<library>/reviews/s1/``, Roey's P-0004 D9 / P-0005 D8, 2026-09-28)
+#: to ``<library>/reviews/<ns>/``, 2026-09-28)
 RE_REVIEW_REF = re.compile(r"^file:(expert@[a-z0-9][a-z0-9-]*)/(reviews/[^#\s]+\.md)$")
 #: the views of the objects layout (the assumption chart moves out of assumptions/)
 VIEWS_DIR = "views"
@@ -722,7 +723,7 @@ def _check_v2(kb, e):
                 _check_ref(kb, e, "modulo", item)
         else:
             # plan section 6: `modulo: [ids]`, promoted along the graph once the target
-            # is proved; free text cannot be followed (P-0004 D2/D4 decide these)
+            # is proved; free text cannot be followed
             kb.warn(e.path, f"modulo: {str(item)[:60]!r} is not a record id, so the claim "
                             "cannot be promoted along the graph when its input is proved")
     for key in ("supersedes", "bears_on"):
@@ -865,7 +866,7 @@ def _check_body_status(kb, e):
         return
     if e.v2 is not None and _projection.project(phrase, _projection.S1) == \
             _projection.project(st, _projection.V2):
-        return      # the body keeps Slope1's words; the classes agree
+        return      # the body keeps its v1 words; the classes agree
     if e.meta.get("body_status_ack"):  # a reviewed, deliberate mismatch; the field says why
         return
     kb.warn(e.path, f"body's first status phrase is '{phrase}' but frontmatter says '{st}'")

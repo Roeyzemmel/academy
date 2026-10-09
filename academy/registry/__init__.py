@@ -8,7 +8,7 @@ Layout:
   federation, the status projection, the cross-namespace graph, line-preserving edits
   (``edit``) and the grounds rules of plan section 8 (``grounds``);
 * ``profiles/``: ``fsl-claims`` (``fsl.py``: lab and paper, the lab's claims.py)
-  and ``s1-kb`` (``s1kb.py``: Slope1's kb.py);
+  and ``s1-kb`` (``s1kb.py``: the notebook rule set, the first notebook's kb.py);
 * ``cli.py``: ``py -m registry`` (run from ``academy/academy``, or with that directory
   on ``PYTHONPATH``), the union of both command lines, dispatched by the repo's profile;
 * ``requote.py``: the one-time R2 requote with its data-equality report;
@@ -19,7 +19,7 @@ Layout:
   mapping report, the pre-migration snapshot and the proposed verdict moves.
 
 The command line is ``academy/scripts/registry.py`` (the lab's ``scripts/claims.py`` and
-Slope1's ``tools/kb.py`` shims were removed 2026-09-28). Standard library only.
+the first notebook's ``tools/kb.py`` shims were removed 2026-09-28). Standard library only.
 """
 from pathlib import Path
 
@@ -50,7 +50,7 @@ def hook_policy(home, ns=None):
     """What the record-edit hook does in ``home``: ``{"ns", "profile", "watched",
     "build"}``. ``watched`` are the directories (relative, ``/``) whose ``.md`` files are
     records of the home's profile; ``build`` says whether an edit there must be followed
-    by a blocking ``build`` (the s1-kb profile asks for it, as Slope1's kb_hook did; a
+    by a blocking ``build`` (the s1-kb profile asks for it, as the first notebook's kb_hook did; a
     home's academy.json may turn it off with ``registry.build: false``)."""
     home = Path(home)
     ns = ns or workspace.repo_ns(home)

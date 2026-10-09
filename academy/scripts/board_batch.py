@@ -2,7 +2,7 @@
 
     py board_batch.py BATCH.json [--dry-run] [--board DIR] [--state STATE.json]
 
-A batch is a JSON file ``{"title": ..., "ops": [op, ...]}`` that Roey has reviewed. Every op
+A batch is a JSON file ``{"title": ..., "ops": [op, ...]}`` that the human has reviewed. Every op
 goes through the same code as the academy MCP tools, called as the human (any move, any
 field; every thread line says ``human``), so the protocol, validation, the append-only
 thread, blocks mirroring and, on the GitHub backend, labels, native links and assignees

@@ -1,10 +1,10 @@
 """Status projection: every profile's statuses onto five coarse classes.
 
 Cross-namespace rules use only the class (a lab claim that depends on a refuted input
-warns whether the input says ``refuted`` or Slope1's ``Disproved``), and so do
+warns whether the input says ``refuted`` or a v1 notebook's ``Disproved``), and so do
 ``find --class`` and the cross-repo views. ``supported`` is *unsettled* on purpose: no
-computation proves a claim. Slope1's ``Reduced`` is *true-modulo* and ``Partial``
-*unsettled* (Roey's calls, plan section 6).
+computation proves a claim. A v1 notebook's ``Reduced`` is *true-modulo* and ``Partial``
+*unsettled* (plan section 6).
 """
 
 FALSE, TRUE, TRUE_MODULO, UNSETTLED, NA = "false", "true", "true-modulo", "unsettled", "n/a"

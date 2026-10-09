@@ -9,7 +9,7 @@ that profile's command line, which is the union of the old two:
 * fsl-claims (lab, paper): show, list, grep, sql, check [files], render (= build),
   ledger, new, set-status, evidence, deps, usedby   -- claims.py's commands plus the
   mutations and the graph;
-* s1-kb (s1): check [files], build, show, find, deps, usedby, sql, new, set-status,
+* s1-kb (notebook): check [files], build, show, find, deps, usedby, sql, new, set-status,
   resolve   -- kb.py's commands.
 
 Commands of the engine itself, for every repo:

@@ -406,7 +406,7 @@ def default_ticket_budget(config):
     """The budget a new ticket gets when its sender gives none: ``{"runs": n}``.
 
     ``n`` is ``budget.ticketDefault.runs`` of ``config`` (a loaded academy.json, or
-    None), else 1. A ``max_model`` there (written before T-0071) is ignored: the model
+    None), else 1. A ``max_model`` there (an older convention) is ignored: the model
     an agent runs on is its agent file's, and ``budget.max_model`` on a ticket is only
     an advisory note its sender may add (docs/protocol.md section 3).
     """
@@ -692,7 +692,7 @@ def agent_identity(event):
     A plugin agent arrives namespaced (``author:math-writer``); the namespace names
     the plugin that shipped it and is everything before the *last* colon, the bare
     name everything after it. Both are stripped and lower-cased. A session with no
-    agent is the human (Roey's main session).
+    agent is the human (the human's main session).
     """
     if isinstance(event, (str, bytes)):
         try:
@@ -1484,7 +1484,7 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
 def parties(meta, instance):
     """The parties ``instance`` plays on a ticket: a subset of {'sender','receiver'}.
 
-    ``instance`` is the caller's instance name, or 'human' for Roey (who is also
+    ``instance`` is the caller's instance name, or 'human' for the human (who is also
     allowed everything regardless).
     """
     out = set()
@@ -1722,7 +1722,7 @@ def validate_ticket(meta, body=None, workspace=None):
         else:
             if not (isinstance(b.get("runs"), int) and b["runs"] >= 1):
                 probs.append("budget.runs must be a positive integer")
-            # optional advisory note, never a gate (T-0071); checked only for typos
+            # optional advisory note, never a gate; checked only for typos
             if b.get("max_model") is not None and b["max_model"] not in MODELS:
                 probs.append("budget.max_model, when given, must be one of %s"
                              % ", ".join(MODELS))
@@ -2852,7 +2852,7 @@ def read_event(stream=None):
 
     Claude Code writes the event as UTF-8. A text stream's own decoding is bypassed
     (its ``buffer`` is read): on Windows, Python decodes a piped stdin with the ANSI
-    codepage, which mangles non-ASCII arguments (T-0070). A leading BOM is dropped.
+    codepage, which mangles non-ASCII arguments. A leading BOM is dropped.
     """
     stream = stream or sys.stdin
     try:
