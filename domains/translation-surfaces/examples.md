@@ -6,8 +6,8 @@ example has an id, which definition tests, experiment headers and review packets
 to name it (`ex:<id>`).
 
 This file unifies three earlier lists (2026-09-28):
-- **[ND]** BilliardIllumination `.claude/rules/notation-decisions.md`, "The standard
-  examples" (7 examples, with what each one catches);
+- **[ND]** a project's decisions file (a paper home's notation decisions), "The
+  standard examples" (7 examples, with what each one catches);
 - **[TS]** the old `translation-surfaces` skill, "Test on the standard examples" (5);
 - **[FC]** the old `flatsurf-computation` skill, "Validate the setup on something you
   know" (3).
@@ -19,7 +19,7 @@ verification tag; they are pointers, not new claims. Nothing else about an examp
 asserted in this file. Anything a list names without a construction is marked
 **[UNSPECIFIED]**, and anything whose identity differs between sources is marked
 **[CHECK]**. A project may fix a subset or add examples in its own decisions file
-(BilliardIllumination fixes the seven [ND] ones); that file wins inside its project.
+(the [ND] project fixes its seven); that file wins inside its project.
 
 ## Summary
 
@@ -93,7 +93,7 @@ conditions.
 ### `tri-30-60-90` — the unfolding of the 30-60-90 triangle
 
 - **Stated.** [ND] "$K$ of order 12", where [ND]'s $K$ is the finite orthogonal group of
-  the flat structure (BilliardIllumination notation).
+  the flat structure (that project's notation).
 - **Construction.** `polygons.triangle(1, 2, 3)` (angles proportional to $1:2:3$) then
   the billiard unfolding of `surfaces.md` §3.1. **Not run for this file**: print the
   stratum and erase or keep marked points consciously (`surfaces.md` §3.2).
