@@ -33,7 +33,8 @@ which the tools already handle:
    an issue or PR there until `run` is done.
 3. Never create a test issue in the target (it would take #1).
 4. The board is frozen: no ticket writes (inbox runs, `session_start` commits) until
-   cutover; `git -C board status` is clean and its HEAD is noted for `verify`.
+   cutover; `git status -- board` in the workspace is clean and the workspace HEAD is noted
+   for `verify` (a board kept as a repository of its own: `git -C <board> status`).
 
 **export.** `py $S/board_export.py --repo OWNER/NAME --out <scratchpad>/manifest.json` prints
 the counts (tickets, placeholders, comments, closed, relations). Stop if `unreadable` or
@@ -49,15 +50,16 @@ numbering is never fixed by creating issues: report it.
 
 **verify.** `py $S/board_dump.py --repo OWNER/NAME --out <scratchpad>/dump.json`, then
 `py $S/board_verify.py --issues <dump>` (exit 1 lists the drift; it compares bodies, threads,
-labels, state, assignees, parents and dependencies). Check the board HEAD is still the one
-noted at preflight. Fix or report drift, never "fix" by editing the file board. A round trip
+labels, state, assignees, parents and dependencies). Check the HEAD noted at preflight is
+still current for the board's files. Fix or report drift, never "fix" by editing the file board. A round trip
 `board_import.py --issues <dump> --board <empty scratch dir>` must reproduce the ticket files.
 
-**cutover** (the human confirms first). Render the repository files into the board repo
-with `py $S/board_templates.py render --out <board repo>` (the issue form's instance dropdown
+**cutover** (the human confirms first). Render the repository files into the repository
+that will hold the issues (`board.repo`, normally the workspace repository) with
+`py $S/board_templates.py render --out <that checkout>` (the issue form's instance dropdown
 comes from workspace.json, instances + `human`; `check --out` reports drift later, e.g. after
 a new instance), copy `scripts/{board_sync,board_codec}.py` + `lib/academy_common.py` into
-the board repo's `.github/academy/{scripts,lib}/` (from a checkout that has the
+that repository's `.github/academy/{scripts,lib}/` (from a checkout that has the
 footer-tolerant codec), and set the repository variable `ACADEMY_HUMAN_LOGINS` to the
 human's login (`human.login`); set the board in `workspace.json` to `{"path", "backend":
 "github", "repo", "transport": "board_gh:transport", "assignee": <the human's login>}` (`docs/github-board.md`,

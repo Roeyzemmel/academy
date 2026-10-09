@@ -27,7 +27,7 @@ for the home they run in. It has no README; its agents are:
 
 | Agent | Job |
 |---|---|
-| `concierge` | Behind `/academy:desk`: routes Roey's requests |
+| `concierge` | Behind `/academy:desk`: routes the human's requests |
 | `explainer` | Behind `/academy:deep-dive`: read-only, grades nothing |
 | `usage-analyst` | The weekly usage packet, with the week's accumulated tool errors (`error_ledger.py`) and their weekly settle |
 | `secretary` | Behind `/academy:decide`: phrases pending-decision batches in plain language; read-only, records nothing |

@@ -56,7 +56,7 @@ cap.
 **Checkpoint before the next ticket** (serial, `budget.md` rule 2). The role skill's own
 step already ends with `py <role plugin>/scripts/inbox.py --check T-NNNN`: that run
 counts; do not run `--check` again here (a finished ticket's `--check` also runs the
-workspace's `scripts/ship.py checkpoint`, `docs/protocol.md` section 4, so a second run
+academy's `ship.py checkpoint`, `docs/protocol.md` section 4, so a second run
 would checkpoint twice). Read its exit code: exit 0 means delivered,
 blocked with its reason or rejected. Exit 3 means unfinished: report it, do not
 redispatch it in this run, and take nothing more from that instance while it is

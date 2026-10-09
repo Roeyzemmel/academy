@@ -30,5 +30,6 @@ config fields are `docs/config.md`; the notebook layout is plan section 3.3.
    `.gitattributes`, run `git add --renormalize .` there first, and check
    `git ls-files --eol` for anything listed as `-text` that should be text.
 
-Nothing is committed by this skill. The workspace.json change is in the academy repo
-and the board folder is in the board repo; both show up as uncommitted changes.
+Nothing is committed by this skill. The workspace.json change and the new board folder
+(under the workspace's `board/`) show up as uncommitted changes of the workspace; they
+go on a work branch with `ship.py` (`docs/branching.md`).

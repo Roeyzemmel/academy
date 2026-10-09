@@ -49,7 +49,7 @@ class TempDir(unittest.TestCase):
     def fixture_workspace(self):
         """A workspace.json for the five standard instances, homes under the temp dir."""
         spec = {"expert@main": ("library", None), "scientist@main": ("lab", "lab"),
-                "researcher@alpha": ("slope1", "s1"), "researcher@beta": ("flat", "flat"),
+                "researcher@alpha": ("notebook", "nb"), "researcher@beta": ("flat", "flat"),
                 "author@main": ("paper", "paper")}
         inst = {}
         for name, (home, ns) in spec.items():
@@ -59,12 +59,12 @@ class TempDir(unittest.TestCase):
                 inst[name]["ns"] = ns
         return self.write("fixture/workspace.json", json.dumps(
             {"instances": inst, "board": os.path.join(self.tmp, "board"),
-             "human": {"name": "Roey"}}))
+             "human": {"name": "Ada"}}))
 
     def fixture_workspace(self):
         """A workspace.json for the five standard instances, homes under the temp dir."""
         spec = {"expert@main": ("library", None), "scientist@main": ("lab", "lab"),
-                "researcher@alpha": ("slope1", "s1"), "researcher@beta": ("flat", "flat"),
+                "researcher@alpha": ("notebook", "nb"), "researcher@beta": ("flat", "flat"),
                 "author@main": ("paper", "paper")}
         inst = {}
         for name, (home, ns) in spec.items():
@@ -74,7 +74,7 @@ class TempDir(unittest.TestCase):
                 inst[name]["ns"] = ns
         return self.write("fixture/workspace.json", json.dumps(
             {"instances": inst, "board": os.path.join(self.tmp, "board"),
-             "human": {"name": "Roey"}}))
+             "human": {"name": "Ada"}}))
 
 
 # ---------------------------------------------------------------------------
@@ -747,9 +747,9 @@ class TicketTests(TempDir):
         meta = {"updated": "2026-09-27", "id": "T-0001", "title": "Test a generalization",
                 "kind": "test", "from": "researcher@alpha", "to": "scientist@main",
                 "status": "open", "priority": "normal",
-                "ask": "Test s1:G-3 on its falsifier first.",
+                "ask": "Test nb:G-3 on its falsifier first.",
                 "deliverable": "An experiment report packet.",
-                "refs": ["s1:G-3", "lab:ew-check"], "parent": "T-0000",
+                "refs": ["nb:G-3", "lab:ew-check"], "parent": "T-0000",
                 "budget": {"runs": 1, "max_model": "sonnet"}, "created": "2026-09-27"}
         text = ac.new_ticket(meta)
         m, body = ac.read_frontmatter(text)
