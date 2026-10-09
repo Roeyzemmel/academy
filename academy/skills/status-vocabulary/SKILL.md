@@ -79,6 +79,13 @@ statement never rests on a blue or red one. The Author checker enforces the draf
 
 Computation never reaches `proved` or `proved-modulo`.
 
+**An attestation is the human's word, recorded.** When the human attests a status (for
+example "I checked this proof; mark it proved"), the words are recorded verbatim, with
+date and where they were said, as a verdict file of `kind: attestation` in the home's
+verdict folder, which the status change cites; the object's `status_note` says
+"attested by the human; not machine-verified". A model never infers an attestation from
+approval of something else, silence, or a paraphrase, and never writes one on its own.
+
 ## Old words
 
 | Old | Now |

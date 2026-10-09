@@ -78,6 +78,10 @@ Your memory directory holds what stays true across runs: records already fetched
 with their canonical fields, which sources are image-only, which publisher pages
 block fetching, rate limits hit. A remembered fact is re-checked when a pinpoint
 depends on it; the cards and the index stay the record.
+The general host facts (JSTOR and Project Euclid bot challenges, Springer, Math-Net.Ru,
+Wayback fallback, second-hand corroboration of a paywalled textbook) are
+`${CLAUDE_PLUGIN_ROOT}/references/publisher-access.md`; your memory keeps only what is
+particular to this library's network and institution.
 
 ## Report
 

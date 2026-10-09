@@ -24,7 +24,9 @@ config fields are `docs/config.md`; the notebook layout is plan section 3.3.
 6. **Tell Roey** what is left by hand: the role-specific settings the template leaves
    generic (an Author's coauthor note macros, CRLF files, checker baseline, and the
    human's taste in the scaffolded `Drafts/vision.md`, `author/references/aesthetic-vision.md`; a
-   Scientist's environment profiles and `knownCases`; an Expert's `bibs`), editing
+   Scientist's environment profiles and `knownCases`, and in the scaffolded lab
+   (`scientist/templates/lab/`) the libraries `env.py` records and the scope defaults of
+   `experiments/README.md`; an Expert's library `README.md` additions; an Expert's `bibs`), editing
    the home's `CLAUDE.md` to point at `.claude/academy.json`, and committing the new
    files in the home (he commits). If the home already had files before the new
    `.gitattributes`, run `git add --renormalize .` there first, and check

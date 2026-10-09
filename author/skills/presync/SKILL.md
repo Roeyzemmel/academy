@@ -37,7 +37,13 @@ serially (`${CLAUDE_PLUGIN_ROOT}/../academy/references/budget.md`). Scripts: `$S
    milestone's entries; the referee checks the paper against `Drafts/vision.md` too.
    The referee packet comes back later; `/author:notes referee
    P-NNNN` then files its points.
-7. **A clean build and the checker once more.** Launch `tex-engineer` only if the build
+7. **Provenance markers** (only when the home sets `author.provenance`; the mechanism is
+   `${CLAUDE_PLUGIN_ROOT}/skills/paper-method/references/draft-colours.md`): list every
+   block and span carrying the marker (`git grep` for its environment and command), with
+   its `%% added: <kind>` tag and section. Remove none: the list goes in the summary as
+   a proposal to the marker's `removedBy` (the human), who removes them once the round
+   is accepted.
+8. **A clean build and the checker once more.** Launch `tex-engineer` only if the build
    is not clean. The PDF the coauthors receive is the one that was checked.
 
 If a pass fails or comes back blocked, say so and continue with the rest.
@@ -54,6 +60,8 @@ If a pass fails or comes back blocked, say so and continue with the rest.
 - **Milestone progress**: `py $S/agenda.py milestones`.
 - **The vision**: the aesthetic pass's proposals, each with its ticket id or "for
   Roey", and the sections not reviewed this time.
+- **Added since the last round**: the provenance markers, by section and kind, proposed
+  for removal (none when the home sets no `author.provenance`).
 - **Tickets filed**: the literature-watch and referee ticket ids; their results arrive
   as packets.
 - **The build**: exit status, the `??` count, the warnings and which are the accepted

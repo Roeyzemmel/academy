@@ -125,6 +125,9 @@ conventions the domain pack's `figures.md`. Check the result in grayscale.
 
 ## Reference
 
+`references/editing-tex.md`: line endings, the clean-build criteria, environments and
+typed labels, margin-note rules. `references/draft-colours.md`: applying the status
+colours (environment or command) and the provenance marker (`author.provenance`).
 `references/modern-latex.md`: modern LaTeX practice (argument specs, paired
 delimiters, one sentence per line, biblatex vs BibTeX, microtype, engines and fonts,
 build and lint), each item to be proposed, not imposed.

@@ -68,6 +68,28 @@ after two agreeing experiment reviews; never `proved` (`academy:status-vocabular
 An exact, independently rechecked certificate of an existence claim is the one case
 where a proof may follow, and that proof goes through proof review, not here.
 
+## Negative results, unverified inputs, and ranking candidates
+
+- **A negative is worth exactly the completeness of its enumeration.** "No element of
+  the class has property P" is only as good as the certificate that the class was
+  enumerated in full (every member, every value the definition ranges over). A record
+  whose enumeration is incomplete is *undecided*, never a counterexample and never
+  evidence for the claim. A refutation should also carry a **hand-checkable
+  certificate**: the failed necessary condition stated on a single, named object.
+- **Flag what this lab has not verified.** A statement taken from the literature or a
+  note without a check here may shape a search and may serve as a validation case; it
+  may never be the reason a counterexample is believed, and anything resting on it
+  inherits the flag.
+- **Rank candidates on separate axes, report the Pareto front, never a scalar.** When a
+  search ranks members for follow-up (for example "how likely to fail" against "how
+  strong a hypothesis it satisfies"), keep each axis on its own ordering, report the
+  non-dominated members **together with the full table**, and leave the choice between
+  front members to the human or the lead researcher. A weighted sum hides the trade-off
+  it decided.
+- **One finding per surface is not a trap test.** A library quirk (silent relabelling,
+  a doubled area, a changed index base) that does not show on one example may show on
+  the next; validate a workaround on two examples that differ in the relevant way.
+
 ## Also
 
 - **The home's rules win.** A lab may forbid running experiments locally at all

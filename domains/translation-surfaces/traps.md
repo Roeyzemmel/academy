@@ -11,7 +11,8 @@ Three sources, merged 2026-09-28:
 - **B**, the domain-flavoured examples cut from `math-proof-writing` when it became
   `academy:rigor` (listed in the migration notes, `removed-domain-examples.md`, now archived outside
   the marketplace);
-- **C**, the API traps of the old `flatsurf-computation` skill.
+- **C**, the API traps of the old `flatsurf-computation` skill (and, 2026-10-09, those
+  FlatSurfLab's `docs/api-traps.md` had met, merged here).
 
 ## A. Mathematical traps (the four that cost the most)
 
@@ -142,6 +143,24 @@ ranked full list is `computation/api/practice.md` §9 and `computation/api/quick
 - Plausible deep imports such as `from sage.libs.gap.libgap import libgap` fail as the
   first Sage import under plain `python`; import `sage.all` first
   (`computation/api/libgap.md` §12.2).
+- `OrigamiVertex.down_left_tuple()` is 1-based too, and `vertices()` lists only **cone
+  points**: regular lattice points are invisible to it.
+- `cylinder_decomposition()` on an origami silently relabels: it reports "the standard
+  form of this origami", so its square numbers are not yours. Map them back (or use a
+  helper that does) before keying anything on squares.
+- `horizontal_twist(width)` / `vertical_twist(width)` apply the unipotent `width` times
+  (`width=-1` inverts), and the SL(2,Z) relations hold only **up to relabelling**: a word
+  whose matrix is the identity comes back isomorphic but relabelled on the 3-square L and
+  unchanged on the Eierlegende Wollmilchsau (`computation/api/origamis.md` §6.7.5). When
+  points are tracked, apply one generator at a time and transport the labels.
+- A cone point of multiplicity `m` is **`m` distinct corners of the fine grid** (its
+  commutator-orbit class), each seen by four squares: "does this point touch this
+  cylinder" must union over the whole vertex class, not the one tracked square (doing the
+  latter made 11.5% of states, 277/2400, report no cylinder where a saddle connection
+  plainly existed).
+- There is **no reduced origami with fewer than 3 squares** (every 2-square origami is an
+  unbranched torus cover), so a rejection loop demanding `is_reduced()` at `n = 2` never
+  terminates.
 
 And the rule behind all of them: when an experiment produces something surprising,
 suspect the code first — a stratum mismatch, a squared-vs-linear bound, the factor of

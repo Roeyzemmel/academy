@@ -1,6 +1,7 @@
 # expert — the library role
 
 Role cut: what each role writes, never writes and hands off, and to whom, is one table, `academy/references/roster-rules.md` ("Role cut").
+Library scaffold and access: `templates/library/README.md` (the generic library README, written by `/academy:init expert@x`), `references/publisher-access.md` (what fetches from which publisher).
 
 The academy's library and its proof reviewers (plan section 3.4). The Expert caches
 each source once and writes its citation cards (statement, hypotheses, version,
