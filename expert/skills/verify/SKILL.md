@@ -47,7 +47,9 @@ status proposal (`claims_propose_status`) is exempt and still goes out.
 `tests/test_decision_table.py` pins every row. In short: CONFIRMED x2 → propose
 `proved` (recolour earned); CONFIRMED modulo X x2 → propose `proved-modulo`, recolour
 only when every input is established; CONFIRMED vs GAP, or different inputs →
-disagreement; any DISPROVED → the counterexample to the human, no status; a GAP run A →
+disagreement (inputs differing only in definitions agree, on the intersection, with the
+definitions flagged: a definition used only as notation is not an input, the human's
+decision of 2026-10-09, T-0148); any DISPROVED → the counterexample to the human, no status; a GAP run A →
 single negative, B skipped by design; any PLAUSIBLE → degraded, never counts. A
 CONFIRMED counts on any of the grading primaries (`grading.primaryModels`, all equal);
 on any other model it reads as PLAUSIBLE.

@@ -17,7 +17,11 @@ the ticket protocol is `docs/protocol.md`.
    not substitute its own reading for a verdict.
 4. **Two agreeing, independent verdicts** are the grounds for raising a status
    (the `status-vocabulary` skill gives the mapping). Run B is launched only if run A
-   is positive, and neither run sees the other.
+   is positive, and neither run sees the other. A definition used only as notation is
+   not an input in a verdict's `modulo` list; only a definition whose content the
+   argument relies on counts (the human's decision, 2026-10-09, T-0148). So two
+   CONFIRMED runs whose `modulo` lists differ only in definitions agree, on the
+   intersection of the lists; the decision table flags the definitions it dropped.
 5. **Only the status keeper changes a status** (`registry.statusKeeper`, default
    `claim-keeper`), and only with grounds, or on the human's word.
 6. **Only the human decides a packet.** Agents propose; `packets_decide` is
