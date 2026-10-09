@@ -26,9 +26,17 @@ Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home:
 `tex_edit_check` (PostToolUse edits: checker + dirty marker), `bib_gate` (only
 `expert:librarian` edits the bibliography), `notation_scope_guard` (PreToolUse edits:
 the notation-auditor edits only the home's `notation-decisions.md`; scoped by agent),
+`pinned_guard` (PreToolUse edits: nobody, the main session included, changes the
+environment of a statement a CONFIRMED review pinned, `scripts/pinned.py`; the proof is
+free; only the human releases a pin in `.claude/pinned-release.txt`),
 `commit_gate` (Bash|PowerShell, scoped by
 the repo actually committed), `build_gate` (SubagentStop of a writer, namespace-stripped,
 under `.build/.lock`).
+
+Role cut (`academy/references/roster-rules.md`, "Role cut"): the Researcher proves, the
+Author only lands; a missing argument, a hypothesis question or a cleaner formulation is a
+`research` ticket (`final_to: researcher`, checked by `routes.check_filed`), and an
+Author agent writes nothing in a Researcher home (`academy:role_write_guard`).
 
 Ticket chain: the Author's only neighbour is the Expert. A request for the Researcher or
 the Scientist is a `research` ticket to the Expert with `final_to`, which the Expert's

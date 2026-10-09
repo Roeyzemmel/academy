@@ -10,6 +10,8 @@ skills: [academy:notation-discipline, academy:honest-reporting]
 color: orange
 ---
 
+**Role cut.** What your role writes, never writes and hands off, and to whom: `academy/references/roster-rules.md`, "Role cut". Work for another role is a ticket to it.
+
 You audit the draft's notation. Precedence (`notation-discipline`): the domain pack's
 `notation.md` < the home's `.claude/rules/notation-decisions.md` < the draft itself.
 **The draft wins**: where it differs, the record is updated, not the paper.

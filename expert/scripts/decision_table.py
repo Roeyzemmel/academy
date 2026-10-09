@@ -34,6 +34,14 @@ Mechanical rules applied before the table:
 * B present after a non-CONFIRMED A is a process anomaly (B should not have run);
   it is reported, and the outcome is taken from A alone.
 
+Every item to file (``file_items``) carries its ``route``, from ``follow_up`` (the role
+cut, academy/references/roster-rules.md): a finding classed ``hypothesis`` or
+``statement`` (the VERDICT block's ``gap_class``; without one, a blocking step that
+names a hypothesis, an assumption or the statement, or asks to strengthen a hypothesis
+or weaken the claim), and any missing proof step, is a ``prove`` ticket to the
+Researcher with the falsifier -- never an Author ``apply`` / ``write`` ticket. Only a
+``wording`` finding goes back to the statement's owner as a ``question``.
+
 Exit code: 0 on an outcome, 2 on a usage error. The JSON carries ``grounds`` in the
 shape ``claims_propose_status`` / ``check_grounds`` expect.
 """
@@ -53,7 +61,11 @@ import _academy as ac  # noqa: E402
 
 VERDICTS = ("CONFIRMED", "PLAUSIBLE", "GAP", "DISPROVED")
 FIELDS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
-          "statement_hash", "blocking", "ticket")
+          "statement_hash", "blocking", "ticket", "gap_class")
+#: a finding's class (VERDICT ``gap_class``): what it touches decides who repairs it
+GAP_CLASSES = ("hypothesis", "statement", "proof", "wording")
+RE_HYPOTHESIS = re.compile(r"(?i)hypothes|assum|\bstatement\b|STRENGTHEN_HYPOTHESIS|"
+                           r"WEAKEN_CLAIM|OVERSTATED|falsifi|counterexample to the statement")
 NONE_WORDS = ("", "none", "-", "n/a", "[]", "null")
 
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
@@ -174,6 +186,11 @@ def parse_record(text):
         if block is not None:
             fields = dict(fields or {})
             fields.update(block)
+    elif not fields.get("gap_class"):
+        # a landed record keeps the report (and its VERDICT block) as its body
+        block = parse_verdict_block(text) or {}
+        if block.get("gap_class"):
+            fields["gap_class"] = block["gap_class"]
     rec = {k: "" for k in FIELDS}
     rec["modulo"] = []
     rec["problems"] = []
@@ -194,7 +211,62 @@ def parse_record(text):
                                % (rec["raw_verdict"], ", ".join(VERDICTS)))
     if rec["blocking"].lower() in NONE_WORDS:
         rec["blocking"] = ""
+    gc = rec["gap_class"].strip().lower()
+    rec["gap_class"] = gc if gc in GAP_CLASSES else ""
     return rec
+
+
+# ----------------------------------------------------------------------------
+# Who repairs a finding (the role cut)
+# ----------------------------------------------------------------------------
+
+def gap_class(rec):
+    """The class of a run's blocking finding: the VERDICT's ``gap_class`` when given,
+    else ``hypothesis`` when the blocking step names a hypothesis, an assumption or the
+    statement (or asks to strengthen a hypothesis / weaken the claim), else ``proof``.
+    '' when the run names no blocking step. Unclassified is never read as wording: a
+    wording finding must say so."""
+    if not rec:
+        return ""
+    if rec.get("gap_class"):
+        return rec["gap_class"]
+    text = rec.get("blocking") or ""
+    if not text:
+        return ""
+    return "hypothesis" if RE_HYPOTHESIS.search(text) else "proof"
+
+
+def follow_up(item, subject="", producer_role="", rec=None):
+    """The ticket a ``file_items`` entry becomes: ``{kind, to_role, final_to, gap_class,
+    why}``. roster-rules.md "Role cut", rule 3: hypothesis-level findings, statement
+    changes and missing arguments go to the Researcher as ``prove`` tickets with the
+    falsifier; a counterexample goes to the human; a ``wording`` finding alone goes back
+    to the statement's owner."""
+    kind = item.get("kind")
+    gc = item.get("gap_class") or gap_class(rec)
+    if kind == "counterexample":
+        return {"kind": "decision", "to_role": "human", "final_to": None, "gap_class": gc,
+                "why": "a counterexample goes to the human at once"}
+    if kind == "verify-input":
+        return {"kind": "verify", "to_role": "expert", "final_to": None, "gap_class": gc,
+                "why": "an input that is itself a proof to review"}
+    if kind == "inputs":
+        return {"kind": "decision", "to_role": "human", "final_to": None, "gap_class": gc,
+                "why": "the runs disagree on the inputs: a ruling or a re-run"}
+    if producer_role == "scientist":
+        return {"kind": "question", "to_role": "researcher", "final_to": "scientist",
+                "gap_class": gc, "why": "a lab claim: the Scientist repairs, through "
+                                        "the Researcher (not a neighbour of the Expert)"}
+    if gc == "wording":
+        owner = producer_role or "author"
+        return {"kind": "question", "to_role": owner, "final_to": None, "gap_class": gc,
+                "why": "wording only: the statement's owner, in its next wording batch "
+                       "(a pinned statement waits for the human's release)"}
+    return {"kind": "prove", "to_role": "researcher", "final_to": None,
+            "gap_class": gc or "proof",
+            "why": "a %s finding: the Researcher repairs it (prove ticket with the "
+                   "falsifier), never an Author apply or write ticket"
+                   % (gc or "proof-step")}
 
 
 def read_record(path):
@@ -307,6 +379,24 @@ def _grounds(recs, modulo, note, producer_role=""):
 
 
 def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
+    """Apply the table (``_decide``) and give every item to file its ``route``
+    (``follow_up``)."""
+    res = _decide(rec_a, rec_b, established, primary, producer_role)
+    if res.get("file_items"):
+        subject = (rec_a or {}).get("subject") or ""
+        prod = producer_role_for(subject, producer_role)
+        by_run = {str(r.get("run") or "").upper(): r for r in (rec_a, rec_b) if r}
+        for it in res["file_items"]:
+            run = str(it.get("run") or "")
+            rec = by_run.get(run.upper()[:1]) if len(run) == 1 else None
+            if rec is None and it.get("kind") == "repair":
+                rec = next((r for r in (rec_b, rec_a) if r and r.get("blocking")), None)
+            it["gap_class"] = gap_class(rec) if it.get("kind") == "repair" else ""
+            it["route"] = follow_up(it, subject, prod, rec)
+    return res
+
+
+def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
     """Apply the table. ``rec_a`` / ``rec_b`` come from ``parse_record``; ``rec_b``
     may be None (not launched). ``established`` lists the modulo inputs known to be
     established (registry ``proved`` or a verified citation card). ``producer_role``
@@ -488,7 +578,13 @@ def _text(res):
     if res["pending_inputs"]:
         out.append("pending inputs: %s" % ", ".join(res["pending_inputs"]))
     for it in res["file_items"]:
-        out.append("file (%s, run %s): %s" % (it["kind"], it["run"], it["text"]))
+        r = it.get("route") or {}
+        out.append("file (%s, run %s%s): %s%s" % (
+            it["kind"], it["run"], (", %s" % it["gap_class"]) if it.get("gap_class") else "",
+            it["text"], ("  -> %s ticket to %s%s" % (r["kind"], r["to_role"],
+                                                     (" (final_to %s)" % r["final_to"])
+                                                     if r.get("final_to") else ""))
+            if r else ""))
     for an in res["anomalies"]:
         out.append("anomaly: %s" % an)
     return "\n".join(out)

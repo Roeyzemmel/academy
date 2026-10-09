@@ -1,5 +1,7 @@
 # expert — the library role
 
+Role cut: what each role writes, never writes and hands off, and to whom, is one table, `academy/references/roster-rules.md` ("Role cut").
+
 The academy's library and its proof reviewers (plan section 3.4). The Expert caches
 each source once and writes its citation cards (statement, hypotheses, version,
 verbatim quote) and its `index.md` row. It answers quick questions from the cache,

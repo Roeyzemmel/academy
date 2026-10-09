@@ -188,6 +188,9 @@ def file_ticket(ctx, draft, detail="", campaign=None):
     the gap filer and the roadmap converter create a ticket."""
     if not ctx.board:
         raise al.AgendaError("no board (workspace.json 'board', or --board)")
+    probs = rt.check_filed(draft)
+    if probs:                       # the role cut: an argument is the Researcher's
+        raise al.AgendaError("ticket %r refused: %s" % (draft["title"], "; ".join(probs)))
     path = board_module().create_ticket(
         ctx.board, draft["to"], draft["title"], draft["ask"], draft["deliverable"],
         kind=draft["kind"], priority=draft["priority"], refs=draft["refs"],

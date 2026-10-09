@@ -103,5 +103,13 @@ modulo: <comma-separated ids and bib:key#pinpoint used as unverified inputs, or 
 model: <the exact model id you ran on, e.g. claude-opus-5-5>
 statement_hash: <as in the brief>
 blocking: <the one step that must be fixed, or none>
+gap_class: <hypothesis | statement | proof | wording, or none>
 ticket: <as in the brief, or none>
 ```
+
+`gap_class` says what the blocking finding touches, and so who repairs it
+(`academy/references/roster-rules.md`, "Role cut"): `hypothesis` (a hypothesis is
+missing, too weak or unused), `statement` (the conclusion or the formulation must
+change), `proof` (a step needs a new argument), `wording` (presentation only; the
+mathematics stands). Anything but `wording` goes to the Researcher with your
+falsifier; when in doubt between `wording` and another class, it is not `wording`.

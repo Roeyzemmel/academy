@@ -221,6 +221,39 @@ class RoutesTests(unittest.TestCase):
             r = routes.route({"kind": kind})
             self.assertEqual((r["how"], r["target"]), ("human", "human"), kind)
 
+    def test_another_roles_kind_is_rejected_with_the_route_to_ask(self):
+        for kind, role in (("prove", "researcher"), ("experiment", "scientist")):
+            r = routes.route({"kind": kind})
+            self.assertEqual("reject", r["how"], kind)
+            self.assertIn("final_to %s" % role, r["why"])
+
+    def test_a_write_ticket_needing_an_argument_goes_to_research(self):
+        r = routes.route({"kind": "write", "title": "Lemma 3",
+                          "ask": "fill the gap in step 2 with a new argument"})
+        self.assertEqual(("research", "expert"), (r["how"], r["target"]))
+        r = routes.route({"kind": "write", "ask": "write up the delivered proof of lem:x"})
+        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
+
+    def test_writers_file_research_tickets_for_missing_arguments(self):
+        good = {"kind": "research", "to": "expert@t", "final_to": "researcher",
+                "title": "Prove lem:x", "ask": "a missing argument in step 2"}
+        self.assertEqual([], routes.check_filed(good))
+        for bad in (dict(good, kind="write", to="author@t", final_to=None),
+                    dict(good, kind="prove"),
+                    dict(good, final_to=None),
+                    dict(good, to="researcher@t")):
+            self.assertTrue(routes.check_filed(bad), bad)
+        # asks that need no argument pass untouched
+        self.assertEqual([], routes.check_filed({"kind": "verify", "to": "expert@t",
+                                                 "title": "Verify lem:x", "ask": "verify"}))
+        self.assertEqual([], routes.check_filed({"kind": "research", "to": "expert@t",
+                                                 "final_to": "scientist", "ask": "run"}))
+        # every ask the gap filer drafts passes the check
+        for tag, (role, kind, ft, _d) in routes.OUT_ROUTES.items():
+            meta = {"kind": kind, "to": role + "@t", "final_to": ft,
+                    "title": "Prove x" if tag == "lead" else tag, "ask": tag}
+            self.assertEqual([], routes.check_filed(meta), tag)
+
     def test_land_routes_by_ticket_kind(self):
         self.assertEqual(routes.land_route("verify")["target"], "math-editor")
         self.assertEqual(routes.land_route("cite")["target"], "math-editor")

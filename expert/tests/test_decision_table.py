@@ -330,5 +330,46 @@ class CliTests(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class FollowUpRoutingTests(unittest.TestCase):
+    """roster-rules.md "Role cut", rule 3: hypothesis-level findings go to the Researcher."""
+
+    def gap(self, blocking, gap_class=None, subject="paper:lem:x"):
+        r = rec("GAP", blocking=blocking, subject=subject)
+        if gap_class:
+            r["gap_class"] = gap_class
+        return dt.decide(r)["file_items"][0]
+
+    def test_a_hypothesis_gap_routes_to_the_researcher_never_the_author(self):
+        it = self.gap("S is the completion of S' only if the structure is conical: "
+                      "STRENGTHEN_HYPOTHESIS")
+        self.assertEqual("hypothesis", it["gap_class"])
+        self.assertEqual(("prove", "researcher"), (it["route"]["kind"], it["route"]["to_role"]))
+        self.assertNotIn(it["route"]["kind"], ("apply", "write"))
+
+    def test_the_verdict_field_wins_and_is_read_from_a_landed_body(self):
+        text = ("---\nsubject: paper:lem:x\nrun: A\nverdict: GAP\nblocking: step 2\n---\n"
+                "\nReport.\n\nVERDICT\nsubject: paper:lem:x\nrun: A\nverdict: GAP\n"
+                "blocking: step 2\ngap_class: statement\n")
+        r = dt.parse_record(text)
+        self.assertEqual("statement", r["gap_class"])
+        self.assertEqual("researcher", dt.follow_up({"kind": "repair"}, rec=r)["to_role"])
+
+    def test_a_missing_step_is_the_researchers_and_wording_alone_the_owners(self):
+        it = self.gap("step 3 does not follow from step 2")
+        self.assertEqual(("proof", "researcher"), (it["gap_class"], it["route"]["to_role"]))
+        it = self.gap("the second sentence is ambiguous", gap_class="wording")
+        self.assertEqual(("question", "author"), (it["route"]["kind"], it["route"]["to_role"]))
+
+    def test_a_disagreement_repair_and_a_counterexample_are_routed_too(self):
+        res = dt.decide(rec("CONFIRMED"), rec("GAP", run="B", blocking="needs the "
+                                                 "hypothesis that M is compact"))
+        it = res["file_items"][0]
+        self.assertEqual(("hypothesis", "researcher"), (it["gap_class"], it["route"]["to_role"]))
+        res = dt.decide(rec("DISPROVED", blocking="the square torus"))
+        self.assertEqual("human", res["file_items"][0]["route"]["to_role"])
+        self.assertIn("-> prove ticket to researcher",
+                      dt._text(dt.decide(rec("GAP", blocking="step 3"))))
+
+
 if __name__ == "__main__":
     unittest.main()

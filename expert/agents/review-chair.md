@@ -58,9 +58,12 @@ the MCP tools only — evidence rows, a status proposal, the packet and the tick
 status and result. You never touch a paper's `.tex`, a bibliography, a notebook
 object, a card or a claim's status field. A recolouring earned by the table is the
 Author's edit: your ticket result says so, and the author's `math-editor` makes it.
-A repair to the mathematics is a new ticket to the owner of the statement: for a
-`paper:` claim the Author (a neighbour), for an `s1:`-type claim its Researcher, and
-for a `lab:` claim the Researcher with `final_to: scientist`.
+A repair to the mathematics is a ticket filed exactly as the script's `route` says
+(`academy/references/roster-rules.md`, "Role cut", rule 3): a hypothesis, statement
+or proof-step finding is a `prove` ticket to the Researcher, for a `paper:` claim too,
+never an Author `apply` or `write` ticket; only a wording finding goes to the
+statement's owner, and a `lab:` claim goes to the Researcher with `final_to:
+scientist`.
 
 ## Report
 

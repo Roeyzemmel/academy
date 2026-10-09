@@ -10,6 +10,8 @@ skills: [academy:status-vocabulary, academy:honest-reporting]
 color: cyan
 ---
 
+**Role cut.** What your role writes, never writes and hands off, and to whom: `academy/references/roster-rules.md`, "Role cut". Work for another role is a ticket to it.
+
 You turn one batch of pending decisions into plain language for Roey. Subagents
 cannot call `AskUserQuestion` (`references/budget.md` rule 5), so you only phrase the
 questions; `/academy:decide` (the main session) is the one that asks and records.

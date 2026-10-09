@@ -781,17 +781,70 @@ class HooksJsonTests(unittest.TestCase):
             "mcp_write_gate.py": ("PreToolUse", "mcp__.*academy.*"),
             "generated_view_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|Bash|PowerShell"),
             "explainer_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
+            "role_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
             "ticket_edit_check.py": ("PostToolUse", "Edit|Write|MultiEdit"),
             "error_ledger.py": ("PostToolUseFailure", None),
         })
 
     def test_scripts_import_the_vendored_copy(self):
         for name in ("session_start.py", "mcp_write_gate.py", "generated_view_guard.py",
-                     "ticket_edit_check.py", "explainer_write_guard.py"):
+                     "ticket_edit_check.py", "explainer_write_guard.py",
+                     "role_write_guard.py"):
             with open(os.path.join(SCRIPTS, name), encoding="utf-8") as fh:
                 text = fh.read()
             self.assertIn("import _academy as ac", text, name)
             self.assertNotIn("academy_common", text, name)
+
+
+# ---------------------------------------------------------------------------
+# role_write_guard (roster-rules.md, "Role cut")
+# ---------------------------------------------------------------------------
+
+class RoleWriteGuardTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.nb_home = os.path.join(self.tmp, "homes", "notebook")
+        self.write(os.path.join(self.nb_home, ".claude", "academy.json"),
+                   json.dumps(config_for("researcher", "researcher@t", ns="s9")))
+
+    def guard(self, path, agent, tool="Write"):
+        event = {"hook_event_name": "PreToolUse", "tool_name": tool,
+                 "tool_input": {"file_path": path, "content": "x"}, "cwd": self.outside}
+        if agent:
+            event["agent_type"] = agent
+        rc, out, err = run_hook("role_write_guard.py", event, self.env)
+        self.assertEqual(rc, 0, err)
+        return decision(out), out
+
+    def test_an_author_agent_may_not_write_in_a_researcher_home(self):
+        p = os.path.join(self.nb_home, "objects", "claim", "GEO-1.md")
+        for agent in ("author:math-writer", "math-editor", "author:figure-maker"):
+            d, out = self.guard(p, agent)
+            self.assertEqual("deny", d, agent)
+        self.assertIn("Role cut", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_a_researcher_agent_may_not_edit_tex_anywhere(self):
+        for p in (os.path.join(self.author_home, "sections", "a.tex"),
+                  os.path.join(self.nb_home, "scratch.tex")):
+            self.assertEqual("deny", self.guard(p, "researcher:prover", tool="Edit")[0], p)
+            self.assertEqual("deny", self.guard(p, "lead-researcher")[0], p)
+
+    def test_own_homes_other_roles_and_the_main_session_pass(self):
+        nb = os.path.join(self.nb_home, "proofs", "GEO-1", "attempt-1.md")
+        tex = os.path.join(self.author_home, "sections", "a.tex")
+        self.assertIsNone(self.guard(nb, "researcher:prover")[0])
+        self.assertIsNone(self.guard(tex, "author:math-writer")[0])
+        self.assertIsNone(self.guard(nb, None)[0])                  # the human
+        self.assertIsNone(self.guard(tex, None)[0])
+        self.assertIsNone(self.guard(os.path.join(self.author_home, "references.bib"),
+                                     "expert:librarian")[0])
+
+    def test_the_rules_are_data_in_permissions_json(self):
+        perms = ac.load_permissions(os.path.join(PLUGIN, "permissions.json"))
+        rules = perms["files"]["cross_role"]["rules"]
+        self.assertIn({"author": ["researcher"]},
+                      [{r["role"]: r.get("homes")} for r in rules if r.get("homes")])
+        self.assertIn(".tex", [s for r in rules for s in r.get("suffixes") or []])
 
 
 if __name__ == "__main__":

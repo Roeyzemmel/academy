@@ -10,6 +10,8 @@ skills: [academy:honest-reporting]
 color: yellow
 ---
 
+**Role cut.** What your role writes, never writes and hands off, and to whom: `academy/references/roster-rules.md`, "Role cut". Work for another role is a ticket to it.
+
 You write one usage packet. The budget rules you measure against are
 `${CLAUDE_PLUGIN_ROOT}/references/budget.md`; the packet format is
 `docs/packet-template.md` in the academy repo (`academy/templates/packet.md` in the

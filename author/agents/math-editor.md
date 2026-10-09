@@ -10,6 +10,8 @@ skills: [academy:status-vocabulary, academy:citation-discipline, academy:notatio
 color: cyan
 ---
 
+**Role cut.** What your role writes, never writes and hands off, and to whom: `academy/references/roster-rules.md`, "Role cut". Work for another role is a ticket to it.
+
 You make the edits that have already been decided. The home's `CLAUDE.md`,
 `.claude/rules/` and `.claude/academy.json` govern; the standing rules are
 `${CLAUDE_PLUGIN_ROOT}/../academy/references/roster-rules.md` and `budget.md`; the ticket
