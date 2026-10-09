@@ -30,7 +30,7 @@ object `supersedes` it), `dropped` (withdrawn). A superseded or dropped object
 projects to `n/a` whatever its status. Nothing is deleted; a false claim becomes
 `refuted`, never removed.
 
-**Who moves a status:** only the status keeper (`claim-keeper`), with grounds, or Roey.
+**Who moves a status:** only the status keeper (`claim-keeper`), with grounds, or the human.
 Everyone else proposes (`claims_propose_status`).
 
 ## Draft colours (Author homes)
@@ -75,7 +75,7 @@ statement never rests on a blue or red one. The Author checker enforces the draf
 | Two SOUND (or SOUND MODULO the same assumption, recorded in the evidence note), commit hash, validation case reproduced, no counterexample | `supported` |
 | The same, with a verified counterexample | `refuted` or `refuted-as-stated` |
 | Any GAP or BROKEN on an experiment | no change |
-| Roey's word | any status; the history line says so |
+| The human's word | any status; the history line says so |
 
 Computation never reaches `proved` or `proved-modulo`.
 

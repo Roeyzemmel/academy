@@ -65,7 +65,7 @@ Tests: `py -m unittest discover researcher/tests` from the academy repo.
 `hooks/hooks.json`:
 
 - `status_guard` (PreToolUse edits) denies a change to a registry record's status
-  line unless the caller is the status keeper (`claim-keeper`) or Roey. It covers the
+  line unless the caller is the status keeper (`claim-keeper`) or the human. It covers the
   records of every home with a claim namespace, not only the Researcher's.
 - `claims_edit_check` (PostToolUse edits) runs the registry engine's `check` on an
   edited record, plus a blocking `build` where the home's profile asks for one. It is

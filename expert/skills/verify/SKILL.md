@@ -12,7 +12,7 @@ description: 'Review one registry statement''s proof with two independent blind 
 `$ARGUMENTS` is a claim id (`paper:lem:strip-bound`), optionally a ticket id
 (`T-NNNN`) and the question asked; or empty, meaning the first `verify` ticket that
 `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py` lists. **One statement per invocation**:
-this is the most expensive pass in the academy, and Roey decides how much of it to
+this is the most expensive pass in the academy, and the human decides how much of it to
 spend. Say which statement you took and why before dispatching.
 
 Budget and independence: `academy/references/budget.md` and
@@ -38,7 +38,7 @@ its concluder belong in one agent. Pass no `model` override.
 report that the pass ran by hand. This seat files as the agent `main`, and
 `main` is not a liaison for expert->author or expert->researcher: the follow-up repair
 tickets of `conclude.md` are not filed from here. Leave them to a `review-chair` run once one
-can be launched, or list each (receiver, claim, ask) in the report for Roey. The
+can be launched, or list each (receiver, claim, ask) in the report for the human. The
 status proposal (`claims_propose_status`) is exempt and still goes out.
 
 ## 2. The decision table
@@ -47,7 +47,7 @@ status proposal (`claims_propose_status`) is exempt and still goes out.
 `tests/test_decision_table.py` pins every row. In short: CONFIRMED x2 → propose
 `proved` (recolour earned); CONFIRMED modulo X x2 → propose `proved-modulo`, recolour
 only when every input is established; CONFIRMED vs GAP, or different inputs →
-disagreement; any DISPROVED → the counterexample to Roey, no status; a GAP run A →
+disagreement; any DISPROVED → the counterexample to the human, no status; a GAP run A →
 single negative, B skipped by design; any PLAUSIBLE → degraded, never counts. A
 CONFIRMED counts on Fable or Opus 5.5 (equal primaries); on any other model it reads
 as PLAUSIBLE.
@@ -61,7 +61,7 @@ as PLAUSIBLE.
   "Role cut"): a hypothesis, statement or proof-step finding is a `prove` ticket to the
   Researcher with the falsifier, for a `paper:` claim too; never an Author `apply` or
   `write` ticket. Only a wording finding goes back to the statement's owner.
-- **A counterexample** (DISPROVED) goes to Roey at once: relay it in full.
+- **A counterexample** (DISPROVED) goes to the human at once: relay it in full.
 - The status itself moves only when the claim-keeper accepts the proposal ticket the
   chair filed (`claims_propose_status`).
 
@@ -70,4 +70,4 @@ as PLAUSIBLE.
 Relay the chair's report, not a summary: both verdicts in the reviewers' own words,
 side by side; the outcome and the input-by-input status; the **blast radius** first
 when there is one; the record path, the evidence rows, the proposal ticket and the
-packet id. Never ask questions; Roey decides in `/academy:review`.
+packet id. Never ask questions; the human decides in `/academy:review`.

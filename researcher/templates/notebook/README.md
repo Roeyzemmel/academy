@@ -45,7 +45,7 @@ delivered or dropped, with a history row for every change.
 - `prover` writes definitions, statements, proofs, corollaries and generalizations.
 - `lead-researcher` keeps the directions and the journal.
 - **Only `claim-keeper` changes a `status:` line**, through `claims_set_status`, with
-  grounds (two agreeing reviews, or Roey's word). A hook denies it to everyone else.
+  grounds (two agreeing reviews, or the human's word). A hook denies it to everyone else.
 - `audits/` is written by the `land_review` hook; `views/` by scripts. Neither is
   edited by hand.
 - Nothing is deleted: a false claim becomes `refuted`, a replaced one `superseded`.

@@ -41,7 +41,7 @@ A `verify` ticket comes back `delivered` with a packet (`packets_get`). Read the
 verdicts and the packet's `## Decision`:
 
 - **Recolour only on two agreeing CONFIRMED verdicts** with distinct run ids, both on
-  the primary model, and only if Roey's decision in the packet (if it asks one) says
+  the primary model, and only if the human's decision in the packet (if it asks one) says
   so. The recolour is the one-word environment rename (or the removal of the colour
   command) plus the deletion of the machine note that said the proof was unverified.
   Quote both verdict lines in your report.

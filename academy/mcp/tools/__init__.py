@@ -246,7 +246,7 @@ class Context(object):
         An agent files as its instance. The main session files as the home it runs in,
         with agent ``main`` -- a role skill such as /author:inbox is its role -- unless
         ``as_human`` (only /academy:board, desk and decide pass it, after the human
-        confirms); with an ``instance`` argument it files as that instance (a cloud
+        confirms, and /academy:cowork, for the tasks of a plan the human approved); with an ``instance`` argument it files as that instance (a cloud
         main session working an instance's inbox from the workspace root); outside
         every home it is the human.
 

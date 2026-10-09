@@ -31,7 +31,7 @@ draft is noticed in a week rather than by a referee. The per-statement search an
    For a statement: "Search for prior work on `<id>` ...", writing
    `ledgers/<instance>/<today>-<id-slug>.md`.
 3. **Hits worth citing** come back as `cite` requests: relay them; each becomes
-   `/expert:cite` or a `cite` ticket when Roey says so. A hit that overlaps a statement
+   `/expert:cite` or a `cite` ticket when the human says so. A hit that overlaps a statement
    of the paper is reported first, with the statement's id.
 
 ## Scheduling it

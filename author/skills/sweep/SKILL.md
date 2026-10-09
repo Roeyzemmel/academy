@@ -24,7 +24,7 @@ Add nothing else.
 
 ## Afterwards
 
-Relay the agent's table and its list of notes left open (the list Roey reads). If the
+Relay the agent's table and its list of notes left open (the list the human reads). If the
 sweep deleted a note whose answer was a pair of verdicts, check that the recolouring
 it implies is on its way: a landed `verify` ticket, or an open `verify` ticket (the
 sweep does not recolour). Never ask questions.

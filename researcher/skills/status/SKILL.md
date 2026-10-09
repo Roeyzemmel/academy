@@ -12,7 +12,7 @@ this skill fixes nothing.
    latest outcome, reviews waiting for run B.
 2. `py $R/inbox.py --all`: the tickets addressed to this instance that are not closed.
 3. `py $A/packets.py list --open --instance <instance>`: packets this instance produced
-   that await Roey.
+   that await the human.
 4. `claims_check {ns}` on this instance's namespace: registry errors.
 5. Show the outputs as they are, then at most three lines naming what needs attention
    first (a review waiting for run B, a blocked ticket, a check error), each with the

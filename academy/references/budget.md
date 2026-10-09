@@ -17,7 +17,7 @@ happen again.
 2. **Serially.** One item finishes and is checkpointed in its file (ticket thread,
    packet, agenda) before the next starts. No parallel fan-out of items.
 3. **Nothing starts itself.** Writing a decision, closing a ticket or landing a packet
-   starts no work. Work starts only when Roey invokes a skill (or a scheduled job he
+   starts no work. Work starts only when the human invokes a skill (or a scheduled job they
    set up, such as the weekly usage report).
 4. **No relaunch after a limit error.** If an agent returns a usage-limit, rate-limit
    or session-limit error, or an empty result: do not relaunch it, launch nothing
@@ -25,7 +25,7 @@ happen again.
    `board/human/RESUME.md` in an unattended run), and report. No retry loops, no sleep
    and retry.
 5. **Never ask questions from a subagent.** A subagent makes the routine call, states
-   the assumption in its report, and returns. Only the main session asks Roey, with
+   the assumption in its report, and returns. Only the main session asks the human, with
    `AskUserQuestion`, at a decision point.
 6. **The lightest agent that can do the work.** Orchestration runs on
    `budget.orchestratorModel` (sonnet). An agent runs on the model of its agent file

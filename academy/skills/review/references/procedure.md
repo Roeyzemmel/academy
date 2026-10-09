@@ -23,7 +23,7 @@ It becomes one question:
 - `multiSelect`: false.
 
 The tool adds "Other" itself; an "Other" answer is written back as `--choice other
---comment "<Roey's text>"`. A decision with more than four options is malformed
+--comment "<the human's text>"`. A decision with more than four options is malformed
 (`validate_packet` refuses it); report it instead of asking.
 
 ## Batching
@@ -37,9 +37,9 @@ The tool adds "Other" itself; an "Other" answer is written back as `--choice oth
 
 ## Answers that need a note
 
-If Roey's answer adds a condition ("yes, but open a ticket on …"), write the letter
+If the human's answer adds a condition ("yes, but open a ticket on …"), write the letter
 with `--comment "<the condition>"`. Filing the follow-up ticket is a separate step
-that Roey confirms (`/academy:board new`), never implied by the decision.
+that the human confirms (`/academy:board new`), never implied by the decision.
 
 ## When the packet is invalid
 

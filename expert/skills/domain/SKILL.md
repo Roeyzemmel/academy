@@ -9,7 +9,7 @@ description: 'Edit a domain pack from a ticket through the librarian, one change
 
 - Pack changes also arrive from an Author's `notation-auditor` or a Scientist's `api-prober`, which route them here as a ticket.
 
-`$ARGUMENTS` is a ticket id (`T-NNNN`), or a pack name and a one-line change for Roey
+`$ARGUMENTS` is a ticket id (`T-NNNN`), or a pack name and a one-line change for the human
 to confirm as a ticket first. Budget: one librarian run
 (`academy/references/budget.md`).
 
@@ -35,9 +35,9 @@ ticket says the field's usage is the project's.
 
 3. **Check**: `domain_get {name, file}` shows the change; `git -C <academy repo> diff
    --stat domains/<pack>` lists only the files named in the changelog line. Do not
-   commit: Roey commits the academy repo.
+   commit: the human commits the academy repo.
 4. **Land**: a `notation` packet (`packets_create`, kind `notation`) when the change
-   alters a symbol or a statement other instances rely on, with a decision for Roey if
+   alters a symbol or a statement other instances rely on, with a decision for the human if
    it could clash with a project's decisions; then the ticket's `result` and
    `in-progress -> delivered`.
 

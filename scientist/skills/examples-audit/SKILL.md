@@ -34,7 +34,7 @@ definition or in the script, which is exactly what the audit is for.
    claim and `queue_status(label=...)` for its jobs. A settled lab claim needs
    nothing. An open one is reported with its jobs (pending, running, failed,
    parked, none). Re-queue only a failed job whose cause is fixed; never un-park a
-   job Roey parked.
+   job the human parked.
 3. **Dispatch one `experimenter`** with the list of untested definitions:
 
    > For each definition, write a definition test in the lab's experiments that

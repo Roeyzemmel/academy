@@ -20,4 +20,4 @@ Read-only. Scripts: `$S` = `${CLAUDE_PLUGIN_ROOT}/scripts`; run from the Author 
 
 Show each output as it is, under a one-line heading. Add at most three lines of your
 own: the milestone closest to done, the ticket that would unblock the most, and anything
-parked on Roey. Change nothing.
+parked on the human. Change nothing.

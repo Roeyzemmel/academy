@@ -43,7 +43,7 @@ matter. Disagreement is reported, never averaged.
    - cleared with grounds problems, `not-cleared` or `unresolved`: nothing changes
      status. Ask claim-keeper only to attach the verdicts as evidence rows.
    - A packet (`$A/packets.py new --instance <instance> --kind experiment-review
-     --ticket T-NNNN --subject <lab-id> --body <file>`) only when Roey must decide
+     --ticket T-NNNN --subject <lab-id> --body <file>`) only when the human must decide
      something (a disagreement, a reproduction request, an allowed wording to accept).
 6. **Close the ticket**: result line = the state and both verdicts, then `delivered`
    (`$A/board.py transition T-NNNN delivered --result "..." --as <instance>`).

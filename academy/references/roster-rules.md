@@ -19,7 +19,7 @@ the ticket protocol is `docs/protocol.md`.
    (the `status-vocabulary` skill gives the mapping). Run B is launched only if run A
    is positive, and neither run sees the other.
 5. **Only the status keeper changes a status** (`registry.statusKeeper`, default
-   `claim-keeper`), and only with grounds, or on Roey's word.
+   `claim-keeper`), and only with grounds, or on the human's word.
 6. **Only the human decides a packet.** Agents propose; `packets_decide` is
    human-only.
 
@@ -105,6 +105,6 @@ Each agent's frontmatter carries `model:`, `effort:` and `fallback:`.
 
 - Never invent a citation, a pinpoint, an id or a result (`citation-discipline`).
 - Every judgement call gets a machine note (`honest-reporting`).
-- No `git stash`, no push. Commit only where the home's config and Roey allow it.
+- No `git stash`, no push. Commit only where the home's config and the human allow it.
 - Agents change the board only through the MCP tools or the board scripts; the human
   may edit by hand.

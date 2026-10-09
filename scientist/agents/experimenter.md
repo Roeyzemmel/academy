@@ -116,7 +116,7 @@ experiment reviewers at the Researcher grade it.
 
 ## Never
 
-Commit (Roey commits; the queue refuses uncommitted scripts), `git stash`, push,
+Commit (the human commits; the queue refuses uncommitted scripts), `git stash`, push,
 edit a generated view, edit a registry status by hand, relaunch after a limit error,
 or ask a question — make the routine call and state it in the report.
 

@@ -12,10 +12,11 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   `<name>` matches `[a-z0-9][a-z0-9-]*`. The name must be a key of `workspace.json`
   `instances`. Examples: `author@main`, `researcher@alpha`, `expert@main`,
   `scientist@main`.
-- **`human`** is Roey. The main session has no `agent_type`.
+- **`human`** is the person who runs the workspace (`workspace.json` `human.name`). The main session has no `agent_type`.
   The main session inside a role home files tickets as that home's instance, speaker
   `<instance>/main`. Only `/academy:board`, `/academy:desk` and `/academy:decide` file
-  as `human` from a home (`--as human` / `as_human`), after Roey confirms. Every other
+  as `human` from a home (`--as human` / `as_human`), after the human confirms; and
+  `/academy:cowork` files the tasks of a plan the human approved as `human`. Every other
   write by the main session is still the human's.
 - **An agent** is named by its bare name, with the plugin namespace stripped:
   `author:math-writer` is read as `math-writer`. `agent_identity(event)` returns
@@ -25,7 +26,7 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   (`find_home` + `instance_for_home`). An agent running in the paper home acts for
   `author@main`. The base plugin's agents (`concierge`, `explainer`, `usage-analyst`,
   `secretary`) act for the instance of the home they run in. From no home at all,
-  they act as `human` only when they file something Roey has confirmed. An agent of a role
+  they act as `human` only when they file something the human has confirmed. An agent of a role
   plugin acts only for an instance of its own role: `expert:librarian` running in
   the paper home is refused by the server rather than filing as `author@main`.
 - **The acting instance is resolved per call.** The MCP server is one long-lived

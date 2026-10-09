@@ -64,7 +64,7 @@ it.
    attempt under `proofs/<id>/`. When the attempt is complete, run `/researcher:prove`
    to file the `verify` ticket; you do not launch reviewers.
 4. **Then record.** Update the direction's lists and the journal (tried, dead ends,
-   next). File a packet (`packets_create`, kind `proof` or `other`) only when Roey must
+   next). File a packet (`packets_create`, kind `proof` or `other`) only when the human must
    decide something.
 
 At most `budget.itemsPerRun` commissions per item, serially. One `prover` launch per

@@ -13,7 +13,7 @@ Scripts: `$S` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Read-only.
    (without `--mark-visit`, so the desk's "since the last visit" is not moved).
 3. Show both outputs as they are. For each `!!` line, name the fix in one line:
    - "no .claude/academy.json yet": the home is not switched over; `/academy:init`
-     writes one (only on Roey's word);
+     writes one (only on the human's word);
    - "config invalid": the problem is quoted from `validate_config`; the fields are
      in `docs/config.md`;
    - "differs from workspace.json": the two files must agree on role, domains and ns.

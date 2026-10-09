@@ -1,6 +1,6 @@
 # Desk routing: how the concierge classifies a request
 
-The concierge reads one request from Roey and returns one **routing card**. It never
+The concierge reads one request from the human and returns one **routing card**. It never
 does the work itself, never files a ticket, never asks a question, and never launches
 more than one clerk lookup.
 

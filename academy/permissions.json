@@ -44,7 +44,7 @@
     "tickets_create": {
       "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst", "research-intake", "paper-liaison", "experiment-spec", "lit-request"],
       "deny": ["@readonly"],
-      "substance": "from is the caller's filing instance: an agent's home, the main session's home (agent main) unless as_human, which only /academy:board, desk and decide pass after Roey confirms; to must be a workspace instance or 'human'; the pair must pass tickets.edges (docs/protocol.md section 5); the server allocates id and dates and writes status open."
+      "substance": "from is the caller's filing instance: an agent's home, the main session's home (agent main) unless as_human, which only /academy:board, desk and decide pass after the human confirms, and /academy:cowork for the tasks of a plan the human approved; to must be a workspace instance or 'human'; the pair must pass tickets.edges (docs/protocol.md section 5); the server allocates id and dates and writes status open."
     },
     "tickets_update": {
       "allow": ["@producers", "concierge", "claim-keeper", "review-chair", "usage-analyst", "research-intake", "paper-liaison", "experiment-spec", "lit-request"],

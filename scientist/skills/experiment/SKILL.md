@@ -5,7 +5,7 @@ description: 'Take a mathematical claim from words to a queued, provenance-stamp
 
 # An experiment, from a claim to a reviewed report
 
-`$ARGUMENTS` is the claim in Roey's words, a ticket id (`T-NNNN`, kind `experiment`
+`$ARGUMENTS` is the claim in the human's words, a ticket id (`T-NNNN`, kind `experiment`
 or `test`), or `report <script>` for a run whose result is back.
 
 This skill orchestrates; the discipline is `scientist:experiment-method`, the budget
@@ -39,7 +39,7 @@ through `domain_get`, the nearest existing script and the lab's package, and
 returns the **header only**. An unfamiliar library call goes through
 `/scientist:api-check` first.
 
-Show the header to Roey and ask with `AskUserQuestion`: approve / change / drop.
+Show the header to the human and ask with `AskUserQuestion`: approve / change / drop.
 Put the design question with it: *if the claim were false, what would this
 experiment still report?* This is the one rule with no exception; no body is
 written before the answer.
@@ -55,8 +55,8 @@ after every edit):
 py "${CLAUDE_PLUGIN_ROOT}/scripts/lab.py" cmd check experiments/<stem>.py --strict
 ```
 
-The queue runs the committed script, so **Roey commits** experiment scripts: stop
-with the script ready and say so, unless he has said to commit.
+The queue runs the committed script, so **the human commits** experiment scripts: stop
+with the script ready and say so, unless they have said to commit.
 
 ## 3. Queue
 
@@ -74,7 +74,7 @@ prints. Then hand over to `/scientist:queue`.
    `reports/<stem>.md` with `## Conclusion` (`Establishes:` supports / refutes /
    inconclusive, `Does not establish:`, `Proposed status:`, `Next step:`) and
    `## Validation` (`Reproduced: yes|no`).
-2. Check, then show Roey the rendered packet:
+2. Check, then show the human the rendered packet:
 
    ```
    py "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" check  experiments/<stem>.py [--env <profile>] [--job <id>]
@@ -105,7 +105,7 @@ change on the lab claim is proposed only; the claim-keeper makes it after two
 agreeing experiment reviews. Script and result JSON are committed together; the
 commit gate enforces it.
 
-## Report to Roey
+## Report to the human
 
 The path taken; the header (approved or not); the files written; the job filed; for
 a report, the packet and ticket ids and the reviewer; what is left and who has it.

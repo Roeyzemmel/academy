@@ -1,11 +1,11 @@
 ---
 name: desk
-description: 'Roey''s front desk: classifies a plain-language request and routes it (clerk answer, deep-dive, role skill or confirmed ticket); with no argument prints one screen of what needs Roey. Use as the default cross-role entry point, or for "what''s going on".'
+description: 'The human''s front desk: classifies a plain-language request and routes it (clerk answer, deep-dive, role skill or confirmed ticket); with no argument, one screen of what needs the human. Use as the default cross-role entry point, or for "what''s going on".'
 ---
 
 # The front desk
 
-`$ARGUMENTS` is Roey's request in plain words, or empty. Scripts: `$S` as in
+`$ARGUMENTS` is the human's request in plain words, or empty. Scripts: `$S` as in
 `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Budget: `references/budget.md`.
 
 ## No argument: the one-screen summary
@@ -16,7 +16,7 @@ description: 'Roey''s front desk: classifies a plain-language request and routes
 2. Show both outputs as they are, in one block each. The status `NEEDS YOU (N)` line is the
    pending-decision count — every ticket to human, every ticket blocked on human, and
    every open packet, the same three sources `/academy:decide` works from. Below the
-   block, at most three lines: the most urgent thing that needs Roey and the command
+   block, at most three lines: the most urgent thing that needs the human and the command
    that handles it (`/academy:decide` when `NEEDS YOU` is non-zero, `/academy:review`
    for the packet dashboard specifically, `/academy:board show T-NNNN` for one ticket,
    `/academy:cowork <slug> --resume` for a cowork that waits on the human).
@@ -36,11 +36,11 @@ description: 'Roey''s front desk: classifies a plain-language request and routes
    - `answered`: show the answer and its source. Done.
    - `explain`: run `/academy:deep-dive <subject>` with the card's subject.
    - `action`: name the skill and its arguments, then invoke it (one skill, once).
-   - `ticket`: show the draft and ask Roey with `AskUserQuestion`: file as drafted,
+   - `ticket`: show the draft and ask the human with `AskUserQuestion`: file as drafted,
      change the receiver or priority, or drop it. Only on a yes, file it with
      `py $S/board.py new --as human ...`, and print the ticket id and its folder.
-     File as the human (`--as human`) only after Roey confirmed this ticket through AskUserQuestion; this is the one sanctioned way to file as Roey from inside a home (docs/protocol.md section 5).
-   - `unclear`: ask Roey the card's one question with `AskUserQuestion`, then route
+     File as the human (`--as human`) only after they confirmed this ticket through AskUserQuestion; this is the one sanctioned way to file as them from inside a home (docs/protocol.md section 5).
+   - `unclear`: ask the human the card's one question with `AskUserQuestion`, then route
      again (once).
 3. If the concierge returns a limit error or nothing, report that and stop
    (budget rule 4). Never relaunch it.

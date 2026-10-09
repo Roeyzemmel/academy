@@ -1,6 +1,6 @@
 ---
 name: notes
-description: 'File the human''s new margin notes as tickets on the agenda entry they concern (to the Author itself, or to the role that owns the work), and referee-packet points. Use when Roey has left notes in the PDF, after an Overleaf sync, or when a referee packet comes back.'
+description: 'File the human''s new margin notes as tickets on their agenda entry (to the Author, or to the role owning the work), and referee-packet points. Use when the human left notes in the PDF, after an Overleaf sync, or when a referee packet returns.'
 ---
 
 # /author:notes

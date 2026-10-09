@@ -18,9 +18,10 @@ Every function takes ``board`` as a directory or as a ``BoardStore`` (``ac.as_st
 (docs/github-board.md); a directory is the file board, as before.
 
 ``--as`` names the caller's instance; ``new`` requires it (``--as human`` only from
-/academy:board, desk and decide); for ``transition`` and ``append``, without it the
-caller is the human. The functions below are the implementation
-and may be imported (the MCP server and the tests do); the CLI is a thin wrapper.
+/academy:board, desk and decide, and /academy:cowork for an approved plan's tasks); for
+``transition`` and ``append``, without it the caller is the human. The functions below
+are the implementation and may be imported (the MCP server and the tests do); the CLI is
+a thin wrapper.
 Nothing here commits: board commits are made by session_start / board sync.
 """
 

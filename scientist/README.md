@@ -21,7 +21,7 @@ rule: `academy/references/roster-rules.md`, "Model fallback").
 | `experimenter` | Designs and writes experiments; the report draft |
 | `developer` | The lab's code, the runner and env profiles, academy scripts; TDD in a worktree |
 | `test-engineer` | Tests written independently; reviews the developer's diffs |
-| `upstream-contributor` | Drafts upstream issues and patches; Roey files them |
+| `upstream-contributor` | Drafts upstream issues and patches; the human files them |
 | `api-prober` | Confirms one library call; records it in the pack's `computation/api/` + CHANGELOG |
 
 ## Skills
@@ -36,7 +36,7 @@ rule: `academy/references/roster-rules.md`, "Model fallback").
 | `env.py` | env profiles (`wsl` / `local` / `ssh`, or `{"worker": name}` resolved against the workspace's `compute` block) and the policy: `list`, `check <profile> [--live]`, `run <profile> ...` (wsl/local only), `setup`, `gateway` (alias `vpn`), and the job queue over the fsq runner protocol (`queue add\|list\|check\|tick\|fetch\|status\|log\|preflight\|deploy\|pause\|resume`, legacy `queue.ps1` flags too); job state in `<lab>/queue/` | `tests/test_env.py` (fake ssh/scp `tests/fixtures/fake_ssh.py`, a temp git lab, no network) |
 | `queue.ps1`, `run.ps1` | thin PowerShell frontends to `env.py` with the lab's old flags (`-LabHome` is set by the lab's shims) | via `test_env.py` |
 | `run.sh` | the Linux side of a `wsl`/`local` run: sourced `conda activate`, `LAB_ROOT` on `PYTHONPATH` (the lab keeps its own `scripts/run.sh` for the remote runner) | — |
-| `fsq.sh` | the remote runner, deployed to `<fsqHome>/bin/fsq` by `env.py queue deploy` (Roey's call); byte-identical to `legacy/fsq.sh` | `test_env.py` pins the bytes |
+| `fsq.sh` | the remote runner, deployed to `<fsqHome>/bin/fsq` by `env.py queue deploy` (the human's call); byte-identical to `legacy/fsq.sh` | `test_env.py` pins the bytes |
 | `workers.py` | remote workers and gateways from `workspace.json` `compute` (docs/config.md): expands a worker reference into an ssh profile, validates the block, checks a gateway (`vpn` with check `globalprotect` / `openconnect` / `tcp-reachable` / `command`, or `none`) and fills in its `onDown` | `tests/test_env.py` (`TestWorkers`, `TestGateway`) |
 | `vpn.ps1`, `setup_env.sh` | the Windows GlobalProtect adapter check (a gateway's `globalprotect` check); the conda env installer (`env.py setup`, packages from `domains/<pack>/computation/env.txt`) | — |
 | `check_experiments.py` | the lab's experiment-header checker, finding the lab from `--home` / `$ACADEMY_LAB_HOME` / the cwd, dirs from `academy.json` | `tests/test_check_experiments_home.py`; the rules: the lab's `tests/test_check_experiments.py` through its shim |

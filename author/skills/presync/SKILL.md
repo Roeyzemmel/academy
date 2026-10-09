@@ -53,7 +53,7 @@ If a pass fails or comes back blocked, say so and continue with the rest.
   `py $S/inbox.py --all`).
 - **Milestone progress**: `py $S/agenda.py milestones`.
 - **The vision**: the aesthetic pass's proposals, each with its ticket id or "for
-  Roey", and the sections not reviewed this time.
+  the human", and the sections not reviewed this time.
 - **Tickets filed**: the literature-watch and referee ticket ids; their results arrive
   as packets.
 - **The build**: exit status, the `??` count, the warnings and which are the accepted

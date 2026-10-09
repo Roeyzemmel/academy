@@ -132,8 +132,8 @@ LF, Markdown, written by you:
    `### Dk. question`, 2-4 `- (a) option` lines and a `- Recommendation:` line;
    docs/packet-template.md section 3).
    `## Established vs assumed` names every input with its status; `## Evidence` the
-   two records, run ids and the statement hash; `## Decisions needed` asks Roey only
-   what the table leaves to him (a DISPROVED counterexample; a disagreement's next
+   two records, run ids and the statement hash; `## Decisions needed` asks the human only
+   what the table leaves to them (a DISPROVED counterexample; a disagreement's next
    step; a modulo input nobody owns) — otherwise `None.`.
 5. **The ticket**: `result` one line (e.g. `CONFIRMED x2; proved proposed; recolour
    earned`), `packets` set, then `in-progress -> delivered`.

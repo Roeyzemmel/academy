@@ -71,4 +71,4 @@ was not done, launch nothing further, and report (`budget.md` rule 4).
 
 One line per ticket taken: instance, id, route, outcome (delivered, blocked with its
 reason, rejected, unfinished). Then per instance how many tickets remain, and anything
-parked on Roey (`/academy:decide`).
+parked on the human (`/academy:decide`).

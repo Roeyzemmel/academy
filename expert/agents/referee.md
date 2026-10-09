@@ -82,7 +82,7 @@ Exactly these `##` sections, in this order (docs/packet-template.md):
 - `## Objective findings` and `## Judgement findings`: by class (`###` per class),
   each finding in the shape above.
 - `## Fix first`: the five you would fix first.
-- `## Decisions needed`: `None.`, or at most three decisions for Roey in the packet
+- `## Decisions needed`: `None.`, or at most three decisions for the human in the packet
   shape (`### D1. ...?`, options `(a)`–`(d)`, one `Recommendation:` line).
 - `## Machine notes`: every judgement call you made, one bullet each, naming `referee`.
 - `## Decision`: empty.
