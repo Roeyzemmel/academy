@@ -1,6 +1,6 @@
 """The academy object schema: schema v2 of every registry (plan section 6, "One schema").
 
-One frontmatter schema for every namespace (``s1:``, ``paper:``, ``lab:`` and future
+One frontmatter schema for every namespace (``nb:``, ``paper:``, ``lab:`` and future
 instances), the same as the Researcher notebook's object template
 (``researcher/templates/notebook/_templates/object.md``)::
 

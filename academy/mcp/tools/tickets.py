@@ -86,7 +86,7 @@ def create_ticket(ctx, a, clerical=False):
         raise ToolError("refused: only the main session files as 'human'")
     if sender == ac.HUMAN and not a.get("as_human") and a.get("on_behalf_of"):
         # a main session outside every home would stamp 'from: human' on work an instance
-        # did (T-0065/T-0066); a caller that knows the instance says so
+        # did (docs/protocol.md section 5); a caller that knows the instance says so
         if a["on_behalf_of"] not in ctx.instances():
             raise ToolError("on_behalf_of must be a workspace instance, got %r"
                             % a["on_behalf_of"])

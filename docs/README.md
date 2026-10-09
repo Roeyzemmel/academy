@@ -42,7 +42,7 @@ to its ticket's thread. From a shell, the same is:
 
 ## Deep-dives
 
-`/academy:deep-dive <subject>` takes `s1:BOUND-2`, `paper:lem:...`, `lab:<name>`,
+`/academy:deep-dive <subject>` takes `nb:BOUND-2`, `paper:lem:...`, `lab:<name>`,
 `bib:MS91` (or `MS91`), `concept:<term>` or a direction id. A script gathers the input
 (`gather_deep_dive.py`), the read-only explainer writes the prose, and
 `render_packets.py --deep-dive` renders it. The renderer refuses a page on which any

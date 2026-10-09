@@ -70,7 +70,7 @@ def _workspace_or_none(workspace=None):
 
 def _default_budget(cwd=None):
     """``{"runs": n}`` from ``budget.ticketDefault`` of the caller's home config, or the
-    library default (``ac.default_ticket_budget``; no ``max_model``, T-0071)."""
+    library default (``ac.default_ticket_budget``; no ``max_model``: references/budget.md rule 6)."""
     home = ac.find_home(cwd or os.getcwd())
     cfg = None
     if home:
@@ -344,7 +344,7 @@ def main(argv=None):
     p.add_argument("--parent"); p.add_argument("--runs", type=int)
     p.add_argument("--max-model", choices=ac.MODELS,
                    help="optional advisory note for budget.max_model; never a gate: the "
-                        "agent file sets the model (T-0071)")
+                        "agent file sets the model (references/budget.md rule 6)")
     p.add_argument("--detail", default="")
     p.add_argument("--as", dest="as_instance", required=True)
     p.add_argument("--final-to", dest="final_to")

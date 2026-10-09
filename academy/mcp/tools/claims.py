@@ -520,7 +520,7 @@ class RegistryBackend(ClaimsBackend):
         return out
 
     def _s1_set_status(self, ns, home, rest, status, label, g, note):
-        """s1: the change is anchored on a verdict file of the home. The grounds' review
+        """The notebook rule set: the change is anchored on a verdict file of the home. The grounds' review
         records are checked against their rows, the verdict file against the claim and
         the target (``s1kb.verdict_file_problems``), before the engine writes."""
         from pathlib import Path
@@ -766,7 +766,7 @@ def _set_status(ctx, a):
 
 
 ID = {"type": "string", "description": "Claim id '<ns>:<id>', e.g. lab:ew-check, "
-                                       "paper:lem:strip-bound, s1:BOUND-1"}
+                                       "paper:lem:strip-bound, nb:BOUND-1"}
 NS = {"type": "string", "description": "A claim namespace: the 'ns' of an instance in "
                                        "workspace.json"}
 GROUNDS = {"type": "object", "description": "See check_grounds: basis (proof | "

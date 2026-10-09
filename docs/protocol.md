@@ -248,7 +248,7 @@ section 5.1 restricts to the receiver's neighbours in the chain (or the same rol
 **Ref forms** (in `refs`, in packets, and in thread text):
 
 - `<ns>:<id>` for a registry object, e.g. `paper:lem:strip-bound`, `lab:ew-check`,
-  `s1:Q2`.
+  `nb:Q2`.
 - `T-NNNN` for a ticket and `P-NNNN` for a packet.
 - `bib:<key>` for a bibliography key, optionally with a pinpoint:
   `bib:LMW16#Thm1.3`.
@@ -540,7 +540,7 @@ confirms).
    case where it could fail).
 5. One `test` ticket per generalization goes to `scientist@main`:
    - `parent` is the generalize ticket;
-   - `refs` are `[s1:<new id>, lab:<claim>]`;
+   - `refs` are `[<ns>:<new id>, lab:<claim>]`;
    - `ask` is "test the falsifier first".
 
    Researcher also creates a packet of kind `generalization` listing them all.

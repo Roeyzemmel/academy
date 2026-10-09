@@ -23,8 +23,9 @@ more than one clerk lookup.
 - By the domain: among instances of that role, the one whose `domains` contain the
   request's domain. If several match, prefer the one whose home the request names or
   whose registry holds the ids it mentions; otherwise pick the first and say so.
-- By the refs: an id `paper:…` belongs to the Author instance with ns `paper`, `s1:…`
-  to the Researcher with ns `s1`, `lab:…` to the Scientist with ns `lab`.
+- By the refs: an id `<ns>:…` belongs to the instance whose `ns` in
+  workspace.json is `<ns>` (e.g. `paper:…` to an Author, `nb:…` to a Researcher, `lab:…`
+  to a Scientist).
 
 ## The card
 

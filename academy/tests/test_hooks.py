@@ -225,7 +225,7 @@ class McpWriteGateTests(Fixture):
         self.assertEqual(res.stdout.strip(), b"")
 
     def test_non_ascii_argument_record_matches_the_server_key(self):
-        """T-0070: Claude Code writes the event as UTF-8 bytes. The hook must record it
+        """Claude Code writes the event as UTF-8 bytes. The hook must record it
         under the key the server computes (``call_key`` via ``claim_caller``) even when
         Python's stdin text layer uses the ANSI codepage (cp1255 on the lab laptop)."""
         tool = "tickets_update"
@@ -259,7 +259,7 @@ class McpWriteGateTests(Fixture):
 
 class ReadEventEncodingTests(unittest.TestCase):
     """``read_event`` decodes the hook event as UTF-8 whatever the stdin text layer's
-    encoding (T-0070), and still never raises."""
+    encoding (docs/protocol.md, the hook reads its event as UTF-8), and still never raises."""
 
     RAW = json.dumps({"a": "± — é"}, ensure_ascii=False).encode("utf-8")
 

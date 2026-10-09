@@ -1541,7 +1541,7 @@ def is_dead_route(meta):
 
 
 #: ``blocked_by`` names a ticket or a registry object: ``T-0007``, ``GEO-31``, ``Q1``,
-#: ``EX-L3``, ``PA-5w``, or namespaced (``paper:lem:x``, ``lab:foo``, ``s1:GEO-31``)
+#: ``EX-L3``, ``PA-5w``, or namespaced (``paper:lem:x``, ``lab:foo``, ``nb:GEO-31``)
 RE_BLOCKED_BY = re.compile(r"^(?:[a-z][a-z0-9]*:[^\s:]+(?::[^\s:]+)*"
                            r"|[A-Z][A-Z0-9]*(?:-[A-Za-z0-9.]+)+|[A-Z]+\d+)$")
 

@@ -194,10 +194,10 @@ class TestTickets(BoardCase):
         p2 = self.new(title="Second", budget=None)
         meta, _ = bd.read_ticket(p2)
         self.assertEqual(meta["id"], "T-0002")
-        self.assertEqual(meta["budget"], {"runs": 1})       # T-0071: no max_model stamped
+        self.assertEqual(meta["budget"], {"runs": 1})       # budget.md rule 6: no max_model stamped
 
     def test_default_budget_ignores_a_home_max_model(self):
-        # a home's ticketDefault written before T-0071 carries max_model; new tickets
+        # a home's ticketDefault written before budget.md rule 6 dropped it carries max_model; new tickets
         # take only its runs
         home = os.path.join(self.tmp, "paperhome")
         with open(os.path.join(PLUGIN, "templates", "academy-json", "author.json"),
@@ -473,7 +473,7 @@ class TestTickets(BoardCase):
         meta, _ = bd.read_ticket(out.getvalue().strip())
         self.assertEqual(meta["from"], "human")
         self.assertEqual(meta["refs"], ["paper:lem:x", "bib:LMW16"])
-        self.assertEqual(meta["budget"], {"runs": 2})       # T-0071: no max_model stamped
+        self.assertEqual(meta["budget"], {"runs": 2})       # budget.md rule 6: no max_model stamped
         out = io.StringIO()
         with redirect_stdout(out):
             bd.main(base + ["list", "--json"])

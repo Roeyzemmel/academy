@@ -632,7 +632,7 @@ def protocol_example():
 
 class TicketTests(TempDir):
     def test_budget_max_model_is_optional(self):
-        # T-0071: the model comes from the agent file; budget.max_model is an
+        # budget.md rule 6: the model comes from the agent file; budget.max_model is an
         # optional advisory note, and a budget of runs alone is valid.
         meta, body = ac.read_frontmatter(protocol_example())
         for budget in ({"runs": 2}, {"runs": 1, "max_model": "haiku"}):
@@ -643,7 +643,7 @@ class TicketTests(TempDir):
         self.assertEqual(ac.CONFIG_DEFAULTS["budget"]["ticketDefault"], {"runs": 1})
         self.assertEqual(ac.default_ticket_budget(None), {"runs": 1})
         self.assertEqual(ac.default_ticket_budget({}), {"runs": 1})
-        # a home's ticketDefault written before T-0071 still carries max_model: ignored
+        # a home's ticketDefault written before budget.md rule 6 dropped it still carries max_model: ignored
         cfg = {"budget": {"ticketDefault": {"runs": 2, "max_model": "opus"}}}
         self.assertEqual(ac.default_ticket_budget(cfg), {"runs": 2})
         self.assertEqual(ac.default_ticket_budget({"budget": {"ticketDefault": None}}),

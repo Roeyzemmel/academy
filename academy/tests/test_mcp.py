@@ -370,7 +370,7 @@ class TestTickets(McpTestBase):
         self.assertEqual(pl["packets"][0]["pending_decisions"], [])
 
     def test_budget_max_model_is_optional_and_not_stamped(self):
-        # T-0071: the model comes from the agent file. A new ticket's default budget
+        # budget.md rule 6: the model comes from the agent file. A new ticket's default budget
         # is runs only; a sender may give runs alone, or add max_model as a note.
         human = self.server()
         err, t = human.call("tickets_create", title="Default budget", kind="question",
@@ -710,7 +710,7 @@ class TestKeeperRouting(unittest.TestCase):
 
     def test_a_proposal_from_outside_every_home_is_not_from_human(self):
         # the main session outside a home is the human for tickets in general, but a
-        # status proposal is the owning notebook's work: T-0065/T-0066 were stamped
+        # status proposal is the owning notebook's work: such tickets were stamped
         # 'from: human' although researcher@flat filed them
         s = self.server()
         err, res = s.call("claims_propose_status", id="flat:some-claim", status="sketch",
