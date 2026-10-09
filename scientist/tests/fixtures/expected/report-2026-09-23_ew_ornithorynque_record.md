@@ -13,7 +13,7 @@ Proposed status: lab:q2-ew-ornithorynque -> supported, pending two experiment re
 ## Established vs assumed
 
 - **Established:** (computation, not yet reviewed; proposed supported for lab:q2-ew-ornithorynque) supports -- (Q2) holds with K_min = 2 on the three labelled records (EW, M_4(1,1,1,1), Ornithorynque), each decided by two routes (pure Python and GAP) that agree.
-- **Assumed:** the run on profile `lingo` at commit `a929eca` executed the script as written, and the validation case certifies the pipeline on this class.
+- **Assumed:** the run on profile `remote-a` at commit `a929eca` executed the script as written, and the validation case certifies the pipeline on this class.
 - **Not established:** (Q2) at any other point of either Teichmüller curve, for any other origami, with fewer marked points, or anything about (Q1) or illumination.
 
 ## Evidence
@@ -42,7 +42,7 @@ Needs Sage: yes -- the generators, stratum_component, veech_group, Lyapunov sum,
 
 ## Environment
 
-- Profile: `lingo` (kind ssh, host lingo)
+- Profile: `remote-a` (kind ssh, host remote-a)
 - Commit: `a929eca`
 - Versions: python 3.12.14, sage 10.7, sage_flatsurf 0.8.0, surface_dynamics 0.7.0
 - Platform: Linux-5.14.0-570.26.1.el9_6.x86_64-x86_64-with-glibc2.34

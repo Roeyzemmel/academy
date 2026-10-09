@@ -2,9 +2,12 @@
 queue that speaks the fsq runner protocol.
 
 No network and no remote: ssh and scp are replaced by ``fixtures/fake_ssh.py``
-(ACADEMY_SSH / ACADEMY_SCP), the VPN preflight by ACADEMY_FAKE_PREFLIGHT, and the
+(ACADEMY_SSH / ACADEMY_SCP), the gateway check by ACADEMY_FAKE_PREFLIGHT (the
+TestGateway cases run the real tcp-reachable check against a local socket), and the
 remote git repository by a local bare repo (the profile's test-only ``pushUrl``,
-as in the legacy queue.ps1). The lab home is a temporary git repository.
+as in the legacy queue.ps1). The lab home is a temporary git repository; its run
+profile is the fake worker ``remote-a`` of a temporary workspace.json, behind the
+``tcp-reachable`` gateway ``gw-a`` (owner Ada).
 
 Run: py -m unittest discover -s tests -t tests   (from the plugin folder)
 """
@@ -16,8 +19,10 @@ import re
 import shutil
 import subprocess
 import sys
+import socket
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(HERE)
@@ -37,10 +42,31 @@ def git(cwd, *args):
     return subprocess.run(["git"] + list(args), cwd=cwd, capture_output=True, text=True)
 
 
-class Lab(object):
-    """A temp lab home (git repo, academy.json), a bare 'remote', a fake remote root."""
+def workspace(home, root, compute_extra=None):
+    """A workspace.json for one lab at ``home``, with the fake worker and its gateway."""
+    ws = {"instances": {"scientist@main": {"role": "scientist", "home": home,
+                                           "domains": ["translation-surfaces"]}},
+          "board": os.path.join(root, "board"),
+          "human": {"name": "Ada"},
+          "compute": {
+              "workers": {"remote-a": {"transport": "ssh", "host": "remote-a",
+                                       "remoteRoot": "~", "maxJobs": 1,
+                                       "conda": {"prefix": "/data/u/miniforge3",
+                                                 "env": "sci"},
+                                       "gateway": "gw-a"}},
+              "gateways": {"gw-a": {"kind": "vpn", "check": "tcp-reachable",
+                                    "probeHost": "127.0.0.1:9", "owner": "Ada",
+                                    "onDown": "ask {owner} to connect {gateway}"}}}}
+    if compute_extra:
+        compute_extra(ws["compute"])
+    return ws
 
-    def __init__(self, config_extra=None, with_config=True):
+
+class Lab(object):
+    """A temp lab home (git repo, academy.json), its workspace.json, a bare 'remote',
+    a fake remote root."""
+
+    def __init__(self, config_extra=None, with_config=True, compute_extra=None):
         self.root = tempfile.mkdtemp(prefix="envtest-")
         self.home = os.path.join(self.root, "lab")
         self.bare = os.path.join(self.root, "remote.git")
@@ -64,20 +90,21 @@ class Lab(object):
             "registry": {"profile": "lab", "root": "claims"},
             "scientist": {
                 "envs": {
-                    "laptop-wsl": {"kind": "wsl", "distro": "Ubuntu", "conda": "flatsurf"},
-                    "local": {"kind": "local", "conda": "flatsurf"},
-                    "lingo": {"kind": "ssh", "host": "lingo",
-                              "prefix": "/data/u/miniforge3", "env": "flatsurf",
-                              "repo": "~/SciLab", "maxJobs": 1,
-                              "preflight": "vpn:globalprotect",
-                              "pushUrl": self.bare}},
-                "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "lingo"},
+                    "laptop-wsl": {"kind": "wsl", "distro": "Ubuntu", "conda": "sci"},
+                    "local": {"kind": "local", "conda": "sci"},
+                    "remote-a": {"worker": "remote-a", "pushUrl": self.bare},
+                    "inline-b": {"kind": "ssh", "host": "inline-b",
+                                 "preflight": "vpn:globalprotect", "pushUrl": self.bare}},
+                "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "remote-a"},
                 "queue": {"dir": "queue", "fsqHome": "~/fsq", "maxJobs": 1}},
         }
         if config_extra:
             config_extra(self.cfg)
         if with_config:
             self.write(".claude/academy.json", json.dumps(self.cfg, indent=2))
+        self.ws_path = os.path.join(self.root, "workspace.json")
+        with open(self.ws_path, "w", encoding="utf-8") as fh:
+            json.dump(workspace(self.home, self.root, compute_extra), fh, indent=1)
         git(self.home, "add", "-A")
         git(self.home, "commit", "-q", "-m", "init")
         self.state_path = os.path.join(self.root, "fake-state.json")
@@ -88,8 +115,10 @@ class Lab(object):
                         ACADEMY_SCP=json.dumps([sys.executable, FAKE, "--scp"]),
                         ACADEMY_FAKE_PREFLIGHT="0",
                         FAKE_SSH_STATE=self.state_path, FAKE_SSH_LOG=self.log_path,
-                        FAKE_REMOTE_ROOT=self.remote_root)
+                        FAKE_REMOTE_ROOT=self.remote_root,
+                        ACADEMY_WORKSPACE=self.ws_path)
         self.env.pop("ACADEMY_LAB_HOME", None)
+        self.env.pop("ACADEMY_ENV_WORKSPACE", None)
 
     def write(self, rel, text):
         path = os.path.join(self.home, rel)
@@ -145,6 +174,10 @@ class EnvCase(unittest.TestCase):
     def setUp(self):
         self.lab = Lab()
         self.addCleanup(self.lab.close)
+        # in-process calls (import env) read the same workspace as the subprocesses
+        patcher = mock.patch.dict(os.environ, {"ACADEMY_WORKSPACE": self.lab.ws_path})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
 
 # -- profiles -----------------------------------------------------------------
@@ -162,18 +195,24 @@ class TestProfiles(EnvCase):
         self.assertEqual(rc, 0, err)
         self.assertIn("laptop-wsl", out)
         self.assertIn("wsl", out)
-        self.assertIn("lingo", out)
+        self.assertIn("remote-a", out)
         self.assertIn("ssh", out)
-        self.assertRegex(out, r"run\s*=\s*lingo")
+        self.assertIn("gateway gw-a: vpn (tcp-reachable)", out)
+        self.assertRegex(out, r"run\s*=\s*remote-a")
         rc, out, err = self.lab.run("list", "--json")
         data = json.loads(out)
-        self.assertEqual(data["policy"]["run"], "lingo")
-        self.assertEqual(data["envs"]["lingo"]["kind"], "ssh")
+        self.assertEqual(data["policy"]["run"], "remote-a")
+        self.assertEqual(data["envs"]["remote-a"]["worker"], "remote-a")
+        res = data["resolved"]["remote-a"]
+        self.assertEqual((res["kind"], res["host"], res["env"], res["prefix"], res["repo"]),
+                         ("ssh", "remote-a", "sci", "/data/u/miniforge3", "~/lab"))
+        self.assertEqual(data["gateways"]["remote-a"]["owner"], "Ada")
+        self.assertEqual(data["compute"]["workers"], ["remote-a"])
 
     def test_resolve_by_name_or_policy_key(self):
         import env
         lab = env.load_lab(self.lab.home)
-        self.assertEqual(env.resolve_profile(lab, "run")[0], "lingo")
+        self.assertEqual(env.resolve_profile(lab, "run")[0], "remote-a")
         self.assertEqual(env.resolve_profile(lab, "test")[0], "laptop-wsl")
         self.assertEqual(env.resolve_profile(lab, "local")[0], "local")
         with self.assertRaises(env.EnvError):
@@ -181,7 +220,8 @@ class TestProfiles(EnvCase):
         # the legacy run.ps1 targets
         self.assertEqual(env.resolve_profile(lab, "wsl")[0], "laptop-wsl")
         self.assertEqual(env.resolve_profile(lab, "wsl:Ubuntu")[0], "laptop-wsl")
-        self.assertEqual(env.resolve_profile(lab, "ssh:lingo")[0], "lingo")
+        self.assertEqual(env.resolve_profile(lab, "ssh:remote-a")[0], "remote-a")
+        self.assertEqual(env.resolve_profile(lab, "ssh:inline-b")[0], "inline-b")
         name, prof = env.resolve_profile(lab, "wsl:Debian")      # ad hoc
         self.assertEqual((prof["kind"], prof["distro"]), ("wsl", "Debian"))
         with self.assertRaises(env.EnvError):
@@ -202,33 +242,49 @@ class TestProfiles(EnvCase):
         lab = Lab(with_config=False)
         self.addCleanup(lab.close)
         lab.write("queue/config.json", json.dumps(
-            {"target": "ssh:lingo", "prefix": "/p", "remoteRepo": "~/SciLab",
+            {"target": "ssh:remote-a", "prefix": "/p", "remoteRepo": "~/SciLab",
              "fsqHome": "~/fsq", "maxJobs": 1}))
         import env
         l = env.load_lab(lab.home)
         name, prof = env.resolve_profile(l, "run")
         self.assertEqual(prof["kind"], "ssh")
-        self.assertEqual(prof["host"], "lingo")
+        self.assertEqual(prof["host"], "remote-a")
         self.assertEqual(prof["prefix"], "/p")
+        self.assertNotIn("preflight", prof, "no built-in gateway")
+
+    def test_pre_switch_home_without_target_is_refused(self):
+        lab = Lab(with_config=False)
+        self.addCleanup(lab.close)
+        lab.write("queue/config.json", json.dumps({"fsqHome": "~/fsq"}))
+        rc, out, err = lab.run("list")
+        self.assertEqual(rc, 2)
+        self.assertIn("compute.workers", err)
 
 
 class TestCheck(EnvCase):
-    def test_check_ssh_offline_runs_only_the_preflight(self):
-        rc, out, err = self.lab.run("check", "lingo")
+    def test_check_ssh_offline_runs_only_the_gateway(self):
+        rc, out, err = self.lab.run("check", "remote-a")
         self.assertEqual(rc, 0, out + err)
-        self.assertIn("preflight vpn:globalprotect: up", out)
+        self.assertIn("worker remote-a", out)
+        self.assertIn("gateway gw-a: up", out)
         self.assertEqual(self.lab.calls(), [], "no ssh without --live")
 
-    def test_check_preflight_down_means_queued(self):
+    def test_check_inline_preflight_still_works(self):
+        rc, out, err = self.lab.run("check", "inline-b")
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("gateway vpn:globalprotect: up", out)
+
+    def test_check_gateway_down_means_queued_and_says_on_down(self):
         env_ = dict(self.lab.env, ACADEMY_FAKE_PREFLIGHT="1")
-        rc, out, err = self.lab.run("check", "lingo", "--live", env=env_)
+        rc, out, err = self.lab.run("check", "remote-a", "--live", env=env_)
         self.assertEqual(rc, 1)
         self.assertIn("unreachable", out)
         self.assertIn("queued", out)
+        self.assertIn("ask Ada to connect gw-a", out)
         self.assertEqual(self.lab.calls(), [])
 
     def test_check_live_asks_version_and_status_only(self):
-        rc, out, err = self.lab.run("check", "lingo", "--live")
+        rc, out, err = self.lab.run("check", "remote-a", "--live")
         self.assertEqual(rc, 0, out + err)
         cmds = self.lab.ssh_cmds()
         self.assertEqual(len(cmds), 2, cmds)
@@ -239,20 +295,20 @@ class TestCheck(EnvCase):
 
     def test_check_live_reports_a_different_runner(self):
         st = self.lab.state(); st["version"] = "0" * 64; self.lab.set_state(st)
-        rc, out, err = self.lab.run("check", "lingo", "--live")
+        rc, out, err = self.lab.run("check", "remote-a", "--live")
         self.assertEqual(rc, 0, out + err)
         self.assertIn("differs", out)
 
     def test_check_live_unreachable_host(self):
         st = self.lab.state(); st["reachable"] = False; self.lab.set_state(st)
-        rc, out, err = self.lab.run("check", "lingo", "--live")
+        rc, out, err = self.lab.run("check", "remote-a", "--live")
         self.assertEqual(rc, 1)
         self.assertIn("unreachable", out)
 
 
 class TestRun(EnvCase):
     def test_run_refuses_ssh(self):
-        rc, out, err = self.lab.run("run", "lingo", "experiments/2026-09-01_e1.py")
+        rc, out, err = self.lab.run("run", "remote-a", "experiments/2026-09-01_e1.py")
         self.assertEqual(rc, 2)
         self.assertIn("queue", err)
 
@@ -264,7 +320,7 @@ class TestRun(EnvCase):
         self.assertEqual(argv[:4], ["wsl.exe", "-d", "Ubuntu", "--"])
         self.assertEqual(argv[4:6], ["bash", "-lc"])
         cmd = argv[6]
-        self.assertIn("FLATSURF_ENV='flatsurf'", cmd)
+        self.assertIn("ACADEMY_CONDA_ENV='sci'", cmd)
         self.assertIn("SAGE=1", cmd)
         self.assertIn("LAB_ROOT=", cmd)
         self.assertIn("run.sh", cmd)
@@ -288,7 +344,7 @@ class TestRun(EnvCase):
                                     "--bound", "3")
         self.assertEqual(rc, 0, err)
         self.assertIn("'experiments/2026-09-01_e1.py' '--bound' '3'", json.loads(out)[-1])
-        rc, out, err = self.lab.run("run", "-Target", "ssh:lingo", "-Code", "print(1)")
+        rc, out, err = self.lab.run("run", "-Target", "ssh:remote-a", "-Code", "print(1)")
         self.assertEqual(rc, 2)
         self.assertIn("queue", err)
 
@@ -297,7 +353,7 @@ class TestRun(EnvCase):
         self.assertEqual(rc, 0, err)
         argv = json.loads(out)
         self.assertEqual(argv[0], "bash")
-        self.assertIn("FLATSURF_ENV='flatsurf'", argv[-1])
+        self.assertIn("ACADEMY_CONDA_ENV='sci'", argv[-1])
 
     def test_run_refuses_outside_home(self):
         outside = os.path.join(self.lab.root, "x.py")
@@ -416,10 +472,12 @@ class TestQueueLocal(EnvCase):
         for sub in ("tick", "fetch", "status"):
             rc, out, err = self.lab.run("queue", sub, env=env_)
             self.assertEqual(rc, 1, sub)
-            self.assertIn("unreachable: lingo (VPN?) -- 1 pending job(s) wait.", out)
+            self.assertIn("unreachable: remote-a (gateway gw-a down; ask Ada to connect gw-a)"
+                          " -- 1 pending job(s) wait.", out)
         self.assertEqual(self.lab.calls(), [])
         rc, out, err = self.lab.run("queue", "check", env=env_)
-        self.assertEqual((rc, out.strip()), (1, "unreachable: lingo (VPN?)"))
+        self.assertEqual((rc, out.strip()),
+                         (1, "unreachable: remote-a (gateway gw-a down; ask Ada to connect gw-a)"))
 
 
 class TestQueueRemote(EnvCase):
@@ -550,13 +608,143 @@ class TestQueueRemote(EnvCase):
         self.assertFalse(self.lab.state()["paused"])
 
 
-class TestVpn(EnvCase):
-    def test_vpn_codes(self):
-        for code, word in (("0", "up"), ("1", "down"), ("2", "cannot tell")):
-            env_ = dict(self.lab.env, ACADEMY_FAKE_PREFLIGHT=code)
-            rc, out, err = self.lab.run("vpn", env=env_)
-            self.assertEqual(rc, int(code))
-            self.assertIn(word, out)
+class TestGateway(EnvCase):
+    def test_gateway_codes(self):
+        for sub in ("gateway", "vpn"):
+            for code, word in (("0", "up"), ("1", "down"), ("2", "cannot tell")):
+                env_ = dict(self.lab.env, ACADEMY_FAKE_PREFLIGHT=code)
+                rc, out, err = self.lab.run(sub, env=env_)
+                self.assertEqual(rc, int(code))
+                self.assertIn(word, out)
+
+    def real(self):
+        env_ = dict(self.lab.env)
+        env_.pop("ACADEMY_FAKE_PREFLIGHT", None)
+        return env_
+
+    def listening(self):
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        self.addCleanup(srv.close)
+        return srv.getsockname()[1]
+
+    def set_probe(self, port):
+        with open(self.lab.ws_path, "r", encoding="utf-8") as fh:
+            ws = json.load(fh)
+        ws["compute"]["gateways"]["gw-a"]["probeHost"] = "127.0.0.1:%d" % port
+        with open(self.lab.ws_path, "w", encoding="utf-8") as fh:
+            json.dump(ws, fh)
+
+    def test_tcp_reachable_up(self):
+        self.set_probe(self.listening())
+        rc, out, err = self.lab.run("gateway", env=self.real())
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("gw-a: up", out)
+
+    def test_tcp_reachable_down_prints_on_down(self):
+        # a port nothing listens on: bind one, close it, use it
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); dead = s.getsockname()[1]; s.close()
+        self.set_probe(dead)
+        rc, out, err = self.lab.run("gateway", env=self.real())
+        self.assertEqual(rc, 1, out + err)
+        self.assertIn("gw-a: down", out)
+        self.assertIn("ask Ada to connect gw-a", out)
+        rc, out, err = self.lab.run("queue", "tick", env=self.real())
+        self.assertEqual(rc, 1)
+        self.assertIn("gateway gw-a down", out)
+        self.assertEqual(self.lab.calls(), [], "nothing is sent while the gateway is down")
+
+    def test_profile_without_gateway(self):
+        rc, out, err = self.lab.run("gateway", "--profile", "local", env=self.real())
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("no gateway", out)
+
+
+class TestWorkers(unittest.TestCase):
+    """workers.py on its own: expansion, validation, the checks, the onDown text."""
+
+    def test_expand_worker_reference(self):
+        import workers as wk
+        comp = wk.Compute(workspace("/x/lab", "/x")["compute"], "Ada")
+        prof = wk.expand_profile("run", {"worker": "remote-a", "maxJobs": 2}, comp, "/x/lab")
+        self.assertEqual(prof["kind"], "ssh")
+        self.assertEqual(prof["repo"], "~/lab")
+        self.assertEqual(prof["maxJobs"], 2, "a home's key overrides the worker's")
+        self.assertEqual(prof["_gateway"]["name"], "gw-a")
+        self.assertEqual(wk.on_down(prof, comp), "ask Ada to connect gw-a")
+
+    def test_unknown_worker_is_refused_with_the_hint(self):
+        import workers as wk
+        with self.assertRaises(wk.WorkerError) as cm:
+            wk.expand_profile("run", {"worker": "nowhere"}, wk.Compute({}, "Ada"))
+        self.assertIn("compute.workers", str(cm.exception))
+
+    def test_default_on_down_names_the_human(self):
+        import workers as wk
+        comp = wk.Compute({"workers": {"w": {"host": "h", "gateway": "g"}},
+                           "gateways": {"g": {"kind": "vpn", "check": "command",
+                                              "command": "exit 1"}}}, "Ada")
+        prof = wk.expand_profile("p", {"worker": "w"}, comp)
+        self.assertIn("ask Ada to bring up g", wk.on_down(prof, comp))
+
+    def test_problems(self):
+        import workers as wk
+        comp = wk.Compute({"workers": {"w": {"transport": "telnet", "gateway": "nope"}},
+                           "gateways": {"g": {"kind": "vpn", "check": "tcp-reachable"},
+                                        "h": {"kind": "wormhole"}}})
+        probs = " | ".join(wk.compute_problems(comp))
+        for word in ("transport", "needs host", "'nope'", "probeHost", "kind must be"):
+            self.assertIn(word, probs)
+
+    def test_checks(self):
+        import workers as wk
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ACADEMY_FAKE_PREFLIGHT", None)
+            self.assertEqual(wk.check_gateway({"name": "n", "kind": "none"})[0], 0)
+            self.assertEqual(wk.check_gateway({"name": "c", "kind": "vpn", "check": "command",
+                                               "command": "exit 0"})[0], 0)
+            self.assertEqual(wk.check_gateway({"name": "c", "kind": "vpn", "check": "command",
+                                               "command": "exit 1"})[0], 1)
+            self.assertEqual(wk.check_gateway({"name": "c", "kind": "vpn", "check": "command",
+                                               "command": "exit 5"})[0], 2)
+            self.assertEqual(wk.check_gateway({"name": "x", "kind": "vpn",
+                                               "check": "carrier-pigeon"})[0], 2)
+
+    def test_user_makes_the_ssh_destination(self):
+        import env
+        import workers as wk
+        comp = wk.Compute({"workers": {"w": {"host": "h.example", "user": "u"}}})
+        prof = wk.expand_profile("p", {"worker": "w"}, comp)
+        t = env.Transport(prof)
+        self.assertEqual(t.argv("true")[-2], "u@h.example")
+        self.assertEqual(t.host, "h.example")
+
+
+class TestSetup(EnvCase):
+    def test_setup_ssh_uses_the_pack_packages_and_the_worker_env(self):
+        rc, out, err = self.lab.run("setup", "remote-a", "--dry-run")
+        self.assertEqual(rc, 0, err)
+        steps = json.loads(out)
+        last = steps[-1][-1]
+        self.assertIn("ACADEMY_CONDA_ENV='sci'", last)
+        self.assertIn("MINIFORGE_PREFIX='/data/u/miniforge3'", last)
+        self.assertIn("sage-flatsurf", last, "packages from domains/<pack>/computation/env.txt")
+        self.assertIn("academy-setup-env.sh", last)
+        self.assertTrue(any("setup_env.sh" in " ".join(s) for s in steps[:-1]),
+                        "the plugin's installer is copied over")
+
+    def test_setup_local(self):
+        rc, out, err = self.lab.run("setup", "local", "--dry-run")
+        self.assertEqual(rc, 0, err)
+        cmd = json.loads(out)[0][-1]
+        self.assertIn("ACADEMY_CONDA_ENV='sci'", cmd)
+        self.assertIn("ACADEMY_CONDA_CHECK=", cmd)
+
+    def test_unknown_profile_points_at_compute(self):
+        rc, out, err = self.lab.run("check", "elsewhere")
+        self.assertEqual(rc, 2)
+        self.assertIn("compute.workers", err)
 
 
 # -- queue.ps1 (the PowerShell frontend itself, not just env.py underneath) ---

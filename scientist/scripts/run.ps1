@@ -7,7 +7,7 @@
   Same flags as the lab's old scripts\run.ps1. -Target names a profile the old way:
     wsl          (default) the wsl profile of the home (policy.test if it is one)
     wsl:<distro> the wsl profile with that distro
-    ssh:<host>   the ssh profile with that host -- only for -Setup: experiments on a
+    ssh:<host>   the ssh profile with that host (or worker name) -- only for -Setup: experiments on a
                  remote host go through the queue (scripts\queue.ps1 -Add), so -Push,
                  -Pull, -Fetch and -Detach are refused with that pointer
     <profile>    any profile name or policy key of .claude/academy.json
@@ -16,18 +16,20 @@
   run.ps1 experiments\smoke_sage.py
   run.ps1 tests\run_all.py
   run.ps1 -u fslab\vh_viewer.py --squares 8 --subdivision 2
-  run.ps1 -Code "from flatsurf import *; print(translation_surfaces.veech_double_n_gon(5).stratum())"
+  run.ps1 -Code "import sys; print(sys.version)"
   run.ps1 -Sage -Code "print(factor(2^64-1))"
-  run.ps1 -Target ssh:lingo -Setup
+  run.ps1 -Target run -Setup
 #>
 param(
   [Parameter(Position = 0)] [string] $Script,
   [string] $Code,
   [string] $Target = "wsl",
   [string] $Distro = "Ubuntu",
-  [string] $Prefix = '~/miniforge3',
-  [string] $EnvName = "flatsurf",
-  [string] $RemoteRepo = '~/FlatSurfLab',
+  # -Prefix and -EnvName override the profile's prefix and conda env only when given;
+  # the defaults are the resolved profile's (env.py). -RemoteRepo is accepted and ignored.
+  [string] $Prefix = "",
+  [string] $EnvName = "",
+  [string] $RemoteRepo = "",
   [switch] $Sage,
   # -u is a unique prefix of -Unbuffered, so `run.ps1 -u script.py ...` binds here.
   [switch] $Unbuffered,
