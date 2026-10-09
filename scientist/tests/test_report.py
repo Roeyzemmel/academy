@@ -170,7 +170,7 @@ class ReportTest(unittest.TestCase):
         self.sb.write("scratch/probe_sizes.py", '"""How large do the orbits get?\n\n'
                       'Kind:           probe\nClaims:         lab:q2-ew-ornithorynque\n'
                       'Goal:           how many states the BFS visits for n <= 12\n'
-                      'Decides:        whether the n = 16 search fits one lingo job\n"""\n')
+                      'Decides:        whether the n = 16 search fits one remote job\n"""\n')
         self.sb.write("reports/probe_sizes.md",
                       "## Class\n\nCannot contain: n > 12\n\n## Validation\n\n"
                       "- Reproduced: yes (n = 8 gives the known 24 states)\n\n"
