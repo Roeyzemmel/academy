@@ -1149,7 +1149,7 @@ class TestRegistryBackend(McpTestBase):
         err, msg = s.call("claims_set_status", caller="researcher:claim-keeper",
                           id="s1:GEO-1", status="supported", grounds=comp())
         self.assertTrue(err)
-        self.assertIn("no s1 word", msg)
+        self.assertIn("has no word in a v1 notebook record", msg)
         # the review finding: a verdict file with no subject, whose runs say GAP
         path = os.path.join(self.homes["researcher@t"], "claims", "GEO-1.md")
         with open(path, "rb") as fh:

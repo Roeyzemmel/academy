@@ -22,9 +22,10 @@ home equal to it; else the registered home whose directory name is the repo's na
 a prefix of it followed by ``-`` (worktrees); else the layout.
 
 **Which profile.** ``registry.profile`` of the home's academy.json (``lab``, ``paper``,
-``s1``: the rule sets of docs/config.md), else the namespace's own name when it is one
-of those, else ``lab``. The engine profile behind a rule set is ``fsl-claims`` for
-``lab`` and ``paper`` and ``s1-kb`` for ``s1``.
+``notebook``: the rule sets of docs/config.md; the older names ``s1`` and ``s1-kb`` are
+accepted for ``notebook``), else the namespace's own name when it is one of those, else
+``lab``. The engine profile behind a rule set is ``fsl-claims`` for ``lab`` and
+``paper`` and ``s1-kb`` for ``notebook``.
 """
 from __future__ import annotations
 
@@ -38,7 +39,17 @@ from pathlib import Path
 FALLBACK_NAMESPACES = {}
 
 #: rule set (academy.json registry.profile) -> engine profile
-ENGINE_PROFILE = {"lab": "fsl-claims", "paper": "fsl-claims", "s1": "s1-kb"}
+ENGINE_PROFILE = {"lab": "fsl-claims", "paper": "fsl-claims", "notebook": "s1-kb"}
+
+#: older rule-set names, still accepted wherever a rule set is read
+RULE_SET_ALIASES = {"s1": "notebook", "s1-kb": "notebook", "fsl-claims": "lab"}
+
+
+def canonical_rule_set(name):
+    """``name`` with an old alias (``s1``, ``s1-kb``) mapped to its rule set; None when it
+    names no rule set."""
+    name = RULE_SET_ALIASES.get(name, name)
+    return name if name in ENGINE_PROFILE else None
 
 _ws_cache = {}
 
@@ -242,7 +253,7 @@ def sniff_ns(repo):
     repo = Path(repo)
     if (repo / "tools" / "kb.py").is_file() or (repo / "assumptions").is_dir()             or (repo / "objects" / "assumption").is_dir():
         for ns in namespaces():
-            if rule_set(ns) == "s1":
+            if rule_set(ns, namespaces()[ns]["home"]) == "notebook":
                 return ns
     claims = repo / "claims"
     if claims.is_dir():
@@ -307,13 +318,13 @@ def instances_of_role(role):
 
 
 def rule_set(ns, home=None):
-    """The rule set (``lab``, ``paper``, ``s1``) of namespace ``ns``."""
+    """The rule set (``lab``, ``paper``, ``notebook``) of namespace ``ns``."""
     if home is not None:
         cfg = read_config(home)
-        prof = ((cfg or {}).get("registry") or {}).get("profile")
-        if prof in ENGINE_PROFILE:
+        prof = canonical_rule_set(((cfg or {}).get("registry") or {}).get("profile"))
+        if prof:
             return prof
-    return ns if ns in ENGINE_PROFILE else "lab"
+    return canonical_rule_set(ns) or "lab"
 
 
 def engine_profile(ns, home=None):

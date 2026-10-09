@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from _util import Homes, write
+from _util import Homes, notebook_config, write
 
 from registry.profiles import fsl, s1kb
 
@@ -112,6 +112,7 @@ class TestObjectsLayout(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="registry-r6-"))
         self.addCleanup(shutil.rmtree, str(self.root), True)
+        notebook_config(self.root)
         o = self.root / "objects"
         write(o / "claim" / "CEX-1.md", CEX)
         write(o / "question" / "Q1.md", Q1)

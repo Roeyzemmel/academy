@@ -66,6 +66,24 @@ ok
 """
 
 
+#: a notebook's id rules (academy.json ``registry.prefixes`` / ``assumptionGroups``), the
+#: shape a home with prefixed ids uses
+NOTEBOOK_RULES = {
+    "prefixes": {"Q": "the questions", "OA": "origami assumptions", "PA": "geometric assumptions",
+                 "GA": "group-theoretic tags", "DEF": "definitions", "GEO": "geometry",
+                 "CEX": "counterexamples", "OPEN": "open problems", "EX": "named examples",
+                 "DIR": "research directions"},
+    "assumptionGroups": {"OA": "Origami", "PA": "Parking garage", "GA": "Group-theoretic"},
+}
+
+
+def notebook_config(root, ns="s1", rules=NOTEBOOK_RULES):
+    """Write ``<root>/.claude/academy.json`` naming ``ns`` and the notebook's id rules."""
+    reg = {"profile": "notebook", "root": "objects"}
+    reg.update(rules or {})
+    return write(Path(root) / ".claude" / "academy.json", json.dumps({"ns": ns, "registry": reg}))
+
+
 def write(path, text, newline="\n"):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
