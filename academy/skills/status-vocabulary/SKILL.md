@@ -35,18 +35,20 @@ Everyone else proposes (`claims_propose_status`).
 
 ## Draft colours (Author homes)
 
-The environment and macro names come from the home's `author.envs`,
-`author.colourCommands` and `author.colours`; the defaults are:
+The levels are the home's `author.statusLevels` (name, environment, macro, colour, kind,
+the registry statuses each may carry; older homes: `author.envs`, `author.colourCommands`,
+`author.colours`). Read them from the home's config; the defaults are:
 
-| Draft colour | Environment / span | Colour | Registry statuses it may carry |
+| Draft level (kind) | Environment / span | Colour | Registry statuses it may carry |
 |---|---|---|---|
-| established | uncoloured | black | `proved` (by two agreeing verdicts or a precise citation) |
-| sketch | `sketch` / `\Sketch{}` | blue | `sketch`, `proved-modulo` (the `modulo` inputs named in a machine note) |
-| conjectural | `conjectural` / `\Conjectural{}` | red | `open`, `conjectured`, `supported` (the computation cited) |
-| meta | `meta` / `\Meta{}` | brown | none: commentary about the paper, not a claim |
+| established (established) | uncoloured | black | `proved` (by two agreeing verdicts or a precise citation) |
+| sketch (unestablished) | `sketch` / `\Sketch{}` | blue | `sketch`, `proved-modulo` (the `modulo` inputs named in a machine note) |
+| conjectural (unestablished) | `conjectural` / `\Conjectural{}` | red | `open`, `conjectured`, `supported` (the computation cited) |
+| meta (commentary) | `meta` / `\Meta{}` | brown | none: commentary about the paper, not a claim |
 
-A statement turns black only when the registry says `proved`. An established
-statement never rests on a blue or red one. The Author checker enforces the draft side.
+A statement turns established only when the registry says `proved`. An established
+statement never rests on an unestablished one (by default blue or red). The Author
+checker enforces the draft side.
 
 ## Verdicts
 

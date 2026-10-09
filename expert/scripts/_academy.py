@@ -16,6 +16,8 @@ Homes and config
     human_name / human_login / primary_models / derived_plugins   workspace.json keys
     registry_rule_set(profile)      ``registry.profile`` with old aliases resolved
     verify_checklist_path / author_provenance   academy.json keys with defaults
+    author_status_levels / author_tex   an Author home's draft levels and tex conventions
+    validate_author(block)          problems with an ``author`` block's tex keys
     path_in_role(path, config, role)  is ``path`` in the home / in a named path set
 Agents and permissions
     agent_identity(event)           (namespace, bare_name) of the acting agent
@@ -357,6 +359,8 @@ def validate_config(config):
                              % (br, ", ".join(COMMIT_MODES)))
     if role in ROLES and not isinstance(config.get(role), dict):
         probs.append("a '%s' block is required for role %s" % (role, role))
+    if role == "author" and isinstance(config.get("author"), dict):
+        probs.extend(validate_author(config["author"]))
     if role == "scientist" and isinstance(config.get("scientist"), dict):
         sci = config["scientist"]
         envs = sci.get("envs")
@@ -603,6 +607,172 @@ def author_provenance(config):
     out = dict(PROVENANCE_DEFAULTS)
     out.update({k: v for k, v in val.items() if k != "enabled"})
     return out
+
+
+# ----------------------------------------------------------------------------
+# An Author home's tex conventions (docs/config.md, "author"): draft levels, preamble
+# policy, labels, notes, figures, accepted BibTeX warnings, main results. The defaults
+# reproduce the conventions every Author home had before they were configurable.
+# ----------------------------------------------------------------------------
+
+#: what a draft level means: proved or cited in full; not yet (blocks R1); not a claim
+LEVEL_KINDS = ("established", "unestablished", "commentary")
+PREAMBLE_POLICIES = ("propose", "locked", "free")
+
+#: the default levels, as ``author.statusLevels`` would spell them
+DEFAULT_STATUS_LEVELS = (
+    {"name": "established", "env": None, "command": None, "colour": "black",
+     "kind": "established", "statuses": ["proved"]},
+    {"name": "sketch", "env": "sketch", "command": "\\Sketch", "colour": "blue",
+     "kind": "unestablished", "statuses": ["sketch", "proved-modulo"]},
+    {"name": "conjectural", "env": "conjectural", "command": "\\Conjectural",
+     "colour": "red", "kind": "unestablished",
+     "statuses": ["open", "conjectured", "supported"]},
+    {"name": "meta", "env": "meta", "command": "\\Meta", "colour": "brown",
+     "kind": "commentary", "statuses": []},
+)
+
+#: ``author`` tex keys other than the levels, with their defaults (``preamble.file``
+#: None means ``author.main``)
+AUTHOR_TEX_DEFAULTS = {
+    "preamble": {"file": None, "end": "\\begin{document}", "policy": "propose",
+                 "extraFiles": []},
+    "labels": {"prefixes": ["thm", "lem", "prop", "cor", "defn", "eq", "sec", "fig"],
+               "refCommand": "cref"},
+    "notes": {"maxLines": 3},
+    "figures": {"dir": "tikz", "include": "\\includestandalone"},
+    "bib": {"acceptedWarnings": []},
+    "mainResults": {"file": "sections/introduction.tex", "labels": []},
+}
+
+RE_LEVEL_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+
+def _author_block(config_or_block):
+    """The ``author`` block of a config, or the block itself when one is passed."""
+    c = config_or_block if isinstance(config_or_block, dict) else {}
+    if isinstance(c.get("author"), dict) and ("role" in c or "schema" in c):
+        return c["author"]
+    return c
+
+
+def author_status_levels(config_or_block):
+    """The home's draft levels: a list of ``{name, env, command, colour, kind,
+    statuses}``, the established level first.
+
+    ``author.statusLevels`` when set; otherwise derived from the older keys ``envs``
+    (env -> level), ``colourCommands`` (macro -> level) and ``colours`` (level ->
+    colour) with the default meanings: a level named like a default level takes its
+    kind and statuses, any other level is commentary (it never blocked R1)."""
+    a = _author_block(config_or_block)
+    levels = a.get("statusLevels")
+    if isinstance(levels, list) and levels:
+        out = [dict(lv) for lv in levels if isinstance(lv, dict)]
+        for lv in out:
+            lv.setdefault("env", None)
+            lv.setdefault("command", None)
+            lv.setdefault("colour", None)
+            lv.setdefault("statuses", [])
+        out.sort(key=lambda lv: lv.get("kind") != "established")
+        return out
+    defaults = {lv["name"]: lv for lv in DEFAULT_STATUS_LEVELS}
+    envs = a.get("envs") if isinstance(a.get("envs"), dict) else None
+    cmds = a.get("colourCommands") if isinstance(a.get("colourCommands"), dict) else None
+    colours = a.get("colours") if isinstance(a.get("colours"), dict) else {}
+    if envs is None:
+        envs = {lv["env"]: lv["name"] for lv in DEFAULT_STATUS_LEVELS if lv["env"]}
+    if cmds is None:
+        cmds = {lv["command"]: lv["name"] for lv in DEFAULT_STATUS_LEVELS if lv["command"]}
+    names = []
+    for name in list(envs.values()) + list(cmds.values()):
+        if str(name) != "established" and str(name) not in names:
+            names.append(str(name))
+    est = defaults["established"]
+    out = [dict(est, colour=colours.get("established", est["colour"]))]
+    for name in names:
+        base = defaults.get(name) or {"kind": "commentary", "statuses": [], "colour": None}
+        out.append({"name": name,
+                    "env": next((str(e) for e, n in envs.items() if str(n) == name), None),
+                    "command": next((str(c) for c, n in cmds.items() if str(n) == name),
+                                    None),
+                    "colour": colours.get(name, base["colour"]),
+                    "kind": base["kind"], "statuses": list(base["statuses"])})
+    return out
+
+
+def author_tex(config_or_block, key):
+    """``author.<key>`` (one of ``AUTHOR_TEX_DEFAULTS``) with its defaults filled in."""
+    a = _author_block(config_or_block)
+    out = dict(AUTHOR_TEX_DEFAULTS[key])
+    val = a.get(key)
+    if isinstance(val, dict):
+        out.update({k: v for k, v in val.items() if v is not None})
+    if key == "preamble" and not out.get("file"):
+        out["file"] = str(a.get("main") or "main.tex")
+    return out
+
+
+def _str_list(val):
+    return isinstance(val, list) and all(isinstance(x, str) and x for x in val)
+
+
+def validate_author(block):
+    """Problems with the tex-convention keys of an ``author`` block (docs/config.md)."""
+    probs = []
+    levels = block.get("statusLevels")
+    if levels is not None:
+        if not (isinstance(levels, list) and levels
+                and all(isinstance(lv, dict) for lv in levels)):
+            probs.append("author.statusLevels must be a non-empty list of objects")
+        else:
+            seen, kinds = set(), []
+            for i, lv in enumerate(levels):
+                where = "author.statusLevels[%d]" % i
+                name = lv.get("name")
+                if not (isinstance(name, str) and RE_LEVEL_NAME.match(name)):
+                    probs.append("%s.name must be a word (letters, digits, '-', '_')" % where)
+                elif name in seen:
+                    probs.append("%s.name %r is repeated" % (where, name))
+                seen.add(name)
+                kind = lv.get("kind")
+                kinds.append(kind)
+                if kind not in LEVEL_KINDS:
+                    probs.append("%s.kind must be one of %s" % (where, ", ".join(LEVEL_KINDS)))
+                for k in ("env", "command", "colour"):
+                    if lv.get(k) is not None and not (isinstance(lv[k], str) and lv[k]):
+                        probs.append("%s.%s must be a string or null" % (where, k))
+                if kind == "established" and (lv.get("env") or lv.get("command")):
+                    probs.append("%s: the established level is the uncoloured one "
+                                 "(no env, no command)" % where)
+                if kind in ("unestablished", "commentary") and not (lv.get("env")
+                                                                   or lv.get("command")):
+                    probs.append("%s: a %s level needs an env or a command" % (where, kind))
+                if lv.get("statuses") is not None and not isinstance(lv["statuses"], list):
+                    probs.append("%s.statuses must be a list of registry statuses" % where)
+            if kinds.count("established") != 1:
+                probs.append("author.statusLevels needs exactly one level of kind "
+                             "established")
+    for key in AUTHOR_TEX_DEFAULTS:
+        if block.get(key) is not None and not isinstance(block[key], dict):
+            probs.append("author.%s must be an object" % key)
+    pre = block.get("preamble") if isinstance(block.get("preamble"), dict) else {}
+    if pre.get("policy") is not None and pre["policy"] not in PREAMBLE_POLICIES:
+        probs.append("author.preamble.policy must be one of %s" % ", ".join(PREAMBLE_POLICIES))
+    for key, sub in (("preamble", "file"), ("preamble", "end"), ("labels", "refCommand"),
+                     ("figures", "dir"), ("figures", "include"), ("mainResults", "file")):
+        blk = block.get(key) if isinstance(block.get(key), dict) else {}
+        if blk.get(sub) is not None and not (isinstance(blk[sub], str) and blk[sub]):
+            probs.append("author.%s.%s must be a non-empty string" % (key, sub))
+    for key, sub in (("preamble", "extraFiles"), ("labels", "prefixes"),
+                     ("bib", "acceptedWarnings"), ("mainResults", "labels")):
+        blk = block.get(key) if isinstance(block.get(key), dict) else {}
+        if blk.get(sub) is not None and not _str_list(blk[sub]):
+            probs.append("author.%s.%s must be a list of strings" % (key, sub))
+    notes = block.get("notes") if isinstance(block.get("notes"), dict) else {}
+    ml = notes.get("maxLines")
+    if ml is not None and not (isinstance(ml, int) and not isinstance(ml, bool) and ml >= 1):
+        probs.append("author.notes.maxLines must be a positive integer")
+    return probs
 
 
 def verify_checklist_path(config):

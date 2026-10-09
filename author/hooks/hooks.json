@@ -23,6 +23,16 @@
         ]
       },
       {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/preamble_guard.py\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {

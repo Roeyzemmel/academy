@@ -87,22 +87,49 @@
         "quest"
       ]
     },
-    "envs": {
-      "sketch": "sketch",
-      "conjectural": "conjectural",
-      "meta": "meta"
-    },
-    "colourCommands": {
-      "\\Sketch": "sketch",
-      "\\Conjectural": "conjectural",
-      "\\Meta": "meta"
-    },
-    "colours": {
-      "established": "black",
-      "sketch": "blue",
-      "conjectural": "red",
-      "meta": "brown"
-    },
+    "statusLevels": [
+      {
+        "name": "established",
+        "env": null,
+        "command": null,
+        "colour": "black",
+        "kind": "established",
+        "statuses": [
+          "proved"
+        ]
+      },
+      {
+        "name": "sketch",
+        "env": "sketch",
+        "command": "\\Sketch",
+        "colour": "blue",
+        "kind": "unestablished",
+        "statuses": [
+          "sketch",
+          "proved-modulo"
+        ]
+      },
+      {
+        "name": "conjectural",
+        "env": "conjectural",
+        "command": "\\Conjectural",
+        "colour": "red",
+        "kind": "unestablished",
+        "statuses": [
+          "open",
+          "conjectured",
+          "supported"
+        ]
+      },
+      {
+        "name": "meta",
+        "env": "meta",
+        "command": "\\Meta",
+        "colour": "brown",
+        "kind": "commentary",
+        "statuses": []
+      }
+    ],
     "noteMacros": {
       "human": [
         "{{noteMacro}}"
@@ -122,6 +149,38 @@
     ],
     "bibWriters": [
       "librarian"
-    ]
+    ],
+    "preamble": {
+      "end": "\\begin{document}",
+      "policy": "propose",
+      "extraFiles": []
+    },
+    "labels": {
+      "prefixes": [
+        "thm",
+        "lem",
+        "prop",
+        "cor",
+        "defn",
+        "eq",
+        "sec",
+        "fig"
+      ],
+      "refCommand": "cref"
+    },
+    "notes": {
+      "maxLines": 3
+    },
+    "figures": {
+      "dir": "tikz",
+      "include": "\\includestandalone"
+    },
+    "bib": {
+      "acceptedWarnings": []
+    },
+    "mainResults": {
+      "file": "sections/introduction.tex",
+      "labels": []
+    }
   }
 }

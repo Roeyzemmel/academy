@@ -65,7 +65,8 @@ proof to the paper's level).
   (`domain_get <domain> notation.md`; `notation-discipline`).
 - **Every judgement call** or unverified step gets a machine note in the tex
   (`honest-reporting`). Never sign a note as a human.
-- Do not edit the root file's preamble unless the ticket says so. No git writes.
+- The preamble follows the home's `author.preamble.policy` (`preamble_guard` enforces it;
+  `paper-method/references/editing-tex.md`). No git writes.
 
 **Working order**
 
