@@ -400,6 +400,45 @@ class ExplainerWriteGuardTests(Fixture):
 # ticket_edit_check
 # ---------------------------------------------------------------------------
 
+@unittest.skipUnless(HAVE_GIT, "git is not on PATH")
+class TicketHeadTextTests(Fixture):
+    """``git_head_text`` reads a board file at HEAD whether the board is a repository of
+    its own or a plain directory of the workspace repo (``HEAD:./<rel>``)."""
+
+    def module(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "ticket_edit_check_t", os.path.join(SCRIPTS, "ticket_edit_check.py"))
+        mod = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, SCRIPTS)
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            sys.path.remove(SCRIPTS)
+        return mod
+
+    def commit(self, repo, path, text):
+        self.write(path, text)
+        for args in (["init", "-q"], ["config", "user.email", "t@example.invalid"],
+                     ["config", "user.name", "T"], ["config", "commit.gpgsign", "false"],
+                     ["add", "-A"], ["commit", "-q", "-m", "x"]):
+            if args[0] == "init" and os.path.isdir(os.path.join(repo, ".git")):
+                continue
+            subprocess.run(["git", "-C", repo] + args, capture_output=True, check=True)
+
+    def test_both_layouts(self):
+        mod = self.module()
+        rel = "expert@t/T-0001-x.md"
+        # the board as a repository of its own
+        self.commit(self.board, os.path.join(self.board, rel), "own\n")
+        self.assertEqual(mod.git_head_text(self.board, rel), "own\n")
+        shutil.rmtree(os.path.join(self.board, ".git"))
+        # the board as a plain directory of the workspace repo
+        self.commit(self.tmp, os.path.join(self.board, rel), "folded\n")
+        self.assertEqual(mod.git_head_text(self.board, rel), "folded\n")
+        self.assertIsNone(mod.git_head_text(self.board, "expert@t/T-0002-new.md"))
+
+
 class TicketEditCheckTests(Fixture):
     def check(self, path, agent=None, cwd=None, tool="Edit"):
         event = {"hook_event_name": "PostToolUse", "tool_name": tool,
@@ -754,6 +793,26 @@ class SessionStartTests(Fixture):
         count = self.git("rev-list", "--count", "HEAD").strip()
         self.start(self.author_home, {"ACADEMY_BOARD_COMMIT": "1"})   # nothing new
         self.assertEqual(self.git("rev-list", "--count", "HEAD").strip(), count)
+
+    @unittest.skipUnless(HAVE_GIT, "git is not on PATH")
+    def test_board_commit_never_commits_the_workspace_around_a_plain_board(self):
+        # the folded layout: board/ is a plain directory of the workspace repo; the hook
+        # leaves it to ship.py checkpoint and never commits the superproject
+        def ws_git(*args):
+            res = subprocess.run(["git", "-C", self.tmp] + list(args), capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stderr.decode("utf-8", "replace"))
+            return res.stdout.decode("utf-8", "replace")
+        ws_git("init", "-q")
+        ws_git("config", "user.email", "test@example.invalid")
+        ws_git("config", "user.name", "Test")
+        ws_git("config", "commit.gpgsign", "false")
+        self.write(os.path.join(self.board, "README.md"), "board\n")
+        ws_git("add", "-A")
+        ws_git("commit", "-q", "-m", "fixture")
+        self.populate()
+        self.start(self.author_home, {"ACADEMY_BOARD_COMMIT": "1"})
+        self.assertEqual(ws_git("rev-list", "--count", "HEAD").strip(), "1")
+        self.assertIn("board/", ws_git("status", "--porcelain"))
 
     @unittest.skipUnless(HAVE_GIT, "git is not on PATH")
     def test_board_commit_can_be_disabled(self):

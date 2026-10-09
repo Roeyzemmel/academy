@@ -29,7 +29,14 @@ Rules:
 - File as the human (`--as human`) only after Roey confirmed this ticket through AskUserQuestion; this is the one sanctioned way to file as Roey from inside a home (docs/protocol.md section 5).
 - Changing a ticket starts no work (`references/budget.md` rule 3).
 
-**sync.** In the board repo (`workspace.json` `board`): `git -C <board> status
---porcelain`; if anything changed, `git -C <board> add -A` and commit with the message
-`board: <n> change(s)` followed by a blank line and the session's attribution line.
-Never push, never stash. Report the commit hash, or "nothing to commit".
+**sync.** Commit the board's files through the workspace's ship tool, never with a bare
+`git add -A` (at the workspace root that would sweep up every other change and the
+submodule pointers). From the workspace root (the directory of `workspace.json`):
+`py scripts/ship.py status` shows the `board` line; if it is dirty (or has untracked
+files: `git status --porcelain -- <board>`), run
+`py scripts/ship.py checkpoint --ticket <the ticket in hand, else board-sync> --role human
+--title "board: <n> change(s)" --only board`. It commits only the board's paths (a plain
+directory of the workspace, or the board submodule) on a `<date>/<ticket>/human` branch
+and pushes that branch; a dirty board on `main` is refused: then
+`py scripts/ship.py start board <topic>` first, and run it again. Never stash. Print its
+output as it is and report the branch and commit, or "nothing to commit".

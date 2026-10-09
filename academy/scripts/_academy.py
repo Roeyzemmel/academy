@@ -2215,17 +2215,20 @@ class inbox_core(object):
     @staticmethod
     def ship_checkpoint(args, instance, board, r, role=None, out=None):
         """After ``--check`` found ticket ``r`` finished (delivered or closed, rejected or
-        cancelled, with no problem), run ``<workspace>/scripts/ship.py checkpoint --ticket
-        <id> --role <role> --only <the ticket's repos>`` in the workspace root, so the
-        ticket's work is committed and pushed on its own branch.
+        cancelled, with no problem), run the academy's ``ship.py --workspace <root>
+        checkpoint --ticket <id> --role <role> --only <the ticket's repos>`` in the
+        workspace root, so the ticket's work is committed and pushed on its own branch
+        (``ship_script``: this academy checkout's ``academy/scripts/ship.py``, else
+        ``$ACADEMY_ROOT``'s, else the workspace's ``scripts/ship.py`` shim).
 
         Only for the workspace's own board, when ship.py exists, workspace.json does not
         say ``"shipCheckpoint": false``, and the session (``$CLAUDE_PROJECT_DIR``, else the
         cwd) is inside the workspace root and not in a worktree under it
         (``_session_inside``); otherwise one line gives the scoped command to run by hand.
         ``role``: given, else the role of ``instance``, else of the ticket's addressee. The
-        repos (``--only``): the instance's home submodule, ``board``, and ``library`` for
-        the Expert; a home that is no submodule leaves ``board`` only, said on stderr. Never
+        repos (``--only``): the instance's home submodule, ``board`` (a submodule, or the
+        workspace's own ``board/`` directory), and ``library`` for the Expert; a home that
+        is no submodule leaves ``board`` only, said on stderr. Never
         fatal and never raises: anything that goes wrong is one warning line on stderr; the
         --check result is unchanged."""
         try:
@@ -2238,10 +2241,35 @@ class inbox_core(object):
                 pass
             return None
 
+    #: tests point this (or ``$ACADEMY_SHIP_SCRIPT``) at a stub; None: looked up
+    SHIP_SCRIPT = None
+
+    @staticmethod
+    def ship_script(root):
+        """The ship.py to run for the workspace at ``root``: ``SHIP_SCRIPT`` or
+        ``$ACADEMY_SHIP_SCRIPT`` if set, else ``academy/scripts/ship.py`` of the academy
+        checkout this module belongs to (the lib module and every plugin's vendored copy
+        sit two levels below it), else of ``$ACADEMY_ROOT``, else the workspace's own
+        ``scripts/ship.py`` (a shim); None if none exists."""
+        given = inbox_core.SHIP_SCRIPT or os.environ.get("ACADEMY_SHIP_SCRIPT")
+        if given:
+            return given if os.path.isfile(given) else None
+        mine = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        for base in (mine, os.environ.get("ACADEMY_ROOT")):
+            if base:
+                cand = os.path.join(base, "academy", "scripts", "ship.py")
+                if os.path.isfile(cand):
+                    return cand
+        cand = os.path.join(root, "scripts", "ship.py")
+        return cand if os.path.isfile(cand) else None
+
     @staticmethod
     def _ship_scope(root, ws, name, role):
-        """``(only, note)``: the submodules of ``root`` (``.gitmodules``) a checkpoint of
-        instance ``name`` touches, and a note when its home is not one of them."""
+        """``(only, note)``: the targets of ``root`` a checkpoint of instance ``name``
+        touches -- its home's submodule (``.gitmodules``), ``board`` (a submodule, or the
+        workspace's board when that is a plain directory inside ``root``: ship.py then
+        commits ``board/`` paths of the workspace repo only) and, for the Expert,
+        ``library`` -- and a note when its home is not a submodule."""
         subs = []
         try:
             with open(os.path.join(root, ".gitmodules"), encoding="utf-8") as fh:
@@ -2264,8 +2292,18 @@ class inbox_core(object):
                         home_sub is None or len(s) > len(home_sub)):
                     home_sub = s
         only = [home_sub] if home_sub else []
+        board_path = ws.get("board")
+        if isinstance(board_path, dict):
+            board_path = board_path.get("path")
+        plain_board = False
+        if isinstance(board_path, str) and board_path:
+            b, top = real(board_path if os.path.isabs(board_path)
+                          else os.path.join(root, board_path)), real(root)
+            plain_board = (b.startswith(top.rstrip(os.sep) + os.sep) and os.path.isdir(b)
+                           and not os.path.exists(os.path.join(b, ".git"))
+                           and os.path.relpath(b, top).replace(os.sep, "/") not in subs)
         for s in ("board",) + (("library",) if role == "expert" else ()):
-            if s in subs and s not in only:
+            if (s in subs or (s == "board" and plain_board)) and s not in only:
                 only.append(s)
         note = None
         if not home_sub:
@@ -2286,8 +2324,8 @@ class inbox_core(object):
         if ws.get("shipCheckpoint") is False:
             return None
         root = os.path.realpath(os.path.dirname(ws["_path"]))
-        ship = os.path.join(root, "scripts", "ship.py")
-        if not os.path.isfile(ship):
+        ship = inbox_core.ship_script(root)
+        if not ship:
             return None
         insts = ws.get("instances", {})
         name = instance if instance in insts else None
@@ -2324,8 +2362,8 @@ class inbox_core(object):
             sys.stderr.write("checkpoint for %s scoped to %s only: %s\n"
                              % (r["id"], " and ".join(only), note))
         import subprocess
-        cmd = [sys.executable, ship, "checkpoint", "--ticket", r["id"], "--role", role,
-               "--only"] + only
+        cmd = [sys.executable, ship, "--workspace", root, "checkpoint", "--ticket", r["id"],
+               "--role", role, "--only"] + only
         # output goes to a file, not a pipe: a git grandchild holding a pipe open would
         # outlive the timeout's kill and hang the read
         with tempfile.TemporaryFile() as log:
