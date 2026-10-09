@@ -5,7 +5,7 @@ check, which that byte-identity test does not exercise).
 
 test_fsq.sh needs a real Linux shell: bash, git, pgrep, and /dev/shm for its lock
 directory. None of that exists on the Windows laptop this suite usually runs on, so
-this test skips cleanly there and actually runs under WSL and on lingo, where all of
+this test skips cleanly there and actually runs under WSL and on a remote worker, where all of
 it is present.
 
 Run: py -m unittest discover -s tests -t tests   (from the plugin folder; skips on
@@ -39,7 +39,7 @@ def _linux_like():
     return sys.platform != "win32" and os.path.isdir("/dev/shm")
 
 
-@unittest.skipUnless(_linux_like(), "needs a real Linux shell (WSL or lingo), not "
+@unittest.skipUnless(_linux_like(), "needs a real Linux shell (WSL or a remote worker), not "
                                     "Windows: test_fsq.sh uses /dev/shm and pgrep")
 class FsqRunnerTests(unittest.TestCase):
     def setUp(self):

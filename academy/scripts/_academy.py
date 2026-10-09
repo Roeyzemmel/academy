@@ -342,6 +342,13 @@ def validate_config(config):
             envs = {}
         for name, prof in envs.items():
             kind = prof.get("kind") if isinstance(prof, dict) else None
+            if isinstance(prof, dict) and "worker" in prof and kind in (None, "ssh"):
+                # a remote worker of the workspace (workspace.json compute.workers),
+                # resolved by the Scientist's env.py (docs/config.md, "compute")
+                if not (isinstance(prof["worker"], str) and prof["worker"]):
+                    probs.append("scientist.envs.%s.worker must name a worker of the "
+                                 "workspace's compute.workers" % name)
+                continue
             if kind not in ENV_KINDS:
                 probs.append("scientist.envs.%s.kind must be one of %s"
                              % (name, ", ".join(ENV_KINDS)))

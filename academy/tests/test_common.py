@@ -176,6 +176,15 @@ class ConfigTests(TempDir):
         self.assertIn("bad: kind ssh needs host", probs)
         self.assertIn("w: kind wsl needs distro", probs)
 
+    def test_scientist_env_worker_reference(self):
+        base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["scientist@main"])
+        sci = dict(base["scientist"])
+        sci["envs"] = dict(sci["envs"], far={"worker": "remote-a"}, empty={"worker": ""})
+        cfg = dict(base, scientist=sci)
+        probs = " ".join(ac.validate_config(cfg))
+        self.assertNotIn("far", probs)
+        self.assertIn("empty.worker", probs)
+
     def test_gate_mode_branch_override(self):
         cfg = config_examples()["author@main"]
         self.assertEqual(ac.gate_mode(cfg, "main"), "normal")

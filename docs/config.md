@@ -37,7 +37,11 @@ them valid.
     }
   },
   "board": "C:/absolute/path/of/the/board",
-  "human": {"name": "Roey", "noteMacro": "\\Roey"}
+  "human": {"name": "Roey", "noteMacro": "\\Roey"},
+  "compute": {
+    "workers": {"<worker>": {"transport": "ssh", "host": "...", "gateway": "<gateway>", "...": "..."}},
+    "gateways": {"<gateway>": {"kind": "vpn", "check": "...", "...": "..."}}
+  }
 }
 ```
 
@@ -50,6 +54,7 @@ them valid.
 | `instances.*.ns` | str | iff the instance has a registry | Claim-id prefix (`paper`, `s1`, `lab`) |
 | `board` | abs path | yes | The board repo (protocol.md section 2) |
 | `human` | map | no | `name` for display, `noteMacro` for the human's margin-note macro |
+| `compute` | map | no | The workspace's remote workers and the gateways in front of them (below) |
 
 `load_workspace` finds it at `$ACADEMY_WORKSPACE`, then `<academy repo>/workspace.json`,
 then `<academy repo>/../workspace.json` (the academy checked out inside the workspace). It
@@ -69,6 +74,52 @@ as environment variables, so no code or document needs a literal path:
 They are set in `.claude/settings.local.json` of the workspace and of every home, and in the
 workspace's `workspace.env` for plain shells (`set -a; . ./workspace.env`). To move a home,
 change the variable (or `home`) and nothing else.
+
+### `compute`: remote workers and gateways
+
+The machines experiments run on belong to the workspace, not to the academy: the plugins
+ship the mechanism (an ssh transport, the `fsq` queue runner deployed from the Scientist
+plugin, pluggable gateway checks; `scientist/scripts/workers.py`) and no machine of their
+own. A Scientist home names a worker; the worker's values live here, once:
+
+```json
+"compute": {
+  "workers": {
+    "remote-a": {"transport": "ssh", "host": "remote-a", "user": "ada",
+                 "remoteRoot": "~", "maxJobs": 1,
+                 "conda": {"prefix": "/data/ada/miniforge3", "env": "sci"},
+                 "gateway": "site-vpn"}
+  },
+  "gateways": {
+    "site-vpn": {"kind": "vpn", "client": "globalprotect", "check": "globalprotect",
+                 "portal": "vpn.example.org", "probeHost": "remote-a.example.org:22",
+                 "owner": "Ada", "onDown": "ask {owner} to connect {gateway}"}
+  }
+}
+```
+
+| Key | Req. | Meaning |
+|---|---|---|
+| `workers.<w>.transport` | no | `ssh` (the only transport; default) |
+| `workers.<w>.host` | yes | ssh host or alias (an `~/.ssh/config` alias may carry user and key) |
+| `workers.<w>.user` | no | ssh user; the destination becomes `user@host` |
+| `workers.<w>.remoteRoot` | no | Where homes are cloned on the worker: a home's remote repo is `<remoteRoot>/<home folder name>` (default `~/<home folder name>`); a profile's `repo` overrides (set it when the home is also used from a worktree with another folder name) |
+| `workers.<w>.conda` | no | `{prefix, env}`: the Miniforge prefix and the conda env jobs run in (`env.py setup` creates it, the runner activates it) |
+| `workers.<w>.maxJobs` | no | Runner concurrency cap, 1..3 |
+| `workers.<w>.gateway` | no | A key of `gateways`; none means the worker is reached directly |
+| `gateways.<g>.kind` | yes | `vpn` or `none` |
+| `gateways.<g>.check` | vpn | How "up" is decided, locally, before anything is sent: `globalprotect` (the adapter's status on Windows via `vpn.ps1`, else the `globalprotect` CLI), `openconnect` (an `openconnect` process runs), `tcp-reachable` (a TCP connection to `probeHost` opens within `timeoutMs`, default 4000), `command` (`command`, a shell line, exits 0 up / 1 down). Default: `client` |
+| `gateways.<g>.client`, `portal` | no | The VPN client and the portal the human connects to (for the human; `client` is the default `check`) |
+| `gateways.<g>.probeHost` | tcp-reachable | `host:port`; also what `env.py gateway --probe` connects to after a local check says up |
+| `gateways.<g>.adapter` | no | `globalprotect` on Windows: the adapter match (default `PANGP\|GlobalProtect`) |
+| `gateways.<g>.owner` | no | Who can bring the gateway up (default `human.name`) |
+| `gateways.<g>.onDown` | no | What the agent tells the human when the gateway is down; `{owner}`, `{human}`, `{gateway}`, `{worker}` are filled in (default "ask {owner} to bring up {gateway}; jobs for {worker} wait in the queue") |
+
+A gateway that is down means "queued, not failed": jobs wait in the home's queue, the
+agent repeats the `onDown` and stops. `env.py list` shows the resolved profiles and any
+problem of the block; `env.py gateway` runs the check alone. The workspace bootstrap
+copies `compute` from `workspace.template.json` into `workspace.json` unchanged (it holds
+no paths of the local machine).
 
 Adding an instance means one row here plus one `academy.json` in its home
 (`/academy:init`). The two must agree on `role`, `instance`, `domains` and `ns`;
@@ -215,22 +266,29 @@ Author's only queue; a config that still has the key validates and the key is ig
 
 | Key | Kinds | Req. | Meaning |
 |---|---|---|---|
-| `kind` | all | yes | `wsl` \| `local` \| `ssh` |
+| `worker` | (ssh) | — | A worker of the workspace's `compute.workers` (section 1): the profile is that worker's ssh profile (host, user, conda prefix and env, remote repo, maxJobs, gateway); any other key given here overrides the worker's value for this home. `kind` may then be omitted |
+| `kind` | all | yes, unless `worker` | `wsl` \| `local` \| `ssh` |
 | `distro` | wsl | yes | The WSL distro |
 | `conda` | wsl, local | no | The conda env to activate |
 | `host` | ssh | yes | ssh host alias |
+| `user` | ssh | no | ssh user (`user@host`) |
 | `prefix` | all | no | Conda (Miniforge) prefix on that machine; default `~/miniforge3` |
 | `env` | ssh | no | Remote conda env name |
 | `repo` | ssh | no | Remote clone of the home |
 | `maxJobs` | ssh, local | no | Runner concurrency cap, 1..3 |
-| `preflight` | all | no | Pluggable check, `<name>:<arg>`, e.g. `vpn:globalprotect`; a failing preflight on an ssh profile means "queued", not an error |
+| `gateway` | ssh | no | A key of the workspace's `compute.gateways`, checked before anything is sent; down means "queued", not an error |
+| `preflight` | all | no | The older inline form of a gateway, `vpn:<check>` (e.g. `vpn:globalprotect`) |
 | `pushUrl`, `remoteEnv` | ssh, wsl | no | Test stand-ins only (as in the legacy `queue/config.json`): the git URL the job commit is pushed to, and assignments prefixed to every runner call |
 
 The runner is `scientist/scripts/env.py` (`list`, `check <profile> [--live]`,
-`run <profile> ...`, `setup`, `vpn`, `queue ...`). Wherever it takes a profile it also
-takes a `policy` key (`probe`, `test`, `run`) or a legacy target (`wsl`,
-`wsl:<distro>`, `ssh:<host>`). A home with no academy.json yet gets its queue target
-from `queue/config.json` (profile `queue`) and a `laptop-wsl` profile.
+`run <profile> ...`, `setup`, `gateway` (alias `vpn`), `queue ...`). Wherever it takes a
+profile it also takes a `policy` key (`probe`, `test`, `run`) or a legacy target (`wsl`,
+`wsl:<distro>`, `ssh:<host or worker>`). It has no built-in profile: a name the home does
+not define is refused, with a pointer at `compute`. `setup` installs the packages the
+home's domain packs list in `domains/<pack>/computation/env.txt` (and runs the pack's
+`env-check.py`). A home with no academy.json yet gets its queue target from
+`queue/config.json` (profile `queue`, which must name a `target`) and a `laptop-wsl`
+profile.
 
 *Extensions (Group C, 2026-09-28):* `prefix` on every kind (was ssh only),
 `pushUrl` / `remoteEnv`, `queue.mcpAdd`, and the `checker` row above (read by
@@ -394,11 +452,9 @@ a shim until phase 8.
     "envs": {
       "laptop-wsl": {"kind": "wsl", "distro": "Ubuntu", "conda": "flatsurf"},
       "local": {"kind": "local", "conda": "flatsurf"},
-      "lingo": {"kind": "ssh", "host": "lingo", "prefix": "/data/roeyzemmel/miniforge3",
-                "env": "flatsurf", "repo": "~/<lab>", "maxJobs": 1,
-                "preflight": "vpn:globalprotect"}
+      "remote-a": {"worker": "remote-a"}
     },
-    "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "lingo"},
+    "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "remote-a"},
     "queue": {"dir": "queue", "fsqHome": "~/fsq", "maxJobs": 1},
     "experimentTypes": ["search", "measure", "verify", "probe"],
     "reportTemplates": "${CLAUDE_PLUGIN_ROOT}/templates",
@@ -417,9 +473,11 @@ a shim until phase 8.
 - a required path key for the role is missing, or the role block is missing;
 - `budget.itemsPerRun` is outside 1..3, or a model name is unknown;
 - `gate.commit` (or a branch override) is outside `strict | normal | warn | off`;
-- for a scientist: any profile `kind` is outside `wsl | local | ssh`, an ssh profile
-  has no `host`, a wsl profile has no `distro`, or a `policy` entry names no
-  existing profile.
+- for a scientist: any profile `kind` is outside `wsl | local | ssh` (a profile with
+  `worker` may omit it), an ssh profile has no `host`, a wsl profile has no `distro`,
+  a `worker` is empty, or a `policy` entry names no existing profile. Whether the
+  worker exists in the workspace's `compute` is checked by `env.py` (`list`, `check`)
+  and `env_check`, not here.
 
 Unknown extra keys are allowed, for forward compatibility. `session_start` prints the
 problems and stays silent otherwise.

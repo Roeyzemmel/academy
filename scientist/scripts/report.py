@@ -64,6 +64,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import _common as c  # noqa: E402
+import workers as wk  # noqa: E402
 from _common import ac  # noqa: E402
 
 PLUGIN = os.path.dirname(HERE)
@@ -101,6 +102,17 @@ class Refused(ac.AcademyError):
 # ----------------------------------------------------------------------------
 # Parsing
 # ----------------------------------------------------------------------------
+
+
+def _profile_def(name, prof, home):
+    """The profile as run: a worker reference resolved against the workspace's compute
+    block (workers.py); the raw entry if it does not resolve."""
+    if not isinstance(prof, dict):
+        return {}
+    try:
+        return wk.expand_profile(name, prof, wk.load_compute(), home)
+    except wk.WorkerError:
+        return prof
 
 def parse_header(text):
     """Map field -> value (continuation lines joined) from the module docstring.
@@ -422,7 +434,8 @@ def gather(script, lab, result=None, draft=None, rtype=None, env=None, job=None)
         "draft": dsec, "draft_path": dpath, "establishes": est, "not_established": notest,
         "word": word, "proposed_claim": pclaim or (claims[0] if claims else ""),
         "proposed_status": pstatus, "next_step": nxt, "cannot": cannot,
-        "profile": profile, "profile_def": envs.get(profile) or {}, "commit": commit,
+        "profile": profile, "profile_def": _profile_def(profile, envs.get(profile), home),
+        "commit": commit,
         "dirty": dirty, "reproduced": reproduced, "vsource": vsource, "job": job,
         "notes": notes,
     }

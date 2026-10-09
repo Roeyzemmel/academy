@@ -25,6 +25,8 @@
     "figures": "figures.md",
     "computation": "computation/README.md",
     "computation/api": "computation/api/INDEX.md",
+    "computation/env": "computation/env.txt",
+    "computation/env-check": "computation/env-check.py",
     "computation/scripts/billiard_trace": "computation/scripts/billiard_trace.py",
     "computation/scripts/origami_illumination": "computation/scripts/origami_illumination.py",
     "changelog": "CHANGELOG.md"

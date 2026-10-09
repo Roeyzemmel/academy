@@ -1,32 +1,36 @@
 <#
 .SYNOPSIS
-  Is the TAU VPN up? Local check, no network round trip.
+  The "globalprotect" gateway check: is the GlobalProtect tunnel up? Local check,
+  no network round trip.
 
 .DESCRIPTION
   Prints one line and sets the exit code: 0 = up, 1 = down, 2 = cannot tell.
-  Meant to be called before anything that talks to lingo, so a poll costs a
-  millisecond instead of an eight-second TCP timeout.
+  env.py runs it (Windows only) for a workspace gateway whose check is
+  globalprotect (workspace.json compute.gateways; docs/config.md), before anything
+  is sent to the worker behind it, so a poll costs a millisecond instead of an
+  ssh timeout.
 
-  The VPN is Palo Alto GlobalProtect, which installs a virtual adapter
-  ("PANGP Virtual Ethernet Adapter Secure", usually "Ethernet 4"). The adapter
-  exists whether or not the tunnel is up; its Status is what changes, from
-  Disabled to Up. Matching on the description rather than the name survives a
-  rename. Note that DNS is NOT a discriminator: lingo.tau.ac.il resolves to
-  132.66.113.252 from the open internet, and only the connection times out.
+  Palo Alto GlobalProtect installs a virtual adapter ("PANGP Virtual Ethernet
+  Adapter Secure"). The adapter exists whether or not the tunnel is up; its Status
+  is what changes, from Disabled to Up. Matching on the description rather than the
+  name survives a rename. DNS is not a discriminator: a host behind such a VPN often
+  resolves from the open internet, and only the connection times out.
 
-  -Probe additionally opens a TCP connection to the host, for the case where
-  the tunnel is up but the host is down; it costs the timeout and is off by
-  default.
+  -AdapterPattern overrides the adapter match (the gateway's "adapter" key).
+  -Probe additionally opens a TCP connection to -HostName:-Port (the gateway's
+  probeHost), for the case where the tunnel is up but the host is down; env.py
+  does that probe itself, so -Probe is for running this script by hand.
 
 .EXAMPLE
-  scripts\vpn.ps1
-  scripts\vpn.ps1 -Quiet; if ($LASTEXITCODE -eq 0) { scripts\queue.ps1 -Tick }
-  scripts\vpn.ps1 -Probe
+  vpn.ps1
+  vpn.ps1 -Quiet; if ($LASTEXITCODE -eq 0) { "up" }
+  vpn.ps1 -Probe -HostName server.example.org -Port 22
 #>
 param(
   [switch] $Quiet,
   [switch] $Probe,
-  [string] $HostName = "lingo.tau.ac.il",
+  [string] $AdapterPattern = 'PANGP|GlobalProtect',
+  [string] $HostName = "",
   [int]    $Port = 22,
   [int]    $TimeoutMs = 4000
 )
@@ -36,11 +40,11 @@ $ErrorActionPreference = "Stop"
 function Say($msg) { if (-not $Quiet) { Write-Host $msg } }
 
 $adapter = Get-NetAdapter | Where-Object {
-  $_.InterfaceDescription -match 'PANGP|GlobalProtect' -or $_.Name -match 'GlobalProtect'
+  $_.InterfaceDescription -match $AdapterPattern -or $_.Name -match $AdapterPattern
 } | Select-Object -First 1
 
 if (-not $adapter) {
-  Say "vpn: cannot tell (no GlobalProtect adapter found)"
+  Say "vpn: cannot tell (no adapter matching '$AdapterPattern' found)"
   exit 2
 }
 
@@ -52,6 +56,10 @@ if ($adapter.Status -ne 'Up') {
 if (-not $Probe) {
   Say "vpn: up ($($adapter.Name))"
   exit 0
+}
+if (-not $HostName) {
+  Say "vpn: up ($($adapter.Name)); -Probe needs -HostName"
+  exit 2
 }
 
 # Tunnel is up; check the host itself. TcpClient with an explicit wait, because

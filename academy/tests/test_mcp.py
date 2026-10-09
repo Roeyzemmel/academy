@@ -530,6 +530,14 @@ class TestOtherTools(McpTestBase):
                                                         "preflight": "nope"})))
         err, msg = s.call("env_check", env="nope")
         self.assertTrue(err)
+        # a worker reference resolves against the workspace's compute block
+        ws = {"human": {"name": "Ada"}, "compute": {
+            "workers": {"remote-a": {"host": "remote-a", "gateway": "gw-a"}},
+            "gateways": {"gw-a": {"kind": "vpn", "check": "tcp-reachable",
+                                  "probeHost": "remote-a:22"}}}}
+        self.assertEqual(qtools.check_profile("x", {"worker": "remote-a"}, workspace=ws), [])
+        self.assertIn("compute.workers",
+                      qtools.check_profile("x", {"worker": "nowhere"}, workspace=ws)[0])
 
     def test_queue_add_dry_run(self):
         """queue_add builds the job with the Scientist's env.py; by default (and in the

@@ -3,7 +3,7 @@
 Usage::
 
     py lab.py home   [--home DIR] [--json]
-    py lab.py cmd    [--home DIR] ACTION [ARGS ...]     ACTION: queue | run | vpn | check
+    py lab.py cmd    [--home DIR] ACTION [ARGS ...]     ACTION: queue | run | gateway | check
     py lab.py status [--home DIR] [--board DIR] [--json]
 
 ``home`` prints the Scientist instance the session acts for (from --home, the cwd,
@@ -13,9 +13,10 @@ the policy.
 
 ``cmd`` prints the one command line that performs ACTION today. With the plugin's
 runner (``scripts/env.py``, Group C): ``py "<plugin>/scripts/env.py" --home "<home>"
-ACTION ARGS`` for queue, run and vpn. ``env.py queue`` also takes the legacy
-``queue.ps1`` flags, so ``cmd queue -List`` works unchanged; ``env.py run`` takes
-``PROFILE SCRIPT [ARGS]``; ``env.py vpn`` takes ``-Quiet`` / ``-Probe``. check is
+ACTION ARGS`` for queue, run and gateway (``vpn`` is its older name). ``env.py queue``
+also takes the legacy ``queue.ps1`` flags, so ``cmd queue -List`` works unchanged;
+``env.py run`` takes ``PROFILE SCRIPT [ARGS]``; ``env.py gateway`` (the run profile's
+gateway, from the workspace's compute block) takes ``-Quiet`` / ``-Probe``. check is
 ``py "<plugin>/scripts/check_experiments.py" --home "<home>" ARGS``. A plugin copy
 without them falls back to the home's own ``scripts\\queue.ps1`` / ``run.ps1`` /
 ``vpn.ps1`` / ``check_experiments.py``, run from the home.
@@ -43,6 +44,7 @@ PLUGIN = os.path.dirname(HERE)
 QUEUE_STATES = ("pending", "running", "done", "parked")
 LEGACY = {"queue": ("powershell", "scripts/queue.ps1"),
           "run": ("powershell", "scripts/run.ps1"),
+          "gateway": ("powershell", "scripts/vpn.ps1"),   # a pre-plugin home's own check
           "vpn": ("powershell", "scripts/vpn.ps1"),
           "check": ("py", "scripts/check_experiments.py")}
 
@@ -215,8 +217,10 @@ def main(argv=None):
                                         "switched over" if d["switched"]
                                         else "no academy.json yet: layout defaults"))
                 print("domains: %s" % ", ".join("%s -> %s" % kv for kv in d["packs"].items()))
-                print("envs: %s" % (", ".join("%s (%s)" % (k, v.get("kind"))
-                                              for k, v in d["envs"].items()) or "none"))
+                print("envs: %s" % (", ".join(
+                    "%s (%s)" % (k, ("worker " + str(v["worker"])) if isinstance(v, dict)
+                                 and v.get("worker") else (v or {}).get("kind"))
+                    for k, v in d["envs"].items()) or "none"))
                 print("policy: %s" % (", ".join("%s=%s" % kv for kv in d["policy"].items())
                                       or "none"))
                 if d["note"]:
