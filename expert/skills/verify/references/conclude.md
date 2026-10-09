@@ -20,7 +20,11 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   environment's text in the file) into a scratch file and hash it:
   `py $E/reviews.py hash --file <scratch>`.
 - **Open the pass.** `py $E/reviews.py new-pass <id> --ticket T-NNNN` gives the pass
-  name; `py $E/reviews.py dir <id> <pass>` the folder the hook will land into.
+  name; `py $E/reviews.py dir <id> <pass>` the folder the hook will land into. Never
+  two concurrent passes on one statement: `new-pass` refuses while another pass on
+  `<id>` is open (no `decision.md`). Conclude that one first, or, if it is dead (a
+  stalled run, a changed statement), close it with
+  `py $E/reviews.py abandon <id> <pass> --reason "..."` and say so in the thread.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
   reviewer reads the files, `budget.md` rule 9):
 
