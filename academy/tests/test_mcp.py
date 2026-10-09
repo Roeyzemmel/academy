@@ -246,6 +246,37 @@ class TestTickets(McpTestBase):
         self.assertEqual([tagged["id"]], [r["id"] for r in rows])
         self.assertEqual("paper:thm:x", rows[0]["campaign"])
 
+    def test_create_cowork_field_end_to_end(self):
+        """The cowork tag: tickets_create -> the ticket -> inbox --cowork -> workplan state."""
+        author = self.server("author@t")
+        w = "author:math-writer"
+        args = dict(title="Verify lem:x", kind="verify", to="expert@t", ask="Verify it.",
+                    deliverable="A packet.")
+        err, tagged = author.call("tickets_create", caller=w, cowork="flat-section", **args)
+        self.assertFalse(err, tagged)
+        err, plain = author.call("tickets_create", caller=w, **args)
+        self.assertFalse(err, plain)
+        err, got = author.call("tickets_get", caller=w, id=tagged["id"])
+        self.assertEqual("flat-section", got["meta"]["cowork"])
+        self.assertEqual([], got["problems"])
+        # a slug only, and never both workplans at once
+        err, msg = author.call("tickets_create", caller=w, cowork="Flat Section", **args)
+        self.assertTrue(err)
+        self.assertIn("slug", msg)
+        err, msg = author.call("tickets_create", caller=w, cowork="c", campaign="paper:x",
+                               **args)
+        self.assertTrue(err)
+        self.assertIn("one workplan", msg)
+        rows, _t = ac.inbox_core.select(self.board, "expert@t", 3, cowork="flat-section",
+                                        route=lambda m: {"how": "skill", "target": "x",
+                                                         "why": "y"})
+        self.assertEqual([tagged["id"]], [r["id"] for r in rows])
+        self.assertEqual("flat-section", rows[0]["cowork"])
+        import workplan
+        st = workplan.state([m for _p, m in ac.as_store(self.board).iter_meta()],
+                            "cowork", "flat-section")
+        self.assertEqual(("WAITING", [tagged["id"]]), (st["state"], st["out"]))
+
     def test_round_trip(self):
         author = self.server("author@t")
         expert = self.server("expert@t")

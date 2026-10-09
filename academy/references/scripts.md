@@ -21,6 +21,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `error_ledger.py` | usage-analyst, the PostToolUseFailure hook | `hook` (event on stdin) · `report [--days 7\|--since D] [--json]` · `settle --packet P-NNNN [--quiet-days 7]` · `resolve SIG... [--note T]`: the error ledger `<board>/.errors/<instance>.jsonl` |
 | `session_usage.py` | usage | `<session-id> [--project DIR]`: one session, per subagent |
 | `session_start.py` | the SessionStart hook | (no arguments; reads the hook event) |
+| `cowork.py` | cowork, desk, inbox | `new SLUG --goal G [--agents A]` (the plan `<board>/cowork/<slug>.md`) · `status SLUG [--json]` (state from the tagged tickets: ACTIVE, WAITING, PAUSE, DONE) · `list [--kind cowork\|campaign\|all] [--json]` (the active workplans; exit 1 none); the mechanics are `academy/lib/workplan.py` |
 | `role_write_guard.py` | the PreToolUse hook (Edit/Write) | (hook: `permissions.json` `files.cross_role`; roster-rules.md, "Role cut") |
 
 `board.py new` requires `--as <instance>` (the main session inside a home files as

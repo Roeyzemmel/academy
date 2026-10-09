@@ -1,7 +1,7 @@
 """inbox.py -- the Expert's inbox: which tickets to take this run, and where each goes.
 
     py inbox.py [--instance expert@main] [--n N | --limit N] [--all] [--json]
-                [--campaign TARGET]
+                [--campaign TARGET | --cowork SLUG]
     py inbox.py --check T-NNNN          the serial checkpoint of a ticket just handled
 
 A thin wrapper over the academy's ``inbox_core`` (``_academy.py``): the tickets addressed

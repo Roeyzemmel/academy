@@ -391,7 +391,7 @@ class AcademyStatusTest(Sandbox):
 
 class AsHumanLintTests(unittest.TestCase):
     ALLOWED = {os.path.join("academy", "skills", s, "SKILL.md")
-               for s in ("board", "desk", "decide")}
+               for s in ("board", "desk", "decide", "cowork")}
     PATTERN = re.compile(r"as_human|--as\s+human")
 
     def test_only_board_desk_decide_file_as_human(self):
@@ -412,8 +412,10 @@ class AsHumanLintTests(unittest.TestCase):
                             if rel not in self.ALLOWED and rel != os.path.join(
                                     "academy", "scripts", "board.py"):
                                 bad.append(rel)
-        self.assertEqual(bad, [], "only /academy:board, desk and decide file as human")
-        self.assertTrue(self.ALLOWED <= seen, "the three skills must say --as human")
+        self.assertEqual(bad, [], "only /academy:board, desk, decide and cowork (the "
+                                  "orchestrator, after the human approved the plan) "
+                                  "file as human")
+        self.assertTrue(self.ALLOWED <= seen, "the four skills must say --as human")
 
 
 class ChainDocsTests(unittest.TestCase):

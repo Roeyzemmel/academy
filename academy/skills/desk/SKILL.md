@@ -11,12 +11,15 @@ description: 'Roey''s front desk: classifies a plain-language request and routes
 ## No argument: the one-screen summary
 
 1. Run `py $S/academy_status.py --since last --usage --mark-visit`.
-2. Show its output as it is, in one block. Its `NEEDS YOU (N)` line is the
+   Then `py $S/cowork.py list`: the active workplans (each cowork and campaign with its
+   state, `WAITING` / `PAUSE` / `ACTIVE`, and its open tickets).
+2. Show both outputs as they are, in one block each. The status `NEEDS YOU (N)` line is the
    pending-decision count — every ticket to human, every ticket blocked on human, and
    every open packet, the same three sources `/academy:decide` works from. Below the
    block, at most three lines: the most urgent thing that needs Roey and the command
    that handles it (`/academy:decide` when `NEEDS YOU` is non-zero, `/academy:review`
-   for the packet dashboard specifically, `/academy:board show T-NNNN` for one ticket).
+   for the packet dashboard specifically, `/academy:board show T-NNNN` for one ticket,
+   `/academy:cowork <slug> --resume` for a cowork that waits on the human).
 3. Stop. Start nothing.
 
 ## With a request

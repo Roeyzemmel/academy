@@ -33,6 +33,8 @@ for the home they run in. It has no README; its agents are:
 | `secretary` | Behind `/academy:decide`: phrases pending-decision batches in plain language; read-only, records nothing |
 
 Skills: `desk`, `board`, `review`, `decide`, `deep-dive`, `status`, `init`, `usage`,
+`inbox`, `cowork` (the human leads, the main session orchestrates:
+`academy/references/orchestrator.md`),
 and the best-practice skills `rigor`, `status-vocabulary`, `citation-discipline`,
 `notation-discipline`, `honest-reporting`.
 

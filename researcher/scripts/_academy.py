@@ -73,6 +73,7 @@ RE_INSTANCE = re.compile(r"^(author|researcher|expert|scientist)@[a-z0-9][a-z0-9
 RE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 RE_TICKET_ID = re.compile(r"^T-\d{4,}$")
 RE_PACKET_ID = re.compile(r"^P-\d{4,}$")
+RE_COWORK = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 CONFIG_REL = os.path.join(".claude", "academy.json")
 BOARD_BACKENDS = ("files", "github")
@@ -1196,12 +1197,12 @@ TICKET_FIELDS = {
     "system": ("id", "from", "created", "updated"),
     "human_only": ("to",),
     "sender": ("title", "kind", "ask", "deliverable", "refs", "priority", "budget",
-               "parent", "blocks", "agenda", "domain", "final_to", "campaign"),
+               "parent", "blocks", "agenda", "domain", "final_to", "campaign", "cowork"),
     "receiver": ("status", "result", "waiting_on", "blocked_by", "reopen_if", "packets"),
 }
 TICKET_KEY_ORDER = ("id", "title", "kind", "from", "to", "status", "priority", "ask",
                     "deliverable", "refs", "agenda", "domain", "parent", "final_to", "campaign",
-                    "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
+                    "cowork", "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
                     "packets", "created", "updated")
 REQUIRED_TICKET_FIELDS = ("id", "title", "kind", "from", "to", "status", "ask",
                           "deliverable", "priority", "budget", "created", "updated")
@@ -1584,6 +1585,10 @@ def validate_ticket(meta, body=None, workspace=None):
     if meta.get("campaign") is not None and (not isinstance(meta["campaign"], str)
                                              or "\n" in meta["campaign"]):
         probs.append("campaign must be a registry id (the campaign's target)")
+    if meta.get("cowork") is not None and not RE_COWORK.match(str(meta["cowork"])):
+        probs.append("cowork must be a slug [a-z0-9-] (the plan file board/cowork/<slug>.md)")
+    if meta.get("campaign") and meta.get("cowork"):
+        probs.append("a ticket belongs to one workplan: campaign or cowork, not both")
     ft = meta.get("final_to")
     if ft and ft not in ROLES and not RE_INSTANCE.match(str(ft)):
         probs.append("final_to must be a role or an instance name, not %r" % ft)
@@ -2037,8 +2042,9 @@ class inbox_core(object):
     ordered by priority, then agenda position (a ticket that has an ``agenda`` field
     first, or ``position(meta)`` when the wrapper knows the agenda), then id. Dead-route
     blocked tickets (both ``blocked_by`` and ``reopen_if``) and pending blocked ones
-    are never taken. The limit is at most 3, except for a campaign (``campaign`` names
-    its target; only tickets carrying ``campaign: <target>`` are listed).
+    are never taken. The limit is at most 3, except for a workplan: a campaign
+    (``campaign`` names its target; only tickets carrying ``campaign: <target>`` are
+    listed) or a cowork (``cowork``, its slug, the same way; academy/lib/workplan.py).
     """
 
     TAKE = ("open", "accepted")
@@ -2082,7 +2088,8 @@ class inbox_core(object):
 
     @staticmethod
     def select(board, instance, limit=3, all=False, route=None, campaign=None,
-               position=None, return_legs=True, position_first=False, extra=None):
+               position=None, return_legs=True, position_first=False, extra=None,
+               cowork=None):
         """``(rows, total)``: the tickets to handle, and how many were eligible.
 
         ``all`` lists every open, accepted, in-progress and blocked ticket without the
@@ -2102,6 +2109,8 @@ class inbox_core(object):
         for m in store.read_all(instance):
             st = m.get("status")
             if campaign and m.get("campaign") != campaign:
+                continue
+            if cowork and m.get("cowork") != cowork:
                 continue
             dead = is_dead_route(m)
             ret = False
@@ -2136,15 +2145,16 @@ class inbox_core(object):
         total = len(rows)
         if not all:
             n = max(1, int(limit))
-            rows = rows[:n if campaign else min(n, inbox_core.MAX)]
+            rows = rows[:n if (campaign or cowork) else min(n, inbox_core.MAX)]
         return rows, total
 
     @staticmethod
-    def outside_campaign(board, instance, campaign):
-        """Ids of the instance's in-progress tickets that do not carry ``campaign``: the
-        campaign listing leaves them out, but they are unfinished work all the same."""
+    def outside_campaign(board, instance, campaign, field="campaign"):
+        """Ids of the instance's in-progress tickets that do not carry ``campaign`` (in
+        ``field``: ``campaign`` or ``cowork``): the workplan listing leaves them out,
+        but they are unfinished work all the same."""
         return [m["id"] for m in as_store(board).read_all(instance)
-                if m.get("status") == "in-progress" and m.get("campaign") != campaign]
+                if m.get("status") == "in-progress" and m.get(field) != campaign]
 
     @staticmethod
     def _row(m, route):
@@ -2158,7 +2168,7 @@ class inbox_core(object):
                 "priority": m.get("priority") or "normal", "from": m.get("from"),
                 "title": m.get("title"), "agenda": m.get("agenda"),
                 "budget": m.get("budget"), "refs": m.get("refs") or [],
-                "campaign": m.get("campaign"), "route": r, "return": bool(m.get("_return")),
+                "campaign": m.get("campaign"), "cowork": m.get("cowork"), "route": r, "return": bool(m.get("_return")),
                 "over_budget": over, "blocked": m.get("_blocked"), "path": m.get("_path")}
 
     @staticmethod
@@ -2381,8 +2391,11 @@ class inbox_core(object):
                              "--limit is an alias")
         ap.add_argument("--all", action="store_true", help="list without taking or cutting")
         ap.add_argument("--json", action="store_true")
-        ap.add_argument("--campaign", metavar="TARGET",
+        wp = ap.add_mutually_exclusive_group()
+        wp.add_argument("--campaign", metavar="TARGET",
                         help="only tickets carrying `campaign: TARGET`")
+        wp.add_argument("--cowork", metavar="SLUG",
+                        help="only tickets carrying `cowork: SLUG` (/academy:cowork)")
         ap.add_argument("--check", metavar="T-NNNN",
                         help="the serial checkpoint of one ticket (exit 3 if unfinished); a "
                              "finished ticket also runs the workspace's ship.py checkpoint "
@@ -2404,8 +2417,10 @@ class inbox_core(object):
                                            ("; " + r["problem"]) if r["problem"] else ""))
             inbox_core.ship_checkpoint(args, instance, board, r, role=role, out=out)
             return 3 if r["unfinished"] else 0
-        if args.campaign:
-            # a campaign lifts the cap of 3 (docs/protocol.md): --n alone bounds it
+        cowork = getattr(args, "cowork", None)
+        field, plan = ("cowork", cowork) if cowork else ("campaign", args.campaign)
+        if plan:
+            # a workplan lifts the cap of 3 (docs/protocol.md): --n alone bounds it
             limit = max(1, int(args.n)) if args.n else None
         else:
             limit = min(max(1, int(args.n)) if args.n else inbox_core.MAX,
@@ -2413,18 +2428,19 @@ class inbox_core(object):
         rows, total = inbox_core.select(board, instance, limit or 10 ** 9, all=args.all,
                                         route=route, campaign=args.campaign,
                                         position=position, return_legs=return_legs,
-                                        position_first=position_first, extra=extra)
+                                        position_first=position_first, extra=extra,
+                                        cowork=cowork)
         header = header or {}
         left = 0 if args.all else max(0, total - len(rows))
         unfinished = inbox_core.unfinished(rows)
         outside = []
-        if args.campaign and not args.all:
-            outside = inbox_core.outside_campaign(board, instance, args.campaign)
+        if plan and not args.all:
+            outside = inbox_core.outside_campaign(board, instance, plan, field)
             unfinished = unfinished + [t for t in outside if t not in unfinished]
         if args.json:
             doc = {"instance": instance, "limit": limit, "waiting": total,
                    "take": rows, "remaining": left, "unfinished": unfinished}
-            if args.campaign:
+            if plan:
                 doc["outside_campaign"] = outside
             doc.update(header.get("json") or {})
             out.write(json.dumps(doc, ensure_ascii=False, indent=1) + "\n")
@@ -2444,8 +2460,9 @@ class inbox_core(object):
             out.write("unfinished: %s; resume before taking anything new\n"
                       % ", ".join(unfinished))
         if outside:
-            out.write("(%s are in progress outside campaign %s: the campaign list leaves "
-                      "them out; resume them first)\n" % (", ".join(outside), args.campaign))
+            out.write("(%s are in progress outside %s %s: the %s list leaves "
+                      "them out; resume them first)\n" % (", ".join(outside), field, plan,
+                                                            field))
         out.write("%d taken, %d remaining\n" % (len(rows), left))
         for line in header.get("text_after") or []:
             out.write(line + "\n")
