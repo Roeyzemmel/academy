@@ -61,7 +61,7 @@ assumes it.
 }
 ```
 
-Point vocabulary, fixed for the whole paper:
+Point vocabulary, fixed for a whole paper (a project's decisions file may refine it):
 
 | Mark | Means |
 |---|---|
@@ -195,7 +195,7 @@ goes, or show the covering picture in which the obstruction becomes visible.
 - **Keep each figure in its own file.** Figures get reused between the paper, talks,
   and referee responses. **The project decides the directory and the inclusion
   command**, not this pack: read the home's LaTeX conventions first (for example,
-  BilliardIllumination keeps standalone sources under `tikz/` and includes them with
+  a paper home may keep standalone sources under `tikz/` and include them with
   `\includestandalone[width=…]{tikz/<name>}` inside a `figure` with a `fig:` label).
   Older advice here said "`figures/` and `\input`"; that was one project's habit, not
   a convention of the pack.

@@ -1,7 +1,7 @@
 """Federation (part 2): load any namespace through its own profile.
 
 A foreign id is resolved by loading its home with that home's profile, never by a
-regex over the files. So ``s1:`` verdicts, runs and aliases resolve, and Unicode ids
+regex over the files. So a notebook's verdicts, runs and aliases resolve, and Unicode ids
 (``GA-2T′``) pass. Stores are cached per (namespace, home) in ``CACHE``, the dict the
 claims.py shim exposes as ``_cache`` (its tests clear it between cases).
 """

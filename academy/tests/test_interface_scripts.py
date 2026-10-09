@@ -60,7 +60,7 @@ class Sandbox(unittest.TestCase):
             "author@p": {"role": "author", "home": self.home_a, "domains": ["dom"],
                          "ns": "paper"},
             "expert@d": {"role": "expert", "home": self.home_e, "domains": ["dom"]}},
-            "board": self.board, "human": {"name": "Roey", "noteMacro": "\\Roey"}}
+            "board": self.board, "human": {"name": "Ada", "noteMacro": "\\Ada"}}
         write(self.ws_path, json.dumps(ws, indent=2) + "\n")
         self._saved = os.environ.get("ACADEMY_WORKSPACE")
         os.environ["ACADEMY_WORKSPACE"] = self.ws_path
@@ -251,7 +251,7 @@ class InitInstanceTest(Sandbox):
             self.assertNotIn("{{", text, role)
         self.assertNotIn("ns", init_instance.build_config("expert@x", ["d"], workspace=ws))
         cfg = init_instance.build_config("author@x", ["d"], workspace=ws)
-        self.assertEqual(cfg["author"]["noteMacros"]["human"], ["\\Roey"])
+        self.assertEqual(cfg["author"]["noteMacros"]["human"], ["\\Ada"])
         self.assertEqual(cfg["ns"], "x")
 
     def test_author_template_has_no_roadmap_path_but_an_old_config_validates(self):
@@ -296,6 +296,27 @@ class InitInstanceTest(Sandbox):
                                             workspace_path=self.ws_path, force=True)
         self.assertTrue(any("present" in l for l in lines))
 
+    def test_author_scaffold_writes_the_vision_file_once(self):
+        home = os.path.join(self.tmp, "Paper")
+        os.makedirs(home)
+        lines = init_instance.init_instance("author@pp", home, ["dom"], ns="pp",
+                                            workspace_path=self.ws_path)
+        path = os.path.join(home, "Drafts", "vision.md")
+        self.assertTrue(any(l.startswith("vision: wrote") for l in lines), lines)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("# Vision: author@pp", text)
+        self.assertNotIn("{{", text)
+        for head in ("## The arc", "## Statements", "## Proofs", "## Decisions log"):
+            self.assertIn(head, text)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("kept\n")
+        lines = init_instance.init_instance("author@pp", home, ["dom"], ns="pp",
+                                            workspace_path=self.ws_path, force=True)
+        self.assertIn("vision: present, left alone", lines)
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual("kept\n", fh.read())
+
     def test_gitattributes(self):
         home = os.path.join(self.tmp, "Attrs")
         os.makedirs(home)
@@ -322,6 +343,64 @@ class InitInstanceTest(Sandbox):
         init_instance.init_instance("scientist@mine", mine, ["dom"],
                                     workspace_path=self.ws_path, force=True)
         self.assertEqual(read(os.path.join(mine, ".gitattributes")), "*.tex -text\n")
+
+    def test_scientist_scaffold_writes_the_lab(self):
+        home = os.path.join(self.tmp, "Lab")
+        os.makedirs(home)
+        lines = init_instance.init_instance("scientist@lab2", home, ["dom"], ns="lab2",
+                                            workspace_path=self.ws_path)
+        self.assertTrue(any(l.startswith("lab: ") and not l.startswith("lab: 0")
+                            for l in lines), lines)
+        pkg = ac.load_config(home)["paths"]["package"]
+        self.assertTrue(os.path.isfile(os.path.join(home, pkg, "env.py")))
+        tpl = read(os.path.join(home, "experiments", "_template.py"))
+        self.assertIn("from %s import env" % pkg, tpl)
+        self.assertIn("lab2:foo", tpl)
+        self.assertNotIn("{{", read(os.path.join(home, "experiments", "README.md")))
+
+    def test_expert_scaffold_writes_the_library_readme_once(self):
+        home = os.path.join(self.tmp, "Lib")
+        os.makedirs(home)
+        lines = init_instance.init_instance("expert@lib", home, ["dom"],
+                                            workspace_path=self.ws_path)
+        self.assertTrue(any(l.startswith("library README: wrote") for l in lines), lines)
+        text = read(os.path.join(home, "README.md"))
+        self.assertIn("`expert@lib`", text)
+        self.assertNotIn("{{", text)
+        with open(os.path.join(home, "README.md"), "w") as fh:
+            fh.write("mine\n")
+        lines = init_instance.init_instance("expert@lib", home, ["dom"],
+                                            workspace_path=self.ws_path, force=True)
+        self.assertIn("library README: present, left alone", lines)
+        self.assertEqual(read(os.path.join(home, "README.md")), "mine\n")
+
+    def test_board_readme_lists_the_instances_and_is_regenerated(self):
+        home = os.path.join(self.tmp, "Nb1")
+        os.makedirs(home)
+        lines = init_instance.init_instance("researcher@nb1", home, ["dom"], ns="nb1",
+                                            workspace_path=self.ws_path)
+        self.assertIn("board README: wrote", lines)
+        path = os.path.join(self.board, "README.md")
+        text = read(path)
+        self.assertNotIn("{{", text)
+        for name in ("author@p", "expert@d", "researcher@nb1"):
+            self.assertIn("`%s/`" % name, text)
+        # a hand edit outside the markers survives; the table follows the workspace
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("\nLocal note.\n")
+        home2 = os.path.join(self.tmp, "Nb2")
+        os.makedirs(home2)
+        lines = init_instance.init_instance("researcher@nb2", home2, ["dom"], ns="nb2",
+                                            workspace_path=self.ws_path)
+        self.assertIn("board README: updated", lines)
+        text = read(path)
+        self.assertIn("`researcher@nb2/`", text)
+        self.assertIn("Local note.", text)
+        # a README without the markers is left alone
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("# ours\n")
+        self.assertEqual(init_instance.write_board_readme(self.board, {"a@b": {}}), "present")
+        self.assertEqual(read(path), "# ours\n")
 
     def test_conflicting_registration(self):
         other = os.path.join(self.tmp, "Other")
@@ -370,7 +449,7 @@ class AcademyStatusTest(Sandbox):
 
 class AsHumanLintTests(unittest.TestCase):
     ALLOWED = {os.path.join("academy", "skills", s, "SKILL.md")
-               for s in ("board", "desk", "decide")}
+               for s in ("board", "desk", "decide", "cowork")}
     PATTERN = re.compile(r"as_human|--as\s+human")
 
     def test_only_board_desk_decide_file_as_human(self):
@@ -391,8 +470,10 @@ class AsHumanLintTests(unittest.TestCase):
                             if rel not in self.ALLOWED and rel != os.path.join(
                                     "academy", "scripts", "board.py"):
                                 bad.append(rel)
-        self.assertEqual(bad, [], "only /academy:board, desk and decide file as human")
-        self.assertTrue(self.ALLOWED <= seen, "the three skills must say --as human")
+        self.assertEqual(bad, [], "only /academy:board, desk, decide and cowork (the "
+                                  "orchestrator, after the human approved the plan) "
+                                  "file as human")
+        self.assertTrue(self.ALLOWED <= seen, "the four skills must say --as human")
 
 
 class ChainDocsTests(unittest.TestCase):

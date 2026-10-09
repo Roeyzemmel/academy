@@ -24,7 +24,7 @@ SHELL_AND_WRITE = {"Bash", "PowerShell", "Write", "Edit", "MultiEdit", "Notebook
 #: words that would mean domain mathematics leaked into the role plugin
 DOMAIN_WORDS = ("translation surface", "origami", "flatsurf", "sage", "veech", "saddle",
                 "billiard", "wollmilchsau", "christoffel", "stratum", "surface_dynamics",
-                "lingo", "slope1", "kb.py")
+                "slope1", "kb.py")   # machine and project names: academy/tests/test_generic.py
 
 
 def frontmatter(path):
@@ -182,7 +182,8 @@ class PluginTests(unittest.TestCase):
         for event, groups in hooks.items():
             for g in groups:
                 for h in g["hooks"]:
-                    m = re.match(r'^py "\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([a-z_]+\.py)"$',
+                    m = re.match(r'^"\$\{ACADEMY_PYTHON:-\$\(command -v py \|\| command -v python3\)\}" '
+                                 r'"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([a-z_]+\.py)"$',
                                  h["command"])
                     self.assertTrue(m, h["command"])
                     self.assertTrue(os.path.isfile(os.path.join(SCRIPTS, m.group(1))))

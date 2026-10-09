@@ -1,37 +1,21 @@
-"""check_paper.py in the plugin: the self-test, the academy.json parameterisation, and
-the phase-0 equivalence against goldens/check_paper.txt (read-only on PAPER_HOME)."""
+"""check_paper.py in the plugin: the self-test and the academy.json parameterisation. (The
+phase-0 equivalence against a real paper's golden output moved out of the marketplace
+with the goldens.)"""
 
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
 import shutil
 import unittest
 
-from fixtures import SCRIPTS, REPO
+from fixtures import SCRIPTS
 
 sys.path.insert(0, SCRIPTS)
 import check_paper as cp  # noqa: E402
 
 
-def _real_home(**want):
-    """The home of the first workspace.json instance matching ``want`` (role=..., ns=...), or ''
-    when there is no workspace: these tests run against real homes only where they exist."""
-    try:
-        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8-sig") as fh:
-            ws = json.load(fh)
-    except (KeyError, OSError, ValueError):
-        return ""
-    for inst in ws.get("instances", {}).values():
-        if all(inst.get(k) == v for k, v in want.items()):
-            return inst["home"]
-    return ""
-
-
-PAPER_HOME = _real_home(role="author")
-GOLDEN = os.path.join(REPO, "goldens", "check_paper.txt")
 ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
 ENV.pop("PYTHONIOENCODING", None)          # the script must be UTF-8-safe on its own
 
@@ -122,24 +106,143 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(a, b)
 
 
-def _without_r7(text):
-    """Drop the R7 lines and the tex line numbers: findings are compared by file, label and
-    rule, because line numbers move with every edit."""
-    return [re.sub(r"\.tex:\d+:", ".tex:", ln) for ln in text.splitlines()
-            if "[R7]" not in ln and not ln.startswith("WARNINGS (")]
+
+class StatusLevelTests(unittest.TestCase):
+    """``author.statusLevels`` drives R1, the sketched proof and the registry; without it
+    the levels are derived from ``envs`` / ``colourCommands`` / ``colours``."""
+
+    MAIN = "\\documentclass{amsart}\n\\begin{document}\n\\section{I}\n" \
+           "\\input{sections/intro}\n\\end{document}\n"
+    INTRO = ("\\begin{entwurf}\n\\begin{lem}\\label{lem:draft}\nA.\n\\end{lem}\n"
+             "\\end{entwurf}\n\n"
+             "\\begin{sketch}\n\\begin{lem}\\label{lem:oldblue}\nB.\n\\end{lem}\n"
+             "\\end{sketch}\n\n"
+             "\\begin{thm}\\label{thm:a}\nBy \\cref{lem:draft}.\n\\end{thm}\n"
+             "\\begin{proof}\nOk.\n\\end{proof}\n\n"
+             "\\begin{thm}\\label{thm:b}\nBy \\cref{lem:oldblue}.\n\\end{thm}\n"
+             "\\begin{proof}\n\\Entwurf{roughly}.\n\\end{proof}\n")
+    LEVELS = [{"name": "final", "colour": "black", "kind": "established",
+               "statuses": ["proved"]},
+              {"name": "draft", "env": "entwurf", "command": "\\Entwurf", "colour": "orange",
+               "kind": "unestablished", "statuses": ["open", "sketch"]}]
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="cp-levels-")
+        os.makedirs(os.path.join(self.tmp, "sections"))
+        os.makedirs(os.path.join(self.tmp, ".claude"))
+        with open(os.path.join(self.tmp, "main.tex"), "w", newline="\n") as fh:
+            fh.write(self.MAIN)
+        with open(os.path.join(self.tmp, "sections", "intro.tex"), "w", newline="\n") as fh:
+            fh.write(self.INTRO)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        cp.configure(None)
+
+    def write_config(self, author):
+        with open(os.path.join(self.tmp, ".claude", "academy.json"), "w") as fh:
+            json.dump({"role": "author", "author": author}, fh)
+
+    def test_a_custom_scheme_drives_r1(self):
+        self.write_config({"statusLevels": self.LEVELS,
+                           "mainResults": {"file": "sections/intro.tex",
+                                           "labels": ["thm:b"]}})
+        code, out, err = run("--root", self.tmp, "--no-log")
+        self.assertIn("thm:a: [R1] final thm references draft lem:draft", out, err)
+        # `sketch` is not a level of this home: lem:oldblue is final, thm:b rests on it
+        self.assertNotIn("references sketch", out)
+        self.assertIn("thm:b: [R1] final thm has a sketched proof (contains draft spans)",
+                      out)
+        with open(os.path.join(self.tmp, "Drafts", "statements.md"), encoding="utf-8") as fh:
+            reg = fh.read()
+        self.assertIn("classDef draft fill:#fde8d0", reg)
+        self.assertIn("classDef final fill:#ffffff", reg)
+        self.assertIn("(and `thm:b` in particular)", reg)
+        self.assertIn("- `lem:draft`", reg)               # a draft with no dependants
+
+    def test_derived_levels_equal_the_defaults(self):
+        cp.configure(None)
+        default = (dict(cp.LEVEL_KIND), dict(cp.LEVEL_COLOUR), dict(cp.COLOUR_ENVS),
+                   dict(cp.COLOUR_COMMANDS), set(cp.SKETCH_LEVELS), cp.ESTABLISHED)
+        for block in ({"envs": dict(cp.DEFAULT_COLOUR_ENVS),
+                       "colourCommands": dict(cp.DEFAULT_COLOUR_COMMANDS),
+                       "colours": {"established": "black", "sketch": "blue",
+                                   "conjectural": "red", "meta": "brown"}},
+                      {"statusLevels": [dict(lv) for lv in cp.DEFAULT_STATUS_LEVELS]}):
+            cp.configure(block)
+            self.assertEqual(default, (dict(cp.LEVEL_KIND), dict(cp.LEVEL_COLOUR),
+                                       dict(cp.COLOUR_ENVS), dict(cp.COLOUR_COMMANDS),
+                                       set(cp.SKETCH_LEVELS), cp.ESTABLISHED))
+        self.assertEqual({"sketch", "conjectural"},
+                         {n for n, k in default[0].items() if k == "unestablished"})
+        self.assertEqual("commentary", default[0]["meta"])
+        self.assertEqual(cp.mermaid_classes().splitlines()[1].strip(),
+                         "classDef sketch fill:#dce8fb,stroke:#2c61b5,color:#10305e;")
+
+    def test_an_old_custom_level_name_is_commentary(self):
+        cp.configure({"envs": {"entwurf": "entwurf"}})
+        self.assertEqual("commentary", cp.LEVEL_KIND["entwurf"])
+
+    def test_main_results_from_config(self):
+        self.write_config({"mainResults": {"file": "sections/intro.tex",
+                                           "labels": ["lem:oldblue"]}})
+        run("--root", self.tmp, "--no-log")
+        with open(os.path.join(self.tmp, "Drafts", "statements.md"), encoding="utf-8") as fh:
+            reg = fh.read()
+        self.assertIn("- **`lem:oldblue`**", reg)
+        self.assertIn("- **`thm:b`** (established", reg)
+        self.assertIn("  - `lem:oldblue` (sketch lem", reg)
+        self.write_config({"mainResults": {"file": "sections/elsewhere.tex"}})
+        run("--root", self.tmp, "--no-log")
+        with open(os.path.join(self.tmp, "Drafts", "statements.md"), encoding="utf-8") as fh:
+            reg = fh.read()
+        self.assertIn("_No `thm:` statements found in `sections/elsewhere.tex`._", reg)
+
+    def test_accepted_bib_warnings_and_ref_command(self):
+        os.makedirs(os.path.join(self.tmp, ".build"))
+        with open(os.path.join(self.tmp, ".build", "main.blg"), "w") as fh:
+            fh.write("Warning--empty journal in St84\nWarning--empty year in Xy01\n")
+        self.write_config({"bib": {"acceptedWarnings": ["St84"]},
+                           "labels": {"refCommand": "autoref"}})
+        out = run("--root", self.tmp, "--no-registry")[1]
+        self.assertIn("bibtex warnings 1 (+1 accepted)", out)
+        cp.configure({"labels": {"refCommand": "autoref"}})
+        self.assertTrue(cp.RE_REF.search("\\autoref{lem:x}"))
+        self.assertTrue(cp.RE_REF.search("\\Autoref{lem:x}"))
+        self.assertTrue(cp.RE_REF.search("\\cref{lem:x}"))
 
 
-@unittest.skipUnless(os.path.isfile(os.path.join(PAPER_HOME, "main.tex")) and os.path.isfile(GOLDEN),
-                     "PaperHome or the golden is not present")
-class GoldenEquivalenceTests(unittest.TestCase):
-    """plan 3.6 / 9.0: the plugin copy reproduces the phase-0 golden (modulo R7)."""
+class ConfigValidation(unittest.TestCase):
+    def setUp(self):
+        import _academy as ac
+        self.ac = ac
 
-    def test_matches_golden_modulo_r7(self):
-        code, out, err = run("--root", PAPER_HOME, "--no-log", "--no-registry")
-        with open(GOLDEN, encoding="utf-8") as fh:
-            golden = fh.read().replace("\r\n", "\n")
-        self.assertTrue(golden.rstrip().endswith("exit=%d" % code), (code, err))
-        self.assertEqual(_without_r7(out), _without_r7(golden.rsplit("exit=", 1)[0]))
+    def probs(self, **author):
+        return self.ac.validate_author(author)
+
+    def test_the_defaults_and_a_custom_scheme_validate(self):
+        self.assertEqual([], self.probs())
+        self.assertEqual([], self.probs(statusLevels=StatusLevelTests.LEVELS,
+                                        preamble={"policy": "locked",
+                                                  "extraFiles": ["macros.tex"]},
+                                        labels={"prefixes": ["thm"], "refCommand": "cref"},
+                                        notes={"maxLines": 2},
+                                        figures={"dir": "fig", "include": "\\input"},
+                                        bib={"acceptedWarnings": ["St84"]},
+                                        mainResults={"file": "intro.tex", "labels": []}))
+
+    def test_bad_keys_are_named(self):
+        bad = self.probs(statusLevels=[{"name": "a", "kind": "unestablished"}],
+                         preamble={"policy": "sometimes"}, notes={"maxLines": 0},
+                         bib={"acceptedWarnings": "St84"}, labels=["thm"],
+                         mainResults={"labels": [1]})
+        text = "\n".join(bad)
+        for frag in ("needs an env or a command", "exactly one level of kind established",
+                     "preamble.policy", "notes.maxLines", "bib.acceptedWarnings",
+                     "author.labels must be an object", "mainResults.labels"):
+            self.assertIn(frag, text)
+        self.assertIn("kind must be one of",
+                      "\n".join(self.probs(statusLevels=[{"name": "x", "kind": "draft"}])))
 
 
 if __name__ == "__main__":

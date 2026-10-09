@@ -16,7 +16,7 @@ decided:
 
 ## Summary
 
-At most three lines: what was done, what came out, what Roey must decide.
+At most three lines: what was done, what came out, what the human must decide.
 
 ## Produced
 

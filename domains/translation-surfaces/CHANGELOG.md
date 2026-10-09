@@ -3,6 +3,18 @@
 Newest first. One line per change to a pack file; a theorem entry or an API finding
 names its section.
 
+## Unreleased — 2026-10-09: the conda env's package list
+
+- `computation/env.txt` (new): the conda-forge packages `env.py setup <profile>` installs
+  for this domain (moved from the Scientist plugin's `setup_env.sh`, which now names no
+  package), with the gcc/gxx 14 pin and its reason.
+- `computation/env-check.py` (new): the import-and-compute check run in a fresh env
+  (moved from the same script).
+- `traps.md` §C: the API traps merged from FlatSurfLab's `docs/api-traps.md` (1-based
+  `down_left_tuple`, cone-point-only `vertices()`, `cylinder_decomposition()` relabels,
+  twists relabel up to SL(2,Z), multiplicity-`m` cone points as `m` corners, no reduced
+  origami below 3 squares); the lab file is now a pointer.
+
 ## 0.1.1 — 2026-09-29: scope defaults for experiments
 
 - `computation/README.md`: new section "Scope defaults for experiments" (translation

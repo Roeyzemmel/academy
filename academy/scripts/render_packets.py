@@ -66,7 +66,7 @@ KATEX_BASE = "https://cdn.jsdelivr.net/npm/katex@%s/dist" % KATEX_VERSION
 
 #: (status, css class, meaning) in legend order; one registry vocabulary
 STATUS_LEGEND = (
-    ("proved", "proved", "Established: two agreeing verdicts or Roey's word (black in the draft)"),
+    ("proved", "proved", "Established: two agreeing verdicts or {human}'s word (black in the draft)"),
     ("proved-modulo", "modulo", "Proved from inputs that are still open (see modulo)"),
     ("sketch", "sketch", "An argument exists but is not verified (blue in the draft)"),
     ("conjectured", "conj", "Believed, no proof (red in the draft)"),
@@ -446,7 +446,8 @@ def head(title, macros=None):
 
 
 def legend_html(open_=False):
-    rows = "".join("<dt>%s</dt><dd>%s</dd>" % (badge(s), html.escape(m))
+    who = ac.human_name()
+    rows = "".join("<dt>%s</dt><dd>%s</dd>" % (badge(s), html.escape(m.replace("{human}", who)))
                    for s, _c, m in STATUS_LEGEND)
     rows += "<dt>%s</dt><dd>%s</dd>" % (badge("cited"), "A published result, quoted from "
                                         "its source")

@@ -13,14 +13,14 @@ Proposed status: lab:q2-ew-ornithorynque -> supported, pending two experiment re
 ## Established vs assumed
 
 - **Established:** (computation, not yet reviewed; proposed supported for lab:q2-ew-ornithorynque) supports -- (Q2) holds with K_min = 2 on the three labelled records (EW, M_4(1,1,1,1), Ornithorynque), each decided by two routes (pure Python and GAP) that agree.
-- **Assumed:** the run on profile `lingo` at commit `a929eca` executed the script as written, and the validation case certifies the pipeline on this class.
+- **Assumed:** the run on profile `remote-a` at commit `a929eca` executed the script as written, and the validation case certifies the pipeline on this class.
 - **Not established:** (Q2) at any other point of either Teichmüller curve, for any other origami, with fewer marked points, or anything about (Q1) or illumination.
 
 ## Evidence
 
 - Result `file:scientist@main/results/2026-09-23_ew_ornithorynque_record.json`: outcome `holds`, commit `a929eca` (clean tree), run 2026-09-24T18:36:51.
 - Validation case: reproduced (from the draft).
-- The script's own Result field: Previous run (legacy format, before the verify header): No counterexample to (Q2) over class C at SciLab commit 34552b0 (job 20260923-123800, lingo, clean per-job worktree, dirty false, exit 0, Sage 10.7 / surface_dynamics 0.7.0, defaults). C: exactly three labelled records of two origamis, every square corner marked — EW = `EierlegendeWollmilchsau()` tuples (1,2,3,0,5,6,7,4)/(4,7,6,5,2,1,0,3); M_4(1,1,1,1) = `CyclicCover([1,1,1,1])` tuples (1,4,7,2,5,0,3,6)/(7,2,5,0,3,6,1,4), isomorphic to the EW; ORN = `CyclicCover([1,1,1,3])` tuples (1,8,7,2,5,0,11,6,9,4,3,10)/(7,6,5,0,11,10,9,4,3,2,1,8). W enumerated completely (raw BFS 24/24/648 states, |W| = 6/6/45). Every record closes at K_min = 2...
+- The script's own Result field: Previous run (legacy format, before the verify header): No counterexample to (Q2) over class C at SciLab commit 34552b0 (job 20260923-123800, remote-a, clean per-job worktree, dirty false, exit 0, Sage 10.7 / surface_dynamics 0.7.0, defaults). C: exactly three labelled records of two origamis, every square corner marked — EW = `EierlegendeWollmilchsau()` tuples (1,2,3,0,5,6,7,4)/(4,7,6,5,2,1,0,3); M_4(1,1,1,1) = `CyclicCover([1,1,1,1])` tuples (1,4,7,2,5,0,3,6)/(7,2,5,0,3,6,1,4), isomorphic to the EW; ORN = `CyclicCover([1,1,1,3])` tuples (1,8,7,2,5,0,11,6,9,4,3,10)/(7,6,5,0,11,10,9,4,3,2,1,8). W enumerated completely (raw BFS 24/24/648 states, |W| = 6/6/45). Every record closes at K_min ...
 
 ## Question
 
@@ -42,7 +42,7 @@ Needs Sage: yes -- the generators, stratum_component, veech_group, Lyapunov sum,
 
 ## Environment
 
-- Profile: `lingo` (kind ssh, host lingo)
+- Profile: `remote-a` (kind ssh, host remote-a)
 - Commit: `a929eca`
 - Versions: python 3.12.14, sage 10.7, sage_flatsurf 0.8.0, surface_dynamics 0.7.0
 - Platform: Linux-5.14.0-570.26.1.el9_6.x86_64-x86_64-with-glibc2.34

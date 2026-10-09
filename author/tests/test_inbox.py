@@ -172,23 +172,25 @@ class InboxPlanTests(InboxBase):
         self.assertEqual(code, 0)
 
     def test_check_of_a_finished_ticket_runs_the_ship_checkpoint_as_author(self):
-        # the workspace's scripts/ship.py (a stub logging its arguments); T-0002 is a
-        # landing (to researcher@t, filed by this Author): the work is the Author's
-        # (the sandbox root is the workspace: the home 'paper' and 'board' are submodules,
-        # and the session runs inside it)
+        # the academy's ship.py (a stub logging its arguments, $ACADEMY_SHIP_SCRIPT); T-0002
+        # is a landing (to researcher@t, filed by this Author): the work is the Author's
+        # (the sandbox root is the workspace: the home 'paper' is a submodule, the board a
+        # submodule or a plain directory of the workspace, and the session runs inside it)
         log = os.path.join(self.sb.root, "scripts", "calls.log")
-        self.sb.write(os.path.join(self.sb.root, "scripts", "ship.py"),
-                      "import sys\nopen(%r, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+        stub = os.path.join(self.sb.root, "scripts", "ship.py")
+        self.sb.write(stub, "import sys\nopen(%r, 'a').write(' '.join(sys.argv[3:]) + '\\n')\n"
                       % log)
-        self.sb.write(os.path.join(self.sb.root, ".gitmodules"),
-                      "".join('[submodule "%s"]\n\tpath = %s\n\turl = x\n' % (s, s)
-                              for s in ("paper", "board", "lab")))
+        self.sb.env["ACADEMY_SHIP_SCRIPT"] = stub
         self.sb.env["CLAUDE_PROJECT_DIR"] = self.sb.root
-        code, out, err = self.run_cli("--check", "T-0002")
-        self.assertEqual(code, 0, err)
+        for subs in (("paper", "board", "lab"), ("paper", "lab")):    # both layouts
+            self.sb.write(os.path.join(self.sb.root, ".gitmodules"),
+                          "".join('[submodule "%s"]\n\tpath = %s\n\turl = x\n' % (s, s)
+                                  for s in subs))
+            code, out, err = self.run_cli("--check", "T-0002")
+            self.assertEqual(code, 0, err)
         with open(log) as fh:
             self.assertEqual(fh.read().splitlines(),
-                             ["checkpoint --ticket T-0002 --role author --only paper board"])
+                             ["checkpoint --ticket T-0002 --role author --only paper board"] * 2)
 
     def test_the_old_filing_and_item_commands_are_gone(self):
         for cmd in ("sync", "file", "mark", "add"):
@@ -220,6 +222,39 @@ class RoutesTests(unittest.TestCase):
         for kind in ("question", "decision", "other", "verify", None):
             r = routes.route({"kind": kind})
             self.assertEqual((r["how"], r["target"]), ("human", "human"), kind)
+
+    def test_another_roles_kind_is_rejected_with_the_route_to_ask(self):
+        for kind, role in (("prove", "researcher"), ("experiment", "scientist")):
+            r = routes.route({"kind": kind})
+            self.assertEqual("reject", r["how"], kind)
+            self.assertIn("final_to %s" % role, r["why"])
+
+    def test_a_write_ticket_needing_an_argument_goes_to_research(self):
+        r = routes.route({"kind": "write", "title": "Lemma 3",
+                          "ask": "fill the gap in step 2 with a new argument"})
+        self.assertEqual(("research", "expert"), (r["how"], r["target"]))
+        r = routes.route({"kind": "write", "ask": "write up the delivered proof of lem:x"})
+        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
+
+    def test_writers_file_research_tickets_for_missing_arguments(self):
+        good = {"kind": "research", "to": "expert@t", "final_to": "researcher",
+                "title": "Prove lem:x", "ask": "a missing argument in step 2"}
+        self.assertEqual([], routes.check_filed(good))
+        for bad in (dict(good, kind="write", to="author@t", final_to=None),
+                    dict(good, kind="prove"),
+                    dict(good, final_to=None),
+                    dict(good, to="researcher@t")):
+            self.assertTrue(routes.check_filed(bad), bad)
+        # asks that need no argument pass untouched
+        self.assertEqual([], routes.check_filed({"kind": "verify", "to": "expert@t",
+                                                 "title": "Verify lem:x", "ask": "verify"}))
+        self.assertEqual([], routes.check_filed({"kind": "research", "to": "expert@t",
+                                                 "final_to": "scientist", "ask": "run"}))
+        # every ask the gap filer drafts passes the check
+        for tag, (role, kind, ft, _d) in routes.OUT_ROUTES.items():
+            meta = {"kind": kind, "to": role + "@t", "final_to": ft,
+                    "title": "Prove x" if tag == "lead" else tag, "ask": tag}
+            self.assertEqual([], routes.check_filed(meta), tag)
 
     def test_land_routes_by_ticket_kind(self):
         self.assertEqual(routes.land_route("verify")["target"], "math-editor")

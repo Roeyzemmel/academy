@@ -44,7 +44,7 @@ missing inputs in `modulo`.
   `type | ref | verdict | run_id | note`. A grader's verdict is attached by claim-keeper
   (or the Expert's review-chair), never by the grader.
 - **A status change** goes only through `claim-keeper` (`claims_set_status`), with its
-  grounds: two agreeing reviews or Roey's word. Anyone else proposes it with
+  grounds: two agreeing reviews or the human's word. Anyone else proposes it with
   `claims_propose_status {id, status, reason, grounds}`, which files a `decision` ticket
   to claim-keeper. The `status_guard` hook denies every other agent the `status:` line.
 - **Nothing is deleted.** A false claim becomes `refuted`; a repaired statement is a new

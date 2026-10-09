@@ -29,10 +29,9 @@ LAB_CONFIG = {
     "gate": {"commit": "normal", "build": False, "baseline": None,
              "branches": {"academy-migration": {"commit": "off"}}},
     "scientist": {
-        "envs": {"laptop-wsl": {"kind": "wsl", "distro": "Ubuntu", "conda": "flatsurf"},
-                 "lingo": {"kind": "ssh", "host": "lingo", "maxJobs": 1,
-                           "preflight": "vpn:globalprotect"}},
-        "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "lingo"},
+        "envs": {"laptop-wsl": {"kind": "wsl", "distro": "Ubuntu", "conda": "sci"},
+                 "remote-a": {"worker": "remote-a"}},
+        "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "remote-a"},
         "queue": {"dir": "queue"},
         "experimentTypes": ["search", "measure", "verify", "probe"]},
 }
@@ -76,7 +75,12 @@ class Sandbox(object):
                                       "ns": researcher_ns},
                 "author@main": {"role": "author", "home": self.other,
                               "domains": ["translation-surfaces"], "ns": "paper"}},
-            "board": self.board, "human": {"name": "Roey"}})
+            "board": self.board, "human": {"name": "Ada"},
+            "compute": {"workers": {"remote-a": {"transport": "ssh", "host": "remote-a",
+                                                 "maxJobs": 1, "gateway": "gw-a",
+                                                 "conda": {"env": "sci"}}},
+                        "gateways": {"gw-a": {"kind": "vpn", "check": "tcp-reachable",
+                                              "probeHost": "remote-a:22"}}}})
         self.env = dict(os.environ, ACADEMY_WORKSPACE=self.workspace,
                         PYTHONIOENCODING="utf-8", ACADEMY_CALLER_DIR=os.path.join(
                             self.root, "callers"))

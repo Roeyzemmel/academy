@@ -18,9 +18,10 @@ Every function takes ``board`` as a directory or as a ``BoardStore`` (``ac.as_st
 (docs/github-board.md); a directory is the file board, as before.
 
 ``--as`` names the caller's instance; ``new`` requires it (``--as human`` only from
-/academy:board, desk and decide); for ``transition`` and ``append``, without it the
-caller is the human. The functions below are the implementation
-and may be imported (the MCP server and the tests do); the CLI is a thin wrapper.
+/academy:board, desk and decide, and /academy:cowork for an approved plan's tasks); for
+``transition`` and ``append``, without it the caller is the human. The functions below
+are the implementation and may be imported (the MCP server and the tests do); the CLI is
+a thin wrapper.
 Nothing here commits: board commits are made by session_start / board sync.
 """
 
@@ -69,7 +70,7 @@ def _workspace_or_none(workspace=None):
 
 def _default_budget(cwd=None):
     """``{"runs": n}`` from ``budget.ticketDefault`` of the caller's home config, or the
-    library default (``ac.default_ticket_budget``; no ``max_model``, T-0071)."""
+    library default (``ac.default_ticket_budget``; no ``max_model``: references/budget.md rule 6)."""
     home = ac.find_home(cwd or os.getcwd())
     cfg = None
     if home:
@@ -155,16 +156,19 @@ def _check_party(name, workspace, what):
 def create_ticket(board, to, title, ask, deliverable, kind="other", priority="normal",
                   refs=None, agenda=None, domain=None, parent=None, budget=None,
                   detail="", as_instance=None, agent="", workspace=None, date=None,
-                  final_to=None, perms=None, campaign=None):
+                  final_to=None, perms=None, campaign=None, cowork=None):
     """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path.
 
     ``campaign`` (a registry id, the campaign's target) tags the ticket so
-    ``inbox.py --campaign <target>`` selects it; omitted, the field is not written.
+    ``inbox.py --campaign <target>`` selects it; ``cowork`` (a slug, the plan
+    ``board/cowork/<slug>.md``) the same way for ``inbox.py --cowork <slug>``
+    (academy/lib/workplan.py). Omitted, the field is not written.
     """
     ws = workspace if workspace is not None else _workspace_or_none()
     if not as_instance:
         raise ac.AcademyError("--as is required: the filing instance ('human' only from "
-                              "/academy:board, desk or decide, after Roey confirms)")
+                              "/academy:board, desk or decide, after %s confirms)"
+                              % ac.human_name(ws))
     _check_party(to, ws, "to")
     _check_party(as_instance, ws, "from")
     who = bare_agent(agent) or (ac.MAIN_AGENT if as_instance != ac.HUMAN else "")
@@ -190,6 +194,8 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     }
     if campaign:
         meta["campaign"] = campaign
+    if cowork:
+        meta["cowork"] = cowork
     probs = ac.validate_ticket(meta)
     if probs:
         raise ac.AcademyError("invalid ticket: " + "; ".join(probs))
@@ -338,11 +344,14 @@ def main(argv=None):
     p.add_argument("--parent"); p.add_argument("--runs", type=int)
     p.add_argument("--max-model", choices=ac.MODELS,
                    help="optional advisory note for budget.max_model; never a gate: the "
-                        "agent file sets the model (T-0071)")
+                        "agent file sets the model (references/budget.md rule 6)")
     p.add_argument("--detail", default="")
     p.add_argument("--as", dest="as_instance", required=True)
     p.add_argument("--final-to", dest="final_to")
-    p.add_argument("--campaign", help="the campaign's target id (inbox --campaign selects it)")
+    wp = p.add_mutually_exclusive_group()
+    wp.add_argument("--campaign", help="the campaign's target id (inbox --campaign selects it)")
+    wp.add_argument("--cowork", help="the cowork's slug (inbox --cowork selects it; "
+                                     "/academy:cowork)")
     p.add_argument("--agent", default="")
 
     p = sub.add_parser("show", help="print one ticket")
@@ -394,7 +403,8 @@ def main(argv=None):
             path = create_ticket(board, a.to, a.title, a.ask, a.deliverable, a.kind,
                                  a.priority, _split(a.refs), a.agenda, a.domain, a.parent,
                                  budget, a.detail, a.as_instance, a.agent, ws,
-                                 final_to=a.final_to, campaign=a.campaign)
+                                 final_to=a.final_to, campaign=a.campaign,
+                                 cowork=a.cowork)
             print(path)
         elif a.cmd == "show":
             path, meta, body = get_ticket(board, a.id)

@@ -25,7 +25,7 @@ numbering is empty; an id that was never used is a closed placeholder issue).
 | `## Thread` | one comment per entry, marked `<!-- academy:thread -->`; other comments are conversation, not Thread |
 | `campaign`, `blocked_by`, `reopen_if` | the meta line (ticket-only fields, `docs/protocol.md` section 4 and the campaign design); a dead-route ticket is `status:blocked` like a pending one, told apart by `blocked_by` + `reopen_if` in the meta line. `blocked_by` is **not** a native issue dependency: only `waiting_on` ticket ids are (codec payload key `waits_on`, manifest relation `dependency`), so the ticket field `blocked_by` never gets confused with GitHub's "blocked by" relation |
 | `agenda` | Project text field **Agenda**; milestones stay free for the paper's milestones |
-| packets, `.render/`, `deep-dives/` | stay files in the board repo (`packets/`) |
+| packets, `.render/`, `deep-dives/` | stay files in the board directory (the workspace's `board/`, `packets/`) |
 
 The status label is the write surface: it decides, and `board-sync` makes state, role and
 Project fields follow. There is no separate `resolution:` label; `rejected` and `cancelled`
@@ -70,7 +70,7 @@ in the comment; the write hook and `board-sync` check the rules, not the account
     state do not.
 - Cloud sessions write issues live, so the `cloud/<date>` review branch cannot apply to
   them. A cloud session acts as `<instance>/<agent>`, must not close or re-route a ticket
-  (the human or the addressee's own inbox flow does), and Roey reviews the thread; packets still
+  (the human or the addressee's own inbox flow does), and the human reviews the thread; packets still
   go on the branch.
 
 ## Scripts
@@ -87,12 +87,15 @@ human through the MCP tools' code, `--dry-run` on a copy of the file board, resu
 academy constants: Status incl. Accepted/Blocked/Delivered, Instance, Role, Kind = every
 ticket kind, Priority, Agenda, Block; `--check` proves it covers every kind and status,
 `--live` reports what a live Project lacks; `fields_for(meta)` is a ticket's values). The runbook is
-`/academy:board-migrate`. Templates: `academy/templates/github-board/.github/`.
+`/academy:board-migrate`. Templates: `academy/templates/github-board/.github/`, rendered
+into the repository that holds the issues (`board.repo`) by `board_templates.py render --out <repo>` (the issue form's
+instance dropdown is filled from workspace.json, instances + `human`; `check` reports drift).
 
 ## The Project
 
-The board's Project (v2) is `users/Roeyzemmel/projects/2` ("BilliardIllumination Board"), created
-on 2026-10-03 with the fields of `board_project.py` and every issue as an item.
+The board's Project (v2) is named in workspace.json `board.project` (for example
+`users/<login>/projects/<n>`; the workspace's README names its own). It is created with
+the fields of `board_project.py` and every issue as an item.
 
 - **New issues join it** by the Project's built-in workflow "Auto-add to project" (filter
   `is:issue`, set in the Project's UI), and "Item closed" / "Item reopened" keep its Status
@@ -104,7 +107,7 @@ on 2026-10-03 with the fields of `board_project.py` and every issue as an item.
   (adding the item if it is missing); a value with no option yet (a new instance) is
   appended, keeping the other options' ids; a non-ticket issue gets Status from its state.
   It writes the Project only, never an issue. `--repo` / `--project` default to `board.repo`
-  and `board.project` in workspace.json; `--issue N` limits it. About 10 s for 106 issues
+  and `board.project` in workspace.json; `--issue N` limits it. About 10 s for a hundred issues
   when nothing changed.
 - **Why not in `board-sync`:** a user-owned Project cannot be reached by the workflow's
   `GITHUB_TOKEN` nor by a fine-grained token, and no long-lived classic token is stored in the
@@ -117,8 +120,8 @@ on 2026-10-03 with the fields of `board_project.py` and every issue as an item.
 Issues read/write, Metadata read, Contents read/write (packets, workflow files), Actions read;
 Projects read/write for field writes (the MCP `projects` toolset, or a token with the `project`
 scope for `board-sync`'s later Project step). Without Projects access the board works from
-labels alone; Project fields lag until they are synced. The board repo must be in the session's
-repository scope.
+labels alone; Project fields lag until they are synced. The repository that holds the issues
+(`board.repo`, normally the workspace repository) must be in the session's repository scope.
 
 ## The store seam
 

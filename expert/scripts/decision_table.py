@@ -1,6 +1,6 @@
 """decision_table.py -- the proof-review decision table, applied mechanically.
 
-    py decision_table.py A.md [B.md|-] [--established id1,id2] [--primary fable,opus-5.5] [--json]
+    py decision_table.py A.md [B.md|-] [--established id1,id2] [--primary M1,M2] [--json]
 
 Takes the verdict records of run A and (optionally) run B -- files landed by
 ``land_verdict.py`` under ``<expert home>/reviews/<ns>/<id>/<pass>/`` or any text
@@ -14,9 +14,10 @@ The table (from the old /paper:verify, in the academy's verdict words):
 | CONFIRMED | not yet run | ``awaiting-b``: launch B with the identical brief |
 | CONFIRMED | CONFIRMED, no inputs on either | ``confirmed``: propose ``proved``; recolour earned |
 | CONFIRMED modulo X | CONFIRMED modulo X (same set) | ``confirmed-modulo``: propose ``proved-modulo``; recolour only if every input in X is established |
-| CONFIRMED (modulo X) | CONFIRMED modulo Y, Y != X | ``disagreement`` |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, X and Y differ only in definitions | as if both said modulo X & Y (the intersection); the dropped definitions are flagged (``dropped_definitions``) |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, Y != X otherwise | ``disagreement`` |
 | CONFIRMED | GAP | ``disagreement``: no status; file the weaker run's blocking step |
-| DISPROVED (either run) | any | ``disproved``: no status; the counterexample goes to Roey at once |
+| DISPROVED (either run) | any | ``disproved``: no status; the counterexample goes to the human at once |
 | GAP | not run | ``single-negative``: no status; A's blocking step is the repair item; B skipped by design |
 | PLAUSIBLE (either run) | any non-DISPROVED | ``degraded``: a fallback verdict never counts; re-run that run on a primary |
 | two CONFIRMED with a shared run id, differing statement hashes or subjects | | ``invalid-pair``: no status; the pair is not two independent reviews of one statement |
@@ -25,14 +26,30 @@ The table (from the old /paper:verify, in the academy's verdict words):
 
 Mechanical rules applied before the table:
 
-* The primaries are ``PRIMARY_MODELS`` = Fable and Opus 5.5, equal in authority
-  (Roey, 2026-09-24, reconfirmed 2026-09-28); ``--primary`` takes a comma-separated
-  list and defaults to both. A CONFIRMED given on any other model (Sonnet, Haiku, an
-  older Opus, a bare ``opus`` that names no version, or no model at all) is read as
-  PLAUSIBLE (roster-rules.md, "Graders degrade"). Every run's recorded model is kept
+* The primaries are workspace.json's ``grading.primaryModels``, equal in authority
+  (``PRIMARY_MODELS``, Fable and Opus 5.5, when the workspace sets none); ``--primary``
+  takes a comma-separated list instead. A CONFIRMED given on any other model (Sonnet,
+  Haiku, an older Opus, a bare ``opus`` that names no version, or no model at all) is
+  read as PLAUSIBLE (roster-rules.md, "Graders degrade"). Every run's recorded model is kept
   in ``runs[].model``.
+* A definition used only as notation is not an input (the human's decision,
+  2026-10-09, T-0148): when two CONFIRMED runs' modulo lists differ only in
+  definitions, the runs agree, the decided modulo list is the intersection, and the
+  definitions dropped are flagged in ``dropped_definitions`` and the grounds' note.
+  An id is a definition when its registry record's kind is a definition
+  (``definition`` / ``def`` / ``defn``, looked up through the registry engine), or,
+  when the registry cannot be read or has no such record, when its label starts with
+  ``defn:`` / ``def:`` or its id with ``DEF-``. A ``bib:`` input is never one.
 * B present after a non-CONFIRMED A is a process anomaly (B should not have run);
   it is reported, and the outcome is taken from A alone.
+
+Every item to file (``file_items``) carries its ``route``, from ``follow_up`` (the role
+cut, academy/references/roster-rules.md): a finding classed ``hypothesis`` or
+``statement`` (the VERDICT block's ``gap_class``; without one, a blocking step that
+names a hypothesis, an assumption or the statement, or asks to strengthen a hypothesis
+or weaken the claim), and any missing proof step, is a ``prove`` ticket to the
+Researcher with the falsifier -- never an Author ``apply`` / ``write`` ticket. Only a
+``wording`` finding goes back to the statement's owner as a ``question``.
 
 Exit code: 0 on an outcome, 2 on a usage error. The JSON carries ``grounds`` in the
 shape ``claims_propose_status`` / ``check_grounds`` expect.
@@ -53,7 +70,11 @@ import _academy as ac  # noqa: E402
 
 VERDICTS = ("CONFIRMED", "PLAUSIBLE", "GAP", "DISPROVED")
 FIELDS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
-          "statement_hash", "blocking", "ticket")
+          "statement_hash", "blocking", "ticket", "gap_class")
+#: a finding's class (VERDICT ``gap_class``): what it touches decides who repairs it
+GAP_CLASSES = ("hypothesis", "statement", "proof", "wording")
+RE_HYPOTHESIS = re.compile(r"(?i)hypothes|assum|\bstatement\b|STRENGTHEN_HYPOTHESIS|"
+                           r"WEAKEN_CLAIM|OVERSTATED|falsifi|counterexample to the statement")
 NONE_WORDS = ("", "none", "-", "n/a", "[]", "null")
 
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
@@ -174,6 +195,11 @@ def parse_record(text):
         if block is not None:
             fields = dict(fields or {})
             fields.update(block)
+    elif not fields.get("gap_class"):
+        # a landed record keeps the report (and its VERDICT block) as its body
+        block = parse_verdict_block(text) or {}
+        if block.get("gap_class"):
+            fields["gap_class"] = block["gap_class"]
     rec = {k: "" for k in FIELDS}
     rec["modulo"] = []
     rec["problems"] = []
@@ -194,7 +220,109 @@ def parse_record(text):
                                % (rec["raw_verdict"], ", ".join(VERDICTS)))
     if rec["blocking"].lower() in NONE_WORDS:
         rec["blocking"] = ""
+    gc = rec["gap_class"].strip().lower()
+    rec["gap_class"] = gc if gc in GAP_CLASSES else ""
     return rec
+
+
+# ----------------------------------------------------------------------------
+# Who repairs a finding (the role cut)
+# ----------------------------------------------------------------------------
+
+def gap_class(rec):
+    """The class of a run's blocking finding: the VERDICT's ``gap_class`` when given,
+    else ``hypothesis`` when the blocking step names a hypothesis, an assumption or the
+    statement (or asks to strengthen a hypothesis / weaken the claim), else ``proof``.
+    '' when the run names no blocking step. Unclassified is never read as wording: a
+    wording finding must say so."""
+    if not rec:
+        return ""
+    if rec.get("gap_class"):
+        return rec["gap_class"]
+    text = rec.get("blocking") or ""
+    if not text:
+        return ""
+    return "hypothesis" if RE_HYPOTHESIS.search(text) else "proof"
+
+
+def follow_up(item, subject="", producer_role="", rec=None):
+    """The ticket a ``file_items`` entry becomes: ``{kind, to_role, final_to, gap_class,
+    why}``. roster-rules.md "Role cut", rule 3: hypothesis-level findings, statement
+    changes and missing arguments go to the Researcher as ``prove`` tickets with the
+    falsifier; a counterexample goes to the human; a ``wording`` finding alone goes back
+    to the statement's owner."""
+    kind = item.get("kind")
+    gc = item.get("gap_class") or gap_class(rec)
+    if kind == "counterexample":
+        return {"kind": "decision", "to_role": "human", "final_to": None, "gap_class": gc,
+                "why": "a counterexample goes to the human at once"}
+    if kind == "verify-input":
+        return {"kind": "verify", "to_role": "expert", "final_to": None, "gap_class": gc,
+                "why": "an input that is itself a proof to review"}
+    if kind == "inputs":
+        return {"kind": "decision", "to_role": "human", "final_to": None, "gap_class": gc,
+                "why": "the runs disagree on the inputs: a ruling or a re-run"}
+    if producer_role == "scientist":
+        return {"kind": "question", "to_role": "researcher", "final_to": "scientist",
+                "gap_class": gc, "why": "a lab claim: the Scientist repairs, through "
+                                        "the Researcher (not a neighbour of the Expert)"}
+    if gc == "wording":
+        owner = producer_role or "author"
+        return {"kind": "question", "to_role": owner, "final_to": None, "gap_class": gc,
+                "why": "wording only: the statement's owner, in its next wording batch "
+                       "(a pinned statement waits for the human's release)"}
+    return {"kind": "prove", "to_role": "researcher", "final_to": None,
+            "gap_class": gc or "proof",
+            "why": "a %s finding: the Researcher repairs it (prove ticket with the "
+                   "falsifier), never an Author apply or write ticket"
+                   % (gc or "proof-step")}
+
+
+# ----------------------------------------------------------------------------
+# Definitions are not inputs (the human's decision, 2026-10-09, T-0148)
+# ----------------------------------------------------------------------------
+
+DEFINITION_KINDS = ("definition", "def", "defn")
+RE_DEF_LABEL = re.compile(r"^(?:defn?:|DEF-)")
+
+
+def registry_kind(qid):
+    """The registry kind of ``qid`` (``ns:id``): the record's ``kind`` field, else its
+    entity type; None when the registry engine, the namespace's home or the record
+    cannot be found. Loaded through the engine (``registry.core.federation``), never by
+    reading files."""
+    ns, _, name = str(qid or "").partition(":")
+    if not name or ns == "bib":
+        return None
+    try:
+        plugin = os.path.join(ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import federation, workspace as rws
+        info = rws.namespaces().get(ns)
+        home = info and info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return None
+        rec = federation.store(ns, home).get(name)
+    except Exception:        # an unreadable registry falls back to the label
+        return None
+    if rec is None:
+        return None
+    return str(rec.fields.get("kind") or rec.type or "").strip().lower() or None
+
+
+def is_definition(qid, kind_of=None):
+    """True when the input ``qid`` names a definition: by its registry kind when the
+    registry knows it (``kind_of``, default ``registry_kind``), else by its label
+    (``ns:defn:...``, ``ns:def:...``, ``ns:DEF-...``). A ``bib:`` input never is."""
+    q = str(qid or "").strip()
+    if not q or q.startswith("bib:"):
+        return False
+    kind = (kind_of or registry_kind)(q)
+    if kind:
+        return kind.lower() in DEFINITION_KINDS
+    _ns, _, name = q.partition(":")
+    return bool(RE_DEF_LABEL.match(name or q))
 
 
 def read_record(path):
@@ -210,7 +338,13 @@ def read_record(path):
 # The table
 # ----------------------------------------------------------------------------
 
-PRIMARY_MODELS = ("fable", "opus-5.5")
+#: the primaries when workspace.json sets no ``grading.primaryModels`` (docs/config.md)
+PRIMARY_MODELS = ac.DEFAULT_PRIMARY_MODELS
+
+
+def configured_primaries(workspace=None):
+    """The grading primaries of the workspace (``grading.primaryModels``)."""
+    return ac.primary_models(workspace)
 
 RE_OPUS_55 = re.compile(r"opus-?5-5(?![0-9])")
 
@@ -238,14 +372,14 @@ def model_label(name):
 
 def _primaries(primary=None):
     if primary is None:
-        primary = PRIMARY_MODELS
+        primary = configured_primaries()
     if isinstance(primary, str):
         primary = [p for p in re.split(r"[,;]", primary) if p.strip()]
     return tuple(sorted({model_label(p) for p in primary if model_label(p)}))
 
 
 def is_primary(model, primary=None):
-    """True when ``model`` is one of the primaries (default ``PRIMARY_MODELS``)."""
+    """True when ``model`` is one of the primaries (default: the configured ones)."""
     lab = model_label(model)
     return bool(lab) and lab in _primaries(primary)
 
@@ -272,7 +406,7 @@ GRADER_ROLE = "expert"    # every proof review here is run by an Expert instance
 
 def producer_role_for(subject, override=None, workspace=None):
     """The role of the instance that produced the reviewed proof: the role that owns
-    ``subject``'s namespace in workspace.json (``paper:`` -> ``author``, ``s1:`` ->
+    ``subject``'s namespace in workspace.json (``paper:`` -> ``author``, ``nb:`` ->
     ``researcher``, ``lab:`` -> ``scientist``). ``override`` (a CLI flag) always wins;
     '' when the namespace has no owning instance or workspace.json cannot be read."""
     if override:
@@ -306,14 +440,36 @@ def _grounds(recs, modulo, note, producer_role=""):
     return g
 
 
-def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
+def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
+           kind_of=None):
+    """Apply the table (``_decide``) and give every item to file its ``route``
+    (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
+    lookup that decides which inputs are definitions."""
+    res = _decide(rec_a, rec_b, established, primary, producer_role, kind_of)
+    if res.get("file_items"):
+        subject = (rec_a or {}).get("subject") or ""
+        prod = producer_role_for(subject, producer_role)
+        by_run = {str(r.get("run") or "").upper(): r for r in (rec_a, rec_b) if r}
+        for it in res["file_items"]:
+            run = str(it.get("run") or "")
+            rec = by_run.get(run.upper()[:1]) if len(run) == 1 else None
+            if rec is None and it.get("kind") == "repair":
+                rec = next((r for r in (rec_b, rec_a) if r and r.get("blocking")), None)
+            it["gap_class"] = gap_class(rec) if it.get("kind") == "repair" else ""
+            it["route"] = follow_up(it, subject, prod, rec)
+    return res
+
+
+def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
+            kind_of=None):
     """Apply the table. ``rec_a`` / ``rec_b`` come from ``parse_record``; ``rec_b``
     may be None (not launched). ``established`` lists the modulo inputs known to be
     established (registry ``proved`` or a verified citation card). ``producer_role``
     overrides the namespace-owner lookup (``producer_role_for``) when given."""
     res = {"outcome": "", "launch_b": False, "proposed_status": None, "recolour": False,
            "needs_human": False, "modulo": [], "pending_inputs": [], "file_items": [],
-           "anomalies": [], "grounds": None, "summary": "", "runs": []}
+           "anomalies": [], "grounds": None, "summary": "", "runs": [],
+           "dropped_definitions": []}
     established = set(established or ())
 
     if rec_a is None or rec_a["problems"]:
@@ -362,8 +518,9 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
             res["summary"] = "both runs DISPROVED: propose refuted"
         else:
             res["summary"] = ("DISPROVED by run %s: no status change; the counterexample "
-                              "goes to Roey at once" % ", ".join(r.get("run") or "?"
-                                                                 for r in who))
+                              "goes to %s at once"
+                              % (", ".join(r.get("run") or "?" for r in who),
+                                 ac.human_name()))
         return res
 
     if b is None:
@@ -401,21 +558,33 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
             res["summary"] = "the two runs are not independent reviews of one statement"
             return res
         ma, mb = set(rec_a["modulo"]), set(rec_b["modulo"])
+        dropped = []
+        if ma != mb and all(is_definition(i, kind_of) for i in ma ^ mb):
+            # T-0148: a definition used only as notation is not an input
+            dropped = sorted(ma ^ mb)
+            res["dropped_definitions"] = dropped
+            ma = mb = ma & mb
+        dnote = ("; definitions dropped from the modulo lists (not inputs, the human's "
+                 "decision 2026-10-09, T-0148): %s" % ", ".join(dropped)) if dropped else ""
         if ma != mb:
             res["outcome"] = "disagreement"
             res["modulo"] = sorted(ma | mb)
+            beyond = sorted(i for i in ma ^ mb if not is_definition(i, kind_of))
             res["file_items"] = [{"run": "A+B", "kind": "inputs",
-                                  "text": "the runs name different inputs: A %s, B %s"
-                                          % (sorted(ma) or "none", sorted(mb) or "none")}]
-            res["summary"] = "both CONFIRMED but on different inputs: no status change"
+                                  "text": "the runs name different inputs: A %s, B %s "
+                                          "(not definitions: %s)"
+                                          % (sorted(ma) or "none", sorted(mb) or "none",
+                                             ", ".join(beyond))}]
+            res["summary"] = ("both CONFIRMED but on different inputs beyond definitions "
+                              "(%s): no status change" % ", ".join(beyond))
             return res
         if not ma:
             res["outcome"] = "confirmed"
             res["proposed_status"] = "proved"
             res["recolour"] = True
-            res["grounds"] = _grounds(recs, [], "two CONFIRMED verdicts, no open inputs",
-                                      prod_role)
-            res["summary"] = "CONFIRMED x2: propose proved; recolour earned"
+            res["grounds"] = _grounds(recs, [], "two CONFIRMED verdicts, no open inputs"
+                                      + dnote, prod_role)
+            res["summary"] = "CONFIRMED x2: propose proved; recolour earned" + dnote
             return res
         res["outcome"] = "confirmed-modulo"
         res["modulo"] = sorted(ma)
@@ -423,14 +592,14 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None):
         res["proposed_status"] = "proved-modulo"
         res["recolour"] = not res["pending_inputs"]
         res["grounds"] = _grounds(recs, sorted(ma), "two CONFIRMED verdicts modulo %s"
-                                  % ", ".join(sorted(ma)), prod_role)
+                                  % ", ".join(sorted(ma)) + dnote, prod_role)
         res["file_items"] = [{"run": "A+B", "kind": "verify-input", "text": i}
                              for i in res["pending_inputs"]]
         res["summary"] = ("CONFIRMED x2 modulo %s: propose proved-modulo; %s"
                           % (", ".join(sorted(ma)),
                              "recolour earned (every input established)" if res["recolour"]
                              else "stays sketch until %s are established"
-                             % ", ".join(res["pending_inputs"])))
+                             % ", ".join(res["pending_inputs"])) + dnote)
         return res
 
     if a == "CONFIRMED" and b == "GAP":
@@ -487,8 +656,17 @@ def _text(res):
         out.append("modulo: %s" % ", ".join(res["modulo"]))
     if res["pending_inputs"]:
         out.append("pending inputs: %s" % ", ".join(res["pending_inputs"]))
+    if res.get("dropped_definitions"):
+        out.append("dropped definitions (not inputs, T-0148): %s"
+                   % ", ".join(res["dropped_definitions"]))
     for it in res["file_items"]:
-        out.append("file (%s, run %s): %s" % (it["kind"], it["run"], it["text"]))
+        r = it.get("route") or {}
+        out.append("file (%s, run %s%s): %s%s" % (
+            it["kind"], it["run"], (", %s" % it["gap_class"]) if it.get("gap_class") else "",
+            it["text"], ("  -> %s ticket to %s%s" % (r["kind"], r["to_role"],
+                                                     (" (final_to %s)" % r["final_to"])
+                                                     if r.get("final_to") else ""))
+            if r else ""))
     for an in res["anomalies"]:
         out.append("anomaly: %s" % an)
     return "\n".join(out)
@@ -500,8 +678,9 @@ def main(argv=None):
     ap.add_argument("b", nargs="?", default=None, help="run B's verdict file, or - / omitted")
     ap.add_argument("--established", default="",
                     help="comma-separated modulo inputs known to be established")
-    ap.add_argument("--primary", default=",".join(PRIMARY_MODELS),
-                    help="comma-separated primary models (default: fable,opus-5.5)")
+    ap.add_argument("--primary", default=None,
+                    help="comma-separated primary models (default: workspace.json "
+                         "grading.primaryModels, else %s)" % ",".join(PRIMARY_MODELS))
     ap.add_argument("--producer-role", default=None,
                     help="override the namespace-owner lookup for grounds.producer_role")
     ap.add_argument("--json", action="store_true")

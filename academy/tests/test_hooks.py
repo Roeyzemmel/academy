@@ -96,7 +96,7 @@ class Fixture(unittest.TestCase):
                          "domains": ["test-domain"], "ns": "paper"},
             "expert@t": {"role": "expert", "home": self.expert_home.replace("\\", "/"),
                          "domains": ["test-domain"]}},
-            "board": self.board.replace("\\", "/"), "human": {"name": "Roey"}}
+            "board": self.board.replace("\\", "/"), "human": {"name": "Ada"}}
         self.ws_path = self.write(os.path.join(self.tmp, "workspace.json"), json.dumps(ws))
         self.write(os.path.join(self.author_home, ".claude", "academy.json"),
                    json.dumps(config_for("author", "author@t", ns="paper")))
@@ -225,7 +225,7 @@ class McpWriteGateTests(Fixture):
         self.assertEqual(res.stdout.strip(), b"")
 
     def test_non_ascii_argument_record_matches_the_server_key(self):
-        """T-0070: Claude Code writes the event as UTF-8 bytes. The hook must record it
+        """Claude Code writes the event as UTF-8 bytes. The hook must record it
         under the key the server computes (``call_key`` via ``claim_caller``) even when
         Python's stdin text layer uses the ANSI codepage (cp1255 on the lab laptop)."""
         tool = "tickets_update"
@@ -259,7 +259,7 @@ class McpWriteGateTests(Fixture):
 
 class ReadEventEncodingTests(unittest.TestCase):
     """``read_event`` decodes the hook event as UTF-8 whatever the stdin text layer's
-    encoding (T-0070), and still never raises."""
+    encoding (docs/protocol.md, the hook reads its event as UTF-8), and still never raises."""
 
     RAW = json.dumps({"a": "± — é"}, ensure_ascii=False).encode("utf-8")
 
@@ -399,6 +399,45 @@ class ExplainerWriteGuardTests(Fixture):
 # ---------------------------------------------------------------------------
 # ticket_edit_check
 # ---------------------------------------------------------------------------
+
+@unittest.skipUnless(HAVE_GIT, "git is not on PATH")
+class TicketHeadTextTests(Fixture):
+    """``git_head_text`` reads a board file at HEAD whether the board is a repository of
+    its own or a plain directory of the workspace repo (``HEAD:./<rel>``)."""
+
+    def module(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "ticket_edit_check_t", os.path.join(SCRIPTS, "ticket_edit_check.py"))
+        mod = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, SCRIPTS)
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            sys.path.remove(SCRIPTS)
+        return mod
+
+    def commit(self, repo, path, text):
+        self.write(path, text)
+        for args in (["init", "-q"], ["config", "user.email", "t@example.invalid"],
+                     ["config", "user.name", "T"], ["config", "commit.gpgsign", "false"],
+                     ["add", "-A"], ["commit", "-q", "-m", "x"]):
+            if args[0] == "init" and os.path.isdir(os.path.join(repo, ".git")):
+                continue
+            subprocess.run(["git", "-C", repo] + args, capture_output=True, check=True)
+
+    def test_both_layouts(self):
+        mod = self.module()
+        rel = "expert@t/T-0001-x.md"
+        # the board as a repository of its own
+        self.commit(self.board, os.path.join(self.board, rel), "own\n")
+        self.assertEqual(mod.git_head_text(self.board, rel), "own\n")
+        shutil.rmtree(os.path.join(self.board, ".git"))
+        # the board as a plain directory of the workspace repo
+        self.commit(self.tmp, os.path.join(self.board, rel), "folded\n")
+        self.assertEqual(mod.git_head_text(self.board, rel), "folded\n")
+        self.assertIsNone(mod.git_head_text(self.board, "expert@t/T-0002-new.md"))
+
 
 class TicketEditCheckTests(Fixture):
     def check(self, path, agent=None, cwd=None, tool="Edit"):
@@ -609,13 +648,13 @@ class SessionStartTests(Fixture):
         self.populate()
         line = self.start(self.author_home)
         self.assertEqual(line, "academy: author@t — 2 open tickets to you, "
-                               "1 packet awaiting Roey; freed: T-0004")
+                               "1 packet awaiting Ada; freed: T-0004")
         self.assertNotIn("\n", line)
         cards = os.path.join(self.expert_home, "cards")
         os.makedirs(cards)
         line = self.start(cards)                            # a subdirectory of the home
         self.assertEqual(line, "academy: expert@t — 1 open ticket to you, "
-                               "1 packet awaiting Roey")
+                               "1 packet awaiting Ada")
 
     def test_relay_parent_freed_by_a_delivered_child(self):
         b = self.board
@@ -667,7 +706,7 @@ class SessionStartTests(Fixture):
         os.remove(os.path.join(self.board, "author@t", "T-0002-b.md"))
         line = self.start(self.author_home, env)
         self.assertEqual(line, "academy: author@t — 2 open tickets to you, "
-                               "1 packet awaiting Roey; freed: T-0004")
+                               "1 packet awaiting Ada; freed: T-0004")
 
     def test_status_line_when_github_is_unreachable(self):
         self.populate()
@@ -675,7 +714,7 @@ class SessionStartTests(Fixture):
         line = self.start(self.author_home, env)
         self.assertTrue(line.startswith("academy: author@t — tickets not read: GitHub board "
                                         "unreachable (gh api: HTTP 401 Bad credentials)"), line)
-        self.assertTrue(line.endswith("; 1 packet awaiting Roey"), line)
+        self.assertTrue(line.endswith("; 1 packet awaiting Ada"), line)
 
     def test_ids_reconciled(self):
         self.populate()
@@ -695,7 +734,7 @@ class SessionStartTests(Fixture):
     def test_empty_board(self):
         self.assertEqual(self.start(self.author_home),
                          "academy: author@t — 0 open tickets to you, "
-                         "0 packets awaiting Roey")
+                         "0 packets awaiting Ada")
 
     def test_decisions_waiting_line(self):
         self.write(os.path.join(self.board, "human", "T-0020-x.md"),
@@ -756,6 +795,26 @@ class SessionStartTests(Fixture):
         self.assertEqual(self.git("rev-list", "--count", "HEAD").strip(), count)
 
     @unittest.skipUnless(HAVE_GIT, "git is not on PATH")
+    def test_board_commit_never_commits_the_workspace_around_a_plain_board(self):
+        # the folded layout: board/ is a plain directory of the workspace repo; the hook
+        # leaves it to ship.py checkpoint and never commits the superproject
+        def ws_git(*args):
+            res = subprocess.run(["git", "-C", self.tmp] + list(args), capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stderr.decode("utf-8", "replace"))
+            return res.stdout.decode("utf-8", "replace")
+        ws_git("init", "-q")
+        ws_git("config", "user.email", "test@example.invalid")
+        ws_git("config", "user.name", "Test")
+        ws_git("config", "commit.gpgsign", "false")
+        self.write(os.path.join(self.board, "README.md"), "board\n")
+        ws_git("add", "-A")
+        ws_git("commit", "-q", "-m", "fixture")
+        self.populate()
+        self.start(self.author_home, {"ACADEMY_BOARD_COMMIT": "1"})
+        self.assertEqual(ws_git("rev-list", "--count", "HEAD").strip(), "1")
+        self.assertIn("board/", ws_git("status", "--porcelain"))
+
+    @unittest.skipUnless(HAVE_GIT, "git is not on PATH")
     def test_board_commit_can_be_disabled(self):
         self.init_board_repo()
         self.populate()
@@ -763,7 +822,37 @@ class SessionStartTests(Fixture):
         self.assertNotEqual(self.git("status", "--porcelain").strip(), "")
 
 
+PY_LAUNCH = '"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}" '
+
+
 class HooksJsonTests(unittest.TestCase):
+    def test_mcp_server_command_falls_back(self):
+        with open(os.path.join(PLUGIN, ".mcp.json"), encoding="utf-8") as fh:
+            server = json.load(fh)["mcpServers"]["academy"]
+        # no shell there: $ACADEMY_PYTHON (Claude Code expands ${VAR:-default}), else py
+        self.assertEqual(server["command"], "${ACADEMY_PYTHON:-py}")
+
+    def test_hook_launcher_runs_without_py(self):
+        import shutil
+        import subprocess
+        sh, py3 = shutil.which("sh"), shutil.which("python3") or sys.executable
+        if not sh or os.name == "nt":
+            self.skipTest("needs a POSIX sh")
+        tmp = tempfile.mkdtemp(prefix="academy-launch-")
+        try:
+            os.makedirs(os.path.join(tmp, "bin"))
+            os.makedirs(os.path.join(tmp, "plug", "scripts"))
+            os.symlink(py3, os.path.join(tmp, "bin", "python3"))
+            with open(os.path.join(tmp, "plug", "scripts", "x.py"), "w") as fh:
+                fh.write("import sys; print(sys.stdin.read().upper())\n")
+            cmd = PY_LAUNCH + '"${CLAUDE_PLUGIN_ROOT}/scripts/x.py"'
+            env = {"PATH": os.path.join(tmp, "bin"), "CLAUDE_PLUGIN_ROOT": os.path.join(tmp, "plug")}
+            out = subprocess.run([sh, "-c", cmd], input="event", capture_output=True,
+                                 text=True, env=env, timeout=60)
+            self.assertEqual((out.returncode, out.stdout.strip()), (0, "EVENT"), out.stderr)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_hooks_json(self):
         with open(os.path.join(PLUGIN, "hooks", "hooks.json"), encoding="utf-8") as fh:
             hooks = json.load(fh)["hooks"]
@@ -771,7 +860,9 @@ class HooksJsonTests(unittest.TestCase):
         for event, groups in hooks.items():
             for g in groups:
                 for h in g["hooks"]:
-                    self.assertTrue(h["command"].startswith('py "${CLAUDE_PLUGIN_ROOT}/'
+                    # the interpreter: $ACADEMY_PYTHON, else py, else python3 (bash, which
+                    # Claude Code runs hooks in on every platform, Git Bash on Windows)
+                    self.assertTrue(h["command"].startswith(PY_LAUNCH + '"${CLAUDE_PLUGIN_ROOT}/'
                                                             'scripts/'), h["command"])
                     script = h["command"].split("/scripts/")[1].rstrip('"')
                     self.assertTrue(os.path.isfile(os.path.join(SCRIPTS, script)), script)
@@ -781,17 +872,70 @@ class HooksJsonTests(unittest.TestCase):
             "mcp_write_gate.py": ("PreToolUse", "mcp__.*academy.*"),
             "generated_view_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|Bash|PowerShell"),
             "explainer_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
+            "role_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
             "ticket_edit_check.py": ("PostToolUse", "Edit|Write|MultiEdit"),
             "error_ledger.py": ("PostToolUseFailure", None),
         })
 
     def test_scripts_import_the_vendored_copy(self):
         for name in ("session_start.py", "mcp_write_gate.py", "generated_view_guard.py",
-                     "ticket_edit_check.py", "explainer_write_guard.py"):
+                     "ticket_edit_check.py", "explainer_write_guard.py",
+                     "role_write_guard.py"):
             with open(os.path.join(SCRIPTS, name), encoding="utf-8") as fh:
                 text = fh.read()
             self.assertIn("import _academy as ac", text, name)
             self.assertNotIn("academy_common", text, name)
+
+
+# ---------------------------------------------------------------------------
+# role_write_guard (roster-rules.md, "Role cut")
+# ---------------------------------------------------------------------------
+
+class RoleWriteGuardTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.nb_home = os.path.join(self.tmp, "homes", "notebook")
+        self.write(os.path.join(self.nb_home, ".claude", "academy.json"),
+                   json.dumps(config_for("researcher", "researcher@t", ns="s9")))
+
+    def guard(self, path, agent, tool="Write"):
+        event = {"hook_event_name": "PreToolUse", "tool_name": tool,
+                 "tool_input": {"file_path": path, "content": "x"}, "cwd": self.outside}
+        if agent:
+            event["agent_type"] = agent
+        rc, out, err = run_hook("role_write_guard.py", event, self.env)
+        self.assertEqual(rc, 0, err)
+        return decision(out), out
+
+    def test_an_author_agent_may_not_write_in_a_researcher_home(self):
+        p = os.path.join(self.nb_home, "objects", "claim", "GEO-1.md")
+        for agent in ("author:math-writer", "math-editor", "author:figure-maker"):
+            d, out = self.guard(p, agent)
+            self.assertEqual("deny", d, agent)
+        self.assertIn("Role cut", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_a_researcher_agent_may_not_edit_tex_anywhere(self):
+        for p in (os.path.join(self.author_home, "sections", "a.tex"),
+                  os.path.join(self.nb_home, "scratch.tex")):
+            self.assertEqual("deny", self.guard(p, "researcher:prover", tool="Edit")[0], p)
+            self.assertEqual("deny", self.guard(p, "lead-researcher")[0], p)
+
+    def test_own_homes_other_roles_and_the_main_session_pass(self):
+        nb = os.path.join(self.nb_home, "proofs", "GEO-1", "attempt-1.md")
+        tex = os.path.join(self.author_home, "sections", "a.tex")
+        self.assertIsNone(self.guard(nb, "researcher:prover")[0])
+        self.assertIsNone(self.guard(tex, "author:math-writer")[0])
+        self.assertIsNone(self.guard(nb, None)[0])                  # the human
+        self.assertIsNone(self.guard(tex, None)[0])
+        self.assertIsNone(self.guard(os.path.join(self.author_home, "references.bib"),
+                                     "expert:librarian")[0])
+
+    def test_the_rules_are_data_in_permissions_json(self):
+        perms = ac.load_permissions(os.path.join(PLUGIN, "permissions.json"))
+        rules = perms["files"]["cross_role"]["rules"]
+        self.assertIn({"author": ["researcher"]},
+                      [{r["role"]: r.get("homes")} for r in rules if r.get("homes")])
+        self.assertIn(".tex", [s for r in rules for s in r.get("suffixes") or []])
 
 
 if __name__ == "__main__":

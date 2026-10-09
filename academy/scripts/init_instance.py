@@ -21,8 +21,18 @@ Steps (each reported on stdout, nothing committed):
    ``objects/<kind>/`` for every object kind, ``proofs/``, ``journal/``,
    ``audits/``, ``views/``, each with a ``.gitkeep``, plus a short
    ``objects/README.md``. Existing files are never overwritten.
+   For an author, scaffold ``Drafts/vision.md`` (the paper's form and taste) from
+   ``author/templates/vision.md`` unless it exists.
+   For a scientist, scaffold the lab from ``scientist/templates/lab/``: the package
+   (``paths.package``) with its provenance module ``env.py`` (banner, save_result, the
+   outcome blocks the experiment checker requires), ``experiments/_template.py`` and
+   ``experiments/README.md`` (the kinds), ``results/``. For an expert, the library's
+   ``README.md`` from ``expert/templates/library/README.md``. Existing files are never
+   overwritten.
 4. Unless ``--no-board``, create the board folder ``<board>/<instance>/`` with a
-   ``.gitkeep``, so tickets can be addressed to it.
+   ``.gitkeep``, so tickets can be addressed to it, and write the board's ``README.md``
+   from ``templates/board/README.md`` (or, when it exists and carries the
+   ``academy:folders`` markers, regenerate only its folder table).
 
 ``--dry-run`` prints the config and the plan and writes nothing.
 """
@@ -31,6 +41,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +55,16 @@ except ImportError:  # vendored copy
     import _academy as ac  # noqa: E402
 
 TEMPLATES = os.path.join(PLUGIN, "templates", "academy-json")
+#: the Author's vision scaffold (author/references/aesthetic-vision.md), beside this plugin
+VISION_TEMPLATE = os.path.join(os.path.dirname(PLUGIN), "author", "templates", "vision.md")
+VISION_REL = os.path.join("Drafts", "vision.md")
+#: the lab scaffold (scientist/templates/lab/: ``package/`` is renamed to paths.package)
+LAB_TEMPLATE = os.path.join(os.path.dirname(PLUGIN), "scientist", "templates", "lab")
+#: the library README (expert/templates/library/README.md)
+LIBRARY_README = os.path.join(os.path.dirname(PLUGIN), "expert", "templates", "library",
+                              "README.md")
+BOARD_README = os.path.join(PLUGIN, "templates", "board", "README.md")
+FOLDERS_RE = re.compile(r"(<!-- academy:folders -->\n).*?(\n<!-- /academy:folders -->)", re.S)
 OBJECT_KINDS = ("definition", "claim", "conjecture", "question", "example",
                 "assumption", "direction", "approach")
 NOTEBOOK_DIRS = ("proofs", "journal", "audits", "views")
@@ -170,6 +191,100 @@ def scaffold_notebook(home):
     return made
 
 
+def scaffold_vision(home, instance):
+    """Write ``Drafts/vision.md`` from the Author template unless it exists; returns the
+    path written, or None (present, or no template beside this plugin)."""
+    path = os.path.join(home, VISION_REL)
+    if os.path.exists(path) or not os.path.isfile(VISION_TEMPLATE):
+        return None
+    with open(VISION_TEMPLATE, encoding="utf-8") as fh:
+        text = fh.read().replace("{{instance}}", instance)
+    return path if _touch(path, text) else None
+
+
+def _render(text, subs):
+    for k, v in subs.items():
+        text = text.replace("{{%s}}" % k, v)
+    return text
+
+
+def scaffold_tree(src, home, subs, rename=None):
+    """Copy the template tree ``src`` into ``home``, filling ``{{key}}`` placeholders
+    in text files and renaming top-level entries by ``rename``; existing files are left
+    alone. Returns the list of files created."""
+    made = []
+    if not os.path.isdir(src):
+        return made
+    for dirpath, _dirs, files in os.walk(src):
+        rel = os.path.relpath(dirpath, src)
+        parts = [] if rel == "." else rel.split(os.sep)
+        if parts and rename and parts[0] in rename:
+            parts[0] = rename[parts[0]]
+        for name in sorted(files):
+            if name.endswith((".pyc", ".pyo")):
+                continue
+            with open(os.path.join(dirpath, name), encoding="utf-8") as fh:
+                text = _render(fh.read(), subs)
+            dest = os.path.join(home, *parts, name)
+            if _touch(dest, text):
+                made.append(dest)
+    return made
+
+
+def scaffold_lab(home, cfg):
+    """The Scientist's lab layout (``templates/lab``); returns the files created."""
+    package = ((cfg.get("paths") or {}).get("package") or "src").strip("/\\")
+    subs = {"instance": cfg["instance"], "ns": cfg.get("ns") or "", "package": package}
+    return scaffold_tree(LAB_TEMPLATE, home, subs, rename={"package": package})
+
+
+def scaffold_library(home, cfg):
+    """The Expert library's README; returns the path written, or None."""
+    if not os.path.isfile(LIBRARY_README):
+        return None
+    with open(LIBRARY_README, encoding="utf-8") as fh:
+        text = _render(fh.read(), {"instance": cfg["instance"]})
+    path = os.path.join(home, "README.md")
+    return path if _touch(path, text) else None
+
+
+def folder_table(instances):
+    """The board README's folder table, one row per instance of the workspace."""
+    names = sorted(instances)
+    rows = ["| Folder | Holds |", "|---|---|"]
+    if names:
+        rows.append("| %s | Tickets addressed **to** that instance |"
+                    % ", ".join("`%s/`" % n for n in names))
+    rows += ["| `human/` | Tickets addressed to you, plus `RESUME.md` and `SUMMARY.md` after an unattended run |",
+             "| `packets/<instance>/` | Review packets produced **by** that instance |",
+             "| `deep-dives/` | Local copies of `/academy:deep-dive` explainer pages |",
+             "| `.ids/` | The id counters. Do not edit them |",
+             "| `.render/` | The generated dashboard `review.html` (not committed) |"]
+    return "\n".join(rows)
+
+
+def write_board_readme(board, instances):
+    """Write ``<board>/README.md`` from the template, or regenerate the folder table
+    of one that carries the markers. Returns 'wrote', 'updated', 'present' or None
+    (no template)."""
+    path = os.path.join(board, "README.md")
+    table = folder_table(instances)
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        new = FOLDERS_RE.sub(lambda m: m.group(1) + table + m.group(2), text, count=1)
+        if new == text:
+            return "present"
+        ac.atomic_write(path, new)
+        return "updated"
+    if not os.path.isfile(BOARD_README):
+        return None
+    with open(BOARD_README, encoding="utf-8") as fh:
+        text = _render(fh.read(), {"folder_table": table})
+    ac.atomic_write(path, text)
+    return "wrote"
+
+
 def init_instance(instance, home, domains, ns=None, workspace_path=None, board=True,
                   force=False, dry_run=False, expert=None, scientist=None):
     """Run the four steps; returns a list of report lines."""
@@ -190,6 +305,12 @@ def init_instance(instance, home, domains, ns=None, workspace_path=None, board=T
             lines.append("would write %s/.gitattributes" % home)
         if role == "researcher":
             lines.append("would scaffold the notebook under %s" % home)
+        if role == "author" and not os.path.exists(os.path.join(home, VISION_REL)):
+            lines.append("would write %s/%s" % (home, VISION_REL.replace("\\", "/")))
+        if role == "scientist":
+            lines.append("would scaffold the lab (scientist/templates/lab) under %s" % home)
+        if role == "expert":
+            lines.append("would write %s/README.md unless present" % home)
         if board:
             lines.append("would create %s" % board_dir.replace("\\", "/"))
         return lines
@@ -207,11 +328,26 @@ def init_instance(instance, home, domains, ns=None, workspace_path=None, board=T
     if role == "researcher":
         made = scaffold_notebook(home)
         lines.append("notebook: %d file(s) created" % len(made))
+    if role == "author":
+        made = scaffold_vision(home, instance)
+        lines.append("vision: %s" % ("wrote " + made.replace("\\", "/") if made
+                                     else "present, left alone"))
+    if role == "scientist":
+        made = scaffold_lab(home, cfg)
+        lines.append("lab: %d file(s) created" % len(made))
+    if role == "expert":
+        made = scaffold_library(home, cfg)
+        lines.append("library README: %s" % ("wrote " + made.replace("\\", "/") if made
+                                             else "present, left alone"))
     if board:
         if _touch(os.path.join(board_dir, ".gitkeep")):
             lines.append("board: created %s" % board_dir.replace("\\", "/"))
         else:
             lines.append("board: %s present" % board_dir.replace("\\", "/"))
+        insts = (ac.load_workspace(ws["_path"]).get("instances") or {})
+        state = write_board_readme(ws["board"], insts)
+        if state:
+            lines.append("board README: %s" % state)
     if not os.path.isdir(os.path.join(home, ".git")):
         lines.append("note: %s is not a git repository" % home)
     return lines

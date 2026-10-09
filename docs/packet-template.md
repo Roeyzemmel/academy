@@ -2,7 +2,7 @@
 
 Plan section 7. One template for every role: `academy/templates/packet.md`.
 
-A packet is how finished work comes back to Roey for a decision or an
+A packet is how finished work comes back to the human for a decision or an
 acknowledgement. `/academy:review` renders all open packets into one HTML dashboard.
 It then asks each pending decision with `AskUserQuestion`, and a script writes the
 answers back (section 4).
@@ -90,11 +90,28 @@ the report's `## Question`, `## Class`, `## Method`, `## Environment`,
    - Decisions are numbered `D1`, `D2`, … with no gaps.
    - Each decision has 2–4 options lettered `(a)`–`(d)` and exactly one
      `Recommendation:` line.
-   - Roey may always answer `other` with free text, so an "other" option is never
+   - The human may always answer `other` with free text, so an "other" option is never
      listed.
 6. `## Machine notes`: one bullet per judgement call, naming the agent. It is
    `None.` if there were none.
 7. `## Decision`: the write-back section. It is empty at creation.
+
+### Creating a packet with `packets_create`
+
+The MCP tool fills `packet`, `by`, `state` and `created` itself. The caller gives:
+
+| Argument | Required | |
+|---|---|---|
+| `title` | yes | one line |
+| `kind` | yes | one of the kinds above |
+| `body` **or** `sections` | yes, exactly one | `sections` = `{summary, produced, established_vs_assumed, evidence, extra, decisions_needed, machine_notes}`; `summary` at most three lines |
+| `instance` | the human: yes; an agent: no | an agent's is its own instance |
+| `ticket`, `agenda`, `subject`, `status_before`, `status_proposed` | no | as in section 2 |
+
+`decisions_needed` is `None.` or, per decision, `### D1. <question>`, then two to four
+option lines `- (a) <text>` … `- (d) <text>`, then one `- Recommendation: <letter, why>`;
+D1..Dn without gaps. `## Decision` is empty at creation. A refusal lists every problem
+at once, followed by this shape, so one corrected retry is enough.
 
 ## 4. The `## Decision` write-back format
 
@@ -111,7 +128,7 @@ There is one line per answered decision, appended in answer order:
   `^- D(\d+): (\([a-d]\)|other|ack) \| (\d{4}-\d{2}-\d{2}) \| ([^\s|]+)(?: \| (.*))?$`.
 - **Only the human decides.** `<speaker>` is `human`. `packets_decide` is
   human-only.
-- **Editing by hand.** Roey may also write these lines by hand in VS Code; they count
+- **Editing by hand.** The human may also write these lines by hand in VS Code; they count
   the same way.
 - **Last line wins.** A later line for the same `D<k>` supersedes an earlier one.
   Lines are never deleted.
@@ -146,7 +163,7 @@ decided:
 ## Summary
 
 Two independent rigor-reviewer runs both CONFIRMED the strip bound.
-Recolouring to black is proposed; one cited hypothesis needs Roey's word.
+Recolouring to black is proposed; one cited hypothesis needs the human's word.
 
 ## Produced
 

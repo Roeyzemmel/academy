@@ -7,13 +7,24 @@ contracts it codes against are the academy repo's `docs/protocol.md`,
 `docs/config.md` and `docs/packet-template.md`; the standing rules are
 `academy/references/budget.md` and `roster-rules.md`.
 
+**The Author owns the paper's form and taste**, not only the typing of settled results:
+the arc, economy of statements, notation that earns its place, proofs at the right
+level, examples and figures where they carry the idea, the introduction's promise kept,
+one voice (`references/aesthetic-vision.md`). Each paper home keeps its own
+`Drafts/vision.md` (scaffolded from `templates/vision.md` by `/academy:init`; the
+human's stated taste, dated, with pending decisions marked). The writers read it first
+and apply it within their remit; `/author:agenda vision` and `/author:presync` run an
+aesthetic pass (a read-only `math-editor` in vision mode) whose proposals become Author
+tickets or `research` tickets (`final_to: researcher`), never a rewrite of a pinned statement;
+the Expert's referee checks the built paper against it.
+
 Each agent's model, effort and fallback are in its file's frontmatter (the fallback
 rule: `academy/references/roster-rules.md`, "Model fallback").
 
 | Agent | Job |
 |---|---|
 | `math-writer` | Exposition from established results; a new argument becomes a `research` ticket to the Expert (`final_to: researcher`) |
-| `math-editor` | Decided edits, `[copy]` mode (was copy-editor), landing verdicts and the recolour |
+| `math-editor` | Decided edits, `[copy]` mode (was copy-editor), landing verdicts and the recolour, vision mode (the read-only aesthetic pass) |
 | `tex-engineer` | The LaTeX toolchain, the build, `check_paper.py` and its tests (was latex-fixer) |
 | `figure-maker` | Figures, after the pack's `figures.md` |
 | `note-sweeper` | The machine-note sweep |
@@ -26,16 +37,28 @@ Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home:
 `tex_edit_check` (PostToolUse edits: checker + dirty marker), `bib_gate` (only
 `expert:librarian` edits the bibliography), `notation_scope_guard` (PreToolUse edits:
 the notation-auditor edits only the home's `notation-decisions.md`; scoped by agent),
+`pinned_guard` (PreToolUse edits: nobody, the main session included, changes the
+environment of a statement a CONFIRMED review pinned, `scripts/pinned.py`; the proof is
+free; only the human releases a pin in `.claude/pinned-release.txt`), `preamble_guard`
+(PreToolUse edits: under `author.preamble.policy` `propose` or `locked`, no tool edit of
+the preamble; the human releases a file in `.claude/preamble-release.txt`),
 `commit_gate` (Bash|PowerShell, scoped by
 the repo actually committed), `build_gate` (SubagentStop of a writer, namespace-stripped,
 under `.build/.lock`).
+
+Role cut (`academy/references/roster-rules.md`, "Role cut"): the Researcher proves, the
+Author only lands; a missing argument, a hypothesis question or a cleaner formulation is a
+`research` ticket (`final_to: researcher`, checked by `routes.check_filed`), and an
+Author agent writes nothing in a Researcher home (`academy:role_write_guard`).
 
 Ticket chain: the Author's only neighbour is the Expert. A request for the Researcher or
 the Scientist is a `research` ticket to the Expert with `final_to`, which the Expert's
 `research-intake` relays. Which agents may file to the Expert is `academy/permissions.json`
 `tickets.edges`, described in `docs/protocol.md` section 5.1.
 
-Scripts and formats: `references/scripts.md`, `references/formats.md`. Tests:
+Scripts and formats: `references/scripts.md`, `references/formats.md`; what the Author
+delegates to the Expert and the Scientist: `references/delegation.md`; tex mechanics and
+colours: `skills/paper-method/references/editing-tex.md`, `draft-colours.md`. Tests:
 `py -m unittest discover -s author/tests -t author/tests` from the academy repo.
 
 ## Skills
@@ -47,8 +70,8 @@ Scripts and formats: `references/scripts.md`, `references/formats.md`. Tests:
 | /author:agenda | Maintain the paper's agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into tickets. Use for "update the agenda", "what does the paper need". |
 | /author:audit-notation | Audit the paper's notation against the home's notation decisions and the domain pack, report clashes, sync notation-decisions.md to the draft, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round. |
 | /author:inbox | Work the paper's inbox (replaces /author:next): sweep the machine notes first, then take at most three tickets from the board (the only queue), routed by kind, landed if returned, or released if unblocked. Use for "next", "run the agenda", "work the inbox". |
-| /author:next | Retired: /author:next is now /author:inbox (sweep first, the board as the only queue, routing by kind). Use only to be redirected; for "next" or "run the agenda" use /author:inbox. |
-| /author:notes | File the human's new margin notes as tickets on the agenda entry they concern (to the Author itself, or to the role that owns the work), and referee-packet points. Use when Roey has left notes in the PDF, after an Overleaf sync, or when a referee packet comes back. |
+| /author:next | Retired: /author:next is now /author:inbox. Use only to be redirected; for "next" or "run the agenda" use /author:inbox. |
+| /author:notes | File the human's new margin notes as tickets on their agenda entry (to the Author, or to the role owning the work), and referee-packet points. Use when the human left notes in the PDF, after an Overleaf sync, or when a referee packet returns. |
 | /author:paper-method | How to write a research mathematics paper in LaTeX so a reader one field over can follow it: structure, prose, labels, macros, bibliography, exposition from proofs, pre-send checklist. Use whenever writing, restructuring or cleaning up a paper. |
 | /author:presync | The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone. |
 | /author:status | The paper's state at a glance: agenda progress, what /author:inbox would run, what waits on which ticket, tickets to this Author, checker summary. Read-only. Use for "where is the paper", "author status", "how far is the milestone". |

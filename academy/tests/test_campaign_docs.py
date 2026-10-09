@@ -51,9 +51,12 @@ class DocumentedCommands(unittest.TestCase):
         self.assertRegex(skill, r"/academy:inbox --campaign <target>")
         self.assertRegex(ref, r"/academy:inbox --campaign <target>`? lists")
         self.assertRegex(ref, r"never dispatch from it")
-        # serial: one ticket, one subagent, checkpoint, next
+        # serial: one ticket, one subagent of the Researcher, checkpoint, next
         self.assertRegex(skill, r"(?i)serial")
-        self.assertRegex(skill, r"one ticket, one subagent,\s+checkpoint, next")
+        self.assertRegex(ref, r"one ticket, one subagent of this role, then the\s+\*\*Checkpoint\*\*")
+        # other roles' tickets wait for their next actor; the campaign does not run them
+        self.assertRegex(skill, r"waits for the next\s+actor")
+        self.assertRegex(ref, r"Wait for the next actor")
         # the serial rule is stated once, in budget.md "Campaigns"; the skill points there
         budget = text("academy", "references", "budget.md")
         self.assertRegex(budget, r"(?i)one subagent at a time")
@@ -181,6 +184,33 @@ class DispatchLoop(unittest.TestCase):
         bd.transition_ticket(self.board, "T-0002", "in-progress", as_instance=self.inst)
         rows = json.loads(self.inbox("--campaign", "T", "--json")[1])["take"]
         self.assertEqual("T-0002", rows[0]["id"])
+
+
+class CampaignReachesOtherRolesOnlyByTickets(unittest.TestCase):
+    """The rule: campaign tooling acts on other roles only by issuing tickets and waiting for
+    the next actor. The campaign skill and its dispatch reference never name another
+    role's agent, and never tell the driver to dispatch one."""
+
+    def test_no_other_roles_agent_is_named_for_dispatch(self):
+        perms = ac.load_permissions(os.path.join(PLUGIN, "permissions.json"))
+        others = [a for role, agents in perms["roster"].items()
+                  if role not in ("researcher", "academy") for a in agents]
+        self.assertIn("review-chair", others)
+        for rel in (SKILL, REF):
+            body = text(*rel)
+            for agent in others:
+                with self.subTest(doc=rel[-1], agent=agent):
+                    self.assertNotRegex(body, r"(?<![\w-])%s(?![\w-])" % re.escape(agent))
+            self.assertNotRegex(body, r"(?i)dispatch one subagent for the receiving role")
+            self.assertNotRegex(body, r"(?i)subagent_type:\s*(author|expert|scientist):")
+
+    def test_the_states_are_documented_and_computed_by_the_shared_module(self):
+        skill, ref = text(*SKILL), text(*REF)
+        for word in ("WAITING", "PAUSE"):
+            self.assertIn(word, skill)
+            self.assertIn(word, ref)
+        self.assertIn("academy/lib/workplan.py", ref)
+        self.assertRegex(skill, r"never\s+runs another role's agents")
 
 
 if __name__ == "__main__":

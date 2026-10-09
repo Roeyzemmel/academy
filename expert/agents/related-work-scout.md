@@ -11,6 +11,8 @@ skills: [academy:citation-discipline, academy:honest-reporting]
 color: yellow
 ---
 
+**Role cut.** What your role writes, never writes and hands off, and to whom: `academy/references/roster-rules.md`, "Role cut". Work for another role is a ticket to it.
+
 You look for prior work related to one statement, or — in watch mode — to everything
 that appeared since the last watch. Your only output files are in the library home's
 `ledgers/<instance>/` folder, where `<instance>` is the paper or notebook the search
@@ -44,7 +46,8 @@ source worth caching goes into the report for the librarian.
 Cover new listings only: since the date of the newest `watch-*.md` in the folder, or
 the last 30 days. Arxiv listing pages for the primary categories in the header, then
 one targeted search per keyword, then the recent-citations lists of the anchor
-entries. Write `ledgers/<instance>/watch-<YYYY-MM-DD>.md` with the window, the pages
+entries (the `## Search vocabulary` block, format and fallback location in
+`${CLAUDE_PLUGIN_ROOT}/skills/litwatch/SKILL.md`). Write `ledgers/<instance>/watch-<YYYY-MM-DD>.md` with the window, the pages
 read and how deep, the queries, and the hits (each with the statement it touches, by
 id). A watch with no hits still gets its file.
 

@@ -1,6 +1,6 @@
 """The academy object schema: schema v2 of every registry (plan section 6, "One schema").
 
-One frontmatter schema for every namespace (``s1:``, ``paper:``, ``lab:`` and future
+One frontmatter schema for every namespace (``nb:``, ``paper:``, ``lab:`` and future
 instances), the same as the Researcher notebook's object template
 (``researcher/templates/notebook/_templates/object.md``)::
 
@@ -9,13 +9,13 @@ instances), the same as the Researcher notebook's object template
 
 * ``kind`` is the statement type: definition, claim, conjecture, question, example,
   assumption, direction. ``form`` (optional) keeps the home's finer label where the id
-  does not already carry it (Slope1's prop / lemma / remark / draft ...).
+  does not already carry it (a notebook's prop / lemma / remark / draft ...).
 * ``status`` is one vocabulary: open, conjectured, sketch, supported, proved-modulo,
   proved, refuted, refuted-as-stated. It belongs to claims, conjectures and questions;
   a profile may allow it on other kinds (the paper's colour rule gives every
   environment a status). A claim with ``form: remark`` may carry none.
 * ``modulo`` lists the missing inputs (ids, or plain text where no record carries the
-  input): it replaces both lab/paper's ``open:`` and Slope1's reduction text.
+  input): it replaces both lab/paper's ``open:`` and a v1 notebook's reduction text.
 * ``supersedes`` is one-way; ``superseded_by`` is derived.
 * ``lifecycle``: active, superseded, dropped (a lifecycle, no longer a status). A record
   that is not active projects to ``n/a`` whatever its status.

@@ -31,8 +31,8 @@ The candidates file is JSON, a list (or {"candidates": [...]}) of objects:
 ``budget.itemsPerRun``, never more than 3) candidates are filed per run; the rest are
 reported as deferred.
 
-Candidate decisions (a run on a model other than a primary -- Fable or Opus 5.5,
-``rs.PRIMARY_MODELS`` -- counts as not positive):
+Candidate decisions (a run on a model other than a primary -- workspace.json's
+``grading.primaryModels``, ``rs.primary_models()`` -- counts as not positive):
 
     no verdicts                          PENDING (file the verify ticket)
     run A not CONFIRMED                  NOT CLEARED (run B not dispatched)
@@ -69,7 +69,7 @@ def _verdict(v):
 
 
 def _primary(v):
-    """A verdict on a primary model (Fable or Opus 5.5). A verdict with no model
+    """A verdict on a primary model (``rs.primary_models()``). A verdict with no model
     recorded is taken as on a primary, as before; ``fallback: true`` overrides."""
     model = v.get("model")
     return (not model or rs.is_primary(model)) and not v.get("fallback")

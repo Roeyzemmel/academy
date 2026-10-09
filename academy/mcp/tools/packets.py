@@ -50,33 +50,52 @@ def load_packet(ctx, pid):
     return path, meta, body
 
 
+#: what packets_create needs, said in every refusal so one retry is enough
+PACKET_SHAPE = (
+    "packets_create needs: title (one line), kind (%s), and either body (the full "
+    "Markdown) or sections {summary (<=3 lines), produced, established_vs_assumed, "
+    "evidence, extra, decisions_needed, machine_notes}; optional instance (the human "
+    "must give it; an agent's is its own), ticket (T-NNNN), agenda, subject [ids], "
+    "status_before / status_proposed (registry statuses). decisions_needed is 'None.' "
+    "or blocks '### D1. <question>' then 2-4 option lines '- (a) <text>' ... '- (d) "
+    "<text>' and one '- Recommendation: <letter and why>'; numbered D1..Dn without gaps. "
+    "## Decision stays empty (docs/packet-template.md)." % ", ".join(ac.PACKET_KINDS))
+
+
 def create_packet(ctx, a):
+    probs = []                  # every problem at once (fix 10, 2026-10-09)
+    inst = None
     if ctx.is_human:
         inst = a.get("instance")
         if not inst or inst not in ctx.instances():
-            raise ToolError("the human names the packet's instance (a workspace instance)")
+            probs.append("the human names the packet's instance (a workspace instance)")
     else:
         inst = ctx.instance
         if not inst:
-            raise ToolError("agent %r runs outside every academy home" % ctx.agent)
+            raise ToolError("agent %r runs outside every academy home and no instance "
+                            "could be resolved; pass instance=<its instance>" % ctx.agent)
         if a.get("instance") and a["instance"] != inst:
-            raise ToolError("a packet's instance is the caller's instance (%s)" % inst)
+            probs.append("a packet's instance is the caller's instance (%s)" % inst)
     if a.get("body") is not None and a.get("sections") is not None:
-        raise ToolError("give body or sections, not both")
+        probs.append("give body or sections, not both")
     body = a.get("body")
     if body is None:
-        body = compose_body(a.get("sections") or {})
-    body = body.replace("\r\n", "\n")
+        sections = a.get("sections") or {}
+        if not isinstance(sections, dict):
+            probs.append("sections must be an object")
+            sections = {}
+        body = compose_body(sections)
+    body = str(body).replace("\r\n", "\n")
     if not body.startswith("\n"):
         body = "\n" + body
     if ac.packet_answers(body) or [ln for ln in ac._sections(body).get("## Decision", [])
                                    if ln.strip()]:
-        raise ToolError("## Decision must be empty at creation")
+        probs.append("## Decision must be empty at creation")
     kind = a.get("kind") or "other"
     meta = {
         "packet": "P-0000",
         "title": (a.get("title") or "").strip(),
-        "instance": inst,
+        "instance": inst or "unknown@x",
         "kind": kind,
         "by": ctx.speaker,
         "ticket": a.get("ticket") or None,
@@ -89,10 +108,12 @@ def create_packet(ctx, a):
         "decided": None,
     }
     if "\n" in meta["title"]:
-        raise ToolError("title must be one line")
-    probs = ac.validate_packet(meta, body)
+        probs.append("title must be one line")
+    probs += [p for p in ac.validate_packet(meta, body) if p not in probs]
     if probs:
-        raise ToolError("invalid packet: " + "; ".join(probs))
+        raise ToolError("invalid packet (%d problem%s): %s.\n%s"
+                        % (len(probs), "" if len(probs) == 1 else "s", "; ".join(probs),
+                           PACKET_SHAPE))
     tref = None
     if meta["ticket"]:
         tref, tmeta, tbody = load_ticket(ctx, meta["ticket"])
@@ -219,8 +240,11 @@ TOOLS = [
     Tool("packets_get", "Read one packet with its parsed decisions and answers.",
          obj({"id": S}, ["id"]), _get),
     Tool("packets_create", "Create a review packet from the caller's instance, from a "
-         "full Markdown body or from sections. ## Decision must be empty. With ticket, "
-         "the receiver's packet is also listed in the ticket's packets.",
+         "full Markdown body or from sections. Required: title, kind, and body or "
+         "sections; decisions as '### D1. question' with 2-4 '- (a) option' lines and "
+         "a '- Recommendation:' line (or 'None.'). ## Decision must be empty. With "
+         "ticket, the receiver's packet is also listed in the ticket's packets. A "
+         "refusal lists every problem at once.",
          obj({"title": S, "kind": {"type": "string", "enum": list(ac.PACKET_KINDS)},
               "instance": S, "ticket": S, "agenda": S, "subject": L,
               "status_before": {"type": "string", "enum": list(ac.CLAIM_STATUSES)},

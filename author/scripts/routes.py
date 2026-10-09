@@ -16,7 +16,17 @@ another role that came back ``delivered``): see the landing table.
 ``OUT_ROUTES`` is how the Author files an ask that leaves it (used by
 ``agenda.py gaps --file``; a hand-filed ticket uses ``board.py new`` /
 ``tickets_create`` with the same kind, ``final_to`` and ``agenda``).
+
+The role cut (academy/references/roster-rules.md): the Researcher proves, the Author only
+lands. ``route`` rejects a ticket of another role's kind (``BELONGS``), and sends a
+self-ticket whose ask needs a new argument (``needs_argument``) to ``research``: the
+writer files the argument as a ``research`` ticket and lands what returns.
+``check_filed(meta)`` is the check on what an Author writer files for a missing
+argument: kind ``research``, to the Expert, ``final_to: researcher``; ``gaps.py`` runs it
+before filing.
 """
+
+import re
 
 #: ticket kind -> (how, target, why)
 KIND_ROUTES = {
@@ -52,6 +62,19 @@ DELIVERABLES = {
                   "names the lab claim.",
     "referee": "A referee packet on the built PDF.",
 }
+#: kinds that are another role's work: the Author asks for them, it never does them
+BELONGS = {"prove": "researcher", "generalize": "researcher",
+           "review-experiment": "researcher", "experiment": "scientist",
+           "test": "scientist", "code": "scientist"}
+#: an ask that needs an argument nobody has delivered yet (the Researcher's work)
+RE_NEEDS_ARGUMENT = re.compile(
+    r"(?i)\b(missing|new|own|fresh)\s+(argument|proof|lemma|step)s?\b"
+    r"|\bfill (in )?the gap\b|\brepair (the|its) (proof|argument)\b"
+    r"|\bconstruct (a|the) proof\b|\b(find|give|write) a (new )?proof\b"
+    r"|\bprove (that|it|the)\b|\bcleaner formulation\b|\bunifying lemma\b"
+    r"|\b(add|drop|weaken|strengthen) (a |the )?hypothes")
+#: the self kinds whose ask is checked for a missing argument
+WRITER_KINDS = ("write", "apply", "copy", "note")
 #: the deliverable of a ticket the Author files to itself
 SELF_DELIVERABLE = ("The work done in the paper and recorded; this ticket delivered with "
                     "a one-line result.")
@@ -60,14 +83,73 @@ LAND_ROUTES = {"verify": "math-editor", "cite": "math-editor", "research": "math
                "prove": "math-writer", "experiment": "math-writer"}
 
 
+def needs_argument(meta):
+    """True when a ticket's title or ask asks for an argument that does not exist yet
+    (a missing step, a new proof or lemma, a hypothesis change): Researcher work."""
+    text = " ".join(str(meta.get(k) or "") for k in ("title", "ask"))
+    return bool(RE_NEEDS_ARGUMENT.search(text))
+
+
+def research_route(why):
+    return {"how": "research", "target": "expert",
+            "why": "%s: the Researcher proves, the Author only lands. File a `research` "
+                   "ticket to the Expert with final_to researcher (check_filed), block "
+                   "this one waiting on it, and land what returns" % why}
+
+
+def check_filed(meta):
+    """Problems with a ticket an Author writer files for a missing argument (empty: it
+    passes). The role cut: an argument is asked of the Researcher as ``kind: research``,
+    ``to`` the Expert (the Author's only neighbour), ``final_to: researcher``; never a
+    self ``write``/``apply`` ticket, never ``prove`` to the Expert."""
+    probs = []
+    kind = meta.get("kind")
+    asks_argument = (kind == "prove" or (kind == "research" and str(
+        meta.get("final_to") or "researcher").split("@")[0] != "scientist")
+        or (kind in WRITER_KINDS + SELF_KINDS and needs_argument(meta)))
+    if not asks_argument:
+        return probs
+    to = str(meta.get("to") or "")
+    if kind in WRITER_KINDS or kind in SELF_KINDS:
+        probs.append("a missing argument is not a `%s` ticket: file `research` to the "
+                     "Expert with final_to researcher" % kind)
+    elif kind != "research":
+        probs.append("an argument is asked as kind `research`, not `%s`" % kind)
+    if to and not to.startswith("expert@"):
+        probs.append("an Author files to the Expert (its only neighbour), not %s" % to)
+    if kind == "research" or kind not in WRITER_KINDS + SELF_KINDS:
+        ft = str(meta.get("final_to") or "")
+        if ft.split("@")[0] != "researcher":
+            probs.append("final_to must be researcher (the Researcher proves), not %r"
+                         % (ft or None))
+    return probs
+
+
+def _human():
+    """The human's name from workspace.json (``human.name``), else 'the human'."""
+    try:
+        import _academy as ac
+        return ac.human_name()
+    except Exception:       # a routing table must answer even without a workspace
+        return "the human"
+
+
 def route(meta):
     kind = meta.get("kind") or "other"
+    if kind in BELONGS:
+        role = BELONGS[kind]
+        return {"how": "reject", "target": None,
+                "why": "a %s ticket is %s work, not the Author's (the Author only lands); "
+                       "reject it, and ask through a `research` ticket to the Expert with "
+                       "final_to %s" % (kind, role, role)}
+    if kind in WRITER_KINDS and needs_argument(meta):
+        return research_route("the ask needs an argument nobody has delivered")
     if kind in KIND_ROUTES:
         how, target, why = KIND_ROUTES[kind]
         return {"how": how, "target": target, "why": why}
     return {"how": "human", "target": "human",
-            "why": "no Author route for a %s ticket: ask Roey (accept and file a work "
-                   "ticket, reject with a reason, forward)" % kind}
+            "why": "no Author route for a %s ticket: ask %s (accept and file a work "
+                   "ticket, reject with a reason, forward)" % (kind, _human())}
 
 
 def land_route(kind):

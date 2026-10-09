@@ -8,9 +8,9 @@ stdout except protocol messages; diagnostics go to stderr.
 Run:  py <plugin>/mcp/server.py      (the plugin's .mcp.json does this)
 
 Config: the workspace comes from ``academy_common.load_workspace`` (so
-``$ACADEMY_WORKSPACE`` overrides it), the caller's instance from the server's
-cwd (``find_home`` + ``instance_for_home``, falling back to the home path that
-contains the cwd). The caller comes from the record the ``mcp_write_gate``
+``$ACADEMY_WORKSPACE`` overrides it), the caller's instance per call
+(``tools.Context.instance``: the ``instance`` argument, the call's ticket, the
+server's cwd, the only instance of the agent's role). The caller comes from the record the ``mcp_write_gate``
 hook leaves for each call (the caller handshake, see ``tools/__init__.py``).
 """
 
@@ -34,6 +34,14 @@ SERVER_VERSION = "0.1.0"
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 MODULES = (claims, library, queue, tickets, packets, domain, config)
+
+#: tools whose ``instance`` argument names the instance the caller acts for (it is
+#: removed from the arguments before the handler runs)
+ACTING_INSTANCE_TOOLS = ("tickets_create", "tickets_update", "tickets_get",
+                         "claims_new", "claims_attach_evidence", "claims_propose_status",
+                         "claims_set_status")
+#: tools whose own ``instance`` argument is the instance acted for (kept for the handler)
+TARGET_INSTANCE_TOOLS = ("packets_create", "config_get")
 
 
 def all_tools():
@@ -88,7 +96,15 @@ def call_tool(name, args, cwd=None, caller=None):
                                % (name, why), True)
             verified, caller = False, None
     ns, agent = parse_caller(caller)
-    ctx = Context(cwd=cwd, agent=agent, agent_ns=ns, verified=verified)
+    # the acting instance (fix 1, 2026-10-09): the server's cwd is not the agent's, so a
+    # call may name the instance it acts for; on these tools ``instance`` means that
+    requested = None
+    if name in ACTING_INSTANCE_TOOLS:
+        requested = args.pop("instance", None)
+    elif name in TARGET_INSTANCE_TOOLS:
+        requested = args.get("instance")
+    ctx = Context(cwd=cwd, agent=agent, agent_ns=ns, verified=verified,
+                  requested_instance=requested)
     try:
         if tool.write and agent:
             ok, why = ac.may_call(ctx.perms, name, agent)

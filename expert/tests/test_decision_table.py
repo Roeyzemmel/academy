@@ -20,7 +20,7 @@ def setUpModule():
     path = os.path.join(_WS["dir"].name, "workspace.json")
     with open(path, "w", encoding="utf-8") as fh:
         json.dump({"board": os.path.join(_WS["dir"].name, "board"),
-                   "instances": {"author@bi": {"role": "author", "ns": "paper",
+                   "instances": {"author@x": {"role": "author", "ns": "paper",
                                                "home": os.path.join(_WS["dir"].name, "bi"),
                                                "domains": ["translation-surfaces"]}}}, fh)
     _WS["old"] = os.environ.get("ACADEMY_WORKSPACE")
@@ -123,6 +123,62 @@ class TableTests(unittest.TestCase):
         self.assertEqual(r["outcome"], "disagreement")
         self.assertIsNone(r["proposed_status"])
 
+    # T-0148 (the human's decision, 2026-10-09): a definition used only as notation is
+    # not an input; two CONFIRMED runs differing only in definitions agree
+    def test_definition_only_difference_is_agreement_and_flagged(self):
+        kinds = {"paper:defn:affine-in-charts": "definition", "paper:lem:a": "claim"}
+        r = dt.decide(rec("CONFIRMED", modulo="paper:lem:a, paper:defn:affine-in-charts"),
+                      rec("CONFIRMED", run="B", modulo="paper:lem:a"),
+                      kind_of=kinds.get)
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:a"])
+        self.assertEqual(r["proposed_status"], "proved-modulo")
+        self.assertEqual(r["dropped_definitions"], ["paper:defn:affine-in-charts"])
+        self.assertIn("T-0148", r["grounds"]["note"])
+        self.assertEqual(r["grounds"]["modulo"], ["paper:lem:a"])
+        self.assertIn("dropped definitions", dt._text(r))
+
+    def test_definition_only_against_none_is_confirmed(self):
+        r = dt.decide(rec("CONFIRMED", modulo="paper:defn:affine-in-charts"),
+                      rec("CONFIRMED", run="B"), kind_of=lambda q: None)
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertEqual(r["proposed_status"], "proved")
+        self.assertEqual(r["dropped_definitions"], ["paper:defn:affine-in-charts"])
+
+    def test_lemma_difference_is_still_disagreement(self):
+        kinds = {"paper:defn:d": "definition", "paper:lem:b": "claim"}
+        r = dt.decide(rec("CONFIRMED", modulo="paper:defn:d, paper:lem:b"),
+                      rec("CONFIRMED", run="B"), kind_of=kinds.get)
+        self.assertEqual(r["outcome"], "disagreement")
+        self.assertIsNone(r["proposed_status"])
+        self.assertEqual(r["dropped_definitions"], [])
+        self.assertIn("paper:lem:b", r["summary"])
+        self.assertNotIn("paper:defn:d", r["summary"])
+
+    def test_citation_difference_is_still_disagreement(self):
+        r = dt.decide(rec("CONFIRMED", modulo="paper:defn:d, bib:Ha02#1.3"),
+                      rec("CONFIRMED", run="B"), kind_of=lambda q: None)
+        self.assertEqual(r["outcome"], "disagreement")
+
+    def test_registry_kind_beats_the_label(self):
+        # an id that looks like a definition but is a lemma in the registry is an input
+        r = dt.decide(rec("CONFIRMED", modulo="s1:DEF-1"), rec("CONFIRMED", run="B"),
+                      kind_of={"s1:DEF-1": "lemma"}.get)
+        self.assertEqual(r["outcome"], "disagreement")
+        self.assertTrue(dt.is_definition("s1:DEF-2", {"s1:DEF-2": "def"}.get))
+        self.assertTrue(dt.is_definition("s1:DEF-9", lambda q: None))
+        self.assertTrue(dt.is_definition("paper:defn:x", lambda q: None))
+        self.assertFalse(dt.is_definition("paper:lem:x", lambda q: None))
+        self.assertFalse(dt.is_definition("bib:defn:x", {"bib:defn:x": "definition"}.get))
+
+    def test_default_lookup_falls_back_to_the_label(self):
+        # the module's workspace names a home that does not exist: no registry, label rule
+        self.assertIsNone(dt.registry_kind("paper:defn:x"))
+        r = dt.decide(rec("CONFIRMED", modulo="paper:lem:a, paper:defn:x"),
+                      rec("CONFIRMED", run="B", modulo="paper:lem:a"))
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["dropped_definitions"], ["paper:defn:x"])
+
     def test_one_modulo_one_clean_is_disagreement(self):
         r = dt.decide(rec("CONFIRMED"), rec("CONFIRMED", run="B", modulo="paper:lem:b"))
         self.assertEqual(r["outcome"], "disagreement")
@@ -139,6 +195,8 @@ class TableTests(unittest.TestCase):
         self.assertTrue(r["needs_human"])
         self.assertIsNone(r["proposed_status"])
         self.assertEqual(r["file_items"][0]["kind"], "counterexample")
+        # the module's workspace names no human: the generic wording
+        self.assertIn("goes to the human at once", r["summary"])
 
     def test_disproved_in_b_whatever_a_said(self):
         r = dt.decide(rec("CONFIRMED"), rec("DISPROVED", run="B"))
@@ -191,7 +249,7 @@ class TableTests(unittest.TestCase):
             with self.subTest(model=m):
                 self.assertFalse(dt.should_launch_b(rec("CONFIRMED", model=m)))
 
-    # --- Opus 5.5 is an equal primary (Roey 2026-09-24, reconfirmed 2026-09-28) ------
+    # --- Opus 5.5 is an equal primary (the default grading.primaryModels) ----------
 
     def test_opus_55_confirmed_counts(self):
         for m in ("claude-opus-5-5", "claude-opus-5-5[1m]", "Opus 5.5", "opus-5.5"):
@@ -231,6 +289,25 @@ class TableTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(dt.model_label(name), want)
         self.assertEqual(dt.PRIMARY_MODELS, ("fable", "opus-5.5"))
+
+    def test_primaries_from_workspace_config(self):
+        a = rec("CONFIRMED", model="claude-opus-5-5")
+        self.assertEqual(dt.configured_primaries(), ("fable", "opus-5.5"))   # the default
+        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8") as fh:
+            ws = json.load(fh)
+        path = os.path.join(_WS["dir"].name, "ws-fable-only.json")
+        ws["grading"] = {"primaryModels": ["fable"]}
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(ws, fh)
+        old = os.environ["ACADEMY_WORKSPACE"]
+        os.environ["ACADEMY_WORKSPACE"] = path
+        try:
+            self.assertEqual(dt.configured_primaries(), ("fable",))
+            self.assertFalse(dt.should_launch_b(a))
+            self.assertEqual(dt.decide(a)["outcome"], "degraded")
+        finally:
+            os.environ["ACADEMY_WORKSPACE"] = old
+        self.assertTrue(dt.should_launch_b(a))
 
     def test_plausible_b_never_counts(self):
         r = dt.decide(rec("CONFIRMED"), rec("PLAUSIBLE", run="B"))
@@ -328,6 +405,47 @@ class CliTests(unittest.TestCase):
         finally:
             import shutil
             shutil.rmtree(d, ignore_errors=True)
+
+
+class FollowUpRoutingTests(unittest.TestCase):
+    """roster-rules.md "Role cut", rule 3: hypothesis-level findings go to the Researcher."""
+
+    def gap(self, blocking, gap_class=None, subject="paper:lem:x"):
+        r = rec("GAP", blocking=blocking, subject=subject)
+        if gap_class:
+            r["gap_class"] = gap_class
+        return dt.decide(r)["file_items"][0]
+
+    def test_a_hypothesis_gap_routes_to_the_researcher_never_the_author(self):
+        it = self.gap("S is the completion of S' only if the structure is conical: "
+                      "STRENGTHEN_HYPOTHESIS")
+        self.assertEqual("hypothesis", it["gap_class"])
+        self.assertEqual(("prove", "researcher"), (it["route"]["kind"], it["route"]["to_role"]))
+        self.assertNotIn(it["route"]["kind"], ("apply", "write"))
+
+    def test_the_verdict_field_wins_and_is_read_from_a_landed_body(self):
+        text = ("---\nsubject: paper:lem:x\nrun: A\nverdict: GAP\nblocking: step 2\n---\n"
+                "\nReport.\n\nVERDICT\nsubject: paper:lem:x\nrun: A\nverdict: GAP\n"
+                "blocking: step 2\ngap_class: statement\n")
+        r = dt.parse_record(text)
+        self.assertEqual("statement", r["gap_class"])
+        self.assertEqual("researcher", dt.follow_up({"kind": "repair"}, rec=r)["to_role"])
+
+    def test_a_missing_step_is_the_researchers_and_wording_alone_the_owners(self):
+        it = self.gap("step 3 does not follow from step 2")
+        self.assertEqual(("proof", "researcher"), (it["gap_class"], it["route"]["to_role"]))
+        it = self.gap("the second sentence is ambiguous", gap_class="wording")
+        self.assertEqual(("question", "author"), (it["route"]["kind"], it["route"]["to_role"]))
+
+    def test_a_disagreement_repair_and_a_counterexample_are_routed_too(self):
+        res = dt.decide(rec("CONFIRMED"), rec("GAP", run="B", blocking="needs the "
+                                                 "hypothesis that M is compact"))
+        it = res["file_items"][0]
+        self.assertEqual(("hypothesis", "researcher"), (it["gap_class"], it["route"]["to_role"]))
+        res = dt.decide(rec("DISPROVED", blocking="the square torus"))
+        self.assertEqual("human", res["file_items"][0]["route"]["to_role"])
+        self.assertIn("-> prove ticket to researcher",
+                      dt._text(dt.decide(rec("GAP", blocking="step 3"))))
 
 
 if __name__ == "__main__":

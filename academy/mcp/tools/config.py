@@ -22,9 +22,16 @@ def _workspace(ctx, a):
 
 
 def _config(ctx, a):
-    name = a.get("instance") or ctx.home_instance()
+    name = a.get("instance")
+    if name and name not in ctx.instances():
+        raise ToolError("unknown instance %r (have: %s)"
+                        % (name, ", ".join(sorted(ctx.instances()))))
+    if not name and not ctx.is_human:
+        name = ctx.instance             # the agent's own instance, resolved per call
+    name = name or ctx.home_instance()
     if not name:
-        raise ToolError("the cwd is in no academy home; name an instance")
+        raise ToolError("the server's cwd is in no academy home; name an instance "
+                        "(instance=<one of %s>)" % ", ".join(sorted(ctx.instances())))
     home = ctx.home_of(name)
     path = os.path.join(home, ac.CONFIG_REL)
     if not os.path.isfile(path):

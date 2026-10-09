@@ -49,7 +49,7 @@ class TempDir(unittest.TestCase):
     def fixture_workspace(self):
         """A workspace.json for the five standard instances, homes under the temp dir."""
         spec = {"expert@main": ("library", None), "scientist@main": ("lab", "lab"),
-                "researcher@alpha": ("slope1", "s1"), "researcher@beta": ("flat", "flat"),
+                "researcher@alpha": ("notebook", "nb"), "researcher@beta": ("flat", "flat"),
                 "author@main": ("paper", "paper")}
         inst = {}
         for name, (home, ns) in spec.items():
@@ -59,12 +59,12 @@ class TempDir(unittest.TestCase):
                 inst[name]["ns"] = ns
         return self.write("fixture/workspace.json", json.dumps(
             {"instances": inst, "board": os.path.join(self.tmp, "board"),
-             "human": {"name": "Roey"}}))
+             "human": {"name": "Ada"}}))
 
     def fixture_workspace(self):
         """A workspace.json for the five standard instances, homes under the temp dir."""
         spec = {"expert@main": ("library", None), "scientist@main": ("lab", "lab"),
-                "researcher@alpha": ("slope1", "s1"), "researcher@beta": ("flat", "flat"),
+                "researcher@alpha": ("notebook", "nb"), "researcher@beta": ("flat", "flat"),
                 "author@main": ("paper", "paper")}
         inst = {}
         for name, (home, ns) in spec.items():
@@ -74,7 +74,7 @@ class TempDir(unittest.TestCase):
                 inst[name]["ns"] = ns
         return self.write("fixture/workspace.json", json.dumps(
             {"instances": inst, "board": os.path.join(self.tmp, "board"),
-             "human": {"name": "Roey"}}))
+             "human": {"name": "Ada"}}))
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +175,15 @@ class ConfigTests(TempDir):
         self.assertIn("cloud.kind", probs)
         self.assertIn("bad: kind ssh needs host", probs)
         self.assertIn("w: kind wsl needs distro", probs)
+
+    def test_scientist_env_worker_reference(self):
+        base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["scientist@main"])
+        sci = dict(base["scientist"])
+        sci["envs"] = dict(sci["envs"], far={"worker": "remote-a"}, empty={"worker": ""})
+        cfg = dict(base, scientist=sci)
+        probs = " ".join(ac.validate_config(cfg))
+        self.assertNotIn("far", probs)
+        self.assertIn("empty.worker", probs)
 
     def test_gate_mode_branch_override(self):
         cfg = config_examples()["author@main"]
@@ -623,7 +632,7 @@ def protocol_example():
 
 class TicketTests(TempDir):
     def test_budget_max_model_is_optional(self):
-        # T-0071: the model comes from the agent file; budget.max_model is an
+        # budget.md rule 6: the model comes from the agent file; budget.max_model is an
         # optional advisory note, and a budget of runs alone is valid.
         meta, body = ac.read_frontmatter(protocol_example())
         for budget in ({"runs": 2}, {"runs": 1, "max_model": "haiku"}):
@@ -634,7 +643,7 @@ class TicketTests(TempDir):
         self.assertEqual(ac.CONFIG_DEFAULTS["budget"]["ticketDefault"], {"runs": 1})
         self.assertEqual(ac.default_ticket_budget(None), {"runs": 1})
         self.assertEqual(ac.default_ticket_budget({}), {"runs": 1})
-        # a home's ticketDefault written before T-0071 still carries max_model: ignored
+        # a home's ticketDefault written before budget.md rule 6 dropped it still carries max_model: ignored
         cfg = {"budget": {"ticketDefault": {"runs": 2, "max_model": "opus"}}}
         self.assertEqual(ac.default_ticket_budget(cfg), {"runs": 2})
         self.assertEqual(ac.default_ticket_budget({"budget": {"ticketDefault": None}}),
@@ -738,9 +747,9 @@ class TicketTests(TempDir):
         meta = {"updated": "2026-09-27", "id": "T-0001", "title": "Test a generalization",
                 "kind": "test", "from": "researcher@alpha", "to": "scientist@main",
                 "status": "open", "priority": "normal",
-                "ask": "Test s1:G-3 on its falsifier first.",
+                "ask": "Test nb:G-3 on its falsifier first.",
                 "deliverable": "An experiment report packet.",
-                "refs": ["s1:G-3", "lab:ew-check"], "parent": "T-0000",
+                "refs": ["nb:G-3", "lab:ew-check"], "parent": "T-0000",
                 "budget": {"runs": 1, "max_model": "sonnet"}, "created": "2026-09-27"}
         text = ac.new_ticket(meta)
         m, body = ac.read_frontmatter(text)
@@ -810,9 +819,9 @@ class PacketTests(unittest.TestCase):
         b1 = ac.record_decision(body, 1, "b", "wait for 1.3", date="2026-09-29")
         self.assertIn("- D1: (b) | 2026-09-29 | human | wait for 1.3\n", b1)
         self.assertTrue(ac.packet_is_decided(b1))
-        b2 = ac.record_decision(b1, 1, "other", "ask Barak", date="2026-09-30")
+        b2 = ac.record_decision(b1, 1, "other", "ask Bo", date="2026-09-30")
         self.assertEqual(ac.packet_answers(b2)[1], ("other", "2026-09-30", "human",
-                                                    "ask Barak"))
+                                                    "ask Bo"))
         self.assertEqual(ac.validate_packet(meta, b2), [])
         for bad in ((1, "e", ""), (1, "other", " "), (1, "ack", ""), (0, "a", "")):
             with self.assertRaises(ac.AcademyError):
@@ -834,7 +843,7 @@ class PacketTests(unittest.TestCase):
         meta, body = ac.read_frontmatter(packet_doc_example())
         for patch, needle in (({"kind": "memo"}, "kind"), ({"state": "done"}, "state"),
                               ({"status_proposed": "true"}, "status_proposed"),
-                              ({"ticket": "P-1"}, "ticket"), ({"by": "Roey"}, "by"),
+                              ({"ticket": "P-1"}, "ticket"), ({"by": "Ada"}, "by"),
                               ({"instance": "human"}, "instance"),
                               ({"extra": 1}, "unknown field")):
             m = dict(meta)

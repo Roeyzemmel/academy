@@ -8,7 +8,7 @@ Usage:
 SUBJECT is one of
 
     <ns>:<id>              a registry object (claim, definition, direction, ...),
-                           e.g. paper:lem:strip-bound, lab:ew-check, s1:BOUND-2
+                           e.g. paper:lem:strip-bound, lab:ew-check, nb:BOUND-2
     bib:<key>[#pinpoint]   a cited paper (a bare key found in the library works too)
     <path>.json            a lab result, relative to the Scientist home or absolute
                            (also file:<instance>/<path>)
@@ -177,6 +177,11 @@ class Home(object):
             if os.path.isdir(p):
                 return p
         return None
+
+    def rule_set(self):
+        """The home's rule set (``registry.profile``, old aliases resolved), else its ns."""
+        prof = ((self.config or {}).get("registry") or {}).get("profile")
+        return ac.registry_rule_set(prof) or ac.registry_rule_set(self.ns)
 
     def cli(self):
         if not self.config:
@@ -505,7 +510,8 @@ def run_cli(home, full_id):
     cmd = home.cli()
     if not cmd:
         return None
-    local = full_id if home.ns in ("paper", "lab") else full_id.split(":", 1)[1]
+    # the notebook rule set's command line takes the bare id; lab and paper the full one
+    local = full_id.split(":", 1)[1] if home.rule_set() == "notebook" else full_id
     try:
         args = shlex.split(cmd, posix=False) + ["show", local]
         r = subprocess.run(args, cwd=home.path, capture_output=True, text=True,

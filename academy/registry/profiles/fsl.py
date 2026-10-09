@@ -10,7 +10,7 @@ back-links, views and command line, with three changes:
   alone) still reads as empty. A file the dialect rejects but the old reader accepts
   is still loaded (transitional, for homes not yet requoted) and ``check`` warns about
   it. ``new`` and the mutations write the dialect (``evidence: []``, not ``evidence:``).
-* **Federation through profiles** (phase 3). ``kb_index`` (a regex over Slope1's files)
+* **Federation through profiles** (phase 3). ``kb_index`` (a regex over the notebook's files)
   is gone: a foreign id is resolved by loading its home through its own profile
   (``core.federation``), and "refuted" across namespaces is the projection class
   ``false`` instead of the ``Disproved`` special case. Homes come from workspace.json
@@ -209,9 +209,26 @@ def paper_colours(base):
         p = base / "Drafts" / "statements.md"
         if not p.exists():
             return {}
-        row = re.compile(r"^\|\s*`([^`]+)`\s*\|[^|]*\|[^|]*\|\s*([a-z]+)\s*\|", re.M)
+        row = re.compile(r"^\|\s*`([^`]+)`\s*\|[^|]*\|[^|]*\|\s*([A-Za-z][\w-]*)\s*\|", re.M)
         return dict(row.findall(p.read_text(encoding="utf-8", errors="replace")))
     return _cached(("colours", base), scan)
+
+
+def paper_established(base):
+    """The name of the home's established draft level: the level of kind `established`
+    in `author.statusLevels` of base/.claude/academy.json (docs/config.md), else
+    `established`."""
+    def scan():
+        try:
+            cfg = json.loads((base / ".claude" / "academy.json").read_text(encoding="utf-8-sig"))
+            levels = (cfg.get("author") or {}).get("statusLevels") or []
+            for lv in levels:
+                if isinstance(lv, dict) and lv.get("kind") == "established" and lv.get("name"):
+                    return str(lv["name"])
+        except (OSError, ValueError, AttributeError):
+            pass
+        return "established"
+    return _cached(("established", base), scan)
 
 
 def _is_foreign(ns, repo):
@@ -231,11 +248,11 @@ def _resolve_foreign(cid, repo):
     if state == "alias":
         if s.profile == "s1-kb":
             if name in s.aliases(rec.id):
-                return "missing", f"`{name}` is an old Slope1 label; the kb id is `{rec.qid}`", None
-            return "missing", f"`{name}` is not the kb id; the kb id is `{rec.qid}`", None
+                return "missing", f"`{name}` is an old label of {HOMES[ns]}; the id is `{rec.qid}`", None
+            return "missing", f"`{name}` is not the id; the id is `{rec.qid}`", None
         return "missing", f"`{name}` is not the id; the id is `{rec.qid}`", None
     if s.profile == "s1-kb":
-        return "missing", "no such id in Slope1's kb (registry.py resolve <text>)", None
+        return "missing", f"no such id in {HOMES[ns]} (registry.py resolve <text>)", None
     if workspace.rule_set(ns, s.home) == "paper":
         if name in paper_labels(s.home):
             return "ok", "", projection.NA
@@ -402,7 +419,7 @@ def resolve_ref(ref, repo=None):
     if m and not re.match(r"^[A-Za-z]:[\\/]", ref):
         name, rest = m.group(1), m.group(2)
         # a worktree (<lab>-academy) sees the sibling of its own suffix first, as
-        # core/workspace.home_of does for namespaces (R6: Slope1's audits/ exists only in
+        # core/workspace.home_of does for namespaces (R6: a notebook's audits/ exists only in
         # its migration worktree until that branch is merged)
         _, suffix = workspace._by_name(repo)
         cands = [repo] if name == repo.name else \
@@ -570,7 +587,7 @@ def check_paper_claim(c, repo, e, w):
         e(f"`{name}` is not a \\label in sections/")
         return
     colour = paper_colours(repo).get(name)
-    if colour == "established":
+    if colour is not None and colour == paper_established(repo):
         if c.status not in ("proved", "proved-modulo"):
             e(f"black in the draft, but status is `{c.status}`")
         elif not any(c.evidence_cells(ev)[0] in ("verdict", "citation") for ev in c.evidence):
@@ -1188,7 +1205,8 @@ def main(argv=None):
     p.add_argument("--status", default="open"); p.add_argument("--where", default="")
     p = sub.add_parser("set-status", help="change a status, with grounds (plan section 8)")
     p.add_argument("id"); p.add_argument("status")
-    p.add_argument("--roey", metavar="QUOTE", help="the human's words, verbatim")
+    p.add_argument("--human", dest="human", metavar="QUOTE",
+                   help="the human's words, verbatim")
     p.add_argument("--where-said", default="", help="where and when the human said it")
     p.add_argument("--grounds", metavar="JSON", help="a grounds object (JSON text or @file)")
     p.add_argument("--evidence", action="append", default=[], metavar="ROW",
@@ -1224,8 +1242,8 @@ def main(argv=None):
                 print("\ncited by:" if bl else "\ncited by: nothing")
                 print("\n".join(bl)) if bl else None
                 return 0
-            if st is not None and st.profile == "s1-kb" or (st is None and workspace.rule_set(ns) == "s1"):
-                print(f"`{a.id}` is Slope1's ({state}{': ' + detail if detail else ''}). "
+            if st is not None and st.profile == "s1-kb" or (st is None and workspace.rule_set(ns) == "notebook"):
+                print(f"`{a.id}` is {where}'s ({state}{': ' + detail if detail else ''}). "
                       f"Run `registry.py show {a.id.split(':', 1)[1]}` in {where}.")
             else:
                 print(f"`{a.id}` is owned by {where} ({state}{': ' + detail if detail else ''}). "
@@ -1307,8 +1325,8 @@ def main(argv=None):
         return 0
     if a.cmd == "set-status":
         g = None
-        if a.roey:
-            g = {"basis": "human", "quote": a.roey, "where": a.where_said}
+        if a.human:
+            g = {"basis": "human", "quote": a.human, "where": a.where_said}
         elif a.grounds:
             src = a.grounds
             if src.startswith("@"):
@@ -1319,9 +1337,9 @@ def main(argv=None):
                 print(f"set-status: --grounds is not JSON: {exc}", file=sys.stderr)
                 return 1
         try:
-            # the command line cannot tell who runs it: --roey claims the human's voice,
+            # the command line cannot tell who runs it: --human claims the human's voice,
             # as the old claims.py did (not hooked; see the migration log's known limits)
-            old = set_status(repo, a.id, a.status, g, a.note, a.evidence, human=bool(a.roey))
+            old = set_status(repo, a.id, a.status, g, a.note, a.evidence, human=bool(a.human))
         except Refused as exc:
             print(f"set-status: refused: {exc}", file=sys.stderr)
             return 1

@@ -101,7 +101,7 @@ def check(root):
 def block(plugin, rows):
     lines = [BEGIN, "", "| Skill | What it does |", "|---|---|"]
     for name, desc in sorted(rows):
-        lines.append("| /%s:%s | %s |" % (plugin, name, desc.replace("|", "\|")))
+        lines.append("| /%s:%s | %s |" % (plugin, name, desc.replace("|", r"\|")))
     lines += ["", END]
     return "\n".join(lines)
 

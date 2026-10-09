@@ -87,11 +87,12 @@ def decide(event, ws=None):
                         % (bare, rec["rel"], field, new, rec["keeper"]))
     if (had, (old or "").strip()) == (has, (new or "").strip()):
         return None, ""
-    return "deny", ("status_guard: only %s (or Roey) changes the '%s:' line of a registry "
+    return "deny", ("status_guard: only %s (or %s) changes the '%s:' line of a registry "
                     "record; %s tried to change it in %s (%s -> %s). Propose the change "
                     "with the MCP tool claims_propose_status instead, citing its grounds, "
                     "and leave the rest of the edit without the status line."
-                    % (rec["keeper"], field, bare, rec["rel"], old if had else "(none)",
+                    % (rec["keeper"], ac.human_name(), field, bare, rec["rel"],
+                       old if had else "(none)",
                        new if has else "(none)"))
 
 

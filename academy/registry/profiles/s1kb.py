@@ -1,4 +1,5 @@
-"""Profile ``s1-kb``: Slope1's knowledge base (``s1:``), kb.py on the engine core.
+"""Profile ``s1-kb``: the ``notebook`` rule set (a Researcher's knowledge base), the first
+notebook's kb.py on the engine core.
 
 This is the first notebook's ``tools/kb.py`` (merge proposal, phase 1): the
 schema, checks, views (STATUS.md, INDEX.md, OPEN.md, assumptions/README.md, the
@@ -42,7 +43,7 @@ for: ``kind`` from ``form`` (else from the v2 kind), ``topics`` from ``tags``,
 ``cleared_by`` and ``runs`` from the evidence rows that point at verdict and run files,
 the history from the frontmatter rows. Statuses are then v2 words (open, conjectured,
 sketch, supported, proved-modulo, proved, refuted, refuted-as-stated), and every rule
-that named a Slope1 label names its v2 counterpart. The core's generic rules run on the
+that named a v1 label names its v2 counterpart. The core's generic rules run on the
 file as written; this profile keeps the home rules (prefixes, aliases, the assumption
 implication and incomparability checks, ``cites`` against the library, the body/status
 agreement, "proved rests on proved"). Verdict and run files stay in the v1 ledger shape:
@@ -84,21 +85,12 @@ STATUS_LABELS = ["Proved", "Proved modulo stated inputs", "Reduced", "Partial",
                  "Disproved", "Not settled"]
 KINDS = ["thm", "prop", "lemma", "cor", "conj", "def", "remark", "open", "example",
          "question", "draft", "assumption"]
-PREFIXES = ["Q", "OA", "PA", "GA", "DEF", "GEO", "STR", "CRIT", "OBS", "CEX", "BOUND",
-            "COMP", "OPEN", "EX", "DIR"]
-PREFIX_NAMES = {
-    "Q": "the questions", "OA": "origami assumptions (conditions on σ, τ)",
-    "PA": "parking-garage assumptions (geometric)", "GA": "group-theoretic tags",
-    "DEF": "definitions and invariants", "GEO": "geometry", "STR": "structure of G",
-    "CRIT": "(Q2) criteria and settled cases", "OBS": "obstructions and mechanisms",
-    "CEX": "counterexamples", "BOUND": "bounds on K and n",
-    "COMP": "computational foundations", "OPEN": "open problems and conjectures",
-    "EX": "named origamis", "DIR": "research directions",
-}
-ASSUMPTION_GROUPS = [("OA", "Origami (conditions on σ, τ)"),
-                     ("PA", "Parking garage (geometric)"),
-                     ("GA", "Group-theoretic tags")]
-ID_RE = re.compile(r"^(?:Q\d+|(?:" + "|".join(PREFIXES) + r")-[^\s/\\]+)$")
+#: the id prefixes and assumption groups are the home's (``.claude/academy.json``
+#: ``registry.prefixes`` and ``registry.assumptionGroups``, docs/config.md), read by
+#: :func:`rules_of`. Without them any slug id is allowed and assumptions are not grouped.
+#: Two prefixes keep a fixed meaning when a home lists them: ``EX`` (examples) and
+#: ``DIR`` (directions); ``Q`` also admits the bare form ``Q<n>``.
+SLUG_RE = re.compile(r"^[A-Za-z0-9][^\s/\\:]*$")
 
 FIELD_ORDER = ["id", "aliases", "title", "summary", "kind", "status", "status_note",
                "level", "topics", "examples", "depends_on", "supersedes",
@@ -129,7 +121,7 @@ OBJECT_FOLDERS = {"definition": "claim", "claim": "claim", "conjecture": "claim"
 VERDICT_DIRS = ("computation/verdicts/", "audits/")
 #: ... or a proof review in an Expert's library, written as the protocol's ref
 #: ``file:expert@<name>/reviews/<ns>/<id>/<file>.md`` (phase 7: the claim verdicts moved
-#: to ``<library>/reviews/s1/``, Roey's P-0004 D9 / P-0005 D8, 2026-09-28)
+#: to ``<library>/reviews/<ns>/``, 2026-09-28)
 RE_REVIEW_REF = re.compile(r"^file:(expert@[a-z0-9][a-z0-9-]*)/(reviews/[^#\s]+\.md)$")
 #: the views of the objects layout (the assumption chart moves out of assumptions/)
 VIEWS_DIR = "views"
@@ -137,9 +129,85 @@ VIEWS_DIR = "views"
 REQUIRED = {"claim": ["id", "title", "summary", "kind", "status"],
             "assumption": ["id", "title"], "example": ["id"], "direction": ["id", "title"],
             "verdict": [], "run": [], "spec": []}
-ALLOWED_PREFIXES = {"assumption": {"OA", "PA", "GA"}, "example": {"EX"},
-                    "direction": {"DIR"},
-                    "claim": set(PREFIXES) - {"OA", "PA", "GA", "EX", "DIR"}}
+
+
+@dataclass
+class Rules:
+    """A home's id rules: ``prefixes`` (ordered ``[(prefix, name)]``, empty = any slug)
+    and ``groups`` (ordered ``[(prefix, name)]``, the assumption prefixes)."""
+    prefixes: list = field(default_factory=list)
+    groups: list = field(default_factory=list)
+    ns: str = None              # the home's own namespace (academy.json ``ns``)
+
+    @property
+    def order(self) -> list:
+        return [p for p, _ in self.prefixes]
+
+    @property
+    def names(self) -> dict:
+        return dict(self.prefixes)
+
+    @property
+    def group_prefixes(self) -> set:
+        return {p for p, _ in self.groups}
+
+    @property
+    def id_re(self):
+        """The id pattern: ``PREFIX-<token>`` with a known prefix, else None (any slug)."""
+        if not self.prefixes:
+            return None
+        q = r"Q\d+|" if "Q" in self.order else ""
+        return re.compile(r"^(?:" + q + r"(?:" + "|".join(map(re.escape, self.order))
+                          + r")-[^\s/\\]+)$")
+
+    def id_ok(self, eid) -> bool:
+        rx = self.id_re
+        return bool((rx or SLUG_RE).match(eid))
+
+    def looks_like_id(self, text) -> bool:
+        """Whether free text (a ``modulo`` item) is meant as an id of this home."""
+        rx = self.id_re
+        return bool(rx and rx.match(text))
+
+    def allowed(self) -> dict:
+        """{entity type: allowed prefixes}; a type left out is not restricted."""
+        if not self.prefixes:
+            return {}
+        order, groups = set(self.order), self.group_prefixes
+        out = {"claim": order - groups - {"EX", "DIR"}}
+        if groups:
+            out["assumption"] = groups
+        if "EX" in order:
+            out["example"] = {"EX"}
+        if "DIR" in order:
+            out["direction"] = {"DIR"}
+        return out
+
+
+def _pairs(v) -> list:
+    """``registry.prefixes`` / ``assumptionGroups`` as ``[(prefix, name)]``: a map
+    ``{prefix: name}`` (ordered), a list of prefixes, or a list of ``[prefix, name]``."""
+    if isinstance(v, dict):
+        return [(str(k), str(n or k)) for k, n in v.items()]
+    out = []
+    for item in v or []:
+        if isinstance(item, str):
+            out.append((item, item))
+        elif isinstance(item, (list, tuple)) and item:
+            out.append((str(item[0]), str(item[1]) if len(item) > 1 else str(item[0])))
+    return out
+
+
+def rules_of(root) -> Rules:
+    """The id rules of the home at ``root`` (its academy.json ``registry`` block)."""
+    try:
+        cfg = json.loads((Path(root) / ".claude" / "academy.json").read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        cfg = {}
+    reg = (cfg or {}).get("registry") or {}
+    ns = (cfg or {}).get("ns")
+    return Rules(_pairs(reg.get("prefixes")), _pairs(reg.get("assumptionGroups")),
+                 ns if isinstance(ns, str) and ns else None)
 
 # Old-label patterns. Plain regex syntax shared by Python and JavaScript (the site).
 ALIAS_PATTERNS = [
@@ -251,9 +319,10 @@ def natural_key(s: str):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
 
 
-def entity_sort_key(e):
+def entity_sort_key(e, order=()):
     p = prefix_of(e.id)
-    rank = PREFIXES.index(p) if p in PREFIXES else len(PREFIXES)
+    order = list(order)
+    rank = order.index(p) if p in order else len(order)
     return (rank, natural_key(e.id))
 
 
@@ -277,6 +346,7 @@ class KB:
     def __init__(self, root):
         self.root = Path(root)
         self.layout = "objects" if objects_layout(self.root) else "legacy"
+        self.rules = rules_of(self.root)
         self.entities: dict[str, Entity] = {}
         self.by_norm: dict[str, str] = {}     # normalized id or alias -> id
         self.id_norms: set[str] = set()
@@ -292,7 +362,10 @@ class KB:
 
     def sorted(self, types=None):
         ents = [e for e in self.entities.values() if types is None or e.etype in types]
-        return sorted(ents, key=entity_sort_key)
+        return sorted(ents, key=self.sort_key)
+
+    def sort_key(self, e):
+        return entity_sort_key(e, self.rules.order)
 
 
 def objects_layout(root) -> bool:
@@ -489,7 +562,7 @@ def _link(kb):
                 kb.entities[a].implied_by.append(e.id)
     for e in kb.entities.values():
         for lst in (e.usedby, e.example_claims, e.implied_by):
-            lst.sort(key=lambda i: entity_sort_key(kb.entities[i]))
+            lst.sort(key=lambda i: kb.sort_key(kb.entities[i]))
 
 
 def implies_closure(kb, aid) -> set:
@@ -587,10 +660,12 @@ def _check_types(kb, e):
 def _check_schema(kb, e):
     _check_types(kb, e)
     m = e.meta
-    if e.etype in ALLOWED_PREFIXES:
-        if not ID_RE.match(e.id):
-            kb.error(e.path, f"id '{e.id}' is not PREFIX-<number or token> with a known prefix")
-        elif prefix_of(e.id) not in ALLOWED_PREFIXES[e.etype]:
+    allowed = kb.rules.allowed()
+    if e.etype in ("claim", "assumption", "example", "direction"):
+        if not kb.rules.id_ok(e.id):
+            kb.error(e.path, (f"id '{e.id}' is not PREFIX-<number or token> with a known prefix"
+                              if kb.rules.prefixes else f"id '{e.id}' is not a slug"))
+        elif e.etype in allowed and prefix_of(e.id) not in allowed[e.etype]:
             kb.error(e.path, f"prefix '{prefix_of(e.id)}' does not belong in {e.etype} files")
     kind = m.get("kind")
     if e.etype in ("claim", "assumption") and kind is not None and kind not in KINDS:
@@ -642,13 +717,13 @@ def _check_v2(kb, e):
     elif form is not None and KIND_V2.get(form) not in (v.get("kind"), None):
         kb.error(e.path, f"form '{form}' is a {KIND_V2.get(form)}, not a {v.get('kind')}")
     for item in v.get("modulo") or []:
-        if isinstance(item, str) and (ID_RE.match(item.strip()) or
+        if isinstance(item, str) and (kb.rules.looks_like_id(item.strip()) or
                                       _schema.looks_like_id(item)):
             if ":" not in item:
                 _check_ref(kb, e, "modulo", item)
         else:
             # plan section 6: `modulo: [ids]`, promoted along the graph once the target
-            # is proved; free text cannot be followed (P-0004 D2/D4 decide these)
+            # is proved; free text cannot be followed
             kb.warn(e.path, f"modulo: {str(item)[:60]!r} is not a record id, so the claim "
                             "cannot be promoted along the graph when its input is proved")
     for key in ("supersedes", "bears_on"):
@@ -791,7 +866,7 @@ def _check_body_status(kb, e):
         return
     if e.v2 is not None and _projection.project(phrase, _projection.S1) == \
             _projection.project(st, _projection.V2):
-        return      # the body keeps Slope1's words; the classes agree
+        return      # the body keeps its v1 words; the classes agree
     if e.meta.get("body_status_ack"):  # a reviewed, deliberate mismatch; the field says why
         return
     kb.warn(e.path, f"body's first status phrase is '{phrase}' but frontmatter says '{st}'")
@@ -861,7 +936,7 @@ def view_status(kb) -> str:
             st = ", ".join(st) if isinstance(st, list) else st
             out.append(f"| {md_link(e.id, e.path)} | {cell(lvl)} | {cell(st)} |")
     for prefix, ents in _by_prefix(kb, {"claim", "assumption", "example"}):
-        out += ["", f"## {prefix} — {PREFIX_NAMES.get(prefix, prefix)}", "",
+        out += ["", f"## {prefix} — {kb.rules.names.get(prefix, prefix)}", "",
                 "| id | old labels | status | summary |", "|---|---|---|---|"]
         for e in ents:
             out.append(f"| {md_link(e.id, e.path)} | {cell(', '.join(display_aliases(e)))} "
@@ -875,7 +950,7 @@ def view_index(kb) -> str:
            "assumptions).", "", "## By old label", "",
            "| old label | id | file |", "|---|---|---|"]
     rows = [(a, e) for e in kb.sorted() for a in display_aliases(e)]
-    for a, e in sorted(rows, key=lambda r: (natural_key(r[0]), entity_sort_key(r[1]))):
+    for a, e in sorted(rows, key=lambda r: (natural_key(r[0]), kb.sort_key(r[1]))):
         out.append(f"| {cell(a)} | {md_link(e.id, e.path)} | {cell(e.path)} |")
     out += ["", "## By id", "", "| id | old labels | file |", "|---|---|---|"]
     for e in kb.sorted({"claim", "assumption", "example"}):
@@ -900,7 +975,7 @@ def view_open(kb) -> str:
         ents = [e for e in ents if is_open(e)]
         if not ents:
             continue
-        out += ["", f"## {prefix} — {PREFIX_NAMES.get(prefix, prefix)}", ""]
+        out += ["", f"## {prefix} — {kb.rules.names.get(prefix, prefix)}", ""]
         for e in ents:
             out.append(f"- {md_link(e.id, e.path)} — {status_cell(e)} — {summary_of(e)}")
     return "\n".join(out) + "\n"
@@ -937,9 +1012,16 @@ def view_assumptions(kb) -> str:
            "Generated by `registry.py build` from the `implies`, `incomparable_with` and "
            f"`old` fields of `{src}`. An arrow X → Y means X implies Y; a dotted "
            "edge joins two incomparable assumptions.", "", "## Hierarchy", ""]
-    for prefix, name in ASSUMPTION_GROUPS:
-        members = [e for e in ents if prefix_of(e.id) == prefix]
-        out.append(f"- **{prefix}** — {name}")
+    groups = kb.rules.groups
+    grouped = {e.id for e in ents if prefix_of(e.id) in kb.rules.group_prefixes}
+    rest = [e for e in ents if e.id not in grouped]
+    blocks = [(f"- **{prefix}** — {name}", [e for e in ents if prefix_of(e.id) == prefix])
+              for prefix, name in groups]
+    if rest and not groups:
+        blocks.append((None, rest))     # no groups configured: one flat list
+    for head, members in blocks:
+        if head:
+            out.append(head)
         for e in members:
             extra = ""
             if resolved_list(kb, e, "implies"):
@@ -951,7 +1033,7 @@ def view_assumptions(kb) -> str:
                 extra += " · implies, pending verification: " + ", ".join(
                     resolved_list(kb, e, "implies_pending"))
             old = e.meta.get("old", "")
-            out.append(f"  - {md_link(e.id, rel_from(here, e.path))} {old} — "
+            out.append(f"{'  ' if head else ''}- {md_link(e.id, rel_from(here, e.path))} {old} — "
                        f"{summary_of(e)}{extra}")
     out += ["", "## Implication chart", ""] + _mermaid(kb, ents)
     return "\n".join(out) + "\n"
@@ -989,7 +1071,7 @@ def export_json(kb) -> dict:
     v2 = any(e.v2 is not None for e in kb.entities.values())
     return {"_generated": GENERATED_TEXT,
             "status_labels": list(_schema.STATUSES) if v2 else STATUS_LABELS,
-            "prefix_order": PREFIXES, "alias_patterns": ALIAS_PATTERNS,
+            "prefix_order": kb.rules.order, "alias_patterns": ALIAS_PATTERNS,
             "word_forms": WORD_FORMS, "alias_index": dict(sorted(kb.by_norm.items())),
             "entities": ents}
 
@@ -1110,7 +1192,7 @@ def direction_items(kb, e) -> list:
         if not m:
             continue
         ns, ref = m.groups()
-        if ns and ns != "s1":
+        if ns and ns != (kb.rules.ns or _workspace.repo_ns(kb.root)):
             out.append((section, f"{ns}:{ref}", None))
         else:
             out.append((section, ref, lookup(kb, ref)[0]))
@@ -1207,7 +1289,7 @@ def view_graph(kb) -> str:
                 if rid:
                     edges.append((e.id, rid, "modulo"))
     ids = sorted({x for s, t, _ in edges for x in (s, t)},
-                 key=lambda i: entity_sort_key(kb.entities[i]))
+                 key=lambda i: kb.sort_key(kb.entities[i]))
     node = {i: f"n{k}" for k, i in enumerate(ids)}
     out = [GENERATED, "# Dependency graph", "",
            "An arrow X → Y means X `depends_on` Y; a dotted arrow, that Y is one of X's "
@@ -1542,9 +1624,15 @@ def skeleton(eid, kind, title, is_assumption) -> str:
 
 def cmd_new(args) -> int:
     prefix = args.prefix.upper()
-    if prefix not in PREFIXES or prefix in ("Q", "EX"):
-        print(f"new: prefix must be one of {', '.join(p for p in PREFIXES if p not in ('Q', 'EX'))}"
-              " (Q and EX ids are named by hand)", file=sys.stderr)
+    rules = rules_of(args.root)
+    if rules.prefixes:
+        if prefix not in rules.order or prefix in ("Q", "EX"):
+            ok = ", ".join(p for p in rules.order if p not in ("Q", "EX"))
+            print(f"new: prefix must be one of {ok} (Q and EX ids are named by hand)",
+                  file=sys.stderr)
+            return 1
+    elif not re.match(r"^[A-Z][A-Z0-9]*$", prefix):
+        print("new: a prefix is letters and digits, starting with a letter", file=sys.stderr)
         return 1
     if args.kind and args.kind not in KINDS:
         print(f"new: kind must be one of {'|'.join(KINDS)}", file=sys.stderr)
@@ -1556,7 +1644,7 @@ def cmd_new(args) -> int:
     kb = load_kb(args.root)
     num = max(used_numbers(kb, prefix), default=0) + 1
     eid = f"{prefix}-{num}"
-    is_assumption = prefix in ("OA", "PA", "GA")
+    is_assumption = prefix in rules.group_prefixes
     v2kind = "assumption" if is_assumption else KIND_V2.get(args.kind or "draft", "claim")
     path = kb.root / object_path(kb.root, eid, v2kind)
     if path.exists():

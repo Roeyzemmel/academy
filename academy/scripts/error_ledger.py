@@ -11,7 +11,8 @@ The ledger is ``<board>/.errors/<instance>.jsonl`` (one file per instance, so tw
 machines never merge-conflict; the board's SessionStart commit carries it). It is
 append-only; each line is one JSON record:
 
-    {"t": "error",   "ts", "session", "instance", "tool", "sig", "msg"}
+    {"t": "error",   "ts", "session", "instance", "tool", "sig", "msg",
+                     ["detail"], ["cmd"], ["cwd"], ["path"]}
     {"t": "settle",  "ts", "packet", "upto"}      # a weekly review took the errors up to ``upto``
     {"t": "resolve", "ts", "sig", "note", "by"}   # the class is closed
 
@@ -20,8 +21,12 @@ paths, ids, numbers and hex normalised away. A class is **open** from its first
 error record after its last ``resolve`` record. The weekly cycle:
 
 1. ``hook`` accumulates every failed tool call, all week, silently (it never fails a
-   tool call, and never records a command line or tool input, only a redacted,
-   truncated message);
+   tool call). It records a redacted, truncated message and, to make the error
+   actionable: for Bash/PowerShell the head of the error output after the exit code
+   (``detail``) and the head of the command (``cmd``, first line, redacted); for
+   Read/Glob/Grep (and other file tools) the session's ``cwd`` and the ``path`` or
+   pattern asked for. An identical record (the hook firing twice for one failure) is
+   written once, and ``read_all`` drops identical lines already in a ledger;
 2. ``report`` lists the classes seen in the window (new since the last settle) and
    the classes carried over from earlier weeks that are still open, with counts,
    sessions, first/last seen and how many weeks each has been open;
@@ -109,20 +114,41 @@ def ledger_file(board, instance):
     return os.path.join(board, LEDGER_DIR, re.sub(r"[^A-Za-z0-9@._-]", "_", instance) + ".jsonl")
 
 
+TAIL_BYTES = 16384
+
+
+def _tail_lines(path):
+    """The last lines of ``path`` (about TAIL_BYTES), for the duplicate check."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - TAIL_BYTES))
+            return fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+
+
 def append(board, instance, record):
     """Append one record; a single write of one line, so concurrent sessions interleave
-    whole lines."""
+    whole lines. An error record identical to one near the end of the ledger (the same
+    failure reported twice, e.g. by a hook registered twice) is not written again.
+    Returns True when the line was written."""
     path = ledger_file(board, instance)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     line = json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
+    if record.get("t") == "error" and line.rstrip("\n") in _tail_lines(path):
+        return False
     with open(path, "a", encoding="utf-8", newline="\n") as fh:
         fh.write(line)
+    return True
 
 
 def read_all(board):
     """Every record of every instance's ledger, oldest first; bad lines are skipped."""
     root = os.path.join(board, LEDGER_DIR)
     out = []
+    seen = set()
     try:
         names = sorted(os.listdir(root))
     except OSError:
@@ -136,8 +162,14 @@ def read_all(board):
                     rec = json.loads(ln)
                 except ValueError:
                     continue
-                if isinstance(rec, dict) and rec.get("ts") and rec.get("t"):
-                    out.append(rec)
+                if not (isinstance(rec, dict) and rec.get("ts") and rec.get("t")):
+                    continue
+                if rec["t"] == "error":     # identical duplicates count once
+                    key = json.dumps(rec, sort_keys=True)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                out.append(rec)
     out.sort(key=lambda r: r["ts"])
     return out
 
@@ -250,9 +282,50 @@ def hook_record(event, instance, now=None):
     if not err.strip() or is_noise(err):
         return None
     tool = ac.tool_name(event) or "?"
-    return {"t": "error", "ts": _stamp(now or _now()), "session": event.get("session_id") or "",
-            "instance": instance, "tool": tool, "sig": signature(tool, err),
-            "msg": clean_message(err)}
+    rec = {"t": "error", "ts": _stamp(now or _now()), "session": event.get("session_id") or "",
+           "instance": instance, "tool": tool, "sig": signature(tool, err),
+           "msg": clean_message(err)}
+    rec.update(context(event, tool, err))
+    return rec
+
+
+SHELL_TOOLS = ("Bash", "PowerShell")
+FILE_TOOLS = ("Read", "Glob", "Grep", "Edit", "Write", "MultiEdit", "NotebookEdit")
+DETAIL_MAX = 400
+CMD_MAX = 160
+
+
+def _head(text, limit, lines=4):
+    """The first ``lines`` non-empty lines of ``text``, whitespace-collapsed, redacted,
+    at most ``limit`` characters."""
+    got = [RE_WS.sub(" ", ln).strip() for ln in (text or "").splitlines() if ln.strip()]
+    return redact(" | ".join(got[:lines]))[:limit]
+
+
+def context(event, tool, err):
+    """What makes a failure actionable: the shell's error output and command head, or a
+    file tool's cwd and path. Redacted and truncated; {} for other tools."""
+    ti = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+    out = {}
+    if tool in SHELL_TOOLS:
+        lines = [ln for ln in (err or "").splitlines() if ln.strip()]
+        rest = lines[1:] if lines and re.match(r"(?i)^\s*exit code", lines[0]) else lines
+        detail = _head("\n".join(rest), DETAIL_MAX)
+        if detail:
+            out["detail"] = detail
+        cmd = _head(str(ti.get("command") or ""), CMD_MAX, lines=1)
+        if cmd:
+            out["cmd"] = cmd
+    elif tool in FILE_TOOLS:
+        cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else ""
+        if cwd:
+            out["cwd"] = str(cwd).replace("\\", "/")
+        target = ti.get("file_path") or ti.get("path") or ti.get("notebook_path")
+        if target:
+            out["path"] = str(target).replace("\\", "/")[:CMD_MAX]
+        if ti.get("pattern"):
+            out["pattern"] = redact(str(ti["pattern"]))[:CMD_MAX]
+    return out
 
 
 def _instance_for(event):

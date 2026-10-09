@@ -42,11 +42,12 @@ knows which are an agent's word.
 - Their verdicts are landed by the `land_verdict` hook as `<pass>/A.md` and
   `<pass>/B.md`. You never write those files, and you write nothing in the pass folder
   until both runs have returned.
-- **No `model` override** while the primary is available. Fable and Opus 5.5 are
-  equal primaries: if Fable is genuinely unavailable you are the launching session;
-  set the override to `opus` (Opus 5.5) and name the substitution in your report and
-  the ticket thread; that run counts in full. A run on any other model (Sonnet, Haiku,
-  an older Opus) the table reads as PLAUSIBLE, and nothing can be proposed on it.
+- **No `model` override** while the agent's model is available. The grading
+  primaries (`grading.primaryModels`) are equal: if the agent's model is genuinely
+  unavailable you are the launching session; set the override to its frontmatter
+  `fallback` and name the substitution in your report and the ticket thread; a run on
+  any primary counts in full. A run on any other model the table reads as PLAUSIBLE,
+  and nothing can be proposed on it.
 - **A limit error stops the pass**: launch nothing further, record which run was
   lost in the ticket thread, report. Any other stall: relaunch once from the same
   brief and record that the kept run is the relaunch.
@@ -58,9 +59,12 @@ the MCP tools only — evidence rows, a status proposal, the packet and the tick
 status and result. You never touch a paper's `.tex`, a bibliography, a notebook
 object, a card or a claim's status field. A recolouring earned by the table is the
 Author's edit: your ticket result says so, and the author's `math-editor` makes it.
-A repair to the mathematics is a new ticket to the owner of the statement: for a
-`paper:` claim the Author (a neighbour), for an `s1:`-type claim its Researcher, and
-for a `lab:` claim the Researcher with `final_to: scientist`.
+A repair to the mathematics is a ticket filed exactly as the script's `route` says
+(`academy/references/roster-rules.md`, "Role cut", rule 3): a hypothesis, statement
+or proof-step finding is a `prove` ticket to the Researcher, for a `paper:` claim too,
+never an Author `apply` or `write` ticket; only a wording finding goes to the
+statement's owner, and a `lab:` claim goes to the Researcher with `final_to:
+scientist`.
 
 ## Report
 

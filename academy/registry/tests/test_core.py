@@ -96,7 +96,7 @@ class TestHomes(Homes):
         federation.CACHE.clear()
         cs, _ = fsl.load(fsl.registry_root(self.lab))
         errs, _ = fsl.check(cs, repo=self.lab)
-        self.assertTrue(any("the kb id is `s1:GA-2T′`" in e for e in errs), errs)
+        self.assertTrue(any("the id is `s1:GA-2T′`" in e for e in errs), errs)
 
     def test_graph_crosses_namespaces(self):
         write(self.lab / "claims" / "lab" / "foo.md",
@@ -124,11 +124,11 @@ class TestHomes(Homes):
 
 
 class TestWorktreeSiblings(Homes):
-    """Homes named FlatSurfLab-wt etc. (worktrees) find each other, not the plain names."""
+    """Homes named LabHome-wt etc. (worktrees) find each other, not the plain names."""
     suffix = "-wt"
 
     def test_suffix_siblings_first(self):
-        write(self.tmp / "BilliardIllumination" / "sections" / "a.tex", "\\label{other}\n")
+        write(self.tmp / "PaperHome" / "sections" / "a.tex", "\\label{other}\n")
         self.assertEqual(workspace.repo_ns(self.lab), "lab")
         self.assertEqual(workspace.home_of("paper", self.lab), self.bi)
         self.assertEqual(workspace.home_of("s1", self.bi), self.s1)

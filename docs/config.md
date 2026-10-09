@@ -37,7 +37,11 @@ them valid.
     }
   },
   "board": "C:/absolute/path/of/the/board",
-  "human": {"name": "Roey", "noteMacro": "\\Roey"}
+  "human": {"name": "Ada", "noteMacro": "\\ada"},
+  "compute": {
+    "workers": {"<worker>": {"transport": "ssh", "host": "...", "gateway": "<gateway>", "...": "..."}},
+    "gateways": {"<gateway>": {"kind": "vpn", "check": "...", "...": "..."}}
+  }
 }
 ```
 
@@ -47,13 +51,17 @@ them valid.
 | `instances.*.role` | enum | yes | Equals the name's prefix |
 | `instances.*.home` | abs path | yes | Contains `.claude/academy.json` once the instance is switched over |
 | `instances.*.domains` | non-empty list | yes | Pack names under `domains/`; used for routing |
-| `instances.*.ns` | str | iff the instance has a registry | Claim-id prefix (`paper`, `s1`, `lab`) |
-| `board` | abs path | yes | The board repo (protocol.md section 2) |
-| `human` | map | no | `name` for display, `noteMacro` for the human's margin-note macro |
+| `instances.*.ns` | str | iff the instance has a registry | Claim-id prefix (`paper`, `nb`, `lab`) |
+| `board` | abs path | yes | The board directory, normally the workspace's `board/` (protocol.md section 2) |
+| `human` | map | no | `name` for display (default `human`; prompts and scripts say "the human" then), `noteMacro` for the human's margin-note macro, `login` the human's GitHub login (default: `board.assignee`; the GitHub board's ticket form and `board-migrate` use it) |
+| `compute` | map | no | The workspace's remote workers and the gateways in front of them (below) |
+| `grading` | map | no | `primaryModels`: the grading primaries, equal in authority (default `["fable", "opus-5.5"]`). A positive verdict on any other model is capped (`roster-rules.md`, "Graders degrade"); read by the Expert's `decision_table.py` and `land_referee.py` and the Researcher's experiment reviews |
+| `plugins` | list of str | no | The plugins the workspace needs (the bootstrap installs them). Default: `academy`, the role plugins of its instances, and the plugin of every domain pack an instance names (the marketplace's name for `domains/<pack>`) |
 
 `load_workspace` finds it at `$ACADEMY_WORKSPACE`, then `<academy repo>/workspace.json`,
 then `<academy repo>/../workspace.json` (the academy checked out inside the workspace). It
-adds `_path`. The workspace repo generates the file (`scripts/bootstrap.py`, from its
+adds `_path` and fills the defaults of `human` (`name`, `login`), `grading.primaryModels`
+and `plugins`; read them through `human_name()`, `human_login()`, `primary_models()`. The workspace repo generates the file (`scripts/bootstrap.py`, from its
 `workspace.template.json`, with this machine's absolute paths) and exports where everything is
 as environment variables, so no code or document needs a literal path:
 
@@ -61,14 +69,61 @@ as environment variables, so no code or document needs a literal path:
 |---|---|
 | `ACADEMY_ROOT` | the academy repo (plugins, scripts) |
 | `ACADEMY_WORKSPACE` | the `workspace.json` above |
-| `ACADEMY_BOARD` | the board repo (overrides `board`) |
+| `ACADEMY_BOARD` | the board directory (overrides `board`) |
 | `ACADEMY_HOME_<ROLE>_<NAME>` | the home of instance `<role>@<name>` (overrides its `home`) |
 | `ACADEMY_LIBRARY` | the home of the first Expert instance |
 | `ACADEMY_ENV_WORKSPACE` | the file the variables were derived from; the overrides apply to that file only |
+| `ACADEMY_PYTHON` | the Python the plugins' hooks and MCP server run with. Unset: the hooks run `py`, else `python3` (they run in bash, Git Bash on Windows); the MCP server (`.mcp.json`, no shell) runs `py`, so a machine without `py` (Linux, macOS) sets it, e.g. to `python3` |
 
 They are set in `.claude/settings.local.json` of the workspace and of every home, and in the
 workspace's `workspace.env` for plain shells (`set -a; . ./workspace.env`). To move a home,
 change the variable (or `home`) and nothing else.
+
+### `compute`: remote workers and gateways
+
+The machines experiments run on belong to the workspace, not to the academy: the plugins
+ship the mechanism (an ssh transport, the `fsq` queue runner deployed from the Scientist
+plugin, pluggable gateway checks; `scientist/scripts/workers.py`) and no machine of their
+own. A Scientist home names a worker; the worker's values live here, once:
+
+```json
+"compute": {
+  "workers": {
+    "remote-a": {"transport": "ssh", "host": "remote-a", "user": "ada",
+                 "remoteRoot": "~", "maxJobs": 1,
+                 "conda": {"prefix": "/data/ada/miniforge3", "env": "sci"},
+                 "gateway": "site-vpn"}
+  },
+  "gateways": {
+    "site-vpn": {"kind": "vpn", "client": "globalprotect", "check": "globalprotect",
+                 "portal": "vpn.example.org", "probeHost": "remote-a.example.org:22",
+                 "owner": "Ada", "onDown": "ask {owner} to connect {gateway}"}
+  }
+}
+```
+
+| Key | Req. | Meaning |
+|---|---|---|
+| `workers.<w>.transport` | no | `ssh` (the only transport; default) |
+| `workers.<w>.host` | yes | ssh host or alias (an `~/.ssh/config` alias may carry user and key) |
+| `workers.<w>.user` | no | ssh user; the destination becomes `user@host` |
+| `workers.<w>.remoteRoot` | no | Where homes are cloned on the worker: a home's remote repo is `<remoteRoot>/<home folder name>` (default `~/<home folder name>`); a profile's `repo` overrides (set it when the home is also used from a worktree with another folder name) |
+| `workers.<w>.conda` | no | `{prefix, env}`: the Miniforge prefix and the conda env jobs run in (`env.py setup` creates it, the runner activates it) |
+| `workers.<w>.maxJobs` | no | Runner concurrency cap, 1..3 |
+| `workers.<w>.gateway` | no | A key of `gateways`; none means the worker is reached directly |
+| `gateways.<g>.kind` | yes | `vpn` or `none` |
+| `gateways.<g>.check` | vpn | How "up" is decided, locally, before anything is sent: `globalprotect` (the adapter's status on Windows via `vpn.ps1`, else the `globalprotect` CLI), `openconnect` (an `openconnect` process runs), `tcp-reachable` (a TCP connection to `probeHost` opens within `timeoutMs`, default 4000), `command` (`command`, a shell line, exits 0 up / 1 down). Default: `client` |
+| `gateways.<g>.client`, `portal` | no | The VPN client and the portal the human connects to (for the human; `client` is the default `check`) |
+| `gateways.<g>.probeHost` | tcp-reachable | `host:port`; also what `env.py gateway --probe` connects to after a local check says up |
+| `gateways.<g>.adapter` | no | `globalprotect` on Windows: the adapter match (default `PANGP\|GlobalProtect`) |
+| `gateways.<g>.owner` | no | Who can bring the gateway up (default `human.name`) |
+| `gateways.<g>.onDown` | no | What the agent tells the human when the gateway is down; `{owner}`, `{human}`, `{gateway}`, `{worker}` are filled in (default "ask {owner} to bring up {gateway}; jobs for {worker} wait in the queue") |
+
+A gateway that is down means "queued, not failed": jobs wait in the home's queue, the
+agent repeats the `onDown` and stops. `env.py list` shows the resolved profiles and any
+problem of the block; `env.py gateway` runs the check alone. The workspace bootstrap
+copies `compute` from `workspace.template.json` into `workspace.json` unchanged (it holds
+no paths of the local machine).
 
 Adding an instance means one row here plus one `academy.json` in its home
 (`/academy:init`). The two must agree on `role`, `instance`, `domains` and `ns`;
@@ -84,7 +139,7 @@ Adding an instance means one row here plus one `academy.json` in its home
 | `domains` | list of str | yes | | Pack names; the same as in workspace.json |
 | `ns` | str | iff `registry.profile != "none"` | | This home's claim namespace |
 | `workspace` | abs path | no | lookup order above | Override for `workspace.json` |
-| `paths` | map key → pattern(s) | yes | `{}` | Named path sets; per-role required keys below |
+| `paths` | map key → pattern(s) | yes | `{}` | Named path sets; per-role required keys below. `paths.verifyChecklist` (any role with a registry, default `.claude/rules/verification-checklist.md`): the home's own checklist the rigor review and `/researcher:settle` read, when it has one |
 | `registry` | map | yes | | See below |
 | `budget` | map | no | see below | Per-run limits |
 | `gate` | map | no | see below | Commit and build gates |
@@ -103,18 +158,20 @@ Adding an instance means one row here plus one `academy.json` in its home
 
 | Key | Type | Req. | Meaning |
 |---|---|---|---|
-| `profile` | `paper` \| `s1` \| `lab` \| `none` | yes | The engine's per-home rule profile (plan section 6) |
+| `profile` | `paper` \| `notebook` \| `lab` \| `none` | yes | The engine's per-home rule set (plan section 6). `s1` and `s1-kb`, the older names of `notebook`, are still accepted |
+| `prefixes` | map prefix → name | no, default none | `notebook` rule set: the id prefixes, in display order (ids are `PREFIX-<number or token>`; `Q` also admits `Q<n>`; `EX` is reserved for examples and `DIR` for directions when listed). Without it any slug id is allowed |
+| `assumptionGroups` | map prefix → name | no, default none | `notebook` rule set: the prefixes of assumption records and the heading of each group in `views/assumptions.md`. Without it assumptions are one ungrouped list |
 | `root` | path | iff profile != none | Directory of the object files |
 | `db` | path | no, default `.claude/academy.sqlite` | Derived SQLite + FTS index (gitignored) |
 | `statusKeeper` | bare agent | no, default `claim-keeper` | The only agent that sets a status |
 | `legacy` | map | no | Old command lines kept alive by shims during migration |
 | `check` | command | no | Replaces the engine's `check <file>` in the record hook (`{file}` is the record); for tests |
-| `build` | bool | no, default from the profile (`s1`: true) | Whether the record hook follows an edit with a blocking `build` |
+| `build` | bool | no, default from the profile (`notebook`: true) | Whether the record hook follows an edit with a blocking `build` |
 
 The engine is `academy/registry` (`py -m registry --repo <home> <command>`, cwd
 `academy/academy`); `profile` picks its rule set (`lab`, `paper`: engine profile
-fsl-claims; `s1`: s1-kb). A home without academy.json gets the rule set named like its
-workspace `ns`. `db` is not used yet: the engine builds its SQLite in memory for every
+fsl-claims; `notebook`: s1-kb). A home without academy.json gets the rule set named like
+its workspace `ns` (an old alias included), else `lab`. `db` is not used yet: the engine builds its SQLite in memory for every
 query, and s1-kb's `build` still writes `kb/kb.sqlite`.
 
 *R6 (Group D, 2026-09-28):* the s1-kb profile reads a home in the notebook layout when it
@@ -131,8 +188,8 @@ Expert's library, `<library>/reviews/s1/<claim>/`, and s1 records cite them as
 `claims_set_status`, `grounds.verdict_file`) accepts such a ref, or a path into the
 library's `reviews/`, as the verdict anchor; the instance's home comes from
 workspace.json (`registry/core/workspace.instance_home`, a worktree sibling first).
-`check` reports a review ref whose file is missing. The old copies in Slope1's
-`computation/verdicts/` stay until phase 8.
+`check` reports a review ref whose file is missing. The old copies in the notebook's
+`computation/verdicts/` were deleted in phase 8.
 
 **`budget`:**
 
@@ -162,14 +219,26 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 | `main` | path | The root `.tex` file |
 | `build` | `{dir, cmd, lock}` | Output dir, build argv, and the lock file `build_gate` holds against LaTeX Workshop |
 | `checker` | `{script, args, strictArgs, statements}` | `check_paper.py` in the plugin and its arguments; `statements` is its generated registry view |
-| `theorems` | `{all, provable, commentary}` | Replaces `THEOREM_ENVS`, `PROVABLE_ENVS`, `COMMENTARY_ENVS` |
-| `envs` | map env → status | Replaces `COLOUR_ENVS`; the draft-colour environments and the status each marks |
-| `colourCommands` | map macro → status | Replaces `COLOUR_COMMANDS` |
-| `colours` | map status → colour name | For the legend and the dashboard |
+| `theorems` | `{all, provable, commentary, definitions}` | Replaces `THEOREM_ENVS`, `PROVABLE_ENVS`, `COMMENTARY_ENVS`; `definitions` (default `["defn"]`) are the definition environments of the checker's W1 |
+| `statusLevels` | list of `{name, env, command, colour, kind, statuses}` | The draft levels. `kind` is `established` (exactly one, the uncoloured level: no `env`, no `command`), `unestablished` (R1: nothing established rests on it; a sketched proof) or `commentary` (not a claim); `statuses` are the registry statuses a statement at that level may carry (a level carrying `sketch` is listed in the registry's "Sketches with nothing depending on them"); `colour` names the legend and mermaid colour. Default: established (black, `proved`), sketch (`sketch` / `\Sketch`, blue, unestablished, `sketch` `proved-modulo`), conjectural (`conjectural` / `\Conjectural`, red, unestablished, `open` `conjectured` `supported`), meta (`meta` / `\Meta`, brown, commentary). Absent: derived from `envs`, `colourCommands` and `colours` with the default meanings (a level named like a default one takes its kind; any other name is commentary). Read by `academy_common.author_status_levels` |
+| `envs` | map env → status | Older form of the levels' environments (used only without `statusLevels`) |
+| `colourCommands` | map macro → status | Older form of the levels' commands (used only without `statusLevels`) |
+| `colours` | map status → colour name | Older form of the levels' colours (used only without `statusLevels`) |
+| `preamble` | `{file, end, extraFiles, policy}` | The preamble: `file` (default `main`) up to `end` (default `\begin{document}`), plus `extraFiles` (default none). `policy`: `propose` (default: changes are filed as a proposal for the human), `locked` (the human's alone) or `free`; under `propose` and `locked` `preamble_guard` refuses tool edits of the region, and the human releases a file by hand in `.claude/preamble-release.txt` |
+| `labels` | `{prefixes, refCommand}` | Typed label prefixes (default `thm lem prop cor defn eq sec fig`) and the reference command (default `cref`, `Cref` implied; the checker also reads `\ref` and `\eqref`) |
+| `notes` | `{maxLines}` | The machine-note cap in lines (default 3), quoted by the writers, the sweep and R7 |
+| `figures` | `{dir, include}` | Standalone figure directory (default `tikz`) and include command (default `\includestandalone`) |
+| `bib` | `{acceptedWarnings}` | Bib keys whose BibTeX `Warning--` lines are accepted (default none); the checker's BUILD line counts them apart |
+| `mainResults` | `{file, labels}` | The registry's "blocking" section: the `thm:` statements of `file` (default `sections/introduction.tex`) and the `labels` listed (default none) |
 | `noteMacros` | `{human: [..], coauthors: [..], machine: [..]}` | Margin-note macros; machine notes are the `\Claude` family |
 | `crlf` | list of patterns | Files written with `newline="\r\n"`; everything else is LF |
 | `writers` | list of bare agents | Agents whose SubagentStop triggers `build_gate` |
 | `bibWriters` | list of bare agents | Agents allowed to edit `paths.bib` (`bib_gate`) |
+| `provenance` | map, optional | The provenance marker for what the authors added since the last accepted round (a new claim, an added assumption, a proof following a lead), layered on the status colour: `env` (block environment, default `added`), `command` (short-span macro, default `\Added`), `kinds` (the `%% added: <kind>` tags, default `claim`, `assumption`, `lead-proof`), `removedBy` (default `human`: writers never remove it). Absent, or `"enabled": false`: no marker. Read by `academy_common.author_provenance` |
+
+The tex-convention keys (`statusLevels`, `preamble`, `labels`, `notes`, `figures`, `bib`,
+`mainResults`) have the defaults above, which reproduce the conventions before they were
+configurable (`academy_common.author_tex`); `academy:init` writes them into a new home.
 
 **Required paths:** `tex`, `bib`, `drafts`, `agenda`, `records`, `views`. (`paths.roadmap`
 was required until 2026-09-30, when the roadmap was dropped and the board became the
@@ -215,22 +284,29 @@ Author's only queue; a config that still has the key validates and the key is ig
 
 | Key | Kinds | Req. | Meaning |
 |---|---|---|---|
-| `kind` | all | yes | `wsl` \| `local` \| `ssh` |
+| `worker` | (ssh) | — | A worker of the workspace's `compute.workers` (section 1): the profile is that worker's ssh profile (host, user, conda prefix and env, remote repo, maxJobs, gateway); any other key given here overrides the worker's value for this home. `kind` may then be omitted |
+| `kind` | all | yes, unless `worker` | `wsl` \| `local` \| `ssh` |
 | `distro` | wsl | yes | The WSL distro |
 | `conda` | wsl, local | no | The conda env to activate |
 | `host` | ssh | yes | ssh host alias |
+| `user` | ssh | no | ssh user (`user@host`) |
 | `prefix` | all | no | Conda (Miniforge) prefix on that machine; default `~/miniforge3` |
 | `env` | ssh | no | Remote conda env name |
 | `repo` | ssh | no | Remote clone of the home |
 | `maxJobs` | ssh, local | no | Runner concurrency cap, 1..3 |
-| `preflight` | all | no | Pluggable check, `<name>:<arg>`, e.g. `vpn:globalprotect`; a failing preflight on an ssh profile means "queued", not an error |
+| `gateway` | ssh | no | A key of the workspace's `compute.gateways`, checked before anything is sent; down means "queued", not an error |
+| `preflight` | all | no | The older inline form of a gateway, `vpn:<check>` (e.g. `vpn:globalprotect`) |
 | `pushUrl`, `remoteEnv` | ssh, wsl | no | Test stand-ins only (as in the legacy `queue/config.json`): the git URL the job commit is pushed to, and assignments prefixed to every runner call |
 
 The runner is `scientist/scripts/env.py` (`list`, `check <profile> [--live]`,
-`run <profile> ...`, `setup`, `vpn`, `queue ...`). Wherever it takes a profile it also
-takes a `policy` key (`probe`, `test`, `run`) or a legacy target (`wsl`,
-`wsl:<distro>`, `ssh:<host>`). A home with no academy.json yet gets its queue target
-from `queue/config.json` (profile `queue`) and a `laptop-wsl` profile.
+`run <profile> ...`, `setup`, `gateway` (alias `vpn`), `queue ...`). Wherever it takes a
+profile it also takes a `policy` key (`probe`, `test`, `run`) or a legacy target (`wsl`,
+`wsl:<distro>`, `ssh:<host or worker>`). It has no built-in profile: a name the home does
+not define is refused, with a pointer at `compute`. `setup` installs the packages the
+home's domain packs list in `domains/<pack>/computation/env.txt` (and runs the pack's
+`env-check.py`). A home with no academy.json yet gets its queue target from
+`queue/config.json` (profile `queue`, which must name a `target`) and a `laptop-wsl`
+profile.
 
 *Extensions (Group C, 2026-09-28):* `prefix` on every kind (was ssh only),
 `pushUrl` / `remoteEnv`, `queue.mcpAdd`, and the `checker` row above (read by
@@ -240,9 +316,8 @@ from `queue/config.json` (profile `queue`) and a `laptop-wsl` profile.
 
 ## 4. Examples (the four homes)
 
-These are the target configs after each home's switch-over. Paths that do not exist
-yet are created by that phase. A `legacy` entry names the old command kept alive by
-a shim until phase 8.
+One config per role, for a workspace whose human is "Ada", with a paper (`paper`), a
+notebook (`nb`) and a lab (`lab`). The tests read these blocks, so they stay valid.
 
 ### Example: author@main
 
@@ -265,8 +340,7 @@ a shim until phase 8.
               "claims/index.html"]
   },
   "registry": {"profile": "paper", "root": "claims", "db": ".claude/academy.sqlite",
-               "statusKeeper": "claim-keeper",
-               "legacy": {"claims": "py ../<lab>/scripts/claims.py --repo ."}},
+               "statusKeeper": "claim-keeper"},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
              "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": true,
@@ -286,12 +360,19 @@ a shim until phase 8.
     "envs": {"sketch": "sketch", "conjectural": "conjectural", "meta": "meta"},
     "colourCommands": {"\\Sketch": "sketch", "\\Conjectural": "conjectural", "\\Meta": "meta"},
     "colours": {"established": "black", "sketch": "blue", "conjectural": "red", "meta": "brown"},
-    "noteMacros": {"human": ["\\Roey", "\\rz"],
-                   "coauthors": ["\\Barak", "\\Carlos", "\\Victoria", "\\Hayim", "\\bw"],
+    "noteMacros": {"human": ["\\ada"],
+                   "coauthors": ["\\Bo", "\\Cy"],
                    "machine": ["\\Claude", "\\cl"]},
     "crlf": ["sections/*.tex", "tikz/*.tex"],
     "writers": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper"],
-    "bibWriters": ["librarian"]
+    "bibWriters": ["librarian"],
+    "preamble": {"policy": "propose", "extraFiles": []},
+    "labels": {"prefixes": ["thm", "lem", "prop", "cor", "defn", "eq", "sec", "fig"],
+               "refCommand": "cref"},
+    "notes": {"maxLines": 3},
+    "figures": {"dir": "tikz", "include": "\\includestandalone"},
+    "bib": {"acceptedWarnings": []},
+    "mainResults": {"file": "sections/introduction.tex", "labels": ["thm:main"]}
   }
 }
 ```
@@ -304,7 +385,7 @@ a shim until phase 8.
   "role": "researcher",
   "instance": "researcher@alpha",
   "domains": ["translation-surfaces"],
-  "ns": "s1",
+  "ns": "nb",
   "paths": {
     "objects": "objects",
     "proofs": "proofs",
@@ -315,9 +396,8 @@ a shim until phase 8.
     "views": ["views", "INDEX.md", "OPEN.md", "STATUS.md", "site/index.html",
               "kb/claims.json", "computation/verdicts.md", "computation/runs.md"]
   },
-  "registry": {"profile": "s1", "root": "objects", "db": ".claude/academy.sqlite",
-               "statusKeeper": "claim-keeper",
-               "legacy": {"kb": "py tools/kb.py"}},
+  "registry": {"profile": "notebook", "root": "objects", "db": ".claude/academy.sqlite",
+               "statusKeeper": "claim-keeper"},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
              "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": false, "baseline": null,
@@ -374,7 +454,7 @@ a shim until phase 8.
   "domains": ["translation-surfaces"],
   "ns": "lab",
   "paths": {
-    "package": "fslab",
+    "package": "labpkg",
     "experiments": "experiments/*.py",
     "results": "results",
     "queue": "queue",
@@ -384,8 +464,7 @@ a shim until phase 8.
     "views": ["claims/INDEX.md", "claims/index.html"]
   },
   "registry": {"profile": "lab", "root": "claims", "db": ".claude/academy.sqlite",
-               "statusKeeper": "claim-keeper",
-               "legacy": {"claims": "py scripts/claims.py"}},
+               "statusKeeper": "claim-keeper"},
   "budget": {"itemsPerRun": 3, "serial": true, "orchestratorModel": "sonnet",
              "maxModel": "fable", "ticketDefault": {"runs": 1}},
   "gate": {"commit": "normal", "build": false, "baseline": null,
@@ -394,11 +473,9 @@ a shim until phase 8.
     "envs": {
       "laptop-wsl": {"kind": "wsl", "distro": "Ubuntu", "conda": "flatsurf"},
       "local": {"kind": "local", "conda": "flatsurf"},
-      "lingo": {"kind": "ssh", "host": "lingo", "prefix": "/data/roeyzemmel/miniforge3",
-                "env": "flatsurf", "repo": "~/<lab>", "maxJobs": 1,
-                "preflight": "vpn:globalprotect"}
+      "remote-a": {"worker": "remote-a"}
     },
-    "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "lingo"},
+    "policy": {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "remote-a"},
     "queue": {"dir": "queue", "fsqHome": "~/fsq", "maxJobs": 1},
     "experimentTypes": ["search", "measure", "verify", "probe"],
     "reportTemplates": "${CLAUDE_PLUGIN_ROOT}/templates",
@@ -413,13 +490,22 @@ a shim until phase 8.
 
 - `schema` is not 1, or `role` / `instance` is bad or they disagree;
 - `domains` is empty;
-- `registry.profile` is unknown, or `ns` is missing when a registry is used;
+- `registry.profile` is unknown, or `ns` is missing when a registry is used, or
+  `registry.prefixes` / `registry.assumptionGroups` is neither a map nor a list;
 - a required path key for the role is missing, or the role block is missing;
 - `budget.itemsPerRun` is outside 1..3, or a model name is unknown;
 - `gate.commit` (or a branch override) is outside `strict | normal | warn | off`;
-- for a scientist: any profile `kind` is outside `wsl | local | ssh`, an ssh profile
-  has no `host`, a wsl profile has no `distro`, or a `policy` entry names no
-  existing profile.
+- for an author: `statusLevels` is not a list of levels with word names, kinds among
+  `established | unestablished | commentary`, exactly one `established` level (with no
+  env or command) and an env or a command on every other; or `preamble`, `labels`,
+  `notes`, `figures`, `bib`, `mainResults` is not an object, `preamble.policy` is outside
+  `propose | locked | free`, a list key is not a list of strings, or `notes.maxLines` is
+  not a positive integer (`academy_common.validate_author`);
+- for a scientist: any profile `kind` is outside `wsl | local | ssh` (a profile with
+  `worker` may omit it), an ssh profile has no `host`, a wsl profile has no `distro`,
+  a `worker` is empty, or a `policy` entry names no existing profile. Whether the
+  worker exists in the workspace's `compute` is checked by `env.py` (`list`, `check`)
+  and `env_check`, not here.
 
 Unknown extra keys are allowed, for forward compatibility. `session_start` prints the
 problems and stays silent otherwise.

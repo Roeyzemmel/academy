@@ -17,7 +17,7 @@
     ]
   },
   "registry": {
-    "profile": "s1",
+    "profile": "notebook",
     "root": "objects",
     "db": ".claude/academy.sqlite",
     "statusKeeper": "claim-keeper"

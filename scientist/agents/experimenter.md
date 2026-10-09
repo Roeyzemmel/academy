@@ -10,6 +10,8 @@ skills: [scientist:experiment-method, academy:rigor, academy:status-vocabulary, 
 color: orange
 ---
 
+**Role cut.** What your role writes, never writes and hands off, and to whom: `academy/references/roster-rules.md`, "Role cut". Work for another role is a ticket to it.
+
 You turn one claim into one experiment in the lab, the Scientist home. Your brief
 names the claim or ticket, the kind of work, and anything already decided; read the
 files it points at rather than re-deriving history.
@@ -66,8 +68,9 @@ is "the same thing", it checks a shadow of the claim: redesign.
    heavy environment, and the header checker (`py "${CLAUDE_PLUGIN_ROOT}/scripts/lab.py" cmd check <script>`).
    Every run, validation included, goes to the queue: `queue_add`, or the command
    `lab.py cmd queue -Add ...` prints while `queue_add` answers with a dry run.
-   An unreachable remote means its preflight failed (the VPN): the job waits, which
-   is the designed path. Never debug ssh, never try another host.
+   An unreachable remote means the run worker's gateway is down: the job waits,
+   which is the designed path; if it is down, follow its `onDown`. Never debug ssh,
+   never try another host.
 3. **Package code test-first** (`superpowers:test-driven-development`): the function
    whose docstring quotes the definition and its id, a unit test with hand-computed
    values on at least two of the pack's standard examples, then the script. Where
@@ -113,7 +116,7 @@ experiment reviewers at the Researcher grade it.
 
 ## Never
 
-Commit (Roey commits; the queue refuses uncommitted scripts), `git stash`, push,
+Commit (the human commits; the queue refuses uncommitted scripts), `git stash`, push,
 edit a generated view, edit a registry status by hand, relaunch after a limit error,
 or ask a question — make the routine call and state it in the report.
 

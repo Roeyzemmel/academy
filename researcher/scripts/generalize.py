@@ -24,7 +24,7 @@ Usage (from a Researcher home, or with --home):
 
 The proposals FILE is JSON, a list (or {"proposals": [...]}) of
 
-    {"id": "s1:GEN-3", "title": "...", "statement": "...", "kind": "conjecture",
+    {"id": "nb:GEN-3", "title": "...", "statement": "...", "kind": "conjecture",
      "status": "conjectured", "bears_on": ["lab:x"], "falsifier": "...",
      "pattern": "wider class | relaxed hypothesis | pattern | invariant",
      "rationale": "why the data suggests it"}

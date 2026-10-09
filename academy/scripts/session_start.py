@@ -138,11 +138,30 @@ def _git(board, *args):
                           timeout=30)
 
 
+def board_is_own_repo(board):
+    """Whether the board is a standalone clone (a ``.git`` directory, and its own top
+    level), not a plain directory of a larger repo such as the workspace (nor a
+    submodule checkout, whose ``.git`` is a file: as before, the hook leaves those alone)."""
+    if not os.path.isdir(os.path.join(board, ".git")):
+        return False
+    try:
+        res = _git(board, "rev-parse", "--show-toplevel")
+    except (OSError, subprocess.SubprocessError):
+        return False
+    top = res.stdout.decode("utf-8", "replace").strip()
+    return (res.returncode == 0 and bool(top)
+            and ac._norm(os.path.realpath(top)) == ac._norm(os.path.realpath(board)))
+
+
 def commit_board(board):
-    """Commit all pending board changes as 'board: <n> change(s)'. Returns n (0: none)."""
+    """Commit all pending board changes as 'board: <n> change(s)'. Returns n (0: none).
+
+    Only when the board is a repository of its own: a board that is a plain directory of
+    the workspace is committed by ``ship.py checkpoint --only board`` on a ticket branch;
+    this hook never commits the superproject."""
     if os.environ.get("ACADEMY_BOARD_COMMIT", "1") == "0":
         return 0
-    if not os.path.isdir(os.path.join(board, ".git")):
+    if not board_is_own_repo(board):
         return 0
     if os.path.exists(os.path.join(board, ac.IDS_DIR, ac.LOCK_NAME)):
         return 0                                     # an allocation is in flight

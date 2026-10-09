@@ -22,7 +22,7 @@ with `board.py new` / `tickets_create` (to this Author itself for `write`, `appl
 `copy`, `figure`, `build`, `notation`, `sweep`; to the Expert for an ask) with `--agenda
 <ns>:<label>` (the agenda entry: its position in the paper) and the claim in `--refs`, or by
 `agenda.py gaps --file` (`--campaign TARGET` tags what it files; a refuted claim or one
-with no registry record is held for Roey, never ticketed).
+with no registry record is held for the human, never ticketed).
 
 ## 1. Sweep first
 
@@ -50,10 +50,12 @@ By each row's `route.how` and `route.target`:
 
 | route | What you do |
 |---|---|
-| `agent` (`math-writer`, `math-editor`, `figure-maker`, `tex-engineer`, `notation-auditor`, `note-sweeper`) | Move the ticket `accepted` then `in-progress` (`py <academy>/scripts/board.py transition T-NNNN accepted --as <instance>`; `<academy>` is `${CLAUDE_PLUGIN_ROOT}/../academy`). Launch the agent with a short brief: the ticket id (the claim it bears on is in `refs`, its agenda entry in `agenda`), the files it may touch, anything an earlier ticket of this run changed, and "deliver the ticket: `board.py transition T-NNNN delivered --result '<one line>' --as <instance> --agent <agent>`" (or, if it cannot finish, `transition T-NNNN blocked --waiting-on human --reason '<what is needed>'`, which parks it on `human`). |
+| `agent` (`math-writer`, `math-editor`, `figure-maker`, `tex-engineer`, `notation-auditor`, `note-sweeper`) | Move the ticket `accepted` then `in-progress` (`py <academy>/scripts/board.py transition T-NNNN accepted --as <instance>`; `<academy>` is `${CLAUDE_PLUGIN_ROOT}/../academy`). Launch the agent with a short brief that starts from the pinned list (`py $S/pinned.py`: statements it must leave byte for byte; their proofs are free): the ticket id (the claim it bears on is in `refs`, its agenda entry in `agenda`), the files it may touch, anything an earlier ticket of this run changed, and "deliver the ticket: `board.py transition T-NNNN delivered --result '<one line>' --as <instance> --agent <agent>`" (or, if it cannot finish, `transition T-NNNN blocked --waiting-on human --reason '<what is needed>'`, which parks it on `human`). |
 | `agent` with `"return": true` | A returned ticket to land: launch the named agent (`math-editor` for a verdict or citation, `math-writer` for a proof or experiment) with the returned ticket's id; it lands the result and then closes the ticket (`board.py transition T-NNNN closed --as <instance>`). |
 | `skill` (`author:notes`) | A returned referee packet: run `/author:notes` on it. |
-| `human` | No Author route for this kind: show it (`py <academy>/scripts/board.py show T-NNNN`) and ask Roey with `AskUserQuestion` (accept and file a work ticket, reject with a reason, forward). Never guess a route. |
+| `research` (target `expert`) | A self-ticket whose ask needs an argument nobody has delivered (`routes.needs_argument`): the Researcher proves, the Author only lands (`academy/references/roster-rules.md`, "Role cut"). File a `research` ticket to the Expert with `final_to: researcher` (it must pass `routes.check_filed`), move this ticket `blocked` waiting on it, and land what returns. Never write the argument. |
+| `reject` | Another role's kind (`prove`, `experiment`, ...): `rejected`, with the route's reason in the same write; the reason tells the sender to ask through a `research` ticket to the Expert with `final_to`. |
+| `human` | No Author route for this kind: show it (`py <academy>/scripts/board.py show T-NNNN`) and ask the human with `AskUserQuestion` (accept and file a work ticket, reject with a reason, forward). Never guess a route. |
 
 **Checkpoint after each ticket** before the next: `py $S/inbox.py --check T-NNNN`. Exit 0:
 delivered, blocked with its reason, or rejected. Exit 3: unfinished; report it, do not

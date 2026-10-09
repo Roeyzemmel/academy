@@ -13,8 +13,10 @@ run, and every write tool is then refused (reads proceed as the human). The
 argument ``caller`` is reserved and refused: identity never comes from the
 arguments. The server exposes the caller as ``ctx.agent`` (bare name, '' for the
 human), ``ctx.agent_ns`` (its plugin namespace) and ``ctx.instance`` (the
-instance of the home containing the server's cwd, or ``'human'``); an agent of a
-role plugin running in another role's home has no instance there and is refused.
+instance the agent acts for, resolved per call: the ``instance`` argument, else the
+call's ticket, else the server's cwd, else the only instance of the agent's role;
+see ``Context.instance``), or ``'human'`` for the main session. An agent of a role
+plugin never acts for an instance of another role.
 A new ticket's sender comes from ctx.filer(): the main session inside a home files as that home (agent 'main').
 """
 
@@ -59,10 +61,14 @@ class Context(object):
     """Per-call view of the workspace, the caller and its instance."""
 
     def __init__(self, cwd=None, agent="", workspace=None, agent_ns="", verified=True,
-                 store=None):
+                 store=None, requested_instance=None):
         self.cwd = os.path.abspath(cwd or os.environ.get("ACADEMY_CWD") or os.getcwd())
         self.agent = agent or ""
         self.agent_ns = agent_ns or ""
+        #: the ``instance`` argument of the call, if any (fix 1 of 2026-10-09)
+        self.requested_instance = requested_instance or None
+        #: the ticket the call is about (its frontmatter), set by the handler
+        self.ticket_hint = None
         #: False when no mcp_write_gate record identified the caller (reads only)
         self.verified = verified
         self._ws = workspace
@@ -151,26 +157,77 @@ class Context(object):
         except ac.AcademyError:
             return ""
 
+    def _check_role(self, name, plugin):
+        role = self.instances().get(name, {}).get("role")
+        if plugin in ac.ROLES and role and plugin != role:
+            raise ToolError("agent %s:%s belongs to the %s role but %s is a %s instance; "
+                            "it cannot act for that instance"
+                            % (plugin, self.agent, plugin, name, role))
+
+    def _requested(self):
+        """The ``instance`` argument, validated against workspace.json; None if absent."""
+        name = self.requested_instance
+        if not name:
+            return None
+        if name == ac.HUMAN:
+            if self.is_human:
+                return ac.HUMAN
+            raise ToolError("an agent acts for its own instance, never as 'human'")
+        if name not in self.instances():
+            raise ToolError("instance must be a workspace instance, got %r (have: %s)"
+                            % (name, ", ".join(sorted(self.instances())) or "none"))
+        return name
+
     @property
     def instance(self):
-        """'human' for the human; otherwise the home's instance (None outside every home).
+        """'human' for the human; otherwise the instance the agent acts for (or None).
+
+        Resolved per call, because the server's cwd is fixed when it starts and is not
+        the calling agent's (docs/protocol.md section 1, cloud sessions):
+
+        1. the call's ``instance`` argument, checked against workspace.json and the
+           agent's role;
+        2. for a role agent, the party of the call's ticket (``to``, then ``from``)
+           whose role is the agent's;
+        3. the home containing the server's cwd, when its role is the agent's (a base
+           ``academy:`` agent acts for whichever home it runs in);
+        4. for a role agent, the only instance of its role in workspace.json.
 
         An agent of a role plugin acts only for an instance of that role: an
-        ``expert:`` agent in an author home is refused rather than filing as the
-        author. Base-plugin agents (``academy:``) act for whichever home they run in.
+        ``expert:`` agent named for an author instance is refused, and a role with
+        several instances and no hint is refused with "pass instance".
         """
         if self.is_human:
             return ac.HUMAN
-        name = self.home_instance()
-        if not name:
-            return None
         plugin = self.agent_plugin()
-        role = self.instances().get(name, {}).get("role")
-        if plugin in ac.ROLES and role and plugin != role:
-            raise ToolError("agent %s:%s belongs to the %s role but runs in the home of "
-                            "%s (%s); it cannot act for that instance"
-                            % (plugin, self.agent, plugin, name, role))
-        return name
+        name = self._requested()
+        if name:
+            self._check_role(name, plugin)
+            return name
+        role_agent = plugin in ac.ROLES
+        insts = self.instances()
+        t = self.ticket_hint or {}
+        if role_agent:
+            for k in ("to", "from"):
+                cand = t.get(k)
+                if cand in insts and insts[cand].get("role") == plugin:
+                    return cand
+        home = self.home_instance()
+        if home and (not role_agent or insts.get(home, {}).get("role") in (plugin, None)):
+            return home
+        if role_agent:
+            cands = sorted(self.instances_by_role(plugin))
+            if len(cands) == 1:
+                return cands[0]
+            if home:
+                self._check_role(home, plugin)
+            if len(cands) > 1:
+                raise ToolError("agent %s:%s could act for %s; pass instance=<one of them>"
+                                % (plugin, self.agent, " or ".join(cands)))
+            return None
+        if t.get("to") in insts:
+            return t["to"]
+        return home
 
     @property
     def speaker(self):
@@ -179,8 +236,8 @@ class Context(object):
             return ac.HUMAN
         inst = self.instance
         if not inst:
-            raise ToolError("agent %r runs outside every academy home; it has no instance"
-                            % self.agent)
+            raise ToolError("agent %r runs outside every academy home and no instance "
+                            "could be resolved; pass instance=<its instance>" % self.agent)
         return ac.format_who(inst, self.agent)
 
     def filer(self, as_human=False):
@@ -188,20 +245,37 @@ class Context(object):
 
         An agent files as its instance. The main session files as the home it runs in,
         with agent ``main`` -- a role skill such as /author:inbox is its role -- unless
-        ``as_human`` (only /academy:board, desk and decide pass it, after Roey
-        confirms); outside every home it is the human.
+        ``as_human`` (only /academy:board, desk and decide pass it, after the human
+        confirms, and /academy:cowork, for the tasks of a plan the human approved); with an ``instance`` argument it files as that instance (a cloud
+        main session working an instance's inbox from the workspace root); outside
+        every home it is the human.
+
+        Only the main session can ever file as ``human``: the caller handshake records
+        ``human`` exactly when the hook event carries no ``agent_type`` (the main
+        thread), and an agent is never resolved to ``human`` (``instance='human'``
+        from an agent is refused).
         """
         if self.is_human:
             if as_human:
                 return ac.HUMAN, ""
+            req = self._requested()
+            if req and req != ac.HUMAN:
+                return req, ac.MAIN_AGENT
+            if req == ac.HUMAN:
+                return ac.HUMAN, ""
             name = self.home_instance()
             return (name, ac.MAIN_AGENT) if name else (ac.HUMAN, "")
         if as_human:
-            raise ToolError("as_human is for the main session only (Roey's own tickets)")
+            raise ToolError("as_human is for the main session only (%s's own tickets)"
+                            % ac.human_name())
         return self.instance, self.agent
 
     def my_domains(self):
-        inst = self.instances().get(self.home_instance() or "", {})
+        try:
+            name = None if self.is_human else self.instance
+        except ToolError:
+            name = None
+        inst = self.instances().get(name or self.home_instance() or "", {})
         return inst.get("domains", [])
 
 

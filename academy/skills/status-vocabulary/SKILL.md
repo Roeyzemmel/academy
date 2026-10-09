@@ -30,29 +30,31 @@ object `supersedes` it), `dropped` (withdrawn). A superseded or dropped object
 projects to `n/a` whatever its status. Nothing is deleted; a false claim becomes
 `refuted`, never removed.
 
-**Who moves a status:** only the status keeper (`claim-keeper`), with grounds, or Roey.
+**Who moves a status:** only the status keeper (`claim-keeper`), with grounds, or the human.
 Everyone else proposes (`claims_propose_status`).
 
 ## Draft colours (Author homes)
 
-The environment and macro names come from the home's `author.envs`,
-`author.colourCommands` and `author.colours`; the defaults are:
+The levels are the home's `author.statusLevels` (name, environment, macro, colour, kind,
+the registry statuses each may carry; older homes: `author.envs`, `author.colourCommands`,
+`author.colours`). Read them from the home's config; the defaults are:
 
-| Draft colour | Environment / span | Colour | Registry statuses it may carry |
+| Draft level (kind) | Environment / span | Colour | Registry statuses it may carry |
 |---|---|---|---|
-| established | uncoloured | black | `proved` (by two agreeing verdicts or a precise citation) |
-| sketch | `sketch` / `\Sketch{}` | blue | `sketch`, `proved-modulo` (the `modulo` inputs named in a machine note) |
-| conjectural | `conjectural` / `\Conjectural{}` | red | `open`, `conjectured`, `supported` (the computation cited) |
-| meta | `meta` / `\Meta{}` | brown | none: commentary about the paper, not a claim |
+| established (established) | uncoloured | black | `proved` (by two agreeing verdicts or a precise citation) |
+| sketch (unestablished) | `sketch` / `\Sketch{}` | blue | `sketch`, `proved-modulo` (the `modulo` inputs named in a machine note) |
+| conjectural (unestablished) | `conjectural` / `\Conjectural{}` | red | `open`, `conjectured`, `supported` (the computation cited) |
+| meta (commentary) | `meta` / `\Meta{}` | brown | none: commentary about the paper, not a claim |
 
-A statement turns black only when the registry says `proved`. An established
-statement never rests on a blue or red one. The Author checker enforces the draft side.
+A statement turns established only when the registry says `proved`. An established
+statement never rests on an unestablished one (by default blue or red). The Author
+checker enforces the draft side.
 
 ## Verdicts
 
 | Proof review (Expert, `rigor-reviewer`) | Meaning |
 |---|---|
-| CONFIRMED | Valid from its stated inputs; cited results used within their real hypotheses; on a primary model (Fable or Opus 5.5, equal) |
+| CONFIRMED | Valid from its stated inputs; cited results used within their real hypotheses; on one of the grading primaries (`grading.primaryModels`), all equal |
 | PLAUSIBLE | No gap found, but on a non-primary model (Sonnet, Haiku, an older Opus) or with reduced strength; never counts toward `proved` |
 | GAP | A step does not follow; the verdict names the step and what would close it |
 | DISPROVED | False, with an explicit verified counterexample |
@@ -75,9 +77,16 @@ statement never rests on a blue or red one. The Author checker enforces the draf
 | Two SOUND (or SOUND MODULO the same assumption, recorded in the evidence note), commit hash, validation case reproduced, no counterexample | `supported` |
 | The same, with a verified counterexample | `refuted` or `refuted-as-stated` |
 | Any GAP or BROKEN on an experiment | no change |
-| Roey's word | any status; the history line says so |
+| The human's word | any status; the history line says so |
 
 Computation never reaches `proved` or `proved-modulo`.
+
+**An attestation is the human's word, recorded.** When the human attests a status (for
+example "I checked this proof; mark it proved"), the words are recorded verbatim, with
+date and where they were said, as a verdict file of `kind: attestation` in the home's
+verdict folder, which the status change cites; the object's `status_note` says
+"attested by the human; not machine-verified". A model never infers an attestation from
+approval of something else, silence, or a paraphrase, and never writes one on its own.
 
 ## Old words
 

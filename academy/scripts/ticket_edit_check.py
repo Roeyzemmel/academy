@@ -46,9 +46,11 @@ def classify(board, path):
 
 
 def git_head_text(board, rel):
-    """The file's text at the board's HEAD, or None (new file, no repo, no git)."""
+    """The file's text at the board's HEAD, or None (new file, no repo, no git). ``HEAD:./``
+    resolves ``rel`` against the board directory, so this works whether the board is a
+    repository of its own or a plain directory of the workspace repo."""
     try:
-        res = subprocess.run(["git", "-C", str(board), "show", "HEAD:" + rel],
+        res = subprocess.run(["git", "-C", str(board), "show", "HEAD:./" + rel],
                              capture_output=True, timeout=20)
     except (OSError, subprocess.SubprocessError):
         return None

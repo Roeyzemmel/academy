@@ -102,10 +102,68 @@ class LandVerdictTests(unittest.TestCase):
         self.assertEqual(meta["modulo"], [])
         self.assertIn("Obligation ledger", body)
 
-    def test_never_overwrites(self):
+    def test_the_gap_class_is_kept_in_the_record(self):
+        text = REPORT.replace("verdict: CONFIRMED", "verdict: GAP").replace(
+            "blocking: none", "blocking: step 2\ngap_class: statement")
+        fixtures.run_script("land_verdict.py", stop_event("expert:rigor-reviewer", text))
+        with open(os.path.join(self.pass_dir(), "A.md"), encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertEqual(meta["gap_class"], "statement")
+
+    def test_idempotent_by_run(self):
+        # 2026-10-08: a second landing of the same run made A-2.md duplicates
         for _ in range(2):
-            fixtures.run_script("land_verdict.py", stop_event("rigor-reviewer", REPORT))
+            code, out, err = fixtures.run_script("land_verdict.py",
+                                                 stop_event("rigor-reviewer", REPORT))
+        self.assertEqual(sorted(os.listdir(self.pass_dir())), ["A.md"])
+        self.assertIn("already landed", out["systemMessage"])
+        # the same reviewer with a changed report: rewritten in place, same run id
+        with open(os.path.join(self.pass_dir(), "A.md"), encoding="utf-8") as fh:
+            rid = ac.read_frontmatter(fh.read())[0]["run_id"]
+        code, out, err = fixtures.run_script(
+            "land_verdict.py", stop_event("rigor-reviewer", "Amended.\n\n" + REPORT))
+        self.assertEqual(sorted(os.listdir(self.pass_dir())), ["A.md"])
+        with open(os.path.join(self.pass_dir(), "A.md"), encoding="utf-8") as fh:
+            meta, body = ac.read_frontmatter(fh.read())
+        self.assertEqual(meta["run_id"], rid)
+        self.assertIn("Amended.", body)
+        self.assertIn("rewritten in place", out["systemMessage"])
+
+    def test_another_reviewer_on_the_same_run_is_said(self):
+        fixtures.run_script("land_verdict.py", stop_event("rigor-reviewer", REPORT))
+        code, out, err = fixtures.run_script(
+            "land_verdict.py", stop_event("rigor-reviewer", REPORT, agent_id="zzz999"))
         self.assertEqual(sorted(os.listdir(self.pass_dir())), ["A-2.md", "A.md"])
+        self.assertIn("another reviewer", out["systemMessage"])
+
+    def test_placeholder_pass_is_never_filed_silently(self):
+        # 2026-10-07: "pass: not in brief" became reviews/paper/<slug>/not-in-brief/B.md
+        bad = REPORT.replace("pass: 2026-09-28-T-0007", "pass: not in brief") \
+            .replace("statement_hash: 0123456789abcdef", "statement_hash: not in brief")
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", bad))
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("pass and statement_hash", out["reason"])
+        code, out, err = fixtures.run_script(
+            "land_verdict.py", stop_event("expert:rigor-reviewer", bad,
+                                          stop_hook_active=True))
+        subj = os.path.join(self.sb.lib, "reviews", "paper", "lem-strip-bound")
+        self.assertEqual(os.listdir(subj), ["_unfiled"])
+        self.assertIn("ERROR: not filed into a pass", out["systemMessage"])
+
+    def test_a_skipped_landing_is_visible(self):
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", ""))
+        self.assertIn("NOT landed", out["systemMessage"])
+
+    def test_hook_landed_pair_is_a_valid_pair(self):
+        import decision_table as dt
+        fixtures.run_script("land_verdict.py", stop_event("expert:rigor-reviewer", REPORT))
+        fixtures.run_script("land_verdict.py", stop_event(
+            "expert:rigor-reviewer", REPORT.replace("run: A", "run: B"), agent_id="bbb222"))
+        r = dt.decide(dt.read_record(os.path.join(self.pass_dir(), "A.md")),
+                      dt.read_record(os.path.join(self.pass_dir(), "B.md")))
+        self.assertNotEqual(r["outcome"], "invalid-pair", r)
 
     def test_decision_table_reads_the_landed_file(self):
         import decision_table as dt

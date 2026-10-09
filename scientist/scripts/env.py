@@ -5,13 +5,19 @@ Profiles live in the Scientist home's ``.claude/academy.json`` under
 
     wsl     a WSL distro on the Windows laptop           (distro, conda, prefix)
     local   the Linux machine this runs on                (conda, prefix)
-    ssh     any remote Linux workstation                  (host, prefix, env, repo, maxJobs)
+    ssh     any remote Linux workstation                  (host, user, prefix, env, repo,
+                                                           maxJobs, gateway)
 
-and optionally a preflight ``<name>:<arg>`` (``vpn:globalprotect``). ``policy`` maps
-``probe`` / ``test`` / ``run`` to profiles; wherever a profile is named, a policy
-key may stand for it. A home without academy.json (before its switch-over) gets its
-queue target from ``queue/config.json`` (profile ``queue``) and a ``laptop-wsl``
-profile, as the legacy scripts assumed.
+A remote worker is usually not spelled out in the home: the profile is
+``{"worker": "<name>"}`` and the worker (host, user, remoteRoot, conda prefix and env,
+gateway) is the workspace's, ``workspace.json`` ``compute.workers.<name>``, with its
+gateway (a VPN, or none) under ``compute.gateways`` (``workers.py``; docs/config.md,
+"compute"). The academy ships no machine of its own: a profile the home does not
+define is refused, with that hint. An inline ssh profile may name a ``gateway`` too,
+or the older ``preflight: "vpn:<check>"``. ``policy`` maps ``probe`` / ``test`` /
+``run`` to profiles; wherever a profile is named, a policy key may stand for it. A
+home without academy.json (before its switch-over) gets its queue target from
+``queue/config.json`` (profile ``queue``) and a ``laptop-wsl`` profile.
 
 Usage::
 
@@ -20,7 +26,7 @@ Usage::
     py env.py [--home DIR] run PROFILE [--sage] [-u] [--conda ENV] [--prefix P] [--dry-run]
                                    (-c CODE | SCRIPT [ARGS ...])
     py env.py [--home DIR] setup PROFILE [--dry-run]
-    py env.py [--home DIR] vpn [--profile P] [--probe] [--quiet]
+    py env.py [--home DIR] gateway [--profile P] [--probe] [--quiet]     (alias: vpn)
     py env.py [--home DIR] queue [--profile P] SUB ...
 
 Queue subcommands (the fsq runner protocol of the legacy ``queue.ps1``; job files in
@@ -47,8 +53,8 @@ Home: ``--home``, else ``$ACADEMY_LAB_HOME``, else the Scientist home containing
 cwd, else workspace.json's scientist instance.
 
 Test hooks (no network in the tests): ``ACADEMY_SSH`` / ``ACADEMY_SCP`` (a JSON argv
-prefix replacing ``ssh`` / ``scp``), ``ACADEMY_FAKE_PREFLIGHT`` (0 up, 1 down,
-2 cannot tell), and the profile keys ``pushUrl`` / ``remoteEnv`` (as in the legacy
+prefix replacing ``ssh`` / ``scp``), ``ACADEMY_FAKE_PREFLIGHT`` (the gateway check:
+0 up, 1 down, 2 cannot tell), and the profile keys ``pushUrl`` / ``remoteEnv`` (as in the legacy
 ``queue/config.json``).
 
 Exit codes: 0 ok; 1 unreachable / failed (the legacy codes); 2 usage or config error.
@@ -68,14 +74,14 @@ sys.path.insert(0, HERE)
 
 import _common as c  # noqa: E402
 from _common import ac  # noqa: E402
+import workers as wk  # noqa: E402
 
 RUNNER = os.path.join(HERE, "fsq.sh")
 RUN_SH = os.path.join(HERE, "run.sh")
 SETUP_SH = os.path.join(HERE, "setup_env.sh")
-VPN_PS1 = os.path.join(HERE, "vpn.ps1")
 KINDS = ("wsl", "local", "ssh")
 REQUIRED_BY_KIND = {"ssh": ("host",), "wsl": ("distro",), "local": ()}
-PREFLIGHTS = ("vpn",)
+PREFLIGHTS = ("vpn",)          # the older inline form, preflight: "vpn:<check>"
 JOB_KEYS = ("id", "script", "args", "label", "note", "created", "status", "started",
             "commit", "log", "finished", "result")
 PREFLIGHT_WORDS = {0: "up", 1: "down", 2: "cannot tell"}
@@ -149,8 +155,9 @@ def wsl_path(win_path):
 # ----------------------------------------------------------------------------
 
 class LabHome(object):
-    def __init__(self, home, cfg, switched, instance, legacy_queue=None):
+    def __init__(self, home, cfg, switched, instance, legacy_queue=None, compute=None):
         self.home = home
+        self.compute = compute if compute is not None else wk.load_compute()
         self.cfg = cfg
         self.switched = switched
         self.instance = instance
@@ -177,9 +184,12 @@ def _read_json(path):
 
 def _legacy_profiles(qcfg):
     """Profiles for a home with no academy.json, from its queue/config.json."""
-    envs = {"laptop-wsl": {"kind": "wsl", "distro": "Ubuntu", "conda": "flatsurf"}}
-    target = (qcfg or {}).get("target") or "ssh:lingo"
+    envs = {"laptop-wsl": {"kind": "wsl", "distro": "Ubuntu"}}
+    target = (qcfg or {}).get("target")
     prof = {}
+    if not target:
+        raise EnvError("queue/config.json names no target (ssh:<host> or wsl:<distro>); "
+                       "give the home a .claude/academy.json instead -- " + wk.HINT)
     if target.startswith("ssh:"):
         prof = {"kind": "ssh", "host": target[4:]}
     elif target.startswith("wsl:"):
@@ -187,17 +197,19 @@ def _legacy_profiles(qcfg):
     else:
         raise EnvError("queue/config.json target must be ssh:<host> or wsl:<distro>")
     for old, new in (("prefix", "prefix"), ("remoteRepo", "repo"), ("maxJobs", "maxJobs"),
-                     ("pushUrl", "pushUrl"), ("remoteEnv", "remoteEnv")):
+                     ("pushUrl", "pushUrl"), ("remoteEnv", "remoteEnv"), ("env", "env"),
+                     ("gateway", "gateway"), ("preflight", "preflight")):
         if (qcfg or {}).get(old) not in (None, ""):
             prof[new] = qcfg[old]
-    if prof["kind"] == "ssh":
-        prof.setdefault("preflight", "vpn:globalprotect")
     envs["queue"] = prof
     return envs, {"probe": "laptop-wsl", "test": "laptop-wsl", "run": "queue"}
 
 
-def load_lab(home=None, cwd=None):
-    """The lab home: explicit, $ACADEMY_LAB_HOME, the home around cwd, or workspace.json."""
+def load_lab(home=None, cwd=None, workspace=None):
+    """The lab home: explicit, $ACADEMY_LAB_HOME, the home around cwd, or workspace.json.
+
+    Its workers come from ``workspace`` (a loaded workspace.json) when given, else from
+    the workspace.json academy_common finds."""
     home = home or os.environ.get("ACADEMY_LAB_HOME")
     if not home:
         found = ac.find_home(cwd or os.getcwd())
@@ -218,7 +230,8 @@ def load_lab(home=None, cwd=None):
             raise EnvError(str(exc))
         if cfg.get("role") != "scientist":
             raise EnvError("%s is a %s home, not a Scientist home" % (home, cfg.get("role")))
-        return LabHome(home, cfg, True, cfg.get("instance"))
+        return LabHome(home, cfg, True, cfg.get("instance"),
+                       compute=wk.load_compute(workspace) if workspace else None)
     qcfg = _read_json(os.path.join(home, "queue", "config.json")) or {}
     envs, policy = _legacy_profiles(qcfg)
     cfg = {"paths": {"queue": "queue", "experiments": "experiments/*.py",
@@ -226,11 +239,34 @@ def load_lab(home=None, cwd=None):
            "scientist": {"envs": envs, "policy": policy,
                          "queue": {"dir": "queue", "fsqHome": qcfg.get("fsqHome") or "~/fsq",
                                    "maxJobs": qcfg.get("maxJobs") or 1}}}
-    return LabHome(home, cfg, False, None, qcfg)
+    return LabHome(home, cfg, False, None, qcfg,
+                   compute=wk.load_compute(workspace) if workspace else None)
 
 
 def resolve_profile(lab, name):
-    """(profile name, profile) for a profile name or a policy key (probe/test/run)."""
+    """(profile name, profile) for a profile name or a policy key (probe/test/run).
+
+    The profile comes back expanded (``workers.expand_profile``): a worker reference
+    is the worker's ssh profile, and a gateway is resolved under ``_gateway``."""
+    found = _find_profile(lab, name)
+    try:
+        return found[0], wk.expand_profile(found[0], found[1], lab.compute, lab.home)
+    except wk.WorkerError as exc:
+        raise EnvError(str(exc))
+
+
+def expanded_envs(lab):
+    """{name: expanded profile} (a profile that does not resolve maps to its problem)."""
+    out = {}
+    for name in sorted(lab.envs):
+        try:
+            out[name] = wk.expand_profile(name, lab.envs[name], lab.compute, lab.home)
+        except wk.WorkerError as exc:
+            out[name] = {"worker": lab.envs[name].get("worker"), "_problem": str(exc)}
+    return out
+
+
+def _find_profile(lab, name):
     if name in lab.envs:
         return name, lab.envs[name]
     if name in lab.policy and lab.policy[name] in lab.envs:
@@ -239,25 +275,42 @@ def resolve_profile(lab, name):
     kind, _, arg = str(name).partition(":")
     if kind in ("wsl", "ssh"):
         key = "distro" if kind == "wsl" else "host"
-        cands = [n for n in sorted(lab.envs) if lab.envs[n].get("kind") == kind
-                 and (not arg or lab.envs[n].get(key) == arg)]
+        envs = expanded_envs(lab)
+        cands = [n for n in sorted(envs) if envs[n].get("kind") == kind
+                 and (not arg or envs[n].get(key) == arg or
+                      (kind == "ssh" and envs[n].get("worker") == arg))]
         pref = lab.policy.get("test" if kind == "wsl" else "run")
         if pref in cands:
             return pref, lab.envs[pref]
         if cands:
             return cands[0], lab.envs[cands[0]]
         if kind == "wsl":
-            return "wsl:%s" % (arg or "Ubuntu"), {"kind": "wsl", "distro": arg or "Ubuntu",
-                                                   "conda": "flatsurf"}
-    raise EnvError("unknown profile %r (profiles: %s; policy keys: %s)"
+            # an ad-hoc distro: the conda env and prefix of the home's own wsl profile
+            base = next((envs[n] for n in sorted(envs) if envs[n].get("kind") == "wsl"), {})
+            prof = {"kind": "wsl", "distro": arg or "Ubuntu"}
+            for k in ("conda", "prefix"):
+                if base.get(k):
+                    prof[k] = base[k]
+            return "wsl:%s" % (arg or "Ubuntu"), prof
+    raise EnvError("unknown profile %r (profiles: %s; policy keys: %s). The academy has no "
+                   "built-in machines: %s"
                    % (name, ", ".join(sorted(lab.envs)) or "none",
-                      ", ".join(sorted(lab.policy)) or "none"))
+                      ", ".join(sorted(lab.policy)) or "none", wk.HINT))
 
 
-def static_problems(name, prof):
-    """Problems of one profile that need no I/O; [] when it is well formed."""
+def static_problems(name, prof, compute=None, home=None):
+    """Problems of one profile that need no I/O; [] when it is well formed.
+
+    A worker reference (``{"worker": ...}``) is expanded against ``compute`` (default:
+    the workspace's) first, so a worker the workspace does not define is a problem."""
     if not isinstance(prof, dict):
         return ["profile %s is not an object" % name]
+    if "worker" in prof or (prof.get("gateway") and "_gateway" not in prof):
+        try:
+            prof = wk.expand_profile(name, prof, compute if compute is not None
+                                     else wk.load_compute(), home)
+        except wk.WorkerError as exc:
+            return [str(exc)]
     kind = prof.get("kind")
     if kind not in KINDS:
         return ["profile %s: kind must be one of %s" % (name, ", ".join(KINDS))]
@@ -274,6 +327,9 @@ def static_problems(name, prof):
         if pname not in PREFLIGHTS or ":" not in str(pf):
             probs.append("profile %s: preflight must be <name>:<arg> with name in %s"
                          % (name, ", ".join(PREFLIGHTS)))
+    gw = prof.get("_gateway")
+    if gw and not pf:
+        probs += ["profile %s: %s" % (name, p) for p in wk.gateway_problems(gw["name"], gw)]
     return probs
 
 
@@ -281,30 +337,10 @@ def static_problems(name, prof):
 # Preflights
 # ----------------------------------------------------------------------------
 
-def run_preflight(spec, probe=False):
-    """(code, message) of a preflight: 0 up, 1 down, 2 cannot tell."""
-    name, _, arg = str(spec).partition(":")
-    if name != "vpn":
-        return 2, "unknown preflight %r" % spec
-    fake = os.environ.get("ACADEMY_FAKE_PREFLIGHT")
-    if fake in ("0", "1", "2"):
-        code = int(fake)
-        return code, "vpn: %s (fake preflight)" % PREFLIGHT_WORDS[code]
-    if arg.lower() != "globalprotect":
-        return 2, "vpn: cannot tell (only vpn:globalprotect is implemented, got %r)" % arg
-    if os.name != "nt":
-        return 2, "vpn: cannot tell (the GlobalProtect check needs Windows)"
-    argv = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", VPN_PS1]
-    if probe:
-        argv.append("-Probe")
-    try:
-        p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=60)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return 2, "vpn: cannot tell (%s)" % exc
-    msg = (p.stdout or p.stderr).strip().splitlines()
-    code = p.returncode if p.returncode in (0, 1, 2) else 2
-    return code, msg[-1] if msg else "vpn: exit %d" % p.returncode
+def run_gateway(prof, probe=False):
+    """(code, message) of the profile's gateway check: 0 up, 1 down, 2 cannot tell.
+    A profile with no gateway is up (there is nothing to bring up)."""
+    return wk.check_gateway(prof.get("_gateway"), probe=probe)
 
 
 # ----------------------------------------------------------------------------
@@ -316,13 +352,18 @@ class Transport(object):
         self.prof = prof
         self.kind = prof.get("kind")
         self.host = prof.get("host") or prof.get("distro") or "localhost"
+        # the ssh destination: user@host when the worker names a user, else the host
+        # (an ssh config alias may supply the user)
+        self.dest = ("%s@%s" % (prof["user"], self.host)) if prof.get("user") \
+            and self.kind == "ssh" else self.host
+        self.why = ""
 
     def argv(self, cmd, connect_timeout=None):
         if self.kind == "ssh":
             argv = _json_argv("ACADEMY_SSH", ["ssh"]) + ["-o", "BatchMode=yes"]
             if connect_timeout:
                 argv += ["-o", "ConnectTimeout=%d" % connect_timeout]
-            return argv + [self.host, cmd]
+            return argv + [self.dest, cmd]
         if self.kind == "wsl":
             return ["wsl.exe", "-d", self.host, "-e", "bash", "-c", cmd]
         return ["bash", "-c", cmd]
@@ -350,7 +391,7 @@ class Transport(object):
     def copy_from(self, remote_path, dest):
         os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
         if self.kind == "ssh":
-            return self._scp("%s:%s" % (self.host, re.sub(r"^~/", "", remote_path)), dest)
+            return self._scp("%s:%s" % (self.dest, re.sub(r"^~/", "", remote_path)), dest)
         if self.kind == "wsl":
             return subprocess.run(["wsl.exe", "-d", self.host, "-e", "cp", remote_path,
                                    wsl_path(dest)]).returncode == 0
@@ -363,7 +404,7 @@ class Transport(object):
 
     def copy_to(self, src, remote_path):
         if self.kind == "ssh":
-            return self._scp(src, "%s:%s" % (self.host, re.sub(r"^~/", "", remote_path)))
+            return self._scp(src, "%s:%s" % (self.dest, re.sub(r"^~/", "", remote_path)))
         if self.kind == "wsl":
             return subprocess.run(["wsl.exe", "-d", self.host, "-e", "cp", wsl_path(src),
                                    remote_path]).returncode == 0
@@ -374,36 +415,58 @@ class Transport(object):
         except OSError:
             return False
 
+    def scp_argv(self, src, remote_path):
+        """The argv that copies a local file to the remote (for --dry-run listings)."""
+        return _json_argv("ACADEMY_SCP", ["scp"]) + [
+            "-q", src, "%s:%s" % (self.dest, re.sub(r"^~/", "", remote_path))]
+
     def reachable(self):
-        """The legacy Reachable: the preflight first (down = no), then ``ssh host true``."""
+        """The legacy Reachable: the gateway first (down = no), then ``ssh host true``.
+        Sets ``why`` to what failed."""
+        self.why = ""
         if self.kind != "ssh":
             return True
-        pf = self.prof.get("preflight")
-        if pf:
-            code, _msg = run_preflight(pf)
+        if self.prof.get("_gateway"):
+            code, msg = run_gateway(self.prof)
             if code == 1:
+                self.why = msg
                 return False
         rc, _ = self.remote("true", connect_timeout=8)
+        if rc != 0:
+            self.why = "ssh exit %d" % rc
         return rc == 0
 
 
 # ----------------------------------------------------------------------------
-# list / check / run / setup / vpn
+# list / check / run / setup / gateway
 # ----------------------------------------------------------------------------
 
-def _profile_line(name, prof):
-    keys = [k for k in ("distro", "host", "conda", "prefix", "env", "repo", "maxJobs",
-                        "preflight") if prof.get(k) not in (None, "")]
-    return "  %-12s %-6s %s" % (name, prof.get("kind"),
+def _profile_line(name, raw, prof):
+    keys = [k for k in ("worker", "distro", "host", "user", "conda", "prefix", "env", "repo",
+                        "maxJobs", "gateway", "preflight") if prof.get(k) not in (None, "")]
+    kind = prof.get("kind") or ("worker" if "worker" in raw else None)
+    return "  %-12s %-6s %s" % (name, kind,
                                 " ".join("%s=%s" % (k, prof[k]) for k in keys))
 
 
+def _public(prof):
+    return {k: v for k, v in prof.items() if not k.startswith("_")} if isinstance(prof, dict) \
+        else prof
+
+
 def cmd_list(lab, as_json=False):
+    expanded = expanded_envs(lab)
     data = {"instance": lab.instance, "home": lab.home.replace("\\", "/"),
-            "switched": lab.switched, "envs": lab.envs, "policy": lab.policy,
+            "switched": lab.switched, "envs": lab.envs,
+            "resolved": {n: _public(p) for n, p in expanded.items()},
+            "gateways": {n: p["_gateway"] for n, p in expanded.items() if p.get("_gateway")},
+            "policy": lab.policy,
             "queue": lab.qdir.replace("\\", "/"),
             "fsqHome": lab.queue_cfg.get("fsqHome") or "~/fsq",
-            "runner": sha256(RUNNER)}
+            "runner": sha256(RUNNER),
+            "compute": {"workspace": lab.compute.path, "workers": sorted(lab.compute.workers),
+                        "gateways": sorted(lab.compute.gateways),
+                        "problems": wk.compute_problems(lab.compute)}}
     if as_json:
         print(json.dumps(data, indent=1, ensure_ascii=False))
         return 0
@@ -412,11 +475,27 @@ def cmd_list(lab, as_json=False):
                            else "no academy.json: profiles from queue/config.json"))
     say("profiles:")
     for name in sorted(lab.envs):
-        say(_profile_line(name, lab.envs[name]))
-        for p in static_problems(name, lab.envs[name]):
+        prof = expanded[name]
+        say(_profile_line(name, lab.envs[name], prof))
+        if prof.get("_problem"):
+            say("    problem: " + prof["_problem"])
+            continue
+        for p in static_problems(name, prof):
             say("    problem: " + p)
+        gw = prof.get("_gateway")
+        if gw:
+            say("    gateway %s: %s%s" % (gw["name"], gw.get("kind"),
+                                         (" (%s)" % (gw.get("check") or gw.get("client")))
+                                         if gw.get("kind") == "vpn" else ""))
     say("policy: " + ", ".join("%s = %s" % (k, lab.policy[k]) for k in
                                ("probe", "test", "run") if k in lab.policy))
+    if lab.compute.workers or lab.compute.gateways:
+        say("workspace compute (%s): workers %s; gateways %s"
+            % (lab.compute.path or "workspace.json",
+               ", ".join(sorted(lab.compute.workers)) or "none",
+               ", ".join(sorted(lab.compute.gateways)) or "none"))
+        for p in data["compute"]["problems"]:
+            say("    problem: " + p)
     say("queue: %s (fsq home %s; plugin runner sha256 %s)"
         % (data["queue"], data["fsqHome"], data["runner"][:12]))
     return 0
@@ -427,20 +506,22 @@ def cmd_check(lab, name, live=False):
     kind = prof.get("kind")
     probs = static_problems(name, prof)
     uses = sorted(k for k, v in lab.policy.items() if v == name)
-    say("%s (%s)%s: %s" % (name, kind, (" -- policy " + ", ".join(uses)) if uses else "",
-                           "static ok" if not probs else "; ".join(probs)))
+    say("%s (%s%s)%s: %s" % (name, kind, (", worker %s" % prof["worker"])
+                             if prof.get("worker") else "",
+                             (" -- policy " + ", ".join(uses)) if uses else "",
+                             "static ok" if not probs else "; ".join(probs)))
     if probs:
         return 2
-    pf = prof.get("preflight")
-    if pf:
-        code, msg = run_preflight(pf)
-        say("preflight %s: %s (%s)" % (pf, PREFLIGHT_WORDS[code], msg))
+    gw = prof.get("_gateway")
+    if gw:
+        code, msg = run_gateway(prof)
+        say("gateway " + msg)
         if code == 1:
             if kind == "ssh":
-                say("unreachable: preflight %s failed -- jobs for %s wait in the queue "
-                    "(queued, not an error; only Roey can bring it up)" % (pf, name))
+                say("unreachable: gateway %s is down; jobs for %s are queued, not failed. "
+                    "%s" % (gw["name"], name, wk.on_down(prof, lab.compute, name)))
             else:
-                say("unreachable: preflight %s failed" % pf)
+                say("unreachable: gateway %s is down" % gw["name"])
             return 1
     if not live:
         say("not contacted (pass --live to ask the machine itself)")
@@ -462,15 +543,19 @@ def cmd_check(lab, name, live=False):
             say("reachable: %s; runner %s matches the plugin's fsq.sh" % (t.host, got[:12]))
         else:
             say("reachable: %s; runner on the host (%s) differs from the plugin's fsq.sh "
-                "(%s); deploying it is Roey's call" % (t.host, got[:12] or "none", want[:12]))
+                "(%s); deploying it is %s's call" % (t.host, got[:12] or "none", want[:12],
+                                                     lab.compute.human))
         rc, lines = t.remote("%s%s status" % (env_prefix, fsq_bin), connect_timeout=8)
         say("spool (fsq status, exit %d):" % rc)
         for l in lines:
             say("  " + l)
         return 0
+    envname = prof.get("conda")
+    if not envname:
+        say("profile %s names no conda env (set conda in its profile)" % name)
+        return 2
     if kind == "wsl":
         prefix = prof.get("prefix") or "~/miniforge3"
-        envname = prof.get("conda") or "flatsurf"
         py = "%s/envs/%s/bin/python" % (prefix, envname)
         rc, lines = t.remote("test -x %s && echo ok: %s" % (py, py))
         say("wsl %s: %s" % (t.host, "; ".join(lines) or "no python at %s (exit %d)" % (py, rc)))
@@ -479,7 +564,7 @@ def cmd_check(lab, name, live=False):
         say("kind local means the Linux machine Claude runs on; this is Windows")
         return 1
     prefix = os.path.expanduser(prof.get("prefix") or "~/miniforge3")
-    py = os.path.join(prefix, "envs", prof.get("conda") or "flatsurf", "bin", "python")
+    py = os.path.join(prefix, "envs", envname, "bin", "python")
     ok = os.access(py, os.X_OK)
     say("local: %s %s" % (py, "exists" if ok else "missing"))
     return 0 if ok else 1
@@ -530,7 +615,7 @@ def run_command(lab, name, prof, target, code=None, sage=False, unbuffered=False
     if pfx:
         assign += "MINIFORGE_PREFIX=%s " % Q(pfx)
     if envname:
-        assign += "FLATSURF_ENV=%s " % Q(envname)
+        assign += "ACADEMY_CONDA_ENV=%s " % Q(envname)
     if code is not None:
         tail = "-c %s" % Q(code)
     else:
@@ -565,18 +650,52 @@ def cmd_run(lab, name, target, code=None, dry_run=False, **kw):
     return subprocess.call(argv)
 
 
+def conda_spec(lab):
+    """(packages, check script or None) for the home's conda env, from its domain packs:
+    ``domains/<d>/computation/env.txt`` (one conda package spec per line, ``#``
+    comments) and the optional ``env-check.py`` beside it. The academy names no
+    package itself."""
+    pkgs, check = [], None
+    roots = [os.path.dirname(os.path.dirname(HERE)), ac.repo_root()]   # this marketplace first
+    for d in lab.cfg.get("domains") or []:
+        bases = [os.path.join(r, "domains", d, "computation") for r in roots]
+        base = next((b for b in bases if os.path.isfile(os.path.join(b, "env.txt"))), None)
+        if not base:
+            continue
+        path = os.path.join(base, "env.txt")
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                word = line.split("#", 1)[0].strip()
+                if word and word not in pkgs:
+                    pkgs.append(word)
+        if check is None and os.path.isfile(os.path.join(base, "env-check.py")):
+            check = os.path.join(base, "env-check.py")
+    if not pkgs:
+        raise EnvError("no domain pack of this home names conda packages "
+                       "(domains/<pack>/computation/env.txt for %s)"
+                       % ", ".join(lab.cfg.get("domains") or ["no domain"]))
+    return pkgs, check
+
+
 def cmd_setup(lab, name, dry_run=False):
-    """Install the profile's conda env (setup_env.sh). On ssh: the legacy run.ps1 -Setup."""
+    """Install the profile's conda env with the plugin's setup_env.sh and the domain
+    packs' package list. On an ssh worker: init the remote repo, push HEAD, copy the
+    installer (and the pack's check) to <fsqHome>/bin and run it there."""
     name, prof = resolve_profile(lab, name)
     kind = prof.get("kind")
-    assign = ""
+    envname = prof.get("env") or prof.get("conda")
+    if not envname:
+        raise EnvError("profile %s names no conda env (conda, or the worker's conda.env)"
+                       % name)
+    pkgs, check = conda_spec(lab)
+    assign = "ACADEMY_CONDA_ENV=%s ACADEMY_CONDA_PKGS=%s " % (Q(envname), Q(" ".join(pkgs)))
     if prof.get("prefix"):
-        assign += "MINIFORGE_PREFIX=%s " % Q(prof["prefix"])
-    if prof.get("env") or prof.get("conda"):
-        assign += "FLATSURF_ENV=%s " % Q(prof.get("env") or prof.get("conda"))
+        assign = "MINIFORGE_PREFIX=%s " % Q(prof["prefix"]) + assign
     if kind != "ssh":
-        root = wsl_path(SETUP_SH) if kind == "wsl" else SETUP_SH
-        cmd = "%sbash %s" % (assign, Q(root))
+        conv = wsl_path if kind == "wsl" else (lambda x: x)
+        if check:
+            assign += "ACADEMY_CONDA_CHECK=%s " % Q(conv(check))
+        cmd = "%sbash %s" % (assign, Q(conv(SETUP_SH)))
         argv = (["wsl.exe", "-d", prof["distro"], "--", "bash", "-lc", cmd] if kind == "wsl"
                 else ["bash", "-c", cmd])
         if dry_run:
@@ -588,11 +707,17 @@ def cmd_setup(lab, name, dry_run=False):
     rel = re.sub(r"^~/", "", repo)
     rc, head = git(lab.home, "rev-parse", "HEAD")
     head = head.strip()
-    push_url = prof.get("pushUrl") or "%s:%s" % (t.host, rel)
-    steps = [t.argv("git init -q %s" % repo),
+    push_url = prof.get("pushUrl") or "%s:%s" % (t.dest, rel)
+    bindir = "%s/bin" % (lab.queue_cfg.get("fsqHome") or "~/fsq")
+    if check:
+        assign += "ACADEMY_CONDA_CHECK=%s/academy-env-check.py " % bindir
+    steps = [t.argv("git init -q %s && mkdir -p %s" % (repo, bindir)),
              ["git", "-C", lab.home, "push", "--quiet", push_url, "+HEAD:refs/heads/laptop"],
-             t.argv("cd %s && git checkout -q --detach %s && %sbash scripts/setup_env.sh"
-                    % (repo, head, assign))]
+             t.argv("cd %s && git checkout -q --detach %s" % (repo, head)),
+             t.scp_argv(SETUP_SH, "%s/academy-setup-env.sh" % bindir)]
+    if check:
+        steps.append(t.scp_argv(check, "%s/academy-env-check.py" % bindir))
+    steps.append(t.argv("%sbash %s/academy-setup-env.sh" % (assign, bindir)))
     if dry_run:
         print(json.dumps(steps))
         return 0
@@ -604,13 +729,23 @@ def cmd_setup(lab, name, dry_run=False):
     return 0
 
 
-def cmd_vpn(lab, profile=None, probe=False, quiet=False):
+def cmd_gateway(lab, profile=None, probe=False, quiet=False):
+    """Check the gateway of a profile (default: the run profile): 0 up, 1 down, 2 cannot
+    tell. Down prints the gateway's onDown."""
     name, prof = resolve_profile(lab, profile or "run")
-    pf = prof.get("preflight") or "vpn:globalprotect"
-    code, msg = run_preflight(pf, probe=probe)
+    if not prof.get("_gateway"):
+        if not quiet:
+            say("profile %s has no gateway: nothing to check" % name)
+        return 0
+    code, msg = run_gateway(prof, probe=probe)
     if not quiet:
         say(msg)
+        if code == 1:
+            say(wk.on_down(prof, lab.compute, name))
     return code
+
+
+cmd_vpn = cmd_gateway       # the older name
 
 
 # ----------------------------------------------------------------------------
@@ -634,8 +769,9 @@ class Queue(object):
         self.fsq_bin = "%s/bin/fsq" % self.fsq_home
         self.max_jobs = int(self.prof.get("maxJobs") or lab.queue_cfg.get("maxJobs") or 1)
         self.prefix = self.prof.get("prefix")
+        self.conda_env = self.prof.get("env") or self.prof.get("conda")
         self.remote_env = self.prof.get("remoteEnv") or ""
-        self.push_url = self.prof.get("pushUrl") or "%s:%s" % (self.host, self.remote_rel)
+        self.push_url = self.prof.get("pushUrl") or "%s:%s" % (self.t.dest, self.remote_rel)
         self.rc = 0
         self.remote_paused = False
         self.remote_max = None
@@ -757,10 +893,19 @@ class Queue(object):
         envp = (self.remote_env + " ") if self.remote_env else ""
         return self.remote("%s%s %s" % (envp, self.fsq_bin, argline))
 
+    def why_unreachable(self):
+        """Why the last reachability check failed, and what to do about it."""
+        gw = self.prof.get("_gateway")
+        if gw and self.t.why and not self.t.why.startswith("ssh exit"):
+            return "gateway %s down; %s" % (gw["name"],
+                                            wk.on_down(self.prof, self.lab.compute, self.name))
+        return self.t.why or "ssh failed"
+
     def require_reachable(self):
         if not self.t.reachable():
             n = len(self.load_jobs("pending"))
-            say("unreachable: %s (VPN?) -- %d pending job(s) wait." % (self.host, n))
+            say("unreachable: %s (%s) -- %d pending job(s) wait."
+                % (self.host, self.why_unreachable(), n))
             raise Exit(1)
 
     def require_deployed(self):
@@ -769,7 +914,8 @@ class Queue(object):
         got = lines[-1] if lines else ""
         if self.rc != 0 or got.strip() != want:
             say("the runner on %s is missing or differs from the plugin's fsq.sh (remote: %s)."
-                " Deploying it is Roey's call: env.py queue deploy." % (self.host, got))
+                " Deploying it is %s's call: env.py queue deploy."
+                % (self.host, got, self.lab.compute.human))
             raise Exit(1)
 
     def remote_status(self):
@@ -903,7 +1049,7 @@ class Queue(object):
         if self.t.reachable():
             say("reachable: %s" % self.host)
             return 0
-        say("unreachable: %s (VPN?)" % self.host)
+        say("unreachable: %s (%s)" % (self.host, self.why_unreachable()))
         return 1
 
     def do_log(self, prefix):
@@ -960,6 +1106,8 @@ class Queue(object):
         self.require_reachable()
         cron_flag = " --cron" if deploy and cron else ""
         pfx = " --prefix %s" % Q(self.prefix) if self.prefix else ""
+        if self.conda_env:
+            pfx += " --env %s" % Q(self.conda_env)
         self.remote("mkdir -p %s/bin" % self.fsq_home)
         if not self.t.copy_to(RUNNER, "%s/bin/fsq.new" % self.fsq_home):
             raise RemoteFailure("could not copy the runner to %s." % self.host)
@@ -1196,11 +1344,11 @@ def main(argv=None):
         if sub == "check":
             names = [a for a in rest if not a.startswith("--")]
             return cmd_check(lab, names[0] if names else "run", live="--live" in rest)
-        if sub == "vpn":
+        if sub in ("gateway", "vpn"):
             low = [a.lower() for a in rest]
             prof = rest[low.index("--profile") + 1] if "--profile" in low else None
-            return cmd_vpn(lab, prof, probe="--probe" in low or "-probe" in low,
-                           quiet="--quiet" in low or "-quiet" in low)
+            return cmd_gateway(lab, prof, probe="--probe" in low or "-probe" in low,
+                               quiet="--quiet" in low or "-quiet" in low)
         if sub == "setup":
             names = [a for a in rest if not a.startswith("--")]
             return cmd_setup(lab, names[0] if names else "run", dry_run="--dry-run" in rest)

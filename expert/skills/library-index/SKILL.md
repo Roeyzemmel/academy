@@ -24,7 +24,7 @@ Everything here runs against the Expert instance's home (`--home` overrides it).
    > Add index rows for these cached keys: <keys>. Drafts from their `.meta` follow;
    > fill each `to fill` cell from the cached file itself or its `.meta` — never from
    > memory — or leave it `to fill` and say why. A key that is not a bibliography key
-   > (a stray download, a duplicate) gets a row saying so, or a note for Roey to
+   > (a stray download, a duplicate) gets a row saying so, or a note for the human to
    > delete it; you never delete a cached file.
 
    `py $E/library_index.py apply` appends the drafts unchanged when that is all the

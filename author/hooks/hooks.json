@@ -6,7 +6,28 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/bib_gate.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/bib_gate.py\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/pinned_guard.py\"",
+            "statusMessage": "author: checking pinned statements",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/preamble_guard.py\"",
             "timeout": 20
           }
         ]
@@ -16,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/notation_scope_guard.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/notation_scope_guard.py\"",
             "timeout": 20
           }
         ]
@@ -26,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/commit_gate.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/commit_gate.py\"",
             "statusMessage": "author: checking the paper before the commit",
             "timeout": 150
           }
@@ -39,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/tex_edit_check.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/tex_edit_check.py\"",
             "statusMessage": "author: checking the draft",
             "timeout": 90
           }
@@ -51,7 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/build_gate.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/build_gate.py\"",
             "statusMessage": "author: building the paper",
             "timeout": 400
           }

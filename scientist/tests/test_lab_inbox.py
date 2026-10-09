@@ -88,12 +88,12 @@ class InboxTest(unittest.TestCase):
         self.assertEqual([r["kind"] for r in rows], ["test", "code", "experiment"])
         self.assertEqual(rows[0]["route"]["target"], "experimenter")
         self.assertEqual(rows[1]["route"]["target"], "developer")
-        self.assertIsNone(rows[1]["over_budget"])              # T-0071: model is no gate
+        self.assertIsNone(rows[1]["over_budget"])              # budget.md rule 6: model is no gate
         rows, _ = inbox.select(self.sb.board, "scientist@main", 3, take_all=True)
         self.assertEqual(rows[-1]["route"]["how"], "reject")
 
     def test_max_model_never_blocks_a_route(self):
-        # T-0071: the agent file sets the model; a ticket's budget.max_model is at
+        # budget.md rule 6: the agent file sets the model; a ticket's budget.max_model is at
         # most an advisory note and never marks a ticket over budget.
         self.ticket("code", "refactor the runner", max_model="haiku")   # developer: opus
         self.ticket("experiment", "run EW", max_model="haiku")          # experimenter: sonnet

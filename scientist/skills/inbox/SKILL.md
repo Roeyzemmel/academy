@@ -37,8 +37,8 @@ Say how many remain.
      `test-engineer` to review the diff (never the same agent). Findings go back to
      the developer through the thread; at most the ticket's `budget.runs` agent runs.
    - `upstream-contributor`: dispatch it with the ticket id; it returns a packet for
-     Roey.
-   - `human`: put the ticket to Roey with `AskUserQuestion`, and record his answer in
+     the human.
+   - `human`: put the ticket to the human with `AskUserQuestion`, and record their answer in
      the thread.
    - `reject`: `rejected`, with the reason and the usual receiver in the thread.
    - A ticket that needs more agent runs than its `budget.runs`: `blocked`,

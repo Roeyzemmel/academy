@@ -147,9 +147,8 @@ class PluginTests(unittest.TestCase):
     RETIREMENT_NOTES = {
         "author/skills/next/SKILL.md", "author/skills/inbox/SKILL.md",
         "author/skills/inbox/references/routing.md", "author/README.md",
-        "author/references/formats.md", "author/references/scripts.md",
-        "author/scripts/agenda_migrate.py", "author/tests/test_agenda_migrate.py",
-        "author/tests/test_agenda.py", "author/tests/test_inbox.py",
+        "author/references/formats.md",
+        "author/tests/test_inbox.py",
         "author/tests/test_plugin.py", "academy/tests/test_interface_scripts.py",
         "docs/migration-campaign-mode.md",
         "scientist/tests/fixtures/lab/experiments/2026-09-24_torus_cover_periodic_growth.py",
@@ -196,6 +195,42 @@ class PluginTests(unittest.TestCase):
             lib = fh.read()
         with open(os.path.join(SCRIPTS, "_academy.py"), "rb") as fh:
             self.assertEqual(fh.read(), lib)
+
+
+class VisionTests(unittest.TestCase):
+    """The Author has aesthetic vision, exercised inside the role cut."""
+
+    def test_the_reference_and_the_template_exist(self):
+        ref = read("references", "aesthetic-vision.md")
+        for item in ("arc", "Economy", "Notation that earns its place", "right level",
+                     "Examples and figures", "promise", "voice"):
+            self.assertIn(item, ref)
+        self.assertIn("research", ref)              # a cleaner statement is asked for
+        tpl = read("templates", "vision.md")
+        self.assertIn("{{instance}}", tpl)
+        self.assertIn("pending", tpl)
+
+    def test_writers_start_from_the_vision_and_the_pinned_list(self):
+        for agent in ("math-writer", "math-editor"):
+            text = read("agents", agent + ".md")
+            self.assertIn("Drafts/vision.md", text, agent)
+            self.assertIn("pinned.py", text, agent)
+        for agent in ("figure-maker", "notation-auditor"):
+            self.assertIn("Drafts/vision.md", read("agents", agent + ".md"), agent)
+        self.assertIn("vision mode", read("agents", "math-editor.md"))
+
+    def test_the_aesthetic_pass_files_tickets_and_never_rewrites_pinned_statements(self):
+        for skill in ("agenda", "presync"):
+            text = read("skills", skill, "SKILL.md")
+            self.assertIn("aesthetic pass", text, skill)
+            self.assertIn("final_to: researcher", text, skill)
+            self.assertIn("pinned", text, skill)
+        self.assertIn("Drafts/vision.md", read("skills", "paper-method", "SKILL.md"))
+        self.assertIn("Drafts/vision.md", read("README.md"))
+
+    def test_the_referee_checks_the_vision(self):
+        with open(os.path.join(REPO, "expert", "agents", "referee.md"), encoding="utf-8") as fh:
+            self.assertIn("Drafts/vision.md", fh.read())
 
 
 if __name__ == "__main__":

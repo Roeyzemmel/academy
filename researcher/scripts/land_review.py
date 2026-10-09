@@ -21,7 +21,8 @@ verbatim below.
 * **Model.** Taken from the subagent's transcript when it names one, else from the
   report, and recorded on every verdict: ``model`` is the roster label (``fable``,
   ``opus-5.5``, or the family of any other model) and ``model_id`` the name as given.
-  The primaries are Fable and Opus 5.5, equal in authority (``rs.PRIMARY_MODELS``); a
+  The primaries are workspace.json's ``grading.primaryModels`` (``rs.primary_models()``,
+  Fable and Opus 5.5 by default), equal in authority; a
   positive verdict (SOUND / SOUND MODULO) reached on any other model (Sonnet, Haiku, an
   older Opus) is recorded as ``verdict: GAP`` with ``capped: true`` and the original in
   ``verdict_given`` (roster-rules.md, model fallback: a degraded verdict never counts).

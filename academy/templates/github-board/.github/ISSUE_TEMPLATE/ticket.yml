@@ -10,7 +10,8 @@ body:
     id: to
     attributes:
       label: To (instance)
-      options: [expert@ts, researcher@flat, researcher@slope1, scientist@ts, author@bi, human]
+      # rendered by scripts/board_templates.py from workspace.json (instances + human)
+      options: ["{{instances}}"]
     validations: {required: true}
   - type: dropdown
     id: kind

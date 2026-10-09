@@ -2,7 +2,7 @@
 
 Plan section 4. It lives in the Author home (`paths.agenda` in `.claude/academy.json`),
 is LF, and is read and written by `scripts/agenda_lib.py` (tested in
-`tests/test_agenda.py`). Roey edits it by hand too; the scripts keep his text. The
+`tests/test_agenda.py`). The human edits it by hand too; the scripts keep their text. The
 Author's work items are tickets on the board (below).
 
 ## agenda.md: the paper's results in paper order
@@ -26,11 +26,11 @@ Author's work items are tickets on the board (below).
 | Column | Meaning | Who edits |
 |---|---|---|
 | `#` | Position; renumbered from the row order on every write | script |
-| `label` | The statement's LaTeX label | Roey / `/author:agenda` |
-| `claim` | Its registry id (`<ns>:<label>`), `-` if none yet | Roey / `/author:agenda` |
-| `required` | The status the entry must reach (one status vocabulary) | Roey |
-| `depends_on` | Labels of entries (or claim ids) it rests on, comma separated, `-` if none | Roey / migration |
-| `owner` | The instance that must deliver it | Roey |
+| `label` | The statement's LaTeX label | The human / `/author:agenda` |
+| `claim` | Its registry id (`<ns>:<label>`), `-` if none yet | The human / `/author:agenda` |
+| `required` | The status the entry must reach (one status vocabulary) | The human |
+| `depends_on` | Labels of entries (or claim ids) it rests on, comma separated, `-` if none | The human / migration |
+| `owner` | The instance that must deliver it | The human |
 | `status` | The registry's status now; **generated** by `agenda.py status`; `missing` = no record, `?` = never read | script only |
 
 - **Row order is precedence** (paper order by default). `/author:inbox` takes first the
@@ -62,8 +62,7 @@ A work item is a **ticket** (`docs/protocol.md`), filed with `board.py new` /
 
 - Milestone progress and the agenda's status column are computed from the registry
   statuses, plus the tickets attached to each entry (`agenda.py milestones`, `show`).
-- `scripts/agenda_migrate.py` is the one-shot converter for a `Drafts/roadmap.md` that
-  still exists: dry run by default, `--apply` files the tickets, the file is only read
-  (archive it by hand afterwards); see its docstring for every rule. Nothing else reads
-  or writes a roadmap; an old `paths.roadmap` key in `academy.json` is accepted and
+- The one-shot converter for an old `Drafts/roadmap.md` (`agenda_migrate.py`) has been
+  retired from the plugin with the migration it served. Nothing reads or writes a
+  roadmap; an old `paths.roadmap` key in `academy.json` is accepted and
   ignored.

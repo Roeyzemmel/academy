@@ -17,10 +17,10 @@ phrase). Budget: one clerk run (`academy/references/budget.md`).
 2. Relay its answer as it is, with its source line (the card path or the claim id and
    status).
 3. **A miss** ends in an `ESCALATE` block (`to: librarian`, `kind: cite|lookup`,
-   `ask: ...`). Do not search further yourself. Offer Roey the next step in one line:
+   `ask: ...`). Do not search further yourself. Offer the human the next step in one line:
    `/expert:cite <ask>` for a `cite`, or a `lookup` ticket to the Expert instance for
    the librarian (`tickets_create`, kind `lookup`, the clerk's `ask` as the ask). File
-   the ticket only when Roey says so, or when the caller is an agent whose own brief
+   the ticket only when the human says so, or when the caller is an agent whose own brief
    allows filing it.
 
 If the clerk fails on a limit, say so and stop; never relaunch (`budget.md` rule 4).

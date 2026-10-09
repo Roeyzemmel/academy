@@ -334,20 +334,20 @@ class TestTransitionParityFooted(TestTransitionParity):
 
 class TestStoreAssignment(StoreCase):
     def test_saves_assign_the_human_while_the_ticket_needs_them(self):
-        st = bs.GithubBoardStore(self.transport, "o/r", assignee="roey")
+        st = bs.GithubBoardStore(self.transport, "o/r", assignee="ada")
         bd.transition_ticket(st, "T-0001", "accepted", as_instance=INST, date=DATE)
         self.assertEqual([], self.transport.issues[1].get("assignees", []))
         bd.transition_ticket(st, "T-0001", "blocked", waiting_on=["human"],
-                             reason="needs Roey's reading", as_instance=INST, date=DATE)
-        self.assertEqual(["roey"], self.transport.issues[1]["assignees"])
-        bd.transition_ticket(st, "T-0001", "accepted", reason="Roey answered",
+                             reason="needs Ada's reading", as_instance=INST, date=DATE)
+        self.assertEqual(["ada"], self.transport.issues[1]["assignees"])
+        bd.transition_ticket(st, "T-0001", "accepted", reason="Ada answered",
                              as_instance=INST, date=DATE)
         self.assertEqual([], self.transport.issues[1]["assignees"])
 
     def test_without_a_login_assignees_are_left_alone(self):
-        self.transport.issues[1]["assignees"] = ["carlos"]
+        self.transport.issues[1]["assignees"] = ["bo"]
         bd.transition_ticket(self.gh, "T-0001", "accepted", as_instance=INST, date=DATE)
-        self.assertEqual(["carlos"], self.transport.issues[1]["assignees"])
+        self.assertEqual(["bo"], self.transport.issues[1]["assignees"])
 
 
 class TestStoreRelationsFollowTheTicket(StoreCase):

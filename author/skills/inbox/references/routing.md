@@ -71,7 +71,7 @@ Tickets carry the claim in `refs`, and in `agenda` the entry's qualified label
 (`<ns>:<label>`). Gap filing is idempotent: an agenda entry with a non-terminal ticket
 attached (by `agenda`) is not a gap, so the same gap is never ticketed twice. A gap no
 ticket can close is **held** and reported, never filed: a refuted claim (nobody verifies
-or proves it), a claim with no registry record (Roey creates it with `claims_new`).
+or proves it), a claim with no registry record (the human creates it with `claims_new`).
 
 ## Ordering
 

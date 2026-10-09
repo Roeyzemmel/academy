@@ -1,5 +1,8 @@
 # expert — the library role
 
+Role cut: what each role writes, never writes and hands off, and to whom, is one table, `academy/references/roster-rules.md` ("Role cut").
+Library scaffold and access: `templates/library/README.md` (the generic library README, written by `/academy:init expert@x`), `references/publisher-access.md` (what fetches from which publisher).
+
 The academy's library and its proof reviewers (plan section 3.4). The Expert caches
 each source once and writes its citation cards (statement, hypotheses, version,
 verbatim quote) and its `index.md` row. It answers quick questions from the cache,
@@ -92,7 +95,7 @@ in each direction is `academy/permissions.json` `tickets.edges`, described in
 | /expert:library-index | Keep the library's index.md in step with its cached files: find cached keys with no index row, draft and add rows via the librarian, validate every card's schema and quote. Use for "fill the index", "what's cached but not indexed". |
 | /expert:litwatch | Literature watch for one paper or notebook: related-work-scout runs its keywords over the newest arXiv listings and logs hits in the library ledger; with an id, a prior-art search. Use weekly, before a coauthor round or submission, "has anyone done this". |
 | /expert:lookup | Answer a quick question about the library or registry via the Expert's clerk (hot.md, cards, MCP read tools, no web); a miss escalates to the librarian. Use for "what does LMW16 Theorem 11 assume", "what's the status of paper:lem:x", "do we have Z cached". |
-| /expert:referee | Whole-paper referee report for one Author instance: the read-only referee agent reads the built PDF cold, and its report lands as a referee packet for Roey. Use for a referee ticket (from presync), before a coauthor round or submission. |
+| /expert:referee | Whole-paper referee report for one Author instance: the read-only referee agent reads the built PDF cold, and its report lands as a referee packet for the human. Use for a referee ticket (from presync), before a coauthor round or submission. |
 | /expert:status | One screen on the Expert instance: switch-over state, library (cached keys, index rows, cards), reviews awaiting run B, hot.md age, tickets and packets. Read-only. Use for "expert status", "how is the library", before /expert:inbox. |
 | /expert:verify | Review one registry statement's proof with two independent blind rigor-reviewer runs (B only if A is CONFIRMED), adjudicated by script, with a verification packet; the sanctioned route from sketch to proved. Use for every verify ticket and "verify lemma X". |
 

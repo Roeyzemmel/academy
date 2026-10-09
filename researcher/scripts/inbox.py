@@ -7,7 +7,7 @@ reads the board; the skill moves the tickets (``board.py transition``) and runs 
 
 Usage:
 
-    py inbox.py [--instance researcher@x] [--n N] [--all] [--json] [--campaign TARGET]
+    py inbox.py [--instance researcher@x] [--n N] [--all] [--json] [--campaign TARGET | --cowork SLUG]
     py inbox.py --check T-NNNN          the serial checkpoint of a ticket just handled
 
 A thin wrapper over the academy's ``inbox_core`` (``_academy.py``): in-progress tickets

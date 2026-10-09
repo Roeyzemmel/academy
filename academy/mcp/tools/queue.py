@@ -14,8 +14,9 @@ academy.json sets ``scientist.queue.mcpAdd: "on"`` it is a **dry run**: nothing 
 written, and the result is the job file it would write plus the command that files
 it (the migration run leaves it off; plan section 9b). Writing a job file never
 contacts the remote: the next ``env.py queue tick`` submits it. ``env_list`` /
-``env_check`` read the profiles in the Scientist home's academy.json; ``env_check``
-is a static check of one profile (reachability is probed by ``env.py check``,
+``env_check`` read the profiles in the Scientist home's academy.json (a profile
+``{"worker": "<name>"}`` is resolved against the workspace's ``compute`` block, as
+``env.py`` does); ``env_check`` is a static check of one profile (reachability is probed by ``env.py check``,
 ``/scientist:env check``, never by this server).
 """
 
@@ -158,10 +159,28 @@ def _env_list(ctx, a):
                     "legacy_queue_target": legacy.get("target")})
         return out
     out.update({"envs": sci.get("envs") or {}, "policy": sci.get("policy") or {}})
+    resolved = {}
+    for name, prof in out["envs"].items():
+        if isinstance(prof, dict) and "worker" in prof:
+            resolved[name] = _resolve(ctx, name, prof)
+    if resolved:
+        out["resolved"] = resolved
     return out
 
 
-def check_profile(name, prof, policy=None):
+def _resolve(ctx, name, prof):
+    """The worker reference ``prof`` resolved against the workspace (or its problem)."""
+    try:
+        envpy = scientist_env()
+        p = envpy.wk.expand_profile(name, prof, envpy.wk.load_compute(ctx.workspace))
+        return {k: v for k, v in p.items() if not k.startswith("_")}
+    except ToolError as exc:
+        return {"problem": str(exc)}
+    except Exception as exc:  # noqa: BLE001 -- a WorkerError, reported not raised
+        return {"problem": str(exc)}
+
+
+def check_profile(name, prof, policy=None, workspace=None):
     """Static problems of one env profile (no I/O); [] when it is well formed.
 
     Delegates to the Scientist plugin's own ``env.py:static_problems``, so
@@ -173,7 +192,9 @@ def check_profile(name, prof, policy=None):
     if not isinstance(prof, dict):
         return ["profile %s is not an object" % name]
     try:
-        return scientist_env().static_problems(name, prof)
+        envpy = scientist_env()
+        compute = envpy.wk.load_compute(workspace) if workspace is not None else None
+        return envpy.static_problems(name, prof, compute)
     except ToolError:
         pass
     kind = prof.get("kind")
@@ -198,12 +219,15 @@ def _env_check(ctx, a):
     if name not in envs:
         raise ToolError("unknown env profile %r (profiles: %s)"
                         % (name, ", ".join(sorted(envs)) or "none"))
-    problems = check_profile(name, envs[name])
+    problems = check_profile(name, envs[name], workspace=ctx.workspace)
     uses = sorted(k for k, v in policy.items() if v == name)
-    return {"instance": inst, "env": name, "profile": envs[name], "policy_uses": uses,
-            "ok": not problems, "problems": problems, "checked": "static",
-            "note": "a static check of the profile only; the server never contacts a host. "
-                    "Reachability and preflights are /scientist:env check."}
+    out = {"instance": inst, "env": name, "profile": envs[name], "policy_uses": uses,
+           "ok": not problems, "problems": problems, "checked": "static",
+           "note": "a static check of the profile only; the server never contacts a host. "
+                   "Reachability and the gateway are /scientist:env check."}
+    if isinstance(envs[name], dict) and "worker" in envs[name]:
+        out["resolved"] = _resolve(ctx, name, envs[name])
+    return out
 
 
 # -- queue_add ----------------------------------------------------------------
@@ -241,7 +265,7 @@ def _queue_add(ctx, a):
         env = env or policy.get("run")
         if env not in envs:
             raise ToolError("unknown env profile %r" % env)
-        bad = check_profile(env, envs[env])
+        bad = check_profile(env, envs[env], workspace=ctx.workspace)
         if bad:
             raise ToolError("; ".join(bad))
     elif env:
@@ -257,7 +281,7 @@ def _queue_add(ctx, a):
     # write the same file (id, fields, argument splitting, duplicate check).
     envpy = scientist_env()
     try:
-        lab = envpy.load_lab(home)
+        lab = envpy.load_lab(home, workspace=ctx.workspace)
         q = envpy.Queue(lab, env)
         path, job = q.build_job(script, [a["script_args"]] if a.get("script_args") else [],
                                 a.get("label"), a.get("note"))

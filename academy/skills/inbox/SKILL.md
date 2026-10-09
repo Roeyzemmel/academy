@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: 'Work every instance''s board inbox in one run, in a fixed order (Author, Expert, Researcher, Scientist), one ticket at a time under the 3-item cap; with --campaign TARGET only the tickets tagged for that campaign. Use for "work all the inboxes", "run the board".'
+description: 'Work every instance''s board inbox in one run, in a fixed order (Author, Expert, Researcher, Scientist), one ticket at a time under the 3-item cap; --campaign T or --cowork S takes only that workplan''s tickets. Use for "work all the inboxes", "run the board".'
 ---
 
 # /academy:inbox
@@ -12,9 +12,13 @@ library's `inbox_core` (`docs/protocol.md` section 4; every role's `scripts/inbo
 thin wrapper over it). Budget rules: `references/budget.md` (rule 1: three items, rule 2:
 serial, rule 4: a limit error ends the run).
 
-`$ARGUMENTS`: empty, `--n N` (fewer than 3), `--all` (list only, take nothing), or
+`$ARGUMENTS`: empty, `--n N` (fewer than 3), `--all` (list only, take nothing),
 `--campaign <target-id>` (only tickets carrying `campaign: <target-id>`, section 4.1 of
-the campaign design).
+the campaign design), or `--cowork <slug>` (only tickets carrying `cowork: <slug>`, the
+tickets of `/academy:cowork`; the same rules as a campaign). A workplan's tickets wait
+here for their next actor: this run, acting as each instance in turn, is that actor
+(`academy/lib/workplan.py`). With no argument, first show the active workplans
+(`py "${CLAUDE_PLUGIN_ROOT}/scripts/cowork.py" list`) in one line each.
 
 ## 1. Order the instances
 
@@ -27,7 +31,7 @@ instance that is not in `workspace.json`.
 For each instance, in order, run its role's script from any directory:
 
 ```
-py "${CLAUDE_PLUGIN_ROOT}/../<role>/scripts/inbox.py" --instance <name> --json [--n N] [--campaign T]
+py "${CLAUDE_PLUGIN_ROOT}/../<role>/scripts/inbox.py" --instance <name> --json [--n N] [--campaign T | --cowork S]
 ```
 
 (`~/.claude/skills/<role>/scripts/inbox.py` if the variable is not expanded.) Each row has
@@ -41,7 +45,7 @@ never listed. With `--all`, print each instance's list and stop.
 Count the cap over the **whole run**, not per instance: at most 3 tickets, or `--n`
 (`budget.itemsPerRun` of the instance may lower it). With `--campaign` each instance's
 listing is not cut at three and the campaign's own caps apply (`references/budget.md`,
-"Campaigns"). Take the first row of the first instance that has one; "first" is per
+"Campaigns"); `--cowork` the same, under "Cowork". Take the first row of the first instance that has one; "first" is per
 instance: in-progress first is the order inside one instance's list, and the instances
 keep their fixed order. Run the row as that role's inbox skill says: follow its step 2
 with the row's route (`/author:inbox`, `/expert:inbox`, `/researcher:inbox` or
@@ -52,7 +56,7 @@ cap.
 **Checkpoint before the next ticket** (serial, `budget.md` rule 2). The role skill's own
 step already ends with `py <role plugin>/scripts/inbox.py --check T-NNNN`: that run
 counts; do not run `--check` again here (a finished ticket's `--check` also runs the
-workspace's `scripts/ship.py checkpoint`, `docs/protocol.md` section 4, so a second run
+academy's `ship.py checkpoint`, `docs/protocol.md` section 4, so a second run
 would checkpoint twice). Read its exit code: exit 0 means delivered,
 blocked with its reason or rejected. Exit 3 means unfinished: report it, do not
 redispatch it in this run, and take nothing more from that instance while it is
@@ -67,4 +71,4 @@ was not done, launch nothing further, and report (`budget.md` rule 4).
 
 One line per ticket taken: instance, id, route, outcome (delivered, blocked with its
 reason, rejected, unfinished). Then per instance how many tickets remain, and anything
-parked on Roey (`/academy:decide`).
+parked on the human (`/academy:decide`).

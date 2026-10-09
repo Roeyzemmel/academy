@@ -12,7 +12,12 @@ Homes and config
     find_home(path)                 the directory holding ``.claude/academy.json``
     load_config(home)               that file, validated, with defaults and ``_home``
     validate_config(config)         list of problems (empty when valid)
-    load_workspace(path=None)       ``workspace.json`` (the instance map)
+    load_workspace(path=None)       ``workspace.json`` (the instance map), with defaults
+    human_name / human_login / primary_models / derived_plugins   workspace.json keys
+    registry_rule_set(profile)      ``registry.profile`` with old aliases resolved
+    verify_checklist_path / author_provenance   academy.json keys with defaults
+    author_status_levels / author_tex   an Author home's draft levels and tex conventions
+    validate_author(block)          problems with an ``author`` block's tex keys
     path_in_role(path, config, role)  is ``path`` in the home / in a named path set
 Agents and permissions
     agent_identity(event)           (namespace, bare_name) of the acting agent
@@ -73,6 +78,7 @@ RE_INSTANCE = re.compile(r"^(author|researcher|expert|scientist)@[a-z0-9][a-z0-9
 RE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 RE_TICKET_ID = re.compile(r"^T-\d{4,}$")
 RE_PACKET_ID = re.compile(r"^P-\d{4,}$")
+RE_COWORK = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 CONFIG_REL = os.path.join(".claude", "academy.json")
 BOARD_BACKENDS = ("files", "github")
@@ -261,7 +267,22 @@ REQUIRED_PATHS = {
     "scientist": ("package", "experiments", "results", "queue", "records", "views"),
 }
 
-REGISTRY_PROFILES = ("paper", "s1", "lab", "none")
+REGISTRY_PROFILES = ("paper", "notebook", "lab", "none")
+#: older rule-set names, still accepted in ``registry.profile`` (docs/config.md)
+REGISTRY_PROFILE_ALIASES = {"s1": "notebook", "s1-kb": "notebook"}
+
+
+def registry_rule_set(name):
+    """``registry.profile`` mapped to its rule set (``paper``, ``notebook``, ``lab``,
+    ``none``), an old alias resolved; None when it names none."""
+    name = REGISTRY_PROFILE_ALIASES.get(name, name)
+    return name if name in REGISTRY_PROFILES else None
+
+
+#: the grading primaries when workspace.json sets no ``grading.primaryModels``
+DEFAULT_PRIMARY_MODELS = ("fable", "opus-5.5")
+#: where the rigor review's checklist lives in a home, unless ``paths.verifyChecklist``
+DEFAULT_VERIFY_CHECKLIST = ".claude/rules/verification-checklist.md"
 ENV_KINDS = ("wsl", "local", "ssh")
 POLICY_KEYS = ("probe", "test", "run")
 COMMIT_MODES = ("strict", "normal", "warn", "off")
@@ -306,10 +327,14 @@ def validate_config(config):
     if not (isinstance(doms, list) and doms and all(isinstance(d, str) and d for d in doms)):
         probs.append("domains must be a non-empty list of pack names")
     reg = config.get("registry")
-    if not isinstance(reg, dict) or reg.get("profile") not in REGISTRY_PROFILES:
+    if not isinstance(reg, dict) or registry_rule_set(reg.get("profile")) is None:
         probs.append("registry.profile must be one of %s" % ", ".join(REGISTRY_PROFILES))
     elif reg.get("profile") != "none" and not config.get("ns"):
         probs.append("ns is required when registry.profile is not 'none'")
+    else:
+        for key in ("prefixes", "assumptionGroups"):
+            if reg.get(key) is not None and not isinstance(reg[key], (dict, list)):
+                probs.append("registry.%s must be a map prefix -> name (or a list)" % key)
     paths = config.get("paths")
     if not isinstance(paths, dict):
         probs.append("paths must be an object")
@@ -334,6 +359,8 @@ def validate_config(config):
                              % (br, ", ".join(COMMIT_MODES)))
     if role in ROLES and not isinstance(config.get(role), dict):
         probs.append("a '%s' block is required for role %s" % (role, role))
+    if role == "author" and isinstance(config.get("author"), dict):
+        probs.extend(validate_author(config["author"]))
     if role == "scientist" and isinstance(config.get("scientist"), dict):
         sci = config["scientist"]
         envs = sci.get("envs")
@@ -342,6 +369,13 @@ def validate_config(config):
             envs = {}
         for name, prof in envs.items():
             kind = prof.get("kind") if isinstance(prof, dict) else None
+            if isinstance(prof, dict) and "worker" in prof and kind in (None, "ssh"):
+                # a remote worker of the workspace (workspace.json compute.workers),
+                # resolved by the Scientist's env.py (docs/config.md, "compute")
+                if not (isinstance(prof["worker"], str) and prof["worker"]):
+                    probs.append("scientist.envs.%s.worker must name a worker of the "
+                                 "workspace's compute.workers" % name)
+                continue
             if kind not in ENV_KINDS:
                 probs.append("scientist.envs.%s.kind must be one of %s"
                              % (name, ", ".join(ENV_KINDS)))
@@ -384,7 +418,7 @@ def default_ticket_budget(config):
     """The budget a new ticket gets when its sender gives none: ``{"runs": n}``.
 
     ``n`` is ``budget.ticketDefault.runs`` of ``config`` (a loaded academy.json, or
-    None), else 1. A ``max_model`` there (written before T-0071) is ignored: the model
+    None), else 1. A ``max_model`` there (an older convention) is ignored: the model
     an agent runs on is its agent file's, and ``budget.max_model`` on a ticket is only
     an advisory note its sender may add (docs/protocol.md section 3).
     """
@@ -470,9 +504,281 @@ def load_workspace(path=None):
             raise ConfigError("%s: instances %r and %r have the same role and home; "
                               "an (role, home) pair is one instance" % (chosen, seen[key], name))
         seen[key] = name
-    ws.setdefault("human", {"name": "human"})
+    human = ws.get("human") if isinstance(ws.get("human"), dict) else {}
+    human.setdefault("name", "human")
+    human.setdefault("login", (ws["board_config"].get("assignee") or None))
+    ws["human"] = human
+    grading = ws.get("grading") if isinstance(ws.get("grading"), dict) else {}
+    prim = grading.get("primaryModels")
+    if not (isinstance(prim, list) and prim and all(isinstance(m, str) and m for m in prim)):
+        if prim is not None:
+            raise ConfigError("%s: grading.primaryModels must be a non-empty list of "
+                              "model names" % chosen)
+        grading["primaryModels"] = list(DEFAULT_PRIMARY_MODELS)
+    ws["grading"] = grading
+    if ws.get("plugins") is None:
+        ws["plugins"] = derived_plugins(ws)
+    elif not (isinstance(ws["plugins"], list) and all(isinstance(p, str) for p in ws["plugins"])):
+        raise ConfigError("%s: plugins must be a list of plugin names" % chosen)
     ws["_path"] = os.path.abspath(chosen).replace("\\", "/")
     return ws
+
+
+def _marketplace_domains():
+    """{domain pack name: plugin name} from the academy's marketplace.json (a pack's
+    ``source`` is ``./domains/<pack>``); empty when the file cannot be read."""
+    path = os.path.join(repo_root(), ".claude-plugin", "marketplace.json")
+    try:
+        with open(path, "r", encoding="utf-8-sig") as fh:
+            entries = json.load(fh).get("plugins") or []
+    except (OSError, ValueError, AttributeError):
+        return {}
+    out = {}
+    for e in entries:
+        src = str((e or {}).get("source") or "").replace("\\", "/").rstrip("/")
+        if src.startswith("./domains/") and e.get("name"):
+            out[src.rsplit("/", 1)[1]] = e["name"]
+    return out
+
+
+def derived_plugins(ws):
+    """The plugins a workspace needs when it names none (``plugins`` in workspace.json):
+    the base plugin, the role plugins of its instances, and the plugin of every domain
+    pack its instances name (the marketplace's name for ``domains/<pack>``, else the
+    pack name)."""
+    insts = [i for i in (ws.get("instances") or {}).values() if isinstance(i, dict)]
+    roles = {i.get("role") for i in insts}
+    packs = _marketplace_domains()
+    out = ["academy"] + [r for r in ROLES if r in roles]
+    for inst in insts:
+        for d in inst.get("domains") or []:
+            name = packs.get(d, d)
+            if name not in out:
+                out.append(name)
+    return out
+
+
+def _workspace_or_none(ws=None):
+    if ws is not None:
+        return ws
+    try:
+        return load_workspace()
+    except ConfigError:
+        return None
+
+
+def human_name(ws=None):
+    """The human's display name (workspace.json ``human.name``), else 'the human'."""
+    ws = _workspace_or_none(ws)
+    name = ((ws or {}).get("human") or {}).get("name")
+    return name if name and name != HUMAN else "the human"
+
+
+def human_login(ws=None):
+    """The human's GitHub login: ``human.login``, else ``board.assignee``, else None."""
+    ws = _workspace_or_none(ws)
+    if not ws:
+        return None
+    login = (ws.get("human") or {}).get("login")
+    return login or (ws.get("board_config") or {}).get("assignee") or None
+
+
+def primary_models(ws=None):
+    """The grading primaries (workspace.json ``grading.primaryModels``), as a tuple of
+    model labels; ``DEFAULT_PRIMARY_MODELS`` when none is configured or no workspace."""
+    ws = _workspace_or_none(ws)
+    prim = ((ws or {}).get("grading") or {}).get("primaryModels")
+    if isinstance(prim, list) and prim:
+        return tuple(str(m) for m in prim)
+    return DEFAULT_PRIMARY_MODELS
+
+
+#: the keys of ``author.provenance`` and their defaults (docs/config.md, role blocks)
+PROVENANCE_DEFAULTS = {"env": "added", "command": "\\Added",
+                       "kinds": ["claim", "assumption", "lead-proof"], "removedBy": "human"}
+
+
+def author_provenance(config):
+    """An Author home's provenance marker (``author.provenance``) with defaults filled
+    in, or None when the home sets none (no marker is used)."""
+    val = ((config or {}).get("author") or {}).get("provenance")
+    if not isinstance(val, dict) or val.get("enabled") is False:
+        return None
+    out = dict(PROVENANCE_DEFAULTS)
+    out.update({k: v for k, v in val.items() if k != "enabled"})
+    return out
+
+
+# ----------------------------------------------------------------------------
+# An Author home's tex conventions (docs/config.md, "author"): draft levels, preamble
+# policy, labels, notes, figures, accepted BibTeX warnings, main results. The defaults
+# reproduce the conventions every Author home had before they were configurable.
+# ----------------------------------------------------------------------------
+
+#: what a draft level means: proved or cited in full; not yet (blocks R1); not a claim
+LEVEL_KINDS = ("established", "unestablished", "commentary")
+PREAMBLE_POLICIES = ("propose", "locked", "free")
+
+#: the default levels, as ``author.statusLevels`` would spell them
+DEFAULT_STATUS_LEVELS = (
+    {"name": "established", "env": None, "command": None, "colour": "black",
+     "kind": "established", "statuses": ["proved"]},
+    {"name": "sketch", "env": "sketch", "command": "\\Sketch", "colour": "blue",
+     "kind": "unestablished", "statuses": ["sketch", "proved-modulo"]},
+    {"name": "conjectural", "env": "conjectural", "command": "\\Conjectural",
+     "colour": "red", "kind": "unestablished",
+     "statuses": ["open", "conjectured", "supported"]},
+    {"name": "meta", "env": "meta", "command": "\\Meta", "colour": "brown",
+     "kind": "commentary", "statuses": []},
+)
+
+#: ``author`` tex keys other than the levels, with their defaults (``preamble.file``
+#: None means ``author.main``)
+AUTHOR_TEX_DEFAULTS = {
+    "preamble": {"file": None, "end": "\\begin{document}", "policy": "propose",
+                 "extraFiles": []},
+    "labels": {"prefixes": ["thm", "lem", "prop", "cor", "defn", "eq", "sec", "fig"],
+               "refCommand": "cref"},
+    "notes": {"maxLines": 3},
+    "figures": {"dir": "tikz", "include": "\\includestandalone"},
+    "bib": {"acceptedWarnings": []},
+    "mainResults": {"file": "sections/introduction.tex", "labels": []},
+}
+
+RE_LEVEL_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+
+def _author_block(config_or_block):
+    """The ``author`` block of a config, or the block itself when one is passed."""
+    c = config_or_block if isinstance(config_or_block, dict) else {}
+    if isinstance(c.get("author"), dict) and ("role" in c or "schema" in c):
+        return c["author"]
+    return c
+
+
+def author_status_levels(config_or_block):
+    """The home's draft levels: a list of ``{name, env, command, colour, kind,
+    statuses}``, the established level first.
+
+    ``author.statusLevels`` when set; otherwise derived from the older keys ``envs``
+    (env -> level), ``colourCommands`` (macro -> level) and ``colours`` (level ->
+    colour) with the default meanings: a level named like a default level takes its
+    kind and statuses, any other level is commentary (it never blocked R1)."""
+    a = _author_block(config_or_block)
+    levels = a.get("statusLevels")
+    if isinstance(levels, list) and levels:
+        out = [dict(lv) for lv in levels if isinstance(lv, dict)]
+        for lv in out:
+            lv.setdefault("env", None)
+            lv.setdefault("command", None)
+            lv.setdefault("colour", None)
+            lv.setdefault("statuses", [])
+        out.sort(key=lambda lv: lv.get("kind") != "established")
+        return out
+    defaults = {lv["name"]: lv for lv in DEFAULT_STATUS_LEVELS}
+    envs = a.get("envs") if isinstance(a.get("envs"), dict) else None
+    cmds = a.get("colourCommands") if isinstance(a.get("colourCommands"), dict) else None
+    colours = a.get("colours") if isinstance(a.get("colours"), dict) else {}
+    if envs is None:
+        envs = {lv["env"]: lv["name"] for lv in DEFAULT_STATUS_LEVELS if lv["env"]}
+    if cmds is None:
+        cmds = {lv["command"]: lv["name"] for lv in DEFAULT_STATUS_LEVELS if lv["command"]}
+    names = []
+    for name in list(envs.values()) + list(cmds.values()):
+        if str(name) != "established" and str(name) not in names:
+            names.append(str(name))
+    est = defaults["established"]
+    out = [dict(est, colour=colours.get("established", est["colour"]))]
+    for name in names:
+        base = defaults.get(name) or {"kind": "commentary", "statuses": [], "colour": None}
+        out.append({"name": name,
+                    "env": next((str(e) for e, n in envs.items() if str(n) == name), None),
+                    "command": next((str(c) for c, n in cmds.items() if str(n) == name),
+                                    None),
+                    "colour": colours.get(name, base["colour"]),
+                    "kind": base["kind"], "statuses": list(base["statuses"])})
+    return out
+
+
+def author_tex(config_or_block, key):
+    """``author.<key>`` (one of ``AUTHOR_TEX_DEFAULTS``) with its defaults filled in."""
+    a = _author_block(config_or_block)
+    out = dict(AUTHOR_TEX_DEFAULTS[key])
+    val = a.get(key)
+    if isinstance(val, dict):
+        out.update({k: v for k, v in val.items() if v is not None})
+    if key == "preamble" and not out.get("file"):
+        out["file"] = str(a.get("main") or "main.tex")
+    return out
+
+
+def _str_list(val):
+    return isinstance(val, list) and all(isinstance(x, str) and x for x in val)
+
+
+def validate_author(block):
+    """Problems with the tex-convention keys of an ``author`` block (docs/config.md)."""
+    probs = []
+    levels = block.get("statusLevels")
+    if levels is not None:
+        if not (isinstance(levels, list) and levels
+                and all(isinstance(lv, dict) for lv in levels)):
+            probs.append("author.statusLevels must be a non-empty list of objects")
+        else:
+            seen, kinds = set(), []
+            for i, lv in enumerate(levels):
+                where = "author.statusLevels[%d]" % i
+                name = lv.get("name")
+                if not (isinstance(name, str) and RE_LEVEL_NAME.match(name)):
+                    probs.append("%s.name must be a word (letters, digits, '-', '_')" % where)
+                elif name in seen:
+                    probs.append("%s.name %r is repeated" % (where, name))
+                seen.add(name)
+                kind = lv.get("kind")
+                kinds.append(kind)
+                if kind not in LEVEL_KINDS:
+                    probs.append("%s.kind must be one of %s" % (where, ", ".join(LEVEL_KINDS)))
+                for k in ("env", "command", "colour"):
+                    if lv.get(k) is not None and not (isinstance(lv[k], str) and lv[k]):
+                        probs.append("%s.%s must be a string or null" % (where, k))
+                if kind == "established" and (lv.get("env") or lv.get("command")):
+                    probs.append("%s: the established level is the uncoloured one "
+                                 "(no env, no command)" % where)
+                if kind in ("unestablished", "commentary") and not (lv.get("env")
+                                                                   or lv.get("command")):
+                    probs.append("%s: a %s level needs an env or a command" % (where, kind))
+                if lv.get("statuses") is not None and not isinstance(lv["statuses"], list):
+                    probs.append("%s.statuses must be a list of registry statuses" % where)
+            if kinds.count("established") != 1:
+                probs.append("author.statusLevels needs exactly one level of kind "
+                             "established")
+    for key in AUTHOR_TEX_DEFAULTS:
+        if block.get(key) is not None and not isinstance(block[key], dict):
+            probs.append("author.%s must be an object" % key)
+    pre = block.get("preamble") if isinstance(block.get("preamble"), dict) else {}
+    if pre.get("policy") is not None and pre["policy"] not in PREAMBLE_POLICIES:
+        probs.append("author.preamble.policy must be one of %s" % ", ".join(PREAMBLE_POLICIES))
+    for key, sub in (("preamble", "file"), ("preamble", "end"), ("labels", "refCommand"),
+                     ("figures", "dir"), ("figures", "include"), ("mainResults", "file")):
+        blk = block.get(key) if isinstance(block.get(key), dict) else {}
+        if blk.get(sub) is not None and not (isinstance(blk[sub], str) and blk[sub]):
+            probs.append("author.%s.%s must be a non-empty string" % (key, sub))
+    for key, sub in (("preamble", "extraFiles"), ("labels", "prefixes"),
+                     ("bib", "acceptedWarnings"), ("mainResults", "labels")):
+        blk = block.get(key) if isinstance(block.get(key), dict) else {}
+        if blk.get(sub) is not None and not _str_list(blk[sub]):
+            probs.append("author.%s.%s must be a list of strings" % (key, sub))
+    notes = block.get("notes") if isinstance(block.get("notes"), dict) else {}
+    ml = notes.get("maxLines")
+    if ml is not None and not (isinstance(ml, int) and not isinstance(ml, bool) and ml >= 1):
+        probs.append("author.notes.maxLines must be a positive integer")
+    return probs
+
+
+def verify_checklist_path(config):
+    """The home-relative path of the rigor review's checklist (``paths.verifyChecklist``)."""
+    val = ((config or {}).get("paths") or {}).get("verifyChecklist")
+    return val if isinstance(val, str) and val else DEFAULT_VERIFY_CHECKLIST
 
 
 def instance_for_home(workspace, home):
@@ -564,7 +870,7 @@ def agent_identity(event):
     A plugin agent arrives namespaced (``author:math-writer``); the namespace names
     the plugin that shipped it and is everything before the *last* colon, the bare
     name everything after it. Both are stripped and lower-cased. A session with no
-    agent is the human (Roey's main session).
+    agent is the human (the human's main session).
     """
     if isinstance(event, (str, bytes)):
         try:
@@ -1196,12 +1502,12 @@ TICKET_FIELDS = {
     "system": ("id", "from", "created", "updated"),
     "human_only": ("to",),
     "sender": ("title", "kind", "ask", "deliverable", "refs", "priority", "budget",
-               "parent", "blocks", "agenda", "domain", "final_to", "campaign"),
+               "parent", "blocks", "agenda", "domain", "final_to", "campaign", "cowork"),
     "receiver": ("status", "result", "waiting_on", "blocked_by", "reopen_if", "packets"),
 }
 TICKET_KEY_ORDER = ("id", "title", "kind", "from", "to", "status", "priority", "ask",
                     "deliverable", "refs", "agenda", "domain", "parent", "final_to", "campaign",
-                    "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
+                    "cowork", "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
                     "packets", "created", "updated")
 REQUIRED_TICKET_FIELDS = ("id", "title", "kind", "from", "to", "status", "ask",
                           "deliverable", "priority", "budget", "created", "updated")
@@ -1356,7 +1662,7 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
 def parties(meta, instance):
     """The parties ``instance`` plays on a ticket: a subset of {'sender','receiver'}.
 
-    ``instance`` is the caller's instance name, or 'human' for Roey (who is also
+    ``instance`` is the caller's instance name, or 'human' for the human (who is also
     allowed everything regardless).
     """
     out = set()
@@ -1405,7 +1711,7 @@ def is_dead_route(meta):
 
 
 #: ``blocked_by`` names a ticket or a registry object: ``T-0007``, ``GEO-31``, ``Q1``,
-#: ``EX-L3``, ``PA-5w``, or namespaced (``paper:lem:x``, ``lab:foo``, ``s1:GEO-31``)
+#: ``EX-L3``, ``PA-5w``, or namespaced (``paper:lem:x``, ``lab:foo``, ``nb:GEO-31``)
 RE_BLOCKED_BY = re.compile(r"^(?:[a-z][a-z0-9]*:[^\s:]+(?::[^\s:]+)*"
                            r"|[A-Z][A-Z0-9]*(?:-[A-Za-z0-9.]+)+|[A-Z]+\d+)$")
 
@@ -1584,6 +1890,10 @@ def validate_ticket(meta, body=None, workspace=None):
     if meta.get("campaign") is not None and (not isinstance(meta["campaign"], str)
                                              or "\n" in meta["campaign"]):
         probs.append("campaign must be a registry id (the campaign's target)")
+    if meta.get("cowork") is not None and not RE_COWORK.match(str(meta["cowork"])):
+        probs.append("cowork must be a slug [a-z0-9-] (the plan file board/cowork/<slug>.md)")
+    if meta.get("campaign") and meta.get("cowork"):
+        probs.append("a ticket belongs to one workplan: campaign or cowork, not both")
     ft = meta.get("final_to")
     if ft and ft not in ROLES and not RE_INSTANCE.match(str(ft)):
         probs.append("final_to must be a role or an instance name, not %r" % ft)
@@ -1594,7 +1904,7 @@ def validate_ticket(meta, body=None, workspace=None):
         else:
             if not (isinstance(b.get("runs"), int) and b["runs"] >= 1):
                 probs.append("budget.runs must be a positive integer")
-            # optional advisory note, never a gate (T-0071); checked only for typos
+            # optional advisory note, never a gate; checked only for typos
             if b.get("max_model") is not None and b["max_model"] not in MODELS:
                 probs.append("budget.max_model, when given, must be one of %s"
                              % ", ".join(MODELS))
@@ -2037,8 +2347,9 @@ class inbox_core(object):
     ordered by priority, then agenda position (a ticket that has an ``agenda`` field
     first, or ``position(meta)`` when the wrapper knows the agenda), then id. Dead-route
     blocked tickets (both ``blocked_by`` and ``reopen_if``) and pending blocked ones
-    are never taken. The limit is at most 3, except for a campaign (``campaign`` names
-    its target; only tickets carrying ``campaign: <target>`` are listed).
+    are never taken. The limit is at most 3, except for a workplan: a campaign
+    (``campaign`` names its target; only tickets carrying ``campaign: <target>`` are
+    listed) or a cowork (``cowork``, its slug, the same way; academy/lib/workplan.py).
     """
 
     TAKE = ("open", "accepted")
@@ -2082,7 +2393,8 @@ class inbox_core(object):
 
     @staticmethod
     def select(board, instance, limit=3, all=False, route=None, campaign=None,
-               position=None, return_legs=True, position_first=False, extra=None):
+               position=None, return_legs=True, position_first=False, extra=None,
+               cowork=None):
         """``(rows, total)``: the tickets to handle, and how many were eligible.
 
         ``all`` lists every open, accepted, in-progress and blocked ticket without the
@@ -2102,6 +2414,8 @@ class inbox_core(object):
         for m in store.read_all(instance):
             st = m.get("status")
             if campaign and m.get("campaign") != campaign:
+                continue
+            if cowork and m.get("cowork") != cowork:
                 continue
             dead = is_dead_route(m)
             ret = False
@@ -2136,15 +2450,16 @@ class inbox_core(object):
         total = len(rows)
         if not all:
             n = max(1, int(limit))
-            rows = rows[:n if campaign else min(n, inbox_core.MAX)]
+            rows = rows[:n if (campaign or cowork) else min(n, inbox_core.MAX)]
         return rows, total
 
     @staticmethod
-    def outside_campaign(board, instance, campaign):
-        """Ids of the instance's in-progress tickets that do not carry ``campaign``: the
-        campaign listing leaves them out, but they are unfinished work all the same."""
+    def outside_campaign(board, instance, campaign, field="campaign"):
+        """Ids of the instance's in-progress tickets that do not carry ``campaign`` (in
+        ``field``: ``campaign`` or ``cowork``): the workplan listing leaves them out,
+        but they are unfinished work all the same."""
         return [m["id"] for m in as_store(board).read_all(instance)
-                if m.get("status") == "in-progress" and m.get("campaign") != campaign]
+                if m.get("status") == "in-progress" and m.get(field) != campaign]
 
     @staticmethod
     def _row(m, route):
@@ -2158,7 +2473,7 @@ class inbox_core(object):
                 "priority": m.get("priority") or "normal", "from": m.get("from"),
                 "title": m.get("title"), "agenda": m.get("agenda"),
                 "budget": m.get("budget"), "refs": m.get("refs") or [],
-                "campaign": m.get("campaign"), "route": r, "return": bool(m.get("_return")),
+                "campaign": m.get("campaign"), "cowork": m.get("cowork"), "route": r, "return": bool(m.get("_return")),
                 "over_budget": over, "blocked": m.get("_blocked"), "path": m.get("_path")}
 
     @staticmethod
@@ -2215,17 +2530,20 @@ class inbox_core(object):
     @staticmethod
     def ship_checkpoint(args, instance, board, r, role=None, out=None):
         """After ``--check`` found ticket ``r`` finished (delivered or closed, rejected or
-        cancelled, with no problem), run ``<workspace>/scripts/ship.py checkpoint --ticket
-        <id> --role <role> --only <the ticket's repos>`` in the workspace root, so the
-        ticket's work is committed and pushed on its own branch.
+        cancelled, with no problem), run the academy's ``ship.py --workspace <root>
+        checkpoint --ticket <id> --role <role> --only <the ticket's repos>`` in the
+        workspace root, so the ticket's work is committed and pushed on its own branch
+        (``ship_script``: this academy checkout's ``academy/scripts/ship.py``, else
+        ``$ACADEMY_ROOT``'s, else the workspace's ``scripts/ship.py`` shim).
 
         Only for the workspace's own board, when ship.py exists, workspace.json does not
         say ``"shipCheckpoint": false``, and the session (``$CLAUDE_PROJECT_DIR``, else the
         cwd) is inside the workspace root and not in a worktree under it
         (``_session_inside``); otherwise one line gives the scoped command to run by hand.
         ``role``: given, else the role of ``instance``, else of the ticket's addressee. The
-        repos (``--only``): the instance's home submodule, ``board``, and ``library`` for
-        the Expert; a home that is no submodule leaves ``board`` only, said on stderr. Never
+        repos (``--only``): the instance's home submodule, ``board`` (a submodule, or the
+        workspace's own ``board/`` directory), and ``library`` for the Expert; a home that
+        is no submodule leaves ``board`` only, said on stderr. Never
         fatal and never raises: anything that goes wrong is one warning line on stderr; the
         --check result is unchanged."""
         try:
@@ -2238,10 +2556,35 @@ class inbox_core(object):
                 pass
             return None
 
+    #: tests point this (or ``$ACADEMY_SHIP_SCRIPT``) at a stub; None: looked up
+    SHIP_SCRIPT = None
+
+    @staticmethod
+    def ship_script(root):
+        """The ship.py to run for the workspace at ``root``: ``SHIP_SCRIPT`` or
+        ``$ACADEMY_SHIP_SCRIPT`` if set, else ``academy/scripts/ship.py`` of the academy
+        checkout this module belongs to (the lib module and every plugin's vendored copy
+        sit two levels below it), else of ``$ACADEMY_ROOT``, else the workspace's own
+        ``scripts/ship.py`` (a shim); None if none exists."""
+        given = inbox_core.SHIP_SCRIPT or os.environ.get("ACADEMY_SHIP_SCRIPT")
+        if given:
+            return given if os.path.isfile(given) else None
+        mine = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        for base in (mine, os.environ.get("ACADEMY_ROOT")):
+            if base:
+                cand = os.path.join(base, "academy", "scripts", "ship.py")
+                if os.path.isfile(cand):
+                    return cand
+        cand = os.path.join(root, "scripts", "ship.py")
+        return cand if os.path.isfile(cand) else None
+
     @staticmethod
     def _ship_scope(root, ws, name, role):
-        """``(only, note)``: the submodules of ``root`` (``.gitmodules``) a checkpoint of
-        instance ``name`` touches, and a note when its home is not one of them."""
+        """``(only, note)``: the targets of ``root`` a checkpoint of instance ``name``
+        touches -- its home's submodule (``.gitmodules``), ``board`` (a submodule, or the
+        workspace's board when that is a plain directory inside ``root``: ship.py then
+        commits ``board/`` paths of the workspace repo only) and, for the Expert,
+        ``library`` -- and a note when its home is not a submodule."""
         subs = []
         try:
             with open(os.path.join(root, ".gitmodules"), encoding="utf-8") as fh:
@@ -2264,8 +2607,18 @@ class inbox_core(object):
                         home_sub is None or len(s) > len(home_sub)):
                     home_sub = s
         only = [home_sub] if home_sub else []
+        board_path = ws.get("board")
+        if isinstance(board_path, dict):
+            board_path = board_path.get("path")
+        plain_board = False
+        if isinstance(board_path, str) and board_path:
+            b, top = real(board_path if os.path.isabs(board_path)
+                          else os.path.join(root, board_path)), real(root)
+            plain_board = (b.startswith(top.rstrip(os.sep) + os.sep) and os.path.isdir(b)
+                           and not os.path.exists(os.path.join(b, ".git"))
+                           and os.path.relpath(b, top).replace(os.sep, "/") not in subs)
         for s in ("board",) + (("library",) if role == "expert" else ()):
-            if s in subs and s not in only:
+            if (s in subs or (s == "board" and plain_board)) and s not in only:
                 only.append(s)
         note = None
         if not home_sub:
@@ -2286,8 +2639,8 @@ class inbox_core(object):
         if ws.get("shipCheckpoint") is False:
             return None
         root = os.path.realpath(os.path.dirname(ws["_path"]))
-        ship = os.path.join(root, "scripts", "ship.py")
-        if not os.path.isfile(ship):
+        ship = inbox_core.ship_script(root)
+        if not ship:
             return None
         insts = ws.get("instances", {})
         name = instance if instance in insts else None
@@ -2324,8 +2677,8 @@ class inbox_core(object):
             sys.stderr.write("checkpoint for %s scoped to %s only: %s\n"
                              % (r["id"], " and ".join(only), note))
         import subprocess
-        cmd = [sys.executable, ship, "checkpoint", "--ticket", r["id"], "--role", role,
-               "--only"] + only
+        cmd = [sys.executable, ship, "--workspace", root, "checkpoint", "--ticket", r["id"],
+               "--role", role, "--only"] + only
         # output goes to a file, not a pipe: a git grandchild holding a pipe open would
         # outlive the timeout's kill and hang the read
         with tempfile.TemporaryFile() as log:
@@ -2381,8 +2734,11 @@ class inbox_core(object):
                              "--limit is an alias")
         ap.add_argument("--all", action="store_true", help="list without taking or cutting")
         ap.add_argument("--json", action="store_true")
-        ap.add_argument("--campaign", metavar="TARGET",
+        wp = ap.add_mutually_exclusive_group()
+        wp.add_argument("--campaign", metavar="TARGET",
                         help="only tickets carrying `campaign: TARGET`")
+        wp.add_argument("--cowork", metavar="SLUG",
+                        help="only tickets carrying `cowork: SLUG` (/academy:cowork)")
         ap.add_argument("--check", metavar="T-NNNN",
                         help="the serial checkpoint of one ticket (exit 3 if unfinished); a "
                              "finished ticket also runs the workspace's ship.py checkpoint "
@@ -2404,8 +2760,10 @@ class inbox_core(object):
                                            ("; " + r["problem"]) if r["problem"] else ""))
             inbox_core.ship_checkpoint(args, instance, board, r, role=role, out=out)
             return 3 if r["unfinished"] else 0
-        if args.campaign:
-            # a campaign lifts the cap of 3 (docs/protocol.md): --n alone bounds it
+        cowork = getattr(args, "cowork", None)
+        field, plan = ("cowork", cowork) if cowork else ("campaign", args.campaign)
+        if plan:
+            # a workplan lifts the cap of 3 (docs/protocol.md): --n alone bounds it
             limit = max(1, int(args.n)) if args.n else None
         else:
             limit = min(max(1, int(args.n)) if args.n else inbox_core.MAX,
@@ -2413,18 +2771,19 @@ class inbox_core(object):
         rows, total = inbox_core.select(board, instance, limit or 10 ** 9, all=args.all,
                                         route=route, campaign=args.campaign,
                                         position=position, return_legs=return_legs,
-                                        position_first=position_first, extra=extra)
+                                        position_first=position_first, extra=extra,
+                                        cowork=cowork)
         header = header or {}
         left = 0 if args.all else max(0, total - len(rows))
         unfinished = inbox_core.unfinished(rows)
         outside = []
-        if args.campaign and not args.all:
-            outside = inbox_core.outside_campaign(board, instance, args.campaign)
+        if plan and not args.all:
+            outside = inbox_core.outside_campaign(board, instance, plan, field)
             unfinished = unfinished + [t for t in outside if t not in unfinished]
         if args.json:
             doc = {"instance": instance, "limit": limit, "waiting": total,
                    "take": rows, "remaining": left, "unfinished": unfinished}
-            if args.campaign:
+            if plan:
                 doc["outside_campaign"] = outside
             doc.update(header.get("json") or {})
             out.write(json.dumps(doc, ensure_ascii=False, indent=1) + "\n")
@@ -2444,8 +2803,9 @@ class inbox_core(object):
             out.write("unfinished: %s; resume before taking anything new\n"
                       % ", ".join(unfinished))
         if outside:
-            out.write("(%s are in progress outside campaign %s: the campaign list leaves "
-                      "them out; resume them first)\n" % (", ".join(outside), args.campaign))
+            out.write("(%s are in progress outside %s %s: the %s list leaves "
+                      "them out; resume them first)\n" % (", ".join(outside), field, plan,
+                                                            field))
         out.write("%d taken, %d remaining\n" % (len(rows), left))
         for line in header.get("text_after") or []:
             out.write(line + "\n")
@@ -2724,7 +3084,7 @@ def read_event(stream=None):
 
     Claude Code writes the event as UTF-8. A text stream's own decoding is bypassed
     (its ``buffer`` is read): on Windows, Python decodes a piped stdin with the ANSI
-    codepage, which mangles non-ASCII arguments (T-0070). A leading BOM is dropped.
+    codepage, which mangles non-ASCII arguments. A leading BOM is dropped.
     """
     stream = stream or sys.stdin
     try:

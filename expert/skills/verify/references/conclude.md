@@ -20,7 +20,11 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   environment's text in the file) into a scratch file and hash it:
   `py $E/reviews.py hash --file <scratch>`.
 - **Open the pass.** `py $E/reviews.py new-pass <id> --ticket T-NNNN` gives the pass
-  name; `py $E/reviews.py dir <id> <pass>` the folder the hook will land into.
+  name; `py $E/reviews.py dir <id> <pass>` the folder the hook will land into. Never
+  two concurrent passes on one statement: `new-pass` refuses while another pass on
+  `<id>` is open (no `decision.md`). Conclude that one first, or, if it is dead (a
+  stalled run, a changed statement), close it with
+  `py $E/reviews.py abandon <id> <pass> --reason "..."` and say so in the thread.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
   reviewer reads the files, `budget.md` rule 9):
 
@@ -41,7 +45,7 @@ returns, the `land_verdict` hook has written `<pass dir>/A.md`. Then
 
     py $E/decision_table.py "<pass dir>/A.md" --json
 
-- `launch_b: true` (A CONFIRMED on a primary, Fable or Opus 5.5): re-hash the
+- `launch_b: true` (A CONFIRMED on one of the grading primaries (`grading.primaryModels`)): re-hash the
   statement; if the hash changed, stop — the statement moved under the review; record
   that and conclude nothing. Otherwise launch run B with the identical brief and `run: B`, telling it
   nothing of A.
@@ -53,11 +57,11 @@ run was lost in the ticket thread, stop (`budget.md` rule 4). Any other stall or
 empty result: relaunch once from the same brief; the record says the kept run is the
 relaunch. A second failure: conclude on what you have — the protocol needs two.
 
-**A fallback.** Pass no `model` override while Fable is available. If it is genuinely
-unavailable, relaunch with `model: opus`, name the substitution in the ticket thread
-and the record. Opus 5.5 is an equal primary (roster-rules.md), so that run counts in
-full; a run on any other model (Sonnet, Haiku, an older Opus) the table reads as
-PLAUSIBLE, so nothing is proposed on it.
+**A fallback.** Pass no `model` override while the agent's own model is available. If
+it is genuinely unavailable, relaunch with the agent's frontmatter `fallback`, and name
+the substitution in the ticket thread and the record. A run on any of the grading
+primaries (`grading.primaryModels`, roster-rules.md) counts in full; a run on any other
+model the table reads as PLAUSIBLE, so nothing is proposed on it.
 
 ## 2. The table, input by input
 
@@ -72,6 +76,14 @@ inputs both runs name and mark each one: `proved`, `verified citation`, `sketch`
 `conjectured` / `open` (its status), `uncited folklore`, `cached but no card`,
 `uncitable`. The script then decides whether the recolour is earned; you do not.
 
+**Definitions are not inputs** (the human's decision, 2026-10-09, T-0148): a
+definition used only as notation is not an input in a verdict's modulo list; only a
+definition whose content the argument relies on counts. The script applies it: when two
+CONFIRMED runs' modulo lists differ only in definitions (registry kind `definition`,
+else a `defn:` / `DEF-` label), it reads them as agreeing on the intersection and lists
+the dropped ids in `dropped_definitions`. Copy that list into the record; do not list a
+dropped definition among the inputs.
+
 **Check by hand only what one grep or one definition settles**, and say in the record
 which lines you checked. Where the runs differ, do not average them: say which is
 sharper and why. A disagreement is reported as a finding.
@@ -84,7 +96,7 @@ LF, Markdown, written by you:
   or the proof attempt); if an older pass exists (`py $E/reviews.py list <id>`), a
   line saying which pass this one supersedes;
 - the outcome, verbatim from the script (`outcome`, `summary`, `proposed_status`,
-  `recolour`, `modulo`, `pending_inputs`, `anomalies`);
+  `recolour`, `modulo`, `pending_inputs`, `dropped_definitions`, `anomalies`);
 - both verdicts side by side: verdict, model, run id, blocking step;
 - the findings **both** runs reached independently, numbered, then what they
   disagreed about and which was right;
@@ -95,7 +107,7 @@ LF, Markdown, written by you:
 ## 4. The registry and the board (MCP tools only)
 
 1. **Evidence**, one row per landed run, append-only:
-   `claims_attach_evidence {id, row: {type: "proof-review", ref: "file:<expert
+   `claims_attach_evidence {id, row: {type: "verdict", ref: "file:<expert
    instance>/reviews/<ns>/<id-slug>/<pass>/<run>.md", verdict, run_id,
    statement_hash, note: <blocking or "">}}`.
 2. **Status**, only when the script gives `proposed_status`:
@@ -103,25 +115,33 @@ LF, Markdown, written by you:
    grounds: <the script's grounds object>, refs: [<ticket>, <packet>]}`. This files a
    decision ticket to the claim-keeper; it sets nothing. Never call
    `claims_set_status`.
-3. **Follow-ups**, from the script's `file_items`: for each `repair` or
-   `verify-input`, one ticket (`tickets_create`) to the instance that owns the
-   statement or input:
-   - a repair to a notebook claim (an `s1:`-type claim): kind `prove`, to its
-     Researcher;
-   - a write-up repair to a `paper:` claim: kind `question`, to the Author, a
-     neighbour;
+3. **Follow-ups**, from the script's `file_items`: every item carries its `route`
+   (`kind`, `to_role`, `final_to`, `gap_class`), computed by the role cut
+   (`academy/references/roster-rules.md`, rule 3). File one ticket (`tickets_create`)
+   per item, as routed; never re-route one by your own reading:
+   - a `hypothesis`, `statement` or `proof` finding, on any claim (a `paper:` claim
+     included): kind `prove`, to the Researcher of the claim's domain, with the
+     falsifier the run gave. **Never an Author `apply` or `write` ticket**: the
+     Researcher proves, the Author only lands what comes back;
+   - a `wording` finding alone: kind `question`, to the statement's owner (the
+     Author for a `paper:` claim). A pinned statement (`author/scripts/pinned.py`)
+     is not edited for wording: the ticket says it waits for the human's batch;
    - a `lab:` claim: to the Researcher with `final_to: scientist`, since the
      Scientist is not a neighbour of the Expert;
    - an input that is itself a proof to review: kind `verify`, back to the Expert;
+   - a counterexample, or runs that disagree on the inputs: to the human;
    - a missing card: kind `cite`.
 
    Each ticket says where the defect lives, what exactly is missing, the repair both
    runs propose, and whether a citation must come first.
 4. **The packet**: `packets_create` kind `verification`, subject `[<id>]`,
-   `status_before` from `claims_show`, `status_proposed` from the script, ticket set.
+   `status_before` from `claims_show`, `status_proposed` from the script, ticket set
+   (required: `title`, `kind`, and `body` or `sections`; each decision is
+   `### Dk. question`, 2-4 `- (a) option` lines and a `- Recommendation:` line;
+   docs/packet-template.md section 3).
    `## Established vs assumed` names every input with its status; `## Evidence` the
-   two records, run ids and the statement hash; `## Decisions needed` asks Roey only
-   what the table leaves to him (a DISPROVED counterexample; a disagreement's next
+   two records, run ids and the statement hash; `## Decisions needed` asks the human only
+   what the table leaves to them (a DISPROVED counterexample; a disagreement's next
    step; a modulo input nobody owns) — otherwise `None.`.
 5. **The ticket**: `result` one line (e.g. `CONFIRMED x2; proved proposed; recolour
    earned`), `packets` set, then `in-progress -> delivered`.

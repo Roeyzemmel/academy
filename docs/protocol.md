@@ -12,10 +12,11 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   `<name>` matches `[a-z0-9][a-z0-9-]*`. The name must be a key of `workspace.json`
   `instances`. Examples: `author@main`, `researcher@alpha`, `expert@main`,
   `scientist@main`.
-- **`human`** is Roey. The main session has no `agent_type`.
+- **`human`** is the person who runs the workspace (`workspace.json` `human.name`). The main session has no `agent_type`.
   The main session inside a role home files tickets as that home's instance, speaker
   `<instance>/main`. Only `/academy:board`, `/academy:desk` and `/academy:decide` file
-  as `human` from a home (`--as human` / `as_human`), after Roey confirms. Every other
+  as `human` from a home (`--as human` / `as_human`), after the human confirms; and
+  `/academy:cowork` files the tasks of a plan the human approved as `human`. Every other
   write by the main session is still the human's.
 - **An agent** is named by its bare name, with the plugin namespace stripped:
   `author:math-writer` is read as `math-writer`. `agent_identity(event)` returns
@@ -25,21 +26,37 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   (`find_home` + `instance_for_home`). An agent running in the paper home acts for
   `author@main`. The base plugin's agents (`concierge`, `explainer`, `usage-analyst`,
   `secretary`) act for the instance of the home they run in. From no home at all,
-  they act as `human` only when they file something Roey has confirmed. An agent of a role
+  they act as `human` only when they file something the human has confirmed. An agent of a role
   plugin acts only for an instance of its own role: `expert:librarian` running in
   the paper home is refused by the server rather than filing as `author@main`.
-- **Cloud sessions: no instance for agents.** The MCP server is one long-lived process,
-  and it takes the acting instance from *its own* `cwd` (or `$ACADEMY_CWD`), fixed when it
-  starts; it never sees the `cwd` of the agent that calls it, so spawning a subagent from
-  another directory changes nothing (tested 2026-10-08: `claim-keeper` spawned inside the
-  Researcher home was still refused). In a cloud session the server starts outside every
-  home, so a role agent has no instance and every ticket write that needs one is refused
-  with "agent X runs outside every academy home" (`claim-keeper` could set statuses, which
-  do not need an instance, but not update tickets). The main session acts as `human` there
-  and closes the tickets itself. A fix has to resolve the agent's instance per call
-  (for instance the ticket's recipient when it has the agent's role, or the agent's home
-  passed by the caller handshake); until then, record statuses through the agent and close
-  tickets from the main session.
+- **The acting instance is resolved per call.** The MCP server is one long-lived
+  process whose `cwd` (or `$ACADEMY_CWD`) is fixed when it starts; it never sees the
+  `cwd` of the agent that calls it. In a cloud session it starts at the workspace root
+  or in the library, outside the agent's home (before 2026-10-09 every ticket write of
+  a role agent there was refused with "agent X runs outside every academy home"). So
+  the server resolves, for each call, the instance an agent acts for
+  (`tools.Context.instance`):
+  1. the call's `instance` argument (on `tickets_create`, `tickets_update`,
+     `tickets_get`, `claims_new`, `claims_attach_evidence`, `claims_propose_status`,
+     `claims_set_status`; `packets_create` and `config_get` already took one), checked
+     against `workspace.json` and the agent's role: an `expert:` agent naming an author
+     instance is refused;
+  2. for a role agent, the party of the call's ticket (`to`, then `from`; for
+     `tickets_create` the `parent`) whose role is the agent's;
+  3. the home containing the server's `cwd`, when its role is the agent's (a base
+     `academy:` agent acts for whichever home it runs in);
+  4. the only instance of the agent's role in `workspace.json`. With several (two
+     Researchers) and no hint the call is refused with "pass instance=".
+
+  **Only the main session files as `human`.** The caller handshake records `human`
+  exactly when the hook event has no `agent_type`, which is the main thread; a role
+  agent always resolves to an instance (or is refused), and `instance: human` from an
+  agent is refused. The main session itself files as the home it runs in (agent
+  `main`), as `human` outside every home or with `as_human`, and as a named instance
+  with `instance` (a cloud session working an instance's inbox from the root).
+  `claims_new` in another instance's namespace needs `ticket`: a live ticket addressed
+  to that instance, whose role is the agent's; the ticket's thread records the
+  creation (`<instance>/<agent>: created <id> ... for <instance>`).
 
 - **How the server learns the caller (the caller handshake).** An MCP server does
   not see which agent called it, and a PreToolUse hook can rewrite a call's
@@ -58,11 +75,11 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   `read_event` therefore reads `sys.stdin.buffer` and decodes it as UTF-8 (a BOM is
   dropped), bypassing the text layer: on Windows, unless `PYTHONIOENCODING` or
   `PYTHONUTF8` is set, Python decodes a piped stdin with the ANSI codepage (cp1255
-  here), so a character such as `±` reached the hook mangled (`ֲ\xb1`), the
+  on one Hebrew-locale machine), so a character such as `±` reached the hook mangled (`ֲ\xb1`), the
   hook's key differed from the server's, and the server refused the write with "the
   caller of <tool> could not be identified: no mcp_write_gate record for this call".
-  That was seen on 2026-09-28 on `tickets_update` (T-0007) and fixed by T-0070
-  (regression test in `academy/tests/test_hooks.py`). Non-ASCII arguments are
+  That was seen on 2026-09-28 on `tickets_update` and fixed then (regression test in
+  `academy/tests/test_hooks.py`). Non-ASCII arguments are
   therefore fine. If that refusal ever recurs on a call with a non-ASCII argument,
   retry it in plain ASCII (`+/-`, `--`, LaTeX); if the ASCII call passes, the
   encoding fault is back, so file a ticket.
@@ -72,7 +89,9 @@ tables. Where this text and the code disagree, fix one of them in the same commi
 
 ## 2. The board
 
-`$ACADEMY_BOARD` (`workspace.json` `board`) is a git repo, LF only.
+`$ACADEMY_BOARD` (`workspace.json` `board`) is a directory, LF only: normally the
+`board/` directory of the workspace repository (the board was folded into the workspace
+on 2026-10-09); an older workspace may still keep it as a git repository of its own.
 
 ```
 board/
@@ -96,8 +115,12 @@ board/
 - **Non-ticket files.** Inside an instance folder or `human/`, files not matching
   `T-\d{4,}-*.md` are ignored by every tool. `human/RESUME.md` and
   `human/SUMMARY.md` are free Markdown.
-- **Committing.** Tool writes do not commit. `session_start` and `/academy:board sync`
-  commit all pending board changes in one commit, with the message
+- **Committing.** Tool writes do not commit. When the board is a directory of the
+  workspace, its changes are committed with the ticket's work, on the ticket's branch,
+  by `ship.py checkpoint --ticket T-NNNN --role <role> --only board` (section 5, the
+  inbox checkpoint; `docs/branching.md`); `session_start` never commits the workspace.
+  Only a board that is a git repository of its own is committed by `session_start` and
+  `/academy:board sync`, all pending changes in one commit, with the message
   `board: <n> change(s)` and the attribution line. No push, no stash.
 
 ### File names
@@ -189,6 +212,7 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 | `parent` | ticket id \| empty | no | sender | The ticket this one was spawned from |
 | `final_to` | role \| instance \| empty | no | sender | The role (or instance) the request is really for; set on relayed tickets; a receiver whose role is not `final_to` hands the ticket to its relay |
 | `campaign` | registry id \| empty | no | sender | The target of the campaign this ticket belongs to; `inbox.py --campaign <target>` lists only such tickets. Omitted unless set |
+| `cowork` | slug \| empty | no | sender | The cowork this ticket belongs to (`/academy:cowork`, plan `<board>/cowork/<slug>.md`); `inbox.py --cowork <slug>` lists only such tickets. At most one of `campaign` and `cowork`. Omitted unless set |
 | `blocks` | list of ticket ids | no | sender (server mirrors) | Tickets waiting on this one |
 | `waiting_on` | list of ticket ids, instances or `human` | iff `blocked` | receiver | What the receiver waits for |
 | `budget` | map `{runs: int >= 1}`, optionally `max_model: fable\|opus\|sonnet\|haiku` | yes | sender | Agent runs allowed; default `runs` from `academy.json` `budget.ticketDefault`. The model is not the sender's: an agent runs on its agent file's `model:`. `max_model`, if given, is an advisory note and never blocks a route |
@@ -230,7 +254,7 @@ section 5.1 restricts to the receiver's neighbours in the chain (or the same rol
 **Ref forms** (in `refs`, in packets, and in thread text):
 
 - `<ns>:<id>` for a registry object, e.g. `paper:lem:strip-bound`, `lab:ew-check`,
-  `s1:Q2`.
+  `nb:Q2`.
 - `T-NNNN` for a ticket and `P-NNNN` for a packet.
 - `bib:<key>` for a bibliography key, optionally with a pinpoint:
   `bib:LMW16#Thm1.3`.
@@ -333,7 +357,7 @@ Terminal states: `closed`, `rejected`, `cancelled`.
 
 | kind | fields | meaning | inbox |
 |---|---|---|---|
-| pending | `waiting_on` non-empty (ticket ids, instances or `human`) | waiting for a ticket, an instance or Roey | not taken; return legs as above |
+| pending | `waiting_on` non-empty (ticket ids, instances or `human`) | waiting for a ticket, an instance or the human | not taken; return legs as above |
 | dead route | `blocked_by` (a ticket or registry id: `T-0007`, `GEO-31`, `paper:lem:x`) and `reopen_if` (one line) | the route ends at a result as strong as the goal, or at a refutation; reopens only for a materially new mechanism, invariant or construction | never taken |
 
 - `blocked` needs `waiting_on` **or** both `blocked_by` and `reopen_if`; both kinds at
@@ -376,11 +400,13 @@ each one the ticket must be `delivered`, `blocked` with its reason, or `rejected
 (`inbox.py --check T-NNNN`); an unfinished ticket is reported, not redispatched, and no
 other ticket is taken while it is unfinished. When the checkpoint finds the ticket
 finished (`delivered` or `closed`, `rejected` or `cancelled`; not `blocked`) on the
-workspace's own board, it runs the workspace's `scripts/ship.py checkpoint --ticket
-T-NNNN --role <role> --only <repos>` (in the workspace root, 90 s timeout) to commit and
-push the ticket's work on its branch. The repos are the instance's home submodule,
-`board`, and `library` for the Expert (`board` alone, said on stderr, when the home is
-not a submodule); under `--only` no other repo is touched and a dirty repo still on
+workspace's own board, it runs the academy's `academy/scripts/ship.py --workspace
+<root> checkpoint --ticket T-NNNN --role <role> --only <repos>` (in the workspace root,
+90 s timeout; the workspace's `scripts/ship.py` is a one-line shim onto it, kept for the
+allowlist) to commit and push the ticket's work on its branch (`docs/branching.md`).
+The repos are the instance's home submodule, `board` (the workspace's `board/`
+directory, whose paths alone are committed in the workspace repository), and `library`
+for the Expert (`board` alone, said on stderr, when the home is not a submodule); under `--only` no other repo is touched and a dirty repo still on
 `main` is refused, not moved. Skipped when that script is absent, when workspace.json
 says `"shipCheckpoint": false`, or when the session (`$CLAUDE_PROJECT_DIR`, else the cwd)
 is outside the workspace root or in a worktree under it (a `.claude/worktrees` path
@@ -391,8 +417,9 @@ fatal: anything that goes wrong is one warning line on stderr, and the exit code
 checkpoint live once, in the academy library (`inbox_core` in `academy_common.py`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
-`--campaign <target>` lists only tickets carrying `campaign: <target>` and lifts the cap
-of 3 on its own (a campaign has its own caps; `--n` still lowers it). An in-progress ticket
+`--campaign <target>` (and `--cowork <slug>`, the same way, for a cowork's tickets;
+the shared state mechanics are `academy/lib/workplan.py`) lists only tickets carrying
+`campaign: <target>` and lifts the cap of 3 on its own (a campaign has its own caps; `--n` still lowers it). An in-progress ticket
 of the instance outside the campaign is not listed but is reported in `unfinished` (and as
 `outside_campaign` in `--json`): resume it first. `/academy:inbox` runs every instance in turn
 (Author, Expert, Researcher, Scientist) under one cap. Each ticket
@@ -491,7 +518,7 @@ the gate is advisory: it catches a wrong edge, not a wrong agent.
 
 **Exempt** (clerical, not requests): claim-keeper `decision` tickets from
 `claims_propose_status` (still checked to go to the keeper of the claim's namespace),
-usage-analyst (files only to `human`), and concierge (files as `human` after Roey
+usage-analyst (files only to `human`), and concierge (files as `human` after the human
 confirms).
 
 ## 6. Worked flows
@@ -521,7 +548,7 @@ confirms).
    case where it could fail).
 5. One `test` ticket per generalization goes to `scientist@main`:
    - `parent` is the generalize ticket;
-   - `refs` are `[s1:<new id>, lab:<claim>]`;
+   - `refs` are `[<ns>:<new id>, lab:<claim>]`;
    - `ask` is "test the falsifier first".
 
    Researcher also creates a packet of kind `generalization` listing them all.
@@ -591,8 +618,9 @@ It is never edited by hand: the fix is to change the source and rerun the genera
 Silent outside an academy home. Inside one, it validates `academy.json` and its
 agreement with `workspace.json`. It raises `.ids/next-ticket` and `.ids/next-packet`
 to at least one past the highest id on disk, under the id lock; it never lowers them.
-It commits pending board changes (section 2); `ACADEMY_BOARD_COMMIT=0` turns the
-commit off. It then prints one line of additionalContext:
+When the board is a git repository of its own it commits pending board changes
+(section 2; `ACADEMY_BOARD_COMMIT=0` turns that off); a board that is a directory of
+the workspace is never committed here. It then prints one line of additionalContext:
 
 ```
 academy: <instance> — N open tickets to you, M packets awaiting <human name>[; freed: T-0003, ...][; config: <problems>]

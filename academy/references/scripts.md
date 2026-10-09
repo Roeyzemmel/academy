@@ -2,7 +2,8 @@
 
 `$S` below is `${CLAUDE_PLUGIN_ROOT}/scripts`. If the variable is not expanded in the
 session, use `~/.claude/skills/academy/scripts` (the plugin's link). Every script is
-stdlib Python run with `py`, finds the board and the workspace through
+stdlib Python run with `py` (`python3` where there is no `py`; the plugins' hooks pick
+`$ACADEMY_PYTHON`, else `py`, else `python3`), finds the board and the workspace through
 `workspace.json` (`--board`, `--workspace` override), and prints UTF-8. Exit code 0 is
 success; 1 is "nothing found" where noted; 2 is an error with a one-line message on
 stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
@@ -21,16 +22,23 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `error_ledger.py` | usage-analyst, the PostToolUseFailure hook | `hook` (event on stdin) · `report [--days 7\|--since D] [--json]` · `settle --packet P-NNNN [--quiet-days 7]` · `resolve SIG... [--note T]`: the error ledger `<board>/.errors/<instance>.jsonl` |
 | `session_usage.py` | usage | `<session-id> [--project DIR]`: one session, per subagent |
 | `session_start.py` | the SessionStart hook | (no arguments; reads the hook event) |
+| `ship.py` | inbox `--check` (checkpoint hook), board `sync`, sessions at a workspace root | `[--workspace DIR] status` · `start <sub> <topic>` · `commit\|ship <sub> -m MSG (--paths P...\|--all)` · `push <sub>` · `checkpoint --ticket T [--role R] [--title T] [--only SUB...]` · (the human's) `merge`, `publish`, `accept-baseline`; `docs/branching.md`. A workspace runs it through its `scripts/ship.py` shim |
+| `workspace_bootstrap.py` | a workspace's `scripts/bootstrap.py` shim, `cloud-setup.sh` | `[--workspace DIR] [--no-submodules] [--no-plugins] [--strict] [--adopt-siblings]`: writes `workspace.json`, the environment and the permission rules (`templates/workspace/`) |
+| `cowork.py` | cowork, desk, inbox | `new SLUG --goal G [--agents A]` (the plan `<board>/cowork/<slug>.md`) · `status SLUG [--json]` (state from the tagged tickets: ACTIVE, WAITING, PAUSE, DONE) · `list [--kind cowork\|campaign\|all] [--json]` (the active workplans; exit 1 none); the mechanics are `academy/lib/workplan.py` |
+| `role_write_guard.py` | the PreToolUse hook (Edit/Write) | (hook: `permissions.json` `files.cross_role`; roster-rules.md, "Role cut") |
+| `board_templates.py` | board-migrate | `ticket-form [--workspace F]` · `render --out REPO` · `check --out REPO` (exit 1 on drift): the GitHub board's `.github/` files, the issue form's instance dropdown filled from workspace.json |
 
 `board.py new` requires `--as <instance>` (the main session inside a home files as
 `<instance>`, agent `main`; `--agent <name>` names another agent) and applies the
 ticket-chain check. The identity is self-declared: without `--agent` it records
 `main`, so this half of the gate is advisory; the MCP tool `tickets_create` is the
 enforced path. `--final-to <role>` sets `final_to` on a relayed ticket. Only
-/academy:board, /academy:desk and /academy:decide pass `--as human`, after Roey
+/academy:board, /academy:desk and /academy:decide pass `--as human`, after the human
 confirms. For `transition` and `append`, `--as` is optional and the caller is the human
 without it; `packets.py` acts as `human` unless `--as <instance>` is given. Only the
 main session runs `packets.py decide`.
 
-Board commits: tool writes never commit. `session_start` commits pending board
-changes, and `/academy:board sync` does the same on demand.
+Board commits: tool writes never commit. `session_start` commits pending board changes
+only when the board is a standalone clone; a board that is a plain directory of the
+workspace (or a submodule) is committed by `ship.py checkpoint --only board` (the inbox
+hook, and `/academy:board sync` on demand), on a `<date>/<ticket>/<role>` branch.

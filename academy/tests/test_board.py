@@ -194,17 +194,17 @@ class TestTickets(BoardCase):
         p2 = self.new(title="Second", budget=None)
         meta, _ = bd.read_ticket(p2)
         self.assertEqual(meta["id"], "T-0002")
-        self.assertEqual(meta["budget"], {"runs": 1})       # T-0071: no max_model stamped
+        self.assertEqual(meta["budget"], {"runs": 1})       # budget.md rule 6: no max_model stamped
 
     def test_default_budget_ignores_a_home_max_model(self):
-        # a home's ticketDefault written before T-0071 carries max_model; new tickets
+        # a home's ticketDefault written before budget.md rule 6 dropped it carries max_model; new tickets
         # take only its runs
         home = os.path.join(self.tmp, "paperhome")
         with open(os.path.join(PLUGIN, "templates", "academy-json", "author.json"),
                   encoding="utf-8") as fh:
             text = fh.read()
         for k, v in (("instance", "author@main"), ("domain", "dom-a"), ("ns", "paper"),
-                     ("noteMacro", "\\\\Roey")):
+                     ("noteMacro", "\\\\Ada")):
             text = text.replace("{{%s}}" % k, v)
         cfg = json.loads(text)
         cfg["budget"]["ticketDefault"] = {"runs": 2, "max_model": "sonnet"}
@@ -473,7 +473,7 @@ class TestTickets(BoardCase):
         meta, _ = bd.read_ticket(out.getvalue().strip())
         self.assertEqual(meta["from"], "human")
         self.assertEqual(meta["refs"], ["paper:lem:x", "bib:LMW16"])
-        self.assertEqual(meta["budget"], {"runs": 2})       # T-0071: no max_model stamped
+        self.assertEqual(meta["budget"], {"runs": 2})       # budget.md rule 6: no max_model stamped
         out = io.StringIO()
         with redirect_stdout(out):
             bd.main(base + ["list", "--json"])
@@ -557,7 +557,7 @@ class TestPackets(BoardCase):
         self.assertEqual(ac.packet_answers(body)[1], ("(a)", DATE, "human", "go ahead"))
         # the next call answers the first pending decision (D2) by default
         path, k, decided = pk.decide_packet(self.board, "P-0001", "other",
-                                            comment="ask Barak first", date=DATE)
+                                            comment="ask Bo first", date=DATE)
         self.assertEqual((k, decided), (2, True))
         meta, body = pk.read_packet(path)
         self.assertEqual(meta["state"], "decided")
@@ -568,7 +568,7 @@ class TestPackets(BoardCase):
         self.assertEqual(lines[-2], (DATE, "human",
                                      "decision on P-0001 D1: (a) Yes, recolour now.\n"
                                      "go ahead"))
-        self.assertEqual(lines[-1], (DATE, "human", "decision on P-0001 D2: ask Barak first"))
+        self.assertEqual(lines[-1], (DATE, "human", "decision on P-0001 D2: ask Bo first"))
         # the first line of each echo has the exact protocol form
         raw = ac.thread_lines(tb, raw=True)
         self.assertIn("- %s human: decision on P-0001 D1: (a) Yes, recolour now." % DATE, raw)

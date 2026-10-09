@@ -122,7 +122,7 @@ class McpTestBase(unittest.TestCase):
                             "domains": ["test-pack"], "ns": "lab"},
             "researcher@t": {"role": "researcher", "home": cls.homes["researcher@t"],
                              "domains": ["test-pack"], "ns": "s1"}},
-            "board": cls.board, "human": {"name": "Roey"}}
+            "board": cls.board, "human": {"name": "Ada"}}
         cls.ws_path = os.path.join(cls.tmp, "workspace.json")
         write(cls.ws_path, json.dumps(ws, indent=2))
         write(os.path.join(cls.tmp, "domains", "test-pack", "notation.md"), "# Notation\n")
@@ -246,6 +246,37 @@ class TestTickets(McpTestBase):
         self.assertEqual([tagged["id"]], [r["id"] for r in rows])
         self.assertEqual("paper:thm:x", rows[0]["campaign"])
 
+    def test_create_cowork_field_end_to_end(self):
+        """The cowork tag: tickets_create -> the ticket -> inbox --cowork -> workplan state."""
+        author = self.server("author@t")
+        w = "author:math-writer"
+        args = dict(title="Verify lem:x", kind="verify", to="expert@t", ask="Verify it.",
+                    deliverable="A packet.")
+        err, tagged = author.call("tickets_create", caller=w, cowork="flat-section", **args)
+        self.assertFalse(err, tagged)
+        err, plain = author.call("tickets_create", caller=w, **args)
+        self.assertFalse(err, plain)
+        err, got = author.call("tickets_get", caller=w, id=tagged["id"])
+        self.assertEqual("flat-section", got["meta"]["cowork"])
+        self.assertEqual([], got["problems"])
+        # a slug only, and never both workplans at once
+        err, msg = author.call("tickets_create", caller=w, cowork="Flat Section", **args)
+        self.assertTrue(err)
+        self.assertIn("slug", msg)
+        err, msg = author.call("tickets_create", caller=w, cowork="c", campaign="paper:x",
+                               **args)
+        self.assertTrue(err)
+        self.assertIn("one workplan", msg)
+        rows, _t = ac.inbox_core.select(self.board, "expert@t", 3, cowork="flat-section",
+                                        route=lambda m: {"how": "skill", "target": "x",
+                                                         "why": "y"})
+        self.assertEqual([tagged["id"]], [r["id"] for r in rows])
+        self.assertEqual("flat-section", rows[0]["cowork"])
+        import workplan
+        st = workplan.state([m for _p, m in ac.as_store(self.board).iter_meta()],
+                            "cowork", "flat-section")
+        self.assertEqual(("WAITING", [tagged["id"]]), (st["state"], st["out"]))
+
     def test_round_trip(self):
         author = self.server("author@t")
         expert = self.server("expert@t")
@@ -339,7 +370,7 @@ class TestTickets(McpTestBase):
         self.assertEqual(pl["packets"][0]["pending_decisions"], [])
 
     def test_budget_max_model_is_optional_and_not_stamped(self):
-        # T-0071: the model comes from the agent file. A new ticket's default budget
+        # budget.md rule 6: the model comes from the agent file. A new ticket's default budget
         # is runs only; a sender may give runs alone, or add max_model as a note.
         human = self.server()
         err, t = human.call("tickets_create", title="Default budget", kind="question",
@@ -431,6 +462,20 @@ class TestLibrary(McpTestBase):
         self.assertEqual(miss["indexed_without_txt"], ["K2"])
         self.assertEqual(miss["cached_without_index_row"], [])
 
+    def test_search_hyphenated_raw_query(self):
+        # 2026-10-08: bad FTS query 'cone-manifold OR "cone manifold"': no such column
+        s = self.server("author@t")
+        err, res = s.call("library_search", raw=True,
+                          query='saddle-connections OR "maximal cylinder" OR manifold')
+        self.assertFalse(err, res)
+        self.assertIn('"saddle-connections"', res["fts"])
+        err, res = s.call("library_search", query="cone-manifold saddle")
+        self.assertFalse(err, res)
+        err, res = s.call("library_search", raw=True, query="manifold:x OR saddle*")
+        self.assertFalse(err, res)
+        self.assertEqual(lib.escape_fts('a-b OR (c AND "d e") NOT f.g'),
+                         '"a-b" OR ( c AND "d e" ) NOT "f.g"')
+
     def test_parse_index(self):
         rows = lib.parse_index(INDEX)
         self.assertEqual([r["key"] for r in rows], ["K1", "K2"])
@@ -516,6 +561,14 @@ class TestOtherTools(McpTestBase):
                                                         "preflight": "nope"})))
         err, msg = s.call("env_check", env="nope")
         self.assertTrue(err)
+        # a worker reference resolves against the workspace's compute block
+        ws = {"human": {"name": "Ada"}, "compute": {
+            "workers": {"remote-a": {"host": "remote-a", "gateway": "gw-a"}},
+            "gateways": {"gw-a": {"kind": "vpn", "check": "tcp-reachable",
+                                  "probeHost": "remote-a:22"}}}}
+        self.assertEqual(qtools.check_profile("x", {"worker": "remote-a"}, workspace=ws), [])
+        self.assertIn("compute.workers",
+                      qtools.check_profile("x", {"worker": "nowhere"}, workspace=ws)[0])
 
     def test_queue_add_dry_run(self):
         """queue_add builds the job with the Scientist's env.py; by default (and in the
@@ -632,7 +685,7 @@ class TestKeeperRouting(unittest.TestCase):
                                 "domains": ["test-pack"], "ns": "flat"},
             "author@t": {"role": "author", "home": self.homes["author@t"],
                          "domains": ["test-pack"], "ns": "paper"}},
-            "board": self.board, "human": {"name": "Roey"}}
+            "board": self.board, "human": {"name": "Ada"}}
         self.ws_path = os.path.join(self.tmp, "workspace.json")
         write(self.ws_path, json.dumps(ws, indent=2))
         self.env = dict(os.environ, ACADEMY_WORKSPACE=self.ws_path, PYTHONUTF8="1",
@@ -657,7 +710,7 @@ class TestKeeperRouting(unittest.TestCase):
 
     def test_a_proposal_from_outside_every_home_is_not_from_human(self):
         # the main session outside a home is the human for tickets in general, but a
-        # status proposal is the owning notebook's work: T-0065/T-0066 were stamped
+        # status proposal is the owning notebook's work: such tickets were stamped
         # 'from: human' although researcher@flat filed them
         s = self.server()
         err, res = s.call("claims_propose_status", id="flat:some-claim", status="sketch",
@@ -679,6 +732,26 @@ class TestKeeperRouting(unittest.TestCase):
                           reason="complete attempt")
         self.assertFalse(err, res)
         self.assertIn(res["to"], ("researcher@s1", "researcher@beta"))
+
+
+class TestPacketValidation(McpTestBase):
+    def test_every_problem_at_once(self):
+        # 2026-10-08: one refusal per retry; now one refusal names them all, with the shape
+        s = self.server("expert@t")
+        bad = ("### D1. Which?\n- (a) only one\n\n### D3. And?\n- Recommendation: a")
+        err, msg = s.call("packets_create", caller="expert:review-chair", title="x\ny",
+                          kind="verification",
+                          sections={"summary": "s", "decisions_needed": bad})
+        self.assertTrue(err)
+        for want in ("title must be one line", "D1 needs 2-4 options",
+                     "D1 needs a Recommendation line", "numbered D1..Dn",
+                     "packets_create needs: title"):
+            self.assertIn(want, msg)
+        err, msg = s.call("packets_create", caller="expert:review-chair", title="x",
+                          kind="verification", sections={"summary": "s"}, body="b")
+        self.assertTrue(err)
+        self.assertIn("give body or sections, not both", msg)
+        self.assertIn("missing section", msg)
 
 
 class TestCallerHandshake(McpTestBase):
@@ -731,9 +804,16 @@ class TestCallerHandshake(McpTestBase):
             os.remove(os.path.join(s.caller_dir, n))
 
     def test_role_agent_outside_its_role_home_refused(self):
+        # the server's home is not the agent's (2026-10-09, fix 1): an expert agent
+        # acts for the only expert instance, never for the author home it runs in
         s = self.server("author@t")
+        err, t = s.call("tickets_create", caller="expert:librarian", title="x",
+                        kind="question", to="author@t", ask="a", deliverable="d")
+        self.assertFalse(err, t)
+        self.assertEqual(t["from"], "expert@t")
         err, msg = s.call("tickets_create", caller="expert:librarian", title="x",
-                          kind="question", to="expert@t", ask="a", deliverable="d")
+                          instance="author@t", kind="question", to="expert@t", ask="a",
+                          deliverable="d")
         self.assertTrue(err)
         self.assertIn("belongs to the expert role", msg)
         err, t = s.call("tickets_create", caller="academy:concierge", title="Desk",
@@ -833,7 +913,7 @@ class TestGrounds(unittest.TestCase):
     def test_no_grounds(self):
         self.no("proved", None)
         self.no("supported", {})
-        self.ok("proved", None, human=True)          # Roey's word
+        self.ok("proved", None, human=True)          # the human's word
 
     def test_unknown_status(self):
         self.no("Disproved", {"basis": "proof"})
@@ -1077,7 +1157,7 @@ class TestRegistryBackend(McpTestBase):
         self.assertTrue(err)                               # not pinned to the board
         self.assertIn("ticket or packet", msg)
         err, t = self.server().call("tickets_create", title="lab:ew", kind="decision",
-                                    to="researcher@t", ask="Roey: drop it, it is false.",
+                                    to="researcher@t", ask="Ada: drop it, it is false.",
                                     deliverable="d")
         self.assertFalse(err, t)
         err, msg = s.call("claims_set_status", caller="researcher:claim-keeper",
@@ -1090,8 +1170,8 @@ class TestRegistryBackend(McpTestBase):
         self.assertFalse(err, res)
         text = self.lab_text()
         self.assertIn("status: refuted", text)
-        self.assertIn('Roey\'s word "drop it" (%s)' % t["id"], text)
-        self.assertIn("hand | %s | Roey's word" % t["id"], text)
+        self.assertIn('Ada\'s word "drop it" (%s)' % t["id"], text)
+        self.assertIn("hand | %s | Ada's word" % t["id"], text)
 
     def test_lifecycle_move(self):
         write(os.path.join(self.homes["scientist@t"], "claims", "lab", "ew2.md"),
@@ -1128,6 +1208,49 @@ class TestRegistryBackend(McpTestBase):
         self.assertTrue(err)
         self.assertIn("does not exist", msg)
 
+    def test_proof_review_is_an_alias_of_verdict(self):
+        # expert verify's conclude.md said type "proof-review" (5 refusals, 2026-10-08)
+        lab = self.homes["scientist@t"]
+        write(os.path.join(lab, "reviews", "ew", "A.md"), "review\n")
+        s = self.server("researcher@t")
+        err, res = s.call("claims_attach_evidence", caller="researcher:claim-keeper",
+                          id="lab:ew", row={"type": "proof-review", "ref": "reviews/ew/A.md",
+                                            "verdict": "CONFIRMED", "run_id": "A"})
+        self.assertFalse(err, res)
+        self.assertIn("verdict | reviews/ew/A.md | CONFIRMED | run A", self.lab_text())
+        self.assertNotIn("proof-review", self.lab_text())
+        shutil.rmtree(os.path.join(lab, "reviews"))
+
+    def test_proved_modulo_end_to_end(self):
+        # 2026-10-08: every proved-modulo change was refused ("the edit would leave the
+        # record inconsistent") because the record's `modulo` was never written
+        lab = self.homes["scientist@t"]
+        write(os.path.join(lab, "claims", "lab", "pm.md"),
+              "---\nid: lab:pm\nkind: claim\ntitle: PM\nstatus: sketch\n"
+              "lifecycle: active\nevidence: []\nhistory:\n"
+              "  - 2026-09-28 | sketch | created\n---\nBody.\n")
+        path = os.path.join(lab, "claims", "lab", "pm.md")
+        s = self.server("researcher@t")
+        err, msg = s.call("claims_set_status", id="lab:pm", status="proved-modulo",
+                          grounds={"basis": "human", "quote": "fine modulo Q"})
+        self.assertTrue(err)                       # no inputs: the record check refuses
+        self.assertIn("modulo", msg)
+        err, res = s.call("claims_set_status", id="lab:pm", status="proved-modulo",
+                          grounds={"basis": "human", "quote": "fine modulo Q",
+                                   "modulo": ["lab:ew"]})
+        self.assertFalse(err, res)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: proved-modulo", text)
+        self.assertIn("modulo:\n  - lab:ew", text)
+        err, res = s.call("claims_set_status", id="lab:pm", status="proved",
+                          grounds={"basis": "human", "quote": "Q is in"})
+        self.assertFalse(err, res)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: proved", text)
+        self.assertNotIn("modulo:", text)
+
     def test_s1_set_status(self):
         s = self.server("researcher@t")
         vfile = "computation/verdicts/2026-09-28_GEO-1.md"
@@ -1149,7 +1272,7 @@ class TestRegistryBackend(McpTestBase):
         err, msg = s.call("claims_set_status", caller="researcher:claim-keeper",
                           id="s1:GEO-1", status="supported", grounds=comp())
         self.assertTrue(err)
-        self.assertIn("no s1 word", msg)
+        self.assertIn("has no word in a v1 notebook record", msg)
         # the review finding: a verdict file with no subject, whose runs say GAP
         path = os.path.join(self.homes["researcher@t"], "claims", "GEO-1.md")
         with open(path, "rb") as fh:

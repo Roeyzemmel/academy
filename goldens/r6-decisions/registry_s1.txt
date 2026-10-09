@@ -1,6 +1,0 @@
-WARNING objects/claim/GEO-3.md: modulo: 'BLRS fact' is not a record id, so the claim cannot be promoted along the graph when its input is proved
-WARNING objects/claim/GEO-15.md: modulo: 'Kontsevich–Zorich' is not a record id, so the claim cannot be promoted along the graph when its input is proved
-WARNING objects/claim/GEO-30.md: modulo: 'EMM Thm 2.1' is not a record id, so the claim cannot be promoted along the graph when its input is proved
-WARNING objects/claim/GEO-30.md: modulo: 'Smillie–Weiss' is not a record id, so the claim cannot be promoted along the graph when its input is proved
-check: 188 entities, 0 errors, 4 warnings
-exit=0

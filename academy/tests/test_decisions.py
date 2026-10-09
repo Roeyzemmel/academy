@@ -150,8 +150,8 @@ class TestSelectOptions(unittest.TestCase):
             "a": "Yes, recolour now",
             "b": "Wait for Theorem 1.3",
             "c": "Wait for the referee",
-            "d": "Ask Barak first",
-            "e": "Ask Victoria first",
+            "d": "Ask Bo first",
+            "e": "Ask Cy first",
             "f": "Drop the lemma entirely",
         }
         kept, note = dc.select_options(options, "f", max_options=4)

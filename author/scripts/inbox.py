@@ -1,6 +1,6 @@
 """inbox.py -- the Author's inbox: the board is the only queue; tickets are routed.
 
-    py inbox.py [--n N] [--all] [--json] [--campaign TARGET]
+    py inbox.py [--n N] [--all] [--json] [--campaign TARGET | --cowork SLUG]
     py inbox.py --check T-NNNN                the serial checkpoint of a ticket just handled
 
 Common options: ``--home DIR`` (default: the Author home holding the cwd), and for
@@ -228,13 +228,20 @@ def plan(ctx):
     return {"instance": ctx.instance, "land": land, "release": release, "notes": notes}
 
 
-def land_rows(ctx, p, campaign=None):
+def workplan_of(args):
+    """``(value, field)`` of the inbox's workplan filter: ``--cowork`` or ``--campaign``."""
+    if getattr(args, "cowork", None):
+        return args.cowork, "cowork"
+    return args.campaign, "campaign"
+
+
+def land_rows(ctx, p, campaign=None, field="campaign"):
     """The returned tickets to land, as inbox rows (``return: true``), in plan order; with
-    ``campaign`` only those carrying it."""
+    ``campaign`` only those carrying it (in ``field``: ``campaign`` or ``cowork``)."""
     rows = []
     for r in p["land"]:
         t = ctx.tickets.get(r["ticket"]) or {}
-        if campaign and t.get("campaign") != campaign:
+        if campaign and t.get(field) != campaign:
             continue
         rt = land_route(r["kind"])
         rt["why"] += " (%s came back from %s: %s)" % (r["ticket"], t.get("to"),
@@ -244,13 +251,13 @@ def land_rows(ctx, p, campaign=None):
     return rows
 
 
-def release_rows(ctx, p, campaign=None):
+def release_rows(ctx, p, campaign=None, field="campaign"):
     """The released blocked tickets, as inbox rows (status ``blocked``, ``released``); with
-    ``campaign`` only those carrying it."""
+    ``campaign`` only those carrying it (in ``field``)."""
     rows = []
     for r in p["release"]:
         t = ctx.tickets.get(r["ticket"]) or {}
-        if campaign and t.get("campaign") != campaign:
+        if campaign and t.get(field) != campaign:
             continue
         rt = dict(route(t))
         rt["why"] = ("released: %s all back; move it blocked -> accepted, then work it. "
@@ -294,12 +301,12 @@ def run_inbox(args):
     if not ctx.board:
         raise InboxError("no board (workspace.json 'board', or --board)")
     p = plan(ctx)
-    lands = land_rows(ctx, p, args.campaign)
+    lands = land_rows(ctx, p, *workplan_of(args))
     # under --all the blocked pool already lists the released tickets
-    released_rows = [] if args.all else release_rows(ctx, p, args.campaign)
+    released_rows = [] if args.all else release_rows(ctx, p, *workplan_of(args))
     header_text, header_json = [], {"land": len(lands), "released": len(released_rows)}
     if args.all:
-        header_json["released"] = len(release_rows(ctx, p, args.campaign))
+        header_json["released"] = len(release_rows(ctx, p, *workplan_of(args)))
     gap_rows = [] if ctx.agenda_missing else gp.gaps(ctx)
     header_json["gaps"] = None if ctx.agenda_missing else len(gap_rows)
     if ctx.agenda_missing:
@@ -312,8 +319,9 @@ def run_inbox(args):
         header_text.append("%d agenda gap(s) have no ticket: `agenda.py gaps --file` files "
                            "them" % len(fileable))
     if len(gap_rows) > len(fileable):
-        header_text.append("%d agenda gap(s) wait for Roey (refuted or no registry record): "
-                           "`agenda.py gaps` says which" % (len(gap_rows) - len(fileable)))
+        header_text.append("%d agenda gap(s) wait for %s (refuted or no registry record): "
+                           "`agenda.py gaps` says which"
+                           % (len(gap_rows) - len(fileable), ac.human_name()))
     if not args.all:
         header_json["sweep"] = sweep_step()
         header_text.insert(0, "SWEEP FIRST: note-sweeper, before any ticket below "

@@ -171,7 +171,7 @@ class AgendaCliTests(unittest.TestCase):
         self.assertEqual(self.board_files("expert@t"), [])
         self.assertEqual(self.board_files("author@t"), [])
 
-    def test_a_missing_record_is_held_for_roey_not_ticketed(self):
+    def test_a_missing_record_is_held_for_the_human_not_ticketed(self):
         # claim records are made by claims_new / the claim-keeper, not by the math-editor
         self.sb.write(self.agenda, AGENDA.replace("| proved | - | author@t | open |",
                                                   "| proved | - | author@t | missing |"))
@@ -345,8 +345,8 @@ class ModuleShapeTests(unittest.TestCase):
 
     def test_inbox_does_not_import_agenda_so_there_is_no_cycle(self):
         r = self.run_py("import sys, inbox; assert 'agenda' not in sys.modules; "
-                        "import agenda, agenda_migrate; "
-                        "assert agenda.nx is inbox and agenda_migrate.nx is inbox")
+                        "import agenda; "
+                        "assert agenda.nx is inbox")
         self.assertEqual(r.returncode, 0, r.stderr.decode())
 
     def test_an_import_failure_is_not_swallowed_as_zero_gaps(self):
@@ -435,8 +435,7 @@ class SharedFilingTests(unittest.TestCase):
         return nx.Context(self.agenda, board or self.sb.board, ws, "author@t", "paper", 3,
                           ["dom"])
 
-    def test_both_go_through_file_ticket(self):
-        import agenda_migrate as am
+    def test_filing_goes_through_file_ticket(self):
         calls = []
         real = gp.file_ticket
 
@@ -448,14 +447,10 @@ class SharedFilingTests(unittest.TestCase):
         try:
             ctx = self.ctx()
             gp.file_gaps(ctx, campaign="c1")
-            items = am.parse_items("## R-0001 [write] Polish\n- status: open\n"
-                                   "- agenda: lem:d\n\nbody\n")
-            am.apply(ctx, am.plan(ctx, items), campaign="c2")
         finally:
             gp.file_ticket = real
-        self.assertEqual([c[0] for c in calls], ["Verify lem:b", "Prove lem:d", "Polish"])
-        self.assertEqual([c[2] for c in calls], ["c1", "c1", "c2"])
-        self.assertIn("roadmap item R-0001", calls[2][1])
+        self.assertEqual([c[0] for c in calls], ["Verify lem:b", "Prove lem:d"])
+        self.assertEqual([c[2] for c in calls], ["c1", "c1"])
 
     def test_ticket_ids_of_a_file_and_of_a_github_ref(self):
         self.assertEqual(gp.ticket_id_of("/b/expert@t/T-0012-verify-x.md"), "T-0012")

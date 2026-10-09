@@ -2,7 +2,7 @@
 
 Edges come from each store's records (``Record.links``); a target written as an alias
 or a normalised form is replaced by the id it resolves to in its own namespace, so
-``lab:x depends_on s1:N8`` and ``s1:CEX-1`` meet. ``deps`` follows the dependency
+``lab:x depends_on nb:N8`` and ``nb:CEX-1`` meet. ``deps`` follows the dependency
 relations (``depends_on``, ``bears_on``, ``implies``); ``usedby`` follows them backwards.
 Both are breadth-first; with ``transitive`` they close over every namespace.
 """

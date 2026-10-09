@@ -434,6 +434,33 @@ class ApproachTests(Workspace):
         set_refs(self.B, "T-0001", ["s9:AP-1"], status="blocked", waiting_on=["T-0002"])
         self.assertFalse(self.nb.approach_status(store)["pause"])
 
+    def test_status_tells_waiting_on_another_actor_from_pause(self):
+        """WAITING (tickets out with another role's next actor) is not PAUSE (a human
+        decision): academy/lib/workplan.py, from the tickets."""
+        self.put_approach("AP-1")
+        self.put_approach("AP-2")
+        self.put_direction("D-1", "AP-1")
+        self.put_direction("D-2", "AP-2")
+        store = ac.FileBoardStore(self.B)
+        st = self.nb.approach_status(store)
+        self.assertEqual("ACTIVE", st["state"])                     # nothing out: work
+        ticket(self.B, "scientist@t", "T-0001")
+        ticket(self.B, "expert@t", "T-0002")
+        set_refs(self.B, "T-0001", ["s9:AP-1"])
+        set_refs(self.B, "T-0002", ["s9:D-2"])
+        st = self.nb.approach_status(store)
+        rows = {r["approach"]: r for r in st["approaches"]}
+        self.assertEqual("WAITING", rows["s9:AP-1"]["state"])
+        self.assertEqual(["T-0001"], rows["s9:AP-1"]["waiting_tickets"])
+        self.assertEqual(("WAITING", False), (st["state"], st["pause"]))
+        rc, out, _ = self.run_script("notebook.py", "approach", "status", "--board", self.B)
+        self.assertIn("WAITING: every active approach waits", out)
+        self.assertNotIn("PAUSE:", out)
+        set_refs(self.B, "T-0002", ["s9:D-2"], status="blocked", waiting_on=["human"])
+        rows = {r["approach"]: r for r in self.nb.approach_status(store)["approaches"]}
+        self.assertEqual("PAUSE", rows["s9:AP-2"]["state"])
+        self.assertEqual("WAITING", self.nb.approach_status(store)["state"])
+
     # -- P2, P3: tickets of an approach, through the store; moves ----------------------------
     def seed_tickets(self):
         self.put_approach("AP-1")
@@ -530,11 +557,11 @@ class CampaignCapsTests(unittest.TestCase):
     def test_runs_need_a_profile_and_are_forced_to_zero_in_a_cloud(self):
         with self.assertRaises(ac.AcademyError):
             notebook.campaign_caps(3, 4, 2, env={})
-        caps = notebook.campaign_caps(3, 4, 2, "lingo", env={})
-        self.assertEqual((caps["runs"], caps["profile"], caps["cloud"]), (2, "lingo", False))
+        caps = notebook.campaign_caps(3, 4, 2, "remote-a", env={})
+        self.assertEqual((caps["runs"], caps["profile"], caps["cloud"]), (2, "remote-a", False))
         for env, cloud in (({}, True), ({"CLAUDE_CODE_REMOTE": "true"}, False),
                            ({"ACADEMY_CLOUD": "1"}, False)):
-            caps = notebook.campaign_caps(3, 4, 2, "lingo", cloud, env)
+            caps = notebook.campaign_caps(3, 4, 2, "remote-a", cloud, env)
             self.assertEqual((caps["runs"], caps["runs_forced_to_zero"], caps["cloud"]),
                              (0, True, True), env)
 
@@ -545,7 +572,7 @@ class CampaignCapsTests(unittest.TestCase):
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         env.pop("CLAUDE_CODE_REMOTE", None)
         r = subprocess.run([sys.executable, script, "campaign-check", "--rounds", "3",
-                            "--agents", "4", "--runs", "2", "--profile", "lingo", "--cloud"],
+                            "--agents", "4", "--runs", "2", "--profile", "remote-a", "--cloud"],
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("runs=0", r.stdout)
