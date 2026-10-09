@@ -28,18 +28,34 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   they act as `human` only when they file something Roey has confirmed. An agent of a role
   plugin acts only for an instance of its own role: `expert:librarian` running in
   the paper home is refused by the server rather than filing as `author@main`.
-- **Cloud sessions: no instance for agents.** The MCP server is one long-lived process,
-  and it takes the acting instance from *its own* `cwd` (or `$ACADEMY_CWD`), fixed when it
-  starts; it never sees the `cwd` of the agent that calls it, so spawning a subagent from
-  another directory changes nothing (tested 2026-10-08: `claim-keeper` spawned inside the
-  Researcher home was still refused). In a cloud session the server starts outside every
-  home, so a role agent has no instance and every ticket write that needs one is refused
-  with "agent X runs outside every academy home" (`claim-keeper` could set statuses, which
-  do not need an instance, but not update tickets). The main session acts as `human` there
-  and closes the tickets itself. A fix has to resolve the agent's instance per call
-  (for instance the ticket's recipient when it has the agent's role, or the agent's home
-  passed by the caller handshake); until then, record statuses through the agent and close
-  tickets from the main session.
+- **The acting instance is resolved per call.** The MCP server is one long-lived
+  process whose `cwd` (or `$ACADEMY_CWD`) is fixed when it starts; it never sees the
+  `cwd` of the agent that calls it. In a cloud session it starts at the workspace root
+  or in the library, outside the agent's home (before 2026-10-09 every ticket write of
+  a role agent there was refused with "agent X runs outside every academy home"). So
+  the server resolves, for each call, the instance an agent acts for
+  (`tools.Context.instance`):
+  1. the call's `instance` argument (on `tickets_create`, `tickets_update`,
+     `tickets_get`, `claims_new`, `claims_attach_evidence`, `claims_propose_status`,
+     `claims_set_status`; `packets_create` and `config_get` already took one), checked
+     against `workspace.json` and the agent's role: an `expert:` agent naming an author
+     instance is refused;
+  2. for a role agent, the party of the call's ticket (`to`, then `from`; for
+     `tickets_create` the `parent`) whose role is the agent's;
+  3. the home containing the server's `cwd`, when its role is the agent's (a base
+     `academy:` agent acts for whichever home it runs in);
+  4. the only instance of the agent's role in `workspace.json`. With several (two
+     Researchers) and no hint the call is refused with "pass instance=".
+
+  **Only the main session files as `human`.** The caller handshake records `human`
+  exactly when the hook event has no `agent_type`, which is the main thread; a role
+  agent always resolves to an instance (or is refused), and `instance: human` from an
+  agent is refused. The main session itself files as the home it runs in (agent
+  `main`), as `human` outside every home or with `as_human`, and as a named instance
+  with `instance` (a cloud session working an instance's inbox from the root).
+  `claims_new` in another instance's namespace needs `ticket`: a live ticket addressed
+  to that instance, whose role is the agent's; the ticket's thread records the
+  creation (`<instance>/<agent>: created <id> ... for <instance>`).
 
 - **How the server learns the caller (the caller handshake).** An MCP server does
   not see which agent called it, and a PreToolUse hook can rewrite a call's

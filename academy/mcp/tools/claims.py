@@ -618,10 +618,38 @@ def _check(ctx, a):
 
 
 def _own_ns_ok(ctx, ns):
+    """Whether the caller may create a claim in ``ns`` as its own instance (the
+    instance resolved from the ``instance`` argument, the server's home or the only
+    instance of its role -- not from a ticket, which is :func:`_ticket_ns_ok`)."""
     if ctx.is_human or ctx.agent == "claim-keeper":
         return True
-    inst = ctx.instances().get(ctx.home_instance() or "", {})
-    return inst.get("ns") == ns
+    try:
+        me = ctx.instance
+    except ToolError:
+        me = None
+    return bool(me) and ctx.instances().get(me, {}).get("ns") == ns
+
+
+def _ticket_ns_ok(ctx, ns, tid):
+    """``(instance, ticket meta)`` when ticket ``tid`` lets the caller create in ``ns``:
+    the ticket is live and addressed to the instance owning ``ns``, and that instance
+    has the agent's role (an Author agent never creates in a Researcher's namespace).
+    Raises ToolError with the reason otherwise."""
+    _ref, meta, _body = _tickets.load_ticket(ctx, tid)
+    owner = ctx.instance_by_ns(ns)
+    if meta.get("to") != owner:
+        raise ToolError("%s may create claims in %r only on a ticket addressed to %s; "
+                        "%s is addressed to %s" % (ctx.agent, ns, owner or "its owner",
+                                                    tid, meta.get("to")))
+    if meta.get("status") in ac.TERMINAL or meta.get("status") == "delivered":
+        raise ToolError("%s is %s; a claim is created only on a live ticket"
+                        % (tid, meta.get("status")))
+    plugin = ctx.agent_plugin()
+    role = ctx.instances().get(owner, {}).get("role")
+    if plugin in ac.ROLES and plugin != role:
+        raise ToolError("%s:%s belongs to the %s role; it may not create claims in the "
+                        "%s instance %s" % (plugin, ctx.agent, plugin, role, owner))
+    return owner, meta
 
 
 def _new(ctx, a):
@@ -630,16 +658,44 @@ def _new(ctx, a):
     if status not in UNSETTLED:
         raise ToolError("claims_new creates only unsettled claims (%s), not %r"
                         % (", ".join(UNSETTLED), status))
+    via = None
     if not _own_ns_ok(ctx, ns):
-        raise ToolError("%s may create claims only in its own instance's namespace, not %r"
-                        % (ctx.agent, ns))
-    return backend(ctx).new(a["id"], a["title"], status, a.get("where"), a.get("kind"))
+        if not a.get("ticket"):
+            raise ToolError("%s may create claims only in its own instance's namespace, "
+                            "not %r, unless it holds a ticket addressed to that "
+                            "instance (pass ticket=T-NNNN)" % (ctx.agent, ns))
+        via = _ticket_ns_ok(ctx, ns, a["ticket"])
+    res = backend(ctx).new(a["id"], a["title"], status, a.get("where"), a.get("kind"))
+    if via:
+        owner, meta = via
+        role = ctx.instances().get(owner, {}).get("role")
+        note = "created %s (%s) for %s on this ticket" % (
+            (res.get("id") if isinstance(res, dict) and res.get("id") else a["id"]),
+            status, owner)
+        ref, tmeta, tbody = _tickets.load_ticket(ctx, meta["id"])
+        tbody = ac.append_thread(tbody, ac.format_who(owner, ctx.agent), note)
+        tmeta["updated"] = ac.today()
+        ctx.store.save(tmeta, tbody, ref)
+        if isinstance(res, dict):
+            res = dict(res, on_ticket=meta["id"], for_instance=owner, target_role=role)
+    return res
+
+
+#: evidence kinds the tool accepts for a canonical one (the record keeps the canonical
+#: word): ``proof-review`` was what expert verify's conclude.md once said
+EVIDENCE_ALIASES = {"proof-review": "verdict"}
 
 
 def _attach(ctx, a):
     ns, _ = split_id(a["id"])
     check_ns(ctx, ns)
-    return backend(ctx).attach_evidence(a["id"], a["row"])
+    row = a["row"]
+    if isinstance(row, dict):
+        key = "type" if row.get("type") is not None else "kind"
+        kind = str(row.get(key) or "").strip()
+        if kind in EVIDENCE_ALIASES:
+            row = dict(row, **{key: EVIDENCE_ALIASES[kind]})
+    return backend(ctx).attach_evidence(a["id"], row)
 
 
 def _keeper_instance(ctx, ns):
@@ -726,20 +782,30 @@ TOOLS = [
     Tool("claims_check", "Run the registry's consistency check for a namespace.",
          obj({"ns": NS, "strict": B}, ["ns"]), _check),
     Tool("claims_new", "Create a claim with an unsettled status (open, conjectured, "
-         "sketch), in the caller's own namespace. For s1 the id part is kb.py's prefix.",
+         "sketch), in the caller's own namespace, or in another instance's namespace "
+         "with ticket= a live ticket addressed to it. For s1 the id part is kb.py's "
+         "prefix.",
          obj({"id": ID, "title": S, "status": {"type": "string", "enum": list(UNSETTLED)},
-              "where": S, "kind": S}, ["id", "title"]), _new, write=True),
+              "where": S, "kind": S, "instance": _tickets.ACTING,
+              "ticket": {"type": "string", "description":
+                         "A live ticket addressed to the namespace's instance: lets an "
+                         "agent of that role create there from another home (the "
+                         "ticket's thread records it)"}}, ["id", "title"]),
+         _new, write=True),
     Tool("claims_attach_evidence", "Append one evidence row {type, ref, verdict, run_id, "
-         "note} to a claim (append-only). s1: a verdict file, appended to cleared_by.",
-         obj({"id": ID, "row": {"type": "object"}}, ["id", "row"]), _attach, write=True),
+         "note} to a claim (append-only); type is experiment, audit, verdict (a proof "
+         "review; 'proof-review' is accepted for it), hand, citation or note. s1: a "
+         "verdict file, appended to cleared_by.",
+         obj({"instance": _tickets.ACTING, "id": ID, "row": {"type": "object"}},
+             ["id", "row"]), _attach, write=True),
     Tool("claims_propose_status", "Propose a status change: files a decision ticket to "
          "the claim-keeper's instance; changes nothing itself.",
-         obj({"id": ID, "status": S, "reason": S, "grounds": GROUNDS, "refs": L},
+         obj({"instance": _tickets.ACTING, "id": ID, "status": S, "reason": S, "grounds": GROUNDS, "refs": L},
              ["id", "status"]), _propose, write=True),
     Tool("claims_set_status", "Set a claim's status, or move its lifecycle (superseded, "
          "dropped; with a note), as claim-keeper or the human. The server re-checks the "
          "grounds (plan section 8) and the review records they cite, and refuses without "
          "them.",
-         obj({"id": ID, "status": S, "grounds": GROUNDS, "note": S}, ["id", "status"]),
+         obj({"instance": _tickets.ACTING, "id": ID, "status": S, "grounds": GROUNDS, "note": S}, ["id", "status"]),
          _set_status, write=True),
 ]

@@ -20,7 +20,11 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   environment's text in the file) into a scratch file and hash it:
   `py $E/reviews.py hash --file <scratch>`.
 - **Open the pass.** `py $E/reviews.py new-pass <id> --ticket T-NNNN` gives the pass
-  name; `py $E/reviews.py dir <id> <pass>` the folder the hook will land into.
+  name; `py $E/reviews.py dir <id> <pass>` the folder the hook will land into. Never
+  two concurrent passes on one statement: `new-pass` refuses while another pass on
+  `<id>` is open (no `decision.md`). Conclude that one first, or, if it is dead (a
+  stalled run, a changed statement), close it with
+  `py $E/reviews.py abandon <id> <pass> --reason "..."` and say so in the thread.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
   reviewer reads the files, `budget.md` rule 9):
 
@@ -95,7 +99,7 @@ LF, Markdown, written by you:
 ## 4. The registry and the board (MCP tools only)
 
 1. **Evidence**, one row per landed run, append-only:
-   `claims_attach_evidence {id, row: {type: "proof-review", ref: "file:<expert
+   `claims_attach_evidence {id, row: {type: "verdict", ref: "file:<expert
    instance>/reviews/<ns>/<id-slug>/<pass>/<run>.md", verdict, run_id,
    statement_hash, note: <blocking or "">}}`.
 2. **Status**, only when the script gives `proposed_status`:
@@ -118,7 +122,10 @@ LF, Markdown, written by you:
    Each ticket says where the defect lives, what exactly is missing, the repair both
    runs propose, and whether a citation must come first.
 4. **The packet**: `packets_create` kind `verification`, subject `[<id>]`,
-   `status_before` from `claims_show`, `status_proposed` from the script, ticket set.
+   `status_before` from `claims_show`, `status_proposed` from the script, ticket set
+   (required: `title`, `kind`, and `body` or `sections`; each decision is
+   `### Dk. question`, 2-4 `- (a) option` lines and a `- Recommendation:` line;
+   docs/packet-template.md section 3).
    `## Established vs assumed` names every input with its status; `## Evidence` the
    two records, run ids and the statement hash; `## Decisions needed` asks Roey only
    what the table leaves to him (a DISPROVED counterexample; a disagreement's next

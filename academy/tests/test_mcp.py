@@ -431,6 +431,20 @@ class TestLibrary(McpTestBase):
         self.assertEqual(miss["indexed_without_txt"], ["K2"])
         self.assertEqual(miss["cached_without_index_row"], [])
 
+    def test_search_hyphenated_raw_query(self):
+        # 2026-10-08: bad FTS query 'cone-manifold OR "cone manifold"': no such column
+        s = self.server("author@t")
+        err, res = s.call("library_search", raw=True,
+                          query='saddle-connections OR "maximal cylinder" OR manifold')
+        self.assertFalse(err, res)
+        self.assertIn('"saddle-connections"', res["fts"])
+        err, res = s.call("library_search", query="cone-manifold saddle")
+        self.assertFalse(err, res)
+        err, res = s.call("library_search", raw=True, query="manifold:x OR saddle*")
+        self.assertFalse(err, res)
+        self.assertEqual(lib.escape_fts('a-b OR (c AND "d e") NOT f.g'),
+                         '"a-b" OR ( c AND "d e" ) NOT "f.g"')
+
     def test_parse_index(self):
         rows = lib.parse_index(INDEX)
         self.assertEqual([r["key"] for r in rows], ["K1", "K2"])
@@ -681,6 +695,26 @@ class TestKeeperRouting(unittest.TestCase):
         self.assertIn(res["to"], ("researcher@s1", "researcher@beta"))
 
 
+class TestPacketValidation(McpTestBase):
+    def test_every_problem_at_once(self):
+        # 2026-10-08: one refusal per retry; now one refusal names them all, with the shape
+        s = self.server("expert@t")
+        bad = ("### D1. Which?\n- (a) only one\n\n### D3. And?\n- Recommendation: a")
+        err, msg = s.call("packets_create", caller="expert:review-chair", title="x\ny",
+                          kind="verification",
+                          sections={"summary": "s", "decisions_needed": bad})
+        self.assertTrue(err)
+        for want in ("title must be one line", "D1 needs 2-4 options",
+                     "D1 needs a Recommendation line", "numbered D1..Dn",
+                     "packets_create needs: title"):
+            self.assertIn(want, msg)
+        err, msg = s.call("packets_create", caller="expert:review-chair", title="x",
+                          kind="verification", sections={"summary": "s"}, body="b")
+        self.assertTrue(err)
+        self.assertIn("give body or sections, not both", msg)
+        self.assertIn("missing section", msg)
+
+
 class TestCallerHandshake(McpTestBase):
     def test_write_without_hook_record_refused(self):
         s = self.server("author@t")
@@ -731,9 +765,16 @@ class TestCallerHandshake(McpTestBase):
             os.remove(os.path.join(s.caller_dir, n))
 
     def test_role_agent_outside_its_role_home_refused(self):
+        # the server's home is not the agent's (2026-10-09, fix 1): an expert agent
+        # acts for the only expert instance, never for the author home it runs in
         s = self.server("author@t")
+        err, t = s.call("tickets_create", caller="expert:librarian", title="x",
+                        kind="question", to="author@t", ask="a", deliverable="d")
+        self.assertFalse(err, t)
+        self.assertEqual(t["from"], "expert@t")
         err, msg = s.call("tickets_create", caller="expert:librarian", title="x",
-                          kind="question", to="expert@t", ask="a", deliverable="d")
+                          instance="author@t", kind="question", to="expert@t", ask="a",
+                          deliverable="d")
         self.assertTrue(err)
         self.assertIn("belongs to the expert role", msg)
         err, t = s.call("tickets_create", caller="academy:concierge", title="Desk",
@@ -1127,6 +1168,49 @@ class TestRegistryBackend(McpTestBase):
                           id="lab:ew", row=dict(row, ref="audits/none.md"))
         self.assertTrue(err)
         self.assertIn("does not exist", msg)
+
+    def test_proof_review_is_an_alias_of_verdict(self):
+        # expert verify's conclude.md said type "proof-review" (5 refusals, 2026-10-08)
+        lab = self.homes["scientist@t"]
+        write(os.path.join(lab, "reviews", "ew", "A.md"), "review\n")
+        s = self.server("researcher@t")
+        err, res = s.call("claims_attach_evidence", caller="researcher:claim-keeper",
+                          id="lab:ew", row={"type": "proof-review", "ref": "reviews/ew/A.md",
+                                            "verdict": "CONFIRMED", "run_id": "A"})
+        self.assertFalse(err, res)
+        self.assertIn("verdict | reviews/ew/A.md | CONFIRMED | run A", self.lab_text())
+        self.assertNotIn("proof-review", self.lab_text())
+        shutil.rmtree(os.path.join(lab, "reviews"))
+
+    def test_proved_modulo_end_to_end(self):
+        # 2026-10-08: every proved-modulo change was refused ("the edit would leave the
+        # record inconsistent") because the record's `modulo` was never written
+        lab = self.homes["scientist@t"]
+        write(os.path.join(lab, "claims", "lab", "pm.md"),
+              "---\nid: lab:pm\nkind: claim\ntitle: PM\nstatus: sketch\n"
+              "lifecycle: active\nevidence: []\nhistory:\n"
+              "  - 2026-09-28 | sketch | created\n---\nBody.\n")
+        path = os.path.join(lab, "claims", "lab", "pm.md")
+        s = self.server("researcher@t")
+        err, msg = s.call("claims_set_status", id="lab:pm", status="proved-modulo",
+                          grounds={"basis": "human", "quote": "fine modulo Q"})
+        self.assertTrue(err)                       # no inputs: the record check refuses
+        self.assertIn("modulo", msg)
+        err, res = s.call("claims_set_status", id="lab:pm", status="proved-modulo",
+                          grounds={"basis": "human", "quote": "fine modulo Q",
+                                   "modulo": ["lab:ew"]})
+        self.assertFalse(err, res)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: proved-modulo", text)
+        self.assertIn("modulo:\n  - lab:ew", text)
+        err, res = s.call("claims_set_status", id="lab:pm", status="proved",
+                          grounds={"basis": "human", "quote": "Q is in"})
+        self.assertFalse(err, res)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: proved", text)
+        self.assertNotIn("modulo:", text)
 
     def test_s1_set_status(self):
         s = self.server("researcher@t")
