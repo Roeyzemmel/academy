@@ -222,6 +222,50 @@ class TestObjectsLayout(unittest.TestCase):
         self.assertIn("[2026-09-23_E1-x](../audits/E1/2026-09-23_E1-x.md)", ledger)
 
 
+class TestOwnNamespaceReviewRecords(unittest.TestCase):
+    """T-0248: a notebook whose namespace is not ``s1`` (researcher@flat, ns ``flat``)
+    lands review records with ``subject: flat:<id>``; they name its own claims."""
+
+    RUN = ("---\nsubject: {s}\nrun: {r}\nrun_id: rv-{r}\nverdict: {v}\n"
+           "landed_by: expert/land_verdict\n---\nreport\n")
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="registry-flat-"))
+        self.addCleanup(shutil.rmtree, str(self.root), True)
+        notebook_config(self.root, ns="flat")
+        write(self.root / "objects" / "claim" / "CEX-1.md", CEX)
+        write(self.root / "objects" / "question" / "Q1.md", Q1)
+        self.d = self.root / "audits" / "Q1" / "2026-10-10-T-0236"
+
+    def problems(self, eid="Q1", label="proved", name="A.md"):
+        kb = s1kb.load_kb(self.root)
+        return s1kb.verdict_file_problems(kb, f"audits/Q1/2026-10-10-T-0236/{name}",
+                                          eid, label)
+
+    def test_two_confirmed_runs_on_own_namespace_subject_clear(self):
+        write(self.d / "A.md", self.RUN.format(s="flat:Q1", r="A", v="CONFIRMED"))
+        self.assertEqual(len(self.problems()), 1)              # one run is not a pair
+        self.assertIn("two landed runs", self.problems()[0])
+        write(self.d / "B.md", self.RUN.format(s="flat:Q1", r="B", v="CONFIRMED"))
+        self.assertEqual(self.problems(), [])
+        self.assertEqual(self.problems(name="B.md"), [])
+
+    def test_a_record_of_another_claim_is_still_refused(self):
+        write(self.d / "A.md", self.RUN.format(s="flat:Q1", r="A", v="CONFIRMED"))
+        write(self.d / "B.md", self.RUN.format(s="flat:CEX-1", r="B", v="CONFIRMED"))
+        self.assertEqual(self.problems(name="B.md"),
+                         ["audits/Q1/2026-10-10-T-0236/B.md is a review of flat:CEX-1, "
+                          "not Q1"])
+        probs = self.problems(name="A.md")                     # B does not count for Q1
+        self.assertEqual(len(probs), 1)
+        self.assertIn("has 1", probs[0])
+
+    def test_a_foreign_namespace_subject_is_not_this_claim(self):
+        write(self.d / "A.md", self.RUN.format(s="lab:Q1", r="A", v="CONFIRMED"))
+        self.assertEqual(self.problems(),
+                         ["audits/Q1/2026-10-10-T-0236/A.md is a review of lab:Q1, not Q1"])
+
+
 class TestLegacyLayoutUnchanged(Homes):
     def test_audits_are_not_verdict_files_without_objects(self):
         write(self.s1 / "audits" / "E1" / "v.md", VERDICT)
