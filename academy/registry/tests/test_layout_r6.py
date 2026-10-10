@@ -265,6 +265,43 @@ class TestOwnNamespaceReviewRecords(unittest.TestCase):
         self.assertEqual(self.problems(),
                          ["audits/Q1/2026-10-10-T-0236/A.md is a review of lab:Q1, not Q1"])
 
+    def test_s1_subjects_do_not_name_a_flat_object(self):
+        """``s1:Q1`` names the slope-1 notebook's Q1, not this home's Q1 (same bare id):
+        two CONFIRMED runs on it must not carry flat's Q1, nor may ``clears: [s1:Q1]``."""
+        write(self.d / "A.md", self.RUN.format(s="s1:Q1", r="A", v="CONFIRMED"))
+        write(self.d / "B.md", self.RUN.format(s="s1:Q1", r="B", v="CONFIRMED"))
+        self.assertEqual(self.problems(),
+                         ["audits/Q1/2026-10-10-T-0236/A.md is a review of s1:Q1, not Q1"])
+        write(self.d / "decision.md", "---\nsubjects: [s1:Q1]\nclears: [s1:Q1]\n---\n"
+                                      "Run A: CONFIRMED\nRun B: CONFIRMED\n")
+        probs = self.problems(name="decision.md")
+        self.assertEqual(len(probs), 1, probs)
+        self.assertIn("does not clear Q1", probs[0])
+        self.assertEqual(self.problems(label="conjectured", name="decision.md"),
+                         ["audits/Q1/2026-10-10-T-0236/decision.md does not name Q1 "
+                          "(subjects / clears)"])
+
+    def test_s1_prefix_is_still_read_when_the_namespace_is_unknown(self):
+        """A home whose namespace cannot be determined (no ``ns``, not in the workspace)
+        keeps the profile's old reading: ``s1:<id>`` is ``<id>``."""
+        import json
+        import os
+        from registry.core import workspace as _ws
+        notebook_config(self.root, ns=None)
+        ws = write(self.root.parent / (self.root.name + "-ws.json"), json.dumps(
+            {"instances": {"scientist@t": {"role": "scientist", "ns": "lab",
+                                           "home": str(self.root / "elsewhere")}}}))
+        self.addCleanup(os.remove, str(ws))
+        old = os.environ.get("ACADEMY_WORKSPACE")
+        os.environ["ACADEMY_WORKSPACE"] = str(ws)
+        self.addCleanup(lambda: os.environ.__setitem__("ACADEMY_WORKSPACE", old)
+                        if old is not None else os.environ.pop("ACADEMY_WORKSPACE", None))
+        self.assertIsNone(s1kb.load_kb(self.root).rules.ns)
+        self.assertIsNone(_ws.repo_ns(self.root))
+        write(self.d / "A.md", self.RUN.format(s="s1:Q1", r="A", v="CONFIRMED"))
+        write(self.d / "B.md", self.RUN.format(s="s1:Q1", r="B", v="CONFIRMED"))
+        self.assertEqual(self.problems(), [])
+
 
 class TestLegacyLayoutUnchanged(Homes):
     def test_audits_are_not_verdict_files_without_objects(self):
