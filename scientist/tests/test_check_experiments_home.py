@@ -182,6 +182,46 @@ class CheckerHomeTest(unittest.TestCase):
             else:
                 os.environ["ACADEMY_WORKSPACE"] = old_ws
 
+    def test_e7_follows_the_homes_registry_root(self):
+        # registry.root of academy.json names the records' directory; the default
+        # ``claims`` is not read when it names another.
+        cfg_path = os.path.join(self.home, ".claude", "academy.json")
+        with open(cfg_path) as fh:
+            cfg = json.load(fh)
+        cfg["registry"]["root"] = "regs"
+        with open(cfg_path, "w") as fh:
+            json.dump(cfg, fh)
+        shutil.move(os.path.join(self.home, "claims"), os.path.join(self.home, "regs"))
+        good = os.path.join(self.home, "exps", "2026-09-30_good.py")
+        rc, out = self.run_checker("--home", self.home, good)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("[E7]", out)
+        shutil.move(os.path.join(self.home, "regs"), os.path.join(self.home, "elsewhere"))
+        rc, out = self.run_checker("--home", self.home, good)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("[E7] claim 'lab:probe' is not in the registry", out)
+
+    def test_header_wrapped_claims_keep_their_continuation_lines(self):
+        # Only a column-0 ``Name:`` line outside the contract ends a field; an indented
+        # continuation of a contract field (even one containing ``word: x``) is kept.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("chk_header_under_test", CHECKER)
+        chk = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(chk)
+        lines = ['"""T.', "",
+                 "Claims:         lab:a,",
+                 "                lab:b",
+                 "Claim tested:   x",
+                 "                see note: y",
+                 "Ticket: T-1",
+                 "                lab:ghost",
+                 "Result:         done",
+                 '"""', ""]
+        header = chk.parse_header("\n".join(lines))
+        self.assertEqual(header["Claims"][0], "lab:a, lab:b")
+        self.assertEqual(header["Claim tested"][0], "x see note: y")
+        self.assertNotIn("lab:ghost", " ".join(v[0] for v in header.values()))
+
 
 if __name__ == "__main__":
     unittest.main()
