@@ -167,6 +167,8 @@ def parse_header(text):
         if m and m.group(1).strip() in FIELDS:
             current = m.group(1).strip()
             fields[current] = [m.group(2).strip(), offset + i]
+        elif m:  # a field outside the contract (Tests:, Ticket:, ...) ends the current one
+            current = None
         elif current and raw.startswith((" ", "\t")) and raw.strip():
             fields[current][0] = (fields[current][0] + " " + raw.strip()).strip()
         elif not raw.strip():

@@ -127,6 +127,20 @@ class CheckerHomeTest(unittest.TestCase):
         e7 = [line for line in out.splitlines() if "[E7]" in line]
         self.assertEqual(len(e7), 1, out)   # lab:probe is in the registry: no E7 for it
 
+    def test_e7_reads_only_the_claims_field_not_a_following_free_field(self):
+        # A header field outside the contract (here ``Tests:``) ends ``Claims:``; its
+        # indented continuation lines are not read as more claim ids.
+        with open(os.path.join(self.home, "exps", "2026-09-30_free.py"), "w") as fh:
+            fh.write(GOOD.replace(
+                "Claims:         lab:probe\n",
+                "Claims:         lab:probe\n"
+                "Tests:          flat:other, file proofs/x.md, Example 3 (the\n"
+                "                counterexample), not (S), (W)\n"))
+        rc, out = self.run_checker("--home", self.home,
+                                   os.path.join(self.home, "exps", "2026-09-30_free.py"))
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("[E7]", out)
+
     def test_e7_quiet_when_every_id_is_in_the_registry(self):
         rc, out = self.run_checker("--home", self.home,
                                    os.path.join(self.home, "exps", "2026-09-30_good.py"))
