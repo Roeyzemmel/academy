@@ -2,7 +2,11 @@
 the cwd, and reads the experiments and results directories from academy.json
 (docs/config.md: paths.experiments, paths.results), instead of from its own location.
 The rules themselves are the lab's (legacy/check_experiments.py) and are tested there
-(SciLab tests/test_check_experiments.py, which loads the lab's shim)."""
+(SciLab tests/test_check_experiments.py, which loads the lab's shim).
+
+E7 (a ``Claims:`` id missing from the registry) reads the lab's registry through the
+academy registry engine (``academy/registry/profiles/fsl.py``, the engine of rule set
+``lab``), not through a ``scripts/claims.py`` in the lab (removed 2026-09-28, T-0177)."""
 
 import json
 import os
@@ -37,6 +41,22 @@ def run():
     env.save_result("x", {}, script=__file__, outcome=env.measure_outcome())
 '''
 
+# One record of the lab registry (claims/lab/probe.md), in the fsl-claims dialect.
+PROBE_RECORD = """---
+id: lab:probe
+kind: claim
+title: "Measure: horizontal cylinders of 3-square origamis"
+status: open
+lifecycle: active
+domain: translation-surfaces
+evidence: []
+history:
+  - 2026-10-10 | open | created (test fixture)
+---
+
+A fixture record for the checker's E7 test.
+"""
+
 
 class CheckerHomeTest(unittest.TestCase):
     def setUp(self):
@@ -62,10 +82,21 @@ class CheckerHomeTest(unittest.TestCase):
             fh.write(GOOD)
         with open(os.path.join(self.home, "out", "orphan.json"), "w") as fh:
             fh.write("{}")
+        os.makedirs(os.path.join(self.home, "claims", "lab"))
+        with open(os.path.join(self.home, "claims", "lab", "probe.md"), "w",
+                  encoding="utf-8") as fh:
+            fh.write(PROBE_RECORD)
+        # A workspace naming no instance, so a namespace's rule set is its own name
+        # (``lab`` is checked) whatever workspace the machine running the tests has.
+        self.workspace = os.path.join(self.root, "workspace.json")
+        with open(self.workspace, "w") as fh:
+            json.dump({"instances": {}}, fh)
 
     def run_checker(self, *args, cwd=None, env=None):
         e = dict(os.environ, PYTHONIOENCODING="utf-8")
-        e.pop("ACADEMY_LAB_HOME", None)
+        for var in ("ACADEMY_LAB_HOME", "ACADEMY_ROOT", "ACADEMY_ENV_WORKSPACE"):
+            e.pop(var, None)
+        e["ACADEMY_WORKSPACE"] = self.workspace
         e.update(env or {})
         p = subprocess.run([sys.executable, CHECKER] + list(args), capture_output=True,
                            text=True, encoding="utf-8", cwd=cwd or self.root, env=e)
@@ -84,6 +115,58 @@ class CheckerHomeTest(unittest.TestCase):
         rc2, out2 = self.run_checker(cwd=os.path.join(self.home, "exps"))
         self.assertEqual(out1, out2)
         self.assertIn("over 2 script(s)", out2)
+
+    def test_e7_flags_an_id_missing_from_the_registry(self):
+        with open(os.path.join(self.home, "exps", "2026-09-30_unknown.py"), "w") as fh:
+            fh.write(GOOD.replace("Claims:         lab:probe",
+                                  "Claims:         lab:probe, lab:no-such-claim"))
+        rc, out = self.run_checker("--home", self.home)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("exps/2026-09-30_unknown.py:5: ERROR: [E7] claim 'lab:no-such-claim' "
+                      "is not in the registry", out)
+        e7 = [line for line in out.splitlines() if "[E7]" in line]
+        self.assertEqual(len(e7), 1, out)   # lab:probe is in the registry: no E7 for it
+
+    def test_e7_quiet_when_every_id_is_in_the_registry(self):
+        rc, out = self.run_checker("--home", self.home,
+                                   os.path.join(self.home, "exps", "2026-09-30_good.py"))
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("[E7]", out)
+
+    def test_e7_in_process_beside_another_module_named_academy(self):
+        # A lab's tests load the checker in process with their own tests/_academy.py
+        # (a helper that finds the academy repo) already imported as ``_academy``; the
+        # checker must still reach its vendored copy, the registry and the rule sets.
+        import importlib.util
+        import types
+        saved = sys.modules.get("_academy")
+        sys.modules["_academy"] = types.ModuleType("_academy")   # the lab's helper
+        old_ws = os.environ.get("ACADEMY_WORKSPACE")
+        os.environ["ACADEMY_WORKSPACE"] = self.workspace
+        try:
+            spec = importlib.util.spec_from_file_location("chk_under_test", CHECKER)
+            chk = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(chk)
+            chk.set_home(self.home)
+            self.assertEqual(chk.registry_ids(), {"lab:probe"})
+            script = os.path.join(self.home, "exps", "2026-09-30_unknown.py")
+            with open(script, "w") as fh:
+                fh.write(GOOD.replace("Claims:         lab:probe",
+                                      "Claims:         lab:probe, lab:no-such-claim"))
+            report = chk.Report()
+            chk.check_script(chk.Path(script), report, set(), chk.registry_ids())
+            e7 = [line for line in report.errors if "[E7]" in line]
+            self.assertEqual(len(e7), 1, report.errors)
+            self.assertIn("'lab:no-such-claim'", e7[0])
+        finally:
+            if saved is None:
+                sys.modules.pop("_academy", None)
+            else:
+                sys.modules["_academy"] = saved
+            if old_ws is None:
+                os.environ.pop("ACADEMY_WORKSPACE", None)
+            else:
+                os.environ["ACADEMY_WORKSPACE"] = old_ws
 
 
 if __name__ == "__main__":

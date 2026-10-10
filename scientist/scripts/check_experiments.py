@@ -191,14 +191,30 @@ def calls(text):
     return names
 
 
+def _vendored_academy(_cache=[]):
+    """This plugin's vendored ``_academy.py``, loaded by its path (not ``import
+    _academy``: a lab's tests load the checker in process with their own
+    ``tests/_academy.py`` helper already imported under that name). None when it cannot
+    be loaded."""
+    if not _cache:
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_academy.py")
+        try:
+            spec = importlib.util.spec_from_file_location("_scientist_check_academy", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except Exception:
+            mod = None
+        _cache.append(mod)
+    return _cache[0]
+
+
 def _rule_set_of(ns):
     """The rule set (``lab``, ``paper``, ``notebook``) of namespace ``ns``: its instance's
     ``registry.profile`` in workspace.json, else the namespace's own name read as a rule
     set (``paper``; ``s1`` is an alias of ``notebook``), else ``lab``."""
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    try:
-        import _academy as ac
-    except ImportError:  # the checker must not fail over its own tooling
+    ac = _vendored_academy()
+    if ac is None:  # the checker must not fail over its own tooling
         return "lab"
     try:
         ws = ac.load_workspace()
@@ -223,13 +239,20 @@ def unchecked_namespace(ns, _cache={}):
 
 
 def registry_ids():
-    """Ids in the claim registry, or None when the registry cannot be read."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("claims", ROOT / "scripts" / "claims.py")
-    mod = importlib.util.module_from_spec(spec)
+    """Ids in the lab's claim registry, or None when the registry cannot be read.
+
+    The registry is read through the academy's registry engine: rule set ``lab`` (the
+    lab's ``registry.profile``) is engine profile ``fsl-claims``, which is
+    ``academy/registry/profiles/fsl.py`` in the academy repo (``_academy.repo_root()``:
+    ``$ACADEMY_ROOT``, else the checkout this plugin sits in). The records are under
+    the home's ``registry.root`` (default ``claims``). Until 2026-10 this loaded the
+    lab's own ``scripts/claims.py``, removed 2026-09-28, so E7 never fired (T-0177)."""
     try:
-        spec.loader.exec_module(mod)
-        cs, _ = mod.load(mod.registry_root(ROOT))
+        engine = os.path.join(_vendored_academy().repo_root(), "academy")
+        if engine not in sys.path:
+            sys.path.insert(0, engine)
+        from registry.profiles import fsl
+        cs, _ = fsl.load(fsl.registry_root(ROOT))
     except Exception:  # the checker must not fail over its own tooling
         return None
     return {c.fields.get("id") for c in cs}

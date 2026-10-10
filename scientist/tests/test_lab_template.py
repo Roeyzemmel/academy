@@ -1,6 +1,6 @@
 """The lab scaffold (templates/lab/, written by /academy:init scientist@x): the provenance
 module works without Sage, and an experiment filled in from _template.py passes the
-experiment checker (E2/E3 header, E5 save_result, E6 banner, E10 outcome=)."""
+experiment checker (E2/E3 header, E5 save_result, E6 banner, E7 registry id, E10 outcome=)."""
 
 import importlib
 import json
@@ -105,6 +105,13 @@ class LabTemplateTest(unittest.TestCase):
         path = os.path.join(self.home, "experiments", "2026-10-09_demo.py")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
+        # E7: the Claims: id must be in the lab registry (claims/, the fsl-claims engine)
+        os.makedirs(os.path.join(self.home, "claims", "mylab"))
+        with open(os.path.join(self.home, "claims", "mylab", "demo.md"), "w",
+                  encoding="utf-8") as fh:
+            fh.write('---\nid: mylab:demo\nkind: claim\ntitle: "Search: small examples"\n'
+                     'status: open\nevidence: []\nhistory:\n'
+                     '  - 2026-10-10 | open | created (test fixture)\n---\n')
         proc = subprocess.run([sys.executable, CHECKER, "--home", self.home, path],
                               capture_output=True, encoding="utf-8")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
