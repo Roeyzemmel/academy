@@ -1863,9 +1863,20 @@ def _meta_of_file(path: Path, name):
     return meta or {}, body
 
 
+def _own_prefixes(kb) -> tuple:
+    """The ``<ns>:`` prefix that names this home's own objects: its namespace
+    (academy.json ``ns``, else the workspace's), or ``s1:``, the profile's first home,
+    when neither knows it. Another home's prefix (``s1:`` in ``flat``) names its object."""
+    own = kb.rules.ns or _workspace.repo_ns(kb.root) or "s1"
+    return (f"{own}:",)
+
+
 def _ids(kb, v):
+    """The ids of this home that ``v`` (an id or a list) names; ``<own ns>:<id>`` is
+    read as ``<id>``, any other namespace names no object here."""
     vals = v if isinstance(v, list) else ([v] if v else [])
-    return {lookup(kb, str(x).split(":", 1)[-1] if str(x).startswith("s1:") else str(x))[0]
+    own = _own_prefixes(kb)
+    return {lookup(kb, str(x).split(":", 1)[-1] if str(x).startswith(own) else str(x))[0]
             for x in vals} - {None}
 
 

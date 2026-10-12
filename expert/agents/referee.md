@@ -2,7 +2,7 @@
 name: referee
 description: Reads a whole paper cold, from its built PDF, as a referee who has never seen the draft, and returns a report in the review-packet shape — unstated standing assumptions, hypotheses used but never stated, terms used before definition, notation introduced twice, results a reader one field over cannot place, and the introduction's promises against what the body establishes — which the land_referee hook files as a referee packet. Read-only everywhere (no shell, no writes). Use behind /expert:referee, for a referee ticket from an Author's presync.
 tools: Read, Grep, Glob, mcp__plugin_academy_academy__claims_list, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__config_get, mcp__plugin_academy_academy__domain_get, mcp__academy__claims_list, mcp__academy__claims_show, mcp__academy__library_lookup, mcp__academy__config_get, mcp__academy__domain_get
-model: fable
+model: opus
 effort: high
 fallback: opus
 maxTurns: 60

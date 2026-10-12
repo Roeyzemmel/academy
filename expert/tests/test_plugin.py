@@ -19,8 +19,8 @@ PLAN = {
     "librarian": ("sonnet", "opus"),
     "related-work-scout": ("sonnet", "opus"),
     "review-chair": ("sonnet", "opus"),
-    "rigor-reviewer": ("fable", "opus"),
-    "referee": ("fable", "opus"),
+    "rigor-reviewer": ("opus", "opus"),
+    "referee": ("opus", "opus"),
     "research-intake": ("sonnet", "opus"),
     "paper-liaison": ("haiku", "sonnet"),
 }
