@@ -2012,6 +2012,32 @@ def verdict_file_problems(kb, vrel, eid, label, human=False):
     return probs
 
 
+def _modulo_items(kb, items):
+    """``set-status --modulo`` items as the record keeps them, and the refusals: an
+    item of this home (bare, no whitespace, or ``<own ns>:<id>``) must resolve and is
+    written as its canonical bare id; another home's ``<ns>:<id>`` is kept as given;
+    text with whitespace is a plain-text input (the check warns on it); an empty item
+    (``''``, ``'flat:'``) names nothing (T-0361 review)."""
+    own, out, why = _own_prefixes(kb), [], []
+    for raw in items:
+        s = str(raw).strip()
+        mine = s.startswith(own)
+        bare = s.split(":", 1)[1].strip() if mine else s
+        if not bare:
+            why.append(f"{raw!r} is empty: name an input")
+        elif re.search(r"\s", bare):
+            out.append(bare)
+        elif ":" in bare and not mine:
+            out.append(s)
+        else:
+            rid = lookup(kb, bare)[0]
+            if rid is None:
+                why.append(f"{raw!r} does not resolve to a record of this home")
+            else:
+                out.append(rid)
+    return out, why
+
+
 def rewrite_status_v2(p: Path, label, vrow, note, old, human=None, modulo=None):
     """set-status on a schema-v2 file: the status (or lifecycle) line, the verdict's
     evidence row (when there is a verdict), the status note, and a history row, newest
@@ -2095,6 +2121,10 @@ def cmd_set_status(args) -> int:
         print("set-status: --modulo goes only with proved-modulo on a schema-v2 record "
               "(proved drops the record's modulo)", file=sys.stderr)
         return 1
+    modulo, why = _modulo_items(kb, args.modulo or [])
+    if why:
+        print("set-status: --modulo refused:\n- " + "\n- ".join(why), file=sys.stderr)
+        return 1
     old = e.meta.get("status", "(none)")
     # superseded (v2): the replacing record carries the one-way `supersedes` link
     new = None
@@ -2122,9 +2152,7 @@ def cmd_set_status(args) -> int:
         old = _schema.state(e.v2) or "(none)"
         rewrite_status_v2(path, args.label,
                           _verdict_row(kb.root, vrel) if vrel else None,
-                          args.note, old, human=args.human,
-                          modulo=[m.split(":", 1)[1] if m.startswith(_own_prefixes(kb))
-                                  else m for m in (s.strip() for s in args.modulo or [])])
+                          args.note, old, human=args.human, modulo=modulo)
     else:
         rewrite_status_file(path, e.path, args.label, vrel, args.note, old)
     # the change stands only if the kb still builds: otherwise the files are put back

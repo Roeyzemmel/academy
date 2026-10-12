@@ -1321,14 +1321,17 @@ class TestRegistryBackend(McpTestBase):
         word = {"basis": "human", "quote": "GEO-2 holds modulo GEO-1", "where": t["id"],
                 "verdict_file": vfile}
         s = self.server("researcher@t")
-        err, res = s.call("claims_set_status", caller="researcher:claim-keeper",
-                          id="s1:GEO-2", status="proved-modulo",
-                          grounds=dict(word, modulo=["s1:GEO-1"]))
-        self.assertFalse(err, res)
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
-        self.assertIn("status: proved-modulo", text)
-        self.assertIn("modulo:\n  - GEO-1\n", text)
+        # a list, or (review finding 3) one string, not read character by character
+        for mods in (["s1:GEO-1"], "s1:GEO-1"):
+            err, res = s.call("claims_set_status", caller="researcher:claim-keeper",
+                              id="s1:GEO-2", status="proved-modulo",
+                              grounds=dict(word, modulo=mods))
+            self.assertFalse(err, res)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("status: proved-modulo", text)
+            self.assertIn("modulo:\n  - GEO-1\n", text)
+            self.assertNotIn("modulo:\n  - GEO-1\n  - ", text)
         err, res = s.call("claims_set_status", caller="researcher:claim-keeper",
                           id="s1:GEO-2", status="proved", grounds=word)
         self.assertFalse(err, res)

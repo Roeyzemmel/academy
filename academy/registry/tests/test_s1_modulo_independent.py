@@ -197,7 +197,6 @@ class FlatShapedHome(unittest.TestCase):
 
     # -- findings ------------------------------------------------------------------
 
-    @unittest.expectedFailure
     def test_finding_1_unresolvable_own_namespace_modulo_is_refused(self):
         """``--modulo flat:FND-99`` names this home's object (own namespace), which does
         not exist: the ticket's rule makes that an error, so set-status must refuse and
@@ -209,7 +208,6 @@ class FlatShapedHome(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertEqual(self.path().read_bytes(), before)
 
-    @unittest.expectedFailure
     def test_finding_2_empty_modulo_item_is_refused(self):
         """``--modulo ''`` (or ``'  '``, or ``'flat:'``) names no input. On the branch it
         writes ``modulo: [""]``, a non-empty list, so the schema's "proved-modulo needs
