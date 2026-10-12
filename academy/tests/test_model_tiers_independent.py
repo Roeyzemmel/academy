@@ -2,7 +2,7 @@
 
 Expected values come from the specification, not from the code's output:
 
-- the human's rule quoted in T-0350 (Roey, 2026-10-12): tiers ``base``, ``medium``,
+- the human's rule quoted in T-0350 (2026-10-12): tiers ``base``, ``medium``,
   ``large``, ``max``; this workspace base = haiku, medium = sonnet (``connect`` read as
   Sonnet), large = max = Opus 5.5; the assignment is workspace dependent;
 - docs/config.md, "``models``: agent tiers" and the ``grading`` row (minTier floor,
@@ -37,7 +37,7 @@ sys.path.insert(0, SCRIPTS)
 import academy_common as ac  # noqa: E402
 import usage_report  # noqa: E402
 
-#: the ticket's literal map for this workspace (aliases, as Roey worded it)
+#: the ticket's literal map for this workspace (aliases, as the human worded it)
 LITERAL = {"base": "haiku", "medium": "sonnet", "large": "opus", "max": "opus"}
 #: the same map with Opus 5.5 named by its id
 VERSIONED = {"base": "haiku", "medium": "sonnet", "large": "claude-opus-5-5",
