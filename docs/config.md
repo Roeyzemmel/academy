@@ -93,8 +93,8 @@ default map. The workspace decides which model each tier is:
                      "large": "claude-opus-5-5", "max": "claude-opus-5-5"}}
 ```
 
-That is the academy default (`DEFAULT_MODEL_TIERS`), and this workspace's map (Roey,
-2026-10-12: Haiku as base, Sonnet as medium, Opus 5.5 as both large and max). A partial map
+That is the academy default (`DEFAULT_MODEL_TIERS`): Haiku as base, Sonnet as medium,
+Opus 5.5 as both large and max. A partial map
 is merged over it. A value is an alias (`haiku`, `sonnet`, `opus`, `fable`) or a full
 `claude-...` id; no tier may name a lighter family than the one below it; `inherit` is not
 a tier's model. `load_workspace` rejects anything else, and the workspace bootstrap reports
