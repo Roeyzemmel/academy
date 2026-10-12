@@ -112,6 +112,9 @@ def block_problems(block):
     if not RE_HASH.match((block.get("statement_hash") or "").strip().lower()):
         probs.append("statement_hash")
     if dt.is_reword(block):
+        if not (block.get("pass") or "").strip().endswith(reviews.REWORD_SUFFIX) \
+                and "pass" not in probs:
+            probs.append("pass")    # a reword run lands only in a reword pass
         if not RE_PASS_NAME.match((block.get("base_pass") or "").strip()):
             probs.append("base_pass")
         if not RE_HASH.match((block.get("base_hash") or "").strip().lower()):

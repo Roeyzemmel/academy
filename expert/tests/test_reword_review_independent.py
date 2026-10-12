@@ -101,7 +101,6 @@ class RewordTable(Base):
                          pass_="2026-10-20-T-0400-reword")
         self.assertEqual((res["outcome"], res["proposed_status"]), ("invalid-base", None))
 
-    @unittest.expectedFailure
     def test_finding_a_reword_record_inside_the_base_pass_is_not_a_blind_run(self):
         """Finding: a base pass whose A.md is a reword record (mis-filed or hand-placed)
         is taken as CONFIRMED x2: _base_problems / _decide never check is_reword on the
@@ -217,7 +216,6 @@ class LandVerdictKeys(Base):
         self.assertEqual(out["decision"], "block", out)
         self.assertIn("base_pass", out["reason"])
 
-    @unittest.expectedFailure
     def test_finding_a_reword_block_does_not_land_in_a_blind_pass(self):
         """Finding: a reword block naming a blind pass lands R.md beside its A/B, where
         the notebook's blind path counts it as a run (registry test

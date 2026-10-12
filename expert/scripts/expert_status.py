@@ -32,10 +32,14 @@ def review_state(home):
     if not os.path.isdir(root):
         return {"passes": 0, "awaiting_b": [], "undecided": []}
     for dp, dn, fn in os.walk(root):
+        rel = os.path.relpath(dp, root).replace("\\", "/")
         if "A.md" not in fn:
+            if "R.md" in fn:            # a reword pass (T-0347): one run, R
+                passes += 1
+                if "decision.md" not in fn:
+                    undecided.append(rel)
             continue
         passes += 1
-        rel = os.path.relpath(dp, root).replace("\\", "/")
         a = dt.read_record(os.path.join(dp, "A.md"))
         b = dt.read_record(os.path.join(dp, "B.md")) if "B.md" in fn else None
         if b is None and dt.should_launch_b(a):

@@ -49,14 +49,12 @@ class PinsWithARewordPass(PinnedBase):
         self.land_r("CONFIRMED")
         self.assertIn("lem:lift", self.pins())
 
-    @unittest.expectedFailure
     def test_finding_a_confirmed_reword_moves_the_pin_to_the_new_wording(self):
         self.land_r("CONFIRMED")
         p = self.pins()["lem:lift"]
         self.assertEqual((p["pass"], p["hash"], p["level"]),
                          (RW_PASS, self.h_new, "verified"))
 
-    @unittest.expectedFailure
     def test_finding_a_reword_gap_unpins(self):
         self.land_r("GAP")
         self.assertNotIn("lem:lift", self.pins())

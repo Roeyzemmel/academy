@@ -11,6 +11,11 @@ at least one run and every landed run is CONFIRMED with a ``statement_hash``:
 * ``in-review`` -- run A CONFIRMED and B not landed yet (editing the statement now would
   void the pass).
 
+A **reword pass** (T-0347: one run ``R.md``, ``mode: reword``, on a statement reworded
+after a CONFIRMED x2 pass) is the latest pass like any other: R CONFIRMED with
+``reword_scope`` equivalent / weaker / covered moves the pin to the new hash at
+``verified``; R GAP, or ``exceeds``, unpins.
+
 A later pass that is not all CONFIRMED (a GAP, a DISPROVED) unpins: the statement is
 then open to a repair, which is the Researcher's (roster-rules.md, "Role cut"). Passes
 without a statement hash (out-of-protocol runs) are ignored.
@@ -49,7 +54,9 @@ import _author as au  # noqa: E402
 ac = au.ac
 
 RELEASE_REL = os.path.join(".claude", "pinned-release.txt")
-RE_RUN_FILE = re.compile(r"^([AB])(?:-\d+)?\.md$")
+RE_RUN_FILE = re.compile(r"^([ABR])(?:-\d+)?\.md$")
+#: the reword scopes that carry a base pass to the new wording (T-0347)
+REWORD_CARRIES = ("equivalent", "weaker", "covered")
 RE_BEGIN_END = re.compile(r"\\(begin|end)\{([A-Za-z*]+)\}")
 #: environments that never hold a statement of their own: the label inside them belongs
 #: to an enclosing statement (or to no statement)
@@ -187,6 +194,9 @@ def passes(reviews, ns):
                              "statement_hash": str(meta.get("statement_hash") or "").strip(),
                              "run_id": str(meta.get("run_id") or ""),
                              "subject": str(meta.get("subject") or "").strip(),
+                             "mode": str(meta.get("mode") or "").strip().lower(),
+                             "reword_scope": str(meta.get("reword_scope") or "")
+                             .strip().lower(),
                              "file": os.path.join(pdir, f).replace("\\", "/")})
             if not recs:
                 continue
@@ -209,8 +219,16 @@ def pin_of(pass_list):
     if len(hashes) != 1:
         return None
     runs = {r["run"] for r in recs}
-    return {"pass": pname, "hash": hashes.pop(),
-            "level": "verified" if {"A", "B"} <= runs else "in-review",
+    rw = [r for r in recs if r.get("mode") == "reword"]
+    if rw:
+        # a reword pass (T-0347): R CONFIRMED with a carrying scope is the two agreeing
+        # reviews of the new wording (its base pass's pair plus R); exceeds unpins
+        if any(r.get("reword_scope") not in REWORD_CARRIES for r in rw):
+            return None
+        level = "verified"
+    else:
+        level = "verified" if {"A", "B"} <= runs else "in-review"
+    return {"pass": pname, "hash": hashes.pop(), "level": level,
             "records": [r["file"] for r in recs]}
 
 

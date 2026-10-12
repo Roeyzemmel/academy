@@ -529,10 +529,12 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
             res["anomalies"].extend("run A: " + p for p in rec_a["problems"])
         return res
 
-    if is_reword(rec_b):
+    rw = [r for r in (rec_a, rec_b) if is_reword(r)]
+    if rw:
         res["outcome"] = "invalid-pair"
-        res["anomalies"].append("run %s is a reword run (mode: reword): it is not blind and "
-                                "is never half of a blind pair" % (rec_b.get("run") or "B"))
+        res["anomalies"].extend("run %s is a reword run (mode: reword): it is not blind and "
+                                "is never half of a blind pair" % (r.get("run") or "?")
+                                for r in rw)
         res["summary"] = "the two runs are not two blind reviews of one statement"
         return res
 
@@ -710,6 +712,12 @@ def _base_problems(rec_r, base_a, base_b):
         return ["the base pass %s is missing or unreadable (its runs A and B)"
                 % (rec_r.get("base_pass") or "?")]
     probs = []
+    for b in (base_a, base_b):
+        if is_reword(b):
+            probs.append("the base run %s is a reword record: a base pass must be a blind "
+                         "pair" % (b.get("run") or "?"))
+    if probs:
+        return probs
     bh, new = rec_r.get("base_hash") or "", rec_r.get("statement_hash") or ""
     if not bh:
         probs.append("the reword run names no base_hash")

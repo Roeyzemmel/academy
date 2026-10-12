@@ -347,11 +347,19 @@ def check_verdict_refs(grounds, resolve, claim_id=None):
                          % (ref, "a reword run" if is_reword(f) else "a blind run",
                             "a reword run" if is_reword(r) else "a blind verdict"))
         elif is_reword(r):
-            for k in ("base_hash", "reword_scope"):
-                want = str(r.get(k) or (g.get(k) if k == "base_hash" else "") or "")
-                if f.get(k) and want and f[k].strip().lower() != want.strip().lower():
+            # the record must carry the reword run's own judgement and base, and they
+            # must be the row's (or the grounds')
+            for k in ("base_hash", "reword_scope", "base_pass"):
+                want = str(r.get(k) or (g.get(k) if k != "reword_scope" else "") or "")
+                have = str(f.get(k) or "")
+                if not want:
+                    continue
+                if not have:
+                    probs.append("review record %s records no %s, the grounds say %s"
+                                 % (ref, k, want))
+                elif have.strip().lower() != want.strip().lower():
                     probs.append("review record %s has %s %s, the grounds say %s"
-                                 % (ref, k, f[k], want))
+                                 % (ref, k, have, want))
         who = norm_role(f.get("agent")) or LANDED_BY.get(f.get("landed_by", ""), "")
         if who and who not in fit:
             probs.append("review record %s was written by %s, not a %s reviewer (%s)"

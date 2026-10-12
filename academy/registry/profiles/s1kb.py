@@ -397,13 +397,14 @@ def object_path(root, eid, v2kind) -> str:
 def _audit_files(d):
     """The ledger verdicts under ``audits/``: every ``.md`` below it, except README, the
     ``_``-prefixed folders and files (``_unparsed``, templates), and the review runs
-    ``land_review`` writes (frontmatter ``run: A|B``), which ``reviews.py`` reads."""
+    ``land_review`` writes (frontmatter ``run: A|B``, or ``R`` for a reword run), which
+    ``reviews.py`` reads."""
     for p in sorted(d.rglob("*.md")):
         rel = p.relative_to(d).parts
         if p.name.lower() == "readme.md" or any(s.startswith("_") for s in rel):
             continue
         head = p.read_text(encoding="utf-8").split("\n---", 1)[0]
-        if re.search(r"(?m)^run:\s*\"?[AB]\"?\s*$", head):
+        if re.search(r"(?m)^run:\s*\"?[ABR]\"?\s*$", head):
             continue
         yield p
 
@@ -1902,6 +1903,9 @@ def _reword_file_problems(kb, vrel, meta, eid, label, need, human=False):
     folder = verdict_path(kb.root, vrel).parent.parent / base_pass if base_pass else None
     if not base_pass or not base_hash:
         return probs + [f"{vrel} names no base pass and base_hash"]
+    if str(meta.get("statement_hash") or "").strip() in ("", base_hash):
+        probs.append(f"{vrel}: the statement did not change (statement_hash = base_hash, "
+                     "or none): the base pass's own decision applies, not a reword")
     if human:
         return probs
     if folder is None or not folder.is_dir():
@@ -1913,6 +1917,12 @@ def _reword_file_problems(kb, vrel, meta, eid, label, need, human=False):
         except (OSError, ValueError):
             continue
         if not m.get("run_id") or eid not in _ids(kb, m.get("subject")):
+            continue
+        if str(m.get("mode") or "").strip().lower() == "reword":
+            bad.append(f"{m['run_id']} is a reword run, not a blind one")
+            continue
+        if str(m["run_id"]) == str(meta.get("run_id") or ""):
+            bad.append(f"{m['run_id']} is the reword run's own run id")
             continue
         w = _word(m.get("verdict"))
         if w in _CONTRARY[need]:
@@ -1961,6 +1971,8 @@ def verdict_file_problems(kb, vrel, eid, label, human=False):
                 m, _ = _meta_of_file(f, f.name)
             except (OSError, ValueError):
                 continue
+            if str(m.get("mode") or "").strip().lower() == "reword":
+                continue        # a reword run is never one of a blind pair (T-0347)
             if m.get("run_id") and eid in _ids(kb, m.get("subject")):
                 runs[str(m["run_id"])] = _word(m.get("verdict"))
         good = [r for r, w in runs.items() if _fits(w, need)]

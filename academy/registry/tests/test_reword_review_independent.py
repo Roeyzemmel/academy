@@ -152,14 +152,12 @@ class RewordVerdictRefs(unittest.TestCase):
         g["verdicts"][1]["ref"] = "r.md"
         self.assertTrue(self.refs(self.FULL, g))
 
-    @unittest.expectedFailure
     def test_finding_record_without_reword_scope_backs_a_claimed_scope(self):
         """Finding: a reword record that records no reword_scope is accepted for a row
         that claims 'equivalent' (the scope is the reword run's own judgement, so the
         record must carry it)."""
         self.assertTrue(self.refs(self.FULL.replace("reword_scope: equivalent\n", "")))
 
-    @unittest.expectedFailure
     def test_finding_record_of_another_base_pass(self):
         """Finding: grounds.base_pass is never compared with the record's base_pass."""
         self.assertTrue(self.refs(self.FULL.replace("2026-10-01-T-0001",
@@ -213,7 +211,6 @@ class RewordRecordsInANotebook(unittest.TestCase):
                   .replace("rv-R", "rv-R2"))
         self.assertTrue(self.problems(p2, "R.md"))
 
-    @unittest.expectedFailure
     def test_finding_a_reword_run_beside_one_blind_run_is_not_a_pair(self):
         """Finding: a reword R.md landed in a blind pass folder (land_verdict files it
         under whatever ``pass`` the block names) is counted by the blind path as the
@@ -223,7 +220,6 @@ class RewordRecordsInANotebook(unittest.TestCase):
         self.land(self.BASE, "R.md", self.RW.format(h=NEW, bp="2026-09-01-T-0000", bh=OLD))
         self.assertTrue(self.problems(self.BASE, "A.md"))
 
-    @unittest.expectedFailure
     def test_finding_an_unchanged_statement_is_no_reword(self):
         """Finding: R.md with statement_hash == base_hash is accepted (the engine's
         reword_problems and decide_reword both refuse it)."""
@@ -231,7 +227,6 @@ class RewordRecordsInANotebook(unittest.TestCase):
         self.land(self.RWP, "R.md", self.RW.format(h=OLD, bp=self.BASE, bh=OLD))
         self.assertTrue(self.problems(self.RWP, "R.md"))
 
-    @unittest.expectedFailure
     def test_finding_a_landed_reword_run_is_not_a_ledger_entity(self):
         """Finding: _audit_files skips landed runs only by ``run: A|B``, so a landed
         ``run: R`` record under audits/ is loaded as a ledger entity named ``R``."""

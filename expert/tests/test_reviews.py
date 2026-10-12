@@ -156,5 +156,25 @@ class RewordPassTests(unittest.TestCase):
         self.assertEqual(reviews.word_diff("a b", "a b"), "a b")
 
 
+
+class RewordStatusTests(unittest.TestCase):
+    """T-0347 review, finding 7: expert_status lists an undecided reword pass."""
+
+    def test_an_undecided_reword_pass_is_listed(self):
+        import expert_status
+        sb = fixtures.Sandbox()
+        self.addCleanup(sb.close)
+        d = os.path.join(sb.lib, "reviews", "paper", "lem-x", "2026-10-12-T-0347-reword")
+        os.makedirs(d)
+        with open(os.path.join(d, "R.md"), "w", encoding="utf-8") as fh:
+            fh.write("---\nrun: R\nmode: reword\nverdict: CONFIRMED\n---\n")
+        st = expert_status.review_state(sb.lib)
+        self.assertEqual((st["passes"], st["undecided"]),
+                         (1, ["paper/lem-x/2026-10-12-T-0347-reword"]))
+        with open(os.path.join(d, "decision.md"), "w", encoding="utf-8") as fh:
+            fh.write("decided\n")
+        self.assertEqual(expert_status.review_state(sb.lib)["undecided"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

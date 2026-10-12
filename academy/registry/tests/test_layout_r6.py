@@ -349,6 +349,12 @@ class TestRewordReviewRecord(unittest.TestCase):
         shutil.rmtree(str(self.base))
         self.assertIn("base pass", " ".join(self.problems()))
 
+    def test_a_reword_run_sharing_a_base_run_id_is_refused(self):
+        write(self.base / "B.md", self.BASE.format(r="B", v="CONFIRMED",
+                                                   h="1111111111111111")
+              .replace("rv-B", "rv-R"))
+        self.assertIn("own run id", " ".join(self.problems()))
+
 
 class TestLegacyLayoutUnchanged(Homes):
     def test_audits_are_not_verdict_files_without_objects(self):
