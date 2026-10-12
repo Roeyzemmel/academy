@@ -8,7 +8,9 @@ by one of the `*_outcome` helpers below (E10).
 
 Every experiment starts with `banner(__file__)`, so the printed output (and the JSON
 written by `save_result`) carries the date, the git commit, the interpreter and the
-library versions. That is what makes a result citable later.
+library versions. That is what makes a result citable later. The commit is stamped
+`dirty`, with the files named, when the code that ran is not all in it: a tracked file
+changed, the running script not tracked, or an untracked file under `CODE_DIRS`.
 
     from <package> import env
     env.banner(__file__)                 # provenance header
@@ -85,15 +87,64 @@ def versions():
     return v
 
 
-def git_state():
-    """Short commit hash of this repo plus a dirty flag, or None outside git."""
+#: Untracked (non-ignored) files under these directories make the tree dirty: they
+#: are code a run may import or read that the recorded commit does not contain.
+#: Untracked files elsewhere (results being written, notes) do not. The second entry
+#: is this package's own directory, whatever the lab named it.
+CODE_DIRS = ("experiments", Path(__file__).resolve().parent.name)
+
+
+def _git_lines(root, *args):
+    """NUL-separated output of a git command as a list of paths."""
+    out = subprocess.check_output(["git", *args], cwd=root,
+                                  stderr=subprocess.DEVNULL)
+    return [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
+
+
+def git_state(script=None, root=None):
+    """The commit a result can be reproduced from, or None outside git.
+
+    Returns {"commit", "dirty", "modified", "untracked"}: `modified` lists tracked
+    files that differ from HEAD (staged or not); `untracked` lists the running
+    `script` unless the repo's index tracks it (so also when it is gitignored, e.g.
+    under scratch/, inside a nested checkout such as .worktrees/<w>/, or outside the
+    repo; the last is recorded as an absolute path) and every untracked,
+    non-ignored file under CODE_DIRS of `root`. `dirty` is true when either list is
+    non-empty. `root` (default: the lab root) may lie below the git top level;
+    paths are relative to the top level, '/'-separated, sorted.
+    """
+    root = Path(root or ROOT).resolve()
     try:
-        h = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
+        h = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=root,
                                     text=True, stderr=subprocess.DEVNULL).strip()
-        dirty = subprocess.run(["git", "diff", "--quiet", "HEAD"], cwd=ROOT,
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL).returncode != 0
-        return {"commit": h, "dirty": dirty}
+        top = Path(subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"], cwd=root, text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()).resolve()
+        sub = root.relative_to(top).as_posix()
+        dirs = [d if sub == "." else f"{sub}/{d}" for d in CODE_DIRS]
+        modified = _git_lines(top, "diff", "--name-only", "-z", "HEAD")
+        untracked = set(_git_lines(top, "ls-files", "--others", "--exclude-standard",
+                                   "-z", "--", *dirs))
+        if script is not None:
+            s = Path(script).resolve()
+            try:
+                rel = s.relative_to(top).as_posix()
+            except ValueError:   # outside the repo: no commit of it holds the script
+                untracked.add(s.as_posix())
+            else:
+                # Ask "is it tracked?", not "is it listed as other?": ls-files
+                # --others skips ignored files and does not descend into a nested
+                # repository, and either would pass an uncommitted script as clean.
+                tracked = subprocess.run(
+                    ["git", "ls-files", "--error-unmatch", "--", ":(literal)" + rel],
+                    cwd=top, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                ).returncode == 0
+                if not tracked:
+                    untracked.add(rel)
+        modified, untracked = sorted(set(modified)), sorted(untracked)
+        return {"commit": h, "dirty": bool(modified or untracked),
+                "modified": modified, "untracked": untracked}
     except (OSError, subprocess.CalledProcessError):
         return None
 
@@ -108,7 +159,7 @@ def provenance(script=None):
     else:
         shown = None
     p = {"date": datetime.datetime.now().isoformat(timespec="seconds"),
-         "script": shown, "git": git_state(), "argv": sys.argv[1:]}
+         "script": shown, "git": git_state(script), "argv": sys.argv[1:]}
     p.update(versions())
     return p
 
@@ -125,6 +176,10 @@ def banner(script=None):
     print(f"python {p['python']}   {libs}")
     if p["argv"]:
         print(f"args: {p['argv']}")
+    if g is not None and g["dirty"]:
+        for what in ("modified", "untracked"):
+            if g[what]:
+                print(f"{what} (not in commit {g['commit']}): " + ", ".join(g[what]))
     print("=" * 72)
     return p
 

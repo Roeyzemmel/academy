@@ -26,9 +26,10 @@ Steps (each reported on stdout, nothing committed):
    For a scientist, scaffold the lab from ``scientist/templates/lab/``: the package
    (``paths.package``) with its provenance module ``env.py`` (banner, save_result, the
    outcome blocks the experiment checker requires), ``experiments/_template.py`` and
-   ``experiments/README.md`` (the kinds), ``results/``. For an expert, the library's
-   ``README.md`` from ``expert/templates/library/README.md``. Existing files are never
-   overwritten.
+   ``experiments/README.md`` (the kinds), ``results/``, and a ``.gitignore`` for
+   bytecode (which the provenance stamp would count as uncommitted code). For an
+   expert, the library's ``README.md`` from ``expert/templates/library/README.md``.
+   Existing files are never overwritten.
 4. Unless ``--no-board``, create the board folder ``<board>/<instance>/`` with a
    ``.gitkeep``, so tickets can be addressed to it, and write the board's ``README.md``
    from ``templates/board/README.md`` (or, when it exists and carries the
