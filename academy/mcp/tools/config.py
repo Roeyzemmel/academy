@@ -21,6 +21,24 @@ def _workspace(ctx, a):
     return ws
 
 
+def _models(ctx, role):
+    """The workspace's tier map and the agents of the academy plugin and of ``role``,
+    each resolved agent -> tier -> model (docs/config.md, "models"); agents read from
+    this server's own checkout."""
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))
+    agents = {}
+    for name in ac.agent_files(repo):
+        if name.split(":", 1)[0] in ("academy", role):
+            try:
+                r = ac.resolve_agent(name, ctx.workspace, repo)
+            except ac.ConfigError as exc:
+                r = {"problem": str(exc)}
+            agents[name] = {k: r.get(k) for k in ("tier", "model", "launch", "override",
+                                                  "problem") if k in r}
+    return {"tiers": ac.model_tiers(ctx.workspace), "agents": agents}
+
+
 def _config(ctx, a):
     name = a.get("instance")
     if name and name not in ctx.instances():
@@ -33,22 +51,24 @@ def _config(ctx, a):
         raise ToolError("the server's cwd is in no academy home; name an instance "
                         "(instance=<one of %s>)" % ", ".join(sorted(ctx.instances())))
     home = ctx.home_of(name)
+    models = _models(ctx, name.split("@", 1)[0])
     path = os.path.join(home, ac.CONFIG_REL)
     if not os.path.isfile(path):
         return {"instance": name, "workspace_entry": ctx.instances()[name],
-                "config": None,
+                "config": None, "models": models,
                 "note": "%s has no .claude/academy.json yet (not switched over)" % home}
     try:
         cfg = ac.load_config(home)
     except ac.ConfigError as exc:
-        return {"instance": name, "config": None, "problems": str(exc)}
-    return {"instance": name, "config": cfg}
+        return {"instance": name, "config": None, "problems": str(exc), "models": models}
+    return {"instance": name, "config": cfg, "models": models}
 
 
 TOOLS = [
     Tool("workspace_get", "The instance map (workspace.json) and who the caller is.",
          obj({}), _workspace),
     Tool("config_get", "An instance's .claude/academy.json with defaults merged "
-         "(default: the instance of the caller's home).",
+         "(default: the instance of the caller's home), and its role's agents resolved "
+         "agent -> tier -> model for the workspace (models).",
          obj({"instance": S}), _config),
 ]

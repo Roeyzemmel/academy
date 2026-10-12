@@ -17,7 +17,9 @@ academy checkout when it has a ``workspace.template.json``.
 2. writes ``workspace.json`` (git-ignored) from ``workspace.template.json`` with
    absolute paths for this checkout (the instances' homes and the board, a submodule or a
    plain directory of the workspace); every other top-level key of the template
-   (``human``, ``grading``, ``compute``, ``plugins``, ...) is passed through unchanged;
+   (``human``, ``grading``, ``compute``, ``plugins``, ``models``, ...) is passed through
+   unchanged; ``models.tiers`` and ``grading`` are validated (each problem is reported, and
+   ``--strict`` then exits 1);
 3. exports where everything is, from workspace.json: ACADEMY_ROOT, ACADEMY_WORKSPACE,
    ACADEMY_BOARD, ACADEMY_LIBRARY and ACADEMY_HOME_<INSTANCE> (e.g. ACADEMY_HOME_AUTHOR_P),
    plus PYTHONUTF8, into ``.claude/settings.local.json`` (git-ignored) here and in every
@@ -54,6 +56,24 @@ ROLE_PLUGINS = ("researcher", "expert", "scientist", "author")
 TEMPLATE = "workspace.template.json"
 PERMISSIONS_TEMPLATE = ("academy", "templates", "workspace", "permissions.json")
 PERMISSIONS_OVERRIDE = "workspace.permissions.json"
+#: problems found in the template's ``models`` / ``grading`` keys (``check_models``);
+#: reported, and make ``--strict`` exit 1
+PROBLEMS = []
+
+
+def check_models(ws):
+    """The problems with ``models.tiers`` and ``grading`` (the shared library's
+    ``model_problems``; docs/config.md, "models"), each said and kept in ``PROBLEMS``."""
+    sys.path.insert(0, os.path.join(ACADEMY_REPO, "academy", "lib"))
+    try:
+        import academy_common as ac
+    except ImportError:  # pragma: no cover - the lib ships with this script
+        return []
+    found = ac.model_problems(ws)
+    for p in found:
+        say("workspace.template.json: %s (docs/config.md, \"models\")" % p)
+    PROBLEMS.extend(found)
+    return found
 
 
 def find_workspace(explicit=None, cwd=None):
@@ -262,6 +282,7 @@ def workspace():
     other top-level key passed through as the template has it."""
     ws = template()
     ws.pop("_about", None)
+    check_models(ws)
     kept = {}
     for name, inst in ws["instances"].items():
         home = where(inst["home"])
@@ -769,6 +790,10 @@ def main(argv):
             plugins()
     else:
         say("the academy checkout or the board directory is missing, so workspace.json was NOT written")
+    if PROBLEMS and "--strict" in argv:
+        say("workspace.json has %d model-tier problem(s); fix workspace.template.json"
+            % len(PROBLEMS))
+        return 1
     if failed:
         say("MISSING submodules: %s" % ", ".join(failed))
         say("Grant this environment / session read access to those repos, then rerun "

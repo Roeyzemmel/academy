@@ -623,6 +623,13 @@ class TestOtherTools(McpTestBase):
         self.assertEqual(ws["caller"]["instance"], "author@t")
         err, cfg = s.call("config_get")
         self.assertIsNone(cfg["config"])
+        # T-0350: the workspace's tier map and this role's agents resolved through it
+        self.assertEqual(cfg["models"]["tiers"]["large"], "claude-opus-5-5")
+        mw = cfg["models"]["agents"]["author:math-writer"]
+        self.assertEqual((mw["tier"], mw["launch"], mw["override"]), ("large", "opus", False))
+        self.assertIn("academy:concierge", cfg["models"]["agents"])
+        self.assertNotIn("expert:clerk", cfg["models"]["agents"])
+        self.assertEqual(ws["models"]["tiers"]["base"], "haiku")
 
     def test_set_status_refused_without_grounds(self):
         s = self.server("researcher@t")

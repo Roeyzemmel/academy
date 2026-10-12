@@ -296,7 +296,8 @@ class TableTests(unittest.TestCase):
         with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8") as fh:
             ws = json.load(fh)
         path = os.path.join(_WS["dir"].name, "ws-fable-only.json")
-        ws["grading"] = {"primaryModels": ["fable"]}
+        # T-0350: minTier none, else the tier floor (large -> Opus 5.5) adds Opus 5.5
+        ws["grading"] = {"primaryModels": ["fable"], "minTier": "none"}
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(ws, fh)
         old = os.environ["ACADEMY_WORKSPACE"]

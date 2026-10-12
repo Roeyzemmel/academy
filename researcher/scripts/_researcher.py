@@ -83,18 +83,7 @@ def model_label(name):
     """``fable``, ``opus-5.5``, or the family (``opus``/``sonnet``/``haiku``) of any
     other model; the lower-cased name when it names no known family; '' when empty.
     ``claude-opus-5-5[1m]``, ``Opus 5.5`` and ``opus-5.5`` all read as ``opus-5.5``."""
-    n = str(name or "").strip().lower()
-    if not n:
-        return ""
-    k = re.sub(r"[\s_.]+", "-", n)
-    if "fable" in k:
-        return "fable"
-    if RE_OPUS_55.search(k):
-        return "opus-5.5"
-    for fam in ("opus", "sonnet", "haiku"):
-        if fam in k:
-            return fam
-    return n
+    return ac.model_label(name)  # the one copy, academy_common (T-0350)
 
 
 def primary_models(workspace=None):

@@ -71,6 +71,27 @@ class BootstrapTests(unittest.TestCase):
         self.assertNotIn("_about", ws)
         self.assertEqual(ws["board"]["path"], bootstrap.posix(os.path.join(self.root, "board")))
 
+    def test_model_tiers_are_validated(self):
+        # T-0350: a bad models.tiers / grading.minTier is reported (and fails --strict);
+        # workspace.json is still written so the error shows in every tool
+        self.template(models={"tiers": {"medium": "connect", "huge": "opus"}})
+        bootstrap.PROBLEMS[:] = []
+        self.addCleanup(bootstrap.PROBLEMS.clear)
+        self.assertTrue(os.path.isfile(bootstrap.workspace()))
+        said = "\n".join(self.said)
+        self.assertIn("models.tiers.medium", said)
+        self.assertIn("'huge'", said)
+        self.assertEqual(len(bootstrap.PROBLEMS), 2)
+
+    def test_good_model_tiers_pass_through(self):
+        tiers = {"base": "haiku", "medium": "sonnet", "large": "opus", "max": "opus"}
+        self.template(models={"tiers": tiers}, grading={"minTier": "large"})
+        bootstrap.PROBLEMS[:] = []
+        with open(bootstrap.workspace(), encoding="utf-8") as fh:
+            ws = json.load(fh)
+        self.assertEqual(ws["models"], {"tiers": tiers})
+        self.assertEqual(bootstrap.PROBLEMS, [])
+
     def fake_academy(self):
         acad = os.path.join(self.root, "acad")
         write(os.path.join(acad, ".claude-plugin", "marketplace.json"), json.dumps(
