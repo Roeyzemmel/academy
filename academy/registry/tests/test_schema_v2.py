@@ -296,6 +296,50 @@ class TestV2Mutations(Migrated):
                                      "--modulo", "OPEN-2"), 1)
         self.assertEqual(p.read_bytes(), before)
 
+    def test_s1_proved_modulo_over_an_empty_modulo(self):
+        # T-0361, flat:FND-20: `modulo: []` on a sketch, set to proved-modulo with an
+        # own-namespace id; the record gets the bare id (FND-15's `modulo: [FND-9]`)
+        p = self.s1 / "claims" / "OBS-1.md"
+        write(p, p.read_text(encoding="utf-8").replace(
+            "depends_on: [OPEN-2]\n", "depends_on: [OPEN-2]\nmodulo: []\n"))
+        vfile = self.s1_verdict("2026-10-12_obs-e.md", ["OBS-1"], ["CONFIRMED", "CONFIRMED"])
+        for n, ref in enumerate(("s1:OPEN-2", "OPEN-2")):
+            with self.subTest(ref=ref):
+                self.assertEqual(self.s1_set("OBS-1", "proved-modulo", "--verdict", vfile,
+                                             "--modulo", ref), 0)
+                text = p.read_text(encoding="utf-8")
+                self.assertIn("modulo:\n  - OPEN-2\n", text)
+                self.assertNotIn("modulo: []", text)
+                self.assertNotIn("s1:OPEN-2", text.split("\n---")[0].split("history:")[0])
+                kb = s1kb.load_kb(self.s1)
+                s1kb.run_check(kb)
+                self.assertEqual(kb.errors, [])
+        self.assertEqual(self.s1_set("OBS-1", "proved", "--verdict", vfile), 0)
+        self.assertNotIn("modulo", s1kb.load_kb(self.s1).entities["OBS-1"].v2)
+
+    def test_s1_check_resolves_bare_modulo_ids(self):
+        # a home with no id prefixes (flat): a bare id that names a record is an id,
+        # checked, not "not a record id"; the own-namespace form is checked as well
+        p = self.s1 / "claims" / "CRIT-1.md"
+        base = p.read_text(encoding="utf-8")
+        cases = (("OPEN-2", None, None), ("s1:OPEN-2", None, None),
+                 ("s1:OPEN-99", "does not resolve", None),
+                 ("lab:foo", None, None),
+                 ("the lemma of the cited paper", None, "is not a record id"))
+        for item, err, warn in cases:
+            with self.subTest(item=item):
+                write(p, base.replace("modulo:\n  - OPEN-2\n",
+                                      "modulo:\n  - \"%s\"\n" % item))
+                kb = s1kb.load_kb(self.s1)
+                s1kb.run_check(kb)
+                mine = lambda ms: [m for m in ms if "CRIT-1" in m and "modulo" in m]
+                self.assertEqual(bool(mine(kb.errors)), bool(err), kb.errors)
+                if err:
+                    self.assertIn(err, mine(kb.errors)[0])
+                self.assertEqual(bool(mine(kb.warnings)), bool(warn), kb.warnings)
+                if warn:
+                    self.assertIn(warn, mine(kb.warnings)[0])
+
     def test_s1_store_classes(self):
         from registry.core import federation
         st = federation.store("s1", self.s1)
