@@ -218,7 +218,6 @@ class TestGradingPrimaries(Tmp):
         self.assertEqual(ac.primary_models(ws), ("fable",))
         self.assertNotIn(ac.model_label("claude-opus-5-5"), ac.primary_models(ws))
 
-    @unittest.expectedFailure
     def test_primary_models_of_an_unloaded_workspace_dict_has_the_floor(self):
         """Finding 3: docs/config.md says named primaryModels are added to the floor's.
         load_workspace applies that; ac.primary_models on a workspace dict not passed

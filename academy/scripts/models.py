@@ -83,21 +83,8 @@ def file_problems(repo=REPO):
 
 
 def grading_warnings(ws):
-    """The floor tiers (``grading.minTier`` up) whose model names no version, so grant
-    no grading authority (``ac.grading_primaries``)."""
-    grading = (ws or {}).get("grading") or {}
-    floor = grading.get("minTier") or ac.DEFAULT_MIN_TIER
-    if floor == "none":
-        return []
-    tiers = ac.model_tiers(ws or {})
-    out = []
-    for tier in ac.TIERS[ac.TIERS.index(floor):]:
-        if ac.model_label(tiers[tier]) in ac.VERSIONLESS:
-            out.append("tier %s: %s names no version the grading labeller knows "
-                       "(model_label), so it gives no grading authority; name the model "
-                       "by a versioned id or add it to grading.primaryModels"
-                       % (tier, tiers[tier]))
-    return out
+    """``ac.model_warnings``: floor tiers that give no grading authority."""
+    return ac.model_warnings(ws)
 
 
 def main(argv=None):

@@ -84,9 +84,14 @@ class LandReviewTests(Workspace):
                 self.assertEqual(rs.is_primary(name), want)
 
     def test_primary_models_from_workspace_config(self):
+        # T-0350: named primaries add to the tier floor's (large -> Opus 5.5), loaded or
+        # not; minTier none keeps the named list alone
         ws = {"grading": {"primaryModels": ["claude-fable-5-1"]}}
-        self.assertEqual(rs.primary_models(ws), ("fable",))
+        self.assertEqual(rs.primary_models(ws), ("fable", "opus-5.5"))
         self.assertTrue(rs.is_primary("Fable", ws))
+        self.assertTrue(rs.is_primary("claude-opus-5-5", ws))
+        ws = {"grading": {"primaryModels": ["claude-fable-5-1"], "minTier": "none"}}
+        self.assertEqual(rs.primary_models(ws), ("fable",))
         self.assertFalse(rs.is_primary("claude-opus-5-5", ws))
         self.assertEqual(rs.primary_models({}), ("fable", "opus-5.5"))
 

@@ -144,8 +144,13 @@ to that tier or above grading primaries, by their roster label (`model_label`: `
 `opus-5.5`, else the bare family). A tier whose model names no version (a bare `opus`, or
 an id the labeller does not version yet, e.g. `claude-opus-6-0`) gives no grading
 authority: a bare family is read as a fallback (`roster-rules.md`, "Graders degrade").
-`models.py check` warns about such a tier; teach `model_label` the new version, or name it
-in `grading.primaryModels`.
+**So large and max must name versioned ids** (`claude-opus-5-5`), not `opus`: a map such as
+`large: opus` loads, but graders run on it count for nothing. The bootstrap, the session
+start and `models.py check` print a warning for every such floor tier
+(`academy_common.model_warnings`). For a version the labeller does not know, teach
+`model_label` the version, or name it in `grading.primaryModels`. Named primaries are
+reduced to their labels, and `primary_models()` gives the same answer for a loaded and a
+raw workspace dict.
 
 **Usage.** The usage report's "heavier than declared" check compares the models an agent
 ran on with the workspace's model for its tier (`usage_report.py`, `declared_models`).

@@ -346,7 +346,6 @@ def configured_primaries(workspace=None):
     """The grading primaries of the workspace (``grading.primaryModels``)."""
     return ac.primary_models(workspace)
 
-RE_OPUS_55 = re.compile(r"opus-?5-5(?![0-9])")
 
 
 def model_label(name):

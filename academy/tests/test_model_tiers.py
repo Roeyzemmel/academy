@@ -129,6 +129,21 @@ class TestGradingFloor(Tmp):
             ws = self.workspace(models={"tiers": {"large": model, "max": model}})
             self.assertEqual(ac.primary_models(ws), ("fable",), model)
 
+    def test_floor_tiers_without_a_version_are_warned(self):
+        self.assertEqual(ac.model_warnings(self.workspace()), [])
+        ws = self.workspace(models={"tiers": {"large": "opus", "max": "opus"}})
+        warned = ac.model_warnings(ws)
+        self.assertEqual(len(warned), 2)
+        self.assertIn("claude-opus-5-5", warned[0])
+        self.assertEqual(ac.model_warnings(dict(ws, grading={"minTier": "none"})), [])
+
+    def test_raw_and_loaded_dicts_agree(self):
+        for grading in ({}, {"primaryModels": ["claude-fable-5-1"]},
+                        {"primaryModels": ["fable"], "minTier": "none"}):
+            raw = {"grading": dict(grading)}
+            self.assertEqual(ac.primary_models(raw),
+                             ac.primary_models(self.workspace(grading=dict(grading))), grading)
+
     def test_model_label(self):
         for name, want in (("claude-opus-5-5[1m]", "opus-5.5"), ("Opus 5.5", "opus-5.5"),
                            ("claude-fable-5-1", "fable"), ("opus", "opus"),
@@ -137,7 +152,7 @@ class TestGradingFloor(Tmp):
 
     def test_named_primaries_add_to_the_floor_and_none_switches_it_off(self):
         ws = self.workspace(grading={"primaryModels": ["claude-fable-5-1"]})
-        self.assertEqual(ac.primary_models(ws), ("claude-fable-5-1", "opus-5.5"))
+        self.assertEqual(ac.primary_models(ws), ("fable", "opus-5.5"))
         ws = self.workspace(grading={"primaryModels": ["fable"], "minTier": "none"})
         self.assertEqual(ac.primary_models(ws), ("fable",))
         with self.assertRaises(ac.ConfigError):
@@ -212,7 +227,7 @@ class TestResolver(Tmp):
         with redirect_stdout(out):
             self.assertEqual(models.main(["check", "--workspace", path]), 0)
         self.assertIn("claude-opus-6-0", out.getvalue())
-        self.assertIn("no grading authority", out.getvalue())
+        self.assertIn("names no version", out.getvalue())
 
     def test_cli_as_a_process(self):
         path = self.ws_file()

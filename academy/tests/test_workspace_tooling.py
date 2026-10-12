@@ -91,6 +91,10 @@ class BootstrapTests(unittest.TestCase):
             ws = json.load(fh)
         self.assertEqual(ws["models"], {"tiers": tiers})
         self.assertEqual(bootstrap.PROBLEMS, [])
+        # review finding 1: a version-less floor tier is said loudly (not an error)
+        said = "\n".join(self.said)
+        self.assertIn("WARNING", said)
+        self.assertIn("models.tiers.large = opus names no version", said)
 
     def fake_academy(self):
         acad = os.path.join(self.root, "acad")

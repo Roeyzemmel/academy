@@ -76,7 +76,6 @@ POSITIVE = ("SOUND", "SOUND MODULO")
 #: older Opus, a bare "opus" that names no version) is capped. Kept in step with expert
 #: decision_table.py.
 PRIMARY_MODELS = ac.DEFAULT_PRIMARY_MODELS
-RE_OPUS_55 = re.compile(r"opus-?5-5(?![0-9])")
 
 
 def model_label(name):

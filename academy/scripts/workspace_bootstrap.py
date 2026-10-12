@@ -73,6 +73,9 @@ def check_models(ws):
     for p in found:
         say("workspace.template.json: %s (docs/config.md, \"models\")" % p)
     PROBLEMS.extend(found)
+    if not found:
+        for w in ac.model_warnings(ws):
+            say("WARNING: workspace.template.json: %s" % w)
     return found
 
 

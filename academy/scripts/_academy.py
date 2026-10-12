@@ -606,13 +606,16 @@ def human_login(ws=None):
 
 
 def primary_models(ws=None):
-    """The grading primaries (workspace.json ``grading.primaryModels``), as a tuple of
-    model labels; ``DEFAULT_PRIMARY_MODELS`` when none is configured or no workspace."""
+    """The grading primaries as a tuple of model labels: the named
+    ``grading.primaryModels`` and the floor's (``grading_primaries``), for a loaded or a
+    raw workspace dict alike; ``DEFAULT_PRIMARY_MODELS`` when there is no workspace."""
     ws = _workspace_or_none(ws)
-    prim = ((ws or {}).get("grading") or {}).get("primaryModels")
-    if isinstance(prim, list) and prim:
-        return tuple(str(m) for m in prim)
-    return DEFAULT_PRIMARY_MODELS
+    if ws is None:
+        return DEFAULT_PRIMARY_MODELS
+    # the same answer for a loaded and a raw workspace dict: the named primaries plus the
+    # floor's, recomputed (idempotent on a loaded dict, whose list is already effective)
+    grading = ws.get("grading") if isinstance(ws.get("grading"), dict) else {}
+    return grading_primaries(model_tiers(ws), grading)
 
 
 # ----------------------------------------------------------------------------
@@ -730,12 +733,16 @@ def tier_model(tier, ws=None):
 
 
 def grading_primaries(tiers, grading):
-    """The effective grading primaries: the named ``grading.primaryModels`` (default
-    ``DEFAULT_NAMED_PRIMARIES``), then the label of each tier's model from
+    """The effective grading primaries, as labels (``model_label``): the named
+    ``grading.primaryModels`` (default ``DEFAULT_NAMED_PRIMARIES``), then the label of each tier's model from
     ``grading.minTier`` up. A tier whose model names no version (``VERSIONLESS``: a bare
     alias, or an id ``model_label`` cannot version yet) grants nothing."""
     named = grading.get("primaryModels")
-    out = list(DEFAULT_NAMED_PRIMARIES if named is None else named)
+    out = []
+    for m in (DEFAULT_NAMED_PRIMARIES if named is None else named):
+        lab = model_label(m)
+        if lab and lab not in out:
+            out.append(lab)
     floor = grading.get("minTier") or DEFAULT_MIN_TIER
     if floor == "none":
         return tuple(out)
@@ -744,6 +751,26 @@ def grading_primaries(tiers, grading):
         if lab and lab not in VERSIONLESS and lab not in out:
             out.append(lab)
     return tuple(out)
+
+
+def model_warnings(ws):
+    """The floor tiers (``grading.minTier`` up) whose model names no version, and so give
+    no grading authority: a bare alias (``large: opus``) or an id ``model_label`` cannot
+    version yet. Name large/max by a versioned id (``claude-opus-5-5``). Printed by the
+    bootstrap, the session start and ``models.py check``; not an error."""
+    grading = (ws or {}).get("grading") or {}
+    floor = grading.get("minTier") or DEFAULT_MIN_TIER
+    if floor not in TIERS:
+        return []
+    tiers = model_tiers(ws or {})
+    out = []
+    for tier in TIERS[TIERS.index(floor):]:
+        if model_label(tiers[tier]) in VERSIONLESS:
+            out.append("tier %s: models.tiers.%s = %s names no version, so graders run on "
+                       "it count for nothing (grading.minTier %s): name a versioned id "
+                       "such as claude-opus-5-5 (docs/config.md, \"models\")"
+                       % (tier, tier, tiers[tier], floor))
+    return out
 
 
 RE_FM_LINE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$")

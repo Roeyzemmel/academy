@@ -195,6 +195,7 @@ def workspace_problems(cfg, ws):
         if row.get(key) != cfg.get(key):
             probs.append("%s differs from workspace.json (%r vs %r)"
                          % (key, cfg.get(key), row.get(key)))
+    probs += ac.model_warnings(ws)          # a floor tier with no grading authority
     return probs
 
 
