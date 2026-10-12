@@ -30,7 +30,7 @@ computation/runs.md, kb/claims.json, kb/kb.sqlite, site/index.html and the
     registry.py usedby ID [--transitive]   # what breaks if ID falls
     registry.py sql "SELECT ..."           # ad-hoc query (in-memory, built from the files)
     registry.py new PREFIX [--kind K] [--title T]
-    registry.py set-status ID LABEL --verdict PATH [--note TEXT]
+    registry.py set-status ID LABEL --verdict PATH [--note TEXT] [--modulo ID ...]
     registry.py resolve TEXT               # map old labels (N22, R2 Thm 4.7, (A3)) to ids
 
 Every command takes --root PATH (default: the parent of tools/).  Stdlib only.
@@ -717,11 +717,17 @@ def _check_v2(kb, e):
         kb.error(e.path, f"form '{form}' is not one of {'|'.join(KINDS)}")
     elif form is not None and KIND_V2.get(form) not in (v.get("kind"), None):
         kb.error(e.path, f"form '{form}' is a {KIND_V2.get(form)}, not a {v.get('kind')}")
+    own = _own_prefixes(kb)
     for item in v.get("modulo") or []:
-        if isinstance(item, str) and (kb.rules.looks_like_id(item.strip()) or
-                                      _schema.looks_like_id(item)):
-            if ":" not in item:
-                _check_ref(kb, e, "modulo", item)
+        s = item.strip() if isinstance(item, str) else ""
+        # this home's id, bare or as <own ns>:<id> (T-0361: a home without id prefixes,
+        # like flat, writes `modulo: [FND-9]`): checked; another home's <ns>:<id> passes
+        bare = s.split(":", 1)[1] if s.startswith(own) else s
+        if bare and ":" not in bare and (kb.rules.looks_like_id(bare) or s != bare
+                                         or lookup(kb, bare)[0] is not None):
+            _check_ref(kb, e, "modulo", bare)
+        elif s and _schema.looks_like_id(s):
+            pass
         else:
             # plan section 6: `modulo: [ids]`, promoted along the graph once the target
             # is proved; free text cannot be followed
@@ -2006,16 +2012,52 @@ def verdict_file_problems(kb, vrel, eid, label, human=False):
     return probs
 
 
-def rewrite_status_v2(p: Path, label, vrow, note, old, human=None):
+def _modulo_items(kb, items):
+    """``set-status --modulo`` items as the record keeps them, and the refusals: an
+    item of this home (bare, no whitespace, or ``<own ns>:<id>``) must resolve and is
+    written as its canonical bare id; another home's ``<ns>:<id>`` is kept as given;
+    text with whitespace is a plain-text input (the check warns on it); an empty item
+    (``''``, ``'flat:'``) names nothing (T-0361 review)."""
+    own, out, why = _own_prefixes(kb), [], []
+    for raw in items:
+        s = str(raw).strip()
+        mine = s.startswith(own)
+        bare = s.split(":", 1)[1].strip() if mine else s
+        if not bare:
+            why.append(f"{raw!r} is empty: name an input")
+        elif re.search(r"\s", bare):
+            out.append(bare)
+        elif ":" in bare and not mine:
+            out.append(s)
+        else:
+            rid = lookup(kb, bare)[0]
+            if rid is None:
+                why.append(f"{raw!r} does not resolve to a record of this home")
+            else:
+                out.append(rid)
+    return out, why
+
+
+def rewrite_status_v2(p: Path, label, vrow, note, old, human=None, modulo=None):
     """set-status on a schema-v2 file: the status (or lifecycle) line, the verdict's
     evidence row (when there is a verdict), the status note, and a history row, newest
-    first. Line-preserving."""
+    first. Line-preserving.
+
+    The record's ``modulo`` moves with the status, as in the fsl profile (the schema
+    refuses ``proved`` with one and ``proved-modulo`` without): ``proved`` drops it;
+    ``proved-modulo`` writes ``modulo`` when given (the missing inputs) and otherwise
+    keeps the record's own (T-0361)."""
     doc = _Doc(p, _fm.format_scalar_single)
     after = V2_ORDER
     if label in _schema.LIFECYCLES:
         doc.set_scalar("lifecycle", label, after=after[:after.index("lifecycle")])
     else:
         doc.set_scalar("status", label, after=("form", "kind", "title"))
+        if label == "proved":
+            doc.remove("modulo")
+        elif label == "proved-modulo" and modulo:
+            doc.set_list("modulo", list(modulo),
+                         after=after[:after.index("modulo")])
     if note is not None:
         doc.set_scalar("status_note", note, after=after[:after.index("status_note")])
     if vrow is not None:
@@ -2075,6 +2117,14 @@ def cmd_set_status(args) -> int:
         if probs:
             print("set-status: refused:\n- " + "\n- ".join(probs), file=sys.stderr)
             return 1
+    if args.modulo and (e.v2 is None or args.label != "proved-modulo"):
+        print("set-status: --modulo goes only with proved-modulo on a schema-v2 record "
+              "(proved drops the record's modulo)", file=sys.stderr)
+        return 1
+    modulo, why = _modulo_items(kb, args.modulo or [])
+    if why:
+        print("set-status: --modulo refused:\n- " + "\n- ".join(why), file=sys.stderr)
+        return 1
     old = e.meta.get("status", "(none)")
     # superseded (v2): the replacing record carries the one-way `supersedes` link
     new = None
@@ -2102,7 +2152,7 @@ def cmd_set_status(args) -> int:
         old = _schema.state(e.v2) or "(none)"
         rewrite_status_v2(path, args.label,
                           _verdict_row(kb.root, vrel) if vrel else None,
-                          args.note, old, human=args.human)
+                          args.note, old, human=args.human, modulo=modulo)
     else:
         rewrite_status_file(path, e.path, args.label, vrel, args.note, old)
     # the change stands only if the kb still builds: otherwise the files are put back
@@ -2759,6 +2809,9 @@ def build_parser():
                     "that replaces this one; it gets the one-way `supersedes` link")
     ss.add_argument("--human", metavar="QUOTE", help="the human's words, verbatim: they "
                     "stand in for the runs' verdict words (v2 records)")
+    ss.add_argument("--modulo", metavar="ID", action="append", help="proved-modulo "
+                    "(v2): a missing input, repeatable; replaces the record's `modulo` "
+                    "(kept when not given; proved drops it)")
     ss.set_defaults(func=cmd_set_status)
     r = sub.add_parser("resolve", parents=[common])
     r.add_argument("text", nargs="+")

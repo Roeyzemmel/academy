@@ -1301,6 +1301,45 @@ class TestRegistryBackend(McpTestBase):
         self.assertIn("cleared_by: [%s]" % vfile, text)
         self.assertIn("status Not settled → Proved (verdict %s)" % vfile, text)
 
+    def test_s1_v2_proved_modulo_end_to_end(self):
+        # T-0361: on the s1 profile, proved-modulo writes the grounds' modulo and proved
+        # drops it (flat:FND-15 could not go proved-modulo -> proved)
+        s1 = self.homes["researcher@t"]
+        path = os.path.join(s1, "claims", "GEO-2.md")
+        write(path, "---\nid: GEO-2\nkind: claim\nform: prop\ntitle: t\nstatus: sketch\n"
+                    "depends_on: [GEO-1]\nlifecycle: active\naliases: []\n"
+                    "domain: translation-surfaces\ntags: []\nsummary: s\nevidence: []\n"
+                    "history:\n  - 2026-10-12 | sketch | created\n---\n\n"
+                    "## Statement\n\nX.\n\n## Proof\n\nBecause.\n")
+        vfile = "computation/verdicts/2026-10-12_GEO-2.md"
+        write(os.path.join(s1, *vfile.split("/")),
+              "---\nid: 2026-10-12_GEO-2\nsubjects: [GEO-2]\nclears: [GEO-2]\n---\n"
+              "Run A: CONFIRMED\nRun B: CONFIRMED\n")
+        err, t = self.server().call("tickets_create", title="GEO-2", kind="decision",
+                                    to="researcher@t", ask="GEO-2 holds modulo GEO-1",
+                                    deliverable="d")
+        word = {"basis": "human", "quote": "GEO-2 holds modulo GEO-1", "where": t["id"],
+                "verdict_file": vfile}
+        s = self.server("researcher@t")
+        # a list, or (review finding 3) one string, not read character by character
+        for mods in (["s1:GEO-1"], "s1:GEO-1"):
+            err, res = s.call("claims_set_status", caller="researcher:claim-keeper",
+                              id="s1:GEO-2", status="proved-modulo",
+                              grounds=dict(word, modulo=mods))
+            self.assertFalse(err, res)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("status: proved-modulo", text)
+            self.assertIn("modulo:\n  - GEO-1\n", text)
+            self.assertNotIn("modulo:\n  - GEO-1\n  - ", text)
+        err, res = s.call("claims_set_status", caller="researcher:claim-keeper",
+                          id="s1:GEO-2", status="proved", grounds=word)
+        self.assertFalse(err, res)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: proved\n", text)
+        self.assertNotIn("modulo:", text)
+
     def test_s1_set_status_on_an_expert_review(self):
         # phase 7 (P-0004 D9, P-0005 D8): the claim verdicts live in the Expert's library
         # and the grounds name them by the protocol ref file:expert@<name>/reviews/...

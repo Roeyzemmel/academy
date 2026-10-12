@@ -234,6 +234,112 @@ class TestV2Mutations(Migrated):
         s1kb.run_check(kb)
         self.assertEqual([m for m in kb.errors if "GEO-1" in m], [])
 
+    # T-0361: set-status (s1) keeps the record's `modulo` in step with the status, as
+    # fsl does: dropped with proved, kept or set (--modulo) with proved-modulo; the
+    # schema refuses proved with a modulo and proved-modulo without one
+    def crit1_proved_verdict(self, name):
+        return self.s1_verdict(name, ["CRIT-1"], ["CONFIRMED", "CONFIRMED"])
+
+    def test_s1_proved_drops_modulo(self):
+        p = self.s1 / "claims" / "CRIT-1.md"
+        block = p.read_text(encoding="utf-8")
+        # block list (the migrated form) and inline list (flat:FND-15's form)
+        inline = block.replace("modulo:\n  - OPEN-2\n", "modulo: [OPEN-2]\n")
+        self.assertNotEqual(inline, block)
+        for n, text in enumerate((block, inline)):
+            with self.subTest(form=("block", "inline")[n]):
+                write(p, text)
+                vfile = self.crit1_proved_verdict("2026-10-12_pm%d.md" % n)
+                self.assertEqual(self.s1_set("CRIT-1", "proved", "--verdict", vfile), 0)
+                after = p.read_text(encoding="utf-8")
+                self.assertNotIn("modulo:", after)
+                self.assertIn("depends_on: []", after)
+                kb = s1kb.load_kb(self.s1)
+                e = kb.entities["CRIT-1"]
+                self.assertEqual(e.v2["status"], "proved")
+                self.assertNotIn("modulo", e.v2)
+                self.assertIn("status proved-modulo → proved", e.v2["history"][0])
+                s1kb.run_check(kb)
+                self.assertEqual(kb.errors, [])
+
+    def test_s1_proved_modulo_keeps_modulo(self):
+        p = self.s1 / "claims" / "CRIT-1.md"
+        vfile = self.crit1_proved_verdict("2026-10-12_pm-keep.md")
+        self.assertEqual(self.s1_set("CRIT-1", "proved-modulo", "--verdict", vfile), 0)
+        self.assertIn("modulo:\n  - OPEN-2\n", p.read_text(encoding="utf-8"))
+        self.assertEqual(s1kb.load_kb(self.s1).entities["CRIT-1"].v2["modulo"], ["OPEN-2"])
+
+    def test_s1_proved_modulo_sets_modulo(self):
+        p = self.s1 / "claims" / "OBS-1.md"
+        before = p.read_bytes()
+        vfile = self.s1_verdict("2026-10-12_obs.md", ["OBS-1"], ["CONFIRMED", "CONFIRMED"])
+        # no modulo on the record and none given: the schema refuses, the file is put back
+        self.assertNotEqual(self.s1_set("OBS-1", "proved-modulo", "--verdict", vfile), 0)
+        self.assertEqual(p.read_bytes(), before)
+        self.assertEqual(self.s1_set("OBS-1", "proved-modulo", "--verdict", vfile,
+                                     "--modulo", "OPEN-2", "--modulo", "OPEN-7"), 0)
+        kb = s1kb.load_kb(self.s1)
+        self.assertEqual(kb.entities["OBS-1"].v2["status"], "proved-modulo")
+        self.assertEqual(kb.entities["OBS-1"].v2["modulo"], ["OPEN-2", "OPEN-7"])
+        s1kb.run_check(kb)
+        self.assertEqual(kb.errors, [])
+        # given again, --modulo replaces the list (it is the grounds' missing inputs)
+        self.assertEqual(self.s1_set("OBS-1", "proved-modulo", "--verdict", vfile,
+                                     "--modulo", "OPEN-7"), 0)
+        self.assertEqual(s1kb.load_kb(self.s1).entities["OBS-1"].v2["modulo"], ["OPEN-7"])
+
+    def test_s1_modulo_only_with_proved_modulo(self):
+        vfile = self.crit1_proved_verdict("2026-10-12_pm-bad.md")
+        p = self.s1 / "claims" / "CRIT-1.md"
+        before = p.read_bytes()
+        self.assertEqual(self.s1_set("CRIT-1", "proved", "--verdict", vfile,
+                                     "--modulo", "OPEN-2"), 1)
+        self.assertEqual(p.read_bytes(), before)
+
+    def test_s1_proved_modulo_over_an_empty_modulo(self):
+        # T-0361, flat:FND-20: `modulo: []` on a sketch, set to proved-modulo with an
+        # own-namespace id; the record gets the bare id (FND-15's `modulo: [FND-9]`)
+        p = self.s1 / "claims" / "OBS-1.md"
+        write(p, p.read_text(encoding="utf-8").replace(
+            "depends_on: [OPEN-2]\n", "depends_on: [OPEN-2]\nmodulo: []\n"))
+        vfile = self.s1_verdict("2026-10-12_obs-e.md", ["OBS-1"], ["CONFIRMED", "CONFIRMED"])
+        for n, ref in enumerate(("s1:OPEN-2", "OPEN-2")):
+            with self.subTest(ref=ref):
+                self.assertEqual(self.s1_set("OBS-1", "proved-modulo", "--verdict", vfile,
+                                             "--modulo", ref), 0)
+                text = p.read_text(encoding="utf-8")
+                self.assertIn("modulo:\n  - OPEN-2\n", text)
+                self.assertNotIn("modulo: []", text)
+                self.assertNotIn("s1:OPEN-2", text.split("\n---")[0].split("history:")[0])
+                kb = s1kb.load_kb(self.s1)
+                s1kb.run_check(kb)
+                self.assertEqual(kb.errors, [])
+        self.assertEqual(self.s1_set("OBS-1", "proved", "--verdict", vfile), 0)
+        self.assertNotIn("modulo", s1kb.load_kb(self.s1).entities["OBS-1"].v2)
+
+    def test_s1_check_resolves_bare_modulo_ids(self):
+        # a home with no id prefixes (flat): a bare id that names a record is an id,
+        # checked, not "not a record id"; the own-namespace form is checked as well
+        p = self.s1 / "claims" / "CRIT-1.md"
+        base = p.read_text(encoding="utf-8")
+        cases = (("OPEN-2", None, None), ("s1:OPEN-2", None, None),
+                 ("s1:OPEN-99", "does not resolve", None),
+                 ("lab:foo", None, None),
+                 ("the lemma of the cited paper", None, "is not a record id"))
+        for item, err, warn in cases:
+            with self.subTest(item=item):
+                write(p, base.replace("modulo:\n  - OPEN-2\n",
+                                      "modulo:\n  - \"%s\"\n" % item))
+                kb = s1kb.load_kb(self.s1)
+                s1kb.run_check(kb)
+                mine = lambda ms: [m for m in ms if "CRIT-1" in m and "modulo" in m]
+                self.assertEqual(bool(mine(kb.errors)), bool(err), kb.errors)
+                if err:
+                    self.assertIn(err, mine(kb.errors)[0])
+                self.assertEqual(bool(mine(kb.warnings)), bool(warn), kb.warnings)
+                if warn:
+                    self.assertIn(warn, mine(kb.warnings)[0])
+
     def test_s1_store_classes(self):
         from registry.core import federation
         st = federation.store("s1", self.s1)

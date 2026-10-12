@@ -573,6 +573,13 @@ class RegistryBackend(ClaimsBackend):
         if status == "superseded" and g.get("superseded_by"):
             new = str(g["superseded_by"]).strip()
             argv += ["--superseded-by", new[len(ns) + 1:] if new.startswith(ns + ":") else new]
+        if status == "proved-modulo" and self._s1_is_v2(home, rest):
+            # the record's `modulo` is the grounds' missing inputs (as in fsl); none
+            # given keeps the record's own, and proved drops it (T-0361)
+            mods = g.get("modulo") or []
+            for m in [mods] if isinstance(mods, str) else mods:
+                m = str(m).strip()
+                argv += ["--modulo", m[len(ns) + 1:] if m.startswith(ns + ":") else m]
         res = self._cli(ns, argv)
         if res["exit"] != 0:
             raise ToolError("refused: %s" % (res["stderr"] or res["stdout"]).strip())
