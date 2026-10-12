@@ -25,7 +25,7 @@ concurrent passes on one statement are forbidden (verify/references/conclude.md)
 ``<id-slug>`` is the id with every character outside ``[A-Za-z0-9._-]`` turned into ``-``
 (``paper:lem:strip-bound`` -> ``paper/lem-strip-bound``).
 
-**Reword passes** (T-0347, Roey 2026-10-12). A statement whose wording changed after a
+**Reword passes** (T-0347, the human's decision of 2026-10-12). A statement whose wording changed after a
 pass decided CONFIRMED x2 gets one informed run, not a new blind pair. ``new-pass
 --reword-of BASE`` refuses unless BASE (a pass of the same subject) holds runs A and B
 whose decision table gives ``confirmed`` / ``confirmed-modulo`` and is not abandoned; it

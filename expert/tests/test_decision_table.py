@@ -390,7 +390,7 @@ def rwrec(verdict="CONFIRMED", scope="equivalent", base_pass="2026-09-28-T-0007"
 
 
 class RewordTableTests(unittest.TestCase):
-    """T-0347 (Roey, 2026-10-12): one informed reword run on top of a CONFIRMED x2 base."""
+    """T-0347 (the human's decision, 2026-10-12): one informed reword run on top of a CONFIRMED x2 base."""
 
     def base(self, modulo="none", b="CONFIRMED"):
         return rec("CONFIRMED", modulo=modulo), rec(b, run="B", modulo=modulo)

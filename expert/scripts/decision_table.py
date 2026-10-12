@@ -24,6 +24,18 @@ The table (from the old /paper:verify, in the academy's verdict words):
 | anything else | | ``no-change``: report the union of the findings (a fallback: with the four verdict words and the sequencing rule no input reaches it) |
 | run A missing or unreadable | | ``incomplete`` |
 
+A **reword run** (T-0347, the human's decision of 2026-10-12: a statement reworded after a CONFIRMED x2
+pass gets one informed run, not a new blind pair) is a record with ``mode: reword``,
+``base_pass``, ``base_hash`` and ``reword_scope`` (equivalent / weaker / covered /
+exceeds). Given as run A, it is decided by ``decide_reword`` against the base pass's
+A and B (found beside the reword pass, or ``--base-dir``): R CONFIRMED with scope
+equivalent / weaker / covered on a base the table confirms on ``base_hash`` gives
+``confirmed`` / ``confirmed-modulo`` (the base's modulo plus R's), with grounds of
+``mode: reword``; R GAP or ``exceeds`` gives ``full-pass-needed`` (no status; a fresh
+blind pass); a missing, abandoned or unconfirmed base, another hash, subject or pass, a
+shared run id or an unchanged statement gives ``invalid-base``. A reword record given as
+run B is an ``invalid-pair``: it is never half of a blind pair.
+
 Mechanical rules applied before the table:
 
 * The primaries are workspace.json's ``grading.primaryModels``, equal in authority
@@ -663,7 +675,7 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
 
 
 # ----------------------------------------------------------------------------
-# The reword pass (T-0347, Roey 2026-10-12): one informed run on a reworded statement
+# The reword pass (T-0347, the human's decision of 2026-10-12): one informed run on a reworded statement
 # ----------------------------------------------------------------------------
 
 def base_records(r_path, base_pass, base_dir=None):

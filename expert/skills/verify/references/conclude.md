@@ -164,3 +164,57 @@ closing, for every input found defective:
 Both verdicts in the reviewers' own words; the outcome and the input-by-input status;
 the blast radius first when there is one; every path, evidence row, ticket and packet
 written. State plainly when the statement stays unsettled.
+
+## 7. A reword pass (one informed run, T-0347)
+
+The human's rule (2026-10-12, T-0347, verbatim): "A statement that was re-worded should get a
+verifier with some access to the rewording recommending'a chain of thought, as the proof
+does not require a new proof from scratch". The design chosen: one informed run.
+
+**When.** The statement's text changed (its hash differs) after a pass whose
+`decision.md` records `confirmed` or `confirmed-modulo` on the old hash, and the proof is
+unchanged or changed only in wording. Typically: a wording finding, a notation pass, a
+restatement that drops a redundant hypothesis. **Not** when the proof changed in
+substance, when the base pass was anything but CONFIRMED x2, or when the rewording
+answers a hypothesis / statement / proof finding: those take a full blind pass
+(sections 0-6).
+
+**Steps** (`$E` as above; scratch files in the session scratchpad, never under
+`reviews/`):
+
+1. Take the ticket as in section 0. The budget is one reviewer run plus you.
+2. Recover the statement **as the base pass reviewed it** (its `decision.md` names
+   which file and label; `git show <commit>:<file>` from the commit before the
+   rewording) into `old.txt`, and the current statement into `new.txt`.
+   `py $E/reviews.py hash --file old.txt` must equal the base runs' `statement_hash`.
+3. Open the pass: `py $E/reviews.py new-pass <id> --reword-of <base pass> --ticket
+   T-NNNN`. It refuses unless the base pass is CONFIRMED x2 (by its own table) and not
+   abandoned; the name ends in `-reword`.
+4. Write the bundle: `py $E/reviews.py reword-brief <id> <pass> --old-file old.txt
+   --new-file new.txt --findings <file or "T-NNNN: one line"> ... --out
+   <scratch>/bundle.md`. It refuses when `old.txt` is not the reviewed statement or the
+   statement did not change.
+5. Launch `rigor-reviewer` once, with the brief:
+
+   > Reword review of `<id>` (reword mode, run R): read the bundle `<scratch>/bundle.md`
+   > first; the proof is at `<file:label or object + proofs/attempt>`. The question: does
+   > the proof as reviewed still prove the new wording?
+
+   The `land_verdict` hook lands it as `<pass dir>/R.md`.
+6. The table: `py $E/decision_table.py "<pass dir>/R.md" --established <ids> --json`.
+   It finds the base pass beside the reword pass (`--base-dir` overrides) and recomputes
+   the base's table. Outcomes:
+   - `confirmed` / `confirmed-modulo`: propose `proved` / `proved-modulo` with the
+     script's grounds (`mode: reword`, the reword row first, then the base rows); the
+     recolour is earned as in the normal table. The base pass's modulo is carried over,
+     plus any input R adds.
+   - `full-pass-needed` (R is GAP, or `reword_scope: exceeds`): no status. Write the
+     record, then open a **fresh blind pass** on the new statement (section 0, a new
+     `new-pass` without `--reword-of`); its brief says nothing of R.
+   - `disproved`: the counterexample to the human at once, as in section 4.
+   - `degraded`: re-run R on a primary. `incomplete`: relaunch R once.
+   - `invalid-base`: no status; the anomalies say why (base missing or not confirmed,
+     `base_hash` not the base runs' hash, an unchanged statement, a shared run id).
+7. The record `<pass dir>/decision.md` (section 3), naming the base pass, both hashes,
+   the word diff and `reword_scope`. Evidence: one row for R.md (section 4.1); the base
+   rows are already on the claim. Packet and ticket as in section 4.

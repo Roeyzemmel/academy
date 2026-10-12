@@ -17,7 +17,9 @@ The grounds rule of plan section 8 is :func:`check_grounds`, the engine's
 ref of its landed review record, graded by the basis' reviewers (rigor-reviewer /
 experiment-reviewer) and not by the producer, one statement hash (proof) or one commit,
 a passed validation case and a matching outcome (computation: supported / refuted /
-refuted-as-stated only); or the human's quoted word, which an agent must point at the
+refuted-as-stated only); or, for a statement reworded after a CONFIRMED x2 pass,
+the base pass's two verdicts on the old hash plus one reword verdict on the current one
+(``mode: reword``, T-0347); or the human's quoted word, which an agent must point at the
 ticket or packet holding it. The review records themselves are checked against the rows
 (``grounds.check_verdict_refs``): by the engine for lab/paper, here for a notebook,
 whose verdict file is also checked by ``s1kb.verdict_file_problems``. The lifecycle moves
@@ -777,7 +779,10 @@ GROUNDS = {"type": "object", "description": "See check_grounds: basis (proof | "
                                             "every verdict's ref is its landed review "
                                             "record; superseded: superseded_by; "
                                             "human: quote, where (an agent: the T-/P- "
-                                            "id holding the quote); a notebook: verdict_file"}
+                                            "id holding the quote); a notebook: verdict_file; "
+                                            "a reword review (T-0347): mode 'reword', "
+                                            "base_pass, base_hash, and the reword verdict "
+                                            "row's mode, base_hash, reword_scope"}
 
 TOOLS = [
     Tool("claims_show", "Show one claim (any namespace) with its evidence and back-links.",

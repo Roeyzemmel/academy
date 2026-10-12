@@ -41,7 +41,7 @@ Rules:
   is the producer (never grade your own work);
 * proof: all verdicts on one statement hash, equal to the claim's current one when it
   is known; proved-modulo needs ``modulo``, proved needs none;
-* proof with ``mode: reword`` (T-0347, Roey 2026-10-12: a statement reworded after a
+* proof with ``mode: reword`` (T-0347, the human's decision of 2026-10-12: a statement reworded after a
   CONFIRMED x2 pass): the base pass's CONFIRMED verdicts on ``base_hash`` plus exactly
   one reword row (``mode: reword``, ``base_hash``, ``reword_scope`` equivalent / weaker /
   covered) CONFIRMED on the new hash, which is the claim's current one; proved or
@@ -96,7 +96,7 @@ def is_reword(d):
 def reword_problems(new_status, grounds, rows, statement_hash=None):
     """Why reword grounds do not carry ``new_status`` (empty when they do).
 
-    T-0347 (Roey, 2026-10-12): a statement reworded after a CONFIRMED x2 pass needs one
+    T-0347 (the human's decision, 2026-10-12): a statement reworded after a CONFIRMED x2 pass needs one
     informed reword run, not a new blind pair. The grounds are the base pass's two (or
     more) CONFIRMED verdicts, each on ``base_hash`` (the statement as reviewed), plus
     exactly one reword row (``mode: reword``) CONFIRMED on the new ``statement_hash``,

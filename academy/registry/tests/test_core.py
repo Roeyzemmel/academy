@@ -197,7 +197,7 @@ class TestGrounds(unittest.TestCase):
 
 
 class TestRewordGrounds(unittest.TestCase):
-    """T-0347 (Roey, 2026-10-12): a statement reworded after a CONFIRMED x2 pass is
+    """T-0347 (the human's decision, 2026-10-12): a statement reworded after a CONFIRMED x2 pass is
     carried to proved by the base pass's two CONFIRMED verdicts on the old hash plus one
     informed reword run CONFIRMED on the new hash, linking the old one."""
 

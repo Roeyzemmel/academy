@@ -9,7 +9,10 @@ and writes::
     <expert home>/reviews/<ns>/<id-slug>/<pass>/<run>.md
 
 with the block's fields as frontmatter plus a hook-assigned ``run_id``, ``agent``
-and ``landed`` date, and the whole report as the body.
+and ``landed`` date, and the whole report as the body. A reword run's block
+(``mode: reword``, T-0347) lands as ``R.md`` whatever its ``run`` says, and its record
+also keeps ``mode``, ``base_pass``, ``base_hash`` and ``reword_scope``; a block missing a
+pass-shaped ``base_pass`` or a hex ``base_hash`` is blocked once, like a placeholder pass.
 
 **Idempotent by run.** A landing is keyed by the reviewer's agent id (the tail of
 ``run_id``): a second SubagentStop of the same reviewer -- the hook firing twice, a
