@@ -717,11 +717,17 @@ def _check_v2(kb, e):
         kb.error(e.path, f"form '{form}' is not one of {'|'.join(KINDS)}")
     elif form is not None and KIND_V2.get(form) not in (v.get("kind"), None):
         kb.error(e.path, f"form '{form}' is a {KIND_V2.get(form)}, not a {v.get('kind')}")
+    own = _own_prefixes(kb)
     for item in v.get("modulo") or []:
-        if isinstance(item, str) and (kb.rules.looks_like_id(item.strip()) or
-                                      _schema.looks_like_id(item)):
-            if ":" not in item:
-                _check_ref(kb, e, "modulo", item)
+        s = item.strip() if isinstance(item, str) else ""
+        # this home's id, bare or as <own ns>:<id> (T-0361: a home without id prefixes,
+        # like flat, writes `modulo: [FND-9]`): checked; another home's <ns>:<id> passes
+        bare = s.split(":", 1)[1] if s.startswith(own) else s
+        if bare and ":" not in bare and (kb.rules.looks_like_id(bare) or s != bare
+                                         or lookup(kb, bare)[0] is not None):
+            _check_ref(kb, e, "modulo", bare)
+        elif s and _schema.looks_like_id(s):
+            pass
         else:
             # plan section 6: `modulo: [ids]`, promoted along the graph once the target
             # is proved; free text cannot be followed
@@ -2024,7 +2030,7 @@ def rewrite_status_v2(p: Path, label, vrow, note, old, human=None, modulo=None):
         if label == "proved":
             doc.remove("modulo")
         elif label == "proved-modulo" and modulo:
-            doc.set_list("modulo", [str(m) for m in modulo],
+            doc.set_list("modulo", list(modulo),
                          after=after[:after.index("modulo")])
     if note is not None:
         doc.set_scalar("status_note", note, after=after[:after.index("status_note")])
@@ -2116,7 +2122,9 @@ def cmd_set_status(args) -> int:
         old = _schema.state(e.v2) or "(none)"
         rewrite_status_v2(path, args.label,
                           _verdict_row(kb.root, vrel) if vrel else None,
-                          args.note, old, human=args.human, modulo=args.modulo)
+                          args.note, old, human=args.human,
+                          modulo=[m.split(":", 1)[1] if m.startswith(_own_prefixes(kb))
+                                  else m for m in (s.strip() for s in args.modulo or [])])
     else:
         rewrite_status_file(path, e.path, args.label, vrel, args.note, old)
     # the change stands only if the kb still builds: otherwise the files are put back
