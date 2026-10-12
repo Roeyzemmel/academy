@@ -151,6 +151,45 @@ class LandVerdictTests(unittest.TestCase):
         self.assertEqual(os.listdir(subj), ["_unfiled"])
         self.assertIn("ERROR: not filed into a pass", out["systemMessage"])
 
+    REWORD = REPORT.replace("pass: 2026-09-28-T-0007", "pass: 2026-10-12-T-0347-reword") \
+        .replace("run: A", "run: R\nmode: reword\nbase_pass: 2026-09-28-T-0007\n"
+                           "base_hash: 0123456789abcdef\nreword_scope: weaker") \
+        .replace("statement_hash: 0123456789abcdef", "statement_hash: fedcba9876543210")
+
+    def test_a_reword_run_lands_as_R_with_its_fields(self):
+        """T-0347: the reword run's record keeps mode, base_pass, base_hash, reword_scope."""
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", self.REWORD))
+        self.assertEqual(code, 0, err)
+        d = os.path.join(self.sb.lib, "reviews", "paper", "lem-strip-bound",
+                         "2026-10-12-T-0347-reword")
+        self.assertEqual(os.listdir(d), ["R.md"], out)
+        with open(os.path.join(d, "R.md"), encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertEqual((meta["mode"], meta["base_pass"], meta["base_hash"],
+                          meta["reword_scope"], meta["run"], meta["statement_hash"]),
+                         ("reword", "2026-09-28-T-0007", "0123456789abcdef", "weaker", "R",
+                          "fedcba9876543210"))
+        # a reword block that says run A still lands as R
+        fixtures.run_script("land_verdict.py", stop_event(
+            "expert:rigor-reviewer", self.REWORD.replace("run: R", "run: A"),
+            agent_id="other9"))
+        self.assertEqual(sorted(os.listdir(d)), ["R-2.md", "R.md"])
+
+    def test_a_blind_record_carries_no_reword_fields(self):
+        fixtures.run_script("land_verdict.py", stop_event("expert:rigor-reviewer", REPORT))
+        with open(os.path.join(self.pass_dir(), "A.md"), encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        for k in ("mode", "base_pass", "base_hash", "reword_scope"):
+            self.assertNotIn(k, meta)
+
+    def test_a_reword_block_without_its_base_blocks_once(self):
+        bad = self.REWORD.replace("base_hash: 0123456789abcdef", "base_hash: not in brief")
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", bad))
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("base_hash", out["reason"])
+
     def test_a_skipped_landing_is_visible(self):
         code, out, err = fixtures.run_script("land_verdict.py",
                                              stop_event("expert:rigor-reviewer", ""))

@@ -50,10 +50,21 @@ AGENT = "rigor-reviewer"
 #: ``gap_class`` (the blocking finding's class) is read back by decision_table.py
 RECORD_KEYS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
                "statement_hash", "blocking", "gap_class", "ticket", "agent", "landed")
+#: a reword run's own keys (T-0347), written after ``statement_hash`` and only for a
+#: block that says ``mode: reword``; a blind run's record is unchanged
+REWORD_KEYS = dt.REWORD_FIELDS
+
+
+def record_keys(reword):
+    if not reword:
+        return RECORD_KEYS
+    i = RECORD_KEYS.index("statement_hash") + 1
+    return RECORD_KEYS[:i] + REWORD_KEYS + RECORD_KEYS[i:]
 
 ASK = ("Close your report with the VERDICT block, exactly in the shape your "
        "instructions give (VERDICT, then subject, pass, run, verdict, modulo, model, "
-       "statement_hash, blocking, gap_class, ticket), as the last thing in your final message. "
+       "statement_hash, blocking, gap_class, ticket; in reword mode also mode, base_pass, "
+       "base_hash, reword_scope), as the last thing in your final message. "
        "The hook that lands your verdict reads only that block.")
 
 
@@ -97,6 +108,11 @@ def block_problems(block):
         probs.append("pass")
     if not RE_HASH.match((block.get("statement_hash") or "").strip().lower()):
         probs.append("statement_hash")
+    if dt.is_reword(block):
+        if not RE_PASS_NAME.match((block.get("base_pass") or "").strip()):
+            probs.append("base_pass")
+        if not RE_HASH.match((block.get("base_hash") or "").strip().lower()):
+            probs.append("base_hash")
     return probs
 
 
@@ -132,6 +148,9 @@ def land(event, text, home, now=None, report=None):
     block = dt.parse_verdict_block(text) or {}
     subject = (block.get("subject") or "").strip()
     run = (block.get("run") or "").strip().upper()[:1] or "X"
+    reword = dt.is_reword(block)
+    if reword:
+        run = "R"           # a reword pass has one run, R, whatever the block says
     probs = block_problems(block) if block else []
     if block and probs:
         folder = os.path.join(reviews.subject_dir(home, subject or "unknown"), UNFILED)
@@ -159,6 +178,10 @@ def land(event, text, home, now=None, report=None):
         "agent": ("%s:%s" % (ns, name)) if ns else name,
         "landed": now.strftime("%Y-%m-%d"),
     }
+    if reword:
+        meta.update({"mode": "reword", "base_pass": rec["base_pass"] or None,
+                     "base_hash": rec["base_hash"] or None,
+                     "reword_scope": rec["reword_scope"] or None})
     prior = _same_run(folder, key, body)
     if prior:
         path, old, same_body = prior
@@ -182,7 +205,7 @@ def land(event, text, home, now=None, report=None):
                       "the brief; held aside for the review-chair, who moves it into the "
                       "pass folder once pass and statement hash are known"
                       % (" and ".join(probs), "is" if len(probs) == 1 else "are"))
-    ac.atomic_write(path, ac.write_frontmatter({k: meta[k] for k in RECORD_KEYS}, body))
+    ac.atomic_write(path, ac.write_frontmatter({k: meta[k] for k in record_keys(reword)}, body))
     return path
 
 
