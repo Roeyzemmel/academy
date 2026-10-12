@@ -9,8 +9,8 @@ one informed reword run; reword CONFIRMED + the base pass CONFIRMED x2 on ``base
 * a reword run is never one of a blind pair (never counts as a blind verdict);
 * a reword never stacks on a reword (exactly one reword row; the base rows are blind).
 
-Tests marked ``expectedFailure`` demonstrate review findings on T-0347's thread: they
-pass once the finding is fixed (then remove the decorator).
+Tests named ``test_finding_*`` demonstrated review findings on T-0347's thread
+(expectedFailure until the developer's fix 723f3d3).
 """
 import shutil
 import tempfile

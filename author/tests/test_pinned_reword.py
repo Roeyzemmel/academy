@@ -6,10 +6,8 @@ unpins. A reword pass holds one run, ``R.md``. Read with the T-0347 rule (R CONF
 CONFIRMED x2 base is the two agreeing reviews of the new wording), a reword pass should
 move the pin to the new hash at ``verified``, and a reword GAP should unpin.
 
-Today ``RE_RUN_FILE`` matches only ``A``/``B`` files, so a reword pass is invisible: the
-pin stays on the base pass and the old hash. The two ``expectedFailure`` tests below
-state the expected behaviour (a review finding on T-0347); the plain test records what
-does hold today.
+Before 723f3d3 ``RE_RUN_FILE`` matched only ``A``/``B`` files and a reword pass was
+invisible (review finding 6 on T-0347); the reading above was adopted and fixed there.
 """
 
 import os
@@ -36,12 +34,12 @@ class PinsWithARewordPass(PinnedBase):
         self.h_new = pn.statement_hash(pn.env_text(NEW_TEX, "lem:lift"))
         self.assertNotEqual(self.h_new, self.h)
 
-    def land_r(self, verdict):
+    def land_r(self, verdict, scope="equivalent"):
         rec = ("---\nsubject: paper:lem:lift\npass: %s\nrun: R\nrun_id: rv-r\n"
                "verdict: %s\nmodulo: []\nmodel: claude-opus-5-5\nstatement_hash: %s\n"
                "mode: reword\nbase_pass: 2026-10-08-T-0001\nbase_hash: %s\n"
-               "reword_scope: equivalent\nblocking:\nticket: T-0347\n---\n\nreport\n"
-               % (RW_PASS, verdict, self.h_new, self.h))
+               "reword_scope: %s\nblocking:\nticket: T-0347\n---\n\nreport\n"
+               % (RW_PASS, verdict, self.h_new, self.h, scope))
         self.sb.write(os.path.join(self.lib, "reviews", "paper", "lem-lift", RW_PASS,
                                    "R.md"), rec)
 
@@ -58,6 +56,15 @@ class PinsWithARewordPass(PinnedBase):
     def test_finding_a_reword_gap_unpins(self):
         self.land_r("GAP")
         self.assertNotIn("lem:lift", self.pins())
+
+    def test_a_confirmed_reword_with_scope_exceeds_unpins(self):
+        self.land_r("CONFIRMED", scope="exceeds")
+        self.assertNotIn("lem:lift", self.pins())
+
+    def test_weaker_and_covered_pin_the_new_wording(self):
+        for scope in ("weaker", "covered"):
+            self.land_r("CONFIRMED", scope=scope)
+            self.assertEqual(self.pins()["lem:lift"]["hash"], self.h_new, scope)
 
 
 if __name__ == "__main__":
