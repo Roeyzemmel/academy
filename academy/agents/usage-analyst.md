@@ -47,7 +47,10 @@ plugin).
      `Recommendation:` line. Suggest a downgrade only for an agent whose runs are
      short and clerical in the data (few turns, no limit failures) on a heavier model
      than the work needs; never for a grader (`rigor-reviewer`,
-     `experiment-reviewer`, `referee`). If there is nothing to decide, `None.`.
+     `experiment-reviewer`, `referee`). A downgrade is a lower `tier:` for the agent
+     (or a different `models.tiers` map for the workspace), never a model name: an
+     agent's "declared" model is the workspace's model for its tier, and a
+     heavier-than-declared flag names the tier. If there is nothing to decide, `None.`.
    - `## Machine notes`: each judgement call you made, one bullet each, naming
      `usage-analyst`.
    - `## Decision`: empty.

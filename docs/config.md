@@ -55,13 +55,16 @@ them valid.
 | `board` | abs path | yes | The board directory, normally the workspace's `board/` (protocol.md section 2) |
 | `human` | map | no | `name` for display (default `human`; prompts and scripts say "the human" then), `noteMacro` for the human's margin-note macro, `login` the human's GitHub login (default: `board.assignee`; the GitHub board's ticket form and `board-migrate` use it) |
 | `compute` | map | no | The workspace's remote workers and the gateways in front of them (below) |
-| `grading` | map | no | `primaryModels`: the grading primaries, equal in authority (default `["fable", "opus-5.5"]`). A positive verdict on any other model is capped (`roster-rules.md`, "Graders degrade"); read by the Expert's `decision_table.py` and `land_referee.py` and the Researcher's experiment reviews |
+| `models` | map | no | `tiers`: the model of each agent tier (`base`, `medium`, `large`, `max`) in this workspace, over the academy default (below, "`models`: agent tiers") |
+| `grading` | map | no | `minTier`: the graders' tier floor (default `large`; `none` switches it off): the versioned models the workspace maps to that tier or above are grading primaries. `primaryModels`: named primaries added to the floor's (default `["fable"]`). With the default map both give `fable` and `opus-5.5`, equal in authority. A positive verdict on any other model is capped (`roster-rules.md`, "Graders degrade"); read by the Expert's `decision_table.py` and `land_referee.py` and the Researcher's experiment reviews |
 | `plugins` | list of str | no | The plugins the workspace needs (the bootstrap installs them). Default: `academy`, the role plugins of its instances, and the plugin of every domain pack an instance names (the marketplace's name for `domains/<pack>`) |
 
 `load_workspace` finds it at `$ACADEMY_WORKSPACE`, then `<academy repo>/workspace.json`,
 then `<academy repo>/../workspace.json` (the academy checked out inside the workspace). It
-adds `_path` and fills the defaults of `human` (`name`, `login`), `grading.primaryModels`
-and `plugins`; read them through `human_name()`, `human_login()`, `primary_models()`. The workspace repo generates the file (`scripts/bootstrap.py`, from its
+adds `_path` and fills the defaults of `human` (`name`, `login`), `models.tiers` (merged over
+the academy default), `grading.minTier`, `grading.primaryModels` (the loaded list is the
+effective one: the named primaries, then the floor's) and `plugins`; read them through
+`human_name()`, `human_login()`, `model_tiers()`, `primary_models()`. The workspace repo generates the file (`scripts/bootstrap.py`, from its
 `workspace.template.json`, with this machine's absolute paths) and exports where everything is
 as environment variables, so no code or document needs a literal path:
 
@@ -78,6 +81,74 @@ as environment variables, so no code or document needs a literal path:
 They are set in `.claude/settings.local.json` of the workspace and of every home, and in the
 workspace's `workspace.env` for plain shells (`set -a; . ./workspace.env`). To move a home,
 change the variable (or `home`) and nothing else.
+
+### `models`: agent tiers
+
+Every academy agent file declares a **tier** in its frontmatter (`tier: base | medium |
+large | max`) and keeps a `model:` line: the Agent-tool alias of its tier in the academy's
+default map. The workspace decides which model each tier is:
+
+```json
+"models": {"tiers": {"base": "haiku", "medium": "sonnet",
+                     "large": "claude-opus-5-5", "max": "claude-opus-5-5"}}
+```
+
+That is the academy default (`DEFAULT_MODEL_TIERS`), and this workspace's map (Roey,
+2026-10-12: Haiku as base, Sonnet as medium, Opus 5.5 as both large and max). A partial map
+is merged over it. A value is an alias (`haiku`, `sonnet`, `opus`, `fable`) or a full
+`claude-...` id; no tier may name a lighter family than the one below it; `inherit` is not
+a tier's model. `load_workspace` rejects anything else, and the workspace bootstrap reports
+it (`--strict` then exits 1).
+
+The tiers of the agents: `base` for the clerical agents (clerk, paper-liaison, claim-keeper,
+lit-request, usage-analyst), `max` for the graders and the prover (rigor-reviewer, referee,
+experiment-reviewer, prover: the four that ran on Fable before), `large` for explainer,
+math-writer and developer, `medium` for the rest. `py academy/scripts/models.py list` shows
+them all.
+
+**How the map takes effect.** Claude Code reads only `model:` from an agent file (`tier:`
+is the academy's key and is ignored by it). It accepts an alias (`sonnet`, `opus`,
+`haiku`), a full model id or `inherit` there, and resolves a subagent's model in this
+order: the `CLAUDE_CODE_SUBAGENT_MODEL` environment variable, the Agent tool's per-call
+`model` parameter, the agent file's `model:`, the main session's model. The options for a
+per-workspace map, and the choice:
+
+- *Rewriting `model:` per workspace* (bootstrap editing the plugin's agent files, or
+  copying them to the project's `.claude/agents/`): rejected. The plugin is a shared
+  checkout, so an edit dirties it; a project agent is a separate agent (plugin agents are
+  namespaced, `expert:rigor-reviewer`), so a copy would not override the plugin's and its
+  prompt would drift from it.
+- *`CLAUDE_CODE_SUBAGENT_MODEL`*: rejected; it sets one model for every subagent, which
+  removes the tiers.
+- *`ANTHROPIC_DEFAULT_OPUS_MODEL` (and `_SONNET_`, `_HAIKU_`)* in a settings `env` block:
+  pins what an alias means for every session in that directory, main session included.
+  Not used by the academy; a workspace may set it to pin `opus` to a version.
+- **Chosen: the Agent tool's `model` parameter, from the resolver.** An agent file's
+  `model:` is its tier's default alias, so where the workspace's map gives the same alias
+  (this workspace) nothing is passed. Where it differs, the launching skill or session
+  passes `model: <launch>` in the Agent call, the value of
+  `py academy/scripts/models.py agent <plugin:name> --launch` (or `config_get`'s
+  `models.agents`). The per-call parameter takes an alias, so a tier named by a full id
+  launches as its family's alias (`claude-opus-5-5` -> `opus`); the id still decides the
+  grading floor.
+
+The resolver, `academy/scripts/models.py` (read-only): `tiers` (the map), `agent <name>
+[--launch]` (tier, model, launch value, whether an override is needed), `list`, and
+`check` (exit 1 when an agent file has no valid tier or its `model:` is not its tier's
+default alias; it names the agents that need the override in this workspace and warns
+about floor tiers that give no grading authority). The MCP `config_get` returns `models`:
+the tier map and the instance's role's and the academy plugin's agents resolved.
+
+**Grading floor.** `grading.minTier` (default `large`) makes the models the workspace maps
+to that tier or above grading primaries, by their roster label (`model_label`: `fable`,
+`opus-5.5`, else the bare family). A tier whose model names no version (a bare `opus`, or
+an id the labeller does not version yet, e.g. `claude-opus-6-0`) gives no grading
+authority: a bare family is read as a fallback (`roster-rules.md`, "Graders degrade").
+`models.py check` warns about such a tier; teach `model_label` the new version, or name it
+in `grading.primaryModels`.
+
+**Usage.** The usage report's "heavier than declared" check compares the models an agent
+ran on with the workspace's model for its tier (`usage_report.py`, `declared_models`).
 
 ### `compute`: remote workers and gateways
 
@@ -506,6 +577,11 @@ notebook (`nb`) and a lab (`lab`). The tests read these blocks, so they stay val
   a `worker` is empty, or a `policy` entry names no existing profile. Whether the
   worker exists in the workspace's `compute` is checked by `env.py` (`list`, `check`)
   and `env_check`, not here.
+
+`load_workspace` rejects a workspace whose `models.tiers` names an unknown tier, a value
+that is not an alias or a `claude-...` id, or a tier lighter than the one below it; whose
+`grading.minTier` is not a tier or `none`; whose `grading.primaryModels` is not a list of
+names; or whose effective primaries are empty (`academy_common.model_problems`).
 
 Unknown extra keys are allowed, for forward compatibility. `session_start` prints the
 problems and stays silent otherwise.
