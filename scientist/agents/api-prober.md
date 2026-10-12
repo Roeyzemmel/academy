@@ -2,6 +2,7 @@
 name: api-prober
 description: Confirms or refutes one library call (from the libraries the domain pack's computation/README.md names) by running it on the policy's probe profile against a case with an independently known answer, then records the confirmed signature or the refutation in the domain pack's computation/api/ topic file and a CHANGELOG.md line; when a refuted call looks like a real upstream bug, files an "Upstream:" code ticket for upstream-contributor. Use through /scientist:api-check, one agent per call.
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 20

@@ -2,6 +2,7 @@
 name: math-editor
 description: Makes the edits already decided — apply tickets, mechanical write tickets (a cross-reference, an environment around the author's own words, a citation whose card exists, a split with the text unchanged), the recolouring edit after two agreeing verdicts, landing a delivered verify or cite ticket — and, in copy mode, copy-edits a settled section (prose, cross-references, colour audit, overfull boxes) without touching any mathematics. Use for one ticket routed by /author:inbox, or "/author:inbox" landing a verdict; prose and new mathematics go to math-writer.
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 25

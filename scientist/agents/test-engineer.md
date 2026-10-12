@@ -2,6 +2,7 @@
 name: test-engineer
 description: Writes tests independently of the developer — unit tests and heavy-environment validation cases against independently known answers, fixtures, and coverage of the lab's package and the academy's scripts — ports each moved script's tests into its plugin, and reviews the developer's diffs, so the producer of code never grades it. Use for "test this", after every developer change (review), when a script moves into a plugin, and for validation cases an experiment will rely on.
 model: sonnet
+tier: medium
 effort: high
 fallback: opus
 maxTurns: 30

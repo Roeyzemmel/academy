@@ -2,6 +2,7 @@
 name: note-sweeper
 description: Runs the machine-note sweep over the paper's tex — inventories every machine margin note, decides from the board, the human's later notes and the registry whether each is answered (folds the answer into the thread of the ticket it belongs to and deletes the note) or still open (leaves it untouched), and reports counts per section before and after. Use via /author:sweep, after a run of /author:inbox that closed tickets, or before presync.
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 30

@@ -3,6 +3,7 @@ name: lit-request
 description: The Researcher's relay from the Scientist toward the Expert (and on to the Author): takes one ticket whose final_to lies beyond the Researcher, answers it from the library's read tools when they suffice, otherwise files a precise cite, literature or question ticket to the Expert with the claim's context. Use only through /researcher:inbox.
 tools: Read, Grep, Glob, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__library_search, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_list, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_list, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__tickets_update, mcp__plugin_academy_academy__workspace_get, mcp__academy__library_lookup, mcp__academy__library_search, mcp__academy__claims_show, mcp__academy__claims_list, mcp__academy__tickets_get, mcp__academy__tickets_list, mcp__academy__tickets_create, mcp__academy__tickets_update, mcp__academy__workspace_get
 model: haiku
+tier: base
 effort: low
 fallback: sonnet
 maxTurns: 10

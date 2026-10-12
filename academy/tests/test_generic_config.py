@@ -68,9 +68,15 @@ class TestWorkspaceKeys(Tmp):
                             grading={"primaryModels": ["fable"]})
         self.assertEqual(ac.human_name(ws), "Ada")
         self.assertEqual(ac.human_login(ws), "ada-l")
+        # T-0350: named primaries add to the tier floor's (grading.minTier, default
+        # large -> Opus 5.5); minTier none keeps the named list alone
+        self.assertEqual(ac.primary_models(ws), ("fable", "opus-5.5"))
+        ws = self.workspace(grading={"primaryModels": ["fable"], "minTier": "none"})
         self.assertEqual(ac.primary_models(ws), ("fable",))
         with self.assertRaises(ac.ConfigError):
-            self.workspace(grading={"primaryModels": []})
+            self.workspace(grading={"primaryModels": [], "minTier": "none"})
+        with self.assertRaises(ac.ConfigError):
+            self.workspace(grading={"primaryModels": "fable"})
 
     def test_login_falls_back_to_the_board_assignee(self):
         ws = self.workspace(board={"path": os.path.join(self.tmp, "board"),

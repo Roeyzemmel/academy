@@ -3,6 +3,7 @@ name: experiment-spec
 description: The Researcher's relay from the Expert to the Scientist: takes one ticket whose final_to is the Scientist, fails it fast (no claim named, or the lab already has a result for that claim and class), otherwise writes an exact experiment spec (claim id, kind search/measure/verify, class and bounds, what refutes the claim, a validation case, scope defaults) as a child ticket to the Scientist. Writes no code, grades nothing. Use only through /researcher:inbox.
 tools: Read, Grep, Glob, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__library_search, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_list, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_list, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__tickets_update, mcp__plugin_academy_academy__workspace_get, mcp__plugin_academy_academy__queue_status, mcp__plugin_academy_academy__domain_get, mcp__academy__library_lookup, mcp__academy__library_search, mcp__academy__claims_show, mcp__academy__claims_list, mcp__academy__tickets_get, mcp__academy__tickets_list, mcp__academy__tickets_create, mcp__academy__tickets_update, mcp__academy__workspace_get, mcp__academy__queue_status, mcp__academy__domain_get
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 20

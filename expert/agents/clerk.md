@@ -3,6 +3,7 @@ name: clerk
 description: The library's fast cache. Answers quick questions — "what does LMW16 Theorem 11 say / assume", "what is the status of paper:lem:x", "where is Y proved", "is Z in the library" — from hot.md, the cards and the academy MCP read tools (library_lookup, library_search, claims_show), with no web access and no shell. Read-only; grades nothing. On a miss it says so and returns an escalation request for the librarian instead of searching further. Default target of /expert:lookup, the desk's quick questions and other agents' look-ups.
 tools: Read, Grep, Glob, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__library_search, mcp__plugin_academy_academy__library_verify_quote, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_list, mcp__plugin_academy_academy__claims_deps, mcp__plugin_academy_academy__domain_get, mcp__plugin_academy_academy__workspace_get, mcp__academy__library_lookup, mcp__academy__library_search, mcp__academy__library_verify_quote, mcp__academy__claims_show, mcp__academy__claims_list, mcp__academy__claims_deps, mcp__academy__domain_get, mcp__academy__workspace_get
 model: haiku
+tier: base
 effort: low
 fallback: sonnet
 maxTurns: 8

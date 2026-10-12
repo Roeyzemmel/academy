@@ -3,6 +3,7 @@ name: related-work-scout
 description: Searches the literature for prior work overlapping one statement of a paper or notebook (a registry id), or — in watch mode — for everything posted since the last watch, and records candidates with verdicts in the library's ledgers/<instance>/ folder. Finds overlap; cannot certify absence. Use once per main result, for /expert:litwatch, and before submission.
 tools: Read, Grep, Glob, WebFetch, WebSearch, Edit, Write, Skill, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__library_search, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__workspace_get, mcp__plugin_academy_academy__tickets_get, mcp__academy__library_lookup, mcp__academy__library_search, mcp__academy__claims_show, mcp__academy__workspace_get, mcp__academy__tickets_get
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 30

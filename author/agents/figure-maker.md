@@ -2,6 +2,7 @@
 name: figure-maker
 description: Produces one figure for the paper — a standalone TikZ file from a description or from computed data (coordinates, a decomposition, trajectories) — following the domain pack's figures.md conventions, compiles it alone, rasterises and inspects it, and includes it in the section. Use for a figure ticket, or a write ticket routed to it. The primary model is opus when the picture carries computed data.
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 30

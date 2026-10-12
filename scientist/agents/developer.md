@@ -2,6 +2,7 @@
 name: developer
 description: Writes and organises the lab's code — the Scientist home's package architecture, refactors, retiring duplicate implementations, environment setup scripts, the runner and its env profiles (env.py, the fsq runner, the run/queue frontends), and the academy repo's own scripts — test-first, in a git worktree, handing every diff to test-engineer for review. Never grades its own code and never runs an experiment. Use through /scientist:inbox for code tickets, and when a skill needs lab or academy code built or changed.
 model: opus
+tier: large
 effort: high
 fallback: sonnet
 maxTurns: 40
