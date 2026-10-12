@@ -86,18 +86,26 @@ never form their own view of whether something is true.
 
 ## Model fallback
 
-Each agent's frontmatter carries `model:`, `effort:` and `fallback:`.
+Each agent's frontmatter carries `model:`, `tier:`, `effort:` and `fallback:`.
+
+- **Tiers.** `tier:` (`base`, `medium`, `large`, `max`) is what the agent needs; the
+  workspace maps tiers to models (workspace.json `models.tiers`, docs/config.md,
+  "models"), and `model:` is the tier's alias in the academy's default map. A launcher
+  passes the Agent tool's `model` only when this workspace's map differs from the file:
+  `py "$ACADEMY_ROOT/academy/scripts/models.py" agent <plugin:name> --launch` gives the
+  value, and `models.py check` names the agents concerned (none with the default map).
 
 - When the primary model is unavailable, the **launching session** (the main session
   or the agent that spawns it) relaunches through the Agent tool's `model` override
   set to the fallback, and **names the substitution in its report** and in the ticket
   thread.
-- The override is otherwise never passed. Passing it out of habit silently costs the
-  run whatever authority its primary model carried.
+- The override is otherwise never passed (other than the tier map's, above). Passing
+  it out of habit silently costs the run whatever authority its primary model carried.
 - The Agent tool cannot override `effort`; a task that deserves another effort gets
   its own agent.
-- **Graders have equal primaries**, the models listed in workspace.json's
-  `grading.primaryModels` (default: Fable and Opus 5.5; docs/config.md). A verdict of
+- **Graders have equal primaries**: the versioned models the workspace maps to the tier
+  floor `grading.minTier` or above (default `large`, Opus 5.5), and the models named in
+  workspace.json's `grading.primaryModels` (default: Fable); docs/config.md, "models". A verdict of
   `rigor-reviewer`, `experiment-reviewer` or `referee` on any primary carries full
   authority; with the default list, the graders' frontmatter fallback `opus` resolves
   to Opus 5.5 and so is itself a primary. Every verdict records the exact model it ran
@@ -107,7 +115,7 @@ Each agent's frontmatter carries `model:`, `effort:` and `fallback:`.
   model (Sonnet, Haiku, an older Opus) is at most PLAUSIBLE; an experiment verdict on
   one is at most GAP; a referee report on one marks itself reduced-strength. A
   degraded verdict never counts toward the two agreeing verdicts. The scripts apply
-  this mechanically, reading `grading.primaryModels`: `expert/scripts/decision_table.py`
+  this mechanically, reading the effective `grading.primaryModels`: `expert/scripts/decision_table.py`
   (`configured_primaries`), `researcher/scripts/_researcher.py` (`primary_models`, used
   by `land_review.py` and `settle.py`) and `expert/scripts/land_referee.py`.
 - A limit error is not "unavailable": it stops the run (budget.md rule 4).

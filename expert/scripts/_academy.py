@@ -279,7 +279,23 @@ def registry_rule_set(name):
     return name if name in REGISTRY_PROFILES else None
 
 
-#: the grading primaries when workspace.json sets no ``grading.primaryModels``
+#: the model tiers an agent file declares (``tier:``), lightest first (docs/config.md,
+#: "models"); workspace.json ``models.tiers`` maps each to a model
+TIERS = ("base", "medium", "large", "max")
+#: the academy's tier map, under a workspace's ``models.tiers``; an agent file's
+#: ``model:`` is the Agent-tool alias of its tier here (``launch_model``)
+DEFAULT_MODEL_TIERS = {"base": "haiku", "medium": "sonnet", "large": "claude-opus-5-5",
+                       "max": "claude-opus-5-5"}
+#: the model families, lightest first (an Agent-tool / frontmatter alias each)
+MODEL_RANK = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}
+#: aliases that name no version (a bare family): no grading authority from a tier
+VERSIONLESS = ("haiku", "sonnet", "opus")
+#: the graders' tier floor when workspace.json sets no ``grading.minTier``
+DEFAULT_MIN_TIER = "large"
+#: named primaries added to the floor's when workspace.json sets no ``grading.primaryModels``
+DEFAULT_NAMED_PRIMARIES = ("fable",)
+#: the grading primaries of a workspace that configures neither (the named ones plus the
+#: label of the default map's floor models); a test keeps the two in step
 DEFAULT_PRIMARY_MODELS = ("fable", "opus-5.5")
 #: where the rigor review's checklist lives in a home, unless ``paths.verifyChecklist``
 DEFAULT_VERIFY_CHECKLIST = ".claude/rules/verification-checklist.md"
@@ -508,13 +524,19 @@ def load_workspace(path=None):
     human.setdefault("name", "human")
     human.setdefault("login", (ws["board_config"].get("assignee") or None))
     ws["human"] = human
+    problems = model_problems(ws)
+    if problems:
+        raise ConfigError("%s: %s" % (chosen, "; ".join(problems)))
+    ws["models"] = dict(ws.get("models") or {}, tiers=model_tiers(ws))
     grading = ws.get("grading") if isinstance(ws.get("grading"), dict) else {}
-    prim = grading.get("primaryModels")
-    if not (isinstance(prim, list) and prim and all(isinstance(m, str) and m for m in prim)):
-        if prim is not None:
-            raise ConfigError("%s: grading.primaryModels must be a non-empty list of "
-                              "model names" % chosen)
-        grading["primaryModels"] = list(DEFAULT_PRIMARY_MODELS)
+    # the file's primaryModels are named primaries; the loaded list is the effective one,
+    # the named ones followed by the floor's (grading_primaries)
+    grading["minTier"] = grading.get("minTier") or DEFAULT_MIN_TIER
+    grading["primaryModels"] = list(grading_primaries(ws["models"]["tiers"], grading))
+    if not grading["primaryModels"]:
+        raise ConfigError("%s: grading has no primary model: grading.primaryModels is empty "
+                          "and grading.minTier grants none (docs/config.md, \"models\")"
+                          % chosen)
     ws["grading"] = grading
     if ws.get("plugins") is None:
         ws["plugins"] = derived_plugins(ws)
@@ -584,13 +606,233 @@ def human_login(ws=None):
 
 
 def primary_models(ws=None):
-    """The grading primaries (workspace.json ``grading.primaryModels``), as a tuple of
-    model labels; ``DEFAULT_PRIMARY_MODELS`` when none is configured or no workspace."""
+    """The grading primaries as a tuple of model labels: the named
+    ``grading.primaryModels`` and the floor's (``grading_primaries``), for a loaded or a
+    raw workspace dict alike; ``DEFAULT_PRIMARY_MODELS`` when there is no workspace."""
     ws = _workspace_or_none(ws)
-    prim = ((ws or {}).get("grading") or {}).get("primaryModels")
-    if isinstance(prim, list) and prim:
-        return tuple(str(m) for m in prim)
-    return DEFAULT_PRIMARY_MODELS
+    if ws is None:
+        return DEFAULT_PRIMARY_MODELS
+    # the same answer for a loaded and a raw workspace dict: the named primaries plus the
+    # floor's, recomputed (idempotent on a loaded dict, whose list is already effective)
+    grading = ws.get("grading") if isinstance(ws.get("grading"), dict) else {}
+    return grading_primaries(model_tiers(ws), grading)
+
+
+# ----------------------------------------------------------------------------
+# Model tiers (docs/config.md, "models"): an agent file declares ``tier:``; the
+# workspace maps tiers to models; the graders' floor is ``grading.minTier``.
+# ----------------------------------------------------------------------------
+
+RE_OPUS_55 = re.compile(r"opus-?5-5(?![0-9])")
+RE_MODEL_ID = re.compile(r"^claude-[a-z0-9][a-z0-9.-]*(\[[a-z0-9]+\])?$")
+
+
+def model_label(name):
+    """A model name reduced to the label the roster rules use: ``fable``, ``opus-5.5``,
+    or the family (``opus``, ``sonnet``, ``haiku``) of any other model; the name itself
+    (lower-cased) when it names no known family, '' when empty. ``claude-opus-5-5[1m]``,
+    ``Opus 5.5`` and ``opus-5.5`` all read as ``opus-5.5``; a bare ``opus`` names no
+    version and reads as ``opus``. (The one copy: researcher ``_researcher.py`` and
+    expert ``decision_table.py`` call it.)"""
+    n = str(name or "").strip().lower()
+    if not n:
+        return ""
+    k = re.sub(r"[\s_.]+", "-", n)
+    if "fable" in k:
+        return "fable"
+    if RE_OPUS_55.search(k):
+        return "opus-5.5"
+    for fam in ("opus", "sonnet", "haiku"):
+        if fam in k:
+            return fam
+    return n
+
+
+def model_family(name):
+    """The family (a ``MODEL_RANK`` key) a model alias or id names, or None."""
+    n = str(name or "").lower()
+    for fam in sorted(MODEL_RANK, key=lambda f: -MODEL_RANK[f]):
+        if fam in n:
+            return fam
+    return None
+
+
+def launch_model(value):
+    """The Agent-tool ``model`` value (an alias) for a tier's model: the alias itself, or
+    the family a full id names (``claude-opus-5-5`` -> ``opus``)."""
+    return model_family(value) or str(value or "")
+
+
+def tier_at_least(tier, floor):
+    """True when ``tier`` is ``floor`` or heavier (both in ``TIERS``)."""
+    return TIERS.index(tier) >= TIERS.index(floor)
+
+
+def _model_value_ok(value):
+    if not isinstance(value, str) or not value:
+        return False
+    v = value.strip().lower()
+    return v in MODEL_RANK or bool(RE_MODEL_ID.match(v) and model_family(v))
+
+
+def model_problems(ws):
+    """Problems with a workspace's ``models`` and ``grading`` keys (empty when valid):
+    ``models.tiers`` maps tiers of ``TIERS`` to an alias (``haiku``, ``sonnet``,
+    ``opus``, ``fable``) or a ``claude-...`` model id, no tier lighter than the one below
+    it; ``grading.minTier`` is a tier or ``none``; ``grading.primaryModels`` a list of
+    model names."""
+    out = []
+    models = (ws or {}).get("models")
+    tiers = {}
+    if models is not None:
+        if not isinstance(models, dict):
+            out.append("models must be an object with 'tiers'")
+        else:
+            tiers = models.get("tiers")
+            if tiers is None:
+                tiers = {}
+            elif not isinstance(tiers, dict):
+                out.append("models.tiers must map tiers (%s) to models" % ", ".join(TIERS))
+                tiers = {}
+    for tier, value in tiers.items():
+        if tier not in TIERS:
+            out.append("models.tiers: unknown tier %r (tiers: %s)" % (tier, ", ".join(TIERS)))
+        elif not _model_value_ok(value):
+            out.append("models.tiers.%s: %r is not a model (an alias %s, or a claude-... id)"
+                       % (tier, value, "/".join(sorted(MODEL_RANK, key=MODEL_RANK.get))))
+    if not out:
+        merged = dict(DEFAULT_MODEL_TIERS, **tiers)
+        ranks = [MODEL_RANK[model_family(merged[t])] for t in TIERS]
+        for i in range(1, len(TIERS)):
+            if ranks[i] < ranks[i - 1]:
+                out.append("models.tiers: %s (%s) is lighter than %s (%s)"
+                           % (TIERS[i], merged[TIERS[i]], TIERS[i - 1], merged[TIERS[i - 1]]))
+    grading = (ws or {}).get("grading")
+    if isinstance(grading, dict):
+        floor = grading.get("minTier")
+        if floor is not None and floor not in TIERS + ("none",):
+            out.append("grading.minTier must be one of %s or none" % ", ".join(TIERS))
+        prim = grading.get("primaryModels")
+        if prim is not None and not (isinstance(prim, list)
+                                     and all(isinstance(m, str) and m for m in prim)):
+            out.append("grading.primaryModels must be a list of model names")
+    return out
+
+
+def model_tiers(ws=None):
+    """The workspace's tier map: ``models.tiers`` over ``DEFAULT_MODEL_TIERS``. With no
+    argument the workspace is loaded; the default when there is none."""
+    ws = _workspace_or_none(ws)
+    tiers = (((ws or {}).get("models") or {}).get("tiers")) or {}
+    return dict(DEFAULT_MODEL_TIERS, **{k: v for k, v in tiers.items() if k in TIERS})
+
+
+def tier_model(tier, ws=None):
+    """The model the workspace maps ``tier`` to."""
+    return model_tiers(ws)[tier]
+
+
+def grading_primaries(tiers, grading):
+    """The effective grading primaries, as labels (``model_label``): the named
+    ``grading.primaryModels`` (default ``DEFAULT_NAMED_PRIMARIES``), then the label of each tier's model from
+    ``grading.minTier`` up. A tier whose model names no version (``VERSIONLESS``: a bare
+    alias, or an id ``model_label`` cannot version yet) grants nothing."""
+    named = grading.get("primaryModels")
+    out = []
+    for m in (DEFAULT_NAMED_PRIMARIES if named is None else named):
+        lab = model_label(m)
+        if lab and lab not in out:
+            out.append(lab)
+    floor = grading.get("minTier") or DEFAULT_MIN_TIER
+    if floor == "none":
+        return tuple(out)
+    for tier in TIERS[TIERS.index(floor):]:
+        lab = model_label(tiers[tier])
+        if lab and lab not in VERSIONLESS and lab not in out:
+            out.append(lab)
+    return tuple(out)
+
+
+def model_warnings(ws):
+    """The floor tiers (``grading.minTier`` up) whose model names no version, and so give
+    no grading authority: a bare alias (``large: opus``) or an id ``model_label`` cannot
+    version yet. Name large/max by a versioned id (``claude-opus-5-5``). Printed by the
+    bootstrap, the session start and ``models.py check``; not an error."""
+    grading = (ws or {}).get("grading") or {}
+    floor = grading.get("minTier") or DEFAULT_MIN_TIER
+    if floor not in TIERS:
+        return []
+    tiers = model_tiers(ws or {})
+    out = []
+    for tier in TIERS[TIERS.index(floor):]:
+        if model_label(tiers[tier]) in VERSIONLESS:
+            out.append("tier %s: models.tiers.%s = %s names no version, so graders run on "
+                       "it count for nothing (grading.minTier %s): name a versioned id "
+                       "such as claude-opus-5-5 (docs/config.md, \"models\")"
+                       % (tier, tier, tiers[tier], floor))
+    return out
+
+
+RE_FM_LINE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$")
+
+
+def read_agent_frontmatter(path):
+    """The top-level scalar keys of an agent file's frontmatter (``name``, ``model``,
+    ``tier``, ``fallback``, ...), as strings; {} when it has none."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return {}
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    out = {}
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = RE_FM_LINE.match(line)
+        if m and m.group(1) not in out:
+            out[m.group(1)] = m.group(2)
+    return out
+
+
+def agent_files(repo=None):
+    """``{"<plugin>:<name>": path}`` for every agent file of the academy plugins."""
+    repo = repo or repo_root()
+    out = {}
+    for plugin in PLUGINS:
+        d = os.path.join(repo, plugin, "agents")
+        if not os.path.isdir(d):
+            continue
+        for fn in sorted(os.listdir(d)):
+            if fn.endswith(".md"):
+                out["%s:%s" % (plugin, fn[:-3])] = os.path.join(d, fn)
+    return out
+
+
+def resolve_agent(agent, ws=None, repo=None):
+    """agent -> tier -> model for the workspace: ``{agent, tier, model, launch,
+    frontmatter, override, path}``. ``agent`` is ``<plugin>:<name>`` or a bare name;
+    ``launch`` is the Agent-tool ``model`` value and ``override`` says whether it differs
+    from the file's ``model:`` (the launcher passes it then). ConfigError when the agent
+    is unknown or its file declares no valid tier."""
+    files = agent_files(repo)
+    key = agent if agent in files else None
+    if key is None and ":" not in agent:
+        hits = [k for k in files if k.split(":", 1)[1] == agent]
+        key = hits[0] if len(hits) == 1 else None
+    if key is None:
+        raise ConfigError("unknown agent %r" % agent)
+    fm = read_agent_frontmatter(files[key])
+    tier = fm.get("tier")
+    if tier not in TIERS:
+        raise ConfigError("%s: tier %r is not one of %s" % (files[key], tier, ", ".join(TIERS)))
+    model = tier_model(tier, ws if ws is not None else _workspace_or_none(None))
+    launch = launch_model(model)
+    return {"agent": key, "tier": tier, "model": model, "launch": launch,
+            "frontmatter": fm.get("model"), "override": launch != fm.get("model"),
+            "path": files[key].replace("\\", "/")}
 
 
 #: the keys of ``author.provenance`` and their defaults (docs/config.md, role blocks)

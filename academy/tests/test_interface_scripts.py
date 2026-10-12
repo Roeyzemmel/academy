@@ -160,6 +160,27 @@ class UsageReportTest(Sandbox):
         brief = usage_report.render_brief(report, "7d")
         self.assertTrue(brief.startswith("usage 7d: 2 sessions, 2 subagents"))
 
+    def test_heavier_than_declared_reads_the_tier(self):
+        # T-0350: an agent file's tier, resolved through the workspace's models.tiers,
+        # is what "declared" means; a file without a tier keeps its model: line
+        sess = [{"session": "s", "instance": "i", "main": {"counts": {}, "models": {}},
+                 "subagents": [{"agent_type": "academy:concierge", "depth": 1,
+                                "description": "", "counts": {},
+                                "models": {"claude-opus-5-5": 1}}]}]
+        agents = os.path.join(self.tmp, "tiered", "academy", "agents")
+        write(os.path.join(agents, "concierge.md"),
+              "---\nname: concierge\nmodel: sonnet\ntier: medium\n---\nbody\n")
+        repo = os.path.join(self.tmp, "tiered")
+        dec = usage_report.declared_models(repo)
+        self.assertEqual(dec["concierge"], "sonnet")
+        flags = usage_report.aggregate(sess, {}, dec)["flags"]
+        self.assertEqual([f["kind"] for f in flags], ["heavier-than-declared"])
+        self.assertEqual(flags[0]["tier"], "medium")
+        ws = {"models": {"tiers": {"medium": "opus"}}}
+        dec = usage_report.declared_models(repo, ws)
+        self.assertEqual(dec["concierge"], "opus")
+        self.assertEqual(usage_report.aggregate(sess, {}, dec)["flags"], [])
+
     def test_live_window_keeps_a_transcript_written_after_now(self):
         # Windows' coarse clock can stamp a file just written with an mtime after
         # datetime.now(); the live window must not drop it (review finding).

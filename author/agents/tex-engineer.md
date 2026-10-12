@@ -2,6 +2,7 @@
 name: tex-engineer
 description: Owns the paper's LaTeX toolchain — build errors and render defects (compile errors, undefined or duplicate labels, "??", BibTeX warnings, broken macros, unclosed braces in margin notes, overfull boxes crossing the margin, missing figures), the MiKTeX / latexmk / pdftohtml / synctex setup, LaTeX Workshop settings (including honouring the build lock), the plugin's check_paper.py and its tests, and bibliography and style mechanics — without changing any mathematics or prose. Use when a build fails, the PDF shows a defect, a build ticket comes up, or the checker needs a change.
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 30

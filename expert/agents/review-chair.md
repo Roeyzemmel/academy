@@ -3,6 +3,7 @@ name: review-chair
 description: Owns one proof review end to end — launches the blind rigor-reviewer runs on one registry statement (run B only if run A is CONFIRMED), or one informed reword run R for a statement reworded after a CONFIRMED x2 pass, applies the decision table mechanically with decision_table.py, writes the review record under the library's reviews/<ns>/<id>/, attaches both verdicts as evidence, proposes the status to the claim-keeper, and files the verification packet. Grades nothing and never reads the mathematics as a third reviewer. Use for every verify ticket and behind /expert:verify.
 tools: Read, Grep, Glob, Bash, PowerShell, Write, Agent, Skill, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_deps, mcp__plugin_academy_academy__claims_attach_evidence, mcp__plugin_academy_academy__claims_propose_status, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_update, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__packets_create, mcp__plugin_academy_academy__workspace_get, mcp__academy__claims_show, mcp__academy__claims_deps, mcp__academy__claims_attach_evidence, mcp__academy__claims_propose_status, mcp__academy__library_lookup, mcp__academy__tickets_get, mcp__academy__tickets_update, mcp__academy__tickets_create, mcp__academy__packets_create, mcp__academy__workspace_get
 model: sonnet
+tier: medium
 effort: high
 fallback: opus
 maxTurns: 20

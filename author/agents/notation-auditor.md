@@ -2,6 +2,7 @@
 name: notation-auditor
 description: Audits the notation the paper actually uses against the home's own notation decisions (.claude/rules/notation-decisions.md) and the domain pack's notation.md; reports every clash (one object with two symbols, one symbol with two meanings, a symbol used before it is introduced), updates only the home's notation-decisions.md to match the draft, and files a notation ticket to the Expert for anything that belongs in the domain pack. Never edits the paper. Use via /author:audit-notation, after work that introduced notation, and before a coauthor round.
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 25

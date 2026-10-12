@@ -16,7 +16,8 @@ in the window, and aggregates:
   ``permissions.json``; the old plugins' namespaces read as ``legacy:<ns>``; agents
   outside any plugin are ``builtin``; the main session is ``main``;
 - **by agent**: runs, turns, cache volume, the models seen, the model its
-  frontmatter declares (from ``<repo>/<plugin>/agents/*.md``), limit failures.
+  frontmatter declares (from ``<repo>/<plugin>/agents/*.md``: the workspace's model for
+  its ``tier:``, ``models.tiers``; else its ``model:``), limit failures.
 
 Flags (deterministic, for the usage-analyst to explain): sessions with limit
 failures, sessions with more than ``--max-subagents`` subagents, and agents seen on
@@ -49,7 +50,7 @@ except ImportError:  # vendored copy
     import _academy as ac  # noqa: E402
 import session_usage  # noqa: E402
 
-MODEL_RANK = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}
+MODEL_RANK = ac.MODEL_RANK
 #: agent namespaces of the pre-academy plugins (claude-paper, claude-flatsurf); their
 #: runs are tallied as "legacy:<ns>" until those plugins are retired (plan phase 8)
 LEGACY_NAMESPACES = ("paper", "flatsurf")
@@ -119,9 +120,21 @@ RE_FM_MODEL = re.compile(r"^model:\s*([A-Za-z0-9._-]+)\s*$", re.M)
 RE_FM_NAME = re.compile(r"^name:\s*([A-Za-z0-9._-]+)\s*$", re.M)
 
 
-def declared_models(repo=REPO):
-    """bare agent name -> declared model family, from every plugin's agents/*.md."""
-    out = {}
+class Declared(dict):
+    """bare agent name -> declared model family; ``tiers`` holds each agent's tier."""
+    tiers = None
+
+
+RE_FM_TIER = re.compile(r"^tier:\s*([A-Za-z0-9._-]+)\s*$", re.M)
+
+
+def declared_models(repo=REPO, ws=None):
+    """bare agent name -> declared model family, from every plugin's agents/*.md: the
+    family of the model ``ws`` maps the file's ``tier:`` to (``models.tiers``, over the
+    academy default; T-0350), else of its ``model:`` line. ``.tiers`` names each tier."""
+    out = Declared()
+    out.tiers = {}
+    tiers = ac.model_tiers(ws or {})
     for path in glob.glob(os.path.join(repo, "*", "agents", "*.md")):
         try:
             with open(path, "r", encoding="utf-8") as fh:
@@ -131,9 +144,12 @@ def declared_models(repo=REPO):
         if not text.startswith("---"):
             continue
         head = text.split("---", 2)[1] if text.count("---") >= 2 else ""
-        mm, nm = RE_FM_MODEL.search(head), RE_FM_NAME.search(head)
-        if mm:
-            name = nm.group(1) if nm else os.path.splitext(os.path.basename(path))[0]
+        mm, nm, tm = RE_FM_MODEL.search(head), RE_FM_NAME.search(head), RE_FM_TIER.search(head)
+        name = nm.group(1) if nm else os.path.splitext(os.path.basename(path))[0]
+        if tm and tm.group(1) in ac.TIERS:
+            out[name] = model_family(tiers[tm.group(1)])
+            out.tiers[name] = tm.group(1)
+        elif mm:
             out[name] = model_family(mm.group(1))
     return out
 
@@ -241,7 +257,9 @@ def aggregate(sessions, roster=None, declared=None, max_subagents=12):
                              if m in MODEL_RANK and MODEL_RANK[m] > MODEL_RANK[dec])
             if heavier:
                 flags.append({"kind": "heavier-than-declared", "agent": a["agent"],
-                              "declared": dec, "seen": heavier})
+                              "declared": dec, "seen": heavier,
+                              "tier": (getattr(declared, "tiers", None) or {}).get(
+                                  a["agent"].rpartition(":")[2])})
         a["models"] = dict(a["models"])
         a["mean_turns"] = round(a["turns"] / a["runs"], 1) if a["runs"] else 0
     return {
@@ -298,8 +316,10 @@ def render_markdown(report, start, end):
             out.append("- fan-out: session %s (%s): %d subagents"
                        % (f["session"], f["instance"], f["count"]))
         else:
-            out.append("- heavier-than-declared: %s declares %s, seen on %s"
-                       % (f["agent"], f["declared"], ", ".join(f["seen"])))
+            out.append("- heavier-than-declared: %s declares %s%s, seen on %s"
+                       % (f["agent"], f["declared"],
+                          " (tier %s)" % f["tier"] if f.get("tier") else "",
+                          ", ".join(f["seen"])))
     return "\n".join(out) + "\n"
 
 
@@ -322,7 +342,7 @@ def build(days=None, since=None, projects=None, workspace_path=None, max_subagen
     # session's own, or the scheduled job's) can carry an mtime just after ``now``,
     # whose resolution on Windows is coarse. Only an explicit ``now`` caps it.
     sessions = collect(projects, start, end if now is not None else None, ws)
-    report = aggregate(sessions, load_roster(perms), declared_models(repo), max_subagents)
+    report = aggregate(sessions, load_roster(perms), declared_models(repo, ws), max_subagents)
     report["window"] = {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")}
     return report, start, end
 

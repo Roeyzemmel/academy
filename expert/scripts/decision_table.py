@@ -375,7 +375,6 @@ def configured_primaries(workspace=None):
     """The grading primaries of the workspace (``grading.primaryModels``)."""
     return ac.primary_models(workspace)
 
-RE_OPUS_55 = re.compile(r"opus-?5-5(?![0-9])")
 
 
 def model_label(name):
@@ -385,18 +384,7 @@ def model_label(name):
 
     ``claude-opus-5-5``, ``claude-opus-5-5[1m]``, ``Opus 5.5`` and ``opus-5.5`` all
     read as ``opus-5.5``; a bare ``opus`` names no version and reads as ``opus``."""
-    n = str(name or "").strip().lower()
-    if not n:
-        return ""
-    k = re.sub(r"[\s_.]+", "-", n)
-    if "fable" in k:
-        return "fable"
-    if RE_OPUS_55.search(k):
-        return "opus-5.5"
-    for fam in ("opus", "sonnet", "haiku"):
-        if fam in k:
-            return fam
-    return n
+    return ac.model_label(name)  # the one copy, academy_common (T-0350)
 
 
 def _primaries(primary=None):

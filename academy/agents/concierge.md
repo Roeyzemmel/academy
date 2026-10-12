@@ -3,6 +3,7 @@ name: concierge
 description: Classifies one plain-language request from the human and returns a routing card — answered inline (after one lookup through the Expert's clerk or a read tool), explain (a deep-dive subject), action (one role skill with its arguments), ticket (a drafted ticket to the right instance, for the human to confirm), or unclear (the one question that separates the readings). Never does the work, never files, never asks. Use only behind /academy:desk.
 tools: Read, Grep, Glob, Bash, Agent, Skill
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 12

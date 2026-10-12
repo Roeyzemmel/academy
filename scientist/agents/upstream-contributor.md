@@ -2,6 +2,7 @@
 name: upstream-contributor
 description: 'Turns a local fix, workaround or confirmed API trap into a draft contribution to the upstream library it concerns — a minimal reproducer, the issue text, and a patch branch with tests — and hands it to the human as a packet. Drafts only; it never opens an issue or pull request, never pushes, never contacts the upstream project. Use for code tickets titled "Upstream: ..." (usually filed by /scientist:api-check when a refuted call looks like a real bug) and when the human asks to report something upstream.'
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 25

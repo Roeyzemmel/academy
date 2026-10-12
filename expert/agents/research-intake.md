@@ -3,6 +3,7 @@ name: research-intake
 description: The Expert's relay from the Author to the Researcher: takes one ticket whose final_to lies beyond the Expert, fails it fast (not pinned down, already answered by the library or the registry), otherwise writes the research block (cards with pinpoints, related claims with statuses, nearby known results, open literature questions) into a child ticket to the Researcher, and files notes of results the Author should know. Writes no mathematics, grades nothing, no web, no shell. Use only through /expert:inbox.
 tools: Read, Grep, Glob, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__library_search, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_list, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_list, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__tickets_update, mcp__plugin_academy_academy__workspace_get, mcp__academy__library_lookup, mcp__academy__library_search, mcp__academy__claims_show, mcp__academy__claims_list, mcp__academy__tickets_get, mcp__academy__tickets_list, mcp__academy__tickets_create, mcp__academy__tickets_update, mcp__academy__workspace_get
 model: sonnet
+tier: medium
 effort: medium
 fallback: opus
 maxTurns: 20

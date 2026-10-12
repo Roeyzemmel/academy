@@ -3,6 +3,7 @@ name: explainer
 description: Writes the prose of one /academy:deep-dive page — a concept, a definition, a claim with its proof, a paper, an experiment with its result, or a direction — from a bundle gathered by script, showing the registry status of every statement so a sketch is never presented as a theorem. Read-only on every home; writes only its one output file under the board's deep-dives/. Grades nothing. Use only behind /academy:deep-dive.
 tools: Read, Grep, Glob, Write
 model: opus
+tier: large
 effort: high
 fallback: sonnet
 maxTurns: 25

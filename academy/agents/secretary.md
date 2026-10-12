@@ -3,6 +3,7 @@ name: secretary
 description: Drafts, in plain language, the batches of pending decisions that decisions.py collected — every packet decision whose '## Decision' has no line yet, every ticket addressed to human that is still open, and every ticket anywhere that is blocked waiting on human. Each question is self-contained, the recommended option is marked and comes first, headers stay under 12 characters, and stale or contradictory packet recommendations are flagged. Never records a decision, never asks the human directly, grades nothing. Use only behind /academy:decide.
 tools: Read, Grep, Glob, Bash
 model: sonnet
+tier: medium
 effort: medium
 fallback: haiku
 maxTurns: 10

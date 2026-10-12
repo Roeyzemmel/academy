@@ -2,6 +2,7 @@
 name: experimenter
 description: Designs and writes one computational experiment in the Scientist home (the lab) — a definition test on the domain pack's standard examples, a search / falsifier over a named class, a measurement, a verification of one named object, or a feasibility probe — header first and approved before any compute, package code test-first, validation case wired, lab claim recorded, run filed on the queue for the policy's run profile, and, when the result is back, the report draft with its ## Conclusion. Never runs an experiment on the laptop and never grades its own result. Use through /scientist:experiment, /scientist:inbox (experiment, test and question tickets) and /scientist:examples-audit.
 model: sonnet
+tier: medium
 effort: high
 fallback: opus
 maxTurns: 30

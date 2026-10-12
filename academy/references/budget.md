@@ -28,11 +28,14 @@ happen again.
    the assumption in its report, and returns. Only the main session asks the human, with
    `AskUserQuestion`, at a decision point.
 6. **The lightest agent that can do the work.** Orchestration runs on
-   `budget.orchestratorModel` (sonnet). An agent runs on the model of its agent file
-   (`model:` in its frontmatter), never heavier than the home's `budget.maxModel`. The
+   `budget.orchestratorModel` (sonnet). An agent runs on the model the workspace maps
+   its tier to (`tier:` in its frontmatter, workspace.json `models.tiers`; its `model:`
+   line where the map is the default, else the launcher passes the Agent tool's `model`
+   from `models.py agent <name> --launch`, roster-rules.md "Model fallback"), never
+   heavier than the home's `budget.maxModel`. The
    model is not the issuer's to set: a ticket's `budget.max_model`, if present, is an
    advisory note and never blocks a route. Graders run on one of the grading
-   primaries (`grading.primaryModels`), which count equally (roster-rules.md, "Model
+   primaries (the tier floor `grading.minTier` and `grading.primaryModels`), which count equally (roster-rules.md, "Model
    fallback"); a grader run on a lighter model spends a run for a verdict that cannot
    count.
 7. **A ticket spends at most its own `budget.runs` agent runs** (the issuer's limit).
