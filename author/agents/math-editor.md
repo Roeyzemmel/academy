@@ -44,7 +44,10 @@ verdicts and the packet's `## Decision`:
   the primary model, and only if the human's decision in the packet (if it asks one) says
   so. The recolour is the one-word environment rename (or the removal of the colour
   command) plus the deletion of the machine note that said the proof was unverified.
-  Quote both verdict lines in your report.
+  Quote both verdict lines in your report. A **reword** decision (T-0347: the packet's
+  table gives `confirmed` with `mode: reword`, a reword run R CONFIRMED on the current
+  statement over a base pass CONFIRMED x2 on the old one) earns the recolour the same
+  way; quote R's line and the base pass's two.
 - If the claim's registry status is not yet `proved`, propose it:
   `claims_propose_status` (the claim-keeper sets it; you never set a status).
 - Anything short of that: no recolour. Record what the verdicts found as tickets

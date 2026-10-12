@@ -144,6 +144,59 @@ class TestSetStatus(Homes):
         self.assertEqual([e for e in errs if "bar" in e], [])
 
 
+class TestRewordSetStatus(Homes):
+    """T-0347: set-status accepts proved on reword grounds (the base pass's two CONFIRMED
+    verdicts on the old hash, one reword CONFIRMED on the claim's current hash)."""
+
+    def setUp(self):
+        super().setUp()
+        self.p = write(self.lab / "claims" / "lab" / "foo.md", OPEN)
+        self.new = fsl.statement_hash(self.lab, "lab:foo")
+        rec = ("---\nsubject: lab:foo\nrun: {run}\nrun_id: rv-{run}\nverdict: CONFIRMED\n"
+               "statement_hash: {h}\n{extra}agent: expert:rigor-reviewer\n---\nreport\n")
+        for run in ("A", "B"):
+            write(self.lab / "reviews" / "p1" / ("%s.md" % run),
+                  rec.format(run=run, h="0ld0ld0ld0ld0ld0", extra=""))
+        write(self.lab / "reviews" / "p2" / "R.md", rec.format(
+            run="R", h=self.new, extra="mode: reword\nbase_pass: p1\nbase_hash: "
+                                       "0ld0ld0ld0ld0ld0\nreword_scope: weaker\n"))
+        row = {"verdict": "CONFIRMED", "grader_role": "expert"}
+        self.g = {"basis": "proof", "mode": "reword", "base_pass": "p1",
+                  "base_hash": "0ld0ld0ld0ld0ld0", "statement_hash": self.new,
+                  "producer_role": "author", "verdicts": [
+                      dict(row, run_id="rv-R", statement_hash=self.new, mode="reword",
+                           base_hash="0ld0ld0ld0ld0ld0", reword_scope="weaker",
+                           ref="reviews/p2/R.md"),
+                      dict(row, run_id="rv-A", statement_hash="0ld0ld0ld0ld0ld0",
+                           ref="reviews/p1/A.md"),
+                      dict(row, run_id="rv-B", statement_hash="0ld0ld0ld0ld0ld0",
+                           ref="reviews/p1/B.md")]}
+
+    def test_proved_on_reword_grounds(self):
+        fsl.set_status(self.lab, "lab:foo", "proved", self.g, date="2026-10-12")
+        c = fsl.parse_text(self.p.read_text(encoding="utf-8"), fallback=False)
+        self.assertEqual(c.status, "proved")
+        refs = " ".join(c.evidence)
+        for r in ("reviews/p2/R.md", "reviews/p1/A.md", "reviews/p1/B.md"):
+            self.assertIn(r, refs)
+
+    def test_a_stale_reword_or_a_bad_record_is_refused(self):
+        before = self.p.read_bytes()
+        stale = dict(self.g, statement_hash="ffffffffffffffff", verdicts=[
+            dict(self.g["verdicts"][0], statement_hash="ffffffffffffffff")]
+            + self.g["verdicts"][1:])
+        with self.assertRaises(fsl.Refused) as cm:
+            fsl.set_status(self.lab, "lab:foo", "proved", stale)
+        self.assertIn("current", str(cm.exception))
+        write(self.lab / "reviews" / "p2" / "R.md",
+              (self.lab / "reviews" / "p2" / "R.md").read_text(encoding="utf-8")
+              .replace("reword_scope: weaker", "reword_scope: exceeds"))
+        with self.assertRaises(fsl.Refused) as cm:
+            fsl.set_status(self.lab, "lab:foo", "proved", self.g)
+        self.assertIn("reword_scope", str(cm.exception))
+        self.assertEqual(self.p.read_bytes(), before)
+
+
 class TestModuloWrite(unittest.TestCase):
     """proved-modulo writes the grounds' inputs as the record's `modulo`; proved drops it."""
 

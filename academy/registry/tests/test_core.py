@@ -196,5 +196,151 @@ class TestGrounds(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class TestRewordGrounds(unittest.TestCase):
+    """T-0347 (the human's decision, 2026-10-12): a statement reworded after a CONFIRMED x2 pass is
+    carried to proved by the base pass's two CONFIRMED verdicts on the old hash plus one
+    informed reword run CONFIRMED on the new hash, linking the old one."""
+
+    def grounds(self, **kw):
+        rows = [{"verdict": "CONFIRMED", "run_id": "r", "grader_role": "expert",
+                 "statement_hash": "NEW", "mode": "reword", "base_hash": "OLD",
+                 "reword_scope": "equivalent", "ref": "p2/R.md"},
+                {"verdict": "CONFIRMED", "run_id": "a", "grader_role": "expert",
+                 "statement_hash": "OLD", "ref": "p1/A.md"},
+                {"verdict": "CONFIRMED", "run_id": "b", "grader_role": "expert",
+                 "statement_hash": "OLD", "ref": "p1/B.md"}]
+        g = {"basis": "proof", "mode": "reword", "base_pass": "2026-10-01-T-0001",
+             "base_hash": "OLD", "statement_hash": "NEW", "verdicts": rows,
+             "producer_role": "author"}
+        g.update(kw)
+        return g
+
+    def check(self, g, status="proved", h="NEW"):
+        return grounds.check_grounds(status, g, h)
+
+    def test_accepted_on_the_new_hash(self):
+        ok, why = self.check(self.grounds())
+        self.assertTrue(ok, why)
+        self.assertTrue(self.check(self.grounds(), h=None)[0])
+        for scope in ("weaker", "covered"):
+            g = self.grounds()
+            g["verdicts"][0]["reword_scope"] = scope
+            self.assertTrue(self.check(g)[0], scope)
+        ok, why = self.check(self.grounds(modulo=["paper:lem:a"]), "proved-modulo")
+        self.assertTrue(ok, why)
+
+    def test_the_claims_current_hash_must_be_the_reworded_one(self):
+        for h in ("OLD", "OTHER"):
+            ok, why = self.check(self.grounds(), h=h)
+            self.assertFalse(ok, h)
+            self.assertIn("current", " ".join(why))
+
+    def test_the_mixed_hashes_without_mode_are_still_refused(self):
+        g = self.grounds()
+        del g["mode"]
+        ok, why = self.check(g)
+        self.assertFalse(ok)
+
+    def test_a_reword_run_never_counts_as_a_blind_verdict(self):
+        g = self.grounds()
+        del g["mode"]
+        g["verdicts"] = [g["verdicts"][0], dict(g["verdicts"][0], run_id="r2",
+                                                 ref="p2/R2.md")]
+        ok, why = self.check(g)
+        self.assertFalse(ok)
+        self.assertIn("reword", " ".join(why))
+
+    def test_the_base_pass_needs_two_confirmed_on_base_hash(self):
+        g = self.grounds()
+        g["verdicts"] = g["verdicts"][:2]
+        ok, why = self.check(g)
+        self.assertFalse(ok)
+        self.assertIn("two", " ".join(why))
+        g = self.grounds()
+        g["verdicts"][2]["statement_hash"] = "OTHER"
+        ok, why = self.check(g)
+        self.assertFalse(ok)
+        self.assertIn("base_hash", " ".join(why))
+        g = self.grounds()
+        g["verdicts"][2]["verdict"] = "GAP"
+        self.assertFalse(self.check(g)[0])
+
+    def test_the_reword_row_links_the_base_hash(self):
+        g = self.grounds()
+        g["verdicts"][0]["base_hash"] = "OTHER"
+        self.assertFalse(self.check(g)[0])
+        g = self.grounds()
+        del g["verdicts"][0]["base_hash"]
+        self.assertFalse(self.check(g)[0])
+        self.assertFalse(self.check(self.grounds(base_hash=""))[0])
+
+    def test_exceeds_or_no_scope_is_refused(self):
+        for scope in ("exceeds", "", None):
+            g = self.grounds()
+            g["verdicts"][0]["reword_scope"] = scope
+            ok, why = self.check(g)
+            self.assertFalse(ok, scope)
+            self.assertIn("reword_scope", " ".join(why))
+
+    def test_exactly_one_reword_row(self):
+        g = self.grounds()
+        g["verdicts"][1]["mode"] = "reword"
+        self.assertFalse(self.check(g)[0])
+        g = self.grounds()
+        del g["verdicts"][0]["mode"]
+        self.assertFalse(self.check(g)[0])
+
+    def test_an_unchanged_statement_is_no_reword(self):
+        g = self.grounds(base_hash="NEW")
+        for r in g["verdicts"]:
+            r["statement_hash"] = "NEW"
+            r["base_hash"] = "NEW" if r.get("mode") else r.get("base_hash")
+        ok, why = self.check(g)
+        self.assertFalse(ok)
+        self.assertIn("did not change", " ".join(why))
+
+    def test_reword_carries_only_proved(self):
+        g = self.grounds()
+        for r in g["verdicts"]:
+            r["verdict"] = "DISPROVED"
+        self.assertFalse(self.check(g, "refuted")[0])
+
+    def test_distinct_runs_and_roles_still_apply(self):
+        g = self.grounds()
+        g["verdicts"][0]["run_id"] = "a"
+        self.assertFalse(self.check(g)[0])
+        self.assertFalse(self.check(self.grounds(producer_role="rigor-reviewer"))[0])
+
+    def test_verdict_refs_of_a_reword_record(self):
+        import shutil
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        try:
+            base = ("---\nsubject: paper:lem:x\nrun_id: {r}\nverdict: CONFIRMED\n"
+                    "statement_hash: OLD\nagent: expert:rigor-reviewer\n---\n")
+            write(d / "p1" / "A.md", base.format(r="a"))
+            write(d / "p1" / "B.md", base.format(r="b"))
+            rw = ("---\nsubject: paper:lem:x\nrun_id: r\nverdict: CONFIRMED\n"
+                  "statement_hash: NEW\nmode: reword\nbase_pass: 2026-10-01-T-0001\n"
+                  "base_hash: OLD\nreword_scope: equivalent\n"
+                  "agent: expert:rigor-reviewer\n---\n")
+            write(d / "p2" / "R.md", rw)
+            res = lambda ref: d / ref  # noqa: E731
+            g = self.grounds()
+            self.assertEqual(grounds.check_verdict_refs(g, res, "paper:lem:x"), [])
+            # the record must itself be a reword record with the same base hash
+            write(d / "p2" / "R.md", rw.replace("base_hash: OLD", "base_hash: ZZZ"))
+            self.assertIn("base_hash", " ".join(grounds.check_verdict_refs(g, res)))
+            write(d / "p2" / "R.md", rw.replace("mode: reword\n", ""))
+            self.assertIn("reword", " ".join(grounds.check_verdict_refs(g, res)))
+            # a reword record passed off as a blind verdict
+            write(d / "p2" / "R.md", rw)
+            g2 = self.grounds()
+            del g2["verdicts"][0]["mode"]
+            self.assertIn("reword", " ".join(grounds.check_verdict_refs(g2, res)))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

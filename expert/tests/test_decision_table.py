@@ -375,6 +375,188 @@ class GroundsTests(unittest.TestCase):
         self.assertFalse(ok)
 
 
+def rwrec(verdict="CONFIRMED", scope="equivalent", base_pass="2026-09-28-T-0007",
+          base_hash="abc123", h="def456", modulo="none", model="claude-opus-5-5",
+          run_id="rv-R", blocking="none", subject="paper:lem:x"):
+    """A reword run's record (T-0347): mode reword, base pass and base hash."""
+    text = ("Report.\n\nVERDICT\nsubject: %s\npass: 2026-10-12-T-0347-reword\nrun: R\n"
+            "mode: reword\nbase_pass: %s\nbase_hash: %s\nverdict: %s\nreword_scope: %s\n"
+            "modulo: %s\nmodel: %s\nstatement_hash: %s\nblocking: %s\nticket: T-0347\n"
+            % (subject, base_pass, base_hash, verdict, scope, modulo, model, h, blocking))
+    r = dt.parse_record(text)
+    r["run_id"] = run_id
+    r.setdefault("file", "reviews/paper/lem-x/2026-10-12-T-0347-reword/R.md")
+    return r
+
+
+class RewordTableTests(unittest.TestCase):
+    """T-0347 (the human's decision, 2026-10-12): one informed reword run on top of a CONFIRMED x2 base."""
+
+    def base(self, modulo="none", b="CONFIRMED"):
+        return rec("CONFIRMED", modulo=modulo), rec(b, run="B", modulo=modulo)
+
+    def test_parse_reword_fields(self):
+        r = rwrec(scope="Covered")
+        self.assertTrue(dt.is_reword(r))
+        self.assertEqual((r["mode"], r["base_pass"], r["base_hash"], r["reword_scope"]),
+                         ("reword", "2026-09-28-T-0007", "abc123", "covered"))
+        self.assertFalse(dt.is_reword(rec("CONFIRMED")))
+        self.assertEqual(rec("CONFIRMED")["mode"], "")
+
+    def test_confirmed_on_a_confirmed_base_proposes_proved(self):
+        a, b = self.base()
+        r = dt.decide_reword(rwrec(), a, b)
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertEqual(r["proposed_status"], "proved")
+        self.assertTrue(r["recolour"])
+        self.assertFalse(r["launch_full_pass"])
+        g = r["grounds"]
+        self.assertEqual((g["mode"], g["base_hash"], g["statement_hash"], g["base_pass"]),
+                         ("reword", "abc123", "def456", "2026-09-28-T-0007"))
+        self.assertEqual([v["run_id"] for v in g["verdicts"]], ["rv-R", "rv-A", "rv-B"])
+        self.assertEqual(g["verdicts"][0]["mode"], "reword")
+        self.assertEqual(g["verdicts"][0]["reword_scope"], "equivalent")
+        self.assertEqual([v["statement_hash"] for v in g["verdicts"]],
+                         ["def456", "abc123", "abc123"])
+        self.assertTrue(all(v["ref"] for v in g["verdicts"]))
+        claims = ex.mcp_module("claims")
+        ok, why = claims.check_grounds("proved", g, "def456")
+        self.assertTrue(ok, why)
+        self.assertFalse(claims.check_grounds("proved", g, "abc123")[0])
+        self.assertIn("reword", dt._text(r))
+
+    def test_decide_dispatches_on_a_reword_record(self):
+        a, b = self.base()
+        self.assertEqual(dt.decide(rwrec(), base=(a, b))["outcome"], "confirmed")
+        # no base given: nothing to stand on
+        r = dt.decide(rwrec())
+        self.assertEqual(r["outcome"], "invalid-base")
+        self.assertIsNone(r["proposed_status"])
+
+    def test_weaker_and_covered_count_too(self):
+        for scope in ("weaker", "covered"):
+            a, b = self.base()
+            self.assertEqual(dt.decide_reword(rwrec(scope=scope), a, b)["outcome"],
+                             "confirmed", scope)
+
+    def test_base_modulo_is_carried_and_the_reword_adds_its_own(self):
+        a, b = self.base(modulo="paper:lem:a")
+        r = dt.decide_reword(rwrec(), a, b)
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:a"])
+        self.assertFalse(r["recolour"])
+        a, b = self.base(modulo="paper:lem:a")
+        r = dt.decide_reword(rwrec(modulo="paper:lem:b"), a, b)
+        self.assertEqual(r["modulo"], ["paper:lem:a", "paper:lem:b"])
+        self.assertEqual(r["proposed_status"], "proved-modulo")
+        self.assertEqual([i["kind"] for i in r["file_items"]], ["verify-input"] * 2)
+        ok, why = ex.mcp_module("claims").check_grounds("proved-modulo", r["grounds"],
+                                                         "def456")
+        self.assertTrue(ok, why)
+        a, b = self.base(modulo="paper:lem:a")
+        r = dt.decide_reword(rwrec(), a, b, established=["paper:lem:a"])
+        self.assertTrue(r["recolour"])
+
+    def test_exceeds_or_gap_falls_back_to_a_full_blind_pass(self):
+        for kw in ({"scope": "exceeds"},
+                   {"verdict": "GAP", "scope": "exceeds",
+                    "blocking": "the new wording drops compactness, which step 3 uses"},
+                   {"verdict": "GAP", "scope": "none", "blocking": "step 3"}):
+            a, b = self.base()
+            r = dt.decide_reword(rwrec(**kw), a, b)
+            self.assertEqual(r["outcome"], "full-pass-needed", kw)
+            self.assertTrue(r["launch_full_pass"])
+            self.assertIsNone(r["proposed_status"])
+            self.assertFalse(r["recolour"])
+            self.assertEqual(r["file_items"], [])
+            self.assertIn("fresh blind", r["summary"])
+        self.assertIn("compactness", dt.decide_reword(
+            rwrec(verdict="GAP", blocking="drops compactness"), *self.base())["summary"])
+
+    def test_disproved_goes_to_the_human(self):
+        r = dt.decide_reword(rwrec(verdict="DISPROVED", blocking="the square torus"),
+                             *self.base())
+        self.assertEqual(r["outcome"], "disproved")
+        self.assertTrue(r["needs_human"])
+        self.assertIsNone(r["proposed_status"])
+        self.assertEqual(r["file_items"][0]["route"]["to_role"], "human")
+
+    def test_fallback_model_is_degraded(self):
+        r = dt.decide_reword(rwrec(model="claude-sonnet-4-5"), *self.base())
+        self.assertEqual(r["outcome"], "degraded")
+        self.assertIsNone(r["proposed_status"])
+
+    def test_confirmed_without_a_scope_is_incomplete(self):
+        r = dt.decide_reword(rwrec(scope="none"), *self.base())
+        self.assertEqual(r["outcome"], "incomplete")
+        self.assertTrue(any("reword_scope" in x for x in r["anomalies"]))
+
+    def test_base_anomalies(self):
+        cases = {
+            "missing": (rwrec(), None, None),
+            "not confirmed": (rwrec(), *self.base(b="GAP")),
+            "base_hash": (rwrec(base_hash="zzz999"), *self.base()),
+            "did not change": (rwrec(h="abc123"), *self.base()),
+            "subject": (rwrec(subject="paper:lem:y"), *self.base()),
+            "run id": (rwrec(run_id="rv-A"), *self.base()),
+        }
+        for why, (r, a, b) in cases.items():
+            with self.subTest(why=why):
+                res = dt.decide_reword(r, a, b)
+                self.assertEqual(res["outcome"], "invalid-base")
+                self.assertIsNone(res["proposed_status"])
+                self.assertTrue(any(why in x for x in res["anomalies"]), res["anomalies"])
+
+    def test_a_reword_run_is_never_half_of_a_blind_pair(self):
+        r = dt.decide(rec("CONFIRMED"), rwrec(h="abc123"))
+        self.assertEqual(r["outcome"], "invalid-pair")
+        self.assertTrue(any("reword" in x for x in r["anomalies"]))
+
+    def test_every_new_outcome_is_known(self):
+        for o in ("full-pass-needed", "invalid-base"):
+            self.assertIn(o, dt.OUTCOMES)
+
+    def test_cli_finds_the_base_pass_beside_the_reword_pass(self):
+        import shutil
+        d = tempfile.mkdtemp()
+        try:
+            subj = os.path.join(d, "reviews", "paper", "lem-x")
+            base = os.path.join(subj, "2026-09-28-T-0007")
+            rw = os.path.join(subj, "2026-10-12-T-0347-reword")
+            os.makedirs(base)
+            os.makedirs(rw)
+            for run in ("A", "B"):
+                with open(os.path.join(base, run + ".md"), "w", encoding="utf-8") as fh:
+                    fh.write("---\nsubject: paper:lem:x\npass: 2026-09-28-T-0007\nrun: %s\n"
+                             "run_id: rv-%s\nverdict: CONFIRMED\nmodulo: []\n"
+                             "model: claude-opus-5-5\nstatement_hash: abc123\n---\n\nr\n"
+                             % (run, run))
+            with open(os.path.join(base, "decision.md"), "w", encoding="utf-8") as fh:
+                fh.write("# decided\n")
+            rpath = os.path.join(rw, "R.md")
+            with open(rpath, "w", encoding="utf-8") as fh:
+                fh.write("---\nsubject: paper:lem:x\npass: 2026-10-12-T-0347-reword\n"
+                         "run: R\nrun_id: rv-R\nverdict: CONFIRMED\nmodulo: []\n"
+                         "model: claude-opus-5-5\nstatement_hash: def456\nmode: reword\n"
+                         "base_pass: 2026-09-28-T-0007\nbase_hash: abc123\n"
+                         "reword_scope: weaker\n---\n\nr\n")
+            code, out, err = fixtures.run_script("decision_table.py", None, [rpath, "--json"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(out["outcome"], "confirmed", out)
+            self.assertTrue(out["grounds"]["verdicts"][1]["ref"].endswith("A.md"))
+            # an abandoned base pass is no base
+            with open(os.path.join(base, "abandoned.md"), "w", encoding="utf-8") as fh:
+                fh.write("dead\n")
+            code, out, err = fixtures.run_script("decision_table.py", None, [rpath, "--json"])
+            self.assertEqual(out["outcome"], "invalid-base", out)
+            # --base-dir overrides the lookup
+            code, out, err = fixtures.run_script("decision_table.py", None,
+                                                 [rpath, "--base-dir", rw, "--json"])
+            self.assertEqual(out["outcome"], "invalid-base", out)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 class CliTests(unittest.TestCase):
     def test_cli_on_files(self):
         d = tempfile.mkdtemp()

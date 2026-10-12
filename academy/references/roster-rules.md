@@ -22,6 +22,13 @@ the ticket protocol is `docs/protocol.md`.
    argument relies on counts (the human's decision, 2026-10-09, T-0148). So two
    CONFIRMED runs whose `modulo` lists differ only in definitions agree, on the
    intersection of the lists; the decision table flags the definitions it dropped.
+   **A reworded statement** (its text changed after a CONFIRMED x2 pass, the proof
+   unchanged or reworded only) needs one informed reword run instead of a new pair
+   (the human's decision, 2026-10-12, T-0347): the base pass's two verdicts on the old hash plus a
+   reword run CONFIRMED on the new hash, which saw the old and new statement and the
+   base pass and found the new wording covered by the proof, are the grounds. A reword
+   run is never one of a blind pair; when it finds the new wording claims more than
+   the proof gives, the statement takes a full blind pass.
 5. **Only the status keeper changes a status** (`registry.statusKeeper`, default
    `claim-keeper`), and only with grounds, or on the human's word.
 6. **Only the human decides a packet.** Agents propose; `packets_decide` is

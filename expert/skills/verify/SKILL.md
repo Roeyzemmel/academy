@@ -41,6 +41,19 @@ tickets of `conclude.md` are not filed from here. Leave them to a `review-chair`
 can be launched, or list each (receiver, claim, ask) in the report for the human. The
 status proposal (`claims_propose_status`) is exempt and still goes out.
 
+**A reworded statement: one informed run** (the human's decision, 2026-10-12, T-0347). When the
+statement's text changed after a pass that decided `confirmed` / `confirmed-modulo`,
+and the proof is unchanged or changed only in wording, the chair runs a **reword pass**
+instead of a new blind pair: one `rigor-reviewer` run R that sees the old and new
+statement, the diff, the base pass's decision and both its verdicts, and the findings
+that prompted the rewording, and judges whether the proof as reviewed still covers the
+new wording (`reword_scope`: equivalent, weaker, covered, or exceeds). R CONFIRMED on a
+CONFIRMED x2 base is enough for `proved` (the base's modulo carried over); R GAP or
+`exceeds` sends the statement to a full blind pass. Tell the chair which pass is the
+base (`py ${CLAUDE_PLUGIN_ROOT}/scripts/reviews.py list <id>`). A rewording that
+answers a hypothesis, statement or proof finding, or a changed proof, takes the full
+blind pass. Procedure: `references/conclude.md` section 7.
+
 ## 2. The decision table
 
 `scripts/decision_table.py` is the table; its docstring states it and
@@ -52,7 +65,11 @@ definitions flagged: a definition used only as notation is not an input, the hum
 decision of 2026-10-09, T-0148); any DISPROVED → the counterexample to the human, no status; a GAP run A →
 single negative, B skipped by design; any PLAUSIBLE → degraded, never counts. A
 CONFIRMED counts on any of the grading primaries (`grading.primaryModels`, all equal);
-on any other model it reads as PLAUSIBLE.
+on any other model it reads as PLAUSIBLE. A reword run R (`decision_table.py
+<pass>/R.md`, base pass found beside it): CONFIRMED with scope equivalent / weaker /
+covered on a CONFIRMED x2 base → `confirmed` / `confirmed-modulo`, propose `proved` /
+`proved-modulo`; GAP or `exceeds` → `full-pass-needed` (a fresh blind run A); a base
+that is missing, not confirmed or on another hash → `invalid-base`, no status.
 
 ## 3. After the chair returns
 

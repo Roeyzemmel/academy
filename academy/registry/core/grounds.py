@@ -41,6 +41,12 @@ Rules:
   is the producer (never grade your own work);
 * proof: all verdicts on one statement hash, equal to the claim's current one when it
   is known; proved-modulo needs ``modulo``, proved needs none;
+* proof with ``mode: reword`` (T-0347, the human's decision of 2026-10-12: a statement reworded after a
+  CONFIRMED x2 pass): the base pass's CONFIRMED verdicts on ``base_hash`` plus exactly
+  one reword row (``mode: reword``, ``base_hash``, ``reword_scope`` equivalent / weaker /
+  covered) CONFIRMED on the new hash, which is the claim's current one; proved or
+  proved-modulo only (:func:`reword_problems`). Outside such grounds a reword row never
+  counts as a blind verdict;
 * computation: one commit hash for all, the validation case passed, and ``outcome``
   matching the target (supports -> supported, refutes -> refuted*).
 
@@ -72,8 +78,74 @@ LANDED_BY = {"researcher/land_review": "experiment-reviewer"}
 RE_BOARD_REF = re.compile(r"\b[TP]-\d{4,}\b")
 
 
+#: a reword run's finding on the new wording against the proof as reviewed; only these
+#: three carry the base pass's verdicts over (``exceeds`` sends the statement to a full
+#: blind pass)
+REWORD_SCOPES = ("equivalent", "weaker", "covered")
+
+
 def norm_verdict(v):
     return " ".join(str(v or "").replace("_", " ").replace("-", " ").upper().split())
+
+
+def is_reword(d):
+    """True when ``d`` (grounds, a verdict row or a record's fields) says ``mode: reword``."""
+    return isinstance(d, dict) and str(d.get("mode") or "").strip().lower() == "reword"
+
+
+def reword_problems(new_status, grounds, rows, statement_hash=None):
+    """Why reword grounds do not carry ``new_status`` (empty when they do).
+
+    T-0347 (the human's decision, 2026-10-12): a statement reworded after a CONFIRMED x2 pass needs one
+    informed reword run, not a new blind pair. The grounds are the base pass's two (or
+    more) CONFIRMED verdicts, each on ``base_hash`` (the statement as reviewed), plus
+    exactly one reword row (``mode: reword``) CONFIRMED on the new ``statement_hash``,
+    naming the same ``base_hash`` and a ``reword_scope`` in REWORD_SCOPES. The new hash
+    must be the claim's current one when it is known, and differ from ``base_hash``.
+    Distinct run ids, roles, refs and ``modulo`` are checked by :func:`check_grounds`."""
+    probs = []
+    if new_status not in ("proved", "proved-modulo"):
+        probs.append("a reword review carries only proved / proved-modulo, not %r"
+                     % new_status)
+    base_hash = str(grounds.get("base_hash") or "").strip()
+    if not base_hash:
+        probs.append("reword grounds need grounds.base_hash: the hash of the statement "
+                     "the base pass reviewed")
+    rw = [r for r in rows if is_reword(r)]
+    base = [r for r in rows if not is_reword(r)]
+    if len(rw) != 1:
+        probs.append("reword grounds need exactly one reword verdict (mode: reword), "
+                     "%d given" % len(rw))
+    if len(base) < 2:
+        probs.append("reword grounds need the base pass's two CONFIRMED verdicts on "
+                     "base_hash, %d given" % len(base))
+    if base_hash and any(str(r.get("statement_hash") or "").strip() != base_hash
+                         for r in base):
+        probs.append("every base verdict must be given on base_hash %s (its own "
+                     "statement_hash)" % base_hash)
+    if len(rw) == 1:
+        r = rw[0]
+        new = str(r.get("statement_hash") or grounds.get("statement_hash") or "").strip()
+        given = str(grounds.get("statement_hash") or "").strip()
+        if not new:
+            probs.append("the reword verdict needs the new statement hash it was given on")
+        elif given and given != new:
+            probs.append("grounds.statement_hash %s is not the reword verdict's %s"
+                         % (given, new))
+        elif base_hash and new == base_hash:
+            probs.append("the statement did not change (statement_hash = base_hash): "
+                         "the base pass's own grounds apply, not a reword")
+        elif statement_hash and new != statement_hash:
+            probs.append("the reword verdict's statement hash %s is not the claim's "
+                         "current %s" % (new, statement_hash))
+        if str(r.get("base_hash") or "").strip() != base_hash:
+            probs.append("the reword verdict must name the base_hash %s it was checked "
+                         "against (got %r)" % (base_hash or "?", r.get("base_hash")))
+        if str(r.get("reword_scope") or "").strip().lower() not in REWORD_SCOPES:
+            probs.append("the reword verdict's reword_scope must be one of %s (got %r): "
+                         "new wording beyond the proof needs a full blind pass"
+                         % (", ".join(REWORD_SCOPES), r.get("reword_scope")))
+    return probs
 
 
 def norm_role(r):
@@ -160,15 +232,22 @@ def check_grounds(new_status, grounds, statement_hash=None, human=False,
         if verdicts and any(v != need for v in verdicts):
             probs.append("%s needs every verdict %s; got %s"
                          % (new_status, need, ", ".join(verdicts)))
-        hashes = [str(r.get("statement_hash") or grounds.get("statement_hash") or "")
-                  for r in rows]
-        if any(not h for h in hashes):
-            probs.append("every proof verdict needs the statement hash it was given on")
-        elif len(set(hashes)) != 1:
-            probs.append("the verdicts were given on different statements (hashes differ)")
-        elif statement_hash and hashes[0] != statement_hash:
-            probs.append("the verdicts' statement hash %s is not the claim's current %s"
-                         % (hashes[0], statement_hash))
+        if is_reword(grounds):
+            probs.extend(reword_problems(new_status, grounds, rows, statement_hash))
+        else:
+            if any(is_reword(r) for r in rows):
+                probs.append("a reword run is not a blind review: it counts only in "
+                             "grounds with mode: reword (with its base pass)")
+            hashes = [str(r.get("statement_hash") or grounds.get("statement_hash") or "")
+                      for r in rows]
+            if any(not h for h in hashes):
+                probs.append("every proof verdict needs the statement hash it was given on")
+            elif len(set(hashes)) != 1:
+                probs.append("the verdicts were given on different statements (hashes "
+                             "differ)")
+            elif statement_hash and hashes[0] != statement_hash:
+                probs.append("the verdicts' statement hash %s is not the claim's current %s"
+                             % (hashes[0], statement_hash))
         modulo = grounds.get("modulo") or []
         if new_status == "proved-modulo" and not modulo:
             probs.append("proved-modulo needs grounds.modulo (the missing inputs)")
@@ -263,6 +342,24 @@ def check_verdict_refs(grounds, resolve, claim_id=None):
         if f.get("statement_hash") and h and f["statement_hash"] != h:
             probs.append("review record %s was given on statement %s, the grounds say %s"
                          % (ref, f["statement_hash"], h))
+        if is_reword(r) != is_reword(f):
+            probs.append("review record %s is %s, the grounds give it as %s"
+                         % (ref, "a reword run" if is_reword(f) else "a blind run",
+                            "a reword run" if is_reword(r) else "a blind verdict"))
+        elif is_reword(r):
+            # the record must carry the reword run's own judgement and base, and they
+            # must be the row's (or the grounds')
+            for k in ("base_hash", "reword_scope", "base_pass"):
+                want = str(r.get(k) or (g.get(k) if k != "reword_scope" else "") or "")
+                have = str(f.get(k) or "")
+                if not want:
+                    continue
+                if not have:
+                    probs.append("review record %s records no %s, the grounds say %s"
+                                 % (ref, k, want))
+                elif have.strip().lower() != want.strip().lower():
+                    probs.append("review record %s has %s %s, the grounds say %s"
+                                 % (ref, k, have, want))
         who = norm_role(f.get("agent")) or LANDED_BY.get(f.get("landed_by", ""), "")
         if who and who not in fit:
             probs.append("review record %s was written by %s, not a %s reviewer (%s)"
