@@ -234,6 +234,68 @@ class TestV2Mutations(Migrated):
         s1kb.run_check(kb)
         self.assertEqual([m for m in kb.errors if "GEO-1" in m], [])
 
+    # T-0361: set-status (s1) keeps the record's `modulo` in step with the status, as
+    # fsl does: dropped with proved, kept or set (--modulo) with proved-modulo; the
+    # schema refuses proved with a modulo and proved-modulo without one
+    def crit1_proved_verdict(self, name):
+        return self.s1_verdict(name, ["CRIT-1"], ["CONFIRMED", "CONFIRMED"])
+
+    def test_s1_proved_drops_modulo(self):
+        p = self.s1 / "claims" / "CRIT-1.md"
+        block = p.read_text(encoding="utf-8")
+        # block list (the migrated form) and inline list (flat:FND-15's form)
+        inline = block.replace("modulo:\n  - OPEN-2\n", "modulo: [OPEN-2]\n")
+        self.assertNotEqual(inline, block)
+        for n, text in enumerate((block, inline)):
+            with self.subTest(form=("block", "inline")[n]):
+                write(p, text)
+                vfile = self.crit1_proved_verdict("2026-10-12_pm%d.md" % n)
+                self.assertEqual(self.s1_set("CRIT-1", "proved", "--verdict", vfile), 0)
+                after = p.read_text(encoding="utf-8")
+                self.assertNotIn("modulo:", after)
+                self.assertIn("depends_on: []", after)
+                kb = s1kb.load_kb(self.s1)
+                e = kb.entities["CRIT-1"]
+                self.assertEqual(e.v2["status"], "proved")
+                self.assertNotIn("modulo", e.v2)
+                self.assertIn("status proved-modulo → proved", e.v2["history"][0])
+                s1kb.run_check(kb)
+                self.assertEqual(kb.errors, [])
+
+    def test_s1_proved_modulo_keeps_modulo(self):
+        p = self.s1 / "claims" / "CRIT-1.md"
+        vfile = self.crit1_proved_verdict("2026-10-12_pm-keep.md")
+        self.assertEqual(self.s1_set("CRIT-1", "proved-modulo", "--verdict", vfile), 0)
+        self.assertIn("modulo:\n  - OPEN-2\n", p.read_text(encoding="utf-8"))
+        self.assertEqual(s1kb.load_kb(self.s1).entities["CRIT-1"].v2["modulo"], ["OPEN-2"])
+
+    def test_s1_proved_modulo_sets_modulo(self):
+        p = self.s1 / "claims" / "OBS-1.md"
+        before = p.read_bytes()
+        vfile = self.s1_verdict("2026-10-12_obs.md", ["OBS-1"], ["CONFIRMED", "CONFIRMED"])
+        # no modulo on the record and none given: the schema refuses, the file is put back
+        self.assertNotEqual(self.s1_set("OBS-1", "proved-modulo", "--verdict", vfile), 0)
+        self.assertEqual(p.read_bytes(), before)
+        self.assertEqual(self.s1_set("OBS-1", "proved-modulo", "--verdict", vfile,
+                                     "--modulo", "OPEN-2", "--modulo", "OPEN-7"), 0)
+        kb = s1kb.load_kb(self.s1)
+        self.assertEqual(kb.entities["OBS-1"].v2["status"], "proved-modulo")
+        self.assertEqual(kb.entities["OBS-1"].v2["modulo"], ["OPEN-2", "OPEN-7"])
+        s1kb.run_check(kb)
+        self.assertEqual(kb.errors, [])
+        # given again, --modulo replaces the list (it is the grounds' missing inputs)
+        self.assertEqual(self.s1_set("OBS-1", "proved-modulo", "--verdict", vfile,
+                                     "--modulo", "OPEN-7"), 0)
+        self.assertEqual(s1kb.load_kb(self.s1).entities["OBS-1"].v2["modulo"], ["OPEN-7"])
+
+    def test_s1_modulo_only_with_proved_modulo(self):
+        vfile = self.crit1_proved_verdict("2026-10-12_pm-bad.md")
+        p = self.s1 / "claims" / "CRIT-1.md"
+        before = p.read_bytes()
+        self.assertEqual(self.s1_set("CRIT-1", "proved", "--verdict", vfile,
+                                     "--modulo", "OPEN-2"), 1)
+        self.assertEqual(p.read_bytes(), before)
+
     def test_s1_store_classes(self):
         from registry.core import federation
         st = federation.store("s1", self.s1)
