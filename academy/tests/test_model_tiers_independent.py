@@ -330,6 +330,27 @@ class TestUsageAgainstTier(Tmp):
                          [("heavier-than-declared", "haiku", "base")])
 
 
+class TestSessionStartWarns(Tmp):
+    def test_a_versionless_floor_is_reported_at_session_start(self):
+        """Finding 1 (fixed in 9fd3d53): session_start.workspace_problems names each floor
+        tier whose model has no version (literal map: large and max), and nothing with the
+        default map. The instance row agrees with the config, so these are the only
+        problems."""
+        import session_start
+        home = os.path.join(self.tmp, "a")
+        cfg = {"instance": "expert@a", "_home": home, "role": "expert", "domains": ["d"],
+               "ns": None}
+        ws = self.load(models={"tiers": dict(LITERAL)})
+        ws["instances"]["expert@a"].setdefault("ns", None)
+        probs = session_start.workspace_problems(cfg, ws)
+        self.assertEqual(len(probs), 2, probs)
+        self.assertTrue(any("tier large" in p for p in probs))
+        self.assertTrue(any("tier max" in p for p in probs))
+        ws = self.load()
+        ws["instances"]["expert@a"].setdefault("ns", None)
+        self.assertEqual(session_start.workspace_problems(cfg, ws), [])
+
+
 class TestResolverCli(Tmp):
     def run_models(self, *args):
         return subprocess.run([sys.executable, os.path.join(SCRIPTS, "models.py")] + list(args),
