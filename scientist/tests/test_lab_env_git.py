@@ -326,5 +326,37 @@ class GitState(unittest.TestCase):
         self.assertNotIn("not in commit", text)
 
 
+
+class ScaffoldGitignore(unittest.TestCase):
+    """Added by the test-engineer's review of T-0219: the scaffold writes the
+    bytecode .gitignore into a fresh lab, and leaves a lab's own .gitignore alone
+    (the developer's claim (2) on the ticket thread; scaffold_tree never overwrites)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name).resolve() / "lab"
+        self.home.mkdir()
+
+    def test_fresh_lab_gets_the_gitignore(self):
+        with mock.patch.object(sys, "dont_write_bytecode", True):
+            scaffold(self.home)
+        text = (self.home / ".gitignore").read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertIn("__pycache__/", lines)
+        self.assertIn("*.py[cod]", lines)
+
+    def test_existing_gitignore_is_kept_byte_for_byte(self):
+        own = b"# the lab's own\r\nresults/big/\r\n"
+        (self.home / ".gitignore").write_bytes(own)
+        made = init_instance.scaffold_lab(str(self.home), {
+            "instance": "scientist@mylab", "ns": "mylab",
+            "paths": {"package": PACKAGE}})
+        self.assertEqual((self.home / ".gitignore").read_bytes(), own)
+        self.assertNotIn(".gitignore", [Path(m).name for m in made])
+        # the package and its env.py are still scaffolded next to it
+        self.assertTrue((self.home / PACKAGE / "env.py").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()
