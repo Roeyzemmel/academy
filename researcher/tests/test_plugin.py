@@ -12,8 +12,8 @@ import _academy as ac  # noqa: E402
 AGENTS = {
     # name: (model, fallback, readonly)
     "lead-researcher": ("sonnet", "opus", False),
-    "prover": ("fable", "opus", False),
-    "experiment-reviewer": ("fable", "opus", True),
+    "prover": ("opus", "opus", False),
+    "experiment-reviewer": ("opus", "opus", True),
     "claim-keeper": ("haiku", "sonnet", False),
     "experiment-spec": ("sonnet", "opus", False),
     "lit-request": ("haiku", "sonnet", False),
