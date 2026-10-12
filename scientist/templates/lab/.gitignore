@@ -1,0 +1,6 @@
+# Scaffolded by /academy:init from the Scientist plugin's templates/lab/; the lab owns it.
+# The provenance stamp (env.git_state) counts every untracked, non-ignored file under
+# experiments/ and the package as uncommitted code: bytecode must be ignored, or every
+# run that imports the package is stamped dirty.
+__pycache__/
+*.py[cod]
