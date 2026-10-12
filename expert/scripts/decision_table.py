@@ -69,8 +69,16 @@ if HERE not in sys.path:
 import _academy as ac  # noqa: E402
 
 VERDICTS = ("CONFIRMED", "PLAUSIBLE", "GAP", "DISPROVED")
+#: the reword run's own fields (T-0347): blank on every blind run
+REWORD_FIELDS = ("mode", "base_pass", "base_hash", "reword_scope")
 FIELDS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
-          "statement_hash", "blocking", "ticket", "gap_class")
+          "statement_hash", "blocking", "ticket", "gap_class") + REWORD_FIELDS
+#: a reword run's reading of the new wording against the proof as reviewed: ``equivalent``
+#: (the same content), ``weaker`` (implied by the old statement), ``covered`` (claims more
+#: than the old statement, but only what the reviewed proof already shows), ``exceeds``
+#: (claims more than the proof gives: a full blind pass)
+REWORD_SCOPES = ("equivalent", "weaker", "covered", "exceeds")
+REWORD_CARRIES = ("equivalent", "weaker", "covered")
 #: a finding's class (VERDICT ``gap_class``): what it touches decides who repairs it
 GAP_CLASSES = ("hypothesis", "statement", "proof", "wording")
 RE_HYPOTHESIS = re.compile(r"(?i)hypothes|assum|\bstatement\b|STRENGTHEN_HYPOTHESIS|"
@@ -78,7 +86,8 @@ RE_HYPOTHESIS = re.compile(r"(?i)hypothes|assum|\bstatement\b|STRENGTHEN_HYPOTHE
 NONE_WORDS = ("", "none", "-", "n/a", "[]", "null")
 
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
-            "single-negative", "degraded", "invalid-pair", "no-change", "incomplete")
+            "single-negative", "degraded", "invalid-pair", "no-change", "incomplete",
+            "full-pass-needed", "invalid-base")
 
 
 # ----------------------------------------------------------------------------
@@ -222,7 +231,15 @@ def parse_record(text):
         rec["blocking"] = ""
     gc = rec["gap_class"].strip().lower()
     rec["gap_class"] = gc if gc in GAP_CLASSES else ""
+    rec["mode"] = rec["mode"].strip().lower()
+    sc = rec["reword_scope"].strip().lower()
+    rec["reword_scope"] = sc if sc in REWORD_SCOPES else ""
     return rec
+
+
+def is_reword(rec):
+    """True when ``rec`` is a reword run's record (``mode: reword``, T-0347)."""
+    return bool(rec) and str(rec.get("mode") or "").strip().lower() == "reword"
 
 
 # ----------------------------------------------------------------------------
@@ -441,11 +458,28 @@ def _grounds(recs, modulo, note, producer_role=""):
 
 
 def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
-           kind_of=None):
+           kind_of=None, base=None, base_notes=()):
     """Apply the table (``_decide``) and give every item to file its ``route``
     (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
-    lookup that decides which inputs are definitions."""
+    lookup that decides which inputs are definitions.
+
+    A reword run's record as ``rec_a`` goes to :func:`decide_reword`, with ``base`` the
+    base pass's ``(A, B)`` records (``base_records`` finds them) and ``base_notes`` what
+    finding them turned up."""
+    if is_reword(rec_a):
+        ba, bb = tuple(base or (None, None))[:2]
+        notes = list(base_notes)
+        if rec_b is not None:
+            notes.append("a second record was given with a reword run: ignored (a reword "
+                         "pass has one run, R)")
+        return decide_reword(rec_a, ba, bb, established, primary, producer_role, kind_of,
+                             notes)
     res = _decide(rec_a, rec_b, established, primary, producer_role, kind_of)
+    _route_items(res, rec_a, rec_b, producer_role)
+    return res
+
+
+def _route_items(res, rec_a, rec_b, producer_role):
     if res.get("file_items"):
         subject = (rec_a or {}).get("subject") or ""
         prod = producer_role_for(subject, producer_role)
@@ -460,16 +494,20 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
     return res
 
 
+def _new_result():
+    return {"outcome": "", "launch_b": False, "proposed_status": None, "recolour": False,
+            "needs_human": False, "modulo": [], "pending_inputs": [], "file_items": [],
+            "anomalies": [], "grounds": None, "summary": "", "runs": [],
+            "dropped_definitions": []}
+
+
 def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
             kind_of=None):
     """Apply the table. ``rec_a`` / ``rec_b`` come from ``parse_record``; ``rec_b``
     may be None (not launched). ``established`` lists the modulo inputs known to be
     established (registry ``proved`` or a verified citation card). ``producer_role``
     overrides the namespace-owner lookup (``producer_role_for``) when given."""
-    res = {"outcome": "", "launch_b": False, "proposed_status": None, "recolour": False,
-           "needs_human": False, "modulo": [], "pending_inputs": [], "file_items": [],
-           "anomalies": [], "grounds": None, "summary": "", "runs": [],
-           "dropped_definitions": []}
+    res = _new_result()
     established = set(established or ())
 
     if rec_a is None or rec_a["problems"]:
@@ -477,6 +515,13 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
         res["summary"] = "run A has no readable verdict: nothing to conclude"
         if rec_a:
             res["anomalies"].extend("run A: " + p for p in rec_a["problems"])
+        return res
+
+    if is_reword(rec_b):
+        res["outcome"] = "invalid-pair"
+        res["anomalies"].append("run %s is a reword run (mode: reword): it is not blind and "
+                                "is never half of a blind pair" % (rec_b.get("run") or "B"))
+        res["summary"] = "the two runs are not two blind reviews of one statement"
         return res
 
     prod_role = producer_role_for(rec_a.get("subject"), producer_role)
@@ -617,6 +662,201 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
     return res
 
 
+# ----------------------------------------------------------------------------
+# The reword pass (T-0347, Roey 2026-10-12): one informed run on a reworded statement
+# ----------------------------------------------------------------------------
+
+def base_records(r_path, base_pass, base_dir=None):
+    """``(A, B, notes)``: the base pass's run records for the reword record at
+    ``r_path``. The base pass is the sibling folder ``base_pass`` of the reword pass
+    (``<subject dir>/<base_pass>/``), or ``base_dir`` when given. An abandoned base pass,
+    or a missing folder or run, gives None in its place and a note saying why."""
+    if not base_dir and not base_pass:
+        return None, None, ["the reword run names no base_pass: its base is missing"]
+    d = base_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(r_path))),
+                                 base_pass)
+    shown = d.replace("\\", "/")
+    if not os.path.isdir(d):
+        return None, None, ["the base pass folder %s is missing" % shown]
+    if os.path.isfile(os.path.join(d, "abandoned.md")):
+        return None, None, ["the base pass %s was abandoned, so its decision is missing"
+                            % shown]
+    notes = []
+    if not os.path.isfile(os.path.join(d, "decision.md")):
+        notes.append("the base pass %s has no decision.md: its table is recomputed from "
+                      "its runs" % shown)
+    recs = []
+    for run in ("A", "B"):
+        p = os.path.join(d, run + ".md")
+        recs.append(read_record(p) if os.path.isfile(p) else None)
+    return recs[0], recs[1], notes
+
+
+def _base_problems(rec_r, base_a, base_b):
+    """Why the base records cannot carry the reword run (a list of anomalies)."""
+    if base_a is None or base_b is None or base_a["problems"] or base_b["problems"]:
+        return ["the base pass %s is missing or unreadable (its runs A and B)"
+                % (rec_r.get("base_pass") or "?")]
+    probs = []
+    bh, new = rec_r.get("base_hash") or "", rec_r.get("statement_hash") or ""
+    if not bh:
+        probs.append("the reword run names no base_hash")
+    for b in (base_a, base_b):
+        if bh and (b.get("statement_hash") or "") != bh:
+            probs.append("base_hash %s is not the base run %s's statement_hash %s"
+                         % (bh, b.get("run") or "?", b.get("statement_hash") or "(none)"))
+    if not new:
+        probs.append("the reword run has no statement_hash")
+    elif bh and new == bh:
+        probs.append("the statement did not change (statement_hash = base_hash): the base "
+                     "pass's own decision applies, not a reword")
+    subj = rec_r.get("subject")
+    for b in (base_a, base_b):
+        if subj and b.get("subject") and b["subject"] != subj:
+            probs.append("the base pass reviewed subject %s, the reword run %s"
+                         % (b["subject"], subj))
+            break
+    for b in (base_a, base_b):
+        bp = b.get("pass") or ""
+        if bp and rec_r.get("base_pass") and bp != rec_r["base_pass"]:
+            probs.append("the base run %s belongs to pass %s, not base_pass %s"
+                         % (b.get("run") or "?", bp, rec_r["base_pass"]))
+    rid = rec_r.get("run_id") or ""
+    if not rid or rid in (base_a.get("run_id"), base_b.get("run_id")):
+        probs.append("the reword run's run id %s is not distinct from the base runs'"
+                     % (rid or "(none)"))
+    return probs
+
+
+def _reword_grounds(rec_r, base_recs, modulo, note, prod_role):
+    g = _grounds([rec_r] + list(base_recs), modulo, note, prod_role)
+    g["verdicts"][0].update({"mode": "reword", "base_hash": rec_r.get("base_hash") or "",
+                             "reword_scope": rec_r.get("reword_scope") or ""})
+    g.update({"mode": "reword", "base_pass": rec_r.get("base_pass") or "",
+              "base_hash": rec_r.get("base_hash") or "",
+              "statement_hash": rec_r.get("statement_hash") or ""})
+    return g
+
+
+def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
+                  producer_role=None, kind_of=None, base_notes=()):
+    """The reword table (T-0347). ``rec_r`` is the reword run's record (``mode:
+    reword``); ``base_a`` / ``base_b`` the base pass's runs, both CONFIRMED on
+    ``base_hash`` for the reword to carry anything.
+
+    | Reword run R | Base pass | Outcome |
+    |---|---|---|
+    | DISPROVED | any | ``disproved``: the counterexample to the new wording goes to the human |
+    | PLAUSIBLE (or CONFIRMED on a non-primary) | any | ``degraded``: re-run R on a primary |
+    | GAP, or CONFIRMED with ``reword_scope: exceeds`` | any | ``full-pass-needed``: no status; open a fresh blind pass (run A) on the new statement |
+    | CONFIRMED with no ``reword_scope`` | any | ``incomplete``: relaunch R |
+    | CONFIRMED, scope equivalent / weaker / covered | missing, abandoned, not CONFIRMED x2, other hash / subject / pass, shared run id, or an unchanged statement | ``invalid-base``: no status |
+    | CONFIRMED, scope equivalent / weaker / covered | CONFIRMED x2 on base_hash (modulo X) | ``confirmed`` / ``confirmed-modulo`` on X plus R's modulo: propose proved / proved-modulo; recolour as the normal table |
+    """
+    res = _new_result()
+    res.update({"mode": "reword", "launch_full_pass": False, "base_outcome": None,
+                "base_pass": (rec_r or {}).get("base_pass") or "",
+                "base_hash": (rec_r or {}).get("base_hash") or "",
+                "reword_finding": ""})
+    res["anomalies"].extend(base_notes or ())
+    established = set(established or ())
+    if rec_r is None or rec_r["problems"]:
+        res["outcome"] = "incomplete"
+        res["summary"] = "the reword run has no readable verdict: nothing to conclude"
+        if rec_r:
+            res["anomalies"].extend("run R: " + p for p in rec_r["problems"])
+        return res
+    prod_role = producer_role_for(rec_r.get("subject"), producer_role)
+    eff, note = effective(rec_r, primary)
+    rec_r["_eff"] = eff
+    if note:
+        res["anomalies"].append(note)
+    row = {k: rec_r.get(k) for k in ("run", "run_id", "verdict", "model", "modulo",
+                                     "statement_hash", "blocking", "file", "base_hash",
+                                     "reword_scope")}
+    row["effective"] = eff
+    res["runs"].append(row)
+    scope = rec_r.get("reword_scope") or ""
+
+    if eff == "DISPROVED":
+        res["outcome"] = "disproved"
+        res["needs_human"] = True
+        res["file_items"] = [{"run": rec_r.get("run") or "R", "kind": "counterexample",
+                              "text": rec_r.get("blocking") or "see the reword run's report"}]
+        res["summary"] = ("the reword run DISPROVED the new wording: no status change; the "
+                          "counterexample goes to %s at once" % ac.human_name())
+        _route_items(res, rec_r, None, producer_role)
+        return res
+    if eff == "PLAUSIBLE":
+        res["outcome"] = "degraded"
+        res["summary"] = ("the reword run is PLAUSIBLE (fallback or reduced strength): it "
+                          "never counts; re-run it on a primary model (%s)"
+                          % ", ".join(_primaries(primary)))
+        return res
+    if eff == "GAP" or scope == "exceeds":
+        res["outcome"] = "full-pass-needed"
+        res["launch_full_pass"] = True
+        res["reword_finding"] = rec_r.get("blocking") or ""
+        res["summary"] = ("the reword run finds the new wording %s (%s): no status change; "
+                          "open a fresh blind pass (run A) on the new statement"
+                          % ("claims more than the proof as reviewed gives"
+                             if scope == "exceeds" else "not covered by the proof as "
+                             "reviewed", res["reword_finding"] or "see its report"))
+        return res
+    if scope not in REWORD_CARRIES:
+        res["outcome"] = "incomplete"
+        res["anomalies"].append("the reword run is CONFIRMED but gives no reword_scope (%s): "
+                                "relaunch it" % ", ".join(REWORD_SCOPES))
+        res["summary"] = "the reword run gives no reword_scope: relaunch it"
+        return res
+
+    bad = _base_problems(rec_r, base_a, base_b)
+    base_res = None
+    if not bad:
+        base_res = _decide(base_a, base_b, established, primary, producer_role, kind_of)
+        res["base_outcome"] = base_res["outcome"]
+        res["anomalies"].extend("base pass: " + a for a in base_res["anomalies"])
+        if base_res["outcome"] not in ("confirmed", "confirmed-modulo"):
+            bad.append("the base pass %s is not confirmed (its table gives %s)"
+                       % (rec_r.get("base_pass") or "?", base_res["outcome"]))
+    if bad:
+        res["outcome"] = "invalid-base"
+        res["anomalies"].extend(bad)
+        res["summary"] = ("no status change: the base pass does not carry a CONFIRMED x2 "
+                          "decision on base_hash for this reword run; fix the base in the "
+                          "brief, or open a fresh blind pass")
+        return res
+
+    res["dropped_definitions"] = base_res.get("dropped_definitions") or []
+    mod = sorted(set(base_res["modulo"]) | set(rec_r["modulo"]))
+    base_recs = [base_a, base_b]
+    how = ("reword run CONFIRMED (%s) on base pass %s, CONFIRMED x2 on %s"
+           % (scope, rec_r.get("base_pass"), rec_r.get("base_hash")))
+    if not mod:
+        res["outcome"] = "confirmed"
+        res["proposed_status"] = "proved"
+        res["recolour"] = True
+        res["grounds"] = _reword_grounds(rec_r, base_recs, [], how + ", no open inputs",
+                                         prod_role)
+        res["summary"] = "%s: propose proved; recolour earned" % how
+        return res
+    res["outcome"] = "confirmed-modulo"
+    res["modulo"] = mod
+    res["pending_inputs"] = sorted(set(mod) - established)
+    res["proposed_status"] = "proved-modulo"
+    res["recolour"] = not res["pending_inputs"]
+    res["grounds"] = _reword_grounds(rec_r, base_recs, mod, "%s, modulo %s"
+                                     % (how, ", ".join(mod)), prod_role)
+    res["file_items"] = [{"run": "R", "kind": "verify-input", "text": i}
+                         for i in res["pending_inputs"]]
+    res["summary"] = ("%s, modulo %s: propose proved-modulo; %s"
+                      % (how, ", ".join(mod), "recolour earned (every input established)"
+                         if res["recolour"] else "stays sketch until %s are established"
+                         % ", ".join(res["pending_inputs"])))
+    _route_items(res, rec_r, None, producer_role)
+    return res
+
+
 def _pair_ok(ra, rb, res):
     ok = True
     ia, ib = ra.get("run_id"), rb.get("run_id")
@@ -647,8 +887,14 @@ def _pair_ok(ra, rb, res):
 
 def _text(res):
     out = ["outcome: %s" % res["outcome"], "summary: %s" % res["summary"]]
+    if res.get("mode") == "reword":
+        out.append("mode: reword (base pass %s, base_hash %s, base outcome %s)"
+                   % (res.get("base_pass") or "?", res.get("base_hash") or "?",
+                      res.get("base_outcome") or "not read"))
     if res["launch_b"]:
         out.append("next: launch run B")
+    if res.get("launch_full_pass"):
+        out.append("next: open a fresh blind pass (run A) on the new statement")
     if res["proposed_status"]:
         out.append("propose: %s" % res["proposed_status"])
     out.append("recolour: %s" % ("yes" if res["recolour"] else "no"))
@@ -683,15 +929,23 @@ def main(argv=None):
                          "grading.primaryModels, else %s)" % ",".join(PRIMARY_MODELS))
     ap.add_argument("--producer-role", default=None,
                     help="override the namespace-owner lookup for grounds.producer_role")
+    ap.add_argument("--base-dir", default=None,
+                    help="a reword run (mode: reword): the base pass folder (default: the "
+                         "sibling folder its base_pass names)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     try:
         ra = read_record(args.a)
         rb = read_record(args.b)
+        base, notes = None, ()
+        if is_reword(ra):
+            ba, bb, notes = base_records(args.a, ra.get("base_pass"), args.base_dir)
+            base = (ba, bb)
     except OSError as exc:
         sys.stderr.write("decision_table: %s\n" % exc)
         return 2
-    res = decide(ra, rb, _split_list(args.established), args.primary, args.producer_role)
+    res = decide(ra, rb, _split_list(args.established), args.primary, args.producer_role,
+                 base=base, base_notes=notes)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):

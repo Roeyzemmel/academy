@@ -303,6 +303,53 @@ class TestOwnNamespaceReviewRecords(unittest.TestCase):
         self.assertEqual(self.problems(), [])
 
 
+class TestRewordReviewRecord(unittest.TestCase):
+    """T-0347: a reword record (``mode: reword``) carries a claim with the two CONFIRMED
+    runs of its base pass, the sibling folder ``base_pass``, on ``base_hash``."""
+
+    BASE = ("---\nsubject: flat:Q1\nrun: {r}\nrun_id: rv-{r}\nverdict: {v}\n"
+            "statement_hash: {h}\nlanded_by: expert/land_verdict\n---\nreport\n")
+    RW = ("---\nsubject: flat:Q1\nrun: R\nrun_id: rv-R\nverdict: {v}\n"
+          "statement_hash: 2222222222222222\nmode: reword\nbase_pass: 2026-10-01-T-0001\n"
+          "base_hash: 1111111111111111\nreword_scope: {s}\n"
+          "landed_by: expert/land_verdict\n---\nreport\n")
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="registry-reword-"))
+        self.addCleanup(shutil.rmtree, str(self.root), True)
+        notebook_config(self.root, ns="flat")
+        write(self.root / "objects" / "question" / "Q1.md", Q1)
+        self.base = self.root / "audits" / "Q1" / "2026-10-01-T-0001"
+        self.rw = self.root / "audits" / "Q1" / "2026-10-12-T-0347-reword"
+        for r in ("A", "B"):
+            write(self.base / ("%s.md" % r),
+                  self.BASE.format(r=r, v="CONFIRMED", h="1111111111111111"))
+
+    def problems(self, label="proved", v="CONFIRMED", s="equivalent"):
+        write(self.rw / "R.md", self.RW.format(v=v, s=s))
+        kb = s1kb.load_kb(self.root)
+        return s1kb.verdict_file_problems(
+            kb, "audits/Q1/2026-10-12-T-0347-reword/R.md", "Q1", label)
+
+    def test_reword_confirmed_on_a_confirmed_base_carries_proved(self):
+        self.assertEqual(self.problems(), [])
+        self.assertEqual(self.problems("proved-modulo", s="covered"), [])
+
+    def test_exceeds_gap_or_refuted_are_refused(self):
+        self.assertIn("reword_scope", " ".join(self.problems(s="exceeds")))
+        self.assertIn("CONFIRMED", " ".join(self.problems(v="GAP")))
+        self.assertTrue(self.problems("refuted", v="DISPROVED"))
+
+    def test_the_base_must_hold_two_confirmed_on_base_hash(self):
+        write(self.base / "B.md", self.BASE.format(r="B", v="CONFIRMED",
+                                                   h="3333333333333333"))
+        self.assertIn("base pass", " ".join(self.problems()))
+        write(self.base / "B.md", self.BASE.format(r="B", v="GAP", h="1111111111111111"))
+        self.assertTrue(self.problems())
+        shutil.rmtree(str(self.base))
+        self.assertIn("base pass", " ".join(self.problems()))
+
+
 class TestLegacyLayoutUnchanged(Homes):
     def test_audits_are_not_verdict_files_without_objects(self):
         write(self.s1 / "audits" / "E1" / "v.md", VERDICT)
