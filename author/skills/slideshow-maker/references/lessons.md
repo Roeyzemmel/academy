@@ -121,3 +121,93 @@ Each item: the rule, why, and what happened. Examples are labelled; replace them
 - Generated figures and captions drift apart: regenerate captions with the figures.
 - The repository's commit route (`ship.py`) is the only way to commit; submodule pointers and the board's
   error ledger are never committed from a session, whatever the stop hook says.
+
+# Lessons from the second round (revising a mature deck with the author's comments; same talk)
+
+## 12. Revising with the author's comments
+- **State the main subject up front and in the title.** The author's last comment was that the talk's subject (here:
+  finding the primitive billiard of a given billiard) must be emphasised. Put it in the subtitle, in a deck-only
+  "What this talk is about" frame right after the title (goal, why, how: three bullets, with unproved parts called
+  `Idea`), and in the first sentence of the notes' abstract and of the handout. Check at the end that every core
+  frame prepares or uses the main subject; the rest is bonus.
+- **State results for the notion the audience reads, define the general one once.** The author wanted results for
+  non-illumination, with finite blocking only defined on the first frame, "to make it more readable". Do it only
+  where the sentence stays true with the same hypotheses and source (the n = 0 case of a closedness or lifting
+  statement has the same proof); statements whose content is finite blocking (dichotomy, classification) stay as
+  they are. Give the author the list of the ones left, with the reason.
+- **Technical machinery by intuition, then one clean statement.** Where the formalism is not the point, define the
+  object in two plain sentences (a flat morphism: finite-to-one, locally an isometry up to the allowed rotations
+  and reflections, straight segments to straight segments, singular points matching) and state the one result
+  that is used (two points of the image do not illuminate each other iff no two lifts do). Check **both
+  directions** of an "iff" and say which one the cited source gives; a direction that is your own path-lifting
+  argument is reported to the author as not previous work. An open-question item that the new statement answers
+  is removed from the notes.
+- **Nothing is invented; everything follows from earlier work.** When the author names an example ("the double
+  EW slope 1 example"), find it in the author's own earlier work (research notebook, paper history,
+  `git log -S`, archived drafts) and copy it; if it cannot be identified, leave a placeholder and report the
+  candidates. The agent that writes the slide does not repair the earlier statement; it reports.
+- **No internal names on slides or in the paper.** Notebook object ids, instance names, ticket numbers and
+  "notes" are replaced by a citation key the author chooses (`[Ze27]`); add the bibitem only with details the
+  author gives, otherwise "in preparation" and ask.
+- **When asked to replace a figure's object, verify the slide's claim for the replacement first.** The author
+  asked for "the isosceles triangle got by flipping along the long edge"; for the right triangle
+  (pi/10, pi/2, 2pi/5) that is (pi/5, 2pi/5, 2pi/5), whose unfolding has genus 2 and half the area of the kite's,
+  so the slide's claim ("same unfolding") was false for it. Use the closest correct object (the same triangle
+  flipped along the other leg), say so plainly, and report both. Compare genus, cone angles, area and groups by
+  script.
+- **Ask what a figure instruction colours.** "Colour the edges by the triangle they come from" meant colouring the
+  *vertices* by the vertex of the triangle they fold to; the first version coloured edges. For a colouring, ask:
+  edges, vertices or tiles; by what.
+- **A user-supplied figure source is data, not truth.** A pasted 26-gon "extracted from an image" was verified
+  (tiling type, tile count, 26 corners, only x and y inside, every B/C point a vertex) before use, and the
+  caption says "after Tokarsky's example", not "Tokarsky's own", until the match with the paper is checked.
+- **A classical theorem as stated on the slide may be a corollary with a convention.** The polygon version of
+  Tokarsky's lemma is true if trajectories stop at vertices and false if they pass through vertices of angle
+  pi/j (rhombus with angles pi/4, 3pi/4). Check the paper's convention for trajectories, state it on the slide in
+  a short parenthesis, attribute the triangle lemma to the source and the polygon statement to whoever proves it.
+  If the primary source is paywalled, say so and base nothing on memory.
+- **A convention a formula depends on goes on the slide** (side numbering of the octagon: the transitions
+  C_k -> C_{k+3}, C_{k+5} are off by one otherwise). Recompute such formulas from the geometry by script, for all
+  cases.
+- **Dropping a slide from the deck is not dropping it from the notes**; ask which was meant, wrap a deck-removed
+  frame in `\onlyarticle{...}` when it stays in the notes, delete the file when it is gone from both. Merge two
+  statement-only bonus frames into one and keep the proof and the figure in the notes (`\onlyarticle`).
+- **Talk-voice lines do not belong in the notes** ("the talk concerns the left column", "the best converse one can
+  hope for"): wrap in `\onlydeck` or delete; delete again when they stop being true.
+- **Figures are too small more often than too large.** Fixes that worked: one figure per frame, legends moved from
+  inside the figure to a caption line on the slide or the caption, the explanatory paragraph removed so the figure
+  can fill the frame, the column ratio set per frame (`withfigr{name}{0.36}{0.62}`; `withfig` is fixed at
+  0.64/0.34), figures side by side rather than stacked. Look at every changed frame as an image.
+- **Gather open decisions into one batch** for the author (reword / rename / remove, the recommended option
+  first) instead of asking one by one; unverifiable items (a source the library lacks, a formula) go to parallel
+  verifier agents, not to the author.
+- **Hygiene when committing**: `git add -A talk ':!talk/pdf' ':!talk/.claude'` (generated PDFs and an
+  agent-memory directory are not part of the work); commit on the work branch only, never on main; the author may
+  stage changes to trace work: leave the index as it is and add to it.
+
+## 13. A third output: the overview handout
+- For distribution to the audience: 2-3 pages, `overview.tex` with `\deckfalse` and the same preamble, unnumbered
+  sections, one abstract sentence naming the main subject, only main ideas in the talk's order, no proofs and no
+  technical definitions beyond one clause, at most two figures, the same reference list restricted to what is
+  cited. Every statement is **copied** from `content/*.tex` with its environment (an idea stays an idea); nothing
+  is strengthened. Build it into its own scratch directory and check the page count.
+- The notes review (an agent with edit rights only on notes-only files, building into its own directory) found: a
+  `\cref` printing "Theorem" for propositions and ideas that share one counter (load `hyperref` and `cleveref`
+  before the `\newtheorem` lines in the article branch); definitions duplicated between `art-*` files and frames;
+  attributions that no source supports (remove or weaken, list them for the author); overclaims ("every table
+  covers a primitive one" is an Idea for tables, a theorem for surfaces); a notes abstract promising a claim that
+  the body does not make. Run this review once per revision round, with the deck's overfull count before and after.
+
+## 14. Working with several agents at once (what worked and what broke)
+- Disjoint file sets per agent, a separate `-outdir` per agent (`.build/talk-A`, `-B`, `-C`), small Edit-tool
+  replacements for the shared `figcaptions.tex` (re-read before each edit), and "if the build fails on another
+  agent's half-finished file, wait a minute and retry, do not fix it". No collisions with four agents in parallel.
+- Brief each agent with the author's request in the author's words, the files it may edit, the verification it
+  must run (script, not belief), and what to report (computed vs only read vs could not verify).
+- Windows pitfalls: in Git Bash `sed` with backslashes silently does nothing, and Python non-raw strings turn
+  `\b`, `\f`, `\t` into control characters (a search for `'\fi'` never matches `\fig`, and `\fig` itself begins with
+  `\fi`: search for a newline followed by `\fi`). Edit TeX with raw strings (`r'...'`) or the Edit tool; re-read
+  the file after every brace-changing edit and build after every batch; a doubled or missing `}` at the end of a
+  `\slide` is the usual cause of "\begin{frame} ended by \end{document}". Long here-documents in the shell fail on
+  quotes: write the file with the Write tool.
+- A beamer frame body must not contain `\ifdeck ... \fi` (or `\else`); use `\onlydeck{}` and `\onlyarticle{}`.

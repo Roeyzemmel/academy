@@ -15,7 +15,8 @@ Paste, filling the bracketed parts. The reviewer edits nothing.
 >    and what a replacement shows, in enough geometric detail to draw it.
 > 3. BONUS AND TIMING: minutes per core frame and their sum; which frames or notes sections to move to the bonus
 >    part; what is lost.
-> 4. CORRECTNESS: errors, lost hypotheses, overclaims and wrong attributions, each marked ERROR / HYPOTHESIS LOST
+> 4. CORRECTNESS (also: conventions a statement silently depends on, such as what a trajectory does at a
+>    vertex): errors, lost hypotheses, overclaims and wrong attributions, each marked ERROR / HYPOTHESIS LOST
 >    / OVERCLAIM / NIT, checked against the sources, with a counterexample where you have one; list what you
 >    checked and found correct.
 > 5. READABILITY: undefined terms, symbol clashes, dense frames.

@@ -54,6 +54,14 @@
   \newenvironment{withfig}[1]{\gdef\wfname{#1}}{\fig[0.3]{\wfname}}
 \fi
 
+% \begin{withfigr}{name}{text fraction}{figure fraction}: like withfig with the column widths chosen per
+% frame (use it when the figure is the point of the frame, e.g. {0.36}{0.62}); in the notes the figure follows.
+\ifdeck
+  \newenvironment{withfigr}[3]{\gdef\wfname{#1}\gdef\wftext{#2}\gdef\wffig{#3}\par\begin{columns}[T,onlytextwidth]\column{\wftext\textwidth}}{\column{\wffig\textwidth}\vspace{0.3em}\centering\adjustbox{width=\linewidth,height=0.72\textheight,keepaspectratio}{\input{figures/\wfname}}\end{columns}}
+\else
+  \newenvironment{withfigr}[3]{\gdef\wfname{#1}}{\fig[0.3]{\wfname}}
+\fi
+
 % ---------- statement environments (same names as the paper, plus idea) ----------
 \ifdeck
   \newtheorem{thm}{Theorem}

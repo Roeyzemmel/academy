@@ -11,8 +11,9 @@ it once before the first frame. Companion skills: `academy:rigor` and `academy:c
 may be said; `academy:notation-discipline` governs symbols; the domain pack has the figure conventions.
 
 ## Steps
-1. **Pin the brief** (ask, do not guess): audience and what they know, minutes, the one main statement, what
-   the author wants cut first. One question batch, then proceed.
+1. **Pin the brief** (ask, do not guess): audience and what they know, minutes, the one main statement and the
+   subject of the talk (it goes in the subtitle and in a "What this talk is about" frame), what the author wants
+   cut first. One question batch, then proceed.
 2. **Verify before drafting.** Every cited statement is read in the cached source (`library_lookup`, then the
    text) with its hypotheses; every claimed statement is tried on the smallest example. A source that
    contradicts the author's claim is reported to the author and filed as a ticket, not smoothed over.
@@ -25,9 +26,12 @@ may be said; `academy:notation-discipline` governs symbols; the domain pack has 
    disjoint figure files).
 6. **Build and look**: scratch build of both outputs; zero errors, no undefined references, no overfull deck
    frames; render pages to PNG and read them (`references/lessons.md` section 9).
-7. **Review**: one read-only Opus reviewer per round (do not edit while it runs) with `references/review-brief.md`; verify each finding against the
+7. **Revise with the author's comments** (`references/lessons.md` sections 12-14): one agent per independent
+   comment group on disjoint files, each with its own build directory; verify before replacing an object in a
+   figure; ask what a colouring colours; gather open decisions into one batch.
+8. **Review**: one read-only Opus reviewer per round (do not edit while it runs) with `references/review-brief.md`; verify each finding against the
    sources, apply order, figure and bonus changes, file tickets for findings about the paper. Rebuild, look again.
-8. **Ship** by the home's route (the Author home: `ship.py`, on a work branch). Report: what the talk contains,
+9. **Ship** by the home's route (the Author home: `ship.py`, on a work branch). Report: what the talk contains,
    the minutes table, what moved to the bonus part, what the reviewer found and what you did, and what is not
    verified. Re-time after every split or merge.
 
@@ -43,10 +47,16 @@ may be said; `academy:notation-discipline` governs symbols; the domain pack has 
   exact arithmetic, captions in `figcaptions.tex`.
 - **One symbol per object**; resolve clashes before review; after a rename grep content, figures and captions.
 - **Present the idea, not the algorithm**; end with a summary-and-questions frame.
-- **Carry the hypotheses** of every statement; a dropped hypothesis is an error.
+- **Carry the hypotheses** of every statement; a dropped hypothesis is an error. State the convention a result
+  depends on (e.g. what a trajectory does at a vertex) in a short parenthesis.
+- **Results for the notion the audience reads**, defined in general once; technical machinery by intuition and one
+  clean statement; both directions of an "iff" checked; nothing invented (an example the author names is found in
+  the author's earlier work); no internal names (ids, instances, tickets) in slides or papers, only citation keys.
+- **A third output, the overview handout** (`lessons.md` section 13), when the author wants something for the crowd.
 
 ## References
-- `references/lessons.md`: the lessons, grouped, with what went wrong.
+- `references/lessons.md`: the lessons, grouped, with what went wrong (first talk: sections 1-11; the revision
+  round, the handout and parallel agents: sections 12-14).
 - `references/review-brief.md`: the reviewer's brief.
 - `references/frame-patterns.md`: frame patterns and anti-patterns in TeX.
 - `template/`: a building deck + notes skeleton.
