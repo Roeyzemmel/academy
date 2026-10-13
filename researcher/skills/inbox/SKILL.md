@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: 'Work this Researcher''s board inbox: take at most three open or accepted tickets, route each by kind (prove, review-experiment, settle, generalize, decision, question; final_to beyond the Researcher to a relay; else lead-researcher). Use for "/researcher:inbox".'
+description: 'Work this Researcher''s board inbox: take at most three open or accepted tickets, route each by kind (prove, review-experiment, settle, generalize, decision, question; relays; else lead-researcher). Use for "/researcher:inbox".'
 ---
 
 # The Researcher inbox

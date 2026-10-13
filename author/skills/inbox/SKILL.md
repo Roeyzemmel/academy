@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: 'Work the paper''s inbox (replaces /author:next): sweep the machine notes first, then take at most three tickets from the board (the only queue), routed by kind, landed if returned, or released if unblocked. Use for "next", "run the agenda", "work the inbox".'
+description: 'Work the paper''s inbox (replaces /author:next): sweep the machine notes, then take at most three tickets from the board, routed by kind, landed if returned, or released if unblocked. Use for "next", "run the agenda", "work the inbox".'
 ---
 
 # /author:inbox

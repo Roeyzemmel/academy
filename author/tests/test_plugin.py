@@ -10,7 +10,7 @@ import _academy as ac  # noqa: E402
 import routes  # noqa: E402
 
 SKILLS = ("agenda", "audit-notation", "inbox", "next", "notes", "paper-method", "presync",
-          "status", "sweep")
+          "slideshow-maker", "status", "sweep")
 AGENTS = ("figure-maker", "math-editor", "math-writer", "notation-auditor", "note-sweeper",
           "tex-engineer")
 

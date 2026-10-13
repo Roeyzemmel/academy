@@ -1,6 +1,6 @@
 ---
 name: board-migrate
-description: 'Move the file board to GitHub Issues, or check it: export the manifest, push it in bulk over REST (resumable; github MCP fallback), verify zero drift from a byte-exact dump, cut over. Use for "migrate the board to GitHub", "board preflight", "verify the GitHub board".'
+description: 'Move the file board to GitHub Issues, or check it: export the manifest, push in bulk over REST (resumable), verify zero drift from a byte-exact dump, cut over. Use for "migrate the board to GitHub", "board preflight", "verify the GitHub board".'
 ---
 
 # Board migration (files -> GitHub)

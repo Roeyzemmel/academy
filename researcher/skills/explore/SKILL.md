@@ -1,6 +1,6 @@
 ---
 name: explore
-description: 'Work one research direction forward, at most three unsettled items per run, in the order falsify, prior art, prove (probes to the Scientist as experiment tickets, arguments to prover). Use for "/researcher:explore <direction>", "what should we try next on X", question tickets.'
+description: 'Work one research direction forward, at most three unsettled items per run: falsify, prior art, prove (probes to the Scientist, arguments to prover). Use for "/researcher:explore <direction>", "what should we try next on X", question tickets.'
 ---
 
 # Explore a direction
