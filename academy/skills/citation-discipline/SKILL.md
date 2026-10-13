@@ -19,7 +19,7 @@ a bibliography entry. If you need a result and are not certain of its exact stat
 and source, do one of two things:
 
 - look it up (Expert: `/expert:lookup`, the clerk; the card or the cached text), or
-- state it as a labelled assumption and file a `cite` ticket to the Expert if it is your neighbour (Author, Researcher). The
+- state it with the `[CHECK]` marker below and file a `cite` ticket to the Expert if it is your neighbour (Author, Researcher). The
   Scientist files it to the Researcher with `final_to: expert`.
 
 Bibliography entries are added only by the Expert's `librarian`, from a record fetched
@@ -45,8 +45,28 @@ A citation is a claim that the cited theorem applies. Verify its hypotheses **fo
 your objects**, in writing, at the point of use: "By [X, Thm 2.1], the object is Y"
 is legitimate only once it is said why each hypothesis of [X, Thm 2.1] holds here.
 Check the statement against the card or the pack's theorem sheet, never against
-memory: memory reconstructs hypotheses plausibly and wrongly. Whether a citation is
-*used* correctly is part of the proof review, not of the citation check.
+memory: memory reconstructs hypotheses plausibly and wrongly, and the usual failure is a
+statement slightly stronger than the real one (a dropped "generic", "finite type",
+"Veech"). Whether a citation is *used* correctly is part of the proof review, not of
+the citation check.
+
+Write the check in the fixed form of `references/hypothesis-check.md`: the statement
+with **every hypothesis on its own line**, then one verdict per hypothesis (holds /
+needs an argument / fails) for your situation.
+
+## The `[CHECK]` marker
+
+`[CHECK]` marks any part of a stated result (a hypothesis, a clause of the conclusion,
+a pinpoint, a version) that you are reconstructing from memory rather than quoting from
+a card or the cached text.
+
+- An unmarked line is quoted. A `[CHECK]` line is not to be relied on: a step that rests
+  on it is an unverified input (`modulo`), never established.
+- To resolve it, file a `cite` ticket (the Expert's `clerk` answers from the card, with
+  the card's `version` and `read_from`); replace the marker by the verbatim quote or say
+  the part is unverifiable.
+- This is the "labelled assumption" of the section above. It is a marker, not a status
+  (`status-vocabulary` stays the only source of status words).
 
 ## Read the cache first
 

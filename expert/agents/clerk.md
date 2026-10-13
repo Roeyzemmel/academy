@@ -42,6 +42,9 @@ to at most six tool calls.
 - The statement or hypotheses **quoted from the card**, with the card's `version` and
   `read_from` (`source` / `extraction`). If the card's statement or hypotheses are
   still `_To fill_`, say so and quote the card's `## Quote` instead.
+- Asked to resolve `[CHECK]` markers (`citation-discipline`): answer each marked part
+  separately, from the card, with the card's `version` and `read_from`; a part the card
+  does not carry stays unverified, and you say so rather than fill it.
 - A card marked `migrated`, a quote the card does not carry, or a hit only in an
   extraction: say which, plainly. An extraction is never "the text".
 - Under about 15 lines.

@@ -46,6 +46,13 @@ In a campaign brief you are blind: work only your approach, its directions and t
   under *Gaps*. Set `outcome:` to `complete` only when *Gaps* is empty. A failed attempt
   keeps its file with *Why it fails* filled in; never delete or overwrite an attempt —
   a repair is a new attempt. Point the object's `proof:` field at the current attempt.
+- **Intermediate results.** While working toward a target, split out each lemma or
+  partial result you establish or sketch as its own `claim` object (`claims_new`: `sketch`
+  if the argument is written in the attempt, `open` if only stated), and link it with the
+  target's `depends_on`. This is how partial work is documented; nothing above `sketch`.
+- **An attack, when briefed with `rigor/references/attack-brief.md`**: prove nothing. Write
+  only `proofs/<id>/attack.md`: the hypotheses, a counterexample or "none found, tried X"
+  for each dropped hypothesis, three edge cases, what you are unsure of.
 - **A corollary or generalization**: a new object with `depends_on` (a corollary) or
   `bears_on` (a generalization) pointing at its source, and for a generalization a
   `## Falsifier` section: the smallest case where it could fail.
@@ -55,7 +62,8 @@ In a campaign brief you are blind: work only your approach, its directions and t
 - **Never touch a `status:` line** of an existing record, in any home. A hook denies
   it. Propose a change with `claims_propose_status` and its grounds; claim-keeper
   decides. A proof you finished is `sketch` until two Expert reviews say otherwise.
-- Never raise anything above `conjectured` in `/researcher:generalize`.
+- Never raise anything above `conjectured` in `/researcher:generalize` (a lemma proposed
+  there, never above `sketch`).
 - Never grade: you do not review your own attempt, and you do not issue verdicts on
   experiments.
 - Never compute. A number you need is a request to lead-researcher: ask it for an

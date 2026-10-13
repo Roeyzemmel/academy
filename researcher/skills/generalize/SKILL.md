@@ -25,13 +25,17 @@ Scripts: `$R`, `$A` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Budget:
    docstring gives: id in this instance's namespace, title, statement, kind
    `conjecture`, status `conjectured`, `bears_on` including the lab claim, the
    `falsifier`, the `pattern` (wider class / relaxed hypothesis / pattern / invariant)
-   and a one-line rationale. It writes only that file; it creates no object.
+   and a one-line rationale. It splits a proposal into the intermediate results it
+   would need and lists them as optional `lemmas` (at most three per proposal: id, title,
+   statement, status `open` or `sketch`, saying what is known and what is missing). It
+   writes only that file; it creates no object.
 3. **Validate.** `py $R/generalize.py validate <file> --lab-claim <lab-id>`. A problem
    goes back to prover once; a second failure drops that proposal and the report says
    why.
 4. **Objects.** `py $R/generalize.py create <file> --lab-claim <lab-id>` shows the
    files; `--apply` writes each as `objects/conjecture/<id>.md`, status `conjectured`,
-   `bears_on` the lab claim, with its `## Falsifier` section.
+   `bears_on` the lab claim, with its `## Falsifier` section, and each lemma as an
+   `objects/claim/<id>.md` the conjecture `depends_on`.
 5. **Tickets.** `py $R/generalize.py tickets <file> --lab-claim <lab-id> --parent
    <generalize ticket>` prints one `test` ticket per proposal (to the lab instance,
    "test the falsifier first"); check them, then run it again with `--apply`. This
@@ -43,8 +47,8 @@ Scripts: `$R`, `$A` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Budget:
    --ticket <generalize ticket> --subject <new ids, comma-separated>
    --status-proposed conjectured --body <that file>`.
 7. **Deliver** the generalize ticket with the result "N conjectures filed: <ids>;
-   tests <T-ids>", and report the same.
+   lemmas <ids>; tests <T-ids>", and report the same.
 
 A generalization that survives its test is proved through `/researcher:prove`; one
 that fails is refuted through claim-keeper on the test's reviewed result. This skill
-never sets any status above `conjectured`.
+never sets any status above `conjectured` (a lemma: `sketch`).

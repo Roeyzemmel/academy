@@ -69,7 +69,9 @@ subject-specific knowledge; it adds obligations and never removes one of the ste
    whose statement and hypotheses cover this use; `library_verify_quote` checks a
    quote against the cached text. No card, or a card whose hypotheses your objects do
    not meet: an unverified input, named in `modulo`. A dependency whose registry
-   status is not `proved` is an input too. **A definition is never a `modulo` input**
+   status is not `proved` is an input too. A cited statement with a `[CHECK]` still
+   unresolved (`citation-discipline`, "The `[CHECK]` marker") has no card behind it: a
+   `hypothesis` gap, and an unverified input named in `modulo`. **A definition is never a `modulo` input**
    when the argument only uses it as notation (names the notion, its symbols); only a
    definition whose content the argument relies on counts, and then say which part of
    its content (the human's decision, 2026-10-09, T-0148).

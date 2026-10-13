@@ -150,6 +150,63 @@ class GeneralizeTests(Workspace):
                 "state": "open", "created": "2026-09-28"}
         self.assertEqual(ac.validate_packet(meta, body), [])
 
+    def lemma(self, i=1, **over):
+        lem = {"id": "s9:GEN-1-L%d" % i, "title": "Lemma %d" % i,
+               "statement": "An intermediate result the conjecture needs.", "status": "open"}
+        lem.update(over)
+        return lem
+
+    def test_lemma_validation_rules(self):
+        ok = proposal(1, lemmas=[self.lemma(1), self.lemma(2, status="sketch")])
+        self.assertEqual(generalize.validate([ok], "lab:ew-check", self.st), [])
+        bad = {
+            "status above sketch": self.lemma(status="supported"),
+            "namespace": self.lemma(id="s1:GEN-1-L1"),
+            "kind": self.lemma(kind="conjecture"),
+            "statement": self.lemma(statement=""),
+            "title": self.lemma(title=""),
+        }
+        for name, lem in bad.items():
+            with self.subTest(rule=name):
+                self.assertTrue(generalize.validate(
+                    [proposal(1, lemmas=[lem])], "lab:ew-check", self.st))
+        many = proposal(1, lemmas=[self.lemma(i) for i in range(1, generalize.MAX_LEMMAS + 2)])
+        self.assertTrue(any("lemmas; at most" in x
+                            for x in generalize.validate([many], "lab:ew-check", self.st)))
+        dup = proposal(1, lemmas=[self.lemma(1), self.lemma(1)])
+        self.assertTrue(any("duplicate" in x
+                            for x in generalize.validate([dup], "lab:ew-check", self.st)))
+
+    def test_create_objects_writes_lemmas_and_links_them(self):
+        p = proposal(1, lemmas=[self.lemma(1), self.lemma(2, status="sketch")])
+        paths = generalize.create_objects(self.R, [p], "lab:ew-check", apply=True)
+        self.assertEqual(len(paths), 3)
+        lemma_text = rs.read_text(paths[0])
+        self.assertEqual(rs.frontmatter_field(lemma_text, "status")[1], "open")
+        self.assertEqual(rs.frontmatter_field(lemma_text, "kind")[1], "claim")
+        self.assertEqual(rs.frontmatter_field(lemma_text, "bears_on")[1], "[s9:GEN-1]")
+        self.assertEqual(rs.frontmatter_field(rs.read_text(paths[1]), "status")[1], "sketch")
+        conj = rs.read_text(paths[2])
+        self.assertEqual(rs.frontmatter_field(conj, "status")[1], "conjectured")
+        dep = rs.frontmatter_field(conj, "depends_on")[1]
+        self.assertIn("s9:GEN-1-L1", dep)
+        self.assertIn("s9:GEN-1-L2", dep)
+
+    def test_packet_body_lists_lemmas_and_stays_valid(self):
+        p = proposal(1, lemmas=[self.lemma(1)])
+        body = generalize.packet_body([p], "lab:ew-check", "P-0007")
+        self.assertIn("lemma `s9:GEN-1-L1` (open)", body)
+        self.assertIn("**Not established:** s9:GEN-1-L1", body)
+        meta = {"packet": "P-0009", "title": "Generalizations", "instance": "researcher@t",
+                "kind": "generalization", "by": "researcher@t", "subject": ["s9:GEN-1"],
+                "state": "open", "created": "2026-09-28"}
+        self.assertEqual(ac.validate_packet(meta, body), [])
+
+    def test_lemmas_get_no_ticket(self):
+        p = proposal(1, lemmas=[self.lemma(1)])
+        self.assertEqual(len(generalize.ticket_commands([p], "lab:ew-check", "T-0004",
+                                                        "scientist@t", "researcher@t")), 1)
+
     def test_cli_validate_and_dry_run_tickets(self):
         f = write(os.path.join(self.tmp, "p.json"), json.dumps([proposal(1)]))
         rc, out, _ = self.run_script("generalize.py", "validate", f, "--lab-claim", "lab:ew-check")
