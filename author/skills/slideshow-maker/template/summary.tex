@@ -1,0 +1,33 @@
+% Lecture notes (article). Build: latexmk -pdf summary.tex. Same content files as slides.tex plus the
+% article-only parts (content/art-*.tex). Keep the section order of slides.tex.
+\documentclass[11pt]{article}
+\newif\ifdeck \deckfalse
+\input{preamble}
+
+\title{Talk title\\[0.3em]\large One line that states the main statement\\[0.3em]\normalsize Lecture notes}
+\author{Speaker}
+\date{}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+\noindent Two or three sentences: the problem, the main statement, what the notes add to the talk.
+\end{abstract}
+\tableofcontents
+
+\section{Introduction}\label{sec:intro}
+\input{content/art-intro}
+
+\section{Background}\label{sec:bg}
+\input{content/00-intro}
+
+\section{Main statement}\label{sec:main}
+\input{content/05-main}
+\input{content/b-example}
+\input{content/a-example}
+
+\section{Questions}\label{sec:end}
+\input{content/07-summary}
+
+\input{content/refs}
+\end{document}

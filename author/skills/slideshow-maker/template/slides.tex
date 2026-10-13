@@ -1,0 +1,31 @@
+% Slides. Build: latexmk -pdf slides.tex   (beamer; speaker notes via \speak)
+\documentclass[aspectratio=169,11pt]{beamer}
+\newif\ifdeck \decktrue
+\usetheme{default}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}{\hfill\footnotesize\insertframenumber\hspace{1.2em}\vspace{1.2ex}}
+\input{preamble}
+
+\title{Talk title}
+\subtitle{One line that states the main statement}
+\author{Speaker}
+\date{}
+
+\begin{document}
+\begin{frame}[plain]\titlepage\end{frame}
+\section{Background}
+\input{content/00-intro}
+\section{Main statement}
+\input{content/05-main}
+\input{content/07-summary}
+\ifBonus
+\section{Bonus}
+\input{content/b-example}
+\fi
+\ifBackup
+\appendix
+\section{Appendix}
+\input{content/a-example}
+\fi
+\input{content/refs}
+\end{document}

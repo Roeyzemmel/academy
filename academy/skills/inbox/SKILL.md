@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: 'Work every instance''s board inbox in one run, in a fixed order (Author, Expert, Researcher, Scientist), one ticket at a time under the 3-item cap; --campaign T or --cowork S takes only that workplan''s tickets. Use for "work all the inboxes", "run the board".'
+description: 'Work every instance''s board inbox in one run, in a fixed order (Author, Expert, Researcher, Scientist), one ticket at a time under the 3-item cap; --campaign T or --cowork S takes only that workplan''s tickets. Use for "work all the inboxes".'
 ---
 
 # /academy:inbox

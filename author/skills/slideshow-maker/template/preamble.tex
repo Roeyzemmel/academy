@@ -1,0 +1,126 @@
+% Shared preamble of the talk. Loaded by slides.tex (beamer, \decktrue) and
+% summary.tex (article, \deckfalse). Standalone: it does not use a paper's main.tex.
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{adjustbox}
+\usepackage{graphicx}
+\usetikzlibrary{arrows.meta,calc,positioning,decorations.markings}
+
+\input{config}
+
+% ---------- maths macros (add the talk's own here; one symbol per object) ----------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Q}{\mathbb{Q}}
+
+% ---------- no status tags and no status notes: a cited result names its source in the
+% environment header, an unproved statement is an `idea` environment (see SKILL.md).
+
+% ---------- dual-mode helpers ----------
+\ifdeck
+  \newcommand{\onlydeck}[1]{#1}
+  \newcommand{\onlyarticle}[1]{}
+  \newcommand{\slide}[2]{\begin{frame}[t]\frametitle{#1}\vspace{0.3em}#2\end{frame}}
+  \newcommand{\bslide}[2]{\slide{Bonus: #1}{#2}}
+  \newcommand{\aslide}[2]{\slide{Appendix: #1}{#2}}
+  \newcommand{\dslide}[2]{\slide{#1}{#2}}
+  \newcommand{\slideT}[3]{\slide{#1}{#3}}
+  \newcommand{\appref}{the appendix}
+  \newcommand{\speak}[1]{\note{#1}}
+\else
+  \newcommand{\onlydeck}[1]{}
+  \newcommand{\onlyarticle}[1]{#1}
+  \newcommand{\slide}[2]{\subsection{#1}#2\par}
+  \newcommand{\bslide}[2]{\slide{#1}{#2}}
+  \newcommand{\aslide}[2]{\slide{#1}{#2}}
+  \newcommand{\dslide}[2]{}
+  \newcommand{\slideT}[3]{\slide{#2}{#3}}
+  \newcommand{\appref}{the bonus section}
+  \newcommand{\speak}[1]{}
+\fi
+
+% \fig[height fraction]{name}: a figure from figures/, scaled to the frame; in the article it is a
+% numbered figure whose caption is \figcap@<name> from figcaptions.tex.
+\input{figcaptions}
+\ifdeck
+  \newcommand{\fig}[2][0.55]{\begin{center}\adjustbox{width=0.95\linewidth,height=#1\textheight,keepaspectratio}{\input{figures/#2}}\end{center}}
+  \newenvironment{withfig}[1]{\gdef\wfname{#1}\par\begin{columns}[T,onlytextwidth]\column{0.64\textwidth}}{\column{0.34\textwidth}\vspace{0.3em}\centering\adjustbox{max width=\linewidth,max height=0.62\textheight}{\input{figures/\wfname}}\end{columns}}
+\else
+  \newcommand{\fig}[2][0.3]{\begin{figure}[ht]\centering\adjustbox{max width=0.9\linewidth,max height=#1\textheight}{\input{figures/#2}}\caption{\csname figcap@#2\endcsname}\label{fig:#2}\end{figure}}
+  \newenvironment{withfig}[1]{\gdef\wfname{#1}}{\fig[0.3]{\wfname}}
+\fi
+
+% \begin{withfigr}{name}{text fraction}{figure fraction}: like withfig with the column widths chosen per
+% frame (use it when the figure is the point of the frame, e.g. {0.36}{0.62}); in the notes the figure follows.
+\ifdeck
+  \newenvironment{withfigr}[3]{\gdef\wfname{#1}\gdef\wftext{#2}\gdef\wffig{#3}\par\begin{columns}[T,onlytextwidth]\column{\wftext\textwidth}}{\column{\wffig\textwidth}\vspace{0.3em}\centering\adjustbox{width=\linewidth,height=0.72\textheight,keepaspectratio}{\input{figures/\wfname}}\end{columns}}
+\else
+  \newenvironment{withfigr}[3]{\gdef\wfname{#1}}{\fig[0.3]{\wfname}}
+\fi
+
+% ---------- statement environments (same names as the paper, plus idea) ----------
+\ifdeck
+  \newtheorem{thm}{Theorem}
+  \newtheorem{prop}[thm]{Proposition}
+  \newtheorem{lem}[thm]{Lemma}
+  \newtheorem{cor}[thm]{Corollary}
+  \newtheorem{ideaenv}[thm]{Idea}
+  \newtheorem{defn}[thm]{Definition}
+  \newtheorem{ex}[thm]{Example}
+  \newtheorem{rmk}[thm]{Remark}
+  \newenvironment{idea}[1][]{\ifx\relax#1\relax\begin{ideaenv}\else\begin{ideaenv}[#1]\fi}{\end{ideaenv}}
+\else
+  \usepackage{amsthm}
+  \newtheorem{thm}{Theorem}[section]
+  \newtheorem{prop}[thm]{Proposition}
+  \newtheorem{lem}[thm]{Lemma}
+  \newtheorem{cor}[thm]{Corollary}
+  \newtheorem{ideaenv}[thm]{Idea}
+  \theoremstyle{definition}
+  \newtheorem{defn}[thm]{Definition}
+  \newtheorem{ex}[thm]{Example}
+  \newtheorem{rmk}[thm]{Remark}
+  \newenvironment{idea}[1][]{\ifx\relax#1\relax\begin{ideaenv}\else\begin{ideaenv}[#1]\fi}{\end{ideaenv}}
+  \usepackage[margin=2.8cm]{geometry}
+  \usepackage[hidelinks]{hyperref}
+  \usepackage{microtype}
+  \usepackage{booktabs}
+  \usepackage{enumitem}
+  \usepackage{caption}
+  \captionsetup{font=small,labelfont=bf}
+  \setlength{\parskip}{0.4em}
+  \usepackage{cleveref}
+  \crefname{thm}{Theorem}{Theorems}
+  \crefname{prop}{Proposition}{Propositions}
+  \crefname{lem}{Lemma}{Lemmas}
+  \crefname{cor}{Corollary}{Corollaries}
+  \crefname{ideaenv}{Idea}{Ideas}
+  \crefname{defn}{Definition}{Definitions}
+  \crefname{figure}{Figure}{Figures}
+  \crefname{section}{Section}{Sections}
+\fi
+
+% ---------- deck look: one accent colour, grey blocks, serif mathematics ----------
+\ifdeck
+  \definecolor{accent}{HTML}{1F2A44}
+  \usefonttheme[onlymath]{serif}
+  \setbeamercolor{normal text}{fg=black}
+  \setbeamercolor{structure}{fg=accent}
+  \setbeamercolor{frametitle}{fg=accent}
+  \setbeamerfont{frametitle}{size=\Large,series=\bfseries}
+  \setbeamertemplate{frametitle}{\vskip1.2ex\usebeamerfont{frametitle}\usebeamercolor[fg]{frametitle}\insertframetitle\par\vskip0.4ex\hrule height 0.5pt\vskip0.5ex}
+  \setbeamertemplate{blocks}[default]
+  \setbeamercolor{block title}{fg=black,bg=black!7}
+  \setbeamercolor{block body}{fg=black,bg=}
+  \setbeamerfont{block title}{series=\bfseries}
+  \setbeamertemplate{itemize item}{\raisebox{0.2ex}{\scriptsize$\bullet$}}
+  \setbeamertemplate{itemize subitem}{\raisebox{0.2ex}{\scriptsize$\circ$}}
+  \setbeamercolor{itemize item}{fg=accent}
+  \setbeamercolor{enumerate item}{fg=accent}
+  \setbeamertemplate{enumerate item}{\insertenumlabel.}
+  \setlength{\leftmargini}{1.2em}
+\fi
