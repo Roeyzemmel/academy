@@ -1,6 +1,6 @@
 ---
 name: experiment-method
-description: 'Discipline for computational experiments in mathematics: numerics refute and suggest, never prove; state the refutation first, validate on known cases, prefer exact arithmetic, keep provenance. Use whenever a claim is tested numerically or a result is quoted.'
+description: 'Discipline for computational experiments in mathematics: numerics refute and suggest, never prove; state the refutation first, validate on known cases, prefer exact arithmetic, keep provenance. Use whenever a claim is tested numerically.'
 ---
 
 # Experiment method

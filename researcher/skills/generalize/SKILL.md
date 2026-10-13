@@ -1,6 +1,6 @@
 ---
 name: generalize
-description: 'Turn a reviewed experiment''s Conclusion into conjectures: prover proposes generalizations, each with a falsifier, one test ticket each to the Scientist, never above conjectured. Use for "/researcher:generalize <report>", generalize tickets, after an experiment review clears.'
+description: 'Turn a reviewed experiment''s Conclusion into conjectures: prover proposes generalizations, each with a falsifier and a test ticket to the Scientist, never above conjectured. Use for "/researcher:generalize <report>", generalize tickets.'
 ---
 
 # Generalize from an experiment

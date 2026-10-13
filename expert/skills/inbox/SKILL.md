@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: 'Work the Expert''s inbox: take at most three open or accepted tickets, route each by kind (verify, cite, lookup, question, referee, notation; research or final_to beyond the Expert to a relay agent), logging each in the thread. Use for "work the expert inbox".'
+description: 'Work the Expert''s inbox: take at most three open or accepted tickets, route each by kind (verify, cite, lookup, question, referee, notation; research or beyond-Expert tickets to a relay agent), logging each. Use for "work the expert inbox".'
 ---
 
 # The Expert's inbox

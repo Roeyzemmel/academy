@@ -1,0 +1,10 @@
+\newcommand{\refsbody}{%
+\begin{thebibliography}{XX00}
+\bibitem[XX00]{XX00} A.~Author, \emph{A cited paper}, Journal 1 (2000), 1--10.
+\end{thebibliography}}
+\ifdeck
+  \setbeamertemplate{frametitle continuation}{}
+  \begin{frame}[allowframebreaks]\frametitle{References}\footnotesize\refsbody\end{frame}
+\else
+  \refsbody
+\fi

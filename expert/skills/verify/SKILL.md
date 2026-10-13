@@ -1,6 +1,6 @@
 ---
 name: verify
-description: 'Review one registry statement''s proof with two independent blind rigor-reviewer runs (B only if A is CONFIRMED), adjudicated by script, with a verification packet; the sanctioned route from sketch to proved. Use for every verify ticket and "verify lemma X".'
+description: 'Review one registry statement''s proof with two independent blind rigor-reviewer runs (B only if A is CONFIRMED), adjudicated by script, with a verification packet; the route from sketch to proved. Use for every verify ticket and "verify lemma X".'
 ---
 
 # Verify one statement
