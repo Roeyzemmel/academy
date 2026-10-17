@@ -276,6 +276,26 @@ def family_of(sig, rec=None):
     return family(sig)
 
 
+#: records of one class in one session this close to the previous one are one occurrence
+BURST_SECONDS = 60
+
+
+def burst_starts(recs):
+    """Ids of the records that open a burst: the first of a class in a session, or one
+    more than ``BURST_SECONDS`` after the previous record of that class in that session.
+    ``recs`` are the records of ONE class, oldest first."""
+    last = {}
+    starts = set()
+    for rec in recs:
+        key = rec.get("session") or "?"
+        t = _parse(rec["ts"])
+        prev = last.get(key)
+        if prev is None or (t - prev).total_seconds() > BURST_SECONDS:
+            starts.add(id(rec))
+        last[key] = t
+    return starts
+
+
 def report(records, start, now=None):
     """The weekly picture: every open class, with its count inside the window
     (``in_window``; 0 for a class carried over from an earlier week) and its total."""
@@ -287,20 +307,27 @@ def report(records, start, now=None):
         if r["t"] == "error" and r["ts"] >= lo and r.get("sig") in cls:
             in_window[r["sig"]] += 1
     rows = []
+    starts = {}
+    for sig, c in cls.items():
+        starts[sig] = burst_starts(c["recs"])
     for sig, c in cls.items():
         weeks_open = max(1, (now - _parse(c["first"])).days // 7 + 1)
         rows.append({"sig": sig, "tool": c["tool"], "msg": c["msg"], "count": c["count"],
-                     "in_window": in_window.get(sig, 0), "sessions": len(c["sessions"]),
+                     "in_window": in_window.get(sig, 0),
+                     "bursts": sum(1 for rec in c["recs"]
+                                   if id(rec) in starts[sig] and rec["ts"] >= lo),
+                     "sessions": len(c["sessions"]),
                      "instances": sorted(c["instances"]), "first": c["first"],
                      "last": c["last"], "weeks_open": weeks_open,
                      "distinct_weeks": len(c["weeks"]), "reported": c["reported"],
                      # recurring: seen on three or more sessions, or in two calendar weeks
                      "recurring": len(c["sessions"]) >= 3 or len(c["weeks"]) >= 2})
+    # class rows stay ordered by raw counts; only the families rank by bursts
     rows.sort(key=lambda r: (-r["in_window"], -r["count"], r["sig"]))
     fams = {}
 
     def fam_entry(name, r):
-        return fams.setdefault(name, {"family": name, "in_window": 0, "count": 0,
+        return fams.setdefault(name, {"family": name, "in_window": 0, "bursts": 0, "count": 0,
                                       "classes": 0, "sessions": set(),
                                       "recurring": False, "example": r["msg"]})
 
@@ -310,6 +337,7 @@ def report(records, start, now=None):
                 f = fam_entry(family_of(r["sig"], rec), r)
                 f["count"] += 1
                 f["in_window"] += 1 if rec["ts"] >= lo else 0
+                f["bursts"] += 1 if id(rec) in starts[r["sig"]] and rec["ts"] >= lo else 0
                 f["sessions"].add(rec.get("session") or "?")
                 f["recurring"] = f["recurring"] or r["recurring"]
             for name in {family_of(r["sig"], rec) for rec in cls[r["sig"]]["recs"]}:
@@ -317,12 +345,13 @@ def report(records, start, now=None):
             continue
         f = fam_entry(family(r["sig"]), r)
         f["in_window"] += r["in_window"]
+        f["bursts"] += r["bursts"]
         f["count"] += r["count"]
         f["classes"] += 1
         f["recurring"] = f["recurring"] or r["recurring"]
         f["sessions"].update(cls[r["sig"]]["sessions"])
     families = sorted(({**f, "sessions": len(f["sessions"])} for f in fams.values()),
-                      key=lambda f: (-f["in_window"], -f["count"], f["family"]))
+                      key=lambda f: (-f["bursts"], -f["count"], f["family"]))
     return {"window": {"start": start.strftime("%Y-%m-%d"), "end": now.strftime("%Y-%m-%d")},
             "errors_in_window": sum(in_window.values()),
             "families": families,
@@ -339,24 +368,25 @@ def render_markdown(rep):
     fams = [f for f in rep.get("families", []) if f["in_window"]][:10]
     if fams:
         out += ["## Top families", "",
-                "| family | in window | classes | sessions | state | example reason |",
-                "|---|---|---|---|---|---|"]
+                "| family | in window | bursts | classes | sessions | state | example reason |",
+                "|---|---|---|---|---|---|---|"]
         for f in fams:
-            out.append("| `%s` | %d | %d | %d | %s | %s |" % (
-                f["family"].replace("|", "\\|"), f["in_window"], f["classes"], f["sessions"],
+            out.append("| `%s` | %d | %d | %d | %d | %s | %s |" % (
+                f["family"].replace("|", "\\|"), f["in_window"], f["bursts"], f["classes"],
+                f["sessions"],
                 "recurring" if f["recurring"] else "-",
                 (f["example"] or "-").replace("|", "\\|")[:100]))
         out.append("")
     out += ["## Classes", "",
-           "| class | in window | total | sessions | first | last | weeks open | state |",
-           "|---|---|---|---|---|---|---|---|"]
+           "| class | in window | bursts | total | sessions | first | last | weeks open | state |",
+           "|---|---|---|---|---|---|---|---|---|"]
     for r in rep["classes"]:
         state = ("recurring" if r["recurring"] else "new" if not r["reported"] else "carried")
-        out.append("| `%s` | %d | %d | %d | %s | %s | %d | %s |" % (
-            r["sig"].replace("|", "\\|"), r["in_window"], r["count"], r["sessions"],
+        out.append("| `%s` | %d | %d | %d | %d | %s | %s | %d | %s |" % (
+            r["sig"].replace("|", "\\|"), r["in_window"], r["bursts"], r["count"], r["sessions"],
             r["first"][:10], r["last"][:10], r["weeks_open"], state))
     if not rep["classes"]:
-        out.append("| none | | | | | | | |")
+        out.append("| none | | | | | | | | |")
     out += ["", "Example messages:", ""]
     for r in rep["classes"][:10]:
         out.append("- `%s`: %s" % (r["sig"].replace("|", "\\|"), r["msg"] or "-"))

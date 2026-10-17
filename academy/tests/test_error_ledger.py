@@ -149,6 +149,48 @@ class TopFamiliesTests(unittest.TestCase):
         self.assertEqual(sect.count("\n| `"), 10)
 
 
+class BurstTests(unittest.TestCase):
+    SIG = "Bash: boom"
+
+    def _rec(self, secs, session="s1", sig=None):
+        ts = el._stamp(NOW - dt.timedelta(days=1) + dt.timedelta(seconds=secs))
+        return {"t": "error", "ts": ts, "session": session, "instance": "i", "tool": "Bash",
+                "sig": sig or self.SIG, "msg": "boom"}
+
+    def _rep(self, recs):
+        return el.report(recs, NOW - dt.timedelta(days=7), now=NOW)
+
+    def test_retry_burst_counts_once(self):
+        rep = self._rep([self._rec(2 * i) for i in range(8)])  # 8 records in 14 s
+        c = rep["classes"][0]
+        self.assertEqual((c["count"], c["in_window"], c["bursts"]), (8, 8, 1))
+        f = rep["families"][0]
+        self.assertEqual((f["count"], f["in_window"], f["bursts"]), (8, 8, 1))
+
+    def test_two_sessions_two_bursts(self):
+        rep = self._rep([self._rec(0, "a"), self._rec(1, "b"), self._rec(2, "a")])
+        self.assertEqual(rep["classes"][0]["bursts"], 2)
+        self.assertEqual(rep["families"][0]["bursts"], 2)
+
+    def test_gap_over_sixty_seconds_splits(self):
+        self.assertEqual(self._rep([self._rec(0), self._rec(61)])["classes"][0]["bursts"], 2)
+        self.assertEqual(self._rep([self._rec(0), self._rec(60)])["classes"][0]["bursts"], 1)
+
+    def test_families_rank_by_bursts_then_count(self):
+        noisy = [self._rec(i, sig="Bash: noisy") for i in range(20)]       # 20 raw, 1 burst
+        spread = [self._rec(1000 * i, "s%d" % i, sig="Bash: spread") for i in range(3)]
+        rep = self._rep(noisy + spread)
+        self.assertEqual([f["family"] for f in rep["families"]], ["Bash: spread", "Bash: noisy"])
+        md = el.render_markdown(rep)
+        self.assertIn("| family | in window | bursts |", md)
+
+    def test_bursts_outside_window_not_counted_in_window(self):
+        old = self._rec(0)
+        old["ts"] = at(30)
+        rep = self._rep([old, self._rec(0)])
+        self.assertEqual((rep["classes"][0]["count"], rep["classes"][0]["bursts"]), (2, 1))
+
+
 class HookRecordTests(unittest.TestCase):
     def test_record_has_no_tool_input(self):
         ev = {"tool_name": "Bash", "tool_input": {"command": "curl -H 'Bearer supersecrettoken1'"},
