@@ -657,6 +657,55 @@ class RewordBaseSubjectTests(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    # --- test-engineer review of T-0476 ---------------------------------------------
+
+    def _tree(self, d, base_subject_line):
+        """reviews/paper/{lem-x,cor-x}/..., and a look-alike base pass OUTSIDE reviews/
+        (``d/x/<pass>/``) that a namespace of ``..`` would reach."""
+        bp = "2026-09-28-T-0007"
+        rec = ("---\nsubject: paper:lem:x\npass: %s\nrun: %s\nrun_id: rv-%s\n"
+               "verdict: CONFIRMED\nmodulo: []\nmodel: claude-opus-5-5\n"
+               "statement_hash: abc123\n---\n\nr\n")
+        for sub in (("reviews", "paper", "lem-x", bp), ("x", bp)):
+            os.makedirs(os.path.join(d, *sub))
+            for run in ("A", "B"):
+                with open(os.path.join(d, *sub, run + ".md"), "w", encoding="utf-8") as fh:
+                    fh.write(rec % (bp, run, run))
+        rw = os.path.join(d, "reviews", "paper", "cor-x", "2026-10-17-T-0476-reword")
+        os.makedirs(rw)
+        rpath = os.path.join(rw, "R.md")
+        with open(rpath, "w", encoding="utf-8") as fh:
+            fh.write("---\nsubject: paper:cor:x\nrun: R\nrun_id: rv-R\n"
+                     "verdict: CONFIRMED\nstatement_hash: def456\nmode: reword\n"
+                     "base_pass: %s\nbase_hash: abc123\n%sreword_scope: equivalent\n"
+                     "---\n\nr\n" % (bp, base_subject_line))
+        return rpath, bp
+
+    def test_base_records_follow_only_a_well_formed_namespace(self):
+        import shutil
+        d = tempfile.mkdtemp()
+        try:
+            rpath, bp = self._tree(d, "")
+            for bad in ("lem-x", ":x", "paper:"):
+                with self.subTest(base_subject=bad):
+                    a, b, notes = dt.base_records(rpath, bp, base_subject=bad)
+                    self.assertEqual((a, b), (None, None))
+                    self.assertIn("namespaced", " ".join(notes))
+            a, b, notes = dt.base_records(rpath, bp, base_subject="paper:lem:x")
+            self.assertEqual((a["run"], b["run"]), ("A", "B"), notes)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    @unittest.expectedFailure   # F4: the namespace is joined unsanitised (remove when fixed)
+    def test_base_records_do_not_leave_the_reviews_root(self):
+        import shutil
+        d = tempfile.mkdtemp()
+        try:
+            rpath, bp = self._tree(d, "")
+            a, b, notes = dt.base_records(rpath, bp, base_subject="..:x")
+            self.assertIsNone(a, "read a base pass from outside reviews/")
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 class CliTests(unittest.TestCase):

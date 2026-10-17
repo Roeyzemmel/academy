@@ -239,6 +239,46 @@ class RewordRenamedTests(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("--reword-of", err)
 
+    def test_an_unconfirmed_base_under_the_old_id_is_refused(self):
+        # the CONFIRMED x2 rule still applies to the pass filed under base_subject
+        self.record()
+        self.write_run("B", "GAP")
+        code, out, err = self.run_cli("new-pass", NEW_SUBJ, "--reword-of", self.base,
+                                      "--base-subject", SUBJ)
+        self.assertEqual(code, 1, out)
+        self.assertIn("not CONFIRMED x2", err)
+
+
+class CheckBaseSubjectTests(unittest.TestCase):
+    """T-0476 (test-engineer review): which ``supersedes`` entries admit a base_subject.
+    ``supersedes_of`` replaces the registry lookup."""
+
+    def check(self, sup, base="paper:lem:x", subject="paper:cor:x"):
+        import reviews
+        reviews.check_base_subject(subject, base, lambda s: sup)
+
+    def refused(self, sup, **kw):
+        import reviews
+        with self.assertRaises(reviews.Refused):
+            self.check(sup, **kw)
+
+    def test_accepted_forms(self):
+        self.check(["paper:lem:x"])
+        self.check(["paper:lem:y", "paper:lem:x"])
+        self.check(["lem:x"])                      # bare: the record's own namespace
+        self.check(["s1:CEX-3"], base="s1:CEX-3")  # another namespace, written in full
+
+    def test_refused_forms(self):
+        self.refused([])
+        self.refused(["paper:lem:y"])
+        self.refused(["lab:lem:x"])                # same local id, another namespace
+        self.refused(["paper:lem:mid"])            # transitive is not enough
+        self.refused(["lem:x"], subject="lab:cor:x")   # bare means lab:lem:x
+        self.refused(None)                         # record unreadable
+        self.refused(["paper:lem:x"], base="lem:x")    # bare base_subject
+
+    def test_a_base_subject_equal_to_the_subject_needs_no_supersedes(self):
+        self.check([], base="paper:cor:x")
 
 
 class RewordStatusTests(unittest.TestCase):

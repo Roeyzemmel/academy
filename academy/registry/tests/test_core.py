@@ -461,6 +461,62 @@ class TestRewordBaseSubject(unittest.TestCase):
                  "verdicts": [dict(r, base_subject=self.OLD_ID) for r in g["verdicts"][1:]]}
         self.assertIn("is about", " ".join(self.refs(blind)))
 
+    # --- test-engineer review of T-0476 ---------------------------------------------
+
+    def test_a_base_row_about_a_third_id_is_refused(self):
+        # the claim supersedes OLD_ID, the grounds name OLD_ID, but one base record is
+        # about an unrelated id: only records about base_subject itself are admitted
+        write(self.d / "lem-x" / "p1" / "B.md",
+              self.BASE.format(s="paper:lem:unrelated", r="b", h="OLD"))
+        why = " ".join(self.refs(self.grounds()))
+        self.assertIn("is about paper:lem:unrelated, not %s" % self.NEW_ID, why)
+
+    def test_supersedes_is_read_directly_not_transitively(self):
+        # NEW supersedes MID, MID supersedes OLD: the base_subject OLD is not NEW's
+        why = self.refs(self.grounds(), supersedes=["paper:lem:mid"])
+        self.assertIn("does not list in supersedes", " ".join(why))
+
+    @unittest.expectedFailure   # F2: _same_id strips the namespace of either side, so a bare supersedes entry matches the base_subject of any namespace (review of T-0476; remove when fixed)
+    def test_a_bare_supersedes_entry_is_not_another_namespaces_record(self):
+        # a bare entry means the claim's own namespace (reviews.check_base_subject reads
+        # it so): a lab record that supersedes bare ``lem:x`` supersedes lab:lem:x, so a
+        # base pass of paper:lem:x must not count for it
+        g = self.grounds()
+        why = self.refs(g, supersedes=["lem:x"], claim="lab:cor:x")
+        self.assertTrue([w for w in why if "does not list in supersedes" in w], why)
+
+    @unittest.expectedFailure   # F3: nothing ties the reword record to base_subject when only the base rows carry it (review of T-0476; remove when fixed)
+    def test_the_reword_record_must_name_base_subject_when_only_the_base_rows_do(self):
+        # hand-built grounds: base_subject on the two base rows only. The reword record
+        # (which says nothing of a renamed base) must not pass for the renamed pass
+        g = self.grounds()
+        del g["base_subject"]
+        del g["verdicts"][0]["base_subject"]
+        self.put_r(base_subject=False)
+        why = " ".join(self.refs(g))
+        self.assertIn("base_subject", why)
+
+    @unittest.expectedFailure   # F1: the exception is not limited to basis proof (review of T-0476; remove when fixed)
+    def test_computation_grounds_never_take_the_exception(self):
+        # the exception is the reword pass of a proof; a computation basis has no reword
+        # run, and two SOUND verdicts of the superseded id must not move this record
+        for run in ("A", "B"):
+            write(self.d / "lem-x" / "p1" / ("%s.md" % run),
+                  self.BASE.format(s=self.OLD_ID, r=run.lower(), h="OLD")
+                  .replace("CONFIRMED", "SOUND").replace("rigor-reviewer",
+                                                         "experiment-reviewer"))
+        g = self.grounds()
+        g["basis"] = "computation"
+        g["verdicts"] = [dict(r, verdict="SOUND", grader_role="experiment-reviewer")
+                         for r in g["verdicts"][1:]]
+        why = " ".join(self.refs(g))
+        self.assertIn("is about %s, not %s" % (self.OLD_ID, self.NEW_ID), why)
+
+    def test_the_exception_needs_the_claim_id(self):
+        # without a claim id nothing is compared (as before T-0476); the exception does
+        # not make a lookup of its own
+        self.assertEqual(self.refs(self.grounds(), claim=None, supersedes=()), [])
+
 
 if __name__ == "__main__":
     unittest.main()
