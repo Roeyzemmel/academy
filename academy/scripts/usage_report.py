@@ -50,6 +50,19 @@ the board (``board.backend`` of the workspace); a ticket that cannot be read (Gi
 unreachable, missing) has kind ``unknown``. Shown only when a ticket is matched; sessions on
 other machines are not seen, and a ticket worked over several sessions sums their shares.
 
+Wasted retries (optional section, after "Errors per 100 turns"): per transcript (main and each
+subagent separately), every failed tool call (a ``tool_result`` with ``is_error: true``,
+matched to its ``tool_use`` by id) is followed to the next SUCCESSFUL call of the same tool
+name in that transcript, made in a later assistant turn: the recovery. Turns to recover =
+the assistant turns from the failing call's turn to the turn that makes the successful call
+(failure in turn 1, success in turn 3: 2 turns); "read spent retrying" = the cache-read
+tokens of those turns (the same per-turn usage fields session_usage tallies, one turn per
+message id). A failure never followed by such a success is unrecovered: counted apart, left
+out of the mean and of the read. Family = ``error_ledger.family_of(signature(tool,
+clean_message(text)))``. Per family: failures, recovered, unrecovered, mean turns to recover,
+total read spent retrying; the top 10 by read. Shown only when a failure is found; JSON key
+``retries``; ``--brief`` is unchanged.
+
 Output is Markdown (default), JSON (``--json``), or one line (``--brief``, used by
 the desk). Cache reads are the volume that tracks cost; output tokens are not shown
 (see session_usage.py).
@@ -258,6 +271,67 @@ def transcript_tickets(path):
     return delivered, mentioned
 
 
+def _result_text(content):
+    if isinstance(content, (str, list)):
+        return _text_of(content)
+    return ""
+
+
+def transcript_retries(path):
+    """One entry per failed tool call of one transcript: ``{family, turns, read}`` where
+    ``turns``/``read`` are the assistant turns and cache-read tokens from the failing call's
+    turn to the turn of the next successful call of the same tool (``None`` when there is
+    none). Malformed lines are skipped; a missing ``error_ledger`` gives ``[]``."""
+    try:
+        import error_ledger  # noqa: E402
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except (ImportError, OSError):
+        return []
+    turn, seen, reads = 0, set(), [0]
+    uses, results = {}, []   # tool_use id -> (name, input, turn); result order
+    for line in lines:
+        if '"tool_use"' not in line and '"tool_result"' not in line and '"usage"' not in line:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict):
+            continue
+        m = d.get("message")
+        m = m if isinstance(m, dict) else {}
+        content = m.get("content")
+        if d.get("type") == "assistant":
+            u = m.get("usage")
+            if u and m.get("model") != "<synthetic>" and m.get("id") not in seen:
+                seen.add(m.get("id"))
+                turn += 1
+                reads.append(u.get("cache_read_input_tokens", 0) or 0)
+            for b in content if isinstance(content, list) else []:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id"):
+                    uses[b["id"]] = (str(b.get("name", "?")), b.get("input"), turn)
+        elif d.get("type") == "user":
+            for b in content if isinstance(content, list) else []:
+                if isinstance(b, dict) and b.get("type") == "tool_result" \
+                        and b.get("tool_use_id") in uses:
+                    name, inp, t = uses[b["tool_use_id"]]
+                    results.append((name, bool(b.get("is_error")), t, inp,
+                                    _result_text(b.get("content"))))
+    out = []
+    for i, (name, bad, t, inp, text) in enumerate(results):
+        if not bad:
+            continue
+        cmd = inp.get("command") if isinstance(inp, dict) else None
+        fam = error_ledger.family_of(
+            error_ledger.signature(name, error_ledger.clean_message(text)), {"cmd": cmd})
+        rec = next((t2 for (n2, bad2, t2, _i, _x) in results[i + 1:]
+                    if n2 == name and not bad2 and t2 > t), None)
+        out.append({"family": fam, "turns": None if rec is None else rec - t,
+                    "read": None if rec is None else sum(reads[t + 1:rec + 1])})
+    return out
+
+
 def collect(projects_root, start, end=None, workspace=None):
     """Tally every session transcript modified in [start, end].
 
@@ -278,6 +352,7 @@ def collect(projects_root, start, end=None, workspace=None):
         t, m = session_usage.tally(path)
         subs = []
         deliv, ment = transcript_tickets(path)
+        retries = transcript_retries(path)
         for meta in sorted(glob.glob(os.path.join(base, sid, "subagents", "*.meta.json"))):
             try:
                 with open(meta, "r", encoding="utf-8") as fh:
@@ -290,6 +365,7 @@ def collect(projects_root, start, end=None, workspace=None):
                 d2, m2 = transcript_tickets(jl)
                 deliv |= d2
                 ment |= m2
+                retries += transcript_retries(jl)
             subs.append({"agent_type": md.get("agentType", "?"),
                          "depth": md.get("spawnDepth"),
                          "description": md.get("description", ""),
@@ -299,7 +375,7 @@ def collect(projects_root, start, end=None, workspace=None):
                          "instance": instance_of_project(project, workspace),
                          "main": {"counts": {k: t.get(k, 0) for k in COUNTED},
                                   "models": dict(m)},
-                         "subagents": subs,
+                         "subagents": subs, "retries": retries,
                          "tickets": {"delivered": sorted(deliv), "mentioned": sorted(ment)}})
     return sessions
 
@@ -559,6 +635,50 @@ def render_tickets(tc):
     return out
 
 
+def wasted_retries(sessions, top=10):
+    """Per error family: failures, recovered, unrecovered, mean turns to recover and the
+    cache read spent retrying; top ``top`` by read. ``None`` when no failure is found."""
+    fams = {}
+    for s in sessions:
+        for r in s.get("retries") or []:
+            f = fams.setdefault(r["family"], {"family": r["family"], "failures": 0,
+                                              "recovered": 0, "unrecovered": 0,
+                                              "turns": 0, "read": 0})
+            f["failures"] += 1
+            if r["turns"] is None:
+                f["unrecovered"] += 1
+            else:
+                f["recovered"] += 1
+                f["turns"] += r["turns"]
+                f["read"] += r["read"]
+    if not fams:
+        return None
+    rows = sorted(fams.values(), key=lambda f: (-f["read"], -f["failures"], f["family"]))
+    for f in rows:
+        f["mean_turns"] = round(f.pop("turns") / f["recovered"], 1) if f["recovered"] else None
+    return {"failures": sum(f["failures"] for f in rows),
+            "recovered": sum(f["recovered"] for f in rows),
+            "unrecovered": sum(f["unrecovered"] for f in rows),
+            "families": rows[:top], "family_count": len(rows)}
+
+
+def render_retries(wr):
+    out = ["", "## Wasted retries", "",
+           "Per transcript, each failed tool call is followed to the next successful call of the "
+           "same tool in a later assistant turn (the recovery). Turns to recover = turns from the "
+           "failing call's turn to that call's turn; read spent = cache read of those turns. A "
+           "failure never followed by such a success is unrecovered, left out of the mean and the "
+           "read. %d failure(s): %d recovered, %d unrecovered; top %d of %d famil%s by read."
+           % (wr["failures"], wr["recovered"], wr["unrecovered"], len(wr["families"]),
+              wr["family_count"], "y" if wr["family_count"] == 1 else "ies"), "",
+           "| family | failures | recovered | unrecovered | mean turns | read spent |",
+           "|---|---|---|---|---|---|"]
+    out += ["| %s | %d | %d | %d | %s | %s |" % (f["family"], f["failures"], f["recovered"],
+                                               f["unrecovered"], _rate(f["mean_turns"]),
+                                               _k(f["read"])) for f in wr["families"]]
+    return out
+
+
 def _k(n):
     return "%dk" % (n // 1000)
 
@@ -593,6 +713,8 @@ def render_markdown(report, start, end):
             a["mean_turns"], _k(a["read"]), a["limit_failures"]))
     if report.get("errors"):
         out += render_errors(report["errors"])
+    if report.get("retries"):
+        out += render_retries(report["retries"])
     if report.get("tickets"):
         out += render_tickets(report["tickets"])
     out += ["", "## Flags", ""]
@@ -643,6 +765,9 @@ def build(days=None, since=None, projects=None, workspace_path=None, max_subagen
         er = error_rates(sessions, records, start, end, load_roster(perms))
         if er:
             report["errors"] = er
+    wr = wasted_retries(sessions)
+    if wr:
+        report["retries"] = wr
     tc = ticket_costs(sessions, make_info(ws))
     if tc:
         report["tickets"] = tc

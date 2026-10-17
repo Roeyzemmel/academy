@@ -396,6 +396,68 @@ class UsageReportTest(Sandbox):
                                             perms={}, repo=self.tmp)
         self.assertEqual(report["tickets"]["by_kind"][0]["kind"], "unknown")
 
+    @staticmethod
+    def _tool_result(tid, content, is_error):
+        return json.dumps({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": tid, "content": content,
+             "is_error": is_error}]}})
+
+    @staticmethod
+    def _call(name, tid, mid, read, inp=None):
+        return json.dumps({"type": "assistant", "message": {
+            "id": mid, "model": "claude-sonnet-5", "content": [
+                {"type": "tool_use", "id": tid, "name": name, "input": inp or {}}],
+            "usage": {"cache_read_input_tokens": read, "cache_creation_input_tokens": 0}}})
+
+    def test_wasted_retries(self):
+        # U4: turns from a failed call to the next successful call of the same tool, per family
+        root = os.path.join(self.tmp, "wr")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+        call, res = self._call, self._tool_result
+        write(os.path.join(base, "w.jsonl"), "\n".join([
+            call("mcp__x__tickets_update", "u1", "m1", 1000),
+            res("u1", "refused: transition not allowed", True),      # string content
+            _assistant("m2", "claude-sonnet-5", 2000, 0),
+            call("mcp__x__tickets_update", "u2", "m3", 3000),
+            res("u2", [{"type": "text", "text": "refused: transition not allowed"}], False),
+            "{not json",
+            call("Read", "r1", "m4", 500),
+            res("r1", [{"type": "text", "text": "File does not exist."}], True),  # never recovered
+            call("Edit", "e1", "m5", 100),
+            res("e1", "String to replace not found", True),
+            call("Edit", "e2", "m6", 100),
+            res("e2", "ok", False),
+        ]) + "\n")
+        report, _s, _e = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={"roster": {}}, repo=self.tmp)
+        wr = report["retries"]
+        fam = {f["family"]: f for f in wr["families"]}
+        self.assertEqual((wr["failures"], wr["recovered"], wr["unrecovered"]), (3, 2, 1))
+        self.assertEqual(len(fam), 3)
+        upd = [f for k, f in fam.items() if "tickets_update" in k or "transition" in k][0]
+        # failure in turn 1, success call in turn 3: 2 turns, read of turns 2 and 3
+        self.assertEqual((upd["recovered"], upd["mean_turns"], upd["read"]), (1, 2.0, 5000))
+        rd = [f for k, f in fam.items() if k.startswith("Read")][0]
+        self.assertEqual((rd["recovered"], rd["unrecovered"], rd["mean_turns"], rd["read"]),
+                         (0, 1, None, 0))
+        ed = [f for k, f in fam.items() if k.startswith("Edit")][0]
+        self.assertEqual((ed["mean_turns"], ed["read"]), (1.0, 100))
+        self.assertEqual(wr["families"][0]["family"], upd["family"])   # most read first
+        md = usage_report.render_markdown(report, _s, _e)
+        self.assertIn("## Wasted retries", md)
+        self.assertLess(md.index("## Wasted retries"), md.index("## Flags"))
+        self.assertNotIn("Wasted", usage_report.render_brief(report, "7d"))
+
+    def test_wasted_retries_absent_without_failure(self):
+        root = os.path.join(self.tmp, "wr0")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+        write(os.path.join(base, "w.jsonl"), "\n".join([
+            self._call("Read", "r1", "m1", 10), self._tool_result("r1", "ok", False)]) + "\n")
+        report, _s, _e = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={"roster": {}}, repo=self.tmp)
+        self.assertNotIn("retries", report)
+        self.assertNotIn("Wasted retries", usage_report.render_markdown(report, _s, _e))
+
     def test_session_usage_moved(self):
         self.assertTrue(os.path.isfile(os.path.join(SCRIPTS, "session_usage.py")))
         root = self.make_projects()
