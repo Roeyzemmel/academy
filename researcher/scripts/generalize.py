@@ -10,6 +10,10 @@ it and enforces the rules:
 * every proposal is an object of kind ``conjecture`` with status ``conjectured`` --
   never higher (``researcher.generalize.raiseAbove``) -- with ``bears_on`` naming the lab
   claim and a non-empty **falsifier** (the smallest case where it could fail);
+* a proposal may carry ``lemmas``: the intermediate results it would need, each an object
+  of kind ``claim`` with status ``open`` or ``sketch`` (never higher), at most
+  ``MAX_LEMMAS`` per proposal; the conjecture ``depends_on`` them. A lemma gets no ticket of
+  its own: the conjecture's falsifier is the test;
 * one ``test`` ticket per proposal goes to the Scientist, ``parent`` the generalize
   ticket, ``refs`` the new id and the lab claim, the ask "test the falsifier first".
 
@@ -27,7 +31,10 @@ The proposals FILE is JSON, a list (or {"proposals": [...]}) of
     {"id": "nb:GEN-3", "title": "...", "statement": "...", "kind": "conjecture",
      "status": "conjectured", "bears_on": ["lab:x"], "falsifier": "...",
      "pattern": "wider class | relaxed hypothesis | pattern | invariant",
-     "rationale": "why the data suggests it"}
+     "rationale": "why the data suggests it",
+     "lemmas": [{"id": "nb:GEN-3-L1", "title": "...", "statement": "...", "status": "open"}]}
+
+``lemmas`` is optional; each lemma's id follows the same namespace rules as a proposal's.
 
 ``tickets`` prints the board.py command lines it would run; ``--apply`` runs them (as
 the instance, through the base plugin's board.py). Exit codes: 0 ok, 1 nothing, 2 error.
@@ -49,6 +56,8 @@ import reviews  # noqa: E402
 
 PATTERNS = ("wider class", "relaxed hypothesis", "pattern", "invariant")
 CLEARED = ("cleared", "cleared-modulo")
+LEMMA_STATUSES = ("open", "sketch")
+MAX_LEMMAS = 3
 RE_ID = re.compile(r"^[a-z0-9]+:[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 
@@ -190,6 +199,27 @@ def validate(proposals, lab_claim, st):
                          % (tag, st["ceiling"], status))
         if lab_claim not in (p.get("bears_on") or []):
             probs.append("%s: bears_on must include %s" % (tag, lab_claim))
+        lemmas = p.get("lemmas") or []
+        if len(lemmas) > MAX_LEMMAS:
+            probs.append("%s: %d lemmas; at most %d per proposal" % (tag, len(lemmas), MAX_LEMMAS))
+        for j, lem in enumerate(lemmas, 1):
+            ltag = lem.get("id") or "%s lemma #%d" % (tag, j)
+            lid = lem.get("id") or ""
+            if not RE_ID.match(lid):
+                probs.append("%s: id must be '<ns>:<id>'" % ltag)
+            elif st["ns"] and lid.split(":", 1)[0] != st["ns"]:
+                probs.append("%s: id must be in this instance's namespace %r" % (ltag, st["ns"]))
+            if lid in seen:
+                probs.append("%s: duplicate id" % ltag)
+            seen.add(lid)
+            for f in ("title", "statement"):
+                if not str(lem.get(f) or "").strip():
+                    probs.append("%s: %s is required" % (ltag, f))
+            if (lem.get("kind") or "claim") != "claim":
+                probs.append("%s: kind must be claim" % ltag)
+            if (lem.get("status") or "open") not in LEMMA_STATUSES:
+                probs.append("%s: status must be %s (a lemma is never raised above sketch), "
+                             "not %r" % (ltag, " or ".join(LEMMA_STATUSES), lem.get("status")))
         pat = str(p.get("pattern") or "").lower()
         if pat and pat not in PATTERNS:
             probs.append("%s: pattern must be one of %s" % (tag, ", ".join(PATTERNS)))
@@ -203,11 +233,21 @@ def create_objects(home, proposals, lab_claim, apply=False):
     out = []
     for p in proposals:
         oid = nb.bare(p["id"])
+        lemmas = p.get("lemmas") or []
+        for lem in lemmas:
+            lpath = os.path.join(nb.paths["objects"], "claim", nb.bare(lem["id"]) + ".md")
+            if apply:
+                lpath = nb.new_object("claim", nb.bare(lem["id"]), lem["title"],
+                                      lem["statement"], lem.get("status") or "open",
+                                      [p["id"]], [], "", ["generalization", "lemma"],
+                                      by="researcher/generalize from %s" % lab_claim)
+            out.append(lpath.replace("\\", "/"))
         path = os.path.join(nb.paths["objects"], "conjecture", oid + ".md")
         if apply:
             bears = list(p.get("bears_on") or [])
+            depends = list(p.get("depends_on") or []) + [lem["id"] for lem in lemmas]
             path = nb.new_object("conjecture", oid, p["title"], p["statement"],
-                                 "conjectured", bears, p.get("depends_on") or [],
+                                 "conjectured", bears, depends,
                                  p["falsifier"], ["generalization"],
                                  by="researcher/generalize from %s" % lab_claim)
         out.append(path.replace("\\", "/"))
@@ -245,12 +285,18 @@ def packet_body(proposals, lab_claim, report, src_state=""):
              "conjectured here.", "", "## Produced", ""]
     for p in proposals:
         lines.append("- `%s` (conjectured): %s" % (p["id"], p["title"]))
+        for lem in p.get("lemmas") or []:
+            lines.append("  - lemma `%s` (%s): %s" % (lem["id"], lem.get("status") or "open",
+                                                    lem["title"]))
     lines += ["", "## Established vs assumed", ""]
     lines.append("- **Established:** %s is reviewed (%s) as reported in %s."
                  % (lab_claim, src_state or "cleared", report))
     for p in proposals:
         lines.append("- **Not established:** %s (conjectured); falsifier: %s"
                      % (p["id"], p["falsifier"]))
+        for lem in p.get("lemmas") or []:
+            lines.append("- **Not established:** %s (%s), an intermediate result %s needs"
+                         % (lem["id"], lem.get("status") or "open", p["id"]))
     lines += ["", "## Evidence", "", "- Report %s, its `## Conclusion`." % report,
               "- Experiment review of %s: `reviews.py decide %s`." % (lab_claim, lab_claim),
               "", "## Decisions needed", "", "None.", "", "## Machine notes", ""]

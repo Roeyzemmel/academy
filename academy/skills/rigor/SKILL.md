@@ -25,7 +25,8 @@ ambiguous, say which reading you settled on.
 - **List the hypotheses separately**, including inherited ones (standing assumptions,
   the ambient setting, "throughout this section X is compact"). At the end, check
   which you used. An unused hypothesis means the result is stronger than claimed, or
-  a case was skipped.
+  a case was skipped. For a *cited* result the same list is written in the form of
+  `citation-discipline/references/hypothesis-check.md`, with `[CHECK]` on whatever is not quoted.
 - **Name the degenerate cases** the statement must survive: empty set, zero, one
   point, the trivial group, the boundary of the parameter range. A claim is most often
   literally false there, and needs a hypothesis rather than a proof.
@@ -39,7 +40,9 @@ avoids it.
   can be run, run it (Scientist, or the pack's `computation/`). Numerics cannot prove,
   but they can refute, and refutation is cheap.
 - Try to break it: push a parameter to an extreme, drop a hypothesis and see what
-  fails, look for a scaling or symmetry the claim should respect.
+  fails, look for a scaling or symmetry the claim should respect. For a statement
+  about to be proved, run this as a separate attack-only pass (`references/attack-brief.md`):
+  the default is to agree with the author, so the attacker is told not to prove.
 - A counterexample is a *success*. Present it concretely, verify it explicitly, and
   propose the repaired statement (an added hypothesis, or "finitely many exceptions").
 

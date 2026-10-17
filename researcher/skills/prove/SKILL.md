@@ -18,6 +18,10 @@ work).
 2. **Falsified yet?** A claim nobody tried to break goes first to `/researcher:explore`
    (its falsifier), unless the ticket says the falsifier already ran; name the ticket
    or report that settled it.
+   A statement nobody has attacked on paper also gets one attack-only `prover` run first,
+   briefed with `academy/skills/rigor/references/attack-brief.md` (it proves nothing) and
+   writing `proofs/<id>/attack.md`; a counterexample or an unlisted hypothesis goes into
+   the brief of the proof attempt, or into a restated claim.
 3. **One `prover`**, on its primary model, briefed with the claim id and the attempt
    path from `py $R/notebook.py attempt <id> --create`. It scouts prior art first
    (cite before reproving), then writes the attempt: statement as attempted, strategy,
@@ -32,9 +36,13 @@ work).
      verdicts, or one negative verdict." --refs <id>,file:<instance>/<attempt path>
      --as <instance> [--parent T-NNNN]`. The claim stays `sketch` until claim-keeper
      acts on the packet.
-   - `failed` or gaps left: nothing is filed. Record the gap in the journal; a gap
-     that is a separate lemma becomes its own object (`claims_new`, `open`) with a
-     `prove` ticket to this instance.
+   - `failed` or gaps left: nothing is filed for review. Record the gap in the journal;
+     a gap that is a separate lemma becomes its own object (`claims_new`, `open`) with a
+     `prove` ticket to this instance. Partial work is documented as objects too: each
+     intermediate result the attempt established or sketched becomes a `claim`
+     (`claims_new`; `sketch` if its argument is written in the attempt, else `open`)
+     with the target claim `depends_on` it, and the attempt's frontmatter names them.
+     Nothing above `sketch`: that is claim-keeper's.
 5. **Status.** Propose `sketch` for a claim that was `open` and now has a complete
    attempt (`claims_propose_status`, grounds: the note "complete attempt <path>").
    Nothing higher: `proved` and `proved-modulo` come only from two agreeing Expert

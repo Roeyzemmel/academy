@@ -60,7 +60,8 @@ proof to the paper's level).
 - **Citations.** Cite only keys already in the bibliography whose card exists
   (`library_lookup <key>`). A missing key or pinpoint is a `cite` ticket to the Expert
   instance; never edit the bibliography (the bib gate denies it) and never cite from
-  memory (`citation-discipline`).
+  memory (`citation-discipline`). A result you were given with `[CHECK]` on any part is
+  not stated as established: carry it as a machine note and file the `cite` ticket.
 - **Notation.** The draft's notation list wins, then the home's
   `.claude/rules/notation-decisions.md`, then the domain pack's `notation.md`
   (`domain_get <domain> notation.md`; `notation-discipline`).
