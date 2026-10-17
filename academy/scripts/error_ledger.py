@@ -213,7 +213,8 @@ def classes(records):
                                       "msg": r.get("msg", ""), "count": 0,
                                       "sessions": set(), "instances": set(),
                                       "first": r["ts"], "last": r["ts"],
-                                      "weeks": set()})
+                                      "weeks": set(), "recs": []})
+        c["recs"].append(r)
         c["count"] += 1
         c["sessions"].add(r.get("session") or "?")
         c["instances"].add(r.get("instance") or "?")
@@ -235,6 +236,9 @@ FAMILY_RULES = [
      "host unreachable"),
     (re.compile(r"^agent .*(could act for|runs outside every academy home|belongs to the)"),
      "agent cannot act for the instance"),
+    (re.compile(r"\bno domain pack\b"), "no domain pack"),
+    (re.compile(r"\bdelivered needs result\b"), "delivered needs result"),
+    (re.compile(r"\bdoes not contain the quote\b.*\bverbatim"), "quote not verbatim"),
 ]
 
 
@@ -249,6 +253,27 @@ def family(sig):
         if pat.search(msg):
             return "%s: %s" % (tool.rsplit("__", 1)[-1], reason)
     return sig
+
+
+BASH_EXIT_SIG = "Bash: exit code <n>"
+
+
+def cmd_word(cmd):
+    """First word of a recorded command, folded to ``git``, ``py``, ``python3`` or
+    ``other``; a record without a command is ``unknown cmd``."""
+    words = (cmd or "").split()
+    if not words:
+        return "unknown cmd"
+    w = words[0].rsplit("/", 1)[-1].lower()
+    return w if w in ("git", "py", "python3") else "other"
+
+
+def family_of(sig, rec=None):
+    """``family(sig)``, except that the ``Bash: exit code`` class is split by the first
+    word of the record's ``cmd`` (it needs the record, which the signature lacks)."""
+    if sig == BASH_EXIT_SIG and rec is not None:
+        return "Bash: exit code (%s)" % cmd_word(rec.get("cmd"))
+    return family(sig)
 
 
 def report(records, start, now=None):
@@ -273,10 +298,24 @@ def report(records, start, now=None):
                      "recurring": len(c["sessions"]) >= 3 or len(c["weeks"]) >= 2})
     rows.sort(key=lambda r: (-r["in_window"], -r["count"], r["sig"]))
     fams = {}
+
+    def fam_entry(name, r):
+        return fams.setdefault(name, {"family": name, "in_window": 0, "count": 0,
+                                      "classes": 0, "sessions": set(),
+                                      "recurring": False, "example": r["msg"]})
+
     for r in rows:
-        f = fams.setdefault(family(r["sig"]), {"family": family(r["sig"]), "in_window": 0,
-                                               "count": 0, "classes": 0, "sessions": set(),
-                                               "recurring": False, "example": r["msg"]})
+        if r["sig"] == BASH_EXIT_SIG:  # split by command word, per record
+            for rec in cls[r["sig"]]["recs"]:
+                f = fam_entry(family_of(r["sig"], rec), r)
+                f["count"] += 1
+                f["in_window"] += 1 if rec["ts"] >= lo else 0
+                f["sessions"].add(rec.get("session") or "?")
+                f["recurring"] = f["recurring"] or r["recurring"]
+            for name in {family_of(r["sig"], rec) for rec in cls[r["sig"]]["recs"]}:
+                fams[name]["classes"] += 1
+            continue
+        f = fam_entry(family(r["sig"]), r)
         f["in_window"] += r["in_window"]
         f["count"] += r["count"]
         f["classes"] += 1

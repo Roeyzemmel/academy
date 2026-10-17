@@ -90,6 +90,17 @@ class FamilyTests(unittest.TestCase):
                          '{"error_type":"EGRESS_BLOCKED","domain":"x.org","message":"blocked"}'),
                          "WebFetch: host unreachable")
 
+    def test_three_more_families(self):
+        t = "mcp__plugin_academy_academy__"
+        self.assertEqual(self.fam(t + "domain_get", "no domain pack 'translation-surfaces' (have: none)"),
+                         "domain_get: no domain pack")
+        self.assertEqual(self.fam(t + "tickets_update", "delivered needs result (fields.result)"),
+                         "tickets_update: delivered needs result")
+        a = self.fam(t + "claims_set_status", "refused: T-0187 does not contain the quote 'Yes' verbatim")
+        b = self.fam(t + "claims_set_status", "refused: T-0001 does not contain the quote 'No' verbatim")
+        self.assertEqual(a, b)
+        self.assertTrue(a.startswith("claims_set_status: "))
+
     def test_fallback_is_the_signature(self):
         sig = el.signature("Bash", "Exit code 1")
         self.assertEqual(el.family(sig), sig)
@@ -112,6 +123,24 @@ class TopFamiliesTests(unittest.TestCase):
         self.assertIn("## Top families", md)
         self.assertLess(md.index("## Top families"), md.index("| class |"))
         self.assertIn("Example messages:", md)
+
+    def test_bash_exit_code_splits_by_command_word(self):
+        recs = []
+        for i, cmd in enumerate(["git status", "git push", "py x.py", "python3 -c 1",
+                                 "ls -l", None]):
+            r = err(1, "Bash: exit code <n>", session="s%d" % i)
+            if cmd:
+                r["cmd"] = cmd
+            recs.append(r)
+        fams = {f["family"]: f for f in
+                el.report(recs, NOW - dt.timedelta(days=7), now=NOW)["families"]}
+        self.assertEqual({k: v["in_window"] for k, v in fams.items()},
+                         {"Bash: exit code (git)": 2, "Bash: exit code (py)": 1,
+                          "Bash: exit code (python3)": 1, "Bash: exit code (other)": 1,
+                          "Bash: exit code (unknown cmd)": 1})
+        self.assertEqual(el.family("Bash: exit code <n>"), "Bash: exit code <n>")
+        self.assertEqual(el.family_of("Bash: exit code <n>", {"cmd": "git x"}),
+                         "Bash: exit code (git)")
 
     def test_at_most_ten(self):
         recs = [err(1, "Tool%d: boom" % i) for i in range(15)]
