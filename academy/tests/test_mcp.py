@@ -940,7 +940,8 @@ class TestGrounds(unittest.TestCase):
         g = proof("CONFIRMED", "CONFIRMED")
         self.ok("proved", g)
         self.ok("proved", g, statement_hash="H1")
-        self.no("proved", g, statement_hash="H2")    # statement changed since
+        why = self.no("proved", g, statement_hash="H2")    # statement changed since
+        self.assertIn("re-verify", " ".join(why))          # and the refusal says what to do
         self.no("proved", proof("CONFIRMED"))
         self.no("proved", proof("CONFIRMED", "PLAUSIBLE"))
         dup = proof("CONFIRMED", "CONFIRMED")

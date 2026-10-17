@@ -266,7 +266,9 @@ def check_grounds(new_status, grounds, statement_hash=None, human=False,
                 probs.append("the verdicts were given on different statements (hashes "
                              "differ)")
             elif statement_hash and hashes[0] != statement_hash:
-                probs.append("the verdicts' statement hash %s is not the claim's current %s"
+                probs.append("the verdicts' statement hash %s is not the claim's current %s "
+                             "(the statement changed after the review: re-verify it, or for "
+                             "a reword use grounds mode: reword with the base pass)"
                              % (hashes[0], statement_hash))
         modulo = grounds.get("modulo") or []
         if new_status == "proved-modulo" and not modulo:
