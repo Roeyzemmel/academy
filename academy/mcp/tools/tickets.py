@@ -16,6 +16,8 @@ ACTING = {"type": "string", "description":
           "when the server cannot tell (a cloud session, whose server runs outside the "
           "homes); default: the ticket's party of your role, the server's home, or the "
           "only instance of your role. A role agent can never act as 'human'."}
+#: statuses ``deliver: true`` may start from
+DELIVER_FROM = ("open", "accepted", "in-progress")
 FROZEN = ("id", "created", "updated")
 
 
@@ -185,6 +187,17 @@ def update_ticket(ctx, a):
     pset = ac.parties(meta, me)
     fields = dict(a.get("fields") or {})
     new_status = a.get("status")
+    deliver = a.get("deliver") is True
+    if deliver:
+        if new_status not in (None, "delivered"):
+            raise ToolError("deliver: true walks the ticket to delivered; it cannot be "
+                            "combined with status %s" % new_status)
+        new_status = "delivered"
+        if "receiver" not in pset or meta.get("status") not in DELIVER_FROM:
+            raise ToolError(
+                "deliver: true is for the receiver of an open, accepted or in-progress "
+                "ticket; %s is %s and %s is %s"
+                % (meta["id"], meta.get("status"), me, " and ".join(sorted(pset)) or "no party"))
     reason = (a.get("reason") or "").strip()
     note = (a.get("note") or "").strip()
     speaker = ctx.speaker
@@ -236,24 +249,30 @@ def update_ticket(ctx, a):
         if meta.get("to") == ac.HUMAN and not human:
             raise ToolError("refused: a ticket addressed to human changes status only "
                             "by the human")
-        ok, why = ac.can_transition(old_status, new_status, pset, human)
-        if not ok:
-            raise ToolError("refused: %s" % why)
-        try:
-            blines = ac.apply_blocking(
-                old_meta, meta, new_status, reason, staged.get("waiting_on"),
-                staged.get("blocked_by"), staged.get("reopen_if"), a.get("reopen"), human)
-        except ac.AcademyError as exc:
-            raise ToolError(str(exc))
-        lines.extend(blines)
+        chain = ac.transition_route(old_status, new_status) if deliver else None
+        steps = list(zip(chain, chain[1:])) if chain else [(old_status, new_status)]
+        for hop_old, hop_new in steps:
+            ok, why = ac.can_transition(hop_old, hop_new, pset, human)
+            if not ok:
+                raise ToolError("refused: %s" % why)
+        for n, (hop_old, hop_new) in enumerate(steps):
+            # the first hop sees the ticket as it was before this call, as a single step did
+            hop_meta = old_meta if n == 0 else dict(meta, status=hop_old)
+            try:
+                blines = ac.apply_blocking(
+                    hop_meta, meta, hop_new, reason, staged.get("waiting_on"),
+                    staged.get("blocked_by"), staged.get("reopen_if"), a.get("reopen"), human)
+            except ac.AcademyError as exc:
+                raise ToolError(str(exc))
+            lines.extend(blines)
+            meta["status"] = hop_new
+            dead_block = hop_new == "blocked" and ac.is_dead_route(meta)
+            lines.append("status %s -> %s%s" % (hop_old, hop_new,
+                                                (": " + " ".join(reason.split()))
+                                                if reason and not dead_block else ""))
         if new_status in ("delivered", "closed") and not meta.get("result"):
             raise ToolError("%s needs result: pass fields.result (one line, the answer) in the same call as status; "
                             "detail goes in the ## Result body" % new_status)
-        meta["status"] = new_status
-        dead_block = new_status == "blocked" and ac.is_dead_route(meta)
-        lines.append("status %s -> %s%s" % (old_status, new_status,
-                                            (": " + " ".join(reason.split()))
-                                            if reason and not dead_block else ""))
     elif a.get("reopen"):
         raise ToolError(ac.REOPEN_ONLY)
     elif reason and not note:
@@ -347,9 +366,12 @@ TOOLS = [
          lambda ctx, a: create_ticket(ctx, a), write=True),
     Tool("tickets_update", "Change a ticket: a status transition (with reason where the "
          "protocol needs one), owned fields, ## Ask / ## Result detail, and/or a thread "
-         "note. Field ownership and transitions per docs/protocol.md.",
+         "note. Field ownership and transitions per docs/protocol.md. deliver: true (the "
+         "receiver, ticket open/accepted/in-progress, fields.result required) walks "
+         "open -> accepted -> in-progress -> delivered in one call, writing the usual "
+         "thread line per step; every hop must be allowed; not with another status.",
          obj({"id": S, "status": {"type": "string", "enum": list(ac.TICKET_STATUSES)},
               "reason": S, "reopen": S, "fields": {"type": "object"}, "ask_detail": S,
-              "result_detail": S, "note": S, "instance": ACTING}, ["id"]),
+              "result_detail": S, "note": S, "deliver": B, "instance": ACTING}, ["id"]),
          update_ticket, write=True),
 ]

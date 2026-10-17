@@ -369,6 +369,110 @@ class TestTickets(McpTestBase):
         err, pl = human.call("packets_list", instance="expert@t")
         self.assertEqual(pl["packets"][0]["pending_decisions"], [])
 
+    # -- tickets_update deliver: true (E5) ----------------------------------------
+    def _deliver_ticket(self, upto=None):
+        author, expert = self.server("author@t"), self.server("expert@t")
+        err, t = author.call("tickets_create", caller="author:math-writer", title="Check x",
+                             kind="verify", to="expert@t", ask="Verify paper:lem:x.",
+                             deliverable="A verdict.")
+        self.assertFalse(err, t)
+        for st in {None: [], "accepted": ["accepted"],
+                   "in-progress": ["accepted", "in-progress"]}[upto]:
+            err, res = expert.call("tickets_update", caller="expert:review-chair",
+                                   id=t["id"], status=st)
+            self.assertFalse(err, res)
+        return author, expert, t["id"]
+
+    def _ticket_file(self, tid):
+        path, _m, _b = ac.as_store(self.board).get(tid)
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_deliver_from_open_writes_the_chain_once(self):
+        _a, expert, tid = self._deliver_ticket()
+        err, res = expert.call("tickets_update", caller="expert:review-chair", id=tid,
+                               deliver=True, fields={"result": "CONFIRMED"})
+        self.assertFalse(err, res)
+        self.assertEqual("delivered", res["status"])
+        self.assertEqual(["set result: CONFIRMED", "status open -> accepted",
+                          "status accepted -> in-progress",
+                          "status in-progress -> delivered"], res["thread"])
+        text = self._ticket_file(tid)
+        for ln in res["thread"]:
+            self.assertIn(": " + ln + "\n", text + "\n")
+        _p, meta, _b = ac.as_store(self.board).get(tid)
+        self.assertEqual(("delivered", "CONFIRMED"), (meta["status"], meta["result"]))
+
+    def test_deliver_from_accepted_and_in_progress(self):
+        for upto, lines in (("accepted", ["status accepted -> in-progress",
+                                          "status in-progress -> delivered"]),
+                            ("in-progress", ["status in-progress -> delivered"])):
+            _a, expert, tid = self._deliver_ticket(upto)
+            err, res = expert.call("tickets_update", caller="expert:review-chair", id=tid,
+                                   deliver=True, status="delivered",
+                                   fields={"result": "ok"})
+            self.assertFalse(err, res)
+            self.assertEqual(["set result: ok"] + lines, res["thread"])
+
+    def test_deliver_refusals_change_nothing(self):
+        author, expert, tid = self._deliver_ticket()
+        r, w = "expert:review-chair", "author:math-writer"
+        before = self._ticket_file(tid)
+        err, msg = expert.call("tickets_update", caller=r, id=tid, deliver=True)
+        self.assertTrue(err)
+        self.assertIn("delivered needs result: pass fields.result", msg)
+        err, msg = expert.call("tickets_update", caller=r, id=tid, deliver=True,
+                               status="closed", fields={"result": "x"})
+        self.assertTrue(err)
+        self.assertIn("status closed", msg)
+        err, msg = author.call("tickets_update", caller=w, id=tid, deliver=True,
+                               fields={"result": "x"})
+        self.assertTrue(err)
+        self.assertIn("receiver", msg)
+        self.assertEqual(before, self._ticket_file(tid))
+        # an ordinary jump open -> delivered is still refused, naming the route
+        err, msg = expert.call("tickets_update", caller=r, id=tid, status="delivered",
+                               fields={"result": "x"})
+        self.assertTrue(err)
+        self.assertIn("open -> accepted -> in-progress -> delivered", msg)
+        self.assertEqual(before, self._ticket_file(tid))
+        # a blocked ticket is refused, naming its state
+        err, res = expert.call("tickets_update", caller=r, id=tid, status="blocked",
+                               fields={"waiting_on": ["T-9999"]})
+        self.assertFalse(err, res)
+        before = self._ticket_file(tid)
+        err, msg = expert.call("tickets_update", caller=r, id=tid, deliver=True,
+                               fields={"result": "x"})
+        self.assertTrue(err)
+        self.assertIn("blocked", msg)
+        self.assertEqual(before, self._ticket_file(tid))
+
+    def test_deliver_refuses_a_disallowed_hop_atomically(self):
+        # the server process cannot be given a different table, so call the tool in-process
+        _a, _e, tid = self._deliver_ticket()
+        before = self._ticket_file(tid)
+        import tools.tickets as tk
+
+        class Ctx(object):
+            is_human, instance, speaker = False, "expert@t", "expert@t/review-chair"
+            ticket_hint, board = None, self.board
+            store = ac.as_store(self.board)
+
+            def instances(self_):
+                return {"expert@t": {}, "author@t": {}}
+
+        orig = dict(ac.TRANSITIONS)
+        ac.TRANSITIONS[("accepted", "in-progress")] = ("sender",)
+        try:
+            with self.assertRaises(tk.ToolError) as cm:
+                tk.update_ticket(Ctx(), {"id": tid, "deliver": True,
+                                         "fields": {"result": "x"}})
+        finally:
+            ac.TRANSITIONS.clear()
+            ac.TRANSITIONS.update(orig)
+        self.assertIn("accepted -> in-progress is made by the sender", str(cm.exception))
+        self.assertEqual(before, self._ticket_file(tid))
+
     def test_budget_max_model_is_optional_and_not_stamped(self):
         # budget.md rule 6: the model comes from the agent file. A new ticket's default budget
         # is runs only; a sender may give runs alone, or add max_model as a note.
@@ -739,6 +843,92 @@ class TestKeeperRouting(unittest.TestCase):
                           reason="complete attempt")
         self.assertFalse(err, res)
         self.assertIn(res["to"], ("researcher@s1", "researcher@beta"))
+
+
+class TestInstanceInference(unittest.TestCase):
+    """E4 (2026-10-17): an agent of a role with several instances is resolved without
+    ``instance=`` only when exactly one candidate is provable -- from the ticket's
+    parties, or from the namespace of the claim id. Otherwise the refusal stays."""
+
+    setUp = TestKeeperRouting.setUp
+    server = TestKeeperRouting.server
+
+    def setUp(self):  # noqa: F811
+        TestKeeperRouting.setUp(self)
+        t = self.tmp.replace("\\", "/")
+        self.homes["expert@x"] = t + "/lib"
+        os.makedirs(self.homes["expert@x"])
+        with open(self.ws_path, encoding="utf-8") as fh:
+            ws = json.load(fh)
+        ws["instances"]["expert@x"] = {"role": "expert", "home": self.homes["expert@x"],
+                                       "domains": ["test-pack"]}
+        write(self.ws_path, json.dumps(ws, indent=2))
+
+    def ticket(self, to, **kw):
+        args = dict(title="t", kind="question", to=to, ask="a", deliverable="d")
+        args.update(kw)
+        err, t = self.server().call("tickets_create", **args)
+        self.assertFalse(err, t)
+        return t["id"]
+
+    # -- (a) a ticket id ---------------------------------------------------
+    def test_ticket_with_one_candidate_party_is_inferred(self):
+        tid = self.ticket("researcher@beta")
+        err, res = self.server().call("tickets_update", caller="researcher:claim-keeper",
+                                      id=tid, status="accepted")
+        self.assertFalse(err, res)
+        err, g = self.server().call("tickets_get", id=tid)
+        self.assertIn("researcher@beta/claim-keeper: status open -> accepted", g["body"])
+
+    def test_ticket_with_no_candidate_party_keeps_the_refusal_and_names_the_ticket(self):
+        tid = self.ticket("expert@x")
+        err, msg = self.server().call("tickets_update", caller="researcher:claim-keeper",
+                                      id=tid, status="accepted")
+        self.assertTrue(err)
+        self.assertIn("could act for researcher@beta or researcher@s1", msg)
+        self.assertIn("pass instance=<one of them>", msg)
+        self.assertIn(tid, msg)
+        self.assertIn("expert@x", msg)
+
+    def test_permission_still_enforced_after_inference(self):
+        # inferred as the sender (from: researcher@beta), who may not accept
+        err, t = self.server("researcher@beta").call(
+            "tickets_create", caller="researcher:prover", title="t", kind="question",
+            to="expert@x", ask="a", deliverable="d")
+        self.assertFalse(err, t)
+        err, msg = self.server().call("tickets_update", caller="researcher:prover",
+                                      id=t["id"], status="accepted")
+        self.assertTrue(err)
+        self.assertIn("refused", msg)
+
+    # -- (b) a claim namespace ---------------------------------------------
+    def test_claim_namespace_with_one_candidate_owner_is_inferred(self):
+        err, res = self.server().call("claims_propose_status", caller="researcher:prover",
+                                      id="flat:some-claim", status="sketch",
+                                      reason="complete attempt")
+        self.assertFalse(err, res)
+        self.assertEqual(res["from"], "researcher@beta")
+
+    def test_claim_namespace_owned_by_no_candidate_keeps_the_refusal(self):
+        err, msg = self.server().call("claims_propose_status", caller="researcher:prover",
+                                      id="paper:lem:x", status="sketch", reason="r")
+        self.assertTrue(err)
+        self.assertIn("could act for researcher@beta or researcher@s1", msg)
+
+    def test_claim_namespace_cannot_widen_to_another_role(self):
+        # an expert agent about flat: -- researcher@beta is no candidate of the expert role
+        err, res = self.server().call("claims_propose_status", caller="expert:review-chair",
+                                      id="flat:some-claim", status="sketch", reason="r")
+        if err:
+            self.assertNotIn("researcher@beta/", str(res))
+        else:
+            self.assertEqual(res["from"], "expert@x")
+
+    def test_claims_new_in_a_foreign_namespace_still_needs_a_ticket(self):
+        err, msg = self.server().call("claims_new", caller="researcher:prover",
+                                      id="paper:lem:x", title="x")
+        self.assertTrue(err)
+        self.assertIn("own instance's namespace", msg)
 
 
 class TestPacketValidation(McpTestBase):

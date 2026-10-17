@@ -71,6 +71,16 @@ The academy plugin's ``inbox.py --check`` runs ``checkpoint --only <the ticket's
 itself after a finished ticket: with ``--only`` the other submodules are not touched and
 a dirty repo of the set that is on main/master is refused instead of moved.
 
+Usage on the board: when the ``board`` target is part of a checkpoint, ``usage_ledger``
+first appends one content-free summary per recently active session of this machine
+(id, instance bucket, turns, cache read/write, models, subagent counts, a hashed host;
+no prompts, paths or tool inputs) to ``board/.usage/<instance>.<host>.jsonl``, so cloud sessions
+show in ``usage_report.py``. It is plain board content: the ``add -A -- board/`` staging
+commits it exactly as it does ``.errors/``. It is skipped by ``"shipCheckpoint": false``
+or ``"usageCheckpoint": false`` in workspace.json, and a failure in it is a warning only.
+The same step compacts this host's files (last record per session, sessions older than
+``"usageKeepDays"`` days, default 90, dropped); ``usage_ledger.py compact`` does it by hand.
+
 Standard library only.
 """
 import argparse
@@ -923,6 +933,35 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
     return res
 
 
+#: tests point this at a temp directory; None means ``~/.claude/projects``
+USAGE_PROJECTS = None
+
+
+def usage_summaries(only):
+    """Before the board commit: append content-free usage summaries of this machine's recent
+    sessions to ``<board>/.usage/<instance>.<host>.jsonl`` (``usage_ledger``), which the board's
+    ordinary staging then picks up like ``.errors/``. Skipped when workspace.json says
+    ``"shipCheckpoint": false`` or ``"usageCheckpoint": false``, or when the board target is
+    not part of this run. Only ever a warning on stderr, never a failed checkpoint."""
+    ws = workspace_json()
+    if ws.get("shipCheckpoint") is False or ws.get("usageCheckpoint") is False:
+        return
+    try:
+        if only is not None and BOARD not in only:
+            return
+        rel = root_dirs().get(BOARD) or (BOARD if BOARD in submodule_names() else None)
+        if not rel:
+            return
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import usage_ledger
+        _, warning = usage_ledger.checkpoint(ROOT, os.path.join(ROOT, rel), USAGE_PROJECTS,
+                                                keep_days=ws.get("usageKeepDays"))
+        if warning:
+            print("ship: warning: %s" % warning, file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 -- the usage summary must never fail a checkpoint
+        print("ship: warning: usage summary skipped: %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
+
+
 def run_checkpoint(ticket, role, title, remote, only=None):
     """Commit and push, on ``<date>/<ticket-id>/<role>``, every checked-out submodule that
     has uncommitted changes (tracked or untracked, .gitignore honoured) or commits on that
@@ -963,6 +1002,8 @@ def run_checkpoint(ticket, role, title, remote, only=None):
             raise Refuse("--only %s: not a submodule in .gitmodules nor a superproject "
                          "directory (known: %s)" % (" ".join(unknown) or "(nothing)", " ".join(subs)))
         subs = [s for s in subs if s in only]
+    if BOARD in subs:
+        usage_summaries(only)  # before the board is staged and committed
     for sub in subs:
         try:
             repo = repo_of(sub)
