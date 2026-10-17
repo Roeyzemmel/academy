@@ -104,6 +104,8 @@ GAP_CLASSES = ("hypothesis", "statement", "proof", "wording")
 RE_HYPOTHESIS = re.compile(r"(?i)hypothes|assum|\bstatement\b|STRENGTHEN_HYPOTHESIS|"
                            r"WEAKEN_CLAIM|OVERSTATED|falsifi|counterexample to the statement")
 NONE_WORDS = ("", "none", "-", "n/a", "[]", "null")
+#: a registry namespace: the only shape joined into a reviews path (``base_subject``)
+RE_NS = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
             "single-negative", "degraded", "invalid-pair", "no-change", "incomplete",
@@ -699,7 +701,7 @@ def base_records(r_path, base_pass, base_dir=None, base_subject=None):
         d = base_dir
     elif base_subject:
         ns, _, cid = str(base_subject).strip().partition(":")
-        if not ns or not cid:
+        if not RE_NS.match(ns) or not cid:
             return None, None, ["base_subject %r is not a namespaced id (ns:id)"
                                 % base_subject]
         # <reviews>/<ns>/<subject dir>/<pass>/R.md -> <reviews>

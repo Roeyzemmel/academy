@@ -261,6 +261,45 @@ class TestRewordSetStatusRenamed(Homes):
         self.assertEqual(self.p.read_bytes(), before)
 
 
+class TestRewordSetStatusRenamedV2(TestRewordSetStatusRenamed):
+    """T-0476 on schema-v2 records: ``supersedes`` is a list on the replacing record."""
+
+    NEW_V2 = ("---\nid: lab:foo\nkind: claim\ntitle: a claim\nstatus: open\n"
+              "lifecycle: active\ndomain: translation-surfaces\nwhere: experiments/x.py\n"
+              "supersedes:\n  - lab:old\nevidence: []\nhistory:\n"
+              "  - 2026-10-17 | open | renamed from lab:old\n---\nBody.\n")
+    OLD_V2 = ("---\nid: lab:old\nkind: claim\ntitle: the old label\nstatus: open\n"
+              "lifecycle: superseded\ndomain: translation-surfaces\n"
+              "where: experiments/x.py\nevidence: []\nhistory:\n"
+              "  - 2026-10-17 | superseded | renamed to lab:foo\n---\nBody.\n")
+
+    def setUp(self):
+        super().setUp()
+        write(self.p, self.NEW_V2)
+        write(self.lab / "claims" / "lab" / "old.md", self.OLD_V2)
+        # the statement hash of the v2 record replaces the v1 one in R and the grounds
+        new = fsl.statement_hash(self.lab, "lab:foo")
+        r = self.lab / "reviews" / "foo" / "p2" / "R.md"
+        write(r, r.read_text(encoding="utf-8").replace(self.new, new))
+        self.g["statement_hash"] = new
+        self.g["verdicts"][0]["statement_hash"] = new
+        self.new = new
+
+    def test_refused_when_the_claim_does_not_supersede_the_base_subject(self):
+        write(self.p, self.NEW_V2.replace("supersedes:\n  - lab:old\n", ""))
+        write(self.lab / "claims" / "lab" / "old.md",
+              self.OLD_V2.replace("lifecycle: superseded", "lifecycle: active"))
+        before = self.p.read_bytes()
+        with self.assertRaises(fsl.Refused) as cm:
+            fsl.set_status(self.lab, "lab:foo", "proved", self.g)
+        self.assertIn("supersedes", str(cm.exception))
+        self.assertEqual(self.p.read_bytes(), before)
+
+    def test_the_v2_record_lists_its_supersedes(self):
+        c = fsl.parse_text(self.p.read_text(encoding="utf-8"), fallback=False)
+        self.assertEqual(c.fields.get("supersedes"), ["lab:old"])
+
+
 class TestModuloWrite(unittest.TestCase):
     """proved-modulo writes the grounds' inputs as the record's `modulo`; proved drops it."""
 

@@ -696,7 +696,6 @@ class RewordBaseSubjectTests(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
-    @unittest.expectedFailure   # F4: the namespace is joined unsanitised (remove when fixed)
     def test_base_records_do_not_leave_the_reviews_root(self):
         import shutil
         d = tempfile.mkdtemp()

@@ -326,11 +326,19 @@ def _ids(v):
     return [str(v).strip()]
 
 
-def _same_id(a, b):
-    """``a`` and ``b`` name the same record: equal, or equal after the namespace."""
-    a, b = str(a or "").strip(), str(b or "").strip()
-    return bool(a) and bool(b) and (a == b or a.split(":", 1)[-1] == b
-                                    or b.split(":", 1)[-1] == a)
+def _qualified(ids, ns):
+    """``ids`` with every entry also read in namespace ``ns``: a bare entry (``lem:x`` in
+    a paper record) names a record of the claim's own namespace, as
+    ``reviews.check_base_subject`` reads it. Compared as full ids, never stripped."""
+    out = set()
+    for i in ids:
+        i = str(i or "").strip()
+        if not i:
+            continue
+        out.add(i)
+        if ns and not i.startswith(ns + ":"):
+            out.add("%s:%s" % (ns, i))
+    return out
 
 
 def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
@@ -341,15 +349,21 @@ def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
     ``statement_hash`` the row's, and its reviewer (``agent``, or the hook that landed
     it) one of the basis' graders.
 
-    The one exception (T-0476, a renamed record): in reword grounds, a base row (not
-    the reword row) whose ``base_subject`` (the row's, else the grounds') is the
-    record's subject is accepted when ``supersedes`` -- the claim's own
-    ``supersedes`` field, a scalar or a list -- lists that id."""
+    The one exception (T-0476, a renamed record): in reword grounds of basis proof, a
+    base row (not the reword row) whose ``base_subject`` (the row's, else the grounds')
+    is the record's subject is accepted when ``supersedes`` -- the claim's own
+    ``supersedes`` field, a scalar or a list, a bare entry read in the claim's
+    namespace -- lists that id. Once a base row is admitted so, the reword row's record
+    must record that same ``base_subject``."""
     g = grounds or {}
     if g.get("basis") not in ("proof", "computation"):
         return []
     fit = PROOF_GRADERS if g["basis"] == "proof" else COMPUTATION_GRADERS
     sup = _ids(supersedes)
+    claim_ns = str(claim_id or "").split(":", 1)[0] if ":" in str(claim_id or "") else ""
+    sup_full = _qualified(sup, claim_ns)
+    admitted = set()            # base_subjects through which a base row was admitted
+    reword_recs = []            # (ref, record fields) of the reword rows
     probs = []
     for r in g.get("verdicts") or []:
         if not isinstance(r, dict):
@@ -380,8 +394,11 @@ def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
             want = {str(claim_id), str(claim_id).split(":", 1)[-1]}
             if subj not in want and subj.split(":", 1)[-1] not in want:
                 bs = str(r.get("base_subject") or g.get("base_subject") or "").strip()
-                if is_reword(g) and not is_reword(r) and bs and _same_id(subj, bs):
-                    if not any(_same_id(bs, s) for s in sup):
+                if g.get("basis") == "proof" and is_reword(g) and not is_reword(r) \
+                        and bs and bs in _qualified([subj], claim_ns):
+                    if bs in sup_full:
+                        admitted.add(bs)
+                    else:
                         probs.append("review record %s is about base_subject %s, which "
                                      "%s does not list in supersedes (%s): a base pass "
                                      "of another record counts only for the record that "
@@ -399,6 +416,7 @@ def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
                          % (ref, "a reword run" if is_reword(f) else "a blind run",
                             "a reword run" if is_reword(r) else "a blind verdict"))
         elif is_reword(r):
+            reword_recs.append((ref, f))
             # the record must carry the reword run's own judgement and base, and they
             # must be the row's (or the grounds')
             for k in ("base_hash", "reword_scope", "base_pass", "base_subject"):
@@ -416,6 +434,15 @@ def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
         if who and who not in fit:
             probs.append("review record %s was written by %s, not a %s reviewer (%s)"
                          % (ref, who, g["basis"], " / ".join(fit)))
+    # a base pass of a superseded id counts only with a reword run that was told of it
+    for bs in sorted(admitted):
+        for ref, f in reword_recs:
+            have = str(f.get("base_subject") or "").strip()
+            if have != bs:
+                probs.append("review record %s records %s, but the base rows stand on "
+                             "base_subject %s: the reword run must name the base pass's "
+                             "subject" % (ref, ("base_subject %s" % have) if have
+                                          else "no base_subject", bs))
     return probs
 
 
