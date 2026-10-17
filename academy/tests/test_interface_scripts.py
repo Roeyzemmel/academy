@@ -216,6 +216,36 @@ class UsageReportTest(Sandbox):
                                             repo=self.tmp)
         self.assertIn("fan-out", [f["kind"] for f in report["flags"]])
 
+    def test_context_bloat_flag(self):
+        root = os.path.join(self.tmp, "bloat")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+
+        def session(name, turns, read):
+            write(os.path.join(base, name + ".jsonl"), "\n".join(
+                _assistant("%s-%d" % (name, i), "claude-sonnet-5", read, 0)
+                for i in range(turns)) + "\n")
+
+        session("heavy", 30, 120000)    # flagged
+        session("light", 30, 80000)     # under the threshold
+        session("tiny", 10, 500000)     # too few turns
+        kw = dict(days=7, projects=root, workspace_path=self.ws_path,
+                  perms={"roster": {}}, repo=self.tmp)
+        report, _s, _e = usage_report.build(**kw)
+        bloat = [f for f in report["flags"] if f["kind"] == "context-bloat"]
+        self.assertEqual([f["session"] for f in bloat], ["heavy"])
+        self.assertEqual(bloat[0]["instance"], "author@p")
+        self.assertEqual(bloat[0]["turns"], 30)
+        self.assertEqual(bloat[0]["mean_read"], 120000)
+        md = usage_report.render_markdown(report, _s, _e)
+        self.assertIn("context-bloat: session heavy", md)
+        self.assertIn("compact or split the session", md)
+        self.assertIn("1 flag(s)", usage_report.render_brief(report, "7d"))
+        report, _s, _e = usage_report.build(max_read_per_turn=70000, **kw)
+        self.assertEqual(sorted(f["session"] for f in report["flags"]
+                                if f["kind"] == "context-bloat"), ["heavy", "light"])
+        report, _s, _e = usage_report.build(max_read_per_turn=200000, **kw)
+        self.assertEqual([f for f in report["flags"] if f["kind"] == "context-bloat"], [])
+
     def test_session_usage_moved(self):
         self.assertTrue(os.path.isfile(os.path.join(SCRIPTS, "session_usage.py")))
         root = self.make_projects()

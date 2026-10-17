@@ -11,7 +11,7 @@ session id, or `--weekly`. Scripts: `$S` as in
 
 | Argument | Run | Then |
 |---|---|---|
-| empty, `--days N`, `--since D` | `py $S/usage_report.py [--days N \| --since D]` | Show the Markdown as it is. Add at most three lines on the flags. |
+| empty, `--days N`, `--since D` | `py $S/usage_report.py [--days N \| --since D]` | Show the Markdown as it is. Add at most three lines on the flags (limit, fan-out, context-bloat, heavier-than-declared). |
 | a session id | `py $S/session_usage.py <id>` | Show it; compare with the budget rules if a pass overran. |
 | `--weekly` | dispatch one `usage-analyst` subagent (below) | Give the packet id and its one-line summary. |
 

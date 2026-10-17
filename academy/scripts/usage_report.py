@@ -3,7 +3,8 @@
 Usage:
 
     py usage_report.py [--days 7 | --since YYYY-MM-DD] [--projects DIR]
-                       [--workspace PATH] [--max-subagents 12] [--json | --brief]
+                       [--workspace PATH] [--max-subagents 12]
+                       [--max-read-per-turn 100000] [--json | --brief]
 
 It wraps ``session_usage.tally`` (the per-transcript counter, moved here from
 claude-paper) over every session transcript under ``~/.claude/projects`` modified
@@ -23,8 +24,9 @@ in the window, and aggregates:
   its ``tier:``, ``models.tiers``; else its ``model:``), limit failures.
 
 Flags (deterministic, for the usage-analyst to explain): sessions with limit
-failures, sessions with more than ``--max-subagents`` subagents, and agents seen on
-a model heavier than the one they declare. Model-downgrade suggestions are the
+failures, sessions with more than ``--max-subagents`` subagents, agents seen on
+a model heavier than the one they declare, and context bloat (a main transcript of at
+least 20 turns averaging more than ``--max-read-per-turn`` cache-read tokens per turn). Model-downgrade suggestions are the
 analyst's judgement, not this script's.
 
 Output is Markdown (default), JSON (``--json``), or one line (``--brief``, used by
@@ -58,6 +60,8 @@ MODEL_RANK = ac.MODEL_RANK
 #: runs are tallied as "legacy:<ns>" until those plugins are retired (plan phase 8)
 LEGACY_NAMESPACES = ("paper", "flatsurf")
 COUNTED = ("turns", "read", "write", "limit_failures")
+#: context-bloat flag: fewer turns than this are never flagged
+BLOAT_MIN_TURNS = 20
 
 
 def model_family(model):
@@ -216,7 +220,8 @@ def _add(acc, counts):
         acc[k] += counts.get(k, 0)
 
 
-def aggregate(sessions, roster=None, declared=None, max_subagents=12):
+def aggregate(sessions, roster=None, declared=None, max_subagents=12,
+              max_read_per_turn=100000):
     """Aggregate collected sessions into the report dict."""
     roster = roster or {}
     declared = declared or {}
@@ -258,6 +263,12 @@ def aggregate(sessions, roster=None, declared=None, max_subagents=12):
         if len(s["subagents"]) > max_subagents:
             flags.append({"kind": "fan-out", "session": s["session"], "instance": inst,
                           "count": len(s["subagents"])})
+        mt = s["main"]["counts"].get("turns", 0)
+        if mt >= BLOAT_MIN_TURNS:
+            mean = s["main"]["counts"].get("read", 0) / mt
+            if mean > max_read_per_turn:
+                flags.append({"kind": "context-bloat", "session": s["session"],
+                              "instance": inst, "turns": mt, "mean_read": int(mean)})
     for a in by_agent.values():
         dec = a["declared"]
         if dec in MODEL_RANK:
@@ -320,6 +331,10 @@ def render_markdown(report, start, end):
         if f["kind"] == "limit":
             out.append("- limit: session %s (%s): %d limit failure(s)"
                        % (f["session"], f["instance"], f["count"]))
+        elif f["kind"] == "context-bloat":
+            out.append("- context-bloat: session %s (%s): %d turns, mean read %s/turn "
+                       "-- compact or split the session"
+                       % (f["session"][:8], f["instance"], f["turns"], _k(f["mean_read"])))
         elif f["kind"] == "fan-out":
             out.append("- fan-out: session %s (%s): %d subagents"
                        % (f["session"], f["instance"], f["count"]))
@@ -339,7 +354,7 @@ def render_brief(report, days_label):
 
 
 def build(days=None, since=None, projects=None, workspace_path=None, max_subagents=12,
-          now=None, perms=None, repo=REPO):
+          max_read_per_turn=100000, now=None, perms=None, repo=REPO):
     start, end = _window(days, since, now)
     projects = projects or os.path.expanduser("~/.claude/projects")
     try:
@@ -350,7 +365,8 @@ def build(days=None, since=None, projects=None, workspace_path=None, max_subagen
     # session's own, or the scheduled job's) can carry an mtime just after ``now``,
     # whose resolution on Windows is coarse. Only an explicit ``now`` caps it.
     sessions = collect(projects, start, end if now is not None else None, ws)
-    report = aggregate(sessions, load_roster(perms), declared_models(repo, ws), max_subagents)
+    report = aggregate(sessions, load_roster(perms), declared_models(repo, ws), max_subagents,
+                       max_read_per_turn)
     report["window"] = {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")}
     return report, start, end
 
@@ -363,6 +379,7 @@ def main(argv=None):
     ap.add_argument("--projects", help="default: ~/.claude/projects")
     ap.add_argument("--workspace")
     ap.add_argument("--max-subagents", type=int, default=12)
+    ap.add_argument("--max-read-per-turn", type=int, default=100000)
     out = ap.add_mutually_exclusive_group()
     out.add_argument("--json", action="store_true")
     out.add_argument("--brief", action="store_true")
@@ -371,7 +388,8 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass
-    report, start, end = build(a.days, a.since, a.projects, a.workspace, a.max_subagents)
+    report, start, end = build(a.days, a.since, a.projects, a.workspace, a.max_subagents,
+                                  a.max_read_per_turn)
     if a.json:
         print(json.dumps(report, indent=2))
     elif a.brief:
