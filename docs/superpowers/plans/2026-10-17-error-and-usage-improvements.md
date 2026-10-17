@@ -84,7 +84,7 @@ human); the superproject submodule-pointer bump (human-run `merge --bump`).
 |---|---|
 | E1 | done |
 | E2 | done |
-| E3 | todo |
+| E3 | done |
 | E4 | todo |
 | E5 | todo |
 | U1 | todo |

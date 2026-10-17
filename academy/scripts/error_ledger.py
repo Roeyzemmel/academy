@@ -5,7 +5,7 @@ Usage:
     py error_ledger.py [hook]                    # PostToolUseFailure hook, event on stdin
     py error_ledger.py report [--days 7 | --since YYYY-MM-DD] [--json] [--workspace PATH]
     py error_ledger.py settle --packet P-NNNN [--quiet-days 7] [--workspace PATH]
-    py error_ledger.py resolve SIG [SIG ...] [--note TEXT] [--by WHO] [--workspace PATH]
+    py error_ledger.py resolve SIG [SIG ...] [--note TEXT] [--by WHO] [--commit SHA] [--workspace PATH]
 
 The ledger is ``<board>/.errors/<instance>.jsonl`` (one file per instance, so two
 machines never merge-conflict; the board's SessionStart commit carries it). It is
@@ -14,7 +14,7 @@ append-only; each line is one JSON record:
     {"t": "error",   "ts", "session", "instance", "tool", "sig", "msg",
                      ["detail"], ["cmd"], ["cwd"], ["path"]}
     {"t": "settle",  "ts", "packet", "upto"}      # a weekly review took the errors up to ``upto``
-    {"t": "resolve", "ts", "sig", "note", "by"}   # the class is closed
+    {"t": "resolve", "ts", "sig", "note", "by", ["commit"]}   # the class is closed
 
 An *error class* is a signature: the tool plus the first line of the message with
 paths, ids, numbers and hex normalised away. A class is **open** from its first
@@ -36,6 +36,10 @@ error record after its last ``resolve`` record. The weekly cycle:
    carries over and its weeks-open count grows, which is what the analyst escalates.
 
 ``resolve`` closes classes by hand (the human's word: a fix landed, or accepted noise).
+``--commit SHA`` records the fixing commit in the resolve record; a class whose last
+resolve carries a commit and that then records a new error is a **regression** (state
+``regression`` in the report, ahead of ``new`` and ``recurring``). A resolve without a
+commit, and ``settle``'s resolve by silence, behave as before.
 """
 
 import argparse
@@ -197,10 +201,12 @@ def classes(records):
     last, reported} over the errors after each class's last ``resolve``. ``reported``
     is true when a settle happened at or after the class's first error."""
     last_resolve = {}
+    last_commit = {}
     settles = []
     for r in records:
         if r["t"] == "resolve" and r.get("sig"):
             last_resolve[r["sig"]] = r["ts"]
+            last_commit[r["sig"]] = r.get("commit") or ""
         elif r["t"] == "settle":
             settles.append(r.get("upto") or r["ts"])
     out = {}
@@ -222,6 +228,8 @@ def classes(records):
         c["weeks"].add(_parse(r["ts"]).strftime("%G-W%V"))
     for c in out.values():
         c["reported"] = any(u >= c["first"] for u in settles)
+        # an error after a resolve that named its fixing commit: the fix did not hold
+        c["regression_commit"] = last_commit.get(c["sig"], "")
     return out
 
 
@@ -320,6 +328,8 @@ def report(records, start, now=None):
                      "instances": sorted(c["instances"]), "first": c["first"],
                      "last": c["last"], "weeks_open": weeks_open,
                      "distinct_weeks": len(c["weeks"]), "reported": c["reported"],
+                     "regression": bool(c["regression_commit"]),
+                     "regression_commit": c["regression_commit"],
                      # recurring: seen on three or more sessions, or in two calendar weeks
                      "recurring": len(c["sessions"]) >= 3 or len(c["weeks"]) >= 2})
     # class rows stay ordered by raw counts; only the families rank by bursts
@@ -329,7 +339,8 @@ def report(records, start, now=None):
     def fam_entry(name, r):
         return fams.setdefault(name, {"family": name, "in_window": 0, "bursts": 0, "count": 0,
                                       "classes": 0, "sessions": set(),
-                                      "recurring": False, "example": r["msg"]})
+                                      "recurring": False, "regression": False,
+                                      "example": r["msg"]})
 
     for r in rows:
         if r["sig"] == BASH_EXIT_SIG:  # split by command word, per record
@@ -340,6 +351,7 @@ def report(records, start, now=None):
                 f["bursts"] += 1 if id(rec) in starts[r["sig"]] and rec["ts"] >= lo else 0
                 f["sessions"].add(rec.get("session") or "?")
                 f["recurring"] = f["recurring"] or r["recurring"]
+                f["regression"] = f["regression"] or r["regression"]
             for name in {family_of(r["sig"], rec) for rec in cls[r["sig"]]["recs"]}:
                 fams[name]["classes"] += 1
             continue
@@ -349,6 +361,7 @@ def report(records, start, now=None):
         f["count"] += r["count"]
         f["classes"] += 1
         f["recurring"] = f["recurring"] or r["recurring"]
+        f["regression"] = f["regression"] or r["regression"]
         f["sessions"].update(cls[r["sig"]]["sessions"])
     families = sorted(({**f, "sessions": len(f["sessions"])} for f in fams.values()),
                       key=lambda f: (-f["bursts"], -f["count"], f["family"]))
@@ -374,14 +387,15 @@ def render_markdown(rep):
             out.append("| `%s` | %d | %d | %d | %d | %s | %s |" % (
                 f["family"].replace("|", "\\|"), f["in_window"], f["bursts"], f["classes"],
                 f["sessions"],
-                "recurring" if f["recurring"] else "-",
+                "regression" if f.get("regression") else "recurring" if f["recurring"] else "-",
                 (f["example"] or "-").replace("|", "\\|")[:100]))
         out.append("")
     out += ["## Classes", "",
            "| class | in window | bursts | total | sessions | first | last | weeks open | state |",
            "|---|---|---|---|---|---|---|---|---|"]
     for r in rep["classes"]:
-        state = ("recurring" if r["recurring"] else "new" if not r["reported"] else "carried")
+        state = ("regression" if r.get("regression") else "recurring" if r["recurring"]
+                 else "new" if not r["reported"] else "carried")
         out.append("| `%s` | %d | %d | %d | %d | %s | %s | %d | %s |" % (
             r["sig"].replace("|", "\\|"), r["in_window"], r["bursts"], r["count"], r["sessions"],
             r["first"][:10], r["last"][:10], r["weeks_open"], state))
@@ -525,6 +539,7 @@ def main(argv=None):
     p.add_argument("sig", nargs="+")
     p.add_argument("--note", default="")
     p.add_argument("--by", default="human")
+    p.add_argument("--commit", default="", help="the fixing commit; a later error is a regression")
     p.add_argument("--instance")
     p.add_argument("--workspace")
     a = ap.parse_args(argv)
@@ -559,8 +574,10 @@ def main(argv=None):
     elif a.cmd == "resolve":
         now = _stamp(_now())
         for sig in a.sig:
-            append(board, instance, {"t": "resolve", "ts": now, "sig": sig, "by": a.by,
-                                     "note": a.note})
+            rec = {"t": "resolve", "ts": now, "sig": sig, "by": a.by, "note": a.note}
+            if a.commit:
+                rec["commit"] = a.commit
+            append(board, instance, rec)
         print("resolved %d class(es)" % len(a.sig))
     return 0
 

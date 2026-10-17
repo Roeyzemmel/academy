@@ -311,6 +311,61 @@ class LedgerFileTests(unittest.TestCase):
         self.assertEqual(len(el.read_all(self.board)), 1)
 
 
+class RegressionTests(unittest.TestCase):
+    WIN = NOW - dt.timedelta(days=7)
+
+    def rep(self, recs):
+        return el.report(recs, self.WIN, NOW)
+
+    def test_resolve_with_commit_then_quiet_is_closed(self):
+        recs = [err(10, "A"), {"t": "resolve", "ts": at(5), "sig": "A", "commit": "abc1234"}]
+        self.assertEqual(self.rep(recs)["classes"], [])
+
+    def test_error_after_resolve_with_commit_is_regression_and_open(self):
+        recs = [err(10, "A"), {"t": "resolve", "ts": at(5), "sig": "A", "commit": "abc1234"},
+                err(1, "A", "s2")]
+        rep = self.rep(recs)
+        row = rep["classes"][0]
+        self.assertEqual((row["sig"], row["count"], row["regression"]), ("A", 1, True))
+        self.assertTrue(rep["families"][0]["regression"])
+        self.assertEqual(row["regression_commit"], "abc1234")
+        self.assertEqual(json.loads(json.dumps(rep))["classes"][0]["regression_commit"], "abc1234")
+        md = el.render_markdown(rep)
+        self.assertIn("| regression |", md)
+        self.assertNotIn("| new |", md)
+
+    def test_resolve_without_commit_is_as_before(self):
+        recs = [err(10, "A"), {"t": "resolve", "ts": at(5), "sig": "A"}, err(1, "A", "s2")]
+        rep = self.rep(recs)
+        self.assertFalse(rep["classes"][0]["regression"])
+        self.assertFalse(rep["families"][0]["regression"])
+        self.assertIn("| new |", el.render_markdown(rep))
+
+    def test_later_plain_resolve_clears_regression_basis(self):
+        recs = [err(10, "A"), {"t": "resolve", "ts": at(8), "sig": "A", "commit": "abc"},
+                {"t": "resolve", "ts": at(5), "sig": "A"}, err(1, "A", "s2")]
+        self.assertFalse(self.rep(recs)["classes"][0]["regression"])
+
+    def test_commit_in_json_and_cli(self):
+        board = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, board, True)
+        ws = os.path.join(board, "workspace.json")
+        with open(ws, "w") as fh:
+            json.dump({"board": board, "instances": {}}, fh)
+        el.append(board, "i@x", {**err(10, "A"), "instance": "i@x"})
+        main = lambda *a: el.main(list(a) + ["--workspace", ws])
+        old = el.ac.load_workspace
+        el.ac.load_workspace = lambda path=None: {"board": board, "_path": ws}
+        self.addCleanup(setattr, el.ac, "load_workspace", old)
+        self.assertEqual(main("resolve", "A", "--instance", "i@x", "--commit", "deadbee"), 0)
+        recs = [r for r in el.read_all(board) if r["t"] == "resolve"]
+        self.assertEqual(recs[0]["commit"], "deadbee")
+        self.assertEqual(recs[0]["by"], "human")
+        self.assertEqual(main("resolve", "B", "--instance", "i@x"), 0)
+        recs = [r for r in el.read_all(board) if r["t"] == "resolve" and r["sig"] == "B"]
+        self.assertNotIn("commit", recs[0])
+
+
 class HookProcessTests(unittest.TestCase):
     def test_hook_end_to_end_and_never_fails(self):
         d = tempfile.mkdtemp()

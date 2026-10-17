@@ -27,7 +27,8 @@ plugin).
    ones to act on. The Markdown report leads with `## Top families` (classes folded
    by verb and reason, e.g. every `grounds do not support <id>`), then the full
    class table; read the families first, since the long tail of classes differing
-   only by an id or status is noise. The JSON has the same `families`.
+   only by an id or status is noise. The JSON has the same `families`. Regressions
+   (state `regression`) are escalated first.
 2. Write the packet body to `<board>/.render/usage-body.md` (the only file you
    write), with the eight sections:
    - `## Summary`: at most three lines: sessions, subagents, cache read, limit
