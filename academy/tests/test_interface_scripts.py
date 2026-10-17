@@ -175,6 +175,59 @@ class UsageReportTest(Sandbox):
         brief = usage_report.render_brief(report, "7d")
         self.assertTrue(brief.startswith("usage 7d: 2 sessions, 2 subagents"))
 
+    def test_errors_per_100_turns_joins_the_ledger_on_session(self):
+        # U2: ledger records joined to the tally on session id; the main session's
+        # errors divide by main turns, an agent's by that agent's turns
+        root = self.make_projects()
+        now = _dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+        n = [0]
+
+        def rec(session, agent=None, ts=None):
+            n[0] += 1      # distinct messages: identical records are deduplicated on read
+            r = {"t": "error", "ts": ts or now, "session": session, "instance": "author@p",
+                 "tool": "Bash", "sig": "Bash: x", "msg": "x%d" % n[0]}
+            if agent:
+                r["agent"] = agent
+            return json.dumps(r, sort_keys=True)
+
+        write(os.path.join(self.board, ".errors", "author@p.jsonl"), "\n".join([
+            rec("s1", "MAIN"), rec("s1", "MAIN"), rec("s1", "academy:concierge"),
+            rec("s1"),                                    # old record: no agent field
+            rec("elsewhere", "MAIN"),                     # session not in the tally
+            rec("s1", "MAIN", ts="2020-01-01T00:00:00"),  # outside the window
+        ]) + "\n")
+        report, st, en = usage_report.build(
+            days=7, projects=root, workspace_path=self.ws_path,
+            perms={"roster": {"academy": ["concierge"]}},
+            repo=os.path.join(self.tmp, "repo"))
+        er = report["errors"]
+        self.assertEqual((er["errors"], er["matched"], er["unmatched"]), (5, 4, 1))
+        self.assertEqual(er["unmatched_sessions"], 1)
+        self.assertEqual(er["no_agent_field"], 1)
+        main_turns = report["by_role"]["main"]["turns"]
+        main = [r for r in er["by_role"] if r["role"] == "main"][0]
+        self.assertEqual((main["errors"], main["turns"]), (2, main_turns))
+        self.assertAlmostEqual(main["per100"], 200.0 / main_turns, places=1)
+        ag = [r for r in er["by_agent"] if r["agent"] == "academy:concierge"][0]
+        self.assertEqual((ag["errors"], ag["turns"], ag["role"]), (1, 1, "academy"))
+        md = usage_report.render_markdown(report, st, en)
+        self.assertIn("## Errors per 100 turns", md)
+        self.assertIn("unmatched", md)
+        self.assertIn("| academy:concierge |", md)
+
+    def test_errors_section_absent_without_ledger_or_errors(self):
+        root = self.make_projects()
+        report, st, en = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={}, repo=os.path.join(self.tmp, "repo"))
+        self.assertNotIn("errors", report)
+        self.assertNotIn("Errors per 100 turns", usage_report.render_markdown(report, st, en))
+        write(os.path.join(self.board, ".errors", "author@p.jsonl"),
+              json.dumps({"t": "error", "ts": "2020-01-01T00:00:00", "session": "s1"}) + "\n")
+        report, _s, _e = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={}, repo=os.path.join(self.tmp, "repo"))
+        self.assertNotIn("errors", report)
+
     def test_heavier_than_declared_reads_the_tier(self):
         # T-0350: an agent file's tier, resolved through the workspace's models.tiers,
         # is what "declared" means; a file without a tier keeps its model: line

@@ -29,6 +29,15 @@ a model heavier than the one they declare, and context bloat (a main transcript 
 least 20 turns averaging more than ``--max-read-per-turn`` cache-read tokens per turn). Model-downgrade suggestions are the
 analyst's judgement, not this script's.
 
+Errors per 100 turns (optional section): when the workspace board has an error ledger
+(``<board>/.errors/*.jsonl``) and the window holds errors, the ledger's records are
+joined to the tally on the session id. A record's ``agent`` (``MAIN`` for the main
+session, else the agent type; absent in records written before 2026-10-17) picks the
+turns it is divided by: the main transcript's, or the turns of that agent type's
+subagent runs in the tallied sessions. Limits: only sessions with a transcript on this
+machine are in the denominator; errors from other sessions are ``unmatched`` and
+not rated; records without an ``agent`` field count only in the session-level rate.
+
 Output is Markdown (default), JSON (``--json``), or one line (``--brief``, used by
 the desk). Cache reads are the volume that tracks cost; output tokens are not shown
 (see session_usage.py).
@@ -292,6 +301,101 @@ def aggregate(sessions, roster=None, declared=None, max_subagents=12,
     }
 
 
+def load_ledger(workspace):
+    """Error records of the workspace board's ledger, or None when it has none."""
+    board = (workspace or {}).get("board")
+    if not isinstance(board, str) or not os.path.isdir(os.path.join(board, ".errors")):
+        return None
+    try:
+        import error_ledger  # noqa: E402
+        return [r for r in error_ledger.read_all(board) if r.get("t") == "error"]
+    except (ImportError, OSError, ac.AcademyError):
+        return None
+
+
+def _per100(errors, turns):
+    return round(100.0 * errors / turns, 1) if turns else None
+
+
+def error_rates(sessions, records, start, end, roster=None):
+    """Errors per 100 turns from ledger ``records`` joined to ``sessions`` on session id.
+
+    ``None`` when no record falls in [start, end]. Otherwise ``{errors, matched,
+    unmatched, unmatched_sessions, no_agent_field, session_turns, per100, by_role,
+    by_agent}``; ``by_agent`` is empty when no matched record carries an ``agent``.
+    """
+    roster = roster or {}
+    lo, hi = start.strftime("%Y-%m-%dT%H:%M:%S"), end.strftime("%Y-%m-%dT%H:%M:%S")
+    recs = [r for r in records if lo <= str(r.get("ts", "")) <= hi]
+    if not recs:
+        return None
+    tally = {s["session"]: s for s in sessions}
+    names = {}                                   # lower-cased agent type -> display name
+    turns_by_agent = collections.Counter()
+    turns_by_role = collections.Counter()
+    for s in sessions:
+        turns_by_role["main"] += s["main"]["counts"].get("turns", 0)
+        for sub in s["subagents"]:
+            at = sub["agent_type"]
+            names.setdefault(at.lower(), at)
+            turns_by_agent[at.lower()] += sub["counts"].get("turns", 0)
+            turns_by_role[role_of_agent(at, roster)] += sub["counts"].get("turns", 0)
+    matched = [r for r in recs if r.get("session") in tally]
+    unmatched = [r for r in recs if r.get("session") not in tally]
+    err_role = collections.Counter()
+    err_agent = collections.Counter()
+    no_agent = 0
+    for r in matched:
+        ag = r.get("agent")
+        if not isinstance(ag, str) or not ag:
+            no_agent += 1
+        elif ag.upper() == "MAIN":
+            err_role["main"] += 1
+        else:
+            err_agent[ag.lower()] += 1
+            err_role[role_of_agent(names.get(ag.lower(), ag), roster)] += 1
+    session_turns = sum(s["main"]["counts"].get("turns", 0)
+                        + sum(x["counts"].get("turns", 0) for x in s["subagents"])
+                        for s in tally.values() if any(r.get("session") == s["session"]
+                                                       for r in matched))
+    by_role = [{"role": k, "errors": n, "turns": turns_by_role[k],
+                "per100": _per100(n, turns_by_role[k])}
+               for k, n in sorted(err_role.items(), key=lambda kv: -kv[1])]
+    by_agent = [{"agent": names.get(k, k), "role": role_of_agent(names.get(k, k), roster),
+                 "errors": n, "turns": turns_by_agent[k], "per100": _per100(n, turns_by_agent[k])}
+                for k, n in sorted(err_agent.items(), key=lambda kv: -kv[1])]
+    return {"errors": len(recs), "matched": len(matched), "unmatched": len(unmatched),
+            "unmatched_sessions": len({r.get("session") for r in unmatched}),
+            "no_agent_field": no_agent, "session_turns": session_turns,
+            "per100": _per100(len(matched), session_turns),
+            "by_role": by_role, "by_agent": by_agent}
+
+
+def _rate(v):
+    return "-" if v is None else "%.1f" % v
+
+
+def render_errors(er):
+    out = ["", "## Errors per 100 turns", "",
+           "Error-ledger records in the window joined to the tally on the session id. "
+           "Only sessions with a transcript on this machine are in the turn counts; "
+           "%d error(s) from %d session(s) not in the tally are unmatched and not rated. "
+           "A record's `agent` (MAIN or the agent type) picks its turns; %d matched "
+           "record(s) predate the field and count only in the session-level rate."
+           % (er["unmatched"], er["unmatched_sessions"], er["no_agent_field"]), "",
+           "%d error(s) in the window, %d matched to %d turns in their sessions: %s per 100."
+           % (er["errors"], er["matched"], er["session_turns"], _rate(er["per100"])), ""]
+    if er["by_role"]:
+        out += ["| role | errors | turns | per 100 |", "|---|---|---|---|"]
+        out += ["| %s | %d | %d | %s |" % (r["role"], r["errors"], r["turns"], _rate(r["per100"]))
+                for r in er["by_role"]]
+    if er["by_agent"]:
+        out += ["", "| agent | role | errors | turns | per 100 |", "|---|---|---|---|---|"]
+        out += ["| %s | %s | %d | %d | %s |" % (a["agent"], a["role"], a["errors"], a["turns"],
+                                                 _rate(a["per100"])) for a in er["by_agent"]]
+    return out
+
+
 def _k(n):
     return "%dk" % (n // 1000)
 
@@ -324,6 +428,8 @@ def render_markdown(report, start, end):
         out.append("| %s | %s | %s | %s | %d | %s | %s | %d |" % (
             a["agent"], a["role"], a["declared"] or "-", seen or "-", a["runs"],
             a["mean_turns"], _k(a["read"]), a["limit_failures"]))
+    if report.get("errors"):
+        out += render_errors(report["errors"])
     out += ["", "## Flags", ""]
     if not report["flags"]:
         out.append("None.")
@@ -367,6 +473,11 @@ def build(days=None, since=None, projects=None, workspace_path=None, max_subagen
     sessions = collect(projects, start, end if now is not None else None, ws)
     report = aggregate(sessions, load_roster(perms), declared_models(repo, ws), max_subagents,
                        max_read_per_turn)
+    records = load_ledger(ws)
+    if records is not None:
+        er = error_rates(sessions, records, start, end, load_roster(perms))
+        if er:
+            report["errors"] = er
     report["window"] = {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")}
     return report, start, end
 

@@ -441,6 +441,10 @@ def hook_record(event, instance, now=None):
     rec = {"t": "error", "ts": _stamp(now or _now()), "session": event.get("session_id") or "",
            "instance": instance, "tool": tool, "sig": signature(tool, err),
            "msg": clean_message(err)}
+    # the acting agent (additive, U2): "MAIN" for the main session, so a record without
+    # the field is an old one; the namespace is kept ("author:math-writer")
+    ns, bare = ac.agent_identity(event)
+    rec["agent"] = redact(("%s:%s" % (ns, bare)) if ns else bare)[:80] if bare else "MAIN"
     rec.update(context(event, tool, err))
     return rec
 

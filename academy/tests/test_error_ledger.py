@@ -200,6 +200,17 @@ class HookRecordTests(unittest.TestCase):
         self.assertEqual(rec["instance"], "author@x")
         self.assertNotIn("supersecrettoken1", json.dumps(rec))
 
+    def test_record_carries_the_agent(self):
+        # U2: a subagent's failure names the agent (namespaced, redacted); the main
+        # session is MAIN, so a missing field means an old record, not the main session
+        ev = {"tool_name": "Bash", "error": "Exit code 1\nx", "session_id": "S",
+              "agent_type": "author:math-writer"}
+        self.assertEqual(el.hook_record(ev, "author@x", NOW)["agent"], "author:math-writer")
+        ev = {"tool_name": "Bash", "error": "Exit code 1\nx", "session_id": "S"}
+        self.assertEqual(el.hook_record(ev, "author@x", NOW)["agent"], "MAIN")
+        ev["agent_type"] = "x:tok token=abcdefghijklmnop"
+        self.assertNotIn("abcdefghijklmnop", el.hook_record(ev, "i", NOW)["agent"])
+
     def test_interrupt_and_empty_are_skipped(self):
         self.assertIsNone(el.hook_record({"tool_name": "Bash", "error": "x",
                                           "is_interrupt": True}, "i", NOW))
