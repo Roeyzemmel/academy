@@ -961,7 +961,9 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     """Set ``cid``'s status: the one mutation path for lab/paper records.
 
     ``grounds`` is checked by :func:`core.grounds.check_grounds` (plan section 8) against
-    the claim's current statement hash; ``evidence`` rows (``kind | ref | verdict |
+    the claim's current statement hash, and its review records by
+    :func:`core.grounds.check_verdict_refs` against the claim and its ``supersedes``
+    (reword grounds whose base pass is filed under a superseded id, T-0476); ``evidence`` rows (``kind | ref | verdict |
     note``) are appended first. Writes the status line and a history row (newest first)
     and nothing else. Refuses, leaving the file untouched, when the grounds fail or the
     result would not pass ``check``. Returns the old status."""
@@ -979,7 +981,10 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     else:
         ok, why = _grounds.check_grounds(status, grounds, statement_hash(repo, cid), human=human)
     if ok and not lifecycle:
-        why = _grounds.check_verdict_refs(grounds, lambda ref: resolve_ref(ref, repo), cid)
+        # a reword pass on a renamed record may stand on a base pass filed under an id
+        # this record supersedes (T-0476): the record's own `supersedes` decides
+        why = _grounds.check_verdict_refs(grounds, lambda ref: resolve_ref(ref, repo), cid,
+                                          supersedes=claim.fields.get("supersedes"))
         ok = not why
     if not ok:
         raise Refused("the grounds do not support %s -> %s:\n- %s"

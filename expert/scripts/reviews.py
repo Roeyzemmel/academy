@@ -8,6 +8,10 @@
                                                       open a reword pass (T-0347) on a
                                                       statement reworded after BASE, a
                                                       CONFIRMED x2 pass; name ends -reword
+    py reviews.py new-pass SUBJECT --reword-of BASE --base-subject OLD_ID [--ticket T-NNNN]
+                                                      the same, on a renamed record whose
+                                                      base pass is filed under OLD_ID, an
+                                                      id SUBJECT's record supersedes (T-0476)
     py reviews.py reword-brief SUBJECT PASS (--old-file F | --old-text T)
                   (--new-file F | --new-text T) [--findings F_OR_TEXT ...]
                   [--ticket T] [--out FILE]           the reword run's brief bundle
@@ -37,6 +41,17 @@ brief's fields (``run: R``, ``mode: reword``, ``base_pass``, ``base_hash``, the 
 its two run records inlined (the run cannot read ``reviews/``: the blind guard still
 closes it), and the findings that prompted the rewording. Write it outside
 ``reviews/`` (the session scratchpad).
+
+**A renamed record** (T-0476, the human's decision of 2026-10-17: a label rename is a
+rewording, given one reword run). The record's id is its label, so a rename makes a new
+record that ``supersedes`` the old id, while the CONFIRMED x2 base pass stays in the old
+id's folder. ``new-pass SUBJECT --reword-of BASE --base-subject OLD_ID`` reads the base
+pass under ``OLD_ID``'s folder, and refuses unless ``OLD_ID`` is namespaced and
+SUBJECT's current registry record lists it in ``supersedes`` (directly; read through the
+registry engine, so an unreadable record refuses too). The pass itself is opened under
+SUBJECT, and its ``.open`` note records ``base_subject``; ``reword-brief`` reads the base
+from there and tells run R to copy ``base_subject: OLD_ID`` into its VERDICT block, which
+``land_verdict.py`` keeps and ``decision_table.py`` follows.
 """
 
 import argparse
@@ -120,8 +135,9 @@ REWORD_SUFFIX = "-reword"
 
 
 def base_decision(home, subject, base):
-    """``(A, B, result)`` of the base pass ``base`` of ``subject``: its run records and
-    its decision table. Raises Refused unless it is a CONFIRMED x2 pass (``confirmed`` /
+    """``(A, B, result)`` of the base pass ``base`` of ``subject`` (for a renamed record,
+    ``subject`` is the base_subject, the superseded id): its run records and its
+    decision table. Raises Refused unless it is a CONFIRMED x2 pass (``confirmed`` /
     ``confirmed-modulo``), present and not abandoned."""
     d = pass_dir(home, subject, base)
     a, b, notes = dt.base_records(None, base, d)
@@ -136,15 +152,73 @@ def base_decision(home, subject, base):
     return a, b, res
 
 
-def open_pass(home, subject, ticket=None, now=None, reword_of=None):
+def registry_supersedes(subject):
+    """The ids ``subject``'s current registry record lists in ``supersedes`` (a list),
+    read through the registry engine; None when the engine, the namespace's home or the
+    record cannot be found."""
+    ns, name = split_subject(subject)
+    if not ns:
+        return None
+    try:
+        plugin = os.path.join(ex.ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import federation, workspace as rws
+        info = rws.namespaces().get(ns)
+        home = info and info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return None
+        rec = federation.store(ns, home).get(name)
+    except Exception:        # an unreadable registry: the caller refuses
+        return None
+    if rec is None:
+        return None
+    sup = rec.fields.get("supersedes")
+    if isinstance(sup, (list, tuple)):
+        return [str(x).strip() for x in sup if str(x or "").strip()]
+    return [str(sup).strip()] if sup else []
+
+
+def check_base_subject(subject, base_subject, supersedes_of=None):
+    """Refused unless ``base_subject`` is a namespaced id that ``subject``'s record lists
+    in ``supersedes`` (T-0476). ``supersedes_of`` (subject -> list or None) replaces the
+    registry lookup."""
+    if not split_subject(base_subject)[0]:
+        raise Refused("--base-subject %r is not a namespaced id (ns:id): the id "
+                      "the base pass is filed under" % base_subject)
+    if base_subject == subject:
+        return
+    sup = (supersedes_of or registry_supersedes)(subject)
+    if sup is None:
+        raise Refused("cannot read %s's registry record, so its supersedes cannot be "
+                      "checked: a base pass of %s counts only for a record that "
+                      "supersedes it" % (subject, base_subject))
+    ns = split_subject(subject)[0]
+    # a bare entry (``lem:x`` in a paper record) is read in the record's own namespace
+    full = set(sup) | set("%s:%s" % (ns, s) for s in sup if not s.startswith(ns + ":"))
+    if base_subject not in full:
+        raise Refused("%s's record does not list %s in supersedes (it lists %s): a base "
+                      "pass filed under another id counts only for the record that "
+                      "supersedes it" % (subject, base_subject, ", ".join(sup) or "none"))
+
+
+def open_pass(home, subject, ticket=None, now=None, reword_of=None, base_subject=None,
+              supersedes_of=None):
     """Open a pass on ``subject`` and return its name; the same name again if that pass
     is already open (a rerun of the same step). Raises Refused while another pass on
     the subject is open. ``reword_of`` opens a reword pass on that base pass (T-0347);
-    refused unless the base is CONFIRMED x2 (``base_decision``)."""
+    refused unless the base is CONFIRMED x2 (``base_decision``). ``base_subject``
+    (T-0476) reads the base pass under that id instead, refused unless ``subject``'s
+    record supersedes it (``check_base_subject``)."""
     name = new_pass(ticket, now)
     base_hash = None
+    if base_subject and not reword_of:
+        raise Refused("--base-subject names where a reword's base pass is filed: give "
+                      "--reword-of <base pass> too")
     if reword_of:
-        a, _b, _res = base_decision(home, subject, reword_of)
+        if base_subject:
+            check_base_subject(subject, base_subject, supersedes_of)
+        a, _b, _res = base_decision(home, base_subject or subject, reword_of)
         base_hash = a.get("statement_hash") or ""
         name += REWORD_SUFFIX
     others = [p for p in open_passes(home, subject) if p != name]
@@ -161,6 +235,8 @@ def open_pass(home, subject, ticket=None, now=None, reword_of=None):
                                                 .strftime("%Y-%m-%d %H:%M")))
         if reword_of:
             fh.write("reword_of: %s\nbase_hash: %s\n" % (reword_of, base_hash))
+        if base_subject:
+            fh.write("base_subject: %s\n" % base_subject)
     return name
 
 
@@ -208,7 +284,8 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
     if not base:
         raise Refused("%s of %s is not a reword pass (open one with `new-pass %s "
                       "--reword-of <base pass>`)" % (pass_name, subject, subject))
-    a, b, res = base_decision(home, subject, base)
+    base_subject = note.get("base_subject") or ""
+    a, b, res = base_decision(home, base_subject or subject, base)
     base_hash = a.get("statement_hash") or ""
     old_h, new_h = statement_hash(old_text), statement_hash(new_text)
     if old_h != base_hash:
@@ -221,7 +298,7 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
     if ticket is None:
         t = note.get("ticket")
         ticket = t if t and t != "none" else None
-    bdir = pass_dir(home, subject, base)
+    bdir = pass_dir(home, base_subject or subject, base)
     dec = os.path.join(bdir, "decision.md")
     out = ["# Reword review bundle: %s" % subject, "",
            "You are run R of a reword pass (mode: reword). You are not blind to the base "
@@ -229,15 +306,21 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
            "the new wording (rigor-reviewer, \"Reword mode\").", "",
            "Copy these into your VERDICT block unchanged:", "", "```",
            "subject: %s" % subject, "pass: %s" % pass_name, "run: R", "mode: reword",
-           "base_pass: %s" % base, "base_hash: %s" % base_hash,
-           "statement_hash: %s" % new_h, "ticket: %s" % (ticket or "none"), "```", "",
-           "Base pass outcome (decision table): %s; modulo: %s"
-           % (res["outcome"], ", ".join(res["modulo"]) or "none"), "",
-           "## The statement as reviewed (base_hash %s)" % base_hash, "",
-           str(old_text).strip(), "",
-           "## The statement now (statement_hash %s)" % new_h, "", str(new_text).strip(), "",
-           "## The change, word by word ([-removed-] {+added+})", "",
-           word_diff(old_text, new_text), ""]
+           "base_pass: %s" % base, "base_hash: %s" % base_hash]
+    if base_subject:
+        out.append("base_subject: %s" % base_subject)
+    out += ["statement_hash: %s" % new_h, "ticket: %s" % (ticket or "none"), "```", ""]
+    if base_subject:
+        out += ["The statement's record supersedes %s (a renamed label): the base pass "
+                "was filed under that id, and reviewed the statement as it then read."
+                % base_subject, ""]
+    out += ["Base pass outcome (decision table): %s; modulo: %s"
+            % (res["outcome"], ", ".join(res["modulo"]) or "none"), "",
+            "## The statement as reviewed (base_hash %s)" % base_hash, "",
+            str(old_text).strip(), "",
+            "## The statement now (statement_hash %s)" % new_h, "", str(new_text).strip(),
+            "", "## The change, word by word ([-removed-] {+added+})", "",
+            word_diff(old_text, new_text), ""]
     sections = [("The base pass's decision", dec)] + \
         [("The base pass's run %s" % r.get("run"), r.get("file")) for r in (a, b)]
     for title, path in sections:
@@ -298,6 +381,10 @@ def main(argv=None):
     n.add_argument("--ticket")
     n.add_argument("--reword-of", default=None,
                    help="open a reword pass on this CONFIRMED x2 base pass (T-0347)")
+    n.add_argument("--base-subject", default=None,
+                   help="with --reword-of: the id the base pass is filed under, when the "
+                        "statement's label was renamed; SUBJECT's record must list it in "
+                        "supersedes (T-0476)")
     n.add_argument("--home")
     rb = sub.add_parser("reword-brief")
     rb.add_argument("subject")
@@ -338,7 +425,8 @@ def main(argv=None):
         return 2
     if args.cmd == "new-pass":
         try:
-            print(open_pass(home, args.subject, args.ticket, reword_of=args.reword_of))
+            print(open_pass(home, args.subject, args.ticket, reword_of=args.reword_of,
+                            base_subject=args.base_subject))
         except Refused as exc:
             sys.stderr.write("reviews: refused: %s\n" % exc)
             return 1

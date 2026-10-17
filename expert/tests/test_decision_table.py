@@ -558,6 +558,107 @@ class RewordTableTests(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class RewordBaseSubjectTests(unittest.TestCase):
+    """T-0476: a reword run on a renamed record names the base pass's subject
+    (``base_subject``, the superseded id) and the table reads the base there."""
+
+    OLD_ID, NEW_ID = "paper:lem:x", "paper:cor:x"
+
+    def rw(self, **kw):
+        kw.setdefault("subject", self.NEW_ID)
+        r = rwrec(**kw)
+        r["base_subject"] = self.OLD_ID
+        return r
+
+    def base(self, subject=None):
+        return (rec("CONFIRMED", subject=subject or self.OLD_ID),
+                rec("CONFIRMED", run="B", subject=subject or self.OLD_ID))
+
+    def test_parse_keeps_base_subject(self):
+        text = ("VERDICT\nsubject: paper:cor:x\npass: 2026-10-17-T-0476-reword\nrun: R\n"
+                "mode: reword\nbase_pass: 2026-09-28-T-0007\nbase_hash: abc123\n"
+                "base_subject: paper:lem:x\nverdict: CONFIRMED\nreword_scope: equivalent\n"
+                "model: claude-opus-5-5\nstatement_hash: def456\n")
+        self.assertEqual(dt.parse_record(text)["base_subject"], "paper:lem:x")
+        self.assertIn("base_subject", dt.REWORD_FIELDS)
+
+    def test_confirmed_and_grounds_carry_base_subject(self):
+        r = dt.decide_reword(self.rw(), *self.base())
+        self.assertEqual(r["outcome"], "confirmed", r["anomalies"])
+        self.assertEqual(r["base_subject"], self.OLD_ID)
+        g = r["grounds"]
+        self.assertEqual(g["base_subject"], self.OLD_ID)
+        self.assertEqual([v.get("base_subject") for v in g["verdicts"]], [self.OLD_ID] * 3)
+        ok, why = ex.mcp_module("claims").check_grounds("proved", g, "def456")
+        self.assertTrue(ok, why)
+        self.assertIn("base_subject %s" % self.OLD_ID, dt._text(r))
+
+    def test_base_of_another_subject_without_base_subject_is_invalid(self):
+        r = rwrec(subject=self.NEW_ID)
+        res = dt.decide_reword(r, *self.base())
+        self.assertEqual(res["outcome"], "invalid-base")
+        self.assertTrue(any("subject" in a for a in res["anomalies"]), res["anomalies"])
+
+    def test_base_records_must_be_about_base_subject(self):
+        res = dt.decide_reword(self.rw(), *self.base(subject="paper:lem:other"))
+        self.assertEqual(res["outcome"], "invalid-base")
+        self.assertTrue(any("base_subject" in a for a in res["anomalies"]),
+                        res["anomalies"])
+        # nor about the new id: base_subject says where the base was reviewed
+        res = dt.decide_reword(self.rw(), *self.base(subject=self.NEW_ID))
+        self.assertEqual(res["outcome"], "invalid-base")
+
+    def test_hash_and_run_id_checks_still_apply(self):
+        for kw in ({"base_hash": "zzz999"}, {"h": "abc123"}, {"run_id": "rv-A"}):
+            with self.subTest(**kw):
+                res = dt.decide_reword(self.rw(**kw), *self.base())
+                self.assertEqual(res["outcome"], "invalid-base")
+
+    def test_base_records_resolves_under_base_subject(self):
+        import shutil
+        d = tempfile.mkdtemp()
+        try:
+            root = os.path.join(d, "reviews", "paper")
+            base = os.path.join(root, "lem-x", "2026-09-28-T-0007")
+            rw = os.path.join(root, "cor-x", "2026-10-17-T-0476-reword")
+            os.makedirs(base)
+            os.makedirs(rw)
+            for run in ("A", "B"):
+                with open(os.path.join(base, run + ".md"), "w", encoding="utf-8") as fh:
+                    fh.write("---\nsubject: paper:lem:x\npass: 2026-09-28-T-0007\nrun: %s\n"
+                             "run_id: rv-%s\nverdict: CONFIRMED\nmodulo: []\n"
+                             "model: claude-opus-5-5\nstatement_hash: abc123\n---\n\nr\n"
+                             % (run, run))
+            with open(os.path.join(base, "decision.md"), "w", encoding="utf-8") as fh:
+                fh.write("# decided\n")
+            rpath = os.path.join(rw, "R.md")
+            with open(rpath, "w", encoding="utf-8") as fh:
+                fh.write("---\nsubject: paper:cor:x\npass: 2026-10-17-T-0476-reword\n"
+                         "run: R\nrun_id: rv-R\nverdict: CONFIRMED\nmodulo: []\n"
+                         "model: claude-opus-5-5\nstatement_hash: def456\nmode: reword\n"
+                         "base_pass: 2026-09-28-T-0007\nbase_hash: abc123\n"
+                         "base_subject: paper:lem:x\nreword_scope: equivalent\n---\n\nr\n")
+            a, b, notes = dt.base_records(rpath, "2026-09-28-T-0007",
+                                          base_subject="paper:lem:x")
+            self.assertEqual((a["run"], b["run"], notes), ("A", "B", []))
+            code, out, err = fixtures.run_script("decision_table.py", None, [rpath, "--json"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(out["outcome"], "confirmed", out)
+            self.assertEqual(out["base_subject"], "paper:lem:x")
+            self.assertEqual(out["grounds"]["base_subject"], "paper:lem:x")
+            self.assertIn("lem-x", out["grounds"]["verdicts"][1]["ref"].replace("\\", "/"))
+            # without base_subject the sibling folder under cor-x is looked up: missing
+            with open(rpath, encoding="utf-8") as fh:
+                t = fh.read()
+            with open(rpath, "w", encoding="utf-8") as fh:
+                fh.write(t.replace("base_subject: paper:lem:x\n", ""))
+            code, out, err = fixtures.run_script("decision_table.py", None, [rpath, "--json"])
+            self.assertEqual(out["outcome"], "invalid-base", out)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+
 class CliTests(unittest.TestCase):
     def test_cli_on_files(self):
         d = tempfile.mkdtemp()

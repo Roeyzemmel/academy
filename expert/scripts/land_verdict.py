@@ -13,6 +13,9 @@ and ``landed`` date, and the whole report as the body. A reword run's block
 (``mode: reword``, T-0347) lands as ``R.md`` whatever its ``run`` says, and its record
 also keeps ``mode``, ``base_pass``, ``base_hash`` and ``reword_scope``; a block missing a
 pass-shaped ``base_pass`` or a hex ``base_hash`` is blocked once, like a placeholder pass.
+On a renamed record (T-0476) the block may also name ``base_subject``, the superseded id
+the base pass is filed under; it is kept (only when given) and must be a namespaced id
+(``ns:id``), else the stop is blocked once.
 
 **Idempotent by run.** A landing is keyed by the reviewer's agent id (the tail of
 ``run_id``): a second SubagentStop of the same reviewer -- the hook firing twice, a
@@ -58,16 +61,19 @@ RECORD_KEYS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
 REWORD_KEYS = dt.REWORD_FIELDS
 
 
-def record_keys(reword):
+def record_keys(reword, base_subject=False):
+    """The record's keys in order; ``base_subject`` (T-0476) only when the block gave one,
+    so a reword record of the same subject is unchanged."""
     if not reword:
         return RECORD_KEYS
     i = RECORD_KEYS.index("statement_hash") + 1
-    return RECORD_KEYS[:i] + REWORD_KEYS + RECORD_KEYS[i:]
+    rk = tuple(k for k in REWORD_KEYS if base_subject or k != "base_subject")
+    return RECORD_KEYS[:i] + rk + RECORD_KEYS[i:]
 
 ASK = ("Close your report with the VERDICT block, exactly in the shape your "
        "instructions give (VERDICT, then subject, pass, run, verdict, modulo, model, "
        "statement_hash, blocking, gap_class, ticket; in reword mode also mode, base_pass, "
-       "base_hash, reword_scope), as the last thing in your final message. "
+       "base_hash, reword_scope, and base_subject when the bundle gives it), as the last thing in your final message. "
        "The hook that lands your verdict reads only that block.")
 
 
@@ -119,6 +125,9 @@ def block_problems(block):
             probs.append("base_pass")
         if not RE_HASH.match((block.get("base_hash") or "").strip().lower()):
             probs.append("base_hash")
+        bs = (block.get("base_subject") or "").strip()
+        if bs and bs.lower() not in dt.NONE_WORDS and not reviews.split_subject(bs)[0]:
+            probs.append("base_subject")
     return probs
 
 
@@ -184,10 +193,15 @@ def land(event, text, home, now=None, report=None):
         "agent": ("%s:%s" % (ns, name)) if ns else name,
         "landed": now.strftime("%Y-%m-%d"),
     }
+    bsubj = ""
     if reword:
+        bsubj = rec.get("base_subject") or ""
+        if bsubj.lower() in dt.NONE_WORDS:
+            bsubj = ""
         meta.update({"mode": "reword", "base_pass": rec["base_pass"] or None,
                      "base_hash": rec["base_hash"] or None,
-                     "reword_scope": rec["reword_scope"] or None})
+                     "reword_scope": rec["reword_scope"] or None,
+                     "base_subject": bsubj or None})
     prior = _same_run(folder, key, body)
     if prior:
         path, old, same_body = prior
@@ -211,7 +225,8 @@ def land(event, text, home, now=None, report=None):
                       "the brief; held aside for the review-chair, who moves it into the "
                       "pass folder once pass and statement hash are known"
                       % (" and ".join(probs), "is" if len(probs) == 1 else "are"))
-    ac.atomic_write(path, ac.write_frontmatter({k: meta[k] for k in record_keys(reword)}, body))
+    ac.atomic_write(path, ac.write_frontmatter(
+        {k: meta[k] for k in record_keys(reword, bool(bsubj))}, body))
     return path
 
 

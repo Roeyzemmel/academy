@@ -164,7 +164,9 @@ base_hash: <as in the bundle>
 reword_scope: equivalent | weaker | covered | exceeds
 ```
 
-`statement_hash` is then the **new** statement's hash, as the bundle gives it.
+`statement_hash` is then the **new** statement's hash, as the bundle gives it. When the
+bundle also gives `base_subject: <ns:id>` (the statement's label was renamed, and the
+base pass is filed under the old id, T-0476), copy that line too, after `base_hash`.
 
 `gap_class` says what the blocking finding touches, and so who repairs it
 (`academy/references/roster-rules.md`, "Role cut"): `hypothesis` (a hypothesis is

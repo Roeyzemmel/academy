@@ -342,5 +342,125 @@ class TestRewordGrounds(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class TestRewordBaseSubject(unittest.TestCase):
+    """T-0476: a reword pass on a record whose label was renamed. The base pass is filed
+    under the superseded id (``base_subject``); its records may name that id only when
+    the claim being changed lists it in ``supersedes``. Everything else stays strict."""
+
+    OLD_ID, NEW_ID = "paper:lem:x", "paper:cor:x"
+    BASE = ("---\nsubject: {s}\nrun_id: {r}\nverdict: CONFIRMED\nstatement_hash: {h}\n"
+            "agent: expert:rigor-reviewer\n---\n")
+    RW = ("---\nsubject: {s}\nrun_id: r\nverdict: CONFIRMED\nstatement_hash: NEW\n"
+          "mode: reword\nbase_pass: 2026-10-01-T-0001\nbase_hash: OLD\n"
+          "{bs}reword_scope: equivalent\nagent: expert:rigor-reviewer\n---\n")
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        self.d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, str(self.d), True)
+        self.put_base()
+        self.put_r()
+
+    def put_base(self, subject=None, h="OLD"):
+        for run, rid in (("A", "a"), ("B", "b")):
+            write(self.d / "lem-x" / "p1" / ("%s.md" % run),
+                  self.BASE.format(s=subject or self.OLD_ID, r=rid, h=h))
+
+    def put_r(self, subject=None, base_subject=None):
+        bs = "base_subject: %s\n" % (base_subject or self.OLD_ID) \
+            if base_subject is not False else ""
+        write(self.d / "cor-x" / "p2" / "R.md",
+              self.RW.format(s=subject or self.NEW_ID, bs=bs))
+
+    def grounds(self, base_subject=True):
+        bs = self.OLD_ID if base_subject is True else base_subject
+        rows = [{"verdict": "CONFIRMED", "run_id": "r", "grader_role": "expert",
+                 "statement_hash": "NEW", "mode": "reword", "base_hash": "OLD",
+                 "reword_scope": "equivalent", "ref": "cor-x/p2/R.md"},
+                {"verdict": "CONFIRMED", "run_id": "a", "grader_role": "expert",
+                 "statement_hash": "OLD", "ref": "lem-x/p1/A.md"},
+                {"verdict": "CONFIRMED", "run_id": "b", "grader_role": "expert",
+                 "statement_hash": "OLD", "ref": "lem-x/p1/B.md"}]
+        g = {"basis": "proof", "mode": "reword", "base_pass": "2026-10-01-T-0001",
+             "base_hash": "OLD", "statement_hash": "NEW", "verdicts": rows,
+             "producer_role": "author"}
+        if bs:
+            g["base_subject"] = bs
+            for r in rows:
+                r["base_subject"] = bs
+        return g
+
+    def refs(self, g, supersedes=(OLD_ID,), claim=NEW_ID):
+        return grounds.check_verdict_refs(g, lambda ref: self.d / ref, claim,
+                                          supersedes=supersedes)
+
+    def test_accepted_when_the_claim_supersedes_the_base_subject(self):
+        g = self.grounds()
+        ok, why = grounds.check_grounds("proved", g, "NEW")
+        self.assertTrue(ok, why)
+        self.assertEqual(self.refs(g), [])
+        # a v1-style scalar supersedes, and the bare (un-namespaced) form, are read too
+        self.assertEqual(self.refs(g, supersedes=self.OLD_ID), [])
+        self.assertEqual(self.refs(g, supersedes=["lem:x"]), [])
+
+    def test_refused_when_the_base_subject_is_not_superseded(self):
+        g = self.grounds()
+        for sup in ((), ["paper:lem:other"], None):
+            with self.subTest(supersedes=sup):
+                why = self.refs(g, supersedes=sup)
+                self.assertTrue(why)
+                self.assertIn("supersedes", " ".join(why))
+
+    def test_refused_without_base_subject_when_the_base_is_another_subject(self):
+        g = self.grounds(base_subject=None)
+        self.put_r(base_subject=False)
+        why = self.refs(g)
+        self.assertTrue(why)
+        self.assertIn("is about %s, not %s" % (self.OLD_ID, self.NEW_ID), " ".join(why))
+
+    def test_refused_on_a_hash_mismatch(self):
+        self.put_base(h="OTHER")
+        why = self.refs(self.grounds())
+        self.assertIn("statement", " ".join(why))
+        g = self.grounds()
+        for r in g["verdicts"][1:]:
+            r["statement_hash"] = "OTHER"
+        self.assertFalse(grounds.check_grounds("proved", g, "NEW")[0])
+
+    def test_refused_when_the_reword_row_is_not_about_the_claim(self):
+        # R itself filed under the old id: the reword row's subject must be the claim
+        self.put_r(subject=self.OLD_ID)
+        why = self.refs(self.grounds())
+        self.assertIn("is about %s, not %s" % (self.OLD_ID, self.NEW_ID), " ".join(why))
+
+    def test_the_reword_record_must_name_the_same_base_subject(self):
+        self.put_r(base_subject=False)
+        self.assertIn("base_subject", " ".join(self.refs(self.grounds())))
+        self.put_r(base_subject="paper:lem:other")
+        self.assertIn("base_subject", " ".join(self.refs(self.grounds())))
+
+    def test_base_subject_must_be_one_namespaced_id(self):
+        g = self.grounds(base_subject="lem-x")   # no namespace
+        ok, why = grounds.check_grounds("proved", g, "NEW")
+        self.assertFalse(ok)
+        self.assertIn("base_subject", " ".join(why))
+        g = self.grounds()
+        g["verdicts"][1]["base_subject"] = "paper:lem:other"
+        ok, why = grounds.check_grounds("proved", g, "NEW")
+        self.assertFalse(ok)
+        self.assertIn("base_subject", " ".join(why))
+
+    def test_base_subject_outside_reword_grounds_changes_nothing(self):
+        g = self.grounds()
+        del g["mode"]
+        self.assertFalse(grounds.check_grounds("proved", g, "NEW")[0])
+        # a blind pair filed under the old id is still refused for the new claim
+        blind = {"basis": "proof", "statement_hash": "OLD", "producer_role": "author",
+                 "base_subject": self.OLD_ID,
+                 "verdicts": [dict(r, base_subject=self.OLD_ID) for r in g["verdicts"][1:]]}
+        self.assertIn("is about", " ".join(self.refs(blind)))
+
+
 if __name__ == "__main__":
     unittest.main()

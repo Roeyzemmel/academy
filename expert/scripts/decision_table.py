@@ -36,6 +36,14 @@ blind pass); a missing, abandoned or unconfirmed base, another hash, subject or 
 shared run id or an unchanged statement gives ``invalid-base``. A reword record given as
 run B is an ``invalid-pair``: it is never half of a blind pair.
 
+A reword run on a **renamed** record (T-0476) names ``base_subject``: the superseded id
+whose reviews folder holds the base pass. The base is then read from
+``<reviews>/<ns>/<dir of base_subject>/<base_pass>/`` and its runs must be about
+``base_subject``; the result and its grounds (top level and every row) carry
+``base_subject``. Whether the claim supersedes that id is checked where the status is
+set (``registry.core.grounds.check_verdict_refs``) and when the pass is opened
+(``reviews.py new-pass --base-subject``), not here.
+
 Mechanical rules applied before the table:
 
 * The primaries are workspace.json's ``grading.primaryModels``, equal in authority
@@ -82,7 +90,7 @@ import _academy as ac  # noqa: E402
 
 VERDICTS = ("CONFIRMED", "PLAUSIBLE", "GAP", "DISPROVED")
 #: the reword run's own fields (T-0347): blank on every blind run
-REWORD_FIELDS = ("mode", "base_pass", "base_hash", "reword_scope")
+REWORD_FIELDS = ("mode", "base_pass", "base_hash", "reword_scope", "base_subject")
 FIELDS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
           "statement_hash", "blocking", "ticket", "gap_class") + REWORD_FIELDS
 #: a reword run's reading of the new wording against the proof as reviewed: ``equivalent``
@@ -668,15 +676,39 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
 # The reword pass (T-0347, the human's decision of 2026-10-12): one informed run on a reworded statement
 # ----------------------------------------------------------------------------
 
-def base_records(r_path, base_pass, base_dir=None):
+def slug_id(cid):
+    """A registry id as one path segment (``_expert.slug_id``, repeated here so the
+    table needs only ``_academy``): ``lem:strip-bound`` -> ``lem-strip-bound``."""
+    s = "".join(c if (c.isalnum() or c in "-_.") else "-" for c in str(cid))
+    while "--" in s:
+        s = s.replace("--", "-")
+    return s.strip("-.") or "item"
+
+
+def base_records(r_path, base_pass, base_dir=None, base_subject=None):
     """``(A, B, notes)``: the base pass's run records for the reword record at
     ``r_path``. The base pass is the sibling folder ``base_pass`` of the reword pass
-    (``<subject dir>/<base_pass>/``), or ``base_dir`` when given. An abandoned base pass,
-    or a missing folder or run, gives None in its place and a note saying why."""
+    (``<subject dir>/<base_pass>/``), or, when the reword run names ``base_subject``
+    (T-0476, a renamed record), ``<reviews>/<ns>/<dir of base_subject>/<base_pass>/``
+    beside the reword pass's own subject folder; ``base_dir`` overrides both. An
+    abandoned base pass, or a missing folder or run, gives None in its place and a note
+    saying why."""
     if not base_dir and not base_pass:
         return None, None, ["the reword run names no base_pass: its base is missing"]
-    d = base_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(r_path))),
-                                 base_pass)
+    if base_dir:
+        d = base_dir
+    elif base_subject:
+        ns, _, cid = str(base_subject).strip().partition(":")
+        if not ns or not cid:
+            return None, None, ["base_subject %r is not a namespaced id (ns:id)"
+                                % base_subject]
+        # <reviews>/<ns>/<subject dir>/<pass>/R.md -> <reviews>
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(r_path)))))
+        d = os.path.join(root, ns, slug_id(cid), base_pass)
+    else:
+        d = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(r_path))),
+                         base_pass)
     shown = d.replace("\\", "/")
     if not os.path.isdir(d):
         return None, None, ["the base pass folder %s is missing" % shown]
@@ -718,10 +750,15 @@ def _base_problems(rec_r, base_a, base_b):
     elif bh and new == bh:
         probs.append("the statement did not change (statement_hash = base_hash): the base "
                      "pass's own decision applies, not a reword")
-    subj = rec_r.get("subject")
+    subj, bsubj = rec_r.get("subject"), rec_r.get("base_subject") or ""
     for b in (base_a, base_b):
-        if subj and b.get("subject") and b["subject"] != subj:
-            probs.append("the base pass reviewed subject %s, the reword run %s"
+        if bsubj and b.get("subject") != bsubj:
+            probs.append("the base pass reviewed subject %s, not the reword run's "
+                         "base_subject %s" % (b.get("subject") or "(none)", bsubj))
+            break
+        if not bsubj and subj and b.get("subject") and b["subject"] != subj:
+            probs.append("the base pass reviewed subject %s, the reword run %s (a base "
+                         "pass of a superseded id needs base_subject)"
                          % (b["subject"], subj))
             break
     for b in (base_a, base_b):
@@ -743,6 +780,11 @@ def _reword_grounds(rec_r, base_recs, modulo, note, prod_role):
     g.update({"mode": "reword", "base_pass": rec_r.get("base_pass") or "",
               "base_hash": rec_r.get("base_hash") or "",
               "statement_hash": rec_r.get("statement_hash") or ""})
+    bsubj = rec_r.get("base_subject") or ""
+    if bsubj:
+        g["base_subject"] = bsubj
+        for row in g["verdicts"]:
+            row["base_subject"] = bsubj
     return g
 
 
@@ -765,6 +807,7 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
     res.update({"mode": "reword", "launch_full_pass": False, "base_outcome": None,
                 "base_pass": (rec_r or {}).get("base_pass") or "",
                 "base_hash": (rec_r or {}).get("base_hash") or "",
+                "base_subject": (rec_r or {}).get("base_subject") or "",
                 "reword_finding": ""})
     res["anomalies"].extend(base_notes or ())
     established = set(established or ())
@@ -781,7 +824,7 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
         res["anomalies"].append(note)
     row = {k: rec_r.get(k) for k in ("run", "run_id", "verdict", "model", "modulo",
                                      "statement_hash", "blocking", "file", "base_hash",
-                                     "reword_scope")}
+                                     "reword_scope", "base_subject")}
     row["effective"] = eff
     res["runs"].append(row)
     scope = rec_r.get("reword_scope") or ""
@@ -838,8 +881,10 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
     res["dropped_definitions"] = base_res.get("dropped_definitions") or []
     mod = sorted(set(base_res["modulo"]) | set(rec_r["modulo"]))
     base_recs = [base_a, base_b]
-    how = ("reword run CONFIRMED (%s) on base pass %s, CONFIRMED x2 on %s"
-           % (scope, rec_r.get("base_pass"), rec_r.get("base_hash")))
+    how = ("reword run CONFIRMED (%s) on base pass %s%s, CONFIRMED x2 on %s"
+           % (scope, rec_r.get("base_pass"),
+              (" of %s" % rec_r["base_subject"]) if rec_r.get("base_subject") else "",
+              rec_r.get("base_hash")))
     if not mod:
         res["outcome"] = "confirmed"
         res["proposed_status"] = "proved"
@@ -896,9 +941,11 @@ def _pair_ok(ra, rb, res):
 def _text(res):
     out = ["outcome: %s" % res["outcome"], "summary: %s" % res["summary"]]
     if res.get("mode") == "reword":
-        out.append("mode: reword (base pass %s, base_hash %s, base outcome %s)"
+        out.append("mode: reword (base pass %s, base_hash %s, base outcome %s%s)"
                    % (res.get("base_pass") or "?", res.get("base_hash") or "?",
-                      res.get("base_outcome") or "not read"))
+                      res.get("base_outcome") or "not read",
+                      (", base_subject %s" % res["base_subject"])
+                      if res.get("base_subject") else ""))
     if res["launch_b"]:
         out.append("next: launch run B")
     if res.get("launch_full_pass"):
@@ -939,7 +986,8 @@ def main(argv=None):
                     help="override the namespace-owner lookup for grounds.producer_role")
     ap.add_argument("--base-dir", default=None,
                     help="a reword run (mode: reword): the base pass folder (default: the "
-                         "sibling folder its base_pass names)")
+                         "sibling folder its base_pass names, under its base_subject's "
+                         "folder when it names one)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     try:
@@ -947,7 +995,8 @@ def main(argv=None):
         rb = read_record(args.b)
         base, notes = None, ()
         if is_reword(ra):
-            ba, bb, notes = base_records(args.a, ra.get("base_pass"), args.base_dir)
+            ba, bb, notes = base_records(args.a, ra.get("base_pass"), args.base_dir,
+                                         ra.get("base_subject"))
             base = (ba, bb)
     except OSError as exc:
         sys.stderr.write("decision_table: %s\n" % exc)
