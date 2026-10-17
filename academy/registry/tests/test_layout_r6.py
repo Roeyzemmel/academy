@@ -181,6 +181,18 @@ class TestObjectsLayout(unittest.TestCase):
         self.assertIn("status: conjectured", text)
         self.assertIn("verdict | audits/E1/2026-09-24_E1-q.md | cleared", text)
 
+    def test_set_status_refusal_names_the_first_build_error(self):
+        """A broken record elsewhere refuses every setter; the refusal says which."""
+        write(self.root / "audits" / "E1" / "2026-09-24_E1-q.md",
+              VERDICT.replace("subjects: [E1]", "subjects: [E1, Q1]").replace("E1-x", "E1-q"))
+        shutil.move(str(self.root / "objects" / "assumption" / "GA-2T.md"),
+                    str(self.root / "objects" / "claim" / "GA-2T.md"))
+        rc, out = run_kb(self.root, "set-status", "Q1", "conjectured",
+                         "--verdict", "audits/E1/2026-09-24_E1-q.md")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("the kb does not build with Q1", out)
+        self.assertIn("first error: objects/claim/GA-2T.md", out)
+
     def test_set_status_on_landed_review_runs(self):
         run = ("---\nsubject: s1:Q1\nrun: {r}\nrun_id: {r}1\nverdict: {v}\n"
                "landed_by: researcher/land_review\n---\nreport\n")
