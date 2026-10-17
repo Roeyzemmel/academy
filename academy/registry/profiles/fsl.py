@@ -581,8 +581,16 @@ def check_paper_claim(c, repo, e, w):
     """A `paper:` claim names a \\label, and its status agrees with the draft colour.
     Black (established) needs `proved` or `proved-modulo`, so a refuted statement cannot
     be black; a black statement backed by neither a verdict nor a citation is a warning
-    (the worklist of statements never verified)."""
+    (the worklist of statements never verified).
+
+    A retired record (v2 lifecycle, or v1 status, `superseded` or `dropped`) is kept for
+    history after its label left the tex, so neither the label nor the colour is
+    checked; a retired record whose label is still in the tex is a warning."""
     name = c.id.split(":", 1)[1]
+    if c.state in ("superseded", "dropped"):
+        if name in paper_labels(repo):
+            w(f"`{name}` is still a \\label in sections/, but the record is {c.state}")
+        return
     if name not in paper_labels(repo):
         e(f"`{name}` is not a \\label in sections/")
         return

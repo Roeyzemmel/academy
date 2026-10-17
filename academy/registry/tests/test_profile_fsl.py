@@ -270,6 +270,75 @@ class TestFederation(unittest.TestCase):
             errs, warns = self.paper_run("proved", ev)
             self.assertEqual((errs, warns), ([], []))
 
+    # ---- retired records (T-0476): a superseded or dropped record's label has left
+    # the tex by design, so the label check (and the colour checks resting on it) is
+    # skipped; a retired record whose label is still in the tex is a warning
+
+    def v2_paper(self, name, lifecycle, status="proved", supersedes=None,
+                 evidence="  - verdict | Drafts/statements.md | proved | - | two runs\n"):
+        p = self.bi / "claims" / "paper" / (name.replace(":", "__") + ".md")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        sup = f"supersedes:\n  - {supersedes}\n" if supersedes else ""
+        p.write_text(
+            f"---\nid: paper:{name}\nkind: claim\ntitle: t\nstatus: {status}\n"
+            f"lifecycle: {lifecycle}\ndomain: translation-surfaces\n{sup}"
+            f"evidence:\n{evidence}history:\n"
+            f"  - 2026-10-10 | {lifecycle if lifecycle != 'active' else status} | seeded\n"
+            "---\nBody.\n", encoding="utf-8")
+
+    def paper_check(self):
+        claims._cache.clear()
+        root = claims.registry_root(self.bi)
+        cs, perrs = claims.load(root)
+        errs, warns = claims.check(cs, repo=self.bi, root=root)
+        return perrs + errs, warns
+
+    def test_superseded_record_without_label_is_not_an_error(self):
+        self.v2_paper("lem:gone", "superseded")
+        self.v2_paper("prop:foo", "active", supersedes="paper:lem:gone")
+        errs, warns = self.paper_check()
+        self.assertEqual(errs, [])
+        self.assertFalse(any("lem:gone" in w and "label" in w for w in warns), warns)
+
+    def test_dropped_record_without_label_is_not_an_error(self):
+        self.v2_paper("lem:gone", "dropped", status="sketch", evidence="")
+        errs, _ = self.paper_check()
+        self.assertEqual(errs, [])
+
+    def test_active_record_without_label_is_still_an_error(self):
+        self.v2_paper("lem:gone", "active")
+        errs, _ = self.paper_check()
+        self.assertTrue(any("`lem:gone` is not a \\label" in e for e in errs), errs)
+
+    def test_v1_superseded_record_without_label_is_not_an_error(self):
+        p = self.bi / "claims" / "paper" / "lem__gone.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("---\nid: paper:lem:gone\ntitle: t\nstatus: superseded\n"
+                     "superseded_by: paper:prop:foo\nevidence:\nhistory:\n"
+                     "  - 2026-10-10 | superseded | retired\n---\n", encoding="utf-8")
+        (p.parent / "prop__foo.md").write_text(PAPER_CLAIM.format(
+            status="proved",
+            evidence="  - verdict | Drafts/statements.md | proved | two runs\n"),
+            encoding="utf-8")
+        errs, _ = self.paper_check()
+        self.assertEqual(errs, [])
+
+    def test_retired_record_whose_label_is_still_in_the_tex_warns(self):
+        # lem:bar is a \label in sections/a.tex; prop:foo (black) is checked as usual
+        self.v2_paper("lem:bar", "dropped", status="sketch", evidence="")
+        errs, warns = self.paper_check()
+        self.assertEqual(errs, [])
+        self.assertTrue(any("`lem:bar` is still a \\label" in w for w in warns), warns)
+
+    def test_retired_black_record_skips_the_colour_check(self):
+        # prop:foo is black in the draft; a dropped record of it with status `refuted`
+        # would be an error if active, but retired it only warns that the label remains
+        self.v2_paper("prop:foo", "dropped", status="refuted",
+                      evidence="  - hand | notes | - | - | counterexample\n")
+        errs, warns = self.paper_check()
+        self.assertFalse(any("black in the draft" in e for e in errs), errs)
+        self.assertTrue(any("`prop:foo` is still a \\label" in w for w in warns), warns)
+
 
 if __name__ == "__main__":
     unittest.main()
