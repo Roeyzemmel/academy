@@ -83,6 +83,17 @@ class ContextTests(unittest.TestCase):
         self.assertNotIn("second line", rec["cmd"])
         self.assertNotIn("abc123secret", json.dumps(rec))
 
+    def test_search_with_no_match_is_not_a_fault(self):
+        """grep/rg/diff exit 1 with no output is an answer, not an error."""
+        for cmd in ("git status --short | grep Billiard", "rg -n foo academy", "diff a b"):
+            ev = {"tool_name": "Bash", "tool_input": {"command": cmd}, "error": "Exit code 1"}
+            self.assertIsNone(el.hook_record(ev, "i", NOW), cmd)
+        ev = {"tool_name": "Bash", "tool_input": {"command": "grep x f"},
+              "error": "Exit code 2\ngrep: f: No such file or directory"}
+        self.assertIsNotNone(el.hook_record(ev, "i", NOW))
+        ev = {"tool_name": "Bash", "tool_input": {"command": "py x.py"}, "error": "Exit code 1"}
+        self.assertIsNotNone(el.hook_record(ev, "i", NOW))
+
     def test_file_tools_record_cwd_and_path(self):
         ev = {"tool_name": "Read", "session_id": "S", "cwd": "/w/PaperHome",
               "tool_input": {"file_path": "/w/board"},

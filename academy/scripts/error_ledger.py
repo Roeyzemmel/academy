@@ -102,6 +102,19 @@ def signature(tool, message):
     return "%s: %s" % (tool or "?", RE_WS.sub(" ", s).lower()[:100])
 
 
+#: a search or comparison whose last pipeline stage exits 1 with no output found nothing
+NO_MATCH_CMD = re.compile(r"^\s*(?:grep|egrep|fgrep|rg|diff|cmp|test|\[)\b")
+
+
+def is_no_match(tool, tool_input, err):
+    """Bash ``... | grep x`` exiting 1 with nothing on stderr: an answer, not a fault."""
+    if tool not in SHELL_TOOLS or not re.fullmatch(r"\s*exit code 1\s*", err or "", re.I):
+        return False
+    cmd = str((tool_input or {}).get("command") or "").strip().splitlines()[-1:] or [""]
+    last = re.split(r"\|(?!\|)|&&|;", cmd[0])[-1]
+    return bool(NO_MATCH_CMD.match(last))
+
+
 def is_noise(message):
     return any(re.search(p, message or "", re.I) for p in SKIP_PATTERNS)
 
@@ -282,6 +295,9 @@ def hook_record(event, instance, now=None):
     if not err.strip() or is_noise(err):
         return None
     tool = ac.tool_name(event) or "?"
+    ti0 = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+    if is_no_match(tool, ti0, err):
+        return None
     rec = {"t": "error", "ts": _stamp(now or _now()), "session": event.get("session_id") or "",
            "instance": instance, "tool": tool, "sig": signature(tool, err),
            "msg": clean_message(err)}

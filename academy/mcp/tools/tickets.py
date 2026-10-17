@@ -247,7 +247,8 @@ def update_ticket(ctx, a):
             raise ToolError(str(exc))
         lines.extend(blines)
         if new_status in ("delivered", "closed") and not meta.get("result"):
-            raise ToolError("%s needs result (fields.result)" % new_status)
+            raise ToolError("%s needs result: pass fields.result (one line, the answer) in the same call as status; "
+                            "detail goes in the ## Result body" % new_status)
         meta["status"] = new_status
         dead_block = new_status == "blocked" and ac.is_dead_route(meta)
         lines.append("status %s -> %s%s" % (old_status, new_status,
