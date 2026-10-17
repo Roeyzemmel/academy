@@ -51,7 +51,7 @@ workspace.json). Under `--only`:
 **Usage on the board.** When `board` is part of a checkpoint, `ship.py` first appends one
 content-free summary per recently active session of this machine (session id, instance
 bucket, turns, cache read/write, models, subagent counts, a hashed host; never prompts,
-paths or tool inputs) to `board/.usage/<instance>.jsonl`, so cloud sessions show up in
+paths or tool inputs) to `board/.usage/<instance>.<host>.jsonl`, so cloud sessions show up in
 `usage_report.py` (`--no-board` skips them). The ordinary `add -A -- board/` staging commits
 it like `.errors/`. A record is appended only when its session's turns or cache read
 changed; readers take the last record per session. Opt out with `"usageCheckpoint": false`
