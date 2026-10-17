@@ -160,5 +160,116 @@ class TestAppendRead(LedgerBase):
         self.assertIn("boom", warning)
 
 
+class TestCompact(LedgerBase):
+    NOW = _dt.datetime(2026, 10, 17, 12, 0, 0)
+
+    def ts(self, days_ago):
+        t = self.NOW - _dt.timedelta(days=days_ago)
+        return _dt.datetime.fromtimestamp(t.timestamp(), _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def rec(self, sid, turns=1, days_ago=1, ts=None):
+        return {"t": "usage", "session": sid, "ts": ts or self.ts(days_ago), "instance": "i", "turns": turns,
+                "read": turns * 10, "write": 0, "limit_failures": 0, "models": {}, "subagents": {}, "host": "h"}
+
+    def make(self, recs, host="h", extra=""):
+        path = usage_ledger.ledger_file(self.board, "i", host)
+        put(path, extra + "".join(json.dumps(r, sort_keys=True) + "\n" for r in recs))
+        return path
+
+    def sessions(self, path):
+        with open(path, encoding="utf-8") as fh:
+            return [(json.loads(l)["session"], json.loads(l)["turns"]) for l in fh if l.strip()]
+
+    def test_last_wins_and_order_follows_last_record(self):
+        path = self.make([self.rec("a", 1), self.rec("b", 1), self.rec("a", 2), self.rec("c", 1), self.rec("b", 3)])
+        self.assertEqual(usage_ledger.compact(path, now=self.NOW, host="h"), 2)
+        self.assertEqual(self.sessions(path), [("a", 2), ("c", 1), ("b", 3)])
+
+    def test_old_sessions_dropped_recent_kept_unparseable_kept(self):
+        path = self.make([self.rec("old", days_ago=120), self.rec("new", days_ago=5),
+                          self.rec("odd", ts="not-a-time"), self.rec("old2", days_ago=91)])
+        self.assertEqual(usage_ledger.compact(path, keep_days=90, now=self.NOW, host="h"), 2)
+        self.assertEqual([s for s, _ in self.sessions(path)], ["new", "odd"])
+        # a session whose LAST record is recent survives even if an earlier one was old
+        path = self.make([self.rec("a", 1, days_ago=200), self.rec("a", 2, days_ago=1)])
+        self.assertEqual(usage_ledger.compact(path, now=self.NOW, host="h"), 1)
+        self.assertEqual(self.sessions(path), [("a", 2)])
+
+    def test_nothing_to_remove_leaves_file_untouched(self):
+        path = self.make([self.rec("a"), self.rec("b")])
+        os.utime(path, (1000000000, 1000000000))
+        before = open(path, "rb").read()
+        self.assertEqual(usage_ledger.compact(path, now=self.NOW, host="h"), 0)
+        self.assertEqual(open(path, "rb").read(), before)
+        self.assertEqual(os.stat(path).st_mtime, 1000000000)
+        self.assertEqual(os.listdir(os.path.dirname(path)), [os.path.basename(path)])
+
+    def test_other_hosts_file_is_never_rewritten(self):
+        path = self.make([self.rec("a", 1), self.rec("a", 2)], host="zzzzzzzz")
+        before = open(path, "rb").read()
+        self.assertEqual(usage_ledger.compact(path, now=self.NOW, host="h"), 0)
+        self.assertEqual(open(path, "rb").read(), before)
+
+    def test_garbage_only_file_untouched_garbage_dropped_otherwise(self):
+        path = usage_ledger.ledger_file(self.board, "i", "h")
+        put(path, "junk\n{not json\n[1]\n")
+        self.assertEqual(usage_ledger.compact(path, now=self.NOW, host="h"), 0)
+        self.assertEqual(open(path).read(), "junk\n{not json\n[1]\n")
+        path = self.make([self.rec("a")], extra="junk\n")
+        self.assertEqual(usage_ledger.compact(path, now=self.NOW, host="h"), 1)
+        self.assertEqual(self.sessions(path), [("a", 1)])
+
+    def test_missing_file_and_unwritable_never_raise(self):
+        self.assertEqual(usage_ledger.compact(os.path.join(self.board, "nope.h.jsonl"), host="h"), 0)
+        path = self.make([self.rec("a", 1), self.rec("a", 2)])
+        with unittest.mock.patch.object(usage_ledger.os, "replace", side_effect=OSError("ro")):
+            self.assertEqual(usage_ledger.compact(path, now=self.NOW, host="h"), 0)
+        self.assertEqual(len(self.sessions(path)), 2)
+        self.assertEqual(os.listdir(os.path.dirname(path)), [os.path.basename(path)])  # temp cleaned
+
+    def test_read_all_same_before_and_after(self):
+        path = self.make([self.rec("a", 1), self.rec("b", 4), self.rec("a", 2), self.rec("b", 5)])
+        before = usage_ledger.read_all(self.board)
+        usage_ledger.compact(path, now=self.NOW, host="h")
+        self.assertEqual(usage_ledger.read_all(self.board), before)
+
+    def test_checkpoint_compacts_bloated_and_leaves_lean_alone(self):
+        os.makedirs(self.projects)
+        bloated = self.make([self.rec("a", 1), self.rec("a", 2), self.rec("b", 1), self.rec("b", 2)])
+        lean_path = usage_ledger.ledger_file(self.board, "lean", "h")
+        put(lean_path, json.dumps(self.rec("x")) + "\n" + json.dumps(self.rec("y")) + "\n")
+        os.utime(lean_path, (1000000000, 1000000000))
+        other = self.make([self.rec("a", 1), self.rec("a", 2)], host="zzzzzzzz")
+        other_bytes = open(other, "rb").read()
+        self.assertEqual(usage_ledger.checkpoint(self.tmp, self.board, self.projects, now=self.NOW, host="h"), (0, ""))
+        self.assertEqual(self.sessions(bloated), [("a", 2), ("b", 2)])
+        self.assertEqual(os.stat(lean_path).st_mtime, 1000000000)
+        self.assertEqual(open(other, "rb").read(), other_bytes)
+
+    def test_checkpoint_stale_trigger_and_keep_days_override(self):
+        os.makedirs(self.projects)
+        path = self.make([self.rec("a", days_ago=40), self.rec("b", days_ago=1)])
+        usage_ledger.checkpoint(self.tmp, self.board, self.projects, now=self.NOW, host="h")
+        self.assertEqual(len(self.sessions(path)), 2)                      # 90 days: nothing old
+        usage_ledger.checkpoint(self.tmp, self.board, self.projects, now=self.NOW, host="h", keep_days=30)
+        self.assertEqual([s for s, _ in self.sessions(path)], ["b"])
+        for bad in ("30", 3, True, 6, None, 2.5):
+            path = self.make([self.rec("a", days_ago=40), self.rec("b", days_ago=1)])
+            usage_ledger.checkpoint(self.tmp, self.board, self.projects, now=self.NOW, host="h", keep_days=bad)
+            self.assertEqual(len(self.sessions(path)), 2, bad)             # fell back to 90
+
+    def test_cli_compact_prints_lines_removed(self):
+        import io
+        import contextlib
+        host = usage_ledger.host_hash()
+        path = self.make([self.rec("a", 1), self.rec("a", 2)], host=host)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = usage_ledger.main(["compact", "--board", self.board])
+        self.assertEqual(rc, 0)
+        self.assertIn("1 line(s) removed", buf.getvalue())
+        self.assertEqual(self.sessions(path), [("a", 2)])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -54,7 +54,7 @@ bucket, turns, cache read/write, models, subagent counts, a hashed host; never p
 paths or tool inputs) to `board/.usage/<instance>.<host>.jsonl`, so cloud sessions show up in
 `usage_report.py` (`--no-board` skips them). The ordinary `add -A -- board/` staging commits
 it like `.errors/`. A record is appended only when its session's turns or cache read
-changed; readers take the last record per session. Opt out with `"usageCheckpoint": false`
+changed; readers take the last record per session. The same step compacts this host's files (only the last record per session is kept and sessions idle for more than `usageKeepDays`, default 90, are dropped; by hand: `usage_ledger.py compact`). Opt out with `"usageCheckpoint": false`
 (or `"shipCheckpoint": false`) in workspace.json; a failure is a warning, never a failed
 checkpoint.
 

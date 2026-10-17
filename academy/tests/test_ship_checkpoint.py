@@ -1,5 +1,6 @@
 """ship.py checkpoint: at the end of an inbox ticket, commit and push every touched repo
 on <date>/<ticket-id>/<role>. Temp repos and temp bare remotes only."""
+import datetime as _dt
 import contextlib
 import io
 import json
@@ -983,6 +984,24 @@ class TestCheckpointUsage(CheckpointBase):
                 rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
                 self.assertEqual(rc, 0, err)
                 self.assertFalse(os.path.exists(self.usage_file()))
+
+    def test_usage_keep_days_from_workspace_json(self):
+        import usage_ledger
+        old = (_dt.datetime.now() - _dt.timedelta(days=40)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rec = {"t": "usage", "session": "ancient", "ts": old, "instance": "workspace", "turns": 1, "read": 1}
+        for keep, survives in ((30, False), ("30", True), (3, True), (None, True)):
+            with self.subTest(keep=keep):
+                os.makedirs(os.path.dirname(self.usage_file()), exist_ok=True)
+                with open(self.usage_file(), "w", encoding="utf-8") as f:
+                    f.write(json.dumps(rec) + "\n")
+                cfg = {"instances": {}, "board": "board"}
+                if keep is not None:
+                    cfg["usageKeepDays"] = keep
+                with open(os.path.join(self.root, "workspace.json"), "w", encoding="utf-8") as f:
+                    json.dump(cfg, f)
+                rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
+                self.assertEqual(rc, 0, err)
+                self.assertEqual("ancient" in open(self.usage_file(), encoding="utf-8").read(), survives)
 
     def test_a_failure_is_a_warning_not_a_failed_checkpoint(self):
         self.write(self.root, os.path.join("board", "p.md"))

@@ -92,3 +92,4 @@ human); the superproject submodule-pointer bump (human-run `merge --bump`).
 | U3 | done |
 | U4 | done |
 | U5 | done |
+| U5a compaction | done |

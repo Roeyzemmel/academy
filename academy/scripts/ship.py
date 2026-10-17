@@ -78,6 +78,8 @@ no prompts, paths or tool inputs) to ``board/.usage/<instance>.<host>.jsonl``, s
 show in ``usage_report.py``. It is plain board content: the ``add -A -- board/`` staging
 commits it exactly as it does ``.errors/``. It is skipped by ``"shipCheckpoint": false``
 or ``"usageCheckpoint": false`` in workspace.json, and a failure in it is a warning only.
+The same step compacts this host's files (last record per session, sessions older than
+``"usageKeepDays"`` days, default 90, dropped); ``usage_ledger.py compact`` does it by hand.
 
 Standard library only.
 """
@@ -952,7 +954,8 @@ def usage_summaries(only):
             return
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import usage_ledger
-        _, warning = usage_ledger.checkpoint(ROOT, os.path.join(ROOT, rel), USAGE_PROJECTS)
+        _, warning = usage_ledger.checkpoint(ROOT, os.path.join(ROOT, rel), USAGE_PROJECTS,
+                                                keep_days=ws.get("usageKeepDays"))
         if warning:
             print("ship: warning: %s" % warning, file=sys.stderr)
     except Exception as exc:  # noqa: BLE001 -- the usage summary must never fail a checkpoint
