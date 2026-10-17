@@ -89,7 +89,12 @@ def first_line(text):
 
 
 def clean_message(text):
-    return redact(RE_WS.sub(" ", first_line(text)))[:MSG_MAX]
+    """The first line; when it ends in ':' the reason is on the next line, keep that too."""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    head = lines[0] if lines else ""
+    if head.endswith(":") and len(lines) > 1:
+        head += " " + lines[1].lstrip("- ")
+    return redact(RE_WS.sub(" ", head))[:MSG_MAX]
 
 
 def signature(tool, message):

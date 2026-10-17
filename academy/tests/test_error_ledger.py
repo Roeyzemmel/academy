@@ -39,6 +39,12 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertNotEqual(a, el.signature("Read", "cat: /a/b: No such file (exit 2)"))
 
+    def test_reason_on_the_next_line_is_kept(self):
+        msg = "refused: the grounds do not support x -> proved:\n- statement hash A is not current B\n- more"
+        self.assertEqual(el.clean_message(msg),
+                         "refused: the grounds do not support x -> proved: statement hash A is not current B")
+        self.assertEqual(el.signature("t", msg), el.signature("t", msg.split("\n")[0]))
+
     def test_first_line_only(self):
         self.assertEqual(el.signature("Bash", "boom\ntraceback line"),
                          el.signature("Bash", "boom\nother"))

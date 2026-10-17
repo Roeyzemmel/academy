@@ -2157,11 +2157,14 @@ def cmd_set_status(args) -> int:
         rewrite_status_file(path, e.path, args.label, vrel, args.note, old)
     # the change stands only if the kb still builds: otherwise the files are put back
     # byte for byte, so a refusal never leaves a changed status behind
-    rc = do_build(load_kb(args.root), quiet=True)
+    built = load_kb(args.root)
+    rc = do_build(built, quiet=True)
     if rc:
         for f, b in touched:
             f.write_bytes(b)
-        print(f"set-status: refused: the kb does not build with {eid} at {args.label}; "
+        # name the first failing record and rule: it may be a record elsewhere in the kb
+        why = "; first error: " + built.errors[0] if built.errors else ""
+        print(f"set-status: refused: the kb does not build with {eid} at {args.label}{why}; "
               + ", ".join(kb.entities[x].path for x in [eid] + ([new] if new else []))
               + " unchanged", file=sys.stderr)
         return rc
