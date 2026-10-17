@@ -741,6 +741,92 @@ class TestKeeperRouting(unittest.TestCase):
         self.assertIn(res["to"], ("researcher@s1", "researcher@beta"))
 
 
+class TestInstanceInference(unittest.TestCase):
+    """E4 (2026-10-17): an agent of a role with several instances is resolved without
+    ``instance=`` only when exactly one candidate is provable -- from the ticket's
+    parties, or from the namespace of the claim id. Otherwise the refusal stays."""
+
+    setUp = TestKeeperRouting.setUp
+    server = TestKeeperRouting.server
+
+    def setUp(self):  # noqa: F811
+        TestKeeperRouting.setUp(self)
+        t = self.tmp.replace("\\", "/")
+        self.homes["expert@x"] = t + "/lib"
+        os.makedirs(self.homes["expert@x"])
+        with open(self.ws_path, encoding="utf-8") as fh:
+            ws = json.load(fh)
+        ws["instances"]["expert@x"] = {"role": "expert", "home": self.homes["expert@x"],
+                                       "domains": ["test-pack"]}
+        write(self.ws_path, json.dumps(ws, indent=2))
+
+    def ticket(self, to, **kw):
+        args = dict(title="t", kind="question", to=to, ask="a", deliverable="d")
+        args.update(kw)
+        err, t = self.server().call("tickets_create", **args)
+        self.assertFalse(err, t)
+        return t["id"]
+
+    # -- (a) a ticket id ---------------------------------------------------
+    def test_ticket_with_one_candidate_party_is_inferred(self):
+        tid = self.ticket("researcher@beta")
+        err, res = self.server().call("tickets_update", caller="researcher:claim-keeper",
+                                      id=tid, status="accepted")
+        self.assertFalse(err, res)
+        err, g = self.server().call("tickets_get", id=tid)
+        self.assertIn("researcher@beta/claim-keeper: status open -> accepted", g["body"])
+
+    def test_ticket_with_no_candidate_party_keeps_the_refusal_and_names_the_ticket(self):
+        tid = self.ticket("expert@x")
+        err, msg = self.server().call("tickets_update", caller="researcher:claim-keeper",
+                                      id=tid, status="accepted")
+        self.assertTrue(err)
+        self.assertIn("could act for researcher@beta or researcher@s1", msg)
+        self.assertIn("pass instance=<one of them>", msg)
+        self.assertIn(tid, msg)
+        self.assertIn("expert@x", msg)
+
+    def test_permission_still_enforced_after_inference(self):
+        # inferred as the sender (from: researcher@beta), who may not accept
+        err, t = self.server("researcher@beta").call(
+            "tickets_create", caller="researcher:prover", title="t", kind="question",
+            to="expert@x", ask="a", deliverable="d")
+        self.assertFalse(err, t)
+        err, msg = self.server().call("tickets_update", caller="researcher:prover",
+                                      id=t["id"], status="accepted")
+        self.assertTrue(err)
+        self.assertIn("refused", msg)
+
+    # -- (b) a claim namespace ---------------------------------------------
+    def test_claim_namespace_with_one_candidate_owner_is_inferred(self):
+        err, res = self.server().call("claims_propose_status", caller="researcher:prover",
+                                      id="flat:some-claim", status="sketch",
+                                      reason="complete attempt")
+        self.assertFalse(err, res)
+        self.assertEqual(res["from"], "researcher@beta")
+
+    def test_claim_namespace_owned_by_no_candidate_keeps_the_refusal(self):
+        err, msg = self.server().call("claims_propose_status", caller="researcher:prover",
+                                      id="paper:lem:x", status="sketch", reason="r")
+        self.assertTrue(err)
+        self.assertIn("could act for researcher@beta or researcher@s1", msg)
+
+    def test_claim_namespace_cannot_widen_to_another_role(self):
+        # an expert agent about flat: -- researcher@beta is no candidate of the expert role
+        err, res = self.server().call("claims_propose_status", caller="expert:review-chair",
+                                      id="flat:some-claim", status="sketch", reason="r")
+        if err:
+            self.assertNotIn("researcher@beta/", str(res))
+        else:
+            self.assertEqual(res["from"], "expert@x")
+
+    def test_claims_new_in_a_foreign_namespace_still_needs_a_ticket(self):
+        err, msg = self.server().call("claims_new", caller="researcher:prover",
+                                      id="paper:lem:x", title="x")
+        self.assertTrue(err)
+        self.assertIn("own instance's namespace", msg)
+
+
 class TestPacketValidation(McpTestBase):
     def test_every_problem_at_once(self):
         # 2026-10-08: one refusal per retry; now one refusal names them all, with the shape

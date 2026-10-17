@@ -679,6 +679,7 @@ def _ticket_ns_ok(ctx, ns, tid):
 
 def _new(ctx, a):
     ns, _ = split_id(a["id"])
+    ctx.claim_ns = ns
     status = a.get("status") or ("conjectured" if a.get("kind") == "conjecture" else "open")
     if status not in UNSETTLED:
         raise ToolError("claims_new creates only unsettled claims (%s), not %r"
@@ -714,6 +715,7 @@ EVIDENCE_ALIASES = {"proof-review": "verdict"}
 def _attach(ctx, a):
     ns, _ = split_id(a["id"])
     check_ns(ctx, ns)
+    ctx.claim_ns = ns
     row = a["row"]
     if isinstance(row, dict):
         key = "type" if row.get("type") is not None else "kind"
@@ -744,6 +746,7 @@ def _keeper_instance(ctx, ns):
 def _propose(ctx, a):
     cid = a["id"]
     ns, _ = split_id(cid)
+    ctx.claim_ns = ns
     if a["status"] not in TARGETS:
         raise ToolError("%r is not a registry status or lifecycle move" % a["status"])
     to = _keeper_instance(ctx, ns)
@@ -764,6 +767,7 @@ def _set_status(ctx, a):
     cid, status = a["id"], a["status"]
     ns, _ = split_id(cid)
     check_ns(ctx, ns)
+    ctx.claim_ns = ns
     if not ctx.is_human and ctx.agent != "claim-keeper":
         raise ToolError("refused: only claim-keeper or the human sets a status")
     be = backend(ctx)

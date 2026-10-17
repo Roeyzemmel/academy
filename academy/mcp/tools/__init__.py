@@ -69,6 +69,8 @@ class Context(object):
         self.requested_instance = requested_instance or None
         #: the ticket the call is about (its frontmatter), set by the handler
         self.ticket_hint = None
+        #: the claim namespace the call is about, set by the claims handlers (E4)
+        self.claim_ns = None
         #: False when no mcp_write_gate record identified the caller (reads only)
         self.verified = verified
         self._ws = workspace
@@ -222,8 +224,17 @@ class Context(object):
             if home:
                 self._check_role(home, plugin)
             if len(cands) > 1:
-                raise ToolError("agent %s:%s could act for %s; pass instance=<one of them>"
-                                % (plugin, self.agent, " or ".join(cands)))
+                # inferred only when exactly one candidate owns the claim's namespace
+                owners = [c for c in cands
+                          if self.claim_ns and insts[c].get("ns") == self.claim_ns]
+                if len(owners) == 1:
+                    return owners[0]
+                detail = ""
+                if t.get("id"):
+                    detail = " (ticket %s is between %s and %s)" % (
+                        t["id"], t.get("from") or "?", t.get("to") or "?")
+                raise ToolError("agent %s:%s could act for %s; pass instance=<one of them>%s"
+                                % (plugin, self.agent, " or ".join(cands), detail))
             return None
         if t.get("to") in insts:
             return t["to"]
