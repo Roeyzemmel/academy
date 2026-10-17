@@ -1915,6 +1915,17 @@ def parties(meta, instance):
     return out
 
 
+def transition_route(old, new):
+    """The shortest chain of statuses from ``old`` to ``new`` over TRANSITIONS, or None."""
+    seen, queue = {old: [old]}, [old]
+    for cur in queue:
+        for (a, b) in TRANSITIONS:
+            if a == cur and b not in seen:
+                seen[b] = seen[cur] + [b]
+                queue.append(b)
+    return seen.get(new)
+
+
 def can_transition(old, new, party_set, human=False):
     """Whether a caller playing ``party_set`` may move a ticket from ``old`` to ``new``.
 
@@ -1929,7 +1940,9 @@ def can_transition(old, new, party_set, human=False):
         return True, "human"
     who = TRANSITIONS.get((old, new))
     if who is None:
-        return False, "%s -> %s is not a transition" % (old, new)
+        route = transition_route(old, new)
+        hint = "; go one step at a time: %s" % " -> ".join(route) if route else ""
+        return False, "%s -> %s is not a transition%s" % (old, new, hint)
     if set(who) & set(party_set):
         return True, "allowed"
     return False, "%s -> %s is made by the %s" % (old, new, " or ".join(who))

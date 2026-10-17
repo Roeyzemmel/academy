@@ -39,6 +39,12 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertNotEqual(a, el.signature("Read", "cat: /a/b: No such file (exit 2)"))
 
+    def test_reason_on_the_next_line_is_kept(self):
+        msg = "refused: the grounds do not support x -> proved:\n- statement hash A is not current B\n- more"
+        self.assertEqual(el.clean_message(msg),
+                         "refused: the grounds do not support x -> proved: statement hash A is not current B")
+        self.assertEqual(el.signature("t", msg), el.signature("t", msg.split("\n")[0]))
+
     def test_first_line_only(self):
         self.assertEqual(el.signature("Bash", "boom\ntraceback line"),
                          el.signature("Bash", "boom\nother"))
@@ -82,6 +88,17 @@ class ContextTests(unittest.TestCase):
         self.assertTrue(rec["cmd"].startswith("py scripts/x.py"))
         self.assertNotIn("second line", rec["cmd"])
         self.assertNotIn("abc123secret", json.dumps(rec))
+
+    def test_search_with_no_match_is_not_a_fault(self):
+        """grep/rg/diff exit 1 with no output is an answer, not an error."""
+        for cmd in ("git status --short | grep Billiard", "rg -n foo academy", "diff a b"):
+            ev = {"tool_name": "Bash", "tool_input": {"command": cmd}, "error": "Exit code 1"}
+            self.assertIsNone(el.hook_record(ev, "i", NOW), cmd)
+        ev = {"tool_name": "Bash", "tool_input": {"command": "grep x f"},
+              "error": "Exit code 2\ngrep: f: No such file or directory"}
+        self.assertIsNotNone(el.hook_record(ev, "i", NOW))
+        ev = {"tool_name": "Bash", "tool_input": {"command": "py x.py"}, "error": "Exit code 1"}
+        self.assertIsNotNone(el.hook_record(ev, "i", NOW))
 
     def test_file_tools_record_cwd_and_path(self):
         ev = {"tool_name": "Read", "session_id": "S", "cwd": "/w/PaperHome",

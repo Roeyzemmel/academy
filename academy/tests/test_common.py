@@ -709,6 +709,14 @@ class TicketTests(TempDir):
         for term in ac.TERMINAL:
             self.assertFalse(any(o == term for o, _ in ac.TRANSITIONS))
 
+    def test_transition_refusal_names_the_route(self):
+        self.assertEqual(ac.transition_route("open", "delivered"),
+                         ["open", "accepted", "in-progress", "delivered"])
+        self.assertIsNone(ac.transition_route("closed", "open"))
+        ok, why = ac.can_transition("open", "delivered", {"receiver"})
+        self.assertFalse(ok)
+        self.assertIn("open -> accepted -> in-progress -> delivered", why)
+
     def test_parties_and_fields(self):
         meta = {"from": "author@main", "to": "expert@main"}
         self.assertEqual(ac.parties(meta, "author@main"), {"sender"})
