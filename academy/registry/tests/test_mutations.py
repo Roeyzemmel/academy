@@ -197,6 +197,109 @@ class TestRewordSetStatus(Homes):
         self.assertEqual(self.p.read_bytes(), before)
 
 
+class TestRewordSetStatusRenamed(Homes):
+    """T-0476: set-status on a renamed record (``supersedes: lab:old``) accepts reword
+    grounds whose base pass is filed under the old id (``base_subject``), and only then."""
+
+    OLDH = "0ld0ld0ld0ld0ld0"
+    OLD_REC = ("---\nid: lab:old\ntitle: the old label\nstatus: superseded\n"
+               "superseded_by: lab:foo\nwhere: experiments/x.py\nevidence:\n"
+               "  - experiment | results/x.json | not audited | ran\nhistory:\n"
+               "  - 2026-10-17 | superseded | renamed to lab:foo\n---\nBody.\n")
+
+    def setUp(self):
+        super().setUp()
+        self.p = write(self.lab / "claims" / "lab" / "foo.md",
+                       OPEN.replace("title: a claim\n", "title: a claim\nsupersedes: lab:old\n"))
+        write(self.lab / "claims" / "lab" / "old.md", self.OLD_REC)
+        self.new = fsl.statement_hash(self.lab, "lab:foo")
+        rec = ("---\nsubject: {s}\nrun: {run}\nrun_id: rv-{run}\nverdict: CONFIRMED\n"
+               "statement_hash: {h}\n{extra}agent: expert:rigor-reviewer\n---\nreport\n")
+        for run in ("A", "B"):
+            write(self.lab / "reviews" / "old" / "p1" / ("%s.md" % run),
+                  rec.format(s="lab:old", run=run, h=self.OLDH, extra=""))
+        write(self.lab / "reviews" / "foo" / "p2" / "R.md", rec.format(
+            s="lab:foo", run="R", h=self.new,
+            extra="mode: reword\nbase_pass: p1\nbase_hash: %s\nbase_subject: lab:old\n"
+                  "reword_scope: equivalent\n" % self.OLDH))
+        row = {"verdict": "CONFIRMED", "grader_role": "expert", "base_subject": "lab:old"}
+        self.g = {"basis": "proof", "mode": "reword", "base_pass": "p1",
+                  "base_hash": self.OLDH, "base_subject": "lab:old",
+                  "statement_hash": self.new, "producer_role": "author", "verdicts": [
+                      dict(row, run_id="rv-R", statement_hash=self.new, mode="reword",
+                           base_hash=self.OLDH, reword_scope="equivalent",
+                           ref="reviews/foo/p2/R.md"),
+                      dict(row, run_id="rv-A", statement_hash=self.OLDH,
+                           ref="reviews/old/p1/A.md"),
+                      dict(row, run_id="rv-B", statement_hash=self.OLDH,
+                           ref="reviews/old/p1/B.md")]}
+
+    def test_proved_on_a_base_pass_of_the_superseded_id(self):
+        fsl.set_status(self.lab, "lab:foo", "proved", self.g, date="2026-10-17")
+        c = fsl.parse_text(self.p.read_text(encoding="utf-8"), fallback=False)
+        self.assertEqual(c.status, "proved")
+        refs = " ".join(c.evidence)
+        for r in ("reviews/foo/p2/R.md", "reviews/old/p1/A.md", "reviews/old/p1/B.md"):
+            self.assertIn(r, refs)
+
+    def test_refused_when_the_claim_does_not_supersede_the_base_subject(self):
+        write(self.p, OPEN)                    # no supersedes line
+        before = self.p.read_bytes()
+        with self.assertRaises(fsl.Refused) as cm:
+            fsl.set_status(self.lab, "lab:foo", "proved", self.g)
+        self.assertIn("supersedes", str(cm.exception))
+        self.assertEqual(self.p.read_bytes(), before)
+
+    def test_refused_without_base_subject(self):
+        g = dict(self.g, verdicts=[{k: v for k, v in r.items() if k != "base_subject"}
+                                   for r in self.g["verdicts"]])
+        del g["base_subject"]
+        before = self.p.read_bytes()
+        with self.assertRaises(fsl.Refused) as cm:
+            fsl.set_status(self.lab, "lab:foo", "proved", g)
+        self.assertIn("is about lab:old", str(cm.exception))
+        self.assertEqual(self.p.read_bytes(), before)
+
+
+class TestRewordSetStatusRenamedV2(TestRewordSetStatusRenamed):
+    """T-0476 on schema-v2 records: ``supersedes`` is a list on the replacing record."""
+
+    NEW_V2 = ("---\nid: lab:foo\nkind: claim\ntitle: a claim\nstatus: open\n"
+              "lifecycle: active\ndomain: translation-surfaces\nwhere: experiments/x.py\n"
+              "supersedes:\n  - lab:old\nevidence: []\nhistory:\n"
+              "  - 2026-10-17 | open | renamed from lab:old\n---\nBody.\n")
+    OLD_V2 = ("---\nid: lab:old\nkind: claim\ntitle: the old label\nstatus: open\n"
+              "lifecycle: superseded\ndomain: translation-surfaces\n"
+              "where: experiments/x.py\nevidence: []\nhistory:\n"
+              "  - 2026-10-17 | superseded | renamed to lab:foo\n---\nBody.\n")
+
+    def setUp(self):
+        super().setUp()
+        write(self.p, self.NEW_V2)
+        write(self.lab / "claims" / "lab" / "old.md", self.OLD_V2)
+        # the statement hash of the v2 record replaces the v1 one in R and the grounds
+        new = fsl.statement_hash(self.lab, "lab:foo")
+        r = self.lab / "reviews" / "foo" / "p2" / "R.md"
+        write(r, r.read_text(encoding="utf-8").replace(self.new, new))
+        self.g["statement_hash"] = new
+        self.g["verdicts"][0]["statement_hash"] = new
+        self.new = new
+
+    def test_refused_when_the_claim_does_not_supersede_the_base_subject(self):
+        write(self.p, self.NEW_V2.replace("supersedes:\n  - lab:old\n", ""))
+        write(self.lab / "claims" / "lab" / "old.md",
+              self.OLD_V2.replace("lifecycle: superseded", "lifecycle: active"))
+        before = self.p.read_bytes()
+        with self.assertRaises(fsl.Refused) as cm:
+            fsl.set_status(self.lab, "lab:foo", "proved", self.g)
+        self.assertIn("supersedes", str(cm.exception))
+        self.assertEqual(self.p.read_bytes(), before)
+
+    def test_the_v2_record_lists_its_supersedes(self):
+        c = fsl.parse_text(self.p.read_text(encoding="utf-8"), fallback=False)
+        self.assertEqual(c.fields.get("supersedes"), ["lab:old"])
+
+
 class TestModuloWrite(unittest.TestCase):
     """proved-modulo writes the grounds' inputs as the record's `modulo`; proved drops it."""
 

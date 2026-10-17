@@ -176,6 +176,40 @@ class LandVerdictTests(unittest.TestCase):
             agent_id="other9"))
         self.assertEqual(sorted(os.listdir(d)), ["R-2.md", "R.md"])
 
+    def test_a_reword_run_keeps_its_base_subject(self):
+        """T-0476: a reword run on a renamed record names the base pass's subject."""
+        text = self.REWORD.replace("subject: paper:lem:strip-bound",
+                                   "subject: paper:cor:strip-bound") \
+            .replace("reword_scope: weaker", "base_subject: paper:lem:strip-bound\n"
+                                             "reword_scope: weaker")
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", text))
+        self.assertEqual(code, 0, err)
+        p = os.path.join(self.sb.lib, "reviews", "paper", "cor-strip-bound",
+                         "2026-10-12-T-0347-reword", "R.md")
+        with open(p, encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertEqual((meta["subject"], meta["base_subject"], meta["base_pass"]),
+                         ("paper:cor:strip-bound", "paper:lem:strip-bound",
+                          "2026-09-28-T-0007"))
+
+    def test_a_reword_run_without_base_subject_records_none(self):
+        fixtures.run_script("land_verdict.py",
+                            stop_event("expert:rigor-reviewer", self.REWORD))
+        p = os.path.join(self.sb.lib, "reviews", "paper", "lem-strip-bound",
+                         "2026-10-12-T-0347-reword", "R.md")
+        with open(p, encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertNotIn("base_subject", meta)
+
+    def test_a_bare_base_subject_blocks(self):
+        text = self.REWORD.replace("reword_scope: weaker", "base_subject: lem-strip-bound\n"
+                                                           "reword_scope: weaker")
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", text))
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("base_subject", out["reason"])
+
     def test_a_blind_record_carries_no_reword_fields(self):
         fixtures.run_script("land_verdict.py", stop_event("expert:rigor-reviewer", REPORT))
         with open(os.path.join(self.pass_dir(), "A.md"), encoding="utf-8") as fh:

@@ -50,7 +50,8 @@ that prompted the rewording, and judges whether the proof as reviewed still cove
 new wording (`reword_scope`: equivalent, weaker, covered, or exceeds). R CONFIRMED on a
 CONFIRMED x2 base is enough for `proved` (the base's modulo carried over); R GAP or
 `exceeds` sends the statement to a full blind pass. Tell the chair which pass is the
-base (`py ${CLAUDE_PLUGIN_ROOT}/scripts/reviews.py list <id>`). A rewording that
+base (`py ${CLAUDE_PLUGIN_ROOT}/scripts/reviews.py list <id>`; for a renamed label, the
+old id's passes and `--base-subject <old id>`, T-0476). A rewording that
 answers a hypothesis, statement or proof finding, or a changed proof, takes the full
 blind pass. Procedure: `references/conclude.md` section 7.
 

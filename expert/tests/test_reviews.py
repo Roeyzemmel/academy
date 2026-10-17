@@ -156,6 +156,130 @@ class RewordPassTests(unittest.TestCase):
         self.assertEqual(reviews.word_diff("a b", "a b"), "a b")
 
 
+NEW_SUBJ = "paper:cor:strip-bound"
+COR_RECORD = """---
+id: paper:cor:strip-bound
+kind: claim
+title: "strip bound, as a corollary"
+status: sketch
+lifecycle: active
+where: sections/a.tex
+{sup}evidence: []
+history:
+  - 2026-10-17 | sketch | renamed from lem:strip-bound
+---
+Body.
+"""
+
+
+class RewordRenamedTests(unittest.TestCase):
+    """T-0476: a reword pass on a renamed record (``paper:cor:strip-bound`` supersedes
+    ``paper:lem:strip-bound``) whose CONFIRMED x2 base pass is filed under the old id."""
+
+    # the same base pass as RewordPassTests (filed under SUBJ), without rerunning its tests
+    setUp = RewordPassTests.setUp
+    write_run = RewordPassTests.write_run
+    run_cli = RewordPassTests.run_cli
+
+    def record(self, sup="supersedes:\n  - paper:lem:strip-bound\n"):
+        self.sb.write("paperhome/claims/paper/cor__strip-bound.md",
+                      COR_RECORD.format(sup=sup))
+
+    def test_reword_pass_on_a_base_of_the_superseded_id(self):
+        self.record()
+        code, name, err = self.run_cli("new-pass", NEW_SUBJ, "--ticket", "T-0476",
+                                       "--reword-of", self.base, "--base-subject", SUBJ)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(str(name).endswith("-T-0476-reword"), name)
+        note = os.path.join(self.sb.lib, "reviews", "paper", "cor-strip-bound", ".open",
+                            name)
+        with open(note, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("base_subject: %s" % SUBJ, text)
+        self.assertIn("reword_of: %s" % self.base, text)
+        self.assertIn("base_hash: %s" % self.old_hash, text)
+        code, out, err = self.run_cli("reword-brief", NEW_SUBJ, name, "--old-text", OLD,
+                                      "--new-text", NEW)
+        self.assertEqual(code, 0, err)
+        for want in ("subject: %s" % NEW_SUBJ, "base_subject: %s" % SUBJ,
+                     "base_pass: %s" % self.base, "base_hash: %s" % self.old_hash,
+                     "lem-strip-bound/%s/A.md" % self.base, "uses compactness in step 2"):
+            self.assertIn(want, out)
+
+    def test_refused_unless_the_record_supersedes_the_base_subject(self):
+        # no record at all: supersedes cannot be read
+        code, out, err = self.run_cli("new-pass", NEW_SUBJ, "--reword-of", self.base,
+                                      "--base-subject", SUBJ)
+        self.assertEqual(code, 1, out)
+        self.assertIn("supersedes", err)
+        self.record(sup="")
+        code, out, err = self.run_cli("new-pass", NEW_SUBJ, "--reword-of", self.base,
+                                      "--base-subject", SUBJ)
+        self.assertEqual(code, 1, out)
+        self.assertIn("supersedes", err)
+        self.record(sup="supersedes:\n  - paper:lem:other\n")
+        code, out, err = self.run_cli("new-pass", NEW_SUBJ, "--reword-of", self.base,
+                                      "--base-subject", SUBJ)
+        self.assertEqual(code, 1, out)
+        self.assertIn("supersedes", err)
+
+    def test_refused_without_base_subject_or_with_a_bare_one(self):
+        self.record()
+        # the base pass is not under the new id: without --base-subject it is missing
+        code, out, err = self.run_cli("new-pass", NEW_SUBJ, "--reword-of", self.base)
+        self.assertEqual(code, 1, out)
+        self.assertIn("base pass", err)
+        code, out, err = self.run_cli("new-pass", NEW_SUBJ, "--reword-of", self.base,
+                                      "--base-subject", "lem-strip-bound")
+        self.assertEqual(code, 1, out)
+        self.assertIn("namespaced", err)
+
+    def test_base_subject_needs_reword_of(self):
+        code, out, err = self.run_cli("new-pass", NEW_SUBJ, "--base-subject", SUBJ)
+        self.assertEqual(code, 1, out)
+        self.assertIn("--reword-of", err)
+
+    def test_an_unconfirmed_base_under_the_old_id_is_refused(self):
+        # the CONFIRMED x2 rule still applies to the pass filed under base_subject
+        self.record()
+        self.write_run("B", "GAP")
+        code, out, err = self.run_cli("new-pass", NEW_SUBJ, "--reword-of", self.base,
+                                      "--base-subject", SUBJ)
+        self.assertEqual(code, 1, out)
+        self.assertIn("not CONFIRMED x2", err)
+
+
+class CheckBaseSubjectTests(unittest.TestCase):
+    """T-0476 (test-engineer review): which ``supersedes`` entries admit a base_subject.
+    ``supersedes_of`` replaces the registry lookup."""
+
+    def check(self, sup, base="paper:lem:x", subject="paper:cor:x"):
+        import reviews
+        reviews.check_base_subject(subject, base, lambda s: sup)
+
+    def refused(self, sup, **kw):
+        import reviews
+        with self.assertRaises(reviews.Refused):
+            self.check(sup, **kw)
+
+    def test_accepted_forms(self):
+        self.check(["paper:lem:x"])
+        self.check(["paper:lem:y", "paper:lem:x"])
+        self.check(["lem:x"])                      # bare: the record's own namespace
+        self.check(["s1:CEX-3"], base="s1:CEX-3")  # another namespace, written in full
+
+    def test_refused_forms(self):
+        self.refused([])
+        self.refused(["paper:lem:y"])
+        self.refused(["lab:lem:x"])                # same local id, another namespace
+        self.refused(["paper:lem:mid"])            # transitive is not enough
+        self.refused(["lem:x"], subject="lab:cor:x")   # bare means lab:lem:x
+        self.refused(None)                         # record unreadable
+        self.refused(["paper:lem:x"], base="lem:x")    # bare base_subject
+
+    def test_a_base_subject_equal_to_the_subject_needs_no_supersedes(self):
+        self.check([], base="paper:cor:x")
+
 
 class RewordStatusTests(unittest.TestCase):
     """T-0347 review, finding 7: expert_status lists an undecided reword pass."""

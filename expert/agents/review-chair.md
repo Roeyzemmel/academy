@@ -45,7 +45,9 @@ knows which are an agent's word.
   reword mode instead of a blind pair (the human's decision, 2026-10-12, T-0347), procedure
   conclude.md section 7: `reviews.py new-pass <id> --reword-of <base pass>`,
   `reviews.py reword-brief ... --out <scratch>/bundle.md`, one run, then
-  `decision_table.py <pass>/R.md`. R CONFIRMED (scope equivalent / weaker / covered)
+  `decision_table.py <pass>/R.md`; for a renamed label whose base pass is filed under
+  the superseded id, add `--base-subject <old id>` to `new-pass` (conclude.md section 7,
+  T-0476). R CONFIRMED (scope equivalent / weaker / covered)
   on a CONFIRMED x2 base is enough for `proved`; `full-pass-needed` means a fresh blind
   pass (run A, told nothing of R). A rewording that answers a hypothesis, statement or
   proof finding, or a changed proof, always takes the blind pair.

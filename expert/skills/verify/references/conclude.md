@@ -201,6 +201,17 @@ answers a hypothesis / statement / proof finding: those take a full blind pass
    > the proof as reviewed still prove the new wording?
 
    The `land_verdict` hook lands it as `<pass dir>/R.md`.
+
+   **A renamed label** (T-0476, the human's decision of 2026-10-17: a rename is a
+   rewording). The new record (`paper:<new label>`) `supersedes` the old id, and the
+   CONFIRMED x2 base pass stays in the old id's folder. In step 3 add
+   `--base-subject <old id>`: `py $E/reviews.py new-pass <new id> --reword-of <base
+   pass> --base-subject <old id> --ticket T-NNNN`. It refuses unless the new record
+   lists `<old id>` in `supersedes`; the pass opens under the new id and notes
+   `base_subject`. `reword-brief <new id> <pass> ...` then reads the base from the old
+   id's folder and puts `base_subject: <old id>` into the lines R copies; the table
+   (step 6) reads the base there, and its grounds carry `base_subject`, which
+   `set-status` accepts only for a record that supersedes that id.
 6. The table: `py $E/decision_table.py "<pass dir>/R.md" --established <ids> --json`.
    It finds the base pass beside the reword pass (`--base-dir` overrides) and recomputes
    the base's table. Outcomes:
@@ -214,7 +225,8 @@ answers a hypothesis / statement / proof finding: those take a full blind pass
    - `disproved`: the counterexample to the human at once, as in section 4.
    - `degraded`: re-run R on a primary. `incomplete`: relaunch R once.
    - `invalid-base`: no status; the anomalies say why (base missing or not confirmed,
-     `base_hash` not the base runs' hash, an unchanged statement, a shared run id).
+     `base_hash` not the base runs' hash, an unchanged statement, a shared run id, base
+     runs about another id than the reword run's subject or its `base_subject`).
 7. The record `<pass dir>/decision.md` (section 3), naming the base pass, both hashes,
    the word diff and `reword_scope`. Evidence: one row for R.md (section 4.1); the base
    rows are already on the claim. Packet and ticket as in section 4.
