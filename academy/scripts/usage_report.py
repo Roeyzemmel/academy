@@ -38,6 +38,18 @@ subagent runs in the tallied sessions. Limits: only sessions with a transcript o
 machine are in the denominator; errors from other sessions are ``unmatched`` and
 not rated; records without an ``agent`` field count only in the session-level rate.
 
+Cost per ticket (optional section): a session is tied to a ticket by what its transcripts
+(main and subagents) show. First choice: a call that delivered or closed it, i.e. a
+``tickets_update`` tool_use whose input names the ticket with ``status`` ``delivered`` or
+``closed`` (or ``deliver: true``), or a Bash ``board.py transition <ticket> delivered|closed``.
+Fallback, only for a session with no such call: a ticket id named in the first user message
+of one of its transcripts (the inbox skills pass it), counted when the board shows that
+ticket delivered or closed. The cache read of the whole session (main plus subagents) goes to
+the ticket; a session tied to several tickets splits it evenly. The ticket's kind is read from
+the board (``board.backend`` of the workspace); a ticket that cannot be read (GitHub
+unreachable, missing) has kind ``unknown``. Shown only when a ticket is matched; sessions on
+other machines are not seen, and a ticket worked over several sessions sums their shares.
+
 Output is Markdown (default), JSON (``--json``), or one line (``--brief``, used by
 the desk). Cache reads are the volume that tracks cost; output tokens are not shown
 (see session_usage.py).
@@ -184,6 +196,68 @@ def _window(days=None, since=None, now=None):
     return start, now
 
 
+RE_TICKET_ANY = re.compile(r"(?<![\w-])(T-\d{4,}|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\d+)(?![\w])")
+#: a real invocation: the command line itself runs board.py (after optional ``cd X &&``);
+#: the phrase inside a heredoc, an echo or a test file's text does not count
+RE_TRANSITION = re.compile(r"^\s*(?:cd\s+\S+\s*(?:&&|;)\s*)*(?:py|python3?)\s+\S*board\.py\s+"
+                           r"transition\s+(T-\d{4,}|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\d+)\s+"
+                           r"(delivered|closed)\b")
+DONE_STATUSES = ("delivered", "closed")
+
+
+def _text_of(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(b.get("text", "") for b in content
+                        if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def transcript_tickets(path):
+    """``(delivered, mentioned)`` ticket ids of one transcript: those a ``tickets_update``
+    call or a ``board.py transition`` command delivered/closed, and those named in its
+    first user message. Unreadable lines are skipped."""
+    delivered, mentioned = set(), set()
+    first_done = False
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return delivered, mentioned
+    for line in lines:
+        is_use = '"tool_use"' in line
+        if first_done and not is_use:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        m = d.get("message") or {}
+        if d.get("type") == "user" and not first_done and m.get("role") == "user":
+            text = _text_of(m.get("content"))
+            if text.strip():
+                first_done = True
+                mentioned.update(RE_TICKET_ANY.findall(text))
+            continue
+        if d.get("type") != "assistant" or not isinstance(m.get("content"), list):
+            continue
+        for b in m["content"]:
+            if not isinstance(b, dict) or b.get("type") != "tool_use":
+                continue
+            inp = b.get("input") or {}
+            name = str(b.get("name", ""))
+            if name.endswith("tickets_update") and inp.get("id"):
+                if inp.get("status") in DONE_STATUSES or inp.get("deliver") is True:
+                    delivered.add(str(inp["id"]))
+            elif isinstance(inp.get("command"), str):
+                first = inp["command"].lstrip().split("\n", 1)[0]
+                hit = RE_TRANSITION.match(first)
+                if hit:
+                    delivered.add(hit.group(1))
+    return delivered, mentioned
+
+
 def collect(projects_root, start, end=None, workspace=None):
     """Tally every session transcript modified in [start, end].
 
@@ -203,6 +277,7 @@ def collect(projects_root, start, end=None, workspace=None):
         project = os.path.basename(base)
         t, m = session_usage.tally(path)
         subs = []
+        deliv, ment = transcript_tickets(path)
         for meta in sorted(glob.glob(os.path.join(base, sid, "subagents", "*.meta.json"))):
             try:
                 with open(meta, "r", encoding="utf-8") as fh:
@@ -211,6 +286,10 @@ def collect(projects_root, start, end=None, workspace=None):
                 md = {}
             jl = meta[: -len(".meta.json")] + ".jsonl"
             st, sm = session_usage.tally(jl) if os.path.isfile(jl) else (collections.Counter(), collections.Counter())
+            if os.path.isfile(jl):
+                d2, m2 = transcript_tickets(jl)
+                deliv |= d2
+                ment |= m2
             subs.append({"agent_type": md.get("agentType", "?"),
                          "depth": md.get("spawnDepth"),
                          "description": md.get("description", ""),
@@ -220,7 +299,8 @@ def collect(projects_root, start, end=None, workspace=None):
                          "instance": instance_of_project(project, workspace),
                          "main": {"counts": {k: t.get(k, 0) for k in COUNTED},
                                   "models": dict(m)},
-                         "subagents": subs})
+                         "subagents": subs,
+                         "tickets": {"delivered": sorted(deliv), "mentioned": sorted(ment)}})
     return sessions
 
 
@@ -396,6 +476,89 @@ def render_errors(er):
     return out
 
 
+def ticket_costs(sessions, info, top=5):
+    """Cache read per ticket, grouped by ticket kind; ``None`` when no ticket is matched.
+
+    ``info(ticket_id)`` returns ``(kind, status)``; ``kind`` is ``unknown`` when the board
+    cannot be read. A session is tied to the tickets it delivered/closed, else (fallback) to
+    those its first user messages name that the board shows delivered or closed; its whole
+    cache read (main plus subagents) is split evenly among them.
+    """
+    reads = collections.Counter()
+    nsess = collections.Counter()
+    kinds = {}
+    split = 0
+    for s in sessions:
+        t = s.get("tickets") or {}
+        ids = list(t.get("delivered") or [])
+        if not ids:
+            ids = [i for i in (t.get("mentioned") or []) if info(i)[1] in DONE_STATUSES]
+        if not ids:
+            continue
+        read = s["main"]["counts"].get("read", 0) + sum(
+            x["counts"].get("read", 0) for x in s["subagents"])
+        if len(ids) > 1:
+            split += 1
+        for i in ids:
+            reads[i] += read / float(len(ids))
+            nsess[i] += 1
+            kinds[i] = info(i)[0] or "unknown"
+    if not reads:
+        return None
+    groups = collections.defaultdict(list)
+    for i, r in reads.items():
+        groups[kinds[i]].append(r)
+    by_kind = [{"kind": k, "count": len(v), "read": int(sum(v)),
+                "mean": int(sum(v) / len(v)), "max": int(max(v))}
+               for k, v in sorted(groups.items(), key=lambda kv: -sum(kv[1]))]
+    top_rows = [{"ticket": i, "kind": kinds[i], "read": int(r), "sessions": nsess[i]}
+                for i, r in sorted(reads.items(), key=lambda kv: -kv[1])[:top]]
+    return {"tickets": len(reads), "split_sessions": split, "by_kind": by_kind,
+            "top": top_rows}
+
+
+def make_info(ws):
+    """``info(ticket_id) -> (kind, status)`` over the workspace's board; any failure
+    (no board, GitHub unreachable, unknown id) reads as ``("unknown", None)``."""
+    cache = {}
+    store = [None, False]
+
+    def info(tid):
+        if tid in cache:
+            return cache[tid]
+        res = ("unknown", None)
+        try:
+            if not store[1]:
+                store[1] = True
+                store[0] = ac.open_store(ws) if ws else None
+            if store[0] is not None:
+                meta = store[0].get(tid)[1]
+                res = (str(meta.get("kind") or "unknown"), meta.get("status"))
+        except Exception:  # noqa: BLE001 -- degrade, never fail a usage report
+            res = ("unknown", None)
+        cache[tid] = res
+        return res
+    return info
+
+
+def render_tickets(tc):
+    out = ["", "## Cost per ticket", "",
+           "Cache read of the sessions (main plus subagents) tied to each ticket seen "
+           "delivered or closed in the window, by ticket kind. A session is tied by a call "
+           "that delivered/closed the ticket, else by a ticket id in its first user message "
+           "when the board shows it done. A session tied to several tickets splits its read "
+           "evenly among them (%d such session(s)); a ticket worked over several sessions "
+           "sums their shares. Sessions on other machines are not seen; a ticket the board "
+           "cannot be read for has kind `unknown`." % tc["split_sessions"], "",
+           "| kind | tickets | mean read | max read | total read |", "|---|---|---|---|---|"]
+    out += ["| %s | %d | %s | %s | %s |" % (r["kind"], r["count"], _k(r["mean"]),
+                                          _k(r["max"]), _k(r["read"])) for r in tc["by_kind"]]
+    out += ["", "| ticket | kind | sessions | read |", "|---|---|---|---|"]
+    out += ["| %s | %s | %d | %s |" % (r["ticket"], r["kind"], r["sessions"], _k(r["read"]))
+            for r in tc["top"]]
+    return out
+
+
 def _k(n):
     return "%dk" % (n // 1000)
 
@@ -430,6 +593,8 @@ def render_markdown(report, start, end):
             a["mean_turns"], _k(a["read"]), a["limit_failures"]))
     if report.get("errors"):
         out += render_errors(report["errors"])
+    if report.get("tickets"):
+        out += render_tickets(report["tickets"])
     out += ["", "## Flags", ""]
     if not report["flags"]:
         out.append("None.")
@@ -478,6 +643,9 @@ def build(days=None, since=None, projects=None, workspace_path=None, max_subagen
         er = error_rates(sessions, records, start, end, load_roster(perms))
         if er:
             report["errors"] = er
+    tc = ticket_costs(sessions, make_info(ws))
+    if tc:
+        report["tickets"] = tc
     report["window"] = {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")}
     return report, start, end
 

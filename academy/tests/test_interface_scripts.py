@@ -299,6 +299,103 @@ class UsageReportTest(Sandbox):
         report, _s, _e = usage_report.build(max_read_per_turn=200000, **kw)
         self.assertEqual([f for f in report["flags"] if f["kind"] == "context-bloat"], [])
 
+    def _ticket_file(self, tid, kind, status="delivered"):
+        meta = {"id": tid, "title": "t " + tid, "kind": kind, "status": status,
+                "from": "human", "to": "author@p"}
+        write(os.path.join(self.board, "author@p", "%s-t.md" % tid),
+              ac.write_frontmatter(meta, "body\n"))
+
+    @staticmethod
+    def _tool_use(name, inp, mid):
+        return json.dumps({"type": "assistant", "message": {
+            "id": mid, "model": "claude-sonnet-5", "content": [
+                {"type": "tool_use", "name": name, "input": inp}],
+            "usage": {"cache_read_input_tokens": 1000, "cache_creation_input_tokens": 0}}})
+
+    def test_cost_per_ticket_by_kind(self):
+        # U3: a tickets_update to delivered ties the session to the ticket; the kind
+        # comes from the board; several tickets split the session's read evenly
+        root = os.path.join(self.tmp, "tk")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+        self._ticket_file("T-0001", "verify")
+        self._ticket_file("T-0002", "prove")
+        self._ticket_file("T-0003", "prove", status="open")
+        use = self._tool_use
+        write(os.path.join(base, "a.jsonl"), "\n".join([
+            _assistant("a1", "claude-sonnet-5", 4000, 0),
+            use("mcp__plugin_academy_academy__tickets_update",
+                {"id": "T-0001", "status": "delivered"}, "a2"),
+            use("mcp__plugin_academy_academy__tickets_get", {"id": "T-0003"}, "a3"),
+        ]) + "\n")
+        # a subagent of session b delivers two tickets through board.py; T-0009 is unreadable
+        write(os.path.join(base, "b.jsonl"), _assistant("b1", "claude-sonnet-5", 2000, 0) + "\n")
+        sub = os.path.join(base, "b", "subagents")
+        write(os.path.join(sub, "x.meta.json"), json.dumps({"agentType": "paper:math-writer"}))
+        write(os.path.join(sub, "x.jsonl"), "\n".join([
+            use("Bash", {"command": "py board.py transition T-0002 delivered --result r"}, "x1"),
+            use("Bash", {"command": "py board.py transition T-0009 closed"}, "x2"),
+        ]) + "\n")
+        # session c has no delivering call: fallback to the first user message (T-0002 is done)
+        write(os.path.join(base, "c.jsonl"), "\n".join([
+            json.dumps({"type": "user", "message": {"role": "user",
+                                                    "content": "work T-0002 and T-0003"}}),
+            _assistant("c1", "claude-sonnet-5", 6000, 0),
+        ]) + "\n")
+        kw = dict(days=7, projects=root, workspace_path=self.ws_path, perms={"roster": {}},
+                  repo=self.tmp)
+        report, st, en = usage_report.build(**kw)
+        tc = report["tickets"]
+        self.assertEqual(tc["tickets"], 3)
+        self.assertEqual(tc["split_sessions"], 1)
+        kinds = {r["kind"]: r for r in tc["by_kind"]}
+        # a: 4000+1000+1000 on T-0001; b: (2000+1000+1000)/2 each; c: 6000 on T-0002 only
+        # (T-0003 is still open, so the fallback skips it)
+        self.assertEqual(kinds["verify"]["read"], 6000)
+        self.assertEqual(kinds["prove"]["count"], 1)
+        self.assertEqual(kinds["prove"]["read"], 2000 + 6000)
+        self.assertEqual(kinds["unknown"]["read"], 2000)
+        top = {r["ticket"]: r for r in tc["top"]}
+        self.assertEqual(top["T-0002"]["sessions"], 2)
+        md = usage_report.render_markdown(report, st, en)
+        self.assertIn("## Cost per ticket", md)
+        self.assertIn("splits its read evenly", md)
+        self.assertEqual(usage_report.render_brief(report, "7d"),
+                         usage_report.render_brief({k: v for k, v in report.items()
+                                                    if k != "tickets"}, "7d"))
+
+    def test_transition_text_that_is_not_a_command_is_not_a_delivery(self):
+        """A heredoc, echo or test file that merely contains the phrase delivers nothing."""
+        for cmd in ("cat > t.py <<'E'\npy board.py transition T-0001 delivered\nE",
+                    "echo 'py board.py transition T-0001 delivered'",
+                    "grep 'board.py transition T-0001 delivered' log.txt"):
+            path = os.path.join(self.tmp, "phrase.jsonl")
+            write(path, self._tool_use("Bash", {"command": cmd}, "p1") + "\n")
+            self.assertEqual(usage_report.transcript_tickets(path), (set(), set()), cmd)
+        for cmd in ("py board.py transition T-0001 delivered --result r",
+                    "cd /w && python3 scripts/board.py transition T-0001 closed"):
+            path = os.path.join(self.tmp, "real.jsonl")
+            write(path, self._tool_use("Bash", {"command": cmd}, "p2") + "\n")
+            self.assertEqual(usage_report.transcript_tickets(path)[0], {"T-0001"}, cmd)
+
+    def test_cost_per_ticket_absent_without_match(self):
+        root = self.make_projects()
+        report, st, en = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={}, repo=os.path.join(self.tmp, "repo"))
+        self.assertNotIn("tickets", report)
+        self.assertNotIn("Cost per ticket", usage_report.render_markdown(report, st, en))
+
+    def test_cost_per_ticket_unreadable_board_is_unknown(self):
+        root = os.path.join(self.tmp, "tk2")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+        write(os.path.join(base, "a.jsonl"), "\n".join([
+            _assistant("a1", "claude-sonnet-5", 4000, 0),
+            self._tool_use("mcp__x__tickets_update", {"id": "T-0001", "deliver": True}, "a2"),
+        ]) + "\n")
+        report, _s, _e = usage_report.build(days=7, projects=root,
+                                            workspace_path=os.path.join(self.tmp, "none.json"),
+                                            perms={}, repo=self.tmp)
+        self.assertEqual(report["tickets"]["by_kind"][0]["kind"], "unknown")
+
     def test_session_usage_moved(self):
         self.assertTrue(os.path.isfile(os.path.join(SCRIPTS, "session_usage.py")))
         root = self.make_projects()
