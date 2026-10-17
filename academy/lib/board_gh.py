@@ -30,7 +30,10 @@ RATE_LIMIT_DELAYS = (60, 120, 240, 480, 900)
 WRITE_INTERVAL = 1.0
 RATE_LIMITED = ("secondary rate limit", "rate limit exceeded")
 TRANSIENT = ("HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 429",
-             "connection reset", "connection refused", "timeout", "EOF", "TLS handshake")
+             "connection reset", "connection refused", "timeout", "EOF", "TLS handshake",
+             # gh could not read its own stdin / the reply (a truncated pipe, a dropped
+             # connection): no HTTP status, nothing was applied (ledger 2026-10-12)
+             "unexpected end of JSON input")
 
 
 class GhError(RuntimeError):

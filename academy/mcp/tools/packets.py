@@ -28,7 +28,11 @@ def compose_body(sections):
     parts = []
     for key, head in SECTION_ARGS:
         parts.append("%s\n\n%s\n" % (head, str(sections.get(key) or "").strip()))
-    for head, text in (sections.get("extra") or {}).items():
+    extra = sections.get("extra") or {}
+    if not isinstance(extra, dict):
+        raise ToolError("sections.extra must be an object {heading: text}, got %s"
+                        % type(extra).__name__)
+    for head, text in extra.items():
         head = head if head.startswith("## ") else "## " + head.lstrip("# ")
         parts.append("%s\n\n%s\n" % (head, str(text).strip()))
     parts.append("## Decisions needed\n\n%s\n"

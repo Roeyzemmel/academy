@@ -457,6 +457,10 @@ class RegistryBackend(ClaimsBackend):
             self.fsl.attach_evidence(home, cid, text)
         except self.fsl.Refused as exc:
             raise ToolError("refused: %s" % exc)
+        except ValueError as exc:
+            # the record itself does not parse (a hand edit): say which, not "internal error"
+            raise ToolError("refused: %s cannot be read, fix its frontmatter first: %s"
+                            % (cid, exc))
         finally:
             self.federation.CACHE.clear()
         return {"id": cid, "attached": text, "field": "evidence"}

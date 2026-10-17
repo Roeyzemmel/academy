@@ -223,6 +223,20 @@ class TestGhTransport(unittest.TestCase):
             t.create_label("x")
         self.assertEqual(422, e.exception.status)
 
+    def test_truncated_json_input_is_retried_then_a_clear_error(self):
+        # ledger 2026-10-12: POST issues/337/comments: unexpected end of JSON input
+        msg = "unexpected end of JSON input"
+        slept = []
+        fake = FakeGh([(1, "", msg), (0, json.dumps({"id": 1}), "")])
+        t = gh.GhTransport("me/repo", run=fake, sleep=slept.append, write_interval=0)
+        t.add_comment(337, "x")
+        self.assertEqual(2, len(fake.calls))
+        fake = FakeGh([(1, "", msg)] * (len(gh.RETRY_DELAYS) + 1))
+        t = gh.GhTransport("me/repo", run=fake, sleep=lambda s: None, write_interval=0)
+        with self.assertRaises(gh.GhError) as e:
+            t.add_comment(337, "x")
+        self.assertIn("issues/337/comments", str(e.exception))
+
     def test_a_secondary_rate_limit_is_waited_out(self):
         slept = []
         msg = ("gh: You have exceeded a secondary rate limit and have been temporarily "

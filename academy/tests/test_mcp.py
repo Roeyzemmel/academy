@@ -761,6 +761,17 @@ class TestPacketValidation(McpTestBase):
         self.assertIn("missing section", msg)
 
 
+    def test_extra_must_be_an_object(self):
+        # 2026-10-10: internal error AttributeError: 'str' object has no attribute 'items'
+        s = self.server("expert@t")
+        err, msg = s.call("packets_create", caller="expert:review-chair", title="x",
+                          kind="verification",
+                          sections={"summary": "s", "extra": "just a string"})
+        self.assertTrue(err)
+        self.assertNotIn("internal error", msg)
+        self.assertIn("extra", msg)
+
+
 class TestCallerHandshake(McpTestBase):
     def test_write_without_hook_record_refused(self):
         s = self.server("author@t")
@@ -1214,6 +1225,28 @@ class TestRegistryBackend(McpTestBase):
                           id="lab:ew", row=dict(row, ref="audits/none.md"))
         self.assertTrue(err)
         self.assertIn("does not exist", msg)
+
+    def test_attach_evidence_note_with_colon_is_quoted(self):
+        # 2026-10-12: "internal error ... a bare value may not contain ': '"
+        s = self.server("researcher@t")
+        row = {"type": "hand", "ref": "notes: ew", "verdict": "SOUND",
+               "note": "checked: L-shape; ends with:"}
+        err, res = s.call("claims_attach_evidence", caller="researcher:claim-keeper",
+                          id="lab:ew", row=row)
+        self.assertFalse(err, res)
+        self.assertIn("checked: L-shape", self.lab_text())
+
+    def test_attach_evidence_on_unparsable_record_is_a_refusal(self):
+        lab = self.homes["scientist@t"]
+        write(os.path.join(lab, "claims", "lab", "bad.md"),
+              "---\nid: lab:bad\nkind: claim\ntitle: Bad: title here\nstatus: sketch\n"
+              "lifecycle: active\nevidence: []\n---\nBody.\n")
+        s = self.server("researcher@t")
+        err, msg = s.call("claims_attach_evidence", caller="researcher:claim-keeper",
+                          id="lab:bad", row={"type": "hand", "ref": "x", "verdict": "-"})
+        self.assertTrue(err)
+        self.assertNotIn("internal error", msg)
+        self.assertIn("lab:bad", msg)
 
     def test_proof_review_is_an_alias_of_verdict(self):
         # expert verify's conclude.md said type "proof-review" (5 refusals, 2026-10-08)
