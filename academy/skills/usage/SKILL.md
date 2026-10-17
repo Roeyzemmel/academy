@@ -30,6 +30,10 @@ filed, closes the classes that were reported and stayed quiet for seven days. Fr
 main session: `py $S/error_ledger.py report [--days N]` shows the picture, and
 `py $S/error_ledger.py resolve "<class>" --note "<why>"` closes a class by hand.
 
+**Cloud sessions.** `ship.py checkpoint` writes content-free session summaries to
+`<board>/.usage/<instance>.jsonl`; the report adds those whose transcript is not on this
+machine (a note line says how many; `--no-board` skips them).
+
 Reading the numbers: cache reads track cost; output tokens are undercounted in the
 transcripts and not shown. The report counts; it does not show that the budget rules
 held.

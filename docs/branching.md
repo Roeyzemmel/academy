@@ -48,6 +48,16 @@ workspace.json). Under `--only`:
 - untracked nested repositories and worktrees, and submodule pointers, are never
   committed (they are listed as skipped).
 
+**Usage on the board.** When `board` is part of a checkpoint, `ship.py` first appends one
+content-free summary per recently active session of this machine (session id, instance
+bucket, turns, cache read/write, models, subagent counts, a hashed host; never prompts,
+paths or tool inputs) to `board/.usage/<instance>.jsonl`, so cloud sessions show up in
+`usage_report.py` (`--no-board` skips them). The ordinary `add -A -- board/` staging commits
+it like `.errors/`. A record is appended only when its session's turns or cache read
+changed; readers take the last record per session. Opt out with `"usageCheckpoint": false`
+(or `"shipCheckpoint": false`) in workspace.json; a failure is a warning, never a failed
+checkpoint.
+
 When the hook says it did not run, or failed, run the scoped command it printed (with its
 `--only`), from your own checkout's root. The unscoped run (no `--only`: every dirty
 submodule and the board) is for the human or the session that owns the checkout.

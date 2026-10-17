@@ -216,6 +216,48 @@ class UsageReportTest(Sandbox):
         self.assertIn("unmatched", md)
         self.assertIn("| academy:concierge |", md)
 
+    def test_board_summaries_merge_when_the_transcript_is_absent(self):
+        # U5: cloud sessions reach the report through board/.usage/; local detail wins
+        import usage_ledger
+        root = self.make_projects()
+        now = _dt.datetime.now(_dt.timezone.utc)
+        iso = lambda d: (now - _dt.timedelta(days=d)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        def rec(sid, ts, turns=10, read=50000, inst="author@p", **kw):
+            return dict({"t": "usage", "session": sid, "ts": ts, "instance": inst, "turns": turns,
+                         "read": read, "write": 7000, "limit_failures": 0,
+                         "models": {"opus": turns}, "subagents": {"academy:concierge": 2},
+                         "host": "abcd1234"}, **kw)
+
+        usage_ledger.append(self.board, "author@p", [
+            rec("cloud1", iso(1)), rec("s1", iso(1), read=999999),     # s1 has a local transcript
+            rec("old", iso(30)),                                        # outside the window
+            rec("cloud2", iso(2), limit_failures=1)])
+        usage_ledger.append(self.board, "author@p", [rec("cloud1", iso(0), turns=12, read=60000)])
+        kw = dict(days=7, projects=root, workspace_path=self.ws_path, perms={},
+                  repo=os.path.join(self.tmp, "repo"))
+        base, _s, _e = usage_report.build(no_board=True, **kw)
+        report, st, en = usage_report.build(**kw)
+        self.assertEqual(report["sessions"], base["sessions"] + 2)
+        self.assertEqual(report["subagents"], base["subagents"] + 4)
+        self.assertEqual(report["board"], {"sessions": 2, "subagents": 4})
+        self.assertNotIn("board", base)
+        a, b = report["by_instance"]["author@p"], base["by_instance"]["author@p"]
+        self.assertEqual(a["read"] - b["read"], 60000 + 50000)          # last record per session
+        self.assertEqual(a["turns"] - b["turns"], 12 + 10)
+        self.assertEqual(report["total"]["read"] - base["total"]["read"], 110000)
+        self.assertEqual(report["by_role"], base["by_role"])             # no per-role detail
+        self.assertEqual(report["by_agent"], base["by_agent"])
+        self.assertIn("limit", [f["kind"] for f in report["flags"] if f.get("session") == "cloud2"])
+        md = usage_report.render_markdown(report, st, en)
+        self.assertIn("2 session(s) from the board, summary only", md)
+        self.assertNotIn("from the board", usage_report.render_markdown(base, _s, _e))
+        out = io.StringIO()
+        with redirect_stdout(out):
+            usage_report.main(["--days", "7", "--projects", root, "--workspace", self.ws_path,
+                               "--json", "--no-board"])
+        self.assertNotIn("board", json.loads(out.getvalue()))
+
     def test_errors_section_absent_without_ledger_or_errors(self):
         root = self.make_projects()
         report, st, en = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,

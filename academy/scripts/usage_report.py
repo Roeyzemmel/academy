@@ -4,7 +4,7 @@ Usage:
 
     py usage_report.py [--days 7 | --since YYYY-MM-DD] [--projects DIR]
                        [--workspace PATH] [--max-subagents 12]
-                       [--max-read-per-turn 100000] [--json | --brief]
+                       [--max-read-per-turn 100000] [--no-board] [--json | --brief]
 
 It wraps ``session_usage.tally`` (the per-transcript counter, moved here from
 claude-paper) over every session transcript under ``~/.claude/projects`` modified
@@ -62,6 +62,16 @@ out of the mean and of the read. Family = ``error_ledger.family_of(signature(too
 clean_message(text)))``. Per family: failures, recovered, unrecovered, mean turns to recover,
 total read spent retrying; the top 10 by read. Shown only when a failure is found; JSON key
 ``retries``; ``--brief`` is unchanged.
+
+Sessions from the board (optional, on by default; ``--no-board`` skips): cloud and
+collaborator sessions leave no transcript here, but ``ship.py checkpoint`` writes a
+content-free summary of each to ``<board>/.usage/<instance>.<host>.jsonl`` (``usage_ledger.py``).
+``build`` adds every board summary whose session id has no transcript under the projects
+directory (local detail wins) and whose record ``ts`` falls in the window. These sessions
+have no per-agent or per-tool detail, so they count in the totals and in "By instance"
+only (not in "By role", "By agent", the error or ticket sections), and a note line says
+"N session(s) from the board, summary only". A limit failure in one is still flagged. JSON:
+additive key ``board`` = ``{"sessions": N, "subagents": N}`` (absent when none).
 
 Output is Markdown (default), JSON (``--json``), or one line (``--brief``, used by
 the desk). Cache reads are the volume that tracks cost; output tokens are not shown
@@ -690,6 +700,9 @@ def render_markdown(report, start, end):
                                        _k(report["total"]["read"]),
                                        _k(report["total"]["write"]),
                                        report["total"]["limit_failures"]))
+    if report.get("board"):
+        out.append("%d session(s) from the board, summary only (no per-agent detail)."
+                   % report["board"]["sessions"])
     out += ["", "## By instance", "",
             "| instance | sessions | subagents | turns | read | write | limit |",
             "|---|---|---|---|---|---|---|"]
@@ -746,8 +759,57 @@ def render_brief(report, days_label):
                             report["total"]["limit_failures"], len(report["flags"])))
 
 
+def board_sessions(ws, projects, start, end=None):
+    """Board summaries (``usage_ledger``) in the window whose session has no transcript under
+    ``projects`` (local detail wins: a session seen here is left out)."""
+    board = (ws or {}).get("board")
+    if not isinstance(board, str):
+        return []
+    try:
+        import usage_ledger  # noqa: E402
+        recs = usage_ledger.read_all(board)
+    except (ImportError, OSError):
+        return []
+    if not recs:
+        return []
+    local = {os.path.splitext(os.path.basename(p))[0]
+             for p in glob.glob(os.path.join(projects, "*", "*.jsonl"))}
+    out = []
+    for sid, rec in sorted(recs.items()):
+        ts = usage_ledger.parse_ts(rec.get("ts"))
+        if sid in local or ts is None or ts < start or (end is not None and ts > end):
+            continue
+        out.append(rec)
+    return out
+
+
+def merge_board(report, records):
+    """Add board summaries to the totals and "By instance" (nothing else is derivable)."""
+    n = nsub = 0
+    for rec in records:
+        inst = rec.get("instance") or "other"
+        row = report["by_instance"].setdefault(inst, {})
+        subs = sum(v for v in (rec.get("subagents") or {}).values() if isinstance(v, int))
+        row["sessions"] = row.get("sessions", 0) + 1
+        row["subagents"] = row.get("subagents", 0) + subs
+        for k in COUNTED:
+            v = rec.get(k) if isinstance(rec.get(k), int) else 0
+            row[k] = row.get(k, 0) + v
+            report["total"][k] += v
+        report["sessions"] += 1
+        report["subagents"] += subs
+        n += 1
+        nsub += subs
+        if rec.get("limit_failures"):
+            report["flags"].append({"kind": "limit", "session": rec.get("session"),
+                                    "instance": inst, "count": rec["limit_failures"]})
+    report["by_instance"] = dict(sorted(report["by_instance"].items()))
+    if n:
+        report["board"] = {"sessions": n, "subagents": nsub}
+
+
 def build(days=None, since=None, projects=None, workspace_path=None, max_subagents=12,
-          max_read_per_turn=100000, now=None, perms=None, repo=REPO):
+          max_read_per_turn=100000, now=None, perms=None, repo=REPO, no_board=False):
     start, end = _window(days, since, now)
     projects = projects or os.path.expanduser("~/.claude/projects")
     try:
@@ -771,6 +833,8 @@ def build(days=None, since=None, projects=None, workspace_path=None, max_subagen
     tc = ticket_costs(sessions, make_info(ws))
     if tc:
         report["tickets"] = tc
+    if not no_board:
+        merge_board(report, board_sessions(ws, projects, start, end if now is not None else None))
     report["window"] = {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")}
     return report, start, end
 
@@ -784,6 +848,8 @@ def main(argv=None):
     ap.add_argument("--workspace")
     ap.add_argument("--max-subagents", type=int, default=12)
     ap.add_argument("--max-read-per-turn", type=int, default=100000)
+    ap.add_argument("--no-board", action="store_true",
+                    help="do not add the session summaries on the board (.usage/)")
     out = ap.add_mutually_exclusive_group()
     out.add_argument("--json", action="store_true")
     out.add_argument("--brief", action="store_true")
@@ -793,7 +859,7 @@ def main(argv=None):
     except (AttributeError, ValueError):
         pass
     report, start, end = build(a.days, a.since, a.projects, a.workspace, a.max_subagents,
-                                  a.max_read_per_turn)
+                                  a.max_read_per_turn, no_board=a.no_board)
     if a.json:
         print(json.dumps(report, indent=2))
     elif a.brief:
