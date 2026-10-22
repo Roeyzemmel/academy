@@ -338,6 +338,15 @@ permissions.json). **The human may make any transition**, including re-opening
 
 Terminal states: `closed`, `rejected`, `cancelled`.
 
+**One call to deliver (MCP `tickets_update` only).** `deliver: true`, by the receiver of an
+`open`, `accepted` or `in-progress` ticket with `fields.result` set, walks the legal chain to
+`delivered` and writes the ticket once, with the thread lines each single step would write
+(`status open -> accepted`, `status accepted -> in-progress`, `status in-progress ->
+delivered`, after any `set result:` line). Every hop is checked by the table above for the
+caller; if one is refused, nothing changes. It cannot be combined with a `status` other than
+`delivered`, and is an error for a sender or a ticket in any other state. `board.py transition`
+keeps single steps.
+
 **Party rules:**
 - An instance is the *sender* when it equals `from`, and the *receiver* when it
   equals `to`. It may be both.

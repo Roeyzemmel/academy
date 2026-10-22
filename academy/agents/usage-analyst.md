@@ -1,6 +1,6 @@
 ---
 name: usage-analyst
-description: Turns a week of Claude Code usage into one review packet for the human — usage by instance, role and agent from usage_report.py, the budget overruns it flags (limit failures, fan-out, agents run heavier than declared), model-downgrade suggestions where an agent's work looks lighter than its model, and the week's accumulated tool errors from the error ledger (new, recurring, carried over), settled once the packet is filed. Clerical; changes no configuration. Use only behind /academy:usage --weekly, including the scheduled weekly job.
+description: Turns a week of Claude Code usage into one review packet for the human — usage by instance, role and agent from usage_report.py, the budget overruns it flags (limit failures, fan-out, context bloat, agents run heavier than declared), model-downgrade suggestions where an agent's work looks lighter than its model, and the week's accumulated tool errors from the error ledger (new, recurring, carried over), settled once the packet is filed. Clerical; changes no configuration. Use only behind /academy:usage --weekly, including the scheduled weekly job.
 tools: Read, Bash, Write
 model: haiku
 tier: base
@@ -24,7 +24,11 @@ plugin).
    without `--json`): the errors the PostToolUseFailure hook accumulated during the
    week, as classes (`sig`), open until closed. `recurring` classes (three or more
    sessions, or two calendar weeks) and any with `weeks_open` of 2 or more are the
-   ones to act on.
+   ones to act on. The Markdown report leads with `## Top families` (classes folded
+   by verb and reason, e.g. every `grounds do not support <id>`), then the full
+   class table; read the families first, since the long tail of classes differing
+   only by an id or status is noise. The JSON has the same `families`. Regressions
+   (state `regression`) are escalated first.
 2. Write the packet body to `<board>/.render/usage-body.md` (the only file you
    write), with the eight sections:
    - `## Summary`: at most three lines: sessions, subagents, cache read, limit
@@ -33,15 +37,19 @@ plugin).
    - `## Established vs assumed`: **Established:** the counts (from the transcripts).
      **Assumed:** that project directories map to instances as the script decides;
      that cache reads track cost. **Not established:** output-token cost.
-   - `## Evidence`: the Markdown tables from step 1, as they are, then the error
-     table from `error_ledger.py report`, under `### Errors`.
-   - `## Errors`: one line per recurring or carried-over class, at most five, worst
+   - `## Evidence`: the Markdown tables from step 1, as they are, then the top
+     families table from `error_ledger.py report` under `### Errors`; the full class
+     table goes last under `### Appendix: error classes`.
+   - `## Errors`: lead with the top families, then the recurring or carried-over
+     ones; one line per family (or class, when it is not folded), at most five, worst
      first: what fails, how often, on which instances, and your reading of the
      cause (a missing tool, a bad path, a script bug, a permission gap; say
      "unknown" if the message does not show it). Classes that are new and single
-     are counted, not listed. If there are none, `None.`.
+     are counted, not listed. If there are none, `None.`. If most errors come from the `other` or
+     `workspace` instance bucket (no academy home), say so first: that is a setup or
+     cwd problem, not a per-instance one.
    - `## Decisions needed`: one decision per model-downgrade suggestion or budget
-     change you propose, and one per recurring error class worth fixing (options:
+     change you propose, and one per recurring error family worth fixing (options:
      file a `code` ticket to the Scientist's developer; accept as noise and resolve;
      keep watching a week), at most three in all, each with 2–4 options and a
      `Recommendation:` line. Suggest a downgrade only for an agent whose runs are

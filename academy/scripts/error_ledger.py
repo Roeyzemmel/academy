@@ -5,7 +5,7 @@ Usage:
     py error_ledger.py [hook]                    # PostToolUseFailure hook, event on stdin
     py error_ledger.py report [--days 7 | --since YYYY-MM-DD] [--json] [--workspace PATH]
     py error_ledger.py settle --packet P-NNNN [--quiet-days 7] [--workspace PATH]
-    py error_ledger.py resolve SIG [SIG ...] [--note TEXT] [--by WHO] [--workspace PATH]
+    py error_ledger.py resolve SIG [SIG ...] [--note TEXT] [--by WHO] [--commit SHA] [--workspace PATH]
 
 The ledger is ``<board>/.errors/<instance>.jsonl`` (one file per instance, so two
 machines never merge-conflict; the board's SessionStart commit carries it). It is
@@ -14,7 +14,7 @@ append-only; each line is one JSON record:
     {"t": "error",   "ts", "session", "instance", "tool", "sig", "msg",
                      ["detail"], ["cmd"], ["cwd"], ["path"]}
     {"t": "settle",  "ts", "packet", "upto"}      # a weekly review took the errors up to ``upto``
-    {"t": "resolve", "ts", "sig", "note", "by"}   # the class is closed
+    {"t": "resolve", "ts", "sig", "note", "by", ["commit"]}   # the class is closed
 
 An *error class* is a signature: the tool plus the first line of the message with
 paths, ids, numbers and hex normalised away. A class is **open** from its first
@@ -36,6 +36,10 @@ error record after its last ``resolve`` record. The weekly cycle:
    carries over and its weeks-open count grows, which is what the analyst escalates.
 
 ``resolve`` closes classes by hand (the human's word: a fix landed, or accepted noise).
+``--commit SHA`` records the fixing commit in the resolve record; a class whose last
+resolve carries a commit and that then records a new error is a **regression** (state
+``regression`` in the report, ahead of ``new`` and ``recurring``). A resolve without a
+commit, and ``settle``'s resolve by silence, behave as before.
 """
 
 import argparse
@@ -197,10 +201,12 @@ def classes(records):
     last, reported} over the errors after each class's last ``resolve``. ``reported``
     is true when a settle happened at or after the class's first error."""
     last_resolve = {}
+    last_commit = {}
     settles = []
     for r in records:
         if r["t"] == "resolve" and r.get("sig"):
             last_resolve[r["sig"]] = r["ts"]
+            last_commit[r["sig"]] = r.get("commit") or ""
         elif r["t"] == "settle":
             settles.append(r.get("upto") or r["ts"])
     out = {}
@@ -213,7 +219,8 @@ def classes(records):
                                       "msg": r.get("msg", ""), "count": 0,
                                       "sessions": set(), "instances": set(),
                                       "first": r["ts"], "last": r["ts"],
-                                      "weeks": set()})
+                                      "weeks": set(), "recs": []})
+        c["recs"].append(r)
         c["count"] += 1
         c["sessions"].add(r.get("session") or "?")
         c["instances"].add(r.get("instance") or "?")
@@ -221,7 +228,80 @@ def classes(records):
         c["weeks"].add(_parse(r["ts"]).strftime("%G-W%V"))
     for c in out.values():
         c["reported"] = any(u >= c["first"] for u in settles)
+        # an error after a resolve that named its fixing commit: the fix did not hold
+        c["regression_commit"] = last_commit.get(c["sig"], "")
     return out
+
+
+#: (pattern on the message part of a signature, family reason); first match wins
+FAMILY_RULES = [
+    (re.compile(r"the grounds do not support"), "grounds do not support"),
+    (re.compile(r"is not a transition"), "not a transition"),
+    (re.compile(r"\bthe kb does not build"), "kb does not build"),
+    (re.compile(r"\bdoes not exist\b"), "path does not exist"),
+    # the egress error is a JSON object, which signature() reduces to its shape
+    (re.compile(r"egress_blocked|enotfound|egress proxy|^\{<q>:<q>(,<q>:<q>)*\}$"),
+     "host unreachable"),
+    (re.compile(r"^agent .*(could act for|runs outside every academy home|belongs to the)"),
+     "agent cannot act for the instance"),
+    (re.compile(r"\bno domain pack\b"), "no domain pack"),
+    (re.compile(r"\bdelivered needs result\b"), "delivered needs result"),
+    (re.compile(r"\bdoes not contain the quote\b.*\bverbatim"), "quote not verbatim"),
+]
+
+
+def family(sig):
+    """A coarser label for a class signature: the verb and the reason, without the
+    normalised target (id, status, path, host). Falls back to the signature itself.
+    The class keys (``signature``) are not touched; this only groups them for reading."""
+    tool, sep, msg = sig.partition(": ")
+    if not sep:
+        return sig
+    for pat, reason in FAMILY_RULES:
+        if pat.search(msg):
+            return "%s: %s" % (tool.rsplit("__", 1)[-1], reason)
+    return sig
+
+
+BASH_EXIT_SIG = "Bash: exit code <n>"
+
+
+def cmd_word(cmd):
+    """First word of a recorded command, folded to ``git``, ``py``, ``python3`` or
+    ``other``; a record without a command is ``unknown cmd``."""
+    words = (cmd or "").split()
+    if not words:
+        return "unknown cmd"
+    w = words[0].rsplit("/", 1)[-1].lower()
+    return w if w in ("git", "py", "python3") else "other"
+
+
+def family_of(sig, rec=None):
+    """``family(sig)``, except that the ``Bash: exit code`` class is split by the first
+    word of the record's ``cmd`` (it needs the record, which the signature lacks)."""
+    if sig == BASH_EXIT_SIG and rec is not None:
+        return "Bash: exit code (%s)" % cmd_word(rec.get("cmd"))
+    return family(sig)
+
+
+#: records of one class in one session this close to the previous one are one occurrence
+BURST_SECONDS = 60
+
+
+def burst_starts(recs):
+    """Ids of the records that open a burst: the first of a class in a session, or one
+    more than ``BURST_SECONDS`` after the previous record of that class in that session.
+    ``recs`` are the records of ONE class, oldest first."""
+    last = {}
+    starts = set()
+    for rec in recs:
+        key = rec.get("session") or "?"
+        t = _parse(rec["ts"])
+        prev = last.get(key)
+        if prev is None or (t - prev).total_seconds() > BURST_SECONDS:
+            starts.add(id(rec))
+        last[key] = t
+    return starts
 
 
 def report(records, start, now=None):
@@ -235,18 +315,59 @@ def report(records, start, now=None):
         if r["t"] == "error" and r["ts"] >= lo and r.get("sig") in cls:
             in_window[r["sig"]] += 1
     rows = []
+    starts = {}
+    for sig, c in cls.items():
+        starts[sig] = burst_starts(c["recs"])
     for sig, c in cls.items():
         weeks_open = max(1, (now - _parse(c["first"])).days // 7 + 1)
         rows.append({"sig": sig, "tool": c["tool"], "msg": c["msg"], "count": c["count"],
-                     "in_window": in_window.get(sig, 0), "sessions": len(c["sessions"]),
+                     "in_window": in_window.get(sig, 0),
+                     "bursts": sum(1 for rec in c["recs"]
+                                   if id(rec) in starts[sig] and rec["ts"] >= lo),
+                     "sessions": len(c["sessions"]),
                      "instances": sorted(c["instances"]), "first": c["first"],
                      "last": c["last"], "weeks_open": weeks_open,
                      "distinct_weeks": len(c["weeks"]), "reported": c["reported"],
+                     "regression": bool(c["regression_commit"]),
+                     "regression_commit": c["regression_commit"],
                      # recurring: seen on three or more sessions, or in two calendar weeks
                      "recurring": len(c["sessions"]) >= 3 or len(c["weeks"]) >= 2})
+    # class rows stay ordered by raw counts; only the families rank by bursts
     rows.sort(key=lambda r: (-r["in_window"], -r["count"], r["sig"]))
+    fams = {}
+
+    def fam_entry(name, r):
+        return fams.setdefault(name, {"family": name, "in_window": 0, "bursts": 0, "count": 0,
+                                      "classes": 0, "sessions": set(),
+                                      "recurring": False, "regression": False,
+                                      "example": r["msg"]})
+
+    for r in rows:
+        if r["sig"] == BASH_EXIT_SIG:  # split by command word, per record
+            for rec in cls[r["sig"]]["recs"]:
+                f = fam_entry(family_of(r["sig"], rec), r)
+                f["count"] += 1
+                f["in_window"] += 1 if rec["ts"] >= lo else 0
+                f["bursts"] += 1 if id(rec) in starts[r["sig"]] and rec["ts"] >= lo else 0
+                f["sessions"].add(rec.get("session") or "?")
+                f["recurring"] = f["recurring"] or r["recurring"]
+                f["regression"] = f["regression"] or r["regression"]
+            for name in {family_of(r["sig"], rec) for rec in cls[r["sig"]]["recs"]}:
+                fams[name]["classes"] += 1
+            continue
+        f = fam_entry(family(r["sig"]), r)
+        f["in_window"] += r["in_window"]
+        f["bursts"] += r["bursts"]
+        f["count"] += r["count"]
+        f["classes"] += 1
+        f["recurring"] = f["recurring"] or r["recurring"]
+        f["regression"] = f["regression"] or r["regression"]
+        f["sessions"].update(cls[r["sig"]]["sessions"])
+    families = sorted(({**f, "sessions": len(f["sessions"])} for f in fams.values()),
+                      key=lambda f: (-f["bursts"], -f["count"], f["family"]))
     return {"window": {"start": start.strftime("%Y-%m-%d"), "end": now.strftime("%Y-%m-%d")},
             "errors_in_window": sum(in_window.values()),
+            "families": families,
             "open_classes": len(rows),
             "recurring": [r for r in rows if r["recurring"]],
             "classes": rows}
@@ -256,16 +377,30 @@ def render_markdown(rep):
     w = rep["window"]
     out = ["# Errors %s .. %s" % (w["start"], w["end"]), "",
            "%d error(s) in the window; %d open class(es), %d recurring."
-           % (rep["errors_in_window"], rep["open_classes"], len(rep["recurring"])), "",
-           "| class | in window | total | sessions | first | last | weeks open | state |",
-           "|---|---|---|---|---|---|---|---|"]
+           % (rep["errors_in_window"], rep["open_classes"], len(rep["recurring"])), ""]
+    fams = [f for f in rep.get("families", []) if f["in_window"]][:10]
+    if fams:
+        out += ["## Top families", "",
+                "| family | in window | bursts | classes | sessions | state | example reason |",
+                "|---|---|---|---|---|---|---|"]
+        for f in fams:
+            out.append("| `%s` | %d | %d | %d | %d | %s | %s |" % (
+                f["family"].replace("|", "\\|"), f["in_window"], f["bursts"], f["classes"],
+                f["sessions"],
+                "regression" if f.get("regression") else "recurring" if f["recurring"] else "-",
+                (f["example"] or "-").replace("|", "\\|")[:100]))
+        out.append("")
+    out += ["## Classes", "",
+           "| class | in window | bursts | total | sessions | first | last | weeks open | state |",
+           "|---|---|---|---|---|---|---|---|---|"]
     for r in rep["classes"]:
-        state = ("recurring" if r["recurring"] else "new" if not r["reported"] else "carried")
-        out.append("| `%s` | %d | %d | %d | %s | %s | %d | %s |" % (
-            r["sig"].replace("|", "\\|"), r["in_window"], r["count"], r["sessions"],
+        state = ("regression" if r.get("regression") else "recurring" if r["recurring"]
+                 else "new" if not r["reported"] else "carried")
+        out.append("| `%s` | %d | %d | %d | %d | %s | %s | %d | %s |" % (
+            r["sig"].replace("|", "\\|"), r["in_window"], r["bursts"], r["count"], r["sessions"],
             r["first"][:10], r["last"][:10], r["weeks_open"], state))
     if not rep["classes"]:
-        out.append("| none | | | | | | | |")
+        out.append("| none | | | | | | | | |")
     out += ["", "Example messages:", ""]
     for r in rep["classes"][:10]:
         out.append("- `%s`: %s" % (r["sig"].replace("|", "\\|"), r["msg"] or "-"))
@@ -306,6 +441,10 @@ def hook_record(event, instance, now=None):
     rec = {"t": "error", "ts": _stamp(now or _now()), "session": event.get("session_id") or "",
            "instance": instance, "tool": tool, "sig": signature(tool, err),
            "msg": clean_message(err)}
+    # the acting agent (additive, U2): "MAIN" for the main session, so a record without
+    # the field is an old one; the namespace is kept ("author:math-writer")
+    ns, bare = ac.agent_identity(event)
+    rec["agent"] = redact(("%s:%s" % (ns, bare)) if ns else bare)[:80] if bare else "MAIN"
     rec.update(context(event, tool, err))
     return rec
 
@@ -349,11 +488,22 @@ def context(event, tool, err):
     return out
 
 
+def _in_workspace(cwd):
+    try:
+        root = os.path.dirname(ac.load_workspace()["_path"])
+    except (ac.AcademyError, KeyError):
+        return False
+    a, r = (os.path.normcase(os.path.realpath(x)) for x in (cwd, root))
+    return a == r or a.startswith(r.rstrip(os.sep) + os.sep)
+
+
 def _instance_for(event):
-    """The instance of the home the failing session runs in, or 'other'."""
-    home = ac.find_home(ac.event_cwd(event))
+    """The instance of the home the failing session runs in; 'workspace' for a cwd
+    inside the workspace root that is no instance home; else 'other'."""
+    cwd = ac.event_cwd(event)
+    home = ac.find_home(cwd)
     if not home:
-        return "other"
+        return "workspace" if _in_workspace(cwd) else "other"
     try:
         return ac.load_config(home).get("instance") or "other"
     except ac.AcademyError:
@@ -393,6 +543,7 @@ def main(argv=None):
     p.add_argument("sig", nargs="+")
     p.add_argument("--note", default="")
     p.add_argument("--by", default="human")
+    p.add_argument("--commit", default="", help="the fixing commit; a later error is a regression")
     p.add_argument("--instance")
     p.add_argument("--workspace")
     a = ap.parse_args(argv)
@@ -427,8 +578,10 @@ def main(argv=None):
     elif a.cmd == "resolve":
         now = _stamp(_now())
         for sig in a.sig:
-            append(board, instance, {"t": "resolve", "ts": now, "sig": sig, "by": a.by,
-                                     "note": a.note})
+            rec = {"t": "resolve", "ts": now, "sig": sig, "by": a.by, "note": a.note}
+            if a.commit:
+                rec["commit"] = a.commit
+            append(board, instance, rec)
         print("resolved %d class(es)" % len(a.sig))
     return 0
 

@@ -1,5 +1,6 @@
 """ship.py checkpoint: at the end of an inbox ticket, commit and push every touched repo
 on <date>/<ticket-id>/<role>. Temp repos and temp bare remotes only."""
+import datetime as _dt
 import contextlib
 import io
 import json
@@ -64,6 +65,11 @@ class CheckpointBase(unittest.TestCase):
                      ("STUB_CAUSE", ""), ("STUB_NO_DETAIL", ""), ("STUB_NO_CHECK", "")):
             self.env(k, v)
         self.main = {r: run(r, "rev-parse", "main") for r in (self.sub, self.other)}
+        # the usage summary scans this directory, never the real ~/.claude/projects
+        self.projects = os.path.join(tmp, "claude-projects")
+        os.makedirs(self.projects)
+        old_projects, ship.USAGE_PROJECTS = ship.USAGE_PROJECTS, self.projects
+        self.addCleanup(setattr, ship, "USAGE_PROJECTS", old_projects)
 
     def env(self, k, v):
         old = os.environ.get(k)
@@ -550,7 +556,7 @@ class TestCheckpointBoardDir(CheckpointBase):
     directory, a moved or staged submodule pointer -- is left exactly as it was."""
 
     def setUp(self):
-        super().setUp()
+        CheckpointBase.setUp(self)
         self.root_remote = os.path.join(self._tmp.name, "root-remote.git")
         run(self._tmp.name, "init", "-q", "--bare", "-b", "main", self.root_remote)
         run(self.root, "remote", "add", "origin", self.root_remote)
@@ -917,5 +923,96 @@ class TestCheckpointOnly(CheckpointBase):
                          run(self.sub, "rev-parse", "HEAD"))
 
 
+class TestCheckpointUsage(CheckpointBase):
+    """U5: before the board commit, content-free usage summaries land in board/.usage/ and
+    are staged by the ordinary ``add -A -- board/`` like .errors/."""
+
+    # the board-as-directory fixture of TestCheckpointBoardDir, without re-running its tests
+    workspace = TestCheckpointBoardDir.workspace
+    on_template = TestCheckpointBoardDir.on_template
+
+    def setUp(self):
+        TestCheckpointBoardDir.setUp(self)
+        self.on_template()
+        # a session of the workspace root (cloud/collaborator style): bucket 'workspace'
+        enc = re.sub(r"[^A-Za-z0-9]", "-", self.root)
+        self.write(self.projects, os.path.join(enc, "sess1.jsonl"), json.dumps(
+            {"type": "assistant", "message": {"id": "m1", "model": "claude-opus-5-5",
+                                              "usage": {"cache_read_input_tokens": 700}}}) + "\n"
+            + json.dumps({"type": "user", "message": {"content": "SECRET-PROMPT /hidden/path"}}) + "\n")
+
+    def host(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
+        import usage_ledger
+        return usage_ledger.host_hash()
+
+    def usage_file(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
+        import usage_ledger
+        return usage_ledger.ledger_file(os.path.join(self.root, "board"), "workspace",
+                                        usage_ledger.host_hash())
+
+    def test_summary_is_written_and_committed_with_the_board(self):
+        rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.files(self.root), ["board/.usage/workspace.%s.jsonl" % self.host()])
+        rec = json.loads(open(self.usage_file(), encoding="utf-8").read())
+        self.assertEqual((rec["session"], rec["instance"], rec["turns"], rec["read"]), ("sess1", "workspace", 1, 700))
+        text = open(self.usage_file(), encoding="utf-8").read()
+        self.assertNotIn("SECRET-PROMPT", text)
+        self.assertNotIn("/hidden/path", text)
+        self.assertEqual(run(self.root, "status", "--porcelain", "--", "board"), "")
+
+    def test_unchanged_session_makes_no_second_record(self):
+        self.cp("--ticket", "T-0059", "--only", "board")
+        rc, out, err = self.cp("--ticket", "T-0060", "--only", "board")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(len(open(self.usage_file(), encoding="utf-8").read().splitlines()), 1)
+
+    def test_not_part_of_a_run_without_the_board(self):
+        self.write(self.sub, "x.txt")
+        run(self.sub, "switch", "-q", "-c", self.branch())
+        rc, out, err = self.cp("--ticket", "T-0059", "--only", "sub")
+        self.assertEqual(rc, 0, err)
+        self.assertFalse(os.path.exists(self.usage_file()))
+
+    def test_opt_outs(self):
+        for key in ("shipCheckpoint", "usageCheckpoint"):
+            with self.subTest(key=key):
+                with open(os.path.join(self.root, "workspace.json"), "w", encoding="utf-8") as f:
+                    json.dump({"instances": {}, "board": "board", key: False}, f)
+                rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
+                self.assertEqual(rc, 0, err)
+                self.assertFalse(os.path.exists(self.usage_file()))
+
+    def test_usage_keep_days_from_workspace_json(self):
+        import usage_ledger
+        old = (_dt.datetime.now() - _dt.timedelta(days=40)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rec = {"t": "usage", "session": "ancient", "ts": old, "instance": "workspace", "turns": 1, "read": 1}
+        for keep, survives in ((30, False), ("30", True), (3, True), (None, True)):
+            with self.subTest(keep=keep):
+                os.makedirs(os.path.dirname(self.usage_file()), exist_ok=True)
+                with open(self.usage_file(), "w", encoding="utf-8") as f:
+                    f.write(json.dumps(rec) + "\n")
+                cfg = {"instances": {}, "board": "board"}
+                if keep is not None:
+                    cfg["usageKeepDays"] = keep
+                with open(os.path.join(self.root, "workspace.json"), "w", encoding="utf-8") as f:
+                    json.dump(cfg, f)
+                rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
+                self.assertEqual(rc, 0, err)
+                self.assertEqual("ancient" in open(self.usage_file(), encoding="utf-8").read(), survives)
+
+    def test_a_failure_is_a_warning_not_a_failed_checkpoint(self):
+        self.write(self.root, os.path.join("board", "p.md"))
+        import usage_ledger
+        with unittest.mock.patch.object(usage_ledger, "checkpoint", side_effect=RuntimeError("boom")):
+            rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
+        self.assertEqual(rc, 0, err)
+        self.assertIn("ship: warning: usage summary skipped: RuntimeError: boom", err)
+        self.assertEqual(self.files(self.root), ["board/p.md"])
+
+
 if __name__ == "__main__":
     unittest.main()
+
