@@ -15,6 +15,16 @@ names its section.
   twists relabel up to SL(2,Z), multiplicity-`m` cone points as `m` corners, no reduced
   origami below 3 squares); the lab file is now a pointer.
 
+## 0.1.2 - 2026-09-30: API findings for marked points, flat vertices, orbit closures (scientist api-check, T-0083)
+
+- `computation/api/cylinders.md` 5.5 (new): `GL2ROrbitClosure` sees marked points, dimension
+  convention, eight-mark M_P has dimension 3, `decompositions(bound, limit)` semantics.
+- `computation/api/surfaces.md` 3.3 (new): flat vertices in polygons and billiard unfolding,
+  no marked-point insertion in sage-flatsurf 0.8.0 (source of `erase_marked_points`),
+  libflatsurf `insert`/`insertAt` exist (not run), surface access calls, `apply_matrix`
+  in_place default, base ring identity.
+- `computation/api/surfaces.md` 3.4 (new): marking one chosen lift of a vertex on a bare unfolding (triangulate, eliminateMarkedPoints Deformation on a Point, insert(Point)), `apply_matrix(in_place=False)` returns a GL2RMorphism, the bare unfolding of the (pi/5, pi/2, 3pi/10) triangle equals the double pentagon after a quarter turn and scale 1/(2t).
+
 ## 0.1.1 — 2026-09-29: scope defaults for experiments
 
 - `computation/README.md`: new section "Scope defaults for experiments" (translation

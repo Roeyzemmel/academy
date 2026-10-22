@@ -155,3 +155,28 @@ Note the `int(16)` — libflatsurf's pybind11 bindings want a C++ integer, not a
 Same reason for the `int(0)` / `-int(1)` you see in the Boshernitzan page's `iet.induce(int(0))`.
 This is a real and easy-to-hit failure mode when calling into `pyflatsurf` from Sage.
 
+
+### 5.5 Orbit closures of surfaces with marked points; `decompositions` semantics **[VERIFIED 2026-09-30, sage-flatsurf 0.8.0, WSL `flatsurf` env; probe FlatSurfLab/scratch/p2_orbit.py]**
+
+`GL2ROrbitClosure(S)` **sees marked points** (a marked point is a vertex of cone angle 2pi of
+the surface). Known case, run here (`u = fslab.billiard_unfold.unfold_billiard_table(P)`,
+`P = triangle_with_angles(2, 5, 3)`, the (pi/5, pi/2, 3pi/10) triangle; loop of 5.3 with
+`O.decompositions(8, limit=...)`):
+
+```
+DP   (translation_surfaces.veech_double_n_gon(5)) stratum H_2(2)      ambient 4   dim 2  (100 decs, 2.4 s)
+M_P bare       (u["bare"])                        stratum H_2(2)      ambient 4   dim 2  (40 decs, 0.4 s)
+M_P with marks (u["with_marks"], 8 marks)         stratum H_2(2,0^7)  ambient 11  dim 3  (370 decs, 14 s)
+```
+
+- **Convention:** `dimension()` and `ambient_stratum().dimension()` are the complex dimension of the
+  tangent space inside H^1(S, Sigma; C), GL(2,R)-orbit closure, not projectivised:
+  H(2) has 4, a Veech surface 2. The ambient dimension with marks is 2g + |Sigma| - 1
+  (here 4 + 8 - 1 = 11): the marks are in the tangent space.
+- **Marking the eight corner lifts of the (pi/5, pi/2, 3pi/10) triangle gives 3, not 2:** the two
+  lifts c_1, c_2 of the pi/5 corner (the pentagon centres of the double pentagon) are not
+  periodic. (A hand expectation "all eight marked -> 2" is wrong.)
+- **`O.decompositions(bound, limit)`:** `__doc__` is `None`. `limit` is NOT a cap on the number of
+  decompositions yielded (`limit=60` yielded 100, 40 and 370 on the three surfaces above); the
+  number yielded depends on `bound` and the surface. Whether `bound` is squared: **not yet
+  settled**. Always loop with an explicit counter and stop on "no update for N".
