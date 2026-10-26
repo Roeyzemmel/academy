@@ -90,6 +90,17 @@ class FamilyTests(unittest.TestCase):
                          '{"error_type":"EGRESS_BLOCKED","domain":"x.org","message":"blocked"}'),
                          "WebFetch: host unreachable")
 
+    def test_three_more_families(self):
+        t = "mcp__plugin_academy_academy__"
+        self.assertEqual(self.fam(t + "domain_get", "no domain pack 'translation-surfaces' (have: none)"),
+                         "domain_get: no domain pack")
+        self.assertEqual(self.fam(t + "tickets_update", "delivered needs result (fields.result)"),
+                         "tickets_update: delivered needs result")
+        a = self.fam(t + "claims_set_status", "refused: T-0187 does not contain the quote 'Yes' verbatim")
+        b = self.fam(t + "claims_set_status", "refused: T-0001 does not contain the quote 'No' verbatim")
+        self.assertEqual(a, b)
+        self.assertTrue(a.startswith("claims_set_status: "))
+
     def test_fallback_is_the_signature(self):
         sig = el.signature("Bash", "Exit code 1")
         self.assertEqual(el.family(sig), sig)
@@ -113,11 +124,71 @@ class TopFamiliesTests(unittest.TestCase):
         self.assertLess(md.index("## Top families"), md.index("| class |"))
         self.assertIn("Example messages:", md)
 
+    def test_bash_exit_code_splits_by_command_word(self):
+        recs = []
+        for i, cmd in enumerate(["git status", "git push", "py x.py", "python3 -c 1",
+                                 "ls -l", None]):
+            r = err(1, "Bash: exit code <n>", session="s%d" % i)
+            if cmd:
+                r["cmd"] = cmd
+            recs.append(r)
+        fams = {f["family"]: f for f in
+                el.report(recs, NOW - dt.timedelta(days=7), now=NOW)["families"]}
+        self.assertEqual({k: v["in_window"] for k, v in fams.items()},
+                         {"Bash: exit code (git)": 2, "Bash: exit code (py)": 1,
+                          "Bash: exit code (python3)": 1, "Bash: exit code (other)": 1,
+                          "Bash: exit code (unknown cmd)": 1})
+        self.assertEqual(el.family("Bash: exit code <n>"), "Bash: exit code <n>")
+        self.assertEqual(el.family_of("Bash: exit code <n>", {"cmd": "git x"}),
+                         "Bash: exit code (git)")
+
     def test_at_most_ten(self):
         recs = [err(1, "Tool%d: boom" % i) for i in range(15)]
         md = el.render_markdown(el.report(recs, NOW - dt.timedelta(days=7), now=NOW))
         sect = md.split("## Top families")[1].split("| class |")[0]
         self.assertEqual(sect.count("\n| `"), 10)
+
+
+class BurstTests(unittest.TestCase):
+    SIG = "Bash: boom"
+
+    def _rec(self, secs, session="s1", sig=None):
+        ts = el._stamp(NOW - dt.timedelta(days=1) + dt.timedelta(seconds=secs))
+        return {"t": "error", "ts": ts, "session": session, "instance": "i", "tool": "Bash",
+                "sig": sig or self.SIG, "msg": "boom"}
+
+    def _rep(self, recs):
+        return el.report(recs, NOW - dt.timedelta(days=7), now=NOW)
+
+    def test_retry_burst_counts_once(self):
+        rep = self._rep([self._rec(2 * i) for i in range(8)])  # 8 records in 14 s
+        c = rep["classes"][0]
+        self.assertEqual((c["count"], c["in_window"], c["bursts"]), (8, 8, 1))
+        f = rep["families"][0]
+        self.assertEqual((f["count"], f["in_window"], f["bursts"]), (8, 8, 1))
+
+    def test_two_sessions_two_bursts(self):
+        rep = self._rep([self._rec(0, "a"), self._rec(1, "b"), self._rec(2, "a")])
+        self.assertEqual(rep["classes"][0]["bursts"], 2)
+        self.assertEqual(rep["families"][0]["bursts"], 2)
+
+    def test_gap_over_sixty_seconds_splits(self):
+        self.assertEqual(self._rep([self._rec(0), self._rec(61)])["classes"][0]["bursts"], 2)
+        self.assertEqual(self._rep([self._rec(0), self._rec(60)])["classes"][0]["bursts"], 1)
+
+    def test_families_rank_by_bursts_then_count(self):
+        noisy = [self._rec(i, sig="Bash: noisy") for i in range(20)]       # 20 raw, 1 burst
+        spread = [self._rec(1000 * i, "s%d" % i, sig="Bash: spread") for i in range(3)]
+        rep = self._rep(noisy + spread)
+        self.assertEqual([f["family"] for f in rep["families"]], ["Bash: spread", "Bash: noisy"])
+        md = el.render_markdown(rep)
+        self.assertIn("| family | in window | bursts |", md)
+
+    def test_bursts_outside_window_not_counted_in_window(self):
+        old = self._rec(0)
+        old["ts"] = at(30)
+        rep = self._rep([old, self._rec(0)])
+        self.assertEqual((rep["classes"][0]["count"], rep["classes"][0]["bursts"]), (2, 1))
 
 
 class HookRecordTests(unittest.TestCase):
@@ -128,6 +199,17 @@ class HookRecordTests(unittest.TestCase):
         self.assertEqual(rec["tool"], "Bash")
         self.assertEqual(rec["instance"], "author@x")
         self.assertNotIn("supersecrettoken1", json.dumps(rec))
+
+    def test_record_carries_the_agent(self):
+        # U2: a subagent's failure names the agent (namespaced, redacted); the main
+        # session is MAIN, so a missing field means an old record, not the main session
+        ev = {"tool_name": "Bash", "error": "Exit code 1\nx", "session_id": "S",
+              "agent_type": "author:math-writer"}
+        self.assertEqual(el.hook_record(ev, "author@x", NOW)["agent"], "author:math-writer")
+        ev = {"tool_name": "Bash", "error": "Exit code 1\nx", "session_id": "S"}
+        self.assertEqual(el.hook_record(ev, "author@x", NOW)["agent"], "MAIN")
+        ev["agent_type"] = "x:tok token=abcdefghijklmnop"
+        self.assertNotIn("abcdefghijklmnop", el.hook_record(ev, "i", NOW)["agent"])
 
     def test_interrupt_and_empty_are_skipped(self):
         self.assertIsNone(el.hook_record({"tool_name": "Bash", "error": "x",
@@ -238,6 +320,61 @@ class LedgerFileTests(unittest.TestCase):
         with open(el.ledger_file(self.board, "i@x"), "a") as fh:
             fh.write("not json\n")
         self.assertEqual(len(el.read_all(self.board)), 1)
+
+
+class RegressionTests(unittest.TestCase):
+    WIN = NOW - dt.timedelta(days=7)
+
+    def rep(self, recs):
+        return el.report(recs, self.WIN, NOW)
+
+    def test_resolve_with_commit_then_quiet_is_closed(self):
+        recs = [err(10, "A"), {"t": "resolve", "ts": at(5), "sig": "A", "commit": "abc1234"}]
+        self.assertEqual(self.rep(recs)["classes"], [])
+
+    def test_error_after_resolve_with_commit_is_regression_and_open(self):
+        recs = [err(10, "A"), {"t": "resolve", "ts": at(5), "sig": "A", "commit": "abc1234"},
+                err(1, "A", "s2")]
+        rep = self.rep(recs)
+        row = rep["classes"][0]
+        self.assertEqual((row["sig"], row["count"], row["regression"]), ("A", 1, True))
+        self.assertTrue(rep["families"][0]["regression"])
+        self.assertEqual(row["regression_commit"], "abc1234")
+        self.assertEqual(json.loads(json.dumps(rep))["classes"][0]["regression_commit"], "abc1234")
+        md = el.render_markdown(rep)
+        self.assertIn("| regression |", md)
+        self.assertNotIn("| new |", md)
+
+    def test_resolve_without_commit_is_as_before(self):
+        recs = [err(10, "A"), {"t": "resolve", "ts": at(5), "sig": "A"}, err(1, "A", "s2")]
+        rep = self.rep(recs)
+        self.assertFalse(rep["classes"][0]["regression"])
+        self.assertFalse(rep["families"][0]["regression"])
+        self.assertIn("| new |", el.render_markdown(rep))
+
+    def test_later_plain_resolve_clears_regression_basis(self):
+        recs = [err(10, "A"), {"t": "resolve", "ts": at(8), "sig": "A", "commit": "abc"},
+                {"t": "resolve", "ts": at(5), "sig": "A"}, err(1, "A", "s2")]
+        self.assertFalse(self.rep(recs)["classes"][0]["regression"])
+
+    def test_commit_in_json_and_cli(self):
+        board = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, board, True)
+        ws = os.path.join(board, "workspace.json")
+        with open(ws, "w") as fh:
+            json.dump({"board": board, "instances": {}}, fh)
+        el.append(board, "i@x", {**err(10, "A"), "instance": "i@x"})
+        main = lambda *a: el.main(list(a) + ["--workspace", ws])
+        old = el.ac.load_workspace
+        el.ac.load_workspace = lambda path=None: {"board": board, "_path": ws}
+        self.addCleanup(setattr, el.ac, "load_workspace", old)
+        self.assertEqual(main("resolve", "A", "--instance", "i@x", "--commit", "deadbee"), 0)
+        recs = [r for r in el.read_all(board) if r["t"] == "resolve"]
+        self.assertEqual(recs[0]["commit"], "deadbee")
+        self.assertEqual(recs[0]["by"], "human")
+        self.assertEqual(main("resolve", "B", "--instance", "i@x"), 0)
+        recs = [r for r in el.read_all(board) if r["t"] == "resolve" and r["sig"] == "B"]
+        self.assertNotIn("commit", recs[0])
 
 
 class HookProcessTests(unittest.TestCase):

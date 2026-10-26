@@ -3,7 +3,8 @@
 Usage:
 
     py usage_report.py [--days 7 | --since YYYY-MM-DD] [--projects DIR]
-                       [--workspace PATH] [--max-subagents 12] [--json | --brief]
+                       [--workspace PATH] [--max-subagents 12]
+                       [--max-read-per-turn 100000] [--no-board] [--json | --brief]
 
 It wraps ``session_usage.tally`` (the per-transcript counter, moved here from
 claude-paper) over every session transcript under ``~/.claude/projects`` modified
@@ -23,9 +24,54 @@ in the window, and aggregates:
   its ``tier:``, ``models.tiers``; else its ``model:``), limit failures.
 
 Flags (deterministic, for the usage-analyst to explain): sessions with limit
-failures, sessions with more than ``--max-subagents`` subagents, and agents seen on
-a model heavier than the one they declare. Model-downgrade suggestions are the
+failures, sessions with more than ``--max-subagents`` subagents, agents seen on
+a model heavier than the one they declare, and context bloat (a main transcript of at
+least 20 turns averaging more than ``--max-read-per-turn`` cache-read tokens per turn). Model-downgrade suggestions are the
 analyst's judgement, not this script's.
+
+Errors per 100 turns (optional section): when the workspace board has an error ledger
+(``<board>/.errors/*.jsonl``) and the window holds errors, the ledger's records are
+joined to the tally on the session id. A record's ``agent`` (``MAIN`` for the main
+session, else the agent type; absent in records written before 2026-10-17) picks the
+turns it is divided by: the main transcript's, or the turns of that agent type's
+subagent runs in the tallied sessions. Limits: only sessions with a transcript on this
+machine are in the denominator; errors from other sessions are ``unmatched`` and
+not rated; records without an ``agent`` field count only in the session-level rate.
+
+Cost per ticket (optional section): a session is tied to a ticket by what its transcripts
+(main and subagents) show. First choice: a call that delivered or closed it, i.e. a
+``tickets_update`` tool_use whose input names the ticket with ``status`` ``delivered`` or
+``closed`` (or ``deliver: true``), or a Bash ``board.py transition <ticket> delivered|closed``.
+Fallback, only for a session with no such call: a ticket id named in the first user message
+of one of its transcripts (the inbox skills pass it), counted when the board shows that
+ticket delivered or closed. The cache read of the whole session (main plus subagents) goes to
+the ticket; a session tied to several tickets splits it evenly. The ticket's kind is read from
+the board (``board.backend`` of the workspace); a ticket that cannot be read (GitHub
+unreachable, missing) has kind ``unknown``. Shown only when a ticket is matched; sessions on
+other machines are not seen, and a ticket worked over several sessions sums their shares.
+
+Wasted retries (optional section, after "Errors per 100 turns"): per transcript (main and each
+subagent separately), every failed tool call (a ``tool_result`` with ``is_error: true``,
+matched to its ``tool_use`` by id) is followed to the next SUCCESSFUL call of the same tool
+name in that transcript, made in a later assistant turn: the recovery. Turns to recover =
+the assistant turns from the failing call's turn to the turn that makes the successful call
+(failure in turn 1, success in turn 3: 2 turns); "read spent retrying" = the cache-read
+tokens of those turns (the same per-turn usage fields session_usage tallies, one turn per
+message id). A failure never followed by such a success is unrecovered: counted apart, left
+out of the mean and of the read. Family = ``error_ledger.family_of(signature(tool,
+clean_message(text)))``. Per family: failures, recovered, unrecovered, mean turns to recover,
+total read spent retrying; the top 10 by read. Shown only when a failure is found; JSON key
+``retries``; ``--brief`` is unchanged.
+
+Sessions from the board (optional, on by default; ``--no-board`` skips): cloud and
+collaborator sessions leave no transcript here, but ``ship.py checkpoint`` writes a
+content-free summary of each to ``<board>/.usage/<instance>.<host>.jsonl`` (``usage_ledger.py``).
+``build`` adds every board summary whose session id has no transcript under the projects
+directory (local detail wins) and whose record ``ts`` falls in the window. These sessions
+have no per-agent or per-tool detail, so they count in the totals and in "By instance"
+only (not in "By role", "By agent", the error or ticket sections), and a note line says
+"N session(s) from the board, summary only". A limit failure in one is still flagged. JSON:
+additive key ``board`` = ``{"sessions": N, "subagents": N}`` (absent when none).
 
 Output is Markdown (default), JSON (``--json``), or one line (``--brief``, used by
 the desk). Cache reads are the volume that tracks cost; output tokens are not shown
@@ -58,6 +104,8 @@ MODEL_RANK = ac.MODEL_RANK
 #: runs are tallied as "legacy:<ns>" until those plugins are retired (plan phase 8)
 LEGACY_NAMESPACES = ("paper", "flatsurf")
 COUNTED = ("turns", "read", "write", "limit_failures")
+#: context-bloat flag: fewer turns than this are never flagged
+BLOAT_MIN_TURNS = 20
 
 
 def model_family(model):
@@ -171,6 +219,129 @@ def _window(days=None, since=None, now=None):
     return start, now
 
 
+RE_TICKET_ANY = re.compile(r"(?<![\w-])(T-\d{4,}|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\d+)(?![\w])")
+#: a real invocation: the command line itself runs board.py (after optional ``cd X &&``);
+#: the phrase inside a heredoc, an echo or a test file's text does not count
+RE_TRANSITION = re.compile(r"^\s*(?:cd\s+\S+\s*(?:&&|;)\s*)*(?:py|python3?)\s+\S*board\.py\s+"
+                           r"transition\s+(T-\d{4,}|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\d+)\s+"
+                           r"(delivered|closed)\b")
+DONE_STATUSES = ("delivered", "closed")
+
+
+def _text_of(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(b.get("text", "") for b in content
+                        if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def transcript_tickets(path):
+    """``(delivered, mentioned)`` ticket ids of one transcript: those a ``tickets_update``
+    call or a ``board.py transition`` command delivered/closed, and those named in its
+    first user message. Unreadable lines are skipped."""
+    delivered, mentioned = set(), set()
+    first_done = False
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return delivered, mentioned
+    for line in lines:
+        is_use = '"tool_use"' in line
+        if first_done and not is_use:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        m = d.get("message") or {}
+        if d.get("type") == "user" and not first_done and m.get("role") == "user":
+            text = _text_of(m.get("content"))
+            if text.strip():
+                first_done = True
+                mentioned.update(RE_TICKET_ANY.findall(text))
+            continue
+        if d.get("type") != "assistant" or not isinstance(m.get("content"), list):
+            continue
+        for b in m["content"]:
+            if not isinstance(b, dict) or b.get("type") != "tool_use":
+                continue
+            inp = b.get("input") or {}
+            name = str(b.get("name", ""))
+            if name.endswith("tickets_update") and inp.get("id"):
+                if inp.get("status") in DONE_STATUSES or inp.get("deliver") is True:
+                    delivered.add(str(inp["id"]))
+            elif isinstance(inp.get("command"), str):
+                first = inp["command"].lstrip().split("\n", 1)[0]
+                hit = RE_TRANSITION.match(first)
+                if hit:
+                    delivered.add(hit.group(1))
+    return delivered, mentioned
+
+
+def _result_text(content):
+    if isinstance(content, (str, list)):
+        return _text_of(content)
+    return ""
+
+
+def transcript_retries(path):
+    """One entry per failed tool call of one transcript: ``{family, turns, read}`` where
+    ``turns``/``read`` are the assistant turns and cache-read tokens from the failing call's
+    turn to the turn of the next successful call of the same tool (``None`` when there is
+    none). Malformed lines are skipped; a missing ``error_ledger`` gives ``[]``."""
+    try:
+        import error_ledger  # noqa: E402
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except (ImportError, OSError):
+        return []
+    turn, seen, reads = 0, set(), [0]
+    uses, results = {}, []   # tool_use id -> (name, input, turn); result order
+    for line in lines:
+        if '"tool_use"' not in line and '"tool_result"' not in line and '"usage"' not in line:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict):
+            continue
+        m = d.get("message")
+        m = m if isinstance(m, dict) else {}
+        content = m.get("content")
+        if d.get("type") == "assistant":
+            u = m.get("usage")
+            if u and m.get("model") != "<synthetic>" and m.get("id") not in seen:
+                seen.add(m.get("id"))
+                turn += 1
+                reads.append(u.get("cache_read_input_tokens", 0) or 0)
+            for b in content if isinstance(content, list) else []:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id"):
+                    uses[b["id"]] = (str(b.get("name", "?")), b.get("input"), turn)
+        elif d.get("type") == "user":
+            for b in content if isinstance(content, list) else []:
+                if isinstance(b, dict) and b.get("type") == "tool_result" \
+                        and b.get("tool_use_id") in uses:
+                    name, inp, t = uses[b["tool_use_id"]]
+                    results.append((name, bool(b.get("is_error")), t, inp,
+                                    _result_text(b.get("content"))))
+    out = []
+    for i, (name, bad, t, inp, text) in enumerate(results):
+        if not bad:
+            continue
+        cmd = inp.get("command") if isinstance(inp, dict) else None
+        fam = error_ledger.family_of(
+            error_ledger.signature(name, error_ledger.clean_message(text)), {"cmd": cmd})
+        rec = next((t2 for (n2, bad2, t2, _i, _x) in results[i + 1:]
+                    if n2 == name and not bad2 and t2 > t), None)
+        out.append({"family": fam, "turns": None if rec is None else rec - t,
+                    "read": None if rec is None else sum(reads[t + 1:rec + 1])})
+    return out
+
+
 def collect(projects_root, start, end=None, workspace=None):
     """Tally every session transcript modified in [start, end].
 
@@ -190,6 +361,8 @@ def collect(projects_root, start, end=None, workspace=None):
         project = os.path.basename(base)
         t, m = session_usage.tally(path)
         subs = []
+        deliv, ment = transcript_tickets(path)
+        retries = transcript_retries(path)
         for meta in sorted(glob.glob(os.path.join(base, sid, "subagents", "*.meta.json"))):
             try:
                 with open(meta, "r", encoding="utf-8") as fh:
@@ -198,6 +371,11 @@ def collect(projects_root, start, end=None, workspace=None):
                 md = {}
             jl = meta[: -len(".meta.json")] + ".jsonl"
             st, sm = session_usage.tally(jl) if os.path.isfile(jl) else (collections.Counter(), collections.Counter())
+            if os.path.isfile(jl):
+                d2, m2 = transcript_tickets(jl)
+                deliv |= d2
+                ment |= m2
+                retries += transcript_retries(jl)
             subs.append({"agent_type": md.get("agentType", "?"),
                          "depth": md.get("spawnDepth"),
                          "description": md.get("description", ""),
@@ -207,7 +385,8 @@ def collect(projects_root, start, end=None, workspace=None):
                          "instance": instance_of_project(project, workspace),
                          "main": {"counts": {k: t.get(k, 0) for k in COUNTED},
                                   "models": dict(m)},
-                         "subagents": subs})
+                         "subagents": subs, "retries": retries,
+                         "tickets": {"delivered": sorted(deliv), "mentioned": sorted(ment)}})
     return sessions
 
 
@@ -216,7 +395,8 @@ def _add(acc, counts):
         acc[k] += counts.get(k, 0)
 
 
-def aggregate(sessions, roster=None, declared=None, max_subagents=12):
+def aggregate(sessions, roster=None, declared=None, max_subagents=12,
+              max_read_per_turn=100000):
     """Aggregate collected sessions into the report dict."""
     roster = roster or {}
     declared = declared or {}
@@ -258,6 +438,12 @@ def aggregate(sessions, roster=None, declared=None, max_subagents=12):
         if len(s["subagents"]) > max_subagents:
             flags.append({"kind": "fan-out", "session": s["session"], "instance": inst,
                           "count": len(s["subagents"])})
+        mt = s["main"]["counts"].get("turns", 0)
+        if mt >= BLOAT_MIN_TURNS:
+            mean = s["main"]["counts"].get("read", 0) / mt
+            if mean > max_read_per_turn:
+                flags.append({"kind": "context-bloat", "session": s["session"],
+                              "instance": inst, "turns": mt, "mean_read": int(mean)})
     for a in by_agent.values():
         dec = a["declared"]
         if dec in MODEL_RANK:
@@ -281,6 +467,228 @@ def aggregate(sessions, roster=None, declared=None, max_subagents=12):
     }
 
 
+def load_ledger(workspace):
+    """Error records of the workspace board's ledger, or None when it has none."""
+    board = (workspace or {}).get("board")
+    if not isinstance(board, str) or not os.path.isdir(os.path.join(board, ".errors")):
+        return None
+    try:
+        import error_ledger  # noqa: E402
+        return [r for r in error_ledger.read_all(board) if r.get("t") == "error"]
+    except (ImportError, OSError, ac.AcademyError):
+        return None
+
+
+def _per100(errors, turns):
+    return round(100.0 * errors / turns, 1) if turns else None
+
+
+def error_rates(sessions, records, start, end, roster=None):
+    """Errors per 100 turns from ledger ``records`` joined to ``sessions`` on session id.
+
+    ``None`` when no record falls in [start, end]. Otherwise ``{errors, matched,
+    unmatched, unmatched_sessions, no_agent_field, session_turns, per100, by_role,
+    by_agent}``; ``by_agent`` is empty when no matched record carries an ``agent``.
+    """
+    roster = roster or {}
+    lo, hi = start.strftime("%Y-%m-%dT%H:%M:%S"), end.strftime("%Y-%m-%dT%H:%M:%S")
+    recs = [r for r in records if lo <= str(r.get("ts", "")) <= hi]
+    if not recs:
+        return None
+    tally = {s["session"]: s for s in sessions}
+    names = {}                                   # lower-cased agent type -> display name
+    turns_by_agent = collections.Counter()
+    turns_by_role = collections.Counter()
+    for s in sessions:
+        turns_by_role["main"] += s["main"]["counts"].get("turns", 0)
+        for sub in s["subagents"]:
+            at = sub["agent_type"]
+            names.setdefault(at.lower(), at)
+            turns_by_agent[at.lower()] += sub["counts"].get("turns", 0)
+            turns_by_role[role_of_agent(at, roster)] += sub["counts"].get("turns", 0)
+    matched = [r for r in recs if r.get("session") in tally]
+    unmatched = [r for r in recs if r.get("session") not in tally]
+    err_role = collections.Counter()
+    err_agent = collections.Counter()
+    no_agent = 0
+    for r in matched:
+        ag = r.get("agent")
+        if not isinstance(ag, str) or not ag:
+            no_agent += 1
+        elif ag.upper() == "MAIN":
+            err_role["main"] += 1
+        else:
+            err_agent[ag.lower()] += 1
+            err_role[role_of_agent(names.get(ag.lower(), ag), roster)] += 1
+    session_turns = sum(s["main"]["counts"].get("turns", 0)
+                        + sum(x["counts"].get("turns", 0) for x in s["subagents"])
+                        for s in tally.values() if any(r.get("session") == s["session"]
+                                                       for r in matched))
+    by_role = [{"role": k, "errors": n, "turns": turns_by_role[k],
+                "per100": _per100(n, turns_by_role[k])}
+               for k, n in sorted(err_role.items(), key=lambda kv: -kv[1])]
+    by_agent = [{"agent": names.get(k, k), "role": role_of_agent(names.get(k, k), roster),
+                 "errors": n, "turns": turns_by_agent[k], "per100": _per100(n, turns_by_agent[k])}
+                for k, n in sorted(err_agent.items(), key=lambda kv: -kv[1])]
+    return {"errors": len(recs), "matched": len(matched), "unmatched": len(unmatched),
+            "unmatched_sessions": len({r.get("session") for r in unmatched}),
+            "no_agent_field": no_agent, "session_turns": session_turns,
+            "per100": _per100(len(matched), session_turns),
+            "by_role": by_role, "by_agent": by_agent}
+
+
+def _rate(v):
+    return "-" if v is None else "%.1f" % v
+
+
+def render_errors(er):
+    out = ["", "## Errors per 100 turns", "",
+           "Error-ledger records in the window joined to the tally on the session id. "
+           "Only sessions with a transcript on this machine are in the turn counts; "
+           "%d error(s) from %d session(s) not in the tally are unmatched and not rated. "
+           "A record's `agent` (MAIN or the agent type) picks its turns; %d matched "
+           "record(s) predate the field and count only in the session-level rate."
+           % (er["unmatched"], er["unmatched_sessions"], er["no_agent_field"]), "",
+           "%d error(s) in the window, %d matched to %d turns in their sessions: %s per 100."
+           % (er["errors"], er["matched"], er["session_turns"], _rate(er["per100"])), ""]
+    if er["by_role"]:
+        out += ["| role | errors | turns | per 100 |", "|---|---|---|---|"]
+        out += ["| %s | %d | %d | %s |" % (r["role"], r["errors"], r["turns"], _rate(r["per100"]))
+                for r in er["by_role"]]
+    if er["by_agent"]:
+        out += ["", "| agent | role | errors | turns | per 100 |", "|---|---|---|---|---|"]
+        out += ["| %s | %s | %d | %d | %s |" % (a["agent"], a["role"], a["errors"], a["turns"],
+                                                 _rate(a["per100"])) for a in er["by_agent"]]
+    return out
+
+
+def ticket_costs(sessions, info, top=5):
+    """Cache read per ticket, grouped by ticket kind; ``None`` when no ticket is matched.
+
+    ``info(ticket_id)`` returns ``(kind, status)``; ``kind`` is ``unknown`` when the board
+    cannot be read. A session is tied to the tickets it delivered/closed, else (fallback) to
+    those its first user messages name that the board shows delivered or closed; its whole
+    cache read (main plus subagents) is split evenly among them.
+    """
+    reads = collections.Counter()
+    nsess = collections.Counter()
+    kinds = {}
+    split = 0
+    for s in sessions:
+        t = s.get("tickets") or {}
+        ids = list(t.get("delivered") or [])
+        if not ids:
+            ids = [i for i in (t.get("mentioned") or []) if info(i)[1] in DONE_STATUSES]
+        if not ids:
+            continue
+        read = s["main"]["counts"].get("read", 0) + sum(
+            x["counts"].get("read", 0) for x in s["subagents"])
+        if len(ids) > 1:
+            split += 1
+        for i in ids:
+            reads[i] += read / float(len(ids))
+            nsess[i] += 1
+            kinds[i] = info(i)[0] or "unknown"
+    if not reads:
+        return None
+    groups = collections.defaultdict(list)
+    for i, r in reads.items():
+        groups[kinds[i]].append(r)
+    by_kind = [{"kind": k, "count": len(v), "read": int(sum(v)),
+                "mean": int(sum(v) / len(v)), "max": int(max(v))}
+               for k, v in sorted(groups.items(), key=lambda kv: -sum(kv[1]))]
+    top_rows = [{"ticket": i, "kind": kinds[i], "read": int(r), "sessions": nsess[i]}
+                for i, r in sorted(reads.items(), key=lambda kv: -kv[1])[:top]]
+    return {"tickets": len(reads), "split_sessions": split, "by_kind": by_kind,
+            "top": top_rows}
+
+
+def make_info(ws):
+    """``info(ticket_id) -> (kind, status)`` over the workspace's board; any failure
+    (no board, GitHub unreachable, unknown id) reads as ``("unknown", None)``."""
+    cache = {}
+    store = [None, False]
+
+    def info(tid):
+        if tid in cache:
+            return cache[tid]
+        res = ("unknown", None)
+        try:
+            if not store[1]:
+                store[1] = True
+                store[0] = ac.open_store(ws) if ws else None
+            if store[0] is not None:
+                meta = store[0].get(tid)[1]
+                res = (str(meta.get("kind") or "unknown"), meta.get("status"))
+        except Exception:  # noqa: BLE001 -- degrade, never fail a usage report
+            res = ("unknown", None)
+        cache[tid] = res
+        return res
+    return info
+
+
+def render_tickets(tc):
+    out = ["", "## Cost per ticket", "",
+           "Cache read of the sessions (main plus subagents) tied to each ticket seen "
+           "delivered or closed in the window, by ticket kind. A session is tied by a call "
+           "that delivered/closed the ticket, else by a ticket id in its first user message "
+           "when the board shows it done. A session tied to several tickets splits its read "
+           "evenly among them (%d such session(s)); a ticket worked over several sessions "
+           "sums their shares. Sessions on other machines are not seen; a ticket the board "
+           "cannot be read for has kind `unknown`." % tc["split_sessions"], "",
+           "| kind | tickets | mean read | max read | total read |", "|---|---|---|---|---|"]
+    out += ["| %s | %d | %s | %s | %s |" % (r["kind"], r["count"], _k(r["mean"]),
+                                          _k(r["max"]), _k(r["read"])) for r in tc["by_kind"]]
+    out += ["", "| ticket | kind | sessions | read |", "|---|---|---|---|"]
+    out += ["| %s | %s | %d | %s |" % (r["ticket"], r["kind"], r["sessions"], _k(r["read"]))
+            for r in tc["top"]]
+    return out
+
+
+def wasted_retries(sessions, top=10):
+    """Per error family: failures, recovered, unrecovered, mean turns to recover and the
+    cache read spent retrying; top ``top`` by read. ``None`` when no failure is found."""
+    fams = {}
+    for s in sessions:
+        for r in s.get("retries") or []:
+            f = fams.setdefault(r["family"], {"family": r["family"], "failures": 0,
+                                              "recovered": 0, "unrecovered": 0,
+                                              "turns": 0, "read": 0})
+            f["failures"] += 1
+            if r["turns"] is None:
+                f["unrecovered"] += 1
+            else:
+                f["recovered"] += 1
+                f["turns"] += r["turns"]
+                f["read"] += r["read"]
+    if not fams:
+        return None
+    rows = sorted(fams.values(), key=lambda f: (-f["read"], -f["failures"], f["family"]))
+    for f in rows:
+        f["mean_turns"] = round(f.pop("turns") / f["recovered"], 1) if f["recovered"] else None
+    return {"failures": sum(f["failures"] for f in rows),
+            "recovered": sum(f["recovered"] for f in rows),
+            "unrecovered": sum(f["unrecovered"] for f in rows),
+            "families": rows[:top], "family_count": len(rows)}
+
+
+def render_retries(wr):
+    out = ["", "## Wasted retries", "",
+           "Per transcript, each failed tool call is followed to the next successful call of the "
+           "same tool in a later assistant turn (the recovery). Turns to recover = turns from the "
+           "failing call's turn to that call's turn; read spent = cache read of those turns. A "
+           "failure never followed by such a success is unrecovered, left out of the mean and the "
+           "read. %d failure(s): %d recovered, %d unrecovered; top %d of %d famil%s by read."
+           % (wr["failures"], wr["recovered"], wr["unrecovered"], len(wr["families"]),
+              wr["family_count"], "y" if wr["family_count"] == 1 else "ies"), "",
+           "| family | failures | recovered | unrecovered | mean turns | read spent |",
+           "|---|---|---|---|---|---|"]
+    out += ["| %s | %d | %d | %d | %s | %s |" % (f["family"], f["failures"], f["recovered"],
+                                               f["unrecovered"], _rate(f["mean_turns"]),
+                                               _k(f["read"])) for f in wr["families"]]
+    return out
+
+
 def _k(n):
     return "%dk" % (n // 1000)
 
@@ -292,6 +700,9 @@ def render_markdown(report, start, end):
                                        _k(report["total"]["read"]),
                                        _k(report["total"]["write"]),
                                        report["total"]["limit_failures"]))
+    if report.get("board"):
+        out.append("%d session(s) from the board, summary only (no per-agent detail)."
+                   % report["board"]["sessions"])
     out += ["", "## By instance", "",
             "| instance | sessions | subagents | turns | read | write | limit |",
             "|---|---|---|---|---|---|---|"]
@@ -313,6 +724,12 @@ def render_markdown(report, start, end):
         out.append("| %s | %s | %s | %s | %d | %s | %s | %d |" % (
             a["agent"], a["role"], a["declared"] or "-", seen or "-", a["runs"],
             a["mean_turns"], _k(a["read"]), a["limit_failures"]))
+    if report.get("errors"):
+        out += render_errors(report["errors"])
+    if report.get("retries"):
+        out += render_retries(report["retries"])
+    if report.get("tickets"):
+        out += render_tickets(report["tickets"])
     out += ["", "## Flags", ""]
     if not report["flags"]:
         out.append("None.")
@@ -320,6 +737,10 @@ def render_markdown(report, start, end):
         if f["kind"] == "limit":
             out.append("- limit: session %s (%s): %d limit failure(s)"
                        % (f["session"], f["instance"], f["count"]))
+        elif f["kind"] == "context-bloat":
+            out.append("- context-bloat: session %s (%s): %d turns, mean read %s/turn "
+                       "-- compact or split the session"
+                       % (f["session"][:8], f["instance"], f["turns"], _k(f["mean_read"])))
         elif f["kind"] == "fan-out":
             out.append("- fan-out: session %s (%s): %d subagents"
                        % (f["session"], f["instance"], f["count"]))
@@ -338,8 +759,57 @@ def render_brief(report, days_label):
                             report["total"]["limit_failures"], len(report["flags"])))
 
 
+def board_sessions(ws, projects, start, end=None):
+    """Board summaries (``usage_ledger``) in the window whose session has no transcript under
+    ``projects`` (local detail wins: a session seen here is left out)."""
+    board = (ws or {}).get("board")
+    if not isinstance(board, str):
+        return []
+    try:
+        import usage_ledger  # noqa: E402
+        recs = usage_ledger.read_all(board)
+    except (ImportError, OSError):
+        return []
+    if not recs:
+        return []
+    local = {os.path.splitext(os.path.basename(p))[0]
+             for p in glob.glob(os.path.join(projects, "*", "*.jsonl"))}
+    out = []
+    for sid, rec in sorted(recs.items()):
+        ts = usage_ledger.parse_ts(rec.get("ts"))
+        if sid in local or ts is None or ts < start or (end is not None and ts > end):
+            continue
+        out.append(rec)
+    return out
+
+
+def merge_board(report, records):
+    """Add board summaries to the totals and "By instance" (nothing else is derivable)."""
+    n = nsub = 0
+    for rec in records:
+        inst = rec.get("instance") or "other"
+        row = report["by_instance"].setdefault(inst, {})
+        subs = sum(v for v in (rec.get("subagents") or {}).values() if isinstance(v, int))
+        row["sessions"] = row.get("sessions", 0) + 1
+        row["subagents"] = row.get("subagents", 0) + subs
+        for k in COUNTED:
+            v = rec.get(k) if isinstance(rec.get(k), int) else 0
+            row[k] = row.get(k, 0) + v
+            report["total"][k] += v
+        report["sessions"] += 1
+        report["subagents"] += subs
+        n += 1
+        nsub += subs
+        if rec.get("limit_failures"):
+            report["flags"].append({"kind": "limit", "session": rec.get("session"),
+                                    "instance": inst, "count": rec["limit_failures"]})
+    report["by_instance"] = dict(sorted(report["by_instance"].items()))
+    if n:
+        report["board"] = {"sessions": n, "subagents": nsub}
+
+
 def build(days=None, since=None, projects=None, workspace_path=None, max_subagents=12,
-          now=None, perms=None, repo=REPO):
+          max_read_per_turn=100000, now=None, perms=None, repo=REPO, no_board=False):
     start, end = _window(days, since, now)
     projects = projects or os.path.expanduser("~/.claude/projects")
     try:
@@ -350,7 +820,21 @@ def build(days=None, since=None, projects=None, workspace_path=None, max_subagen
     # session's own, or the scheduled job's) can carry an mtime just after ``now``,
     # whose resolution on Windows is coarse. Only an explicit ``now`` caps it.
     sessions = collect(projects, start, end if now is not None else None, ws)
-    report = aggregate(sessions, load_roster(perms), declared_models(repo, ws), max_subagents)
+    report = aggregate(sessions, load_roster(perms), declared_models(repo, ws), max_subagents,
+                       max_read_per_turn)
+    records = load_ledger(ws)
+    if records is not None:
+        er = error_rates(sessions, records, start, end, load_roster(perms))
+        if er:
+            report["errors"] = er
+    wr = wasted_retries(sessions)
+    if wr:
+        report["retries"] = wr
+    tc = ticket_costs(sessions, make_info(ws))
+    if tc:
+        report["tickets"] = tc
+    if not no_board:
+        merge_board(report, board_sessions(ws, projects, start, end if now is not None else None))
     report["window"] = {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")}
     return report, start, end
 
@@ -363,6 +847,9 @@ def main(argv=None):
     ap.add_argument("--projects", help="default: ~/.claude/projects")
     ap.add_argument("--workspace")
     ap.add_argument("--max-subagents", type=int, default=12)
+    ap.add_argument("--max-read-per-turn", type=int, default=100000)
+    ap.add_argument("--no-board", action="store_true",
+                    help="do not add the session summaries on the board (.usage/)")
     out = ap.add_mutually_exclusive_group()
     out.add_argument("--json", action="store_true")
     out.add_argument("--brief", action="store_true")
@@ -371,7 +858,8 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass
-    report, start, end = build(a.days, a.since, a.projects, a.workspace, a.max_subagents)
+    report, start, end = build(a.days, a.since, a.projects, a.workspace, a.max_subagents,
+                                  a.max_read_per_turn, no_board=a.no_board)
     if a.json:
         print(json.dumps(report, indent=2))
     elif a.brief:

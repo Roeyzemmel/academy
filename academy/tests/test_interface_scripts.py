@@ -175,6 +175,101 @@ class UsageReportTest(Sandbox):
         brief = usage_report.render_brief(report, "7d")
         self.assertTrue(brief.startswith("usage 7d: 2 sessions, 2 subagents"))
 
+    def test_errors_per_100_turns_joins_the_ledger_on_session(self):
+        # U2: ledger records joined to the tally on session id; the main session's
+        # errors divide by main turns, an agent's by that agent's turns
+        root = self.make_projects()
+        now = _dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+        n = [0]
+
+        def rec(session, agent=None, ts=None):
+            n[0] += 1      # distinct messages: identical records are deduplicated on read
+            r = {"t": "error", "ts": ts or now, "session": session, "instance": "author@p",
+                 "tool": "Bash", "sig": "Bash: x", "msg": "x%d" % n[0]}
+            if agent:
+                r["agent"] = agent
+            return json.dumps(r, sort_keys=True)
+
+        write(os.path.join(self.board, ".errors", "author@p.jsonl"), "\n".join([
+            rec("s1", "MAIN"), rec("s1", "MAIN"), rec("s1", "academy:concierge"),
+            rec("s1"),                                    # old record: no agent field
+            rec("elsewhere", "MAIN"),                     # session not in the tally
+            rec("s1", "MAIN", ts="2020-01-01T00:00:00"),  # outside the window
+        ]) + "\n")
+        report, st, en = usage_report.build(
+            days=7, projects=root, workspace_path=self.ws_path,
+            perms={"roster": {"academy": ["concierge"]}},
+            repo=os.path.join(self.tmp, "repo"))
+        er = report["errors"]
+        self.assertEqual((er["errors"], er["matched"], er["unmatched"]), (5, 4, 1))
+        self.assertEqual(er["unmatched_sessions"], 1)
+        self.assertEqual(er["no_agent_field"], 1)
+        main_turns = report["by_role"]["main"]["turns"]
+        main = [r for r in er["by_role"] if r["role"] == "main"][0]
+        self.assertEqual((main["errors"], main["turns"]), (2, main_turns))
+        self.assertAlmostEqual(main["per100"], 200.0 / main_turns, places=1)
+        ag = [r for r in er["by_agent"] if r["agent"] == "academy:concierge"][0]
+        self.assertEqual((ag["errors"], ag["turns"], ag["role"]), (1, 1, "academy"))
+        md = usage_report.render_markdown(report, st, en)
+        self.assertIn("## Errors per 100 turns", md)
+        self.assertIn("unmatched", md)
+        self.assertIn("| academy:concierge |", md)
+
+    def test_board_summaries_merge_when_the_transcript_is_absent(self):
+        # U5: cloud sessions reach the report through board/.usage/; local detail wins
+        import usage_ledger
+        root = self.make_projects()
+        now = _dt.datetime.now(_dt.timezone.utc)
+        iso = lambda d: (now - _dt.timedelta(days=d)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        def rec(sid, ts, turns=10, read=50000, inst="author@p", **kw):
+            return dict({"t": "usage", "session": sid, "ts": ts, "instance": inst, "turns": turns,
+                         "read": read, "write": 7000, "limit_failures": 0,
+                         "models": {"opus": turns}, "subagents": {"academy:concierge": 2},
+                         "host": "abcd1234"}, **kw)
+
+        usage_ledger.append(self.board, "author@p", [
+            rec("cloud1", iso(1)), rec("s1", iso(1), read=999999),     # s1 has a local transcript
+            rec("old", iso(30)),                                        # outside the window
+            rec("cloud2", iso(2), limit_failures=1)])
+        usage_ledger.append(self.board, "author@p", [rec("cloud1", iso(0), turns=12, read=60000)])
+        kw = dict(days=7, projects=root, workspace_path=self.ws_path, perms={},
+                  repo=os.path.join(self.tmp, "repo"))
+        base, _s, _e = usage_report.build(no_board=True, **kw)
+        report, st, en = usage_report.build(**kw)
+        self.assertEqual(report["sessions"], base["sessions"] + 2)
+        self.assertEqual(report["subagents"], base["subagents"] + 4)
+        self.assertEqual(report["board"], {"sessions": 2, "subagents": 4})
+        self.assertNotIn("board", base)
+        a, b = report["by_instance"]["author@p"], base["by_instance"]["author@p"]
+        self.assertEqual(a["read"] - b["read"], 60000 + 50000)          # last record per session
+        self.assertEqual(a["turns"] - b["turns"], 12 + 10)
+        self.assertEqual(report["total"]["read"] - base["total"]["read"], 110000)
+        self.assertEqual(report["by_role"], base["by_role"])             # no per-role detail
+        self.assertEqual(report["by_agent"], base["by_agent"])
+        self.assertIn("limit", [f["kind"] for f in report["flags"] if f.get("session") == "cloud2"])
+        md = usage_report.render_markdown(report, st, en)
+        self.assertIn("2 session(s) from the board, summary only", md)
+        self.assertNotIn("from the board", usage_report.render_markdown(base, _s, _e))
+        out = io.StringIO()
+        with redirect_stdout(out):
+            usage_report.main(["--days", "7", "--projects", root, "--workspace", self.ws_path,
+                               "--json", "--no-board"])
+        self.assertNotIn("board", json.loads(out.getvalue()))
+
+    def test_errors_section_absent_without_ledger_or_errors(self):
+        root = self.make_projects()
+        report, st, en = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={}, repo=os.path.join(self.tmp, "repo"))
+        self.assertNotIn("errors", report)
+        self.assertNotIn("Errors per 100 turns", usage_report.render_markdown(report, st, en))
+        write(os.path.join(self.board, ".errors", "author@p.jsonl"),
+              json.dumps({"t": "error", "ts": "2020-01-01T00:00:00", "session": "s1"}) + "\n")
+        report, _s, _e = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={}, repo=os.path.join(self.tmp, "repo"))
+        self.assertNotIn("errors", report)
+
     def test_heavier_than_declared_reads_the_tier(self):
         # T-0350: an agent file's tier, resolved through the workspace's models.tiers,
         # is what "declared" means; a file without a tier keeps its model: line
@@ -215,6 +310,195 @@ class UsageReportTest(Sandbox):
                                             workspace_path=self.ws_path, perms={"roster": {}},
                                             repo=self.tmp)
         self.assertIn("fan-out", [f["kind"] for f in report["flags"]])
+
+    def test_context_bloat_flag(self):
+        root = os.path.join(self.tmp, "bloat")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+
+        def session(name, turns, read):
+            write(os.path.join(base, name + ".jsonl"), "\n".join(
+                _assistant("%s-%d" % (name, i), "claude-sonnet-5", read, 0)
+                for i in range(turns)) + "\n")
+
+        session("heavy", 30, 120000)    # flagged
+        session("light", 30, 80000)     # under the threshold
+        session("tiny", 10, 500000)     # too few turns
+        kw = dict(days=7, projects=root, workspace_path=self.ws_path,
+                  perms={"roster": {}}, repo=self.tmp)
+        report, _s, _e = usage_report.build(**kw)
+        bloat = [f for f in report["flags"] if f["kind"] == "context-bloat"]
+        self.assertEqual([f["session"] for f in bloat], ["heavy"])
+        self.assertEqual(bloat[0]["instance"], "author@p")
+        self.assertEqual(bloat[0]["turns"], 30)
+        self.assertEqual(bloat[0]["mean_read"], 120000)
+        md = usage_report.render_markdown(report, _s, _e)
+        self.assertIn("context-bloat: session heavy", md)
+        self.assertIn("compact or split the session", md)
+        self.assertIn("1 flag(s)", usage_report.render_brief(report, "7d"))
+        report, _s, _e = usage_report.build(max_read_per_turn=70000, **kw)
+        self.assertEqual(sorted(f["session"] for f in report["flags"]
+                                if f["kind"] == "context-bloat"), ["heavy", "light"])
+        report, _s, _e = usage_report.build(max_read_per_turn=200000, **kw)
+        self.assertEqual([f for f in report["flags"] if f["kind"] == "context-bloat"], [])
+
+    def _ticket_file(self, tid, kind, status="delivered"):
+        meta = {"id": tid, "title": "t " + tid, "kind": kind, "status": status,
+                "from": "human", "to": "author@p"}
+        write(os.path.join(self.board, "author@p", "%s-t.md" % tid),
+              ac.write_frontmatter(meta, "body\n"))
+
+    @staticmethod
+    def _tool_use(name, inp, mid):
+        return json.dumps({"type": "assistant", "message": {
+            "id": mid, "model": "claude-sonnet-5", "content": [
+                {"type": "tool_use", "name": name, "input": inp}],
+            "usage": {"cache_read_input_tokens": 1000, "cache_creation_input_tokens": 0}}})
+
+    def test_cost_per_ticket_by_kind(self):
+        # U3: a tickets_update to delivered ties the session to the ticket; the kind
+        # comes from the board; several tickets split the session's read evenly
+        root = os.path.join(self.tmp, "tk")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+        self._ticket_file("T-0001", "verify")
+        self._ticket_file("T-0002", "prove")
+        self._ticket_file("T-0003", "prove", status="open")
+        use = self._tool_use
+        write(os.path.join(base, "a.jsonl"), "\n".join([
+            _assistant("a1", "claude-sonnet-5", 4000, 0),
+            use("mcp__plugin_academy_academy__tickets_update",
+                {"id": "T-0001", "status": "delivered"}, "a2"),
+            use("mcp__plugin_academy_academy__tickets_get", {"id": "T-0003"}, "a3"),
+        ]) + "\n")
+        # a subagent of session b delivers two tickets through board.py; T-0009 is unreadable
+        write(os.path.join(base, "b.jsonl"), _assistant("b1", "claude-sonnet-5", 2000, 0) + "\n")
+        sub = os.path.join(base, "b", "subagents")
+        write(os.path.join(sub, "x.meta.json"), json.dumps({"agentType": "paper:math-writer"}))
+        write(os.path.join(sub, "x.jsonl"), "\n".join([
+            use("Bash", {"command": "py board.py transition T-0002 delivered --result r"}, "x1"),
+            use("Bash", {"command": "py board.py transition T-0009 closed"}, "x2"),
+        ]) + "\n")
+        # session c has no delivering call: fallback to the first user message (T-0002 is done)
+        write(os.path.join(base, "c.jsonl"), "\n".join([
+            json.dumps({"type": "user", "message": {"role": "user",
+                                                    "content": "work T-0002 and T-0003"}}),
+            _assistant("c1", "claude-sonnet-5", 6000, 0),
+        ]) + "\n")
+        kw = dict(days=7, projects=root, workspace_path=self.ws_path, perms={"roster": {}},
+                  repo=self.tmp)
+        report, st, en = usage_report.build(**kw)
+        tc = report["tickets"]
+        self.assertEqual(tc["tickets"], 3)
+        self.assertEqual(tc["split_sessions"], 1)
+        kinds = {r["kind"]: r for r in tc["by_kind"]}
+        # a: 4000+1000+1000 on T-0001; b: (2000+1000+1000)/2 each; c: 6000 on T-0002 only
+        # (T-0003 is still open, so the fallback skips it)
+        self.assertEqual(kinds["verify"]["read"], 6000)
+        self.assertEqual(kinds["prove"]["count"], 1)
+        self.assertEqual(kinds["prove"]["read"], 2000 + 6000)
+        self.assertEqual(kinds["unknown"]["read"], 2000)
+        top = {r["ticket"]: r for r in tc["top"]}
+        self.assertEqual(top["T-0002"]["sessions"], 2)
+        md = usage_report.render_markdown(report, st, en)
+        self.assertIn("## Cost per ticket", md)
+        self.assertIn("splits its read evenly", md)
+        self.assertEqual(usage_report.render_brief(report, "7d"),
+                         usage_report.render_brief({k: v for k, v in report.items()
+                                                    if k != "tickets"}, "7d"))
+
+    def test_transition_text_that_is_not_a_command_is_not_a_delivery(self):
+        """A heredoc, echo or test file that merely contains the phrase delivers nothing."""
+        for cmd in ("cat > t.py <<'E'\npy board.py transition T-0001 delivered\nE",
+                    "echo 'py board.py transition T-0001 delivered'",
+                    "grep 'board.py transition T-0001 delivered' log.txt"):
+            path = os.path.join(self.tmp, "phrase.jsonl")
+            write(path, self._tool_use("Bash", {"command": cmd}, "p1") + "\n")
+            self.assertEqual(usage_report.transcript_tickets(path), (set(), set()), cmd)
+        for cmd in ("py board.py transition T-0001 delivered --result r",
+                    "cd /w && python3 scripts/board.py transition T-0001 closed"):
+            path = os.path.join(self.tmp, "real.jsonl")
+            write(path, self._tool_use("Bash", {"command": cmd}, "p2") + "\n")
+            self.assertEqual(usage_report.transcript_tickets(path)[0], {"T-0001"}, cmd)
+
+    def test_cost_per_ticket_absent_without_match(self):
+        root = self.make_projects()
+        report, st, en = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={}, repo=os.path.join(self.tmp, "repo"))
+        self.assertNotIn("tickets", report)
+        self.assertNotIn("Cost per ticket", usage_report.render_markdown(report, st, en))
+
+    def test_cost_per_ticket_unreadable_board_is_unknown(self):
+        root = os.path.join(self.tmp, "tk2")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+        write(os.path.join(base, "a.jsonl"), "\n".join([
+            _assistant("a1", "claude-sonnet-5", 4000, 0),
+            self._tool_use("mcp__x__tickets_update", {"id": "T-0001", "deliver": True}, "a2"),
+        ]) + "\n")
+        report, _s, _e = usage_report.build(days=7, projects=root,
+                                            workspace_path=os.path.join(self.tmp, "none.json"),
+                                            perms={}, repo=self.tmp)
+        self.assertEqual(report["tickets"]["by_kind"][0]["kind"], "unknown")
+
+    @staticmethod
+    def _tool_result(tid, content, is_error):
+        return json.dumps({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": tid, "content": content,
+             "is_error": is_error}]}})
+
+    @staticmethod
+    def _call(name, tid, mid, read, inp=None):
+        return json.dumps({"type": "assistant", "message": {
+            "id": mid, "model": "claude-sonnet-5", "content": [
+                {"type": "tool_use", "id": tid, "name": name, "input": inp or {}}],
+            "usage": {"cache_read_input_tokens": read, "cache_creation_input_tokens": 0}}})
+
+    def test_wasted_retries(self):
+        # U4: turns from a failed call to the next successful call of the same tool, per family
+        root = os.path.join(self.tmp, "wr")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+        call, res = self._call, self._tool_result
+        write(os.path.join(base, "w.jsonl"), "\n".join([
+            call("mcp__x__tickets_update", "u1", "m1", 1000),
+            res("u1", "refused: transition not allowed", True),      # string content
+            _assistant("m2", "claude-sonnet-5", 2000, 0),
+            call("mcp__x__tickets_update", "u2", "m3", 3000),
+            res("u2", [{"type": "text", "text": "refused: transition not allowed"}], False),
+            "{not json",
+            call("Read", "r1", "m4", 500),
+            res("r1", [{"type": "text", "text": "File does not exist."}], True),  # never recovered
+            call("Edit", "e1", "m5", 100),
+            res("e1", "String to replace not found", True),
+            call("Edit", "e2", "m6", 100),
+            res("e2", "ok", False),
+        ]) + "\n")
+        report, _s, _e = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={"roster": {}}, repo=self.tmp)
+        wr = report["retries"]
+        fam = {f["family"]: f for f in wr["families"]}
+        self.assertEqual((wr["failures"], wr["recovered"], wr["unrecovered"]), (3, 2, 1))
+        self.assertEqual(len(fam), 3)
+        upd = [f for k, f in fam.items() if "tickets_update" in k or "transition" in k][0]
+        # failure in turn 1, success call in turn 3: 2 turns, read of turns 2 and 3
+        self.assertEqual((upd["recovered"], upd["mean_turns"], upd["read"]), (1, 2.0, 5000))
+        rd = [f for k, f in fam.items() if k.startswith("Read")][0]
+        self.assertEqual((rd["recovered"], rd["unrecovered"], rd["mean_turns"], rd["read"]),
+                         (0, 1, None, 0))
+        ed = [f for k, f in fam.items() if k.startswith("Edit")][0]
+        self.assertEqual((ed["mean_turns"], ed["read"]), (1.0, 100))
+        self.assertEqual(wr["families"][0]["family"], upd["family"])   # most read first
+        md = usage_report.render_markdown(report, _s, _e)
+        self.assertIn("## Wasted retries", md)
+        self.assertLess(md.index("## Wasted retries"), md.index("## Flags"))
+        self.assertNotIn("Wasted", usage_report.render_brief(report, "7d"))
+
+    def test_wasted_retries_absent_without_failure(self):
+        root = os.path.join(self.tmp, "wr0")
+        base = os.path.join(root, usage_report.encode_home(self.home_a))
+        write(os.path.join(base, "w.jsonl"), "\n".join([
+            self._call("Read", "r1", "m1", 10), self._tool_result("r1", "ok", False)]) + "\n")
+        report, _s, _e = usage_report.build(days=7, projects=root, workspace_path=self.ws_path,
+                                            perms={"roster": {}}, repo=self.tmp)
+        self.assertNotIn("retries", report)
+        self.assertNotIn("Wasted retries", usage_report.render_markdown(report, _s, _e))
 
     def test_session_usage_moved(self):
         self.assertTrue(os.path.isfile(os.path.join(SCRIPTS, "session_usage.py")))

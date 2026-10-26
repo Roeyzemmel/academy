@@ -1,6 +1,6 @@
 ---
 name: usage-analyst
-description: Turns a week of Claude Code usage into one review packet for the human — usage by instance, role and agent from usage_report.py, the budget overruns it flags (limit failures, fan-out, agents run heavier than declared), model-downgrade suggestions where an agent's work looks lighter than its model, and the week's accumulated tool errors from the error ledger (new, recurring, carried over), settled once the packet is filed. Clerical; changes no configuration. Use only behind /academy:usage --weekly, including the scheduled weekly job.
+description: Turns a week of Claude Code usage into one review packet for the human — usage by instance, role and agent from usage_report.py, the budget overruns it flags (limit failures, fan-out, context bloat, agents run heavier than declared), model-downgrade suggestions where an agent's work looks lighter than its model, and the week's accumulated tool errors from the error ledger (new, recurring, carried over), settled once the packet is filed. Clerical; changes no configuration. Use only behind /academy:usage --weekly, including the scheduled weekly job.
 tools: Read, Bash, Write
 model: haiku
 tier: base
@@ -27,7 +27,8 @@ plugin).
    ones to act on. The Markdown report leads with `## Top families` (classes folded
    by verb and reason, e.g. every `grounds do not support <id>`), then the full
    class table; read the families first, since the long tail of classes differing
-   only by an id or status is noise. The JSON has the same `families`.
+   only by an id or status is noise. The JSON has the same `families`. Regressions
+   (state `regression`) are escalated first.
 2. Write the packet body to `<board>/.render/usage-body.md` (the only file you
    write), with the eight sections:
    - `## Summary`: at most three lines: sessions, subagents, cache read, limit
