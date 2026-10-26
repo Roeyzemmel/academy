@@ -156,7 +156,7 @@ Same reason for the `int(0)` / `-int(1)` you see in the Boshernitzan page's `iet
 This is a real and easy-to-hit failure mode when calling into `pyflatsurf` from Sage.
 
 
-### 5.5 Orbit closures of surfaces with marked points; `decompositions` semantics **[VERIFIED 2026-09-30, sage-flatsurf 0.8.0, WSL `flatsurf` env; probe FlatSurfLab/scratch/p2_orbit.py]**
+### 5.5 Orbit closures of surfaces with marked points; `decompositions` semantics **[VERIFIED 2026-09-30, sage-flatsurf 0.8.0, WSL `flatsurf` env; probe (lab home) scratch/p2_orbit.py]**
 
 `GL2ROrbitClosure(S)` **sees marked points** (a marked point is a vertex of cone angle 2pi of
 the surface). Known case, run here (`u = fslab.billiard_unfold.unfold_billiard_table(P)`,

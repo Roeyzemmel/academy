@@ -210,7 +210,7 @@ one you have in mind. `surface_dynamics` origamis have explicit tests for this
 (`o.is_primitive()`, `o.intermediate_covers()`, `o.quotient(H)`) — see §6.
 
 
-### 3.3 Flat vertices, marked points, and surface access **[VERIFIED 2026-09-30, sage-flatsurf 0.8.0, WSL `flatsurf` env; probes FlatSurfLab/scratch/p1_flat_vertex.py, p3_api.py, p4_src.py, p5_insert.py]**
+### 3.3 Flat vertices, marked points, and surface access **[VERIFIED 2026-09-30, sage-flatsurf 0.8.0, WSL `flatsurf` env; probes (lab home) scratch/p1_flat_vertex.py, p3_api.py, p4_src.py, p5_insert.py]**
 
 **Flat (angle pi) vertices are accepted and get marked by the unfolding.** Known case: the fan
 quadrilateral Q (five copies of the (pi/5, pi/2, 3pi/10) triangle fanned around the pi/5 vertex,
@@ -256,7 +256,7 @@ same for hept: 20 polygons, stratum H_6(2^5, 0^35)   (5 B_0 + 10 A + 10 B_2 + 10
   `.direction()`. Translation equivalence across the two surfaces is False (different scale
   and orientation), as expected; `canonicalize()` equality is the exact test for a fixed matrix.
 
-### 3.4 Marking one point of a bare unfolding; `apply_matrix`; pyflatsurf access **[VERIFIED 2026-09-30, sage-flatsurf 0.8.0, WSL `flatsurf` env; probes FlatSurfLab/scratch/p6_matrix.py, p7_pyfs.py, p8_insert.py, p9_point_route.py; package fslab/marked_points.py, tests/test_marked_points_sage.py]**
+### 3.4 Marking one point of a bare unfolding; `apply_matrix`; pyflatsurf access **[VERIFIED 2026-09-30, sage-flatsurf 0.8.0, WSL `flatsurf` env; probes (lab home) scratch/p6_matrix.py, p7_pyfs.py, p8_insert.py, p9_point_route.py; package fslab/marked_points.py, tests/test_marked_points_sage.py]**
 
 - **`S.apply_matrix(g, in_place=False)` returns a `GL2RMorphism`, not a surface**; its `.codomain()` is the surface
   and `morphism.canonicalize()` is usable. Known case: `bare` = bare unfolding of the (pi/5, pi/2, 3pi/10)
