@@ -209,3 +209,76 @@ not the primitive invariant surface, and its `GL(2,R)`-orbit closure may be a pr
 one you have in mind. `surface_dynamics` origamis have explicit tests for this
 (`o.is_primitive()`, `o.intermediate_covers()`, `o.quotient(H)`) — see §6.
 
+
+### 3.3 Flat vertices, marked points, and surface access **[VERIFIED 2026-09-30, sage-flatsurf 0.8.0, WSL `flatsurf` env; probes FlatSurfLab/scratch/p1_flat_vertex.py, p3_api.py, p4_src.py, p5_insert.py]**
+
+**Flat (angle pi) vertices are accepted and get marked by the unfolding.** Known case: the fan
+quadrilateral Q (five copies of the (pi/5, pi/2, 3pi/10) triangle fanned around the pi/5 vertex,
+corners B_0, C_1, C_3, C_5 and flat points B_2, B_4, A; hand expected angles (pi/2, 3pi/5, 3pi/5,
+3pi/10)):
+
+```
+quad = [B0, C1, C3, C5]; hept = [A, B0, C1, B2, C3, B4, C5]        # exact vectors over Q(c), c^4-5c^2+5=0
+Polygon(vertices=quad).angles()   # (1/4, 3/10, 3/10, 3/20)   units of 2pi
+Polygon(vertices=hept).angles()   # (1/2, 1/4, 3/10, 1/2, 3/10, 1/2, 3/20)   flat vertices = 1/2
+similarity_surfaces.billiard(Polygon(vertices=quad)).minimal_cover('translation')
+#   20 polygons, stratum H_6(2^5, 0^5);  .erase_marked_points(): H_6(2^5), 30 polygons
+same for hept: 20 polygons, stratum H_6(2^5, 0^35)   (5 B_0 + 10 A + 10 B_2 + 10 B_4 lifts marked)
+```
+
+- `Polygon(vertices=...)` wants counter-clockwise order; `triangle_with_angles(p, q, r)` is
+  already CCW (angle p at (0,0), q at (1,0)).
+- **No marked-point insertion in the Python layer.** The source of `erase_marked_points`
+  (0.8.0): `to_pyflatsurf(S)` -> `delaunay()` -> `eliminateMarkedPoints().surface()` ->
+  `delaunay()` -> `from_pyflatsurf`: all or none. The only marked-point helpers found by grep in
+  `flatsurf/`: `erase_marked_points`, `erase_marked_vertices` (polygons). Consequence: a
+  polygon corner of angle pi/2 (a regular point after unfolding) cannot be "unmarked" by
+  deleting a vertex; only flat vertices can be deleted from a polygon.
+- libflatsurf `to_pyflatsurf(S)` returns a `FlatTriangulation` with, among others,
+  `insert(Point)`, `insertAt(HalfEdge&, Vector)` (both return a `Deformation`), `slit`,
+  `flip`, `eliminateMarkedPoints()`. **Existence only; calls not run** (see the lab's header
+  T-0083 for the pending check).
+- Access confirmed on an unfolded surface: `S.labels()` (labels are tuples, e.g. `(0, 1, 0)`),
+  `S.polygon(label)`, `S.polygon(label).vertices()` / `.edges()` (vectors in the polygon's own
+  frame), `S.opposite_edge(label, e)` -> `(label', e')`. Attributes present: `apply_matrix`,
+  `change_ring`, `canonicalize`, `saddle_connections`, `subdivide_polygon`, `subdivide`,
+  `triangulate`, `delaunay_decomposition`, `erase_marked_points`, `point`; absent:
+  `isomorphism`, `isomorphisms`, `cover`, `codomain` (so no built-in GL(2,R)-isomorphism test).
+- **`apply_matrix` default:** on this surface type `S.apply_matrix(m)` (in_place defaulting to
+  True) raises `NotImplementedError: this surface does not support applying a GL(2,R) action
+  in-place yet` with a `UserWarning` that the default will change; pass `in_place=False`.
+- **Base rings:** `veech_double_n_gon(5).base_ring()` and the unfolding of the triangle
+  above both print `Number Field in a/c with defining polynomial y^4 - 5*y^2 + 5 with a = 1.9021...`:
+  the same abstract field with the same embedding but different objects;
+  `DP.change_ring(K_P)` works and returns a `H_2(2)` surface.
+- `S.saddle_connections(squared_length_bound=8)`: 50 connections on the double pentagon, 30 on
+  the bare unfolding of the triangle; each has `.holonomy()` (a vector over the base field),
+  `.direction()`. Translation equivalence across the two surfaces is False (different scale
+  and orientation), as expected; `canonicalize()` equality is the exact test for a fixed matrix.
+
+### 3.4 Marking one point of a bare unfolding; `apply_matrix`; pyflatsurf access **[VERIFIED 2026-09-30, sage-flatsurf 0.8.0, WSL `flatsurf` env; probes FlatSurfLab/scratch/p6_matrix.py, p7_pyfs.py, p8_insert.py, p9_point_route.py; package fslab/marked_points.py, tests/test_marked_points_sage.py]**
+
+- **`S.apply_matrix(g, in_place=False)` returns a `GL2RMorphism`, not a surface**; its `.codomain()` is the surface
+  and `morphism.canonicalize()` is usable. Known case: `bare` = bare unfolding of the (pi/5, pi/2, 3pi/10)
+  triangle (vertices (0,0), (1,0), (1, -c^3+4c), c^4-5c^2+5=0), `DP = veech_double_n_gon(5).change_ring(K)`,
+  `t = -c^3+4c`, `lam = 1/(2t) = c^3/10`:
+  `bare.apply_matrix(lam*R, in_place=False)` (R = [[0,-1],[1,0]] or its inverse) has `canonicalize()` equal to
+  `DP.canonicalize()` (True); `lam*I` and `lam*(-I)`: False; `I`: equals `bare` (True); `R` alone: False.
+  So the bare unfolding is the double pentagon after a quarter turn and scale 1/(2t), exactly.
+- **Marking one point:** libflatsurf's `FlatTriangulation.insert(Point)` works (it returns a `Deformation`;
+  `.codomain()` is the new triangulation, `from_pyflatsurf(T)` of `flatsurf.geometry.pyflatsurf.conversion`
+  returns the surface). Chain used: `tri = S_full.triangulate()` (a morphism; `tri(point)` maps a sage point),
+  `conv = FlatTriangulationConversion.to_pyflatsurf(tri.codomain())` (`conv.codomain()` the
+  `FlatTriangulation`, `conv.vector_space_conversion()` a CALL, then `.section(v)` / `(vector)`),
+  `ptf = conv._image_point(p)` (private), `D = T.eliminateMarkedPoints()`, `D(ptf)` (a Deformation is callable on a
+  Point), `T1 = D.codomain()`, `T1.insert(D(ptf))`. Known cases:
+  bare M_P + one lift of the pi/5 corner: stratum `H_2(2, 0)`, `erase_marked_points()` canonicalises to the bare
+  surface (True), orbit closure dimension 3 in ambient 5 (7 decompositions, 1.5 s);
+  bare M_Q (fan) + one of ten lifts of the flat vertex A: `H_6(2^5, 0)`, erase equal (True), dimension 3 in ambient 17
+  (3 decompositions, 2.2 s). Sage points of lifts: `S.point(label, polygon_vertex)`, equal points compare `==`.
+- `FlatTriangulation.insertAt(HalfEdge&, Vector)` also works (probe p8: `T.insertAt(e, vc(h))` with e the half-edge at
+  the zero whose face contains the target, h the holonomy; the surface gained one 0) but **from a cone point of
+  angle 6pi there are three rays of a given holonomy and the bare surface cannot say which one ends at a chosen
+  lift**; use the point route above for a specific lift.
+- pyflatsurf access seen: `T.vertices()`, `T.halfEdges()`, `T.fromHalfEdge(e)` (a `Vector`),
+  `T.nextInFace(e)`, `T.previousInFace(e)`.
