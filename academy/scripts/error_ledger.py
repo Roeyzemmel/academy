@@ -224,6 +224,33 @@ def classes(records):
     return out
 
 
+#: (pattern on the message part of a signature, family reason); first match wins
+FAMILY_RULES = [
+    (re.compile(r"the grounds do not support"), "grounds do not support"),
+    (re.compile(r"is not a transition"), "not a transition"),
+    (re.compile(r"\bthe kb does not build"), "kb does not build"),
+    (re.compile(r"\bdoes not exist\b"), "path does not exist"),
+    # the egress error is a JSON object, which signature() reduces to its shape
+    (re.compile(r"egress_blocked|enotfound|egress proxy|^\{<q>:<q>(,<q>:<q>)*\}$"),
+     "host unreachable"),
+    (re.compile(r"^agent .*(could act for|runs outside every academy home|belongs to the)"),
+     "agent cannot act for the instance"),
+]
+
+
+def family(sig):
+    """A coarser label for a class signature: the verb and the reason, without the
+    normalised target (id, status, path, host). Falls back to the signature itself.
+    The class keys (``signature``) are not touched; this only groups them for reading."""
+    tool, sep, msg = sig.partition(": ")
+    if not sep:
+        return sig
+    for pat, reason in FAMILY_RULES:
+        if pat.search(msg):
+            return "%s: %s" % (tool.rsplit("__", 1)[-1], reason)
+    return sig
+
+
 def report(records, start, now=None):
     """The weekly picture: every open class, with its count inside the window
     (``in_window``; 0 for a class carried over from an earlier week) and its total."""
@@ -245,8 +272,21 @@ def report(records, start, now=None):
                      # recurring: seen on three or more sessions, or in two calendar weeks
                      "recurring": len(c["sessions"]) >= 3 or len(c["weeks"]) >= 2})
     rows.sort(key=lambda r: (-r["in_window"], -r["count"], r["sig"]))
+    fams = {}
+    for r in rows:
+        f = fams.setdefault(family(r["sig"]), {"family": family(r["sig"]), "in_window": 0,
+                                               "count": 0, "classes": 0, "sessions": set(),
+                                               "recurring": False, "example": r["msg"]})
+        f["in_window"] += r["in_window"]
+        f["count"] += r["count"]
+        f["classes"] += 1
+        f["recurring"] = f["recurring"] or r["recurring"]
+        f["sessions"].update(cls[r["sig"]]["sessions"])
+    families = sorted(({**f, "sessions": len(f["sessions"])} for f in fams.values()),
+                      key=lambda f: (-f["in_window"], -f["count"], f["family"]))
     return {"window": {"start": start.strftime("%Y-%m-%d"), "end": now.strftime("%Y-%m-%d")},
             "errors_in_window": sum(in_window.values()),
+            "families": families,
             "open_classes": len(rows),
             "recurring": [r for r in rows if r["recurring"]],
             "classes": rows}
@@ -256,7 +296,19 @@ def render_markdown(rep):
     w = rep["window"]
     out = ["# Errors %s .. %s" % (w["start"], w["end"]), "",
            "%d error(s) in the window; %d open class(es), %d recurring."
-           % (rep["errors_in_window"], rep["open_classes"], len(rep["recurring"])), "",
+           % (rep["errors_in_window"], rep["open_classes"], len(rep["recurring"])), ""]
+    fams = [f for f in rep.get("families", []) if f["in_window"]][:10]
+    if fams:
+        out += ["## Top families", "",
+                "| family | in window | classes | sessions | state | example reason |",
+                "|---|---|---|---|---|---|"]
+        for f in fams:
+            out.append("| `%s` | %d | %d | %d | %s | %s |" % (
+                f["family"].replace("|", "\\|"), f["in_window"], f["classes"], f["sessions"],
+                "recurring" if f["recurring"] else "-",
+                (f["example"] or "-").replace("|", "\\|")[:100]))
+        out.append("")
+    out += ["## Classes", "",
            "| class | in window | total | sessions | first | last | weeks open | state |",
            "|---|---|---|---|---|---|---|---|"]
     for r in rep["classes"]:
@@ -349,11 +401,22 @@ def context(event, tool, err):
     return out
 
 
+def _in_workspace(cwd):
+    try:
+        root = os.path.dirname(ac.load_workspace()["_path"])
+    except (ac.AcademyError, KeyError):
+        return False
+    a, r = (os.path.normcase(os.path.realpath(x)) for x in (cwd, root))
+    return a == r or a.startswith(r.rstrip(os.sep) + os.sep)
+
+
 def _instance_for(event):
-    """The instance of the home the failing session runs in, or 'other'."""
-    home = ac.find_home(ac.event_cwd(event))
+    """The instance of the home the failing session runs in; 'workspace' for a cwd
+    inside the workspace root that is no instance home; else 'other'."""
+    cwd = ac.event_cwd(event)
+    home = ac.find_home(cwd)
     if not home:
-        return "other"
+        return "workspace" if _in_workspace(cwd) else "other"
     try:
         return ac.load_config(home).get("instance") or "other"
     except ac.AcademyError:

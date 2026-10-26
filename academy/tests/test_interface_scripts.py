@@ -127,6 +127,21 @@ class UsageReportTest(Sandbox):
             usage_report.encode_home(self.home_a) + "-academy", ws), "author@p")
         self.assertEqual(usage_report.instance_of_project("C--elsewhere", ws), "other")
 
+    def test_workspace_bucket(self):
+        ws = ac.load_workspace(self.ws_path)
+        root = os.path.dirname(self.ws_path)
+        enc = usage_report.encode_home
+        f = usage_report.instance_of_project
+        self.assertEqual(f(enc(root), ws), "workspace")
+        self.assertEqual(f(enc(root + "/board"), ws), "workspace")
+        self.assertEqual(f(enc(root + "/some-submodule"), ws), "workspace")
+        self.assertEqual(f(enc(root) + "-academy", ws), "workspace")
+        # an instance home inside the workspace still wins; outside stays other
+        self.assertEqual(f(enc(self.home_a), ws), "author@p")
+        self.assertEqual(f(enc(self.home_e + "/sub"), ws), "expert@d")
+        self.assertEqual(f("C--elsewhere", ws), "other")
+        self.assertEqual(f(enc(root), None), "other")
+
     def test_role_of_agent(self):
         roster = {"concierge": "academy", "clerk": "expert"}
         self.assertEqual(usage_report.role_of_agent("academy:concierge", roster), "academy")

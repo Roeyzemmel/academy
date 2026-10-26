@@ -59,6 +59,67 @@ class SignatureTests(unittest.TestCase):
         self.assertFalse(el.is_noise("exit code 1"))
 
 
+class FamilyTests(unittest.TestCase):
+    def fam(self, tool, msg):
+        return el.family(el.signature(tool, msg))
+
+    def test_folds_variants_of_one_reason(self):
+        t = "mcp__plugin_academy_academy__claims_set_status"
+        a = self.fam(t, "refused: the grounds do not support paper:lem:a -> proved:")
+        b = self.fam(t, "refused: the grounds do not support flat:per-3 -> sketch:")
+        self.assertEqual(a, b)
+        self.assertEqual(a, "claims_set_status: grounds do not support")
+        t = "mcp__plugin_academy_academy__tickets_update"
+        self.assertEqual(self.fam(t, "refused: open -> delivered is not a transition"),
+                         "tickets_update: not a transition")
+        self.assertEqual(self.fam(t, "refused: blocked -> open is not a transition"),
+                         "tickets_update: not a transition")
+
+    def test_kb_path_and_web_families(self):
+        t = "mcp__plugin_academy_academy__claims_set_status"
+        self.assertEqual(
+            self.fam(t, "refused: set-status: refused: the kb does not build with fnd-3 at proved"),
+            self.fam(t, "refused: set-status: refused: the kb does not build with per-9 at sketch"))
+        self.assertEqual(self.fam("Read", "File does not exist. Note: your cwd is /a/b"),
+                         "Read: path does not exist")
+        self.assertEqual(self.fam("Glob", "Directory does not exist: /a/b"),
+                         "Glob: path does not exist")
+        self.assertEqual(self.fam("WebFetch", "getaddrinfo ENOTFOUND arxiv.org"),
+                         "WebFetch: host unreachable")
+        self.assertEqual(self.fam("WebFetch",
+                         '{"error_type":"EGRESS_BLOCKED","domain":"x.org","message":"blocked"}'),
+                         "WebFetch: host unreachable")
+
+    def test_fallback_is_the_signature(self):
+        sig = el.signature("Bash", "Exit code 1")
+        self.assertEqual(el.family(sig), sig)
+
+
+class TopFamiliesTests(unittest.TestCase):
+    def test_section_precedes_class_table_and_folds(self):
+        t = "mcp__plugin_academy_academy__claims_set_status"
+        recs = []
+        for i in range(3):
+            m = "refused: the grounds do not support paper:lem:x%s -> proved:" % "abc"[i]
+            recs.append({"t": "error", "ts": at(1), "session": "s%d" % i, "instance": "i",
+                         "tool": t, "sig": el.signature(t, m), "msg": m})
+        recs.append(err(1, "Bash: exit code <n>"))
+        rep = el.report(recs, NOW - dt.timedelta(days=7), now=NOW)
+        top = rep["families"][0]
+        self.assertEqual((top["family"], top["in_window"], top["classes"], top["sessions"]),
+                         ("claims_set_status: grounds do not support", 3, 3, 3))
+        md = el.render_markdown(rep)
+        self.assertIn("## Top families", md)
+        self.assertLess(md.index("## Top families"), md.index("| class |"))
+        self.assertIn("Example messages:", md)
+
+    def test_at_most_ten(self):
+        recs = [err(1, "Tool%d: boom" % i) for i in range(15)]
+        md = el.render_markdown(el.report(recs, NOW - dt.timedelta(days=7), now=NOW))
+        sect = md.split("## Top families")[1].split("| class |")[0]
+        self.assertEqual(sect.count("\n| `"), 10)
+
+
 class HookRecordTests(unittest.TestCase):
     def test_record_has_no_tool_input(self):
         ev = {"tool_name": "Bash", "tool_input": {"command": "curl -H 'Bearer supersecrettoken1'"},
@@ -209,6 +270,41 @@ class HookProcessTests(unittest.TestCase):
         out = subprocess.run([sys.executable, os.path.join(SCRIPTS, "error_ledger.py"), "report",
                               "--json"], capture_output=True, env=env, cwd=home, timeout=60)
         self.assertEqual(json.loads(out.stdout)["open_classes"], 1)
+
+
+class InstanceForTests(unittest.TestCase):
+    def test_workspace_root_is_not_other(self):
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        home = os.path.join(d, "home")
+        os.makedirs(os.path.join(home, ".claude"))
+        os.makedirs(os.path.join(d, "board", "sub"))
+        outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, outside, True)
+        cfg = {"schema": 1, "role": "author", "instance": "author@t", "domains": ["x"],
+               "paths": {k: k for k in el.ac.REQUIRED_PATHS["author"]},
+               "registry": {"profile": "none"}, "author": {}}
+        with open(os.path.join(home, ".claude", "academy.json"), "w") as fh:
+            json.dump(cfg, fh)
+        ws = os.path.join(d, "workspace.json")
+        with open(ws, "w") as fh:
+            json.dump({"instances": {"author@t": {"role": "author", "home": home,
+                                                  "domains": ["x"]}},
+                       "board": os.path.join(d, "board")}, fh)
+        old = os.environ.get("ACADEMY_WORKSPACE")
+        os.environ["ACADEMY_WORKSPACE"] = ws
+        os.environ.pop("ACADEMY_ENV_WORKSPACE", None)
+        try:
+            f = lambda cwd: el._instance_for({"cwd": cwd})
+            self.assertEqual(f(home), "author@t")
+            self.assertEqual(f(d), "workspace")
+            self.assertEqual(f(os.path.join(d, "board", "sub")), "workspace")
+            self.assertEqual(f(outside), "other")
+        finally:
+            if old is None:
+                os.environ.pop("ACADEMY_WORKSPACE", None)
+            else:
+                os.environ["ACADEMY_WORKSPACE"] = old
 
 
 if __name__ == "__main__":

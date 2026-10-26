@@ -11,7 +11,10 @@ in the window, and aggregates:
 
 - **by instance**: the project directory is matched to the workspace instance whose
   home it encodes (Claude Code names a project directory after its cwd, with every
-  non-alphanumeric character replaced by ``-``); anything else is ``other``;
+  non-alphanumeric character replaced by ``-``); a session that starts at the
+  workspace root (cloud and collaborator sessions) or anywhere else inside the
+  workspace that is not an instance home (``board/``, a submodule that is no
+  instance) is ``workspace``; anything outside the workspace is ``other``;
 - **by role**: an agent's plugin namespace or its bare name in the roster of
   ``permissions.json``; the old plugins' namespaces read as ``legacy:<ns>``; agents
   outside any plugin are ``builtin``; the main session is ``main``;
@@ -72,7 +75,8 @@ def encode_home(path):
 
 
 def instance_of_project(project_dir_name, workspace):
-    """The workspace instance whose home the project directory encodes, or 'other'.
+    """The workspace instance whose home the project directory encodes, else
+    'workspace' (inside the workspace root, not in an instance home) or 'other'.
 
     A worktree or subdirectory of a home (``<home>-academy``, ``<home>/sub``)
     counts for that home; the longest matching home wins.
@@ -85,6 +89,10 @@ def instance_of_project(project_dir_name, workspace):
             continue
         if (name == enc or name.startswith(enc + "-")) and len(enc) > best_len:
             best, best_len = inst, len(enc)
+    if best == "other" and (workspace or {}).get("_path"):
+        enc = encode_home(os.path.dirname(workspace["_path"])).lower()
+        if enc and (name == enc or name.startswith(enc + "-")):
+            return "workspace"
     return best
 
 
