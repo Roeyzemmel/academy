@@ -463,6 +463,38 @@ Consequences for a search pipeline:
   is a consistency check, not a proof** — the mathematical argument still has to be made
   separately.
 
+#### 6.7.6 Veech-group membership convention, `automorphism_group()` elements **[VERIFIED — run 2026-10-26, cloud Sage 10.7, surface_dynamics 0.7.0, sage-flatsurf 0.8.0]**
+
+Probe: `FlatSurfLab/scratch/probe_api_kdc.py` (T-0688).
+
+```python
+from sage.all import matrix, ZZ, SL2Z
+O = Origami([1,0],[0,1], as_tuple=True)     # the 2x1 torus: r = (1,2), u = id, one horizontal cylinder of width 2
+G = O.veech_group()                          # EvenArithmeticSubgroup_Permutation, G.index() == 3
+matrix(ZZ,[[1,1],[0,1]]) in G                # False   (T: horizontal shear by 1 does not preserve it)
+matrix(ZZ,[[1,0],[1,1]]) in G                # True    (B)
+matrix(ZZ,[[1,1],[0,1]])**2 in G             # True
+SL2Z(A) in G  ==  A in G                     # same answer for a ZZ matrix and for SL2Z(A), in every test
+Origami([0,1],[1,0], as_tuple=True).veech_group():  T in G True, B in G False   # the 1x2 torus, transposed
+L = Origami([1,0,2],[2,1,0], as_tuple=True).veech_group():  index 3, S=[[0,-1],[1,0]] in G True, -I in G True, T in G False
+```
+
+Convention: **`A in o.veech_group()` iff `A.o` is isomorphic to `o` as an origami, A acting on column
+vectors** (the 2x1 torus, lattice <(2,0),(0,1)>, is preserved by [[1,0],[1,1]] and not by [[1,1],[0,1]]).
+`-I` is accepted as a matrix (even group). Cross-checked on every origami with n <= 4 (`tests/test_symmetric_origami.py::TestVeechIff`)
+and every class with n <= 8 in `experiments/2026-10-26_kdc_a_exhaustive.py`: for D in {-I, [[0,-1],[1,0]],
+[[0,-1],[1,-1]], [[1,-1],[1,0]]}, "an affine automorphism with derivative D exists" (found by cell propagation) iff `D in G`.
+
+`o.automorphism_group()` is a `PermutationGroup_subgroup` of S_n; its elements are callable, **1-based**:
+`for g in AG: [g(i) for i in range(1, n+1)]` (the 4-square torus: the four translations
+`[1,2,3,4], [2,1,4,3], [3,4,1,2], [4,3,2,1]`); `.order()` is a Sage `Integer`, `.gens()`, `.list()` exist.
+`o.genus()` and `o.nb_squares()` are Python `int`; `o.stratum().signature()` for the 3-square L is `(2,)` and for the
+4-square torus `str(stratum)` is `H_1(0)` (signature `(0,)`: filter `z >= 1` to compare with cone orders).
+Linear algebra for homology traces: `matrix(QQ,..).right_kernel_matrix()`, `.column_space().basis_matrix()`,
+`W.solve_left(M)` work as used in `fslab.symmetric_origami.CellSurface.trace_H1`.
+Cost: `veech_group()` computes the whole SL_2(Z)-orbit; about 0.12 s per origami at n = 9 against about 0.4 ms for the rest of the per-class work in `process_class` — do not call it per origami for n >= 9.
+`matrix(ZZ,..).elementary_divisors()` signature `(algorithm='pari')`; `tests.test_origami_exact::test_sage_route_agrees` passes (24 tests OK).
+
 ---
 
 ### 12.5 `Origami` constructor forms and index base — **Confirmed** (both targets)

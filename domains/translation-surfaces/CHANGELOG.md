@@ -3,6 +3,10 @@
 Newest first. One line per change to a pack file; a theorem entry or an API finding
 names its section.
 
+## Unreleased — 2026-10-26: API check for the symmetric-origami sweep (T-0688)
+
+- `computation/api/origamis.md` §6.7.6 (new): `A in o.veech_group()` convention (A acts on column vectors; checked on the 2x1 / 1x2 tori and the L), `automorphism_group()` element access (callable, 1-based), the cost of `veech_group()` at n = 9, the homology linear-algebra calls used for Lefschetz traces. Written by the Scientist's api-check pass; contradicts nothing in `traps.md`.
+
 ## Unreleased — 2026-10-09: the conda env's package list
 
 - `computation/env.txt` (new): the conda-forge packages `env.py setup <profile>` installs
