@@ -209,6 +209,14 @@ class BlockedFilterTests(Board):
                          {"T-0001": "pending", "T-0002": "dead-route", "T-0003": None})
         self.assertEqual(total, 3)
 
+    def test_all_marks_a_relay_ready_for_its_return_leg(self):
+        self.put("T-0002", status="delivered", frm=INST, to="scientist@t", kind="research",
+                 parent="T-0001", final_to="scientist")
+        self.put("T-0001", status="blocked", kind="research", waiting_on=["T-0002"],
+                 final_to="scientist")
+        rows, _ = core.select(self.board, INST, 3, all=True, route=route)
+        self.assertTrue(next(r for r in rows if r["id"] == "T-0001")["return"])
+
     def test_is_dead_route(self):
         self.assertTrue(core.is_dead_route({"blocked_by": "T-1", "reopen_if": "x"}))
         self.assertFalse(core.is_dead_route({"blocked_by": "T-1"}))

@@ -2690,6 +2690,10 @@ class inbox_core(object):
                 if st not in inbox_core.SHOW:
                     continue
                 group = 0 if st == "in-progress" else 2 if st in inbox_core.TAKE else 1
+                # a listing without the cut still marks a relay ready for its return leg
+                # (live run 2026-10-31: --ids showed T-0900 pending after its child was delivered)
+                ret = bool(st == "blocked" and return_legs and not dead
+                           and relay_return_ready(m, status_of))
             elif dead:
                 continue
             elif st == "in-progress":
