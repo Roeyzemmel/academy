@@ -5,89 +5,57 @@ description: 'Review one registry statement''s proof with two independent blind 
 
 # Verify one statement
 
-## Scope notes
+`$ARGUMENTS` is a claim id (`paper:lem:strip-bound`), optionally a ticket id (`T-NNNN`)
+and the question; or empty, meaning the first `verify` ticket that
+`py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py` lists. **One statement per invocation**: this
+is the most expensive pass in the academy. Say which statement you took and why. Run it
+from the library home (the Expert instance's home), so the MCP tools act for the Expert.
+This is the sanctioned route from `sketch` to `proved`, and it comes before any recolouring.
 
-- This is the sanctioned route from `sketch` to `proved`; use it before any recolouring.
+## 1. Run the workflow
 
-`$ARGUMENTS` is a claim id (`paper:lem:strip-bound`), optionally a ticket id
-(`T-NNNN`) and the question asked; or empty, meaning the first `verify` ticket that
-`py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py` lists. **One statement per invocation**:
-this is the most expensive pass in the academy, and the human decides how much of it to
-spend. Say which statement you took and why before dispatching.
+The sequencing is code, not prose (the human's decision, 2026-10-31): call the **Workflow**
+tool with
 
-Budget and independence: `academy/references/budget.md` and
-`academy/references/roster-rules.md` (the base plugin's `references/`). Run it from
-the library home (the Expert instance's home), so the MCP tools act for the Expert
-instance.
+    scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/verify.js
+    args: {claim: "<ns:id>", ticket: "T-NNNN" or omitted, question: "<if not 'may it be raised to proved?'>",
+           mode: "blind" | "reword", base_pass: "<reword only>", base_subject: "<renamed label only>"}
 
-A single adversarial read is not a sign-off: repeated runs of the same proof check
-disagree in the tens of percent. So the check runs **twice, independently, in
-sequence**, and disagreement is itself a finding.
+The script runs the blind `rigor-reviewer` run A, launches B (A's brief byte for byte,
+`run: B`) only when `decision_table.py` says `launch_b` and the statement hash has not
+moved, relaunches a run that did not land once, stops on a lost run, and hands the landed
+runs to a `review-chair` stage that writes the record, the evidence, the proposal, the
+follow-up tickets and the packet (`references/conclude.md`). The `land_verdict` hook files
+each verdict; a hand-launched `rigor-reviewer` is refused by the `review_launch_guard` hook.
+Pass no `model` override.
 
-## 1. Dispatch one review-chair
+**Reword mode** (`mode: "reword"`, T-0347): the statement's text changed after a pass that
+decided `confirmed` / `confirmed-modulo`, and the proof is unchanged or changed only in
+wording. One informed run R replaces the blind pair. Find the base with
+`py ${CLAUDE_PLUGIN_ROOT}/scripts/reviews.py list <id>`; for a renamed label, give the old
+id as `base_subject` (T-0476). A rewording that answers a hypothesis, statement or proof
+finding, or a changed proof, takes the blind pass.
 
-Dispatch **one** `review-chair` (`subagent_type: expert:review-chair`) with the claim
-id, the ticket id if any, and the question. It hashes the statement, launches the
-blind `rigor-reviewer` runs, runs `decision_table.py`, writes the record, attaches the
-evidence, proposes the status and files the packet, following
-`references/conclude.md`. **Do not launch `rigor-reviewer` yourself** — the pair and
-its concluder belong in one agent. Pass no `model` override.
+**By hand**, only when the Workflow tool cannot run: the human sets
+`ACADEMY_ALLOW_MANUAL_REVIEW=1`, and this seat follows `references/conclude.md` section 1
+itself, launching the runs. It files as `main`, and `main` is not a liaison for
+expert->author / expert->researcher, so it lists the follow-up tickets (receiver, claim,
+ask) in its report instead of filing them; `claims_propose_status` still goes out. The
+report says the pass ran by hand.
 
-**By hand**, only if `review-chair` cannot be launched: follow
-`references/conclude.md` in this seat, launching the runs yourself, and say in the
-report that the pass ran by hand. This seat files as the agent `main`, and
-`main` is not a liaison for expert->author or expert->researcher: the follow-up repair
-tickets of `conclude.md` are not filed from here. Leave them to a `review-chair` run once one
-can be launched, or list each (receiver, claim, ask) in the report for the human. The
-status proposal (`claims_propose_status`) is exempt and still goes out.
+## 2. After the workflow returns
 
-**A reworded statement: one informed run** (the human's decision, 2026-10-12, T-0347). When the
-statement's text changed after a pass that decided `confirmed` / `confirmed-modulo`,
-and the proof is unchanged or changed only in wording, the chair runs a **reword pass**
-instead of a new blind pair: one `rigor-reviewer` run R that sees the old and new
-statement, the diff, the base pass's decision and both its verdicts, and the findings
-that prompted the rewording, and judges whether the proof as reviewed still covers the
-new wording (`reword_scope`: equivalent, weaker, covered, or exceeds). R CONFIRMED on a
-CONFIRMED x2 base is enough for `proved` (the base's modulo carried over); R GAP or
-`exceeds` sends the statement to a full blind pass. Tell the chair which pass is the
-base (`py ${CLAUDE_PLUGIN_ROOT}/scripts/reviews.py list <id>`; for a renamed label, the
-old id's passes and `--base-subject <old id>`, T-0476). A rewording that
-answers a hypothesis, statement or proof finding, or a changed proof, takes the full
-blind pass. Procedure: `references/conclude.md` section 7.
+- `notes` and `anomalies` go into your report verbatim (a skipped B, a relaunch, a lost
+  run, a run file the workflow did not launch).
+- **A recolouring** is the Author's edit: the ticket result says "recolour earned" and the
+  Author's `math-editor` makes it.
+- **A counterexample** (DISPROVED) goes to the human at once, in full.
+- The status moves only when the claim-keeper accepts the proposal ticket.
 
-## 2. The decision table
+## 3. Report
 
-`scripts/decision_table.py` is the table; its docstring states it and
-`tests/test_decision_table.py` pins every row. In short: CONFIRMED x2 → propose
-`proved` (recolour earned); CONFIRMED modulo X x2 → propose `proved-modulo`, recolour
-only when every input is established; CONFIRMED vs GAP, or different inputs →
-disagreement (inputs differing only in definitions agree, on the intersection, with the
-definitions flagged: a definition used only as notation is not an input, the human's
-decision of 2026-10-09, T-0148); any DISPROVED → the counterexample to the human, no status; a GAP run A →
-single negative, B skipped by design; any PLAUSIBLE → degraded, never counts. A
-CONFIRMED counts on any of the grading primaries (`grading.primaryModels`, all equal);
-on any other model it reads as PLAUSIBLE. A reword run R (`decision_table.py
-<pass>/R.md`, base pass found beside it): CONFIRMED with scope equivalent / weaker /
-covered on a CONFIRMED x2 base → `confirmed` / `confirmed-modulo`, propose `proved` /
-`proved-modulo`; GAP or `exceeds` → `full-pass-needed` (a fresh blind run A); a base
-that is missing, not confirmed or on another hash → `invalid-base`, no status.
-
-## 3. After the chair returns
-
-- **A recolouring** is the Author's edit, never the Expert's: the ticket result says
-  "recolour earned" and the sending Author instance's `math-editor` makes it when its
-  next run closes the ticket.
-- **A repair** goes where the script's `route` sends it (`academy/references/roster-rules.md`,
-  "Role cut"): a hypothesis, statement or proof-step finding is a `prove` ticket to the
-  Researcher with the falsifier, for a `paper:` claim too; never an Author `apply` or
-  `write` ticket. Only a wording finding goes back to the statement's owner.
-- **A counterexample** (DISPROVED) goes to the human at once: relay it in full.
-- The status itself moves only when the claim-keeper accepts the proposal ticket the
-  chair filed (`claims_propose_status`).
-
-## 4. Report
-
-Relay the chair's report, not a summary: both verdicts in the reviewers' own words,
-side by side; the outcome and the input-by-input status; the **blast radius** first
-when there is one; the record path, the evidence rows, the proposal ticket and the
-packet id. Never ask questions; the human decides in `/academy:review`.
+Relay the chair's `report`: both verdicts in the reviewers' own words, side by side; the
+outcome and the input-by-input status; the **blast radius** first when there is one; the
+record path, evidence rows, proposal ticket and packet id. Never ask questions; the human
+decides in `/academy:review`. The decision table itself is `scripts/decision_table.py`
+(its docstring is the table; `tests/test_decision_table.py` pins every row).

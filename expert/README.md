@@ -23,7 +23,7 @@ rule is `academy/references/roster-rules.md`, "Model fallback".
 |---|---|
 | `clerk` | Quick answers from `hot.md`, the cards and the MCP read tools; read-only, no web; a miss becomes an escalation for the librarian |
 | `librarian` | Fetches and caches sources, writes cards and index rows; the only editor of the cards, `index.md` and every Author's `references.bib`; curates the domain packs |
-| `review-chair` | Owns one proof review: the blind rigor-reviewer runs, `decision_table.py`, the record, the evidence, the status proposal and the packet; grades nothing |
+| `review-chair` | The clerical stages of one proof review inside `workflows/verify.js` (which launches the blind rigor-reviewer runs): the pass, `decision_table.py`, the record, the evidence, the status proposal and the packet; grades nothing, launches nothing |
 | `rigor-reviewer` | One blind, adversarial proof review (CONFIRMED / PLAUSIBLE / GAP / DISPROVED); read-only, landed by a hook |
 | `referee` | Whole-paper referee report from the built PDF, read cold; read-only, landed by a hook |
 | `related-work-scout` | Prior-art search for one statement, or the literature watch; writes only the library's `ledgers/<instance>/` |
