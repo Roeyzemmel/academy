@@ -73,6 +73,18 @@ started or finished, the target came or went). Stop when the queue is empty, whe
 the human says so, or when the answer is "waiting on the gateway" and another check will
 not change it.
 
+**Watching without a loop** (since 2026-10-31; a local session with the VPN up, since a
+cloud session cannot reach the worker). Instead of re-running this skill on a timer,
+start one background **Monitor** whose command is an until-loop that ticks the queue and
+waits for its `running/` folder to empty, from the lab home (bash, also the Windows
+session's shell):
+`until py "$A/scientist/scripts/env.py" --home . queue tick; [ -z "$(ls <queue dir>/running 2>/dev/null)" ]; do sleep 600; done`
+(`$A` = the academy root; `<queue dir>` as above). The session is woken only when no job
+is running any more. Then settle the finished job as
+below and send one **PushNotification**: the job id, its `status`, and the result path,
+or "waiting on the gateway" when the tick could not reach the target. Never notify on a
+job that is still running, and stop the monitor when the queue is empty.
+
 ## Settling a finished job
 
 `-Tick` records `status` (`ok`, `failed`, `exited-without-result`, `cancelled`,
