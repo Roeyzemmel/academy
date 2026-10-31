@@ -249,6 +249,22 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(next(c for c in calls if c["label"] == "math-writer T-5 (research)")["agentType"], "author:math-writer")
         self.assertEqual(res["taken"][0]["outcome"], "asked as T-6")
 
+    def test_follow_takes_the_children_of_handled_tickets(self):
+        r = row("T-7", target="research-intake", kind="research", frm="author@t", to="expert@t", final_to="researcher")
+        kid = dict(row("T-8", target="lead-researcher", kind="research", frm="expert@t", to="researcher@u", final_to="researcher"), parent="T-7")
+        other = row("T-9", target="lead-researcher", kind="research", to="researcher@u")
+        plan = {"list": [{"instances": [inst("expert@t", [r]), inst("researcher@u", [other])]}],
+                "T-7 start": [OK],
+                "research-intake T-7": [{"decision": "forward", "result": "relayed", "result_detail": "", "child": "T-8", "notes": []}],
+                "get T-8": [child("T-8", "T-7", "expert@t", "researcher@u", "research", "researcher")],
+                "T-7 block-on": [OK], "check T-7": [DONE],
+                "list 2": [{"instances": [inst("expert@t", []), inst("researcher@u", [kid, other])]}],
+                "T-8 start": [OK], "lead-researcher T-8": ["worked"], "check T-8": [DONE],
+                "list 3": [{"instances": [inst("researcher@u", [other])]}]}
+        res, labels, _ = self.run_wf(plan, loop=True, cap=3, ids=["T-7"], follow=True)
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-7", "T-8"])     # T-9 is outside the scope
+        self.assertNotIn("lead-researcher T-9", labels)
+
     def test_clerk_escalation_is_bounded_by_budget(self):
         rows = [row("T-1", target="clerk", kind="lookup", to="expert@t", runs=1)]
         plan = {"list": [{"instances": [inst("expert@t", rows)]}],

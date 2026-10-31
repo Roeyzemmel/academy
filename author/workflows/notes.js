@@ -1,7 +1,7 @@
 export const meta = {
   name: 'academy-notes',
   description: 'File the human\'s and the coauthors\' new margin notes (or a referee packet\'s points) as tickets: the inventory by script, one classification, every proposed ticket checked by routes.check_filed before it is filed, the filed tickets read back, the four lists computed in code',
-  whenToUse: '/author:notes and a returned referee packet (also nested from the inbox), from the Author home. args: {home, instance, base?: "<commit>", referee?: "P-NNNN"}',
+  whenToUse: '/author:notes and a returned referee packet (also nested from the inbox), from the Author home. args: {home, instance, root?, base?: "<commit>", referee?: "P-NNNN", files?: [paths], uncarried?: true (the standing notes of those files that no ticket carries)}',
   phases: [
     { title: 'Collect', detail: 'the new notes and the inventory (or the packet\'s points)' },
     { title: 'Classify', detail: 'covered / answers / discrepancy / new, with the proposed tickets' },
@@ -57,7 +57,10 @@ const inv = await clerk('collect', REFEREE
   ? [`Read ${REFEREE} (tickets_get for the ticket, then the packet file under board/packets/): return each point as a note with id "<P-NNNN> point <k>", the packet id as packet, the label of the statement it concerns, and its text. ` +
      'Also return the paper\'s claim namespace (the home\'s registry profile) and, for the inventory, the count of note macros in the tex (git grep).']
   : ['Read the home\'s .claude/academy.json: author.noteMacros.human and .coauthors, paths.tex, and workspace.json human.noteMacro.',
-     `New notes: lines adding a note macro in git diff --cached -U0 and git diff -U0${A.base ? ' against ' + A.base : ''} over the tex paths; take the whole brace group from the file, with the label of the statement it sits on.`,
+     A.files && A.uncarried
+       // a section's standing notes that were never filed (2026-10-31): the inventory of those files minus what a ticket carries
+       ? `New notes: every note-macro occurrence (human and coauthor macros only, never the machine macro) in ${A.files.join(', ')} that NO ticket carries yet: a ticket carries a note when its detail or ask names its file:line, or quotes its distinctive words (search tickets_list / board.py list for a phrase of each note). Take the whole brace group from the file, with the label of the statement it sits on.`
+       : `New notes: lines adding a note macro in git diff --cached -U0 and git diff -U0${A.base ? ' against ' + A.base : ''} over the tex paths; take the whole brace group from the file, with the label of the statement it sits on.`,
      'Inventory: git grep -n for each macro over the tex paths (count, and every note with file, line, macro, label, text). Return the claim namespace too. Write nothing.'],
   INV, 'collect', 'Collect')
 if (!inv || !inv.ok) return Object.assign(out, { outcome: 'not-started', reason: inv ? inv.detail : 'the collect stage returned nothing' })

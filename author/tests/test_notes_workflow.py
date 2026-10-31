@@ -106,6 +106,15 @@ class NotesTests(unittest.TestCase):
         self.assertIn("packets field of T-0700", next(c for c in calls if c["label"] == "collect")["prompt"])
 
 
+@unittest.skipUnless(NODE, "node is not installed")
+class SectionScopeTests(NotesTests):
+    def test_files_with_uncarried_collects_the_standing_notes(self):
+        res, labels, calls = self.run_wf({"collect": [dict(INV, new=[])]}, files=["sections/schreier_graphs.tex"], uncarried=True)
+        p = next(c for c in calls if c["label"] == "collect")["prompt"]
+        self.assertIn("sections/schreier_graphs.tex that NO ticket carries", p)
+        self.assertNotIn("git diff --cached", p)
+
+
 class CheckFiledCli(unittest.TestCase):
     def test_one_problem_list_per_ticket(self):
         d = tempfile.mkdtemp(prefix="acad-cf-")

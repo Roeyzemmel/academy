@@ -65,7 +65,7 @@ const ROW = {
   type: 'object',
   properties: {
     id: { type: 'string' }, kind: { type: 'string' }, status: { type: 'string' },
-    from: { type: 'string' }, to: { type: 'string' }, final_to: { type: 'string' },
+    from: { type: 'string' }, to: { type: 'string' }, final_to: { type: 'string' }, parent: { type: 'string', description: 'the parent ticket, or empty' },
     refs: { type: 'array', items: { type: 'string' } },
     budget_runs: { type: 'number' },
     route: { type: 'object', properties: { how: { type: 'string' }, target: { type: ['string', 'null'] }, why: { type: 'string' } }, required: ['how', 'target', 'why'] },
@@ -105,6 +105,7 @@ const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `ac
 const notes = []
 const taken = []
 const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0 }
+const followed = new Set(A.ids || [])
 
 // ---- List ---------------------------------------------------------------------------
 async function listAll(pass) {
@@ -116,7 +117,9 @@ async function listAll(pass) {
   if (!listed) return null
   const xs = listed.instances.filter(i => !A.only || A.only.includes(i.name))
   xs.sort((a, b) => ORDER.indexOf(a.role) - ORDER.indexOf(b.role) || (a.name < b.name ? -1 : 1))
-  if (A.ids && A.ids.length) for (const i of xs) i.rows = i.rows.filter(r => A.ids.includes(r.id))
+  // ids: only these tickets; with follow (a loop), also the children of a ticket this run handled,
+  // so a relay's child and its return leg move within the same cap
+  if (A.ids && A.ids.length) for (const i of xs) i.rows = i.rows.filter(r => A.ids.includes(r.id) || (A.follow && r.parent && followed.has(r.parent)))
   for (const i of xs) out.remaining[i.name] = i.waiting
   return xs
 }
@@ -401,6 +404,8 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
       count++
       moved++
       touched.add(i.name)
+      followed.add(row.id)
+      if (res.nested && res.nested.child) followed.add(res.nested.child)
       if (res.lost) {
         taken.push({ instance: i.name, id: row.id, route: row.route, outcome: 'lost' })
         out.stopped = `an agent on ${row.id} returned nothing (a limit or an API error): nothing further launched (budget.md rule 4)`
