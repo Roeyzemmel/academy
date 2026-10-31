@@ -101,7 +101,7 @@ a tier's model. `load_workspace` rejects anything else, and the workspace bootst
 it (`--strict` then exits 1).
 
 The tiers of the agents: `base` for the clerical agents (clerk, paper-liaison, claim-keeper,
-lit-request, usage-analyst), `max` for the graders and the prover (rigor-reviewer, referee,
+lit-request, review-clerk, usage-analyst), `max` for the graders and the prover (rigor-reviewer, referee,
 experiment-reviewer, prover: the four that ran on Fable before), `large` for explainer,
 math-writer and developer, `medium` for the rest. `py academy/scripts/models.py list` shows
 them all.

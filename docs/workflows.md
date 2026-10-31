@@ -11,11 +11,14 @@ reviewers blind.
 
 ## What the 2026-10-31 pilot established (B0)
 
-- **Where the scripts live.** Named workflows are read from `.claude/workflows/` once,
-  at session start. A file added during a session is not found by name. So every
-  academy workflow is invoked by **`scriptPath`**, from the plugin that owns it
-  (`${CLAUDE_PLUGIN_ROOT}/workflows/<name>.js`), and that works in every session and
-  every checkout. A named copy is an optional convenience and is not shipped.
+- **Where the scripts live.** Named workflows come from `.claude/workflows/` and from
+  each plugin's `workflows/` folder, registered as `<plugin>:<meta.name>`. A few turns
+  after `expert/workflows/verify.js` was committed, the same session listed it as
+  `expert:academy-verify`, but a pilot copy written into `.claude/workflows/` mid-session
+  was not found by name. When the registry refreshes is not documented, so the skills
+  invoke each workflow by **`scriptPath`**
+  (`${CLAUDE_PLUGIN_ROOT}/workflows/<name>.js`), which works in every session and
+  checkout. The registered name is an alias.
 - **Plugin hooks fire for workflow agents.** An `agent(..., {agentType:
   'expert:rigor-reviewer'})` keeps that agent's `agent_type`, so the expert plugin's
   `SubagentStop` hook (`land_verdict.py`) landed its VERDICT block as `A.md`, with run
@@ -51,6 +54,6 @@ reviewers blind.
 | workflow | script | state |
 |---|---|---|
 | proof review (`/expert:verify`) | `expert/workflows/verify.js` | done 2026-10-31, with `review_launch_guard.py` |
-| experiment review / settle (`/researcher:review-experiment`, `/researcher:settle`) | `researcher/workflows/review-experiment.js` | next: A, then B only if A is positive, by `reviews.py decide`; settle's re-derivation of at most three candidates as a `pipeline` |
+| experiment review / settle (`/researcher:review-experiment`, `/researcher:settle`) | `researcher/workflows/review-experiment.js` | done 2026-10-31, with the researcher's `review_launch_guard.py` and the clerk agent `review-clerk`. Modes `review`, `settle-audit` (at most three candidates, returned as `to_file` for the main session, the liaison) and `settle-conclude`; the brief is `reviews.py brief`'s text, pinned by a test |
 | all inboxes (`/academy:inbox`) | `academy/workflows/inbox.js` | planned: the fixed instance order, at most three tickets each, one at a time, `ship.py checkpoint` after each |
 | weekly usage and error settle (`/academy:usage --weekly`) | `academy/workflows/weekly.js` | planned: the usage-analyst packet, then `error_ledger.py settle --packet` |

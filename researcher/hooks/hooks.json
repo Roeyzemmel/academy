@@ -21,6 +21,16 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/review_launch_guard.py\"",
+            "timeout": 20
+          }
+        ]
       }
     ],
     "PostToolUse": [
