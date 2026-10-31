@@ -3001,6 +3001,10 @@ class inbox_core(object):
                              "no cap of its own to lower: without --n it takes them all); "
                              "--limit is an alias")
         ap.add_argument("--all", action="store_true", help="list without taking or cutting")
+        ap.add_argument("--ids", metavar="T-a,T-b",
+                        help="only these tickets and the tickets whose parent is one of them, "
+                             "listed without the cut (as --all), so a workflow need not "
+                             "transcribe the whole inbox")
         ap.add_argument("--json", action="store_true")
         wp = ap.add_mutually_exclusive_group()
         wp.add_argument("--campaign", metavar="TARGET",
@@ -3036,13 +3040,16 @@ class inbox_core(object):
         else:
             limit = min(max(1, int(args.n)) if args.n else inbox_core.MAX,
                         inbox_core.clamp(budget_limit))
-        rows, total = inbox_core.select(board, instance, limit or 10 ** 9, all=args.all,
+        ids = [t.strip() for t in (getattr(args, "ids", None) or "").split(",") if t.strip()]
+        rows, total = inbox_core.select(board, instance, limit or 10 ** 9, all=args.all or bool(ids),
                                         route=route, campaign=args.campaign,
                                         position=position, return_legs=return_legs,
                                         position_first=position_first, extra=extra,
                                         cowork=cowork)
+        if ids:
+            rows = [r for r in rows if r.get("id") in ids or (r.get("parent") or "") in ids]
         header = header or {}
-        left = 0 if args.all else max(0, total - len(rows))
+        left = 0 if (args.all or ids) else max(0, total - len(rows))
         unfinished = inbox_core.unfinished(rows)
         outside = []
         if plan and not args.all:

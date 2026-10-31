@@ -80,7 +80,7 @@ reviewers blind.
 
 ## What the first live loop taught (2026-10-31)
 
-- `inbox.py --json` cuts the list at `itemsPerRun` before an `ids` filter, so a run with `ids` lists `--all` and skips pending blocked rows.
+- `inbox.py --json` cuts the list at `itemsPerRun`, and `--all` (304 rows) is too long for the list clerk to transcribe (it returned one instance of five). So a run with `ids` lists with `--ids` (the ids, the tickets handled and their children, filtered in the script, no cut) and skips pending blocked rows.
 - A row carries `to`, `parent` and `final_to` (`academy_common._row`): `follow` needs the parent, and a row the list clerk put under an instance it is not addressed to is dropped with an anomaly, never run with the wrong role. A relay's child id is followed directly, so the child moves even if the parent field is lost.
 - A ticket the route parks on its child (a relay's forward, a research ask) ends blocked by design: its `--check` exit 3 does not close the instance.
 - A `cite` whose source cannot be read is parked on the human with the exact ask (project rule "inaccessible sources") and comes back as a gate, not delivered; there is no card to validate.

@@ -113,9 +113,10 @@ const children = new Set()           // follow: the child ids this run's relays 
 async function listAll(pass) {
   const listed = await clerk('list', [
     `For each instance of workspace.json${A.only ? ' among ' + JSON.stringify(A.only) : ''}, run its role's inbox script:`,
-    // with ids the per-instance cut (itemsPerRun) would hide the named tickets (live run 2026-10-31): list --all, then keep the takeable ones
-    `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.ids && A.ids.length ? ' --all' : ''}${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
-    'Return every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
+    // with ids the per-instance cut (itemsPerRun) would hide the named tickets, and --all is too long to transcribe
+    // (live runs 2026-10-31: 304 rows, four instances lost): --ids filters in the script (the ids and their children)
+    `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.ids && A.ids.length ? ' --ids ' + [...new Set([...A.ids, ...(A.follow ? [...followed, ...children] : [])])].join(',') : ''}${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
+    'Return every instance (one entry each, even with no rows) and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
   ], LIST, pass > 1 ? `list ${pass}` : 'list')
   if (!listed) return null
   const xs = listed.instances.filter(i => !A.only || A.only.includes(i.name))

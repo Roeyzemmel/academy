@@ -302,7 +302,7 @@ class InboxWorkflowTests(unittest.TestCase):
                 row("T-2", how="reject", target=None, kind="prove", to="expert@t")]
         res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", rows)]}], "T-2 reject": [OK], "check T-2": [DONE]},
                                          ids=["T-1", "T-2"])
-        self.assertIn("--all", calls[0]["prompt"])
+        self.assertIn("--ids T-1,T-2", calls[0]["prompt"])          # filtered in the script, not transcribed whole
         self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
 
     def test_clerk_escalation_is_bounded_by_budget(self):

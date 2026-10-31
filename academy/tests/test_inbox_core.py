@@ -368,6 +368,15 @@ class CliTests(Board):
         data = json.loads(self.run_it("--json", "--all")[1])
         self.assertEqual((len(data["take"]), data["remaining"]), (5, 0))
 
+    def test_ids_option_lists_those_and_their_children_without_the_cut(self):
+        for i in range(1, 6):
+            self.put("T-000%d" % i)
+        self.put("T-0009", parent="T-0005")
+        data = json.loads(self.run_it("--json", "--ids", "T-0005,T-0001")[1])
+        self.assertEqual(sorted(r["id"] for r in data["take"]), ["T-0001", "T-0005", "T-0009"])
+        self.assertEqual((data["remaining"], data["take"][0]["to"]), (0, INST))
+        self.assertTrue(all("parent" in r and "final_to" in r for r in data["take"]))
+
     def test_text_output_marks_return_and_over_budget(self):
         self.put("T-0002", status="delivered", frm=INST, to="scientist@t", kind="research",
                  parent="T-0001", final_to="scientist")
