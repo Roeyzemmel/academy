@@ -61,6 +61,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Set, Tuple
@@ -896,6 +897,10 @@ MARGIN_HINT_TEXT = "too long for the margin"
 #: an author's margin note and not what this rule is for. A fragment whose
 #: entire text is one label-shaped token (braces optional) is that debug
 #: annotation, not a clipped comment, and is excluded before R7 ever sees it.
+#: wall-clock cap on all synctex lookups of one R7 scan; later pages are
+#: reported by page number only.
+SYNCTEX_BUDGET_SECONDS = 60.0
+
 RE_SHOWLABEL_TOKEN = re.compile(r"^\{*[A-Za-z][\w]*:[\w:\-]+\}*$")
 
 
@@ -1055,9 +1060,23 @@ def rule_margin_overflow(root: str) -> List[Finding]:
     if not fragments:
         return []
 
-    out: List[Finding] = []
+    # One finding per page, not per fragment: a page whose margin column runs
+    # off the sheet clips hundreds of one-line fragments, and each synctex
+    # lookup costs ~0.5 s (it re-reads main.synctex.gz), which made the scan
+    # run for a quarter of an hour. The first fragment of a page locates it.
+    by_page: Dict[int, List[Tuple[float, float, str]]] = {}
     for page, x, y, text in fragments:
-        loc_file, loc_line = _resolve_synctex(root, page, x, y)
+        by_page.setdefault(page, []).append((x, y, text))
+
+    out: List[Finding] = []
+    deadline = time.monotonic() + SYNCTEX_BUDGET_SECONDS
+    for page in sorted(by_page):
+        frs = by_page[page]
+        x, y, text = frs[0]
+        if time.monotonic() < deadline:
+            loc_file, loc_line = _resolve_synctex(root, page, x, y)
+        else:
+            loc_file, loc_line = "", -1
         snippet = text if len(text) <= 60 else text[:57] + "..."
         if loc_line < 0:
             file_field, line_field = "", 0
@@ -1065,9 +1084,10 @@ def rule_margin_overflow(root: str) -> List[Finding]:
         else:
             file_field, line_field = loc_file, loc_line
             where = ""
-        msg = "clipped text on p.%d%s: \"%s\" (a machine note is at most %d lines, " \
-              "author.notes.maxLines)" % (page, where, snippet, NOTE_MAX_LINES)
-        if MARGIN_HINT_TEXT in text:
+        count = ("%d clipped fragments" % len(frs)) if len(frs) > 1             else "clipped text"
+        msg = "%s on p.%d%s, first: \"%s\" (a machine note is at most %d lines, "               "author.notes.maxLines)" % (count, page, where, snippet,
+                                         NOTE_MAX_LINES)
+        if any(MARGIN_HINT_TEXT in t for _, _, t in frs):
             msg += (" -- already a relocated pointer; the column is still "
                     "too full")
         out.append(Finding("R7", "W", file_field, line_field, "(margin)", msg))
