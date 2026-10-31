@@ -66,6 +66,7 @@ const ROW = {
   properties: {
     id: { type: 'string' }, kind: { type: 'string' }, status: { type: 'string' },
     from: { type: 'string' }, to: { type: 'string' }, final_to: { type: 'string' }, parent: { type: 'string', description: 'the parent ticket, or empty' },
+    blocked: { type: 'string', description: 'the row\'s blocked state (e.g. pending), or empty' },
     refs: { type: 'array', items: { type: 'string' } },
     budget_runs: { type: 'number' },
     route: { type: 'object', properties: { how: { type: 'string' }, target: { type: ['string', 'null'] }, why: { type: 'string' } }, required: ['how', 'target', 'why'] },
@@ -111,7 +112,8 @@ const followed = new Set(A.ids || [])
 async function listAll(pass) {
   const listed = await clerk('list', [
     `For each instance of workspace.json${A.only ? ' among ' + JSON.stringify(A.only) : ''}, run its role's inbox script:`,
-    `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
+    // with ids the per-instance cut (itemsPerRun) would hide the named tickets (live run 2026-10-31): list --all, then keep the takeable ones
+    `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.ids && A.ids.length ? ' --all' : ''}${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
     'Return every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
   ], LIST, pass > 1 ? `list ${pass}` : 'list')
   if (!listed) return null
@@ -119,7 +121,8 @@ async function listAll(pass) {
   xs.sort((a, b) => ORDER.indexOf(a.role) - ORDER.indexOf(b.role) || (a.name < b.name ? -1 : 1))
   // ids: only these tickets; with follow (a loop), also the children of a ticket this run handled,
   // so a relay's child and its return leg move within the same cap
-  if (A.ids && A.ids.length) for (const i of xs) i.rows = i.rows.filter(r => A.ids.includes(r.id) || (A.follow && r.parent && followed.has(r.parent)))
+  if (A.ids && A.ids.length) for (const i of xs) i.rows = i.rows.filter(r => (A.ids.includes(r.id) || (A.follow && r.parent && followed.has(r.parent)))
+    && !(r.blocked && !r.return && !r.released))   // --all lists pending blocked tickets too: those are not takeable
   for (const i of xs) out.remaining[i.name] = i.waiting
   return xs
 }

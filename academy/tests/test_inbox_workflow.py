@@ -265,6 +265,14 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual([t["id"] for t in res["taken"]], ["T-7", "T-8"])     # T-9 is outside the scope
         self.assertNotIn("lead-researcher T-9", labels)
 
+    def test_ids_list_all_and_skip_pending_blocked(self):
+        rows = [dict(row("T-1", how="reject", target=None, kind="prove", to="expert@t"), blocked="pending"),
+                row("T-2", how="reject", target=None, kind="prove", to="expert@t")]
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", rows)]}], "T-2 reject": [OK], "check T-2": [DONE]},
+                                         ids=["T-1", "T-2"])
+        self.assertIn("--all", calls[0]["prompt"])
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
+
     def test_clerk_escalation_is_bounded_by_budget(self):
         rows = [row("T-1", target="clerk", kind="lookup", to="expert@t", runs=1)]
         plan = {"list": [{"instances": [inst("expert@t", rows)]}],
