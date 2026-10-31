@@ -99,6 +99,19 @@ class NotesTests(unittest.TestCase):
             "read back": [{"tickets": [{"id": "T-2", "to": "expert@t", "kind": "write", "final_to": "", "status": "open", "waiting_on": []}]}]})
         self.assertIn("not as checked", " ".join(res["anomalies"]))
 
+    def test_a_verbose_note_echo_still_matches_and_final_to_on_a_cite_is_refused(self):
+        d2 = dec(N2["id"], "new", prop("author@t", "apply"))
+        res, labels, _ = self.run_wf({
+            "collect": [dict(INV, new=[N2])], "classify": [{"decisions": [d2]}], "check-filed": [{"problems": [[]]}],
+            "file": [{"filed": [{"note": N2["id"] + " (rename H to G): to author@t, kind apply", "ticket": "T-2"}], "appended": [], "refused": []}],
+            "read back": [{"tickets": [{"id": "T-2", "to": "author@t", "kind": "apply", "final_to": "", "status": "open", "waiting_on": []}]}]})
+        self.assertEqual(res["anomalies"], [])
+        self.assertEqual(res["unfiled"], [])
+        bad = dec(N1["id"], "new", prop("expert@t", "cite", "author"))
+        res, labels, _ = self.run_wf({"collect": [dict(INV, new=[N1])], "classify": [{"decisions": [bad]}],
+                                      "check-filed": [{"problems": [[]]}, {"problems": [[]]}], "classify again": [{"decisions": [bad]}]})
+        self.assertIn("final_to belongs only to a research ticket", " ".join(res["unfiled"]))
+
     def test_nothing_new_and_a_referee_packet(self):
         res, labels, _ = self.run_wf({"collect": [dict(INV, new=[])]})
         self.assertEqual(res["outcome"], "nothing-new")

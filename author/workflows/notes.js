@@ -91,6 +91,8 @@ function kindProblems(d) {
   if (p.kind === 'research' && !/^(researcher|scientist)/.test(p.final_to || '')) probs.push('a research ticket names final_to researcher (or scientist for an experiment)')
   if (d.judgement && !(p.to === A.instance && p.park_on === 'human')) probs.push('a judgement point is filed to this instance and parked on human')
   if (p.park_on && p.park_on !== 'human' && p.to !== A.instance) probs.push('only a ticket to the Author itself can be parked on another (a receiver\'s move)')
+  // live run 2026-10-31: a cite proposed with final_to author was refused by the board; only a relayed ask carries final_to
+  if (p.final_to && p.kind !== 'research') probs.push(`final_to belongs only to a research ticket relayed beyond the Expert, not to a ${p.kind} ticket (leave it empty)`)
   return probs
 }
 async function check(decisions) {
@@ -128,19 +130,22 @@ if (fileable.length || appends.length) {
     'board.py transition <id> blocked --waiting-on <human | the ticket filed for that note> --reason "<why>" --as ' + A.instance + '.\n' +
     `Tickets: ${JSON.stringify(fileable.map(d => Object.assign({ note: d.note }, d.proposed)))}\n` +
     `Then add these thread lines (board.py append <ticket> --text "<words>" --as ${A.instance}): ${JSON.stringify(appends.map(d => ({ ticket: d.ticket, words: d.words, note: d.note })))}\n` +
-    'Edit no file and run no git write. Return the ticket filed per note, the tickets appended to, and any refusal verbatim.',
+    'Edit no file and run no git write. Return the ticket filed per note, with note EXACTLY the note id given above (e.g. sections/a.tex:10), the tickets appended to, and any refusal verbatim.',
     { label: 'file', phase: 'File', agentType: FILER, model: 'sonnet', schema: FILED })
   if (f === null) return Object.assign(out, { outcome: 'lost', reason: 'the filing run returned nothing; check the board for what was filed' })
   out.filed = f.filed
   if (f.refused.length) out.anomalies.push('refused: ' + f.refused.join('; '))
   const rb = f.filed.length ? await clerk('readback', [`tickets_get each of ${f.filed.map(x => x.ticket).join(', ')} and return its to, kind, final_to, status and waiting_on.`], READ, 'read back', 'File') : { tickets: [] }
+  // the filer may echo more than the id (live run 2026-10-31): match the note id it starts with
+  const same = (a, b) => a === b || String(a).startsWith(b + ' ') || String(a).startsWith(b + ':') || String(a).startsWith(b + '(')
   for (const x of f.filed) {
-    const d = fileable.find(y => y.note === x.note), t = (rb ? rb.tickets : []).find(y => y.id === x.ticket)
+    const d = fileable.find(y => same(x.note, y.note)), t = (rb ? rb.tickets : []).find(y => y.id === x.ticket)
+    if (d) x.note = d.note
     if (!d || !t) { out.anomalies.push(`${x.ticket}: not found on the board`); continue }
     if (t.to !== d.proposed.to || t.kind !== d.proposed.kind || (d.proposed.final_to || '') !== (t.final_to || '')) out.anomalies.push(`${x.ticket} was filed as ${t.kind} to ${t.to}, not as checked (${d.proposed.kind} to ${d.proposed.to})`)
     if (d.proposed.park_on && t.status !== 'blocked') out.anomalies.push(`${x.ticket} should be parked on ${d.proposed.park_on}`)
   }
-  for (const d of fileable) if (!f.filed.some(x => x.note === d.note)) out.unfiled.push(`${d.note}: the filer did not file it`)
+  for (const d of fileable) if (!f.filed.some(x => same(x.note, d.note))) out.unfiled.push(`${d.note}: the filer did not file it`)
 }
 // every inventory note that no ticket carries (by its file:line in a ticket's detail is the filer's job; here: the run's own)
 const carried = new Set([].concat(out.filed.map(x => x.note), appends.map(d => d.note)))
