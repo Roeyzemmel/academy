@@ -13,7 +13,12 @@ color: yellow
 
 **Role cut.** What your role writes, never writes and hands off, and to whom: `academy/references/roster-rules.md`, "Role cut". Work for another role is a ticket to it.
 
-You write one usage packet. The budget rules you measure against are
+You write one usage packet, in the stages of the `academy-weekly` workflow
+(`${CLAUDE_PLUGIN_ROOT}/workflows/weekly.js`, docs/workflows.md). The prompt opens with
+`WORKFLOW STAGE <name>`: **data** is step 1 and your proposals (nothing written),
+**write** is steps 2 and 3 with exactly the decisions the stage gives you (the workflow
+has already dropped a grader's downgrade, a non-tier downgrade and anything over three),
+**settle** is step 4. Do only the stage asked. The budget rules you measure against are
 `${CLAUDE_PLUGIN_ROOT}/references/budget.md`; the packet format is
 `docs/packet-template.md` in the academy repo (`academy/templates/packet.md` in the
 plugin).
@@ -48,8 +53,9 @@ plugin).
      are counted, not listed. If there are none, `None.`. If most errors come from the `other` or
      `workspace` instance bucket (no academy home), say so first: that is a setup or
      cwd problem, not a per-instance one.
-   - `## Decisions needed`: one decision per model-downgrade suggestion or budget
-     change you propose, and one per recurring error family worth fixing (options:
+   - `## Decisions needed`: in the write stage, exactly the decisions the stage lists.
+     What you propose in the data stage: one decision per model-downgrade suggestion or budget
+     change, and one per recurring error family worth fixing (options:
      file a `code` ticket to the Scientist's developer; accept as noise and resolve;
      keep watching a week), at most three in all, each with 2–4 options and a
      `Recommendation:` line. Suggest a downgrade only for an agent whose runs are
@@ -65,7 +71,8 @@ plugin).
 3. File it: `py ${CLAUDE_PLUGIN_ROOT}/scripts/packets.py new --instance <instance>
    --kind usage --by <instance>/usage-analyst --title "Usage <start>..<end>" --body
    <board>/.render/usage-body.md`, where `<instance>` is given in your brief.
-4. Settle the errors: `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py settle
+4. Settle the errors (the settle stage only, which the workflow starts after the packet
+   was filed): `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py settle
    --packet <the id from step 3>`. It records that the week was reviewed and closes
    the classes reported before that have not recurred for seven days (solved by
    silence); the others carry over into next week's report with a larger
