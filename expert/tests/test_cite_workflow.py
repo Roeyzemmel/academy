@@ -83,6 +83,16 @@ class CiteTests(unittest.TestCase):
         self.assertTrue(res["notes"][0].startswith("MISMATCH"))
         self.assertIn("UNREACHABLE", " ".join(res["notes"]))
 
+    def test_an_unreachable_source_with_a_ticket_is_parked_on_the_human(self):
+        c = dict(card("unreachable", False), card="none written")
+        res, labels, calls = self.run_wf({"start": [ASK], "librarian": [c], "packet": [{"packet": "P-0303", "error": ""}],
+                                          "park on human": [MOVE]}, ticket="T-0904")
+        self.assertEqual(labels, ["start", "librarian", "packet", "park on human"])   # no validation of a card never written
+        self.assertNotIn("deliver", labels)                                            # live run 2026-10-31: it was delivered
+        self.assertIn("waiting_on [human]", next(x for x in calls if x["label"] == "park on human")["prompt"])
+        self.assertEqual(res["outcome"], "unreachable (on the human)")
+        self.assertEqual(res["gate"]["packet"], "P-0303")
+
     def test_a_lost_librarian_stops(self):
         res, labels, _ = self.run_wf({"start": [ASK], "librarian": [None]}, ticket="T-0904")
         self.assertEqual(res["outcome"], "lost")

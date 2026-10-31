@@ -2737,7 +2737,8 @@ class inbox_core(object):
         if m.get("_return"):
             r["why"] = inbox_core.RETURN_WHY
         return {"id": m.get("id"), "kind": m.get("kind"), "status": m.get("status"),
-                "priority": m.get("priority") or "normal", "from": m.get("from"),
+                "priority": m.get("priority") or "normal", "from": m.get("from"), "to": m.get("to"),
+                "parent": m.get("parent") or "", "final_to": m.get("final_to") or "",
                 "title": m.get("title"), "agenda": m.get("agenda"),
                 "budget": m.get("budget"), "refs": m.get("refs") or [],
                 "campaign": m.get("campaign"), "cowork": m.get("cowork"), "route": r, "return": bool(m.get("_return")),

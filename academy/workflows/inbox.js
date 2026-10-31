@@ -107,6 +107,7 @@ const notes = []
 const taken = []
 const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0 }
 const followed = new Set(A.ids || [])
+const children = new Set()           // follow: the child ids this run's relays and research asks filed
 
 // ---- List ---------------------------------------------------------------------------
 async function listAll(pass) {
@@ -121,7 +122,15 @@ async function listAll(pass) {
   xs.sort((a, b) => ORDER.indexOf(a.role) - ORDER.indexOf(b.role) || (a.name < b.name ? -1 : 1))
   // ids: only these tickets; with follow (a loop), also the children of a ticket this run handled,
   // so a relay's child and its return leg move within the same cap
-  if (A.ids && A.ids.length) for (const i of xs) i.rows = i.rows.filter(r => (A.ids.includes(r.id) || (A.follow && r.parent && followed.has(r.parent)))
+  // A row listed under an instance it is not addressed to is a transcription slip (live run 2026-10-31: a researcher
+  // ticket listed under the Scientist): it is dropped, never run with the wrong role
+  for (const i of xs) i.rows = i.rows.filter(r => {
+    if (!r.to || r.to === i.name) return true
+    notes.push(`ANOMALY: ${r.id} was listed under ${i.name} but is addressed to ${r.to}: dropped from this pass`)
+    return false
+  })
+  if (A.ids && A.ids.length) for (const i of xs) i.rows = i.rows.filter(r => (A.ids.includes(r.id)
+      || (A.follow && (children.has(r.id) || (r.parent && followed.has(r.parent)))))
     && !(r.blocked && !r.return && !r.released))   // --all lists pending blocked tickets too: those are not takeable
   for (const i of xs) out.remaining[i.name] = i.waiting
   return xs
@@ -173,7 +182,7 @@ async function relayForward(row, inst, r) {
       return { outcome: 'blocked on human', detail: bad.join('; ') }
     }
     const m = await move(row, inst, `block-on: blocked, waiting_on [${rel.child}], reason "relayed to ${c.to} as ${rel.child}"`)
-    return { outcome: m && m.ok ? `relayed as ${rel.child}` : 'unfinished', detail: rel.result, notes: rel.notes }
+    return { outcome: m && m.ok ? `relayed as ${rel.child}` : 'unfinished', detail: rel.result, notes: rel.notes, child: rel.child, parked: !!(m && m.ok) }
   }
   const m = await move(row, inst, `block-human: blocked, waiting_on [human], reason "relay ${rel.decision}: ${rel.result}"`)
   return { outcome: 'blocked on human', detail: rel.result }
@@ -278,7 +287,7 @@ async function handle(row, i) {
     const bad = !c || !c.found || !/^expert@/.test(c.to) || c.kind !== 'research' || !/^researcher/.test(c.final_to || '') || c.parent !== row.id
     if (bad) notes.push(`ANOMALY: ${f.ticket} is not a research ticket to the Expert with final_to researcher and parent ${row.id}`)
     const m = await move(row, inst, `block-on: blocked, waiting_on [${f.ticket}], reason "the argument is asked of the Researcher as ${f.ticket}"`)
-    return { outcome: m && m.ok ? `asked as ${f.ticket}` : 'unfinished', detail: f.ticket }
+    return { outcome: m && m.ok ? `asked as ${f.ticket}` : 'unfinished', detail: f.ticket, child: f.ticket, parked: !!(m && m.ok) }
   }
   if (RELAYS[rt.target]) return row.return ? relayReturn(row, inst) : relayForward(row, inst, RELAYS[rt.target])
   if (i.role === 'expert' && rt.target === 'clerk') return expertClerk(row, inst)
@@ -315,7 +324,8 @@ async function handle(row, i) {
     }
     if (rt.target === 'expert:cite') {
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { ticket: row.id })
-      return { outcome: r ? r.outcome : 'unfinished', detail: r ? [r.key, r.pinpoint, r.verdict].filter(Boolean).join(', ') || (r.reason || '') : 'lost', nested: r }
+      return { outcome: r ? r.outcome : 'unfinished', detail: r ? [r.key, r.pinpoint, r.verdict].filter(Boolean).join(', ') || (r.reason || '') : 'lost', nested: r,
+        parked: !!(r && r.gate), gate: r && r.gate ? Object.assign({ skill: 'expert:cite' }, r.gate) : null }
     }
     if (rt.target === 'researcher:explore') {
       const direction = firstRef(row, /^([a-z][a-z0-9]*:)?DIR-\d+$/)
@@ -408,7 +418,8 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
       moved++
       touched.add(i.name)
       followed.add(row.id)
-      if (res.nested && res.nested.child) followed.add(res.nested.child)
+      if (res.child) children.add(res.child)
+      if (res.nested && res.nested.child) children.add(res.nested.child)
       if (res.lost) {
         taken.push({ instance: i.name, id: row.id, route: row.route, outcome: 'lost' })
         out.stopped = `an agent on ${row.id} returned nothing (a limit or an API error): nothing further launched (budget.md rule 4)`
@@ -416,12 +427,17 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
         break outer
       }
       const chk = await clerk('check', [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`, 'Return its exit code, the ticket status and its output in detail.'], CHECK, `check ${row.id}`)
-      const unfinished = !chk || chk.exit === 3
+      // a ticket the route parked on its child (a relay's forward, a research ask) is blocked by design: --check's
+      // exit 3 is then its expected end, not unfinished work (live run 2026-10-31 closed the Expert on it)
+      const parkedOk = res.parked && chk && chk.exit === 3 && chk.status === 'blocked'
+      const unfinished = !chk || (chk.exit === 3 && !parkedOk)
       if (unfinished) { closed.add(i.name); notes.push(`${row.id} is unfinished: nothing more from ${i.name} this run`) }
       taken.push({ instance: i.name, id: row.id, route: row.route, outcome: unfinished ? 'unfinished' : res.outcome, status: chk ? chk.status : '', detail: res.detail || '' })
+      if (res.gate) out.gates.push(Object.assign({ ticket: row.id, instance: i.name }, res.gate))   // done, but it waits on the human
     }
   }
   if (!moved) break                  // quiet: nothing in this pass could move without the human
+  if (count >= CAP) break            // the cap is spent: no further listing
 }
 if (LOOP && out.gates.length && !out.for_main)
   out.for_main = { why: `${out.gates.length} ticket(s) wait on the human: ask them in one batch, then run the loop again`, gates: out.gates }

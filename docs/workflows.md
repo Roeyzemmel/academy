@@ -78,6 +78,14 @@ reviewers blind.
 | literature watch (`/expert:litwatch`) | `expert/workflows/litwatch.js` | done 2026-10-31: return-only scouts in parallel (`parallel()`), hits deduplicated in code, one writer, a file written elsewhere is an anomaly. The first fan-out of read-only work |
 | weekly usage and error settle (`/academy:usage --weekly`) | `academy/workflows/weekly.js` | done 2026-10-31: usage-analyst stages data / write / settle; the script drops a grader's downgrade and a downgrade that is not a lower tier, keeps at most three decisions (regressions first), and settles only after `packets.py show` finds the filed packet |
 
+## What the first live loop taught (2026-10-31)
+
+- `inbox.py --json` cuts the list at `itemsPerRun` before an `ids` filter, so a run with `ids` lists `--all` and skips pending blocked rows.
+- A row carries `to`, `parent` and `final_to` (`academy_common._row`): `follow` needs the parent, and a row the list clerk put under an instance it is not addressed to is dropped with an anomaly, never run with the wrong role. A relay's child id is followed directly, so the child moves even if the parent field is lost.
+- A ticket the route parks on its child (a relay's forward, a research ask) ends blocked by design: its `--check` exit 3 does not close the instance.
+- A `cite` whose source cannot be read is parked on the human with the exact ask (project rule "inaccessible sources") and comes back as a gate, not delivered; there is no card to validate.
+- `ship.py checkpoint` refuses a repo on a branch that is neither `main` nor `<date>/<topic>/<role>` (a cloud session's own branch): it reports, and the session commits by hand.
+
 ## Around the workflows
 
 - **Scheduled tasks** (cloud, a fresh session each run, push notification): the weekly

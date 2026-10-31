@@ -265,6 +265,38 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual([t["id"] for t in res["taken"]], ["T-7", "T-8"])     # T-9 is outside the scope
         self.assertNotIn("lead-researcher T-9", labels)
 
+    def test_a_parked_relay_keeps_its_instance_open_and_its_child_is_followed_by_id(self):
+        # live run 2026-10-31: the forward's blocked --check closed the Expert, and the child
+        # (no parent in the row, listed under the wrong instance) was never taken
+        r = row("T-7", target="research-intake", kind="research", frm="author@t", to="expert@t", final_to="researcher")
+        r2 = row("T-5", how="reject", target=None, kind="prove", to="expert@t")
+        kid = row("T-8", target="lead-researcher", kind="research", frm="expert@t", to="researcher@u", final_to="researcher")
+        stray = dict(kid, id="T-8")
+        plan = {"list": [{"instances": [inst("expert@t", [r, r2])]}],
+                "T-7 start": [OK],
+                "research-intake T-7": [{"decision": "forward", "result": "relayed", "result_detail": "", "child": "T-8", "notes": []}],
+                "get T-8": [child("T-8", "T-7", "expert@t", "researcher@u", "research", "researcher")],
+                "T-7 block-on": [OK], "check T-7": [{"exit": 3, "status": "blocked", "detail": ""}],
+                "T-5 reject": [OK], "check T-5": [DONE],
+                "list 2": [{"instances": [inst("researcher@u", [kid]), inst("scientist@t", [stray])]}],
+                "T-8 start": [OK], "lead-researcher T-8": ["worked"], "check T-8": [DONE]}
+        res, labels, _ = self.run_wf(plan, loop=True, cap=3, ids=["T-7", "T-5"], follow=True)
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-7", "T-5", "T-8"])
+        self.assertEqual(res["taken"][0]["outcome"], "relayed as T-8")
+        self.assertIn("listed under scientist@t but is addressed to researcher@u", " ".join(res["notes"]))
+
+    def test_an_unreachable_cite_is_a_gate(self):
+        r = row("T-3", how="skill", target="expert:cite", kind="cite", to="expert@t")
+        plan = {"list": [{"instances": [inst("expert@t", [r])]}],
+                "workflow cite.js": [{"outcome": "unreachable (on the human)", "key": "Va10", "pinpoint": "", "verdict": "unreachable",
+                                      "gate": {"why": "source unreachable", "source": "Va10", "pinpoint": "", "relying": "", "packet": "P-1"}}],
+                "check T-3": [{"exit": 3, "status": "blocked", "detail": ""}],
+                "list 2": [{"instances": [inst("expert@t", [])]}]}
+        res, _, _ = self.run_wf(plan, loop=True, ids=["T-3"])
+        self.assertEqual(res["taken"][0]["outcome"], "unreachable (on the human)")
+        self.assertEqual(res["gates"][0]["ticket"], "T-3")
+        self.assertIn("wait on the human", res["for_main"]["why"])
+
     def test_ids_list_all_and_skip_pending_blocked(self):
         rows = [dict(row("T-1", how="reject", target=None, kind="prove", to="expert@t"), blocked="pending"),
                 row("T-2", how="reject", target=None, kind="prove", to="expert@t")]

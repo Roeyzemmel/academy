@@ -61,7 +61,9 @@ const brief = `${ask.ref}. ` + (ask.pinpoint ? `The pinpoint intended: ${ask.pin
   'invent a pinpoint; a source you cannot read is said so on the card.'
 let c = await agent(brief, { label: 'librarian', phase: 'Cite', agentType: LIB, schema: CARD })
 if (c === null) return Object.assign(out, { outcome: 'lost', reason: 'the librarian run returned nothing (a limit?): nothing further launched' })
-let v = await clerk('validate', [`Run py <expert plugin>/scripts/cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
+// an unreachable source has no card to validate (live run 2026-10-31 validated the words "none written"): skip the check
+const noCard = !c.reachable && !/\.(md|ya?ml)$/i.test(String(c.card || '').trim())
+let v = noCard ? null : await clerk('validate', [`Run py <expert plugin>/scripts/cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
 if (v && !v.ok) {
   out.notes.push('the card failed validation; sent back to the librarian once: ' + v.errors.join('; '))
   const c2 = await agent(brief + `\n\nYour card ${c.card} fails cards.py validate:\n- ${v.errors.join('\n- ')}\n` +
@@ -84,6 +86,17 @@ const p = await agent(`File the citation packet for ${c.key}: packets_create kin
   { label: 'packet', phase: 'Land', agentType: LIB, schema: PACKET, effort: 'low' })
 out.packet = p && p.packet ? p.packet : null
 if (!out.packet) out.notes.push('the packet was not filed: ' + (p ? p.error : 'the stage returned nothing'))
+// An unreadable source is not delivered (project rule "inaccessible sources"): the ticket is parked on the human
+// with the exact ask (the source, the pinpoint wanted, the statement resting on it), and comes back as a gate
+if (T && !c.reachable) {
+  const why = `source unreachable from this session: ${c.key || ask.ref}; a human with access reads ${ask.pinpoint || 'the statement wanted'} for ${ask.relying || 'the relying statement'}`
+  const m = await clerk('move', [`ticket: ${T}`, ask.instance ? `act as: ${ask.instance}` : '',
+    `block-human: blocked, waiting_on [human], reason "${why.replace(/"/g, "'").slice(0, 240)}"` + (out.packet ? `, and fields.packets [${out.packet}]` : '')], MOVE, 'park on human', 'Land')
+  out.ticket_delivered = false
+  out.outcome = m && m.ok ? 'unreachable (on the human)' : 'unfinished'
+  out.gate = { why, source: c.key || ask.ref, pinpoint: ask.pinpoint || '', relying: ask.relying || '', packet: out.packet }
+  return out
+}
 if (T) {
   const result = `${c.key}, ${c.pinpoint || 'no pinpoint'}, verdict ${c.verdict}, card ${c.card}`.replace(/"/g, "'")
   const m = await clerk('move', [`ticket: ${T}`, ask.instance ? `act as: ${ask.instance}` : '',
