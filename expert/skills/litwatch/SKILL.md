@@ -7,7 +7,7 @@ description: 'Literature watch for one paper or notebook: related-work-scout run
 
 `$ARGUMENTS` is an instance (default: the only Author instance in `workspace.json`),
 or an instance and a statement id for a one-statement prior-art search
-(`author@main paper:thm:main`). Budget: one scout run (`academy/references/budget.md`).
+(`author@main paper:thm:main`). Budget: one scout run for a statement; for the watch, a planning run, at most four parallel searches (read-only) and one writing run (`academy/references/budget.md`).
 The scout writes only in the library home's `ledgers/<instance>/`.
 
 The watch answers "what appeared since last time", so a paper that scoops part of the
@@ -20,19 +20,20 @@ draft is noticed in a week rather than by a referee. The per-statement search an
    block with that heading under the watched home's `.claude/rules/` (an Author home
    may keep its paper's vocabulary there). If neither exists, say so and stop: the
    watch has nothing to search with.
-2. **Dispatch one `related-work-scout`** (`subagent_type: expert:related-work-scout`),
-   in the background:
+2. **Run the workflow**: the Workflow tool with
+   `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/litwatch.js` and
+   `args: {instance: "<instance>"}` (add `statement: "<id>"` for a one-statement
+   search, which stays one scout). Since 2026-10-31 the watch fans out (docs/workflows.md):
+   - one return-only scout reads the header and the vocabulary;
+   - the script splits the sources into at most four groups: the categories, the
+     anchors, and the keywords with the authors that narrow them;
+   - one return-only scout searches each group, in parallel;
+   - the script dedupes the hits by arXiv id or DOI, keeping the sharper verdict;
+   - one scout writes `ledgers/<instance>/watch-<today>.md` (a watch with no hits still
+     gets its file).
 
-   > Run the literature watch for `<instance>`. Cover new listings only: since the
-   > newest `watch-*.md` in `ledgers/<instance>/`, or the last 30 days. The keyword
-   > list, the authors and the anchor keys are in `ledgers/<instance>/_header.md`; run
-   > all of them and say which listing pages you read and how deep. Sources in order:
-   > the arXiv listing pages for the primary categories, a targeted search per
-   > keyword, the recent-citations lists of the anchor entries. Write
-   > `ledgers/<instance>/watch-<today>.md`; a watch with no hits still gets its file.
-
-   For a statement: "Search for prior work on `<id>` ...", writing
-   `ledgers/<instance>/<today>-<id-slug>.md`.
+   A search that was lost is named in the file. A file that appeared outside the
+   writing stage comes back under `anomalies`: report it.
 3. **Hits worth citing** come back as `cite` requests: relay them; each becomes
    `/expert:cite` or a `cite` ticket when the human says so. A hit that overlaps a statement
    of the paper is reported first, with the statement's id.
