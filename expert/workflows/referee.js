@@ -57,6 +57,10 @@ const pdf = await clerk('pdf', [
 ], PDF, 'pdf', 'Prepare')
 if (!pdf || !pdf.ok) return Object.assign(out, { outcome: 'not-started', reason: pdf ? pdf.stop_reason : 'the pdf stage returned nothing' })
 instance = instance || (pdf.pdf.match(/(author@[a-z0-9-]+)/) || [])[1] || instance
+// a clerk may answer "none: ... does not exist" where the schema asks for empty: only a real
+// file counts (a vision .md, an earlier report .md), so the brief never states a false fact
+if (!/\.md$/.test(pdf.last_report || '')) { pdf.last_report = ''; pdf.changed_since = '' }
+if (!/\.md$/.test(pdf.vision || '')) pdf.vision = ''
 if (pdf.rebuilt) out.notes.push(`the PDF was stale and was rebuilt (${pdf.built})`)
 Object.assign(out, { instance, pdf: pdf.pdf, built: pdf.built })
 

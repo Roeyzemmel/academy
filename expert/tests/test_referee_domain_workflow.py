@@ -83,7 +83,7 @@ class RefereeTests(unittest.TestCase):
         self.assertIn("LaTeX Workshop", res["reason"])
 
     def test_focus_only_when_given_and_unlanded_reported(self):
-        res, labels, calls, err = run("referee.js", {"pdf": [dict(PDF, last_report="", vision="")], "referee": ["r"],
+        res, labels, calls, err = run("referee.js", {"pdf": [dict(PDF, last_report="none: reviews/referee/author@t/ does not exist", vision="")], "referee": ["r"],
                                                      "find packet": [{"packet": "", "blocking": 0, "copy": ""}]},
                                       {"instance": "author@t", "focus": "section 4"})
         p = next(c for c in calls if c["label"] == "referee")["prompt"]
