@@ -39,5 +39,8 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
   3 unfinished), the ticket's status and the output. The check also runs the academy's
   `ship.py checkpoint` for a finished ticket; run it once.
 - **close-self**: `delivered -> closed` for the self-tickets the stage names.
+- **workplan-state** (the cowork pass of `workflows/workplan.js`): `py
+  <academy plugin>/scripts/cowork.py status <slug> --json` and the receivers (the `to`
+  instances) of the cowork's open tickets.
 
 Use `py` on Windows, `python3` elsewhere.

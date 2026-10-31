@@ -57,22 +57,22 @@ Record each in the plan file's `## Seeding`.
   (`tickets_create` field `cowork`, or `board.py new --cowork <slug>`), with `refs`,
   `agenda` and `blocks` links for the dependencies. Acting for the human who approved
   the plan, the session files as the human (`board.py new --as human`, or
-  `tickets_create` with `as_human`); work a role files during its own run carries that
-  role's instance. Write each ticket id into the task table.
-- **Release in dependency order.** A task is released when its dependencies are
-  delivered; at most `--agents` independent tickets in flight.
-- **Trigger the next actor.** For each released ticket, run that role's inbox scoped
-  to the cowork, `/<role>:inbox --cowork <slug>`, from that role's home (its agents
-  spawned there, under its own rules). Never do the role's work in this thread, and
-  never run another role's agents outside its inbox.
-- **After each delivered ticket**: the checkpoint (`py <role plugin>/scripts/inbox.py
-  --check T-NNNN`, which also runs the workspace's `ship.py checkpoint`), then
-  `/author:sweep` if tex was touched, then update the plan file's task table and log,
-  then a short status to the human. **Ask the human** (`AskUserQuestion`) before
-  continuing about any hypothesis-level finding (it becomes a Researcher task), any
-  decision, any re-plan.
-- `py $S/cowork.py status <slug>` is the state from the tickets: `WAITING` (tickets out
-  with their next actor), `PAUSE` (a decision is the human's), `DONE`.
+  `tickets_create` with `as_human`). Write each ticket id into the task table.
+- **One pass at a time, in code** (2026-10-31; docs/workflows.md). Call the **Workflow** tool
+  with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/workplan.js` and
+  `args: {kind: "cowork", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", slug: "<slug>", agents: <A>}`.
+  The pass runs the same components a campaign uses:
+  - the state from the tickets (`cowork.py status`);
+  - the next actor of each released ticket: its role's inbox, scoped to the cowork, at
+    most `--agents` tickets, each checkpointed (`--check`, which runs `ship.py checkpoint`);
+  - the state again.
+
+  It stops at `PAUSE` (decisions) or `DONE`.
+- **Between passes, this session**: write the pass's `plan_log` into the plan file's task
+  table and log; run `/author:sweep` if the notes say tex was touched; run each
+  `for_main` item; give the human a short status. **Ask the human** (`AskUserQuestion`)
+  about any hypothesis-level finding (it becomes a Researcher task), any decision and any
+  re-plan before the next pass. Then call the workflow again.
 
 ## 4. Stop
 

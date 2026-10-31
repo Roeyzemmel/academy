@@ -22,8 +22,8 @@ runs this skill: only the human decides.
      decision is answered already or the field says `applied`, then `update` the field
      with `applied: true`;
    - each document under `input/` is a coauthor's input (the document id is their viewer
-     id). It is never applied: append it to the packet's ticket thread as input
-     (`py $S/board.py append T-NNNN --text "coauthor input on P-NNNN Dk: (x) <note>" --as human`)
+     id). It is never applied: add it to the packet's ticket thread as input
+     (`tickets_update` with `note: "coauthor input on P-NNNN Dk: (x) <note>"`, no status move)
      and list it in the report, so the human sees it before deciding.
 3. **Render.** `py $S/render_packets.py --interactive --out <board>/.render/review.html`.
 4. **Publish** the file as a private artifact with the `Artifact` tool, to the URL

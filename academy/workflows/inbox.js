@@ -42,7 +42,11 @@ const RELAYS = {
 const NESTED = {
   'expert:verify': ROOT + '/expert/workflows/verify.js',
   'researcher:review-experiment': ROOT + '/researcher/workflows/review-experiment.js',
+  'researcher:prove': ROOT + '/researcher/workflows/prove.js',
 }
+// nested: this run is itself a sub-workflow (of workplan.js); nesting is one level only, so
+// the routes that run their own workflow are handed back as for_main instead
+const NESTED_OK = !A.nested
 const roleOf = (inst) => String(inst || '').split('@')[0]
 
 const ROW = {
@@ -240,7 +244,16 @@ async function handle(row, i) {
   if (i.role === 'scientist' && rt.target === 'experimenter')
     return { for_main: { why: 'an experiment or test ticket runs /scientist:experiment (the header is approved before any compute)', ticket: row.id, instance: inst, skill: 'scientist:experiment' } }
   if (i.role === 'scientist' && rt.target === 'developer') return developerReviewed(row, i)
+  if (rt.how === 'skill' && NESTED[rt.target] && !NESTED_OK)
+    return { for_main: { why: `the ${rt.target} workflow cannot nest inside this nested run`, ticket: row.id, instance: inst, skill: rt.target } }
   if (rt.how === 'skill' && NESTED[rt.target]) {
+    if (rt.target === 'researcher:prove') {
+      const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
+      if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { claim, ticket: row.id, home: i.home, instance: inst })
+      if (r && r.needs_explore) return { for_main: { why: 'the claim has no falsifier yet: run /researcher:explore first', ticket: row.id, instance: inst, skill: 'researcher:explore' } }
+      return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
+    }
     if (rt.target === 'expert:verify') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/)
       if (!claim) return { for_main: { why: 'a verify ticket whose refs name no claim', ticket: row.id, instance: inst } }

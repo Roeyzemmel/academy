@@ -27,77 +27,37 @@ actor**: that role's own inbox run (`/<role>:inbox --campaign <target>`, in that
 session, or `/academy:inbox --campaign <target>` run by the human). The campaign never
 runs another role's agents and never works another role's ticket.
 
-## Caps
+## Run it
 
-Run `notebook.py campaign-check --rounds N --agents M [--runs K --profile P]` (add
-`--cloud` in a cloud session). A missing required cap is an error: stop and ask,
-suggesting 3 and 4, never applying them silently. Keep the normalized caps it prints
-and count against them yourself (`academy/lib/workplan.py` `caps`).
+The rounds are code (2026-10-31): `academy/workflows/workplan.js`, which a cowork pass
+shares (docs/workflows.md). Call the **Workflow** tool with
+`scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/workplan.js` and
+`args: {kind: "campaign", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", home: "<this home>", instance: "<this instance>", target: "<id>", rounds: N, agents: M, runs: K, profile: "<env>", cloud: <true in a cloud session>}`.
 
-## Round 0: seeding
+The script holds, in this order:
+- **The caps** (`notebook.py campaign-check`). A missing required cap stops it; ask the
+  human, suggesting 3 rounds and 4 agents, never applying them silently.
+- **Round 0** seeding by `lead-researcher` until `approach check` passes: at least four
+  substantially different approaches, each with a direction, plus the one target-level
+  prior-art ticket to the Expert.
+- **Each round:**
+  - take what came back: this Researcher's inbox scoped to the campaign, nested;
+  - one blind `prover` per `ACTIVE` approach, serially, at most `--agents` per round,
+    briefed only with its approach, its directions' next items and the target statement;
+  - a concrete artifact each, checked on disk (none is a wasted slot);
+  - the lead's reduction audit, approach updates, diversity check and hand-off tickets
+    tagged `campaign: <target>`. Cross-pollination comes only after every survivor has
+    had two rounds; a failed wave makes the next round a reseeding round.
+- **The stops**: the target `proved` (two agreeing verify reviews); every active
+  approach waiting on the human (`PAUSE`) or on another role (`WAITING`); `--rounds`
+  reached; a lost agent; the token budget spent.
 
-`lead-researcher` creates at least four **approach** objects (`notebook.py new approach
-AP-n --title ... --statement "the mechanism" --target <id>`), substantially different
-mechanisms grouped by idea, not wording, duplicates merged; each has at least one
-concrete direction (`new direction D-n --approach AP-n`; one approach per direction).
-`notebook.py approach check --campaign <target>` confirms the count. It files one
-target-level prior-art check as a `lookup` or `cite` ticket to the Expert, tagged for
-the campaign, and records the answer when it comes back. Only the lead makes it:
-provers search background and standard theorems for their own approach, never whether
-the target is solved, which also keeps them independent.
-
-## Each round (until a stop condition)
-
-1. **Take what came back.** The tickets returned to this Researcher (delivered by
-   another role, or addressed to it) through `/researcher:inbox --campaign <target>`,
-   and results through `/researcher:review-experiment` and `/researcher:settle`. A
-   returned counterexample may block an approach; a returned confirmation may deliver one.
-2. **One prover per active approach that is not waiting**, one after another (serial,
-   `budget.md` rule 2), each **blind**: briefed only with its approach id, its directions and the target
-   statement. `notebook.py approach status` gives each approach's state: `WAITING`
-   (its tickets are out with another role's next actor) and `PAUSE` (a human decision)
-   approaches get no prover this round. `notebook.py next <direction>` gives nothing
-   for a blocked, dropped or delivered approach, and fails on a dangling `approach:`.
-3. **A concrete artifact each**: a lemma with proof attempt, a construction, an
-   equation, a counterexample to a sublemma. A report without one is no result and is
-   logged as a wasted slot.
-4. **Adversarial audit** with the `rigor` reduction audit. Anything claimed proved goes
-   to the Expert's verify route as a ticket (`/researcher:prove` files it); nothing is
-   graded here.
-5. **Lead updates the approaches**: continue, block, deliver or reopen with
-   `notebook.py approach set AP-n <lifecycle> ...` (`blocked` needs `--blocked-by <lemma
-   id> --reopen-if "..."`; reopening needs `--note` naming the new mechanism).
-   `approach check` finds violations. Blocking and reopening move the approach's
-   tickets: add `--apply` and see the reference.
-6. **Diversity check**: more than half the active directions in one family, and the
-   lead redirects the extras to underexplored formulations.
-7. **Hand-off step** (reference): file every ask for another role as a tagged ticket,
-   then list what is out (`notebook.py approach status`, `py $A/cowork.py list --kind
-   campaign`). Those tickets wait for the next actor; the round goes on with every
-   approach that is not waiting. Each prover run counts against `--agents`; a ticket
-   filed counts against nothing.
-
-Cross-pollination only after every surviving approach has had two rounds, and only
-when the lead calls it. **A failed wave** (every approach blocked, or a round with no
-artifact) is followed by a reseeding round: fresh formulations, plus any approach whose
-`reopen_if` now holds.
-
-## Tickets
-
-Filed as the Researcher through the chain gate, tagged `campaign: <target>` (MCP
-`tickets_create` field `campaign`, or `board.py new --campaign`), `refs` naming the
-approach and direction. A direction with an open ticket is waiting on it: a pending
-question, not a blocked approach. The lead keeps working everything else.
-
-## Stops
-
-**Stop only** when the target has two agreeing verify reviews (claim-keeper then sets
-the status), after `--rounds` rounds, on a limit error (write `board/human/RESUME.md`
-if unattended), or when nothing can move: `notebook.py approach status` says `PAUSE`
-(every active approach waits on a human decision) or `WAITING` (every active approach
-waits on another role's next actor). Report which tickets the campaign waits on and
-whose inbox run moves them; the next invocation resumes from the approach objects and
-the board. Reaching `--agents` ends only the round.
+What only this session may do comes back in `for_main` (a nested route, a decision for
+the human): run it, then call again to resume, from the approach objects and the board.
+Work for another role is only ever a ticket tagged `campaign: <target>` (the
+`tickets_create` field `campaign`, or `board.py new --campaign`), and the campaign waits for that
+role's next actor (`/<role>:inbox --campaign <target>`). It never runs another role's
+agents. If the run is unattended and stops on a limit, write `board/human/RESUME.md`.
 
 ## Final report
 

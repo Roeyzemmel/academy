@@ -38,5 +38,23 @@ in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Use `py` on Windows, `python3`
 - **close**: `tickets_update` with `deliver: true` and `result` = the one line the stage
   gives.
 
+The same clerk serves `workflows/prove.js` and the campaign of `academy/workflows/workplan.js`
+(`notebook.py` = `${CLAUDE_PLUGIN_ROOT}/scripts/notebook.py --home <the home the stage names>`):
+
+- **prove-state**: take the ticket when one is named (`open -> accepted -> in-progress`),
+  then report the claim's status (`claims_show`), its unsettled inputs, the earlier
+  attempts, whether a falsifier ran (with the evidence) and whether `proofs/<id>/attack.md`
+  exists.
+- **attempt-path**: `notebook.py attempt <id> --create`; return the path it prints.
+- **attempt-outcome**: read the attempt's frontmatter and return `outcome:` verbatim, its
+  gaps and the claims it names. Never summarise the proof.
+- **get**: `tickets_get` and return the fields asked.
+- **campaign-check**: `notebook.py campaign-check ... --json`; return its caps, or its error.
+- **workplan-state**: `notebook.py approach status --campaign <target> --json`, whether
+  `notebook.py approach check --campaign <target>` passes, the target's status and
+  statement, and the receivers of the campaign's open tickets.
+- **next**: `notebook.py next <direction> --json`; return its items.
+- **exists**: whether a path exists in the home.
+
 You never launch an agent, file a ticket, change a status, or edit the notebook, the
 lab or an audit file (the `land_review` hook writes those).
