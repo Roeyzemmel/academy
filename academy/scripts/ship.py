@@ -512,7 +512,8 @@ def unstage_gitlinks(repo, scope=()):
     recorded as one) within ``scope`` (``["--", spec...]``; empty: the whole index), so
     pins move only through the human-run 'merge --bump'. Returns the paths unstaged."""
     links = [l.split("\t", 1)[1] for l in
-             git(repo, "diff", "--cached", "--raw", "--no-renames", *scope).splitlines()
+             git(repo, "diff", "--cached", "--raw", "--no-renames", "--ignore-submodules=none",
+                 *scope).splitlines()
              if "\t" in l and "160000" in l.lstrip(":").split()[:2]]
     if links:
         git(repo, "reset", "-q", "--", *links)
@@ -729,7 +730,21 @@ def cmd_publish(a):
     print("%s: origin/main @ %s" % (a.sub, head[:9]))
 
 
+def drifted_pointers():
+    """The submodules whose checked-out commit differs from the superproject's pointer.
+    Read with ``--ignore-submodules=none``: the workspace's .gitmodules sets
+    ``ignore = all`` (2026-10-31) so that git status stays quiet about pointer-only drift,
+    which moves only through 'merge --bump'."""
+    out = git(ROOT, "diff", "--ignore-submodules=none", "--name-only", check=False) or ""
+    subs = set(submodule_names())
+    return [p for p in out.splitlines() if p in subs]
+
+
 def cmd_status(a):
+    drift = drifted_pointers()
+    if drift:
+        print("superproject pointers behind their checkouts (moved only by 'merge --bump'): %s"
+              % ", ".join(drift))
     for sub in targets():
         try:
             repo = repo_of(sub)
