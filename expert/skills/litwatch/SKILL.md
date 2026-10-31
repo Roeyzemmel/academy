@@ -60,12 +60,14 @@ item and says which it ran.
 
 ## Scheduling it
 
-By hand is the reliable one: run `/expert:litwatch` at the start of a working session
-whenever the newest `watch-*.md` is more than a week old (the file names say it). A
-desktop scheduled task (Windows Task Scheduler running `claude -p "/expert:litwatch
-<instance>"` from the library home) runs weekly with file access; a session cron
-dies with the session; a cloud routine cannot see the local library, so it is not a
-home for this watch. Nothing schedules itself (`budget.md` rule 3).
+Since 2026-10-31 a cloud scheduled task runs it weekly (Sundays 19:47 Asia/Jerusalem,
+"Academy weekly Expert sources run"): a fresh session attaches the workspace (the library
+is a submodule), runs this watch and at most three `cite`/`lookup` tickets, checkpoints the
+library and the board, and sends a push notification. Its fetches stay on the allowlist
+of sources (`scripts/source_guard.py --list`); those hosts must also be in the cloud
+environment's Allowed domains, or the run reports them as denied. By hand still works:
+run `/expert:litwatch` whenever the newest `watch-*.md` is more than a week old. Nothing
+schedules itself (`budget.md` rule 3).
 
 ## Report
 
