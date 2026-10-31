@@ -285,6 +285,18 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(res["taken"][0]["outcome"], "relayed as T-8")
         self.assertIn("listed under scientist@t but is addressed to researcher@u", " ".join(res["notes"]))
 
+    def test_the_check_is_read_from_its_own_line_not_the_clerks_verdict(self):
+        r = row("T-5", how="reject", target=None, kind="prove", to="expert@t")
+        r2 = row("T-6", how="reject", target=None, kind="prove", to="expert@t")
+        out = "T-5: delivered (delivered)\nboard ... REFUSED: on 'claude/x'\nship: refused: checkpoint incomplete"
+        plan = {"list": [{"instances": [inst("expert@t", [r, r2])]}],
+                "T-5 reject": [OK], "check T-5": [{"exit": 3, "status": "unfinished", "output": out, "detail": ""}],
+                "T-6 reject": [OK], "check T-6": [{"exit": 0, "status": "x", "output": "T-6: unfinished (in-progress)", "detail": ""}]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual([(t["id"], t["outcome"], t["status"]) for t in res["taken"]],
+                         [("T-5", "rejected", "delivered"), ("T-6", "unfinished", "in-progress")])
+        self.assertIn("T-5: the checkpoint did not ship everything", " ".join(res["notes"]))
+
     def test_an_unreachable_cite_is_a_gate(self):
         r = row("T-3", how="skill", target="expert:cite", kind="cite", to="expert@t")
         plan = {"list": [{"instances": [inst("expert@t", [r])]}],

@@ -84,7 +84,19 @@ const LIST = {
   required: ['instances'],
 }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status', 'detail'] }
-const CHECK = { type: 'object', properties: { exit: { type: 'number' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['exit', 'status', 'detail'] }
+const CHECK = { type: 'object', properties: { exit: { type: 'number', description: 'the process exit code as printed by the shell, never inferred' },
+  status: { type: 'string' }, output: { type: 'string', description: 'the command output, verbatim' }, detail: { type: 'string' } }, required: ['exit', 'status', 'output', 'detail'] }
+// the check's verdict is read from its own first line ("T-NNNN: <state> (<status>)"), not from the clerk's reading
+// of it (live run 2026-10-31: a refused checkpoint made the clerk report exit 3 for a delivered ticket)
+const FINISHED = /^(delivered|closed|rejected|cancelled)$/
+function readCheck(chk, id) {
+  if (!chk) return null
+  const m = new RegExp('^' + id + ': (\\S+) \\(([^)]+)\\)', 'm').exec(String(chk.output || ''))
+  const status = m ? m[2] : chk.status
+  const exit = m ? (FINISHED.test(status) ? 0 : 3) : chk.exit
+  const shipped = !/REFUSED|checkpoint incomplete|checkpoint for \S+ exited [1-9]/.test(String(chk.output || ''))
+  return Object.assign({}, chk, { status, exit, shipped })
+}
 const TICKET = { type: 'object', properties: {
   found: { type: 'boolean' }, id: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' },
   kind: { type: 'string' }, status: { type: 'string' }, parent: { type: 'string' }, final_to: { type: 'string' },
@@ -427,7 +439,9 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
         await move(row, i.name, 'note: append to the thread "interrupted: the workflow agent returned nothing; what was recorded is above"', `${row.id} interrupted`)
         break outer
       }
-      const chk = await clerk('check', [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`, 'Return its exit code, the ticket status and its output in detail.'], CHECK, `check ${row.id}`)
+      const chk = readCheck(await clerk('check', [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`,
+        'Run it once. Return the exit code the shell printed (echo $?), the ticket status, and the whole output verbatim in output.'], CHECK, `check ${row.id}`), row.id)
+      if (chk && !chk.shipped) notes.push(`${row.id}: the checkpoint did not ship everything (see its output); commit by hand`)
       // a ticket the route parked on its child (a relay's forward, a research ask) is blocked by design: --check's
       // exit 3 is then its expected end, not unfinished work (live run 2026-10-31 closed the Expert on it)
       const parkedOk = res.parked && chk && chk.exit === 3 && chk.status === 'blocked'
