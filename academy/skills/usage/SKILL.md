@@ -15,8 +15,11 @@ session id, or `--weekly`. Scripts: `$S` as in
 | a session id | `py $S/session_usage.py <id>` | Show it; compare with the budget rules if a pass overran. |
 | `--weekly` | the `academy-weekly` workflow (below) | Give the packet id, its one-line summary and whether the ledger was settled. |
 
-**`--weekly`** may run unattended (`claude -p "/academy:usage --weekly"` from a
-scheduler), so nothing in it may ask a question. Call the **Workflow** tool with
+**`--weekly`** runs unattended, so nothing in it may ask a question. The scheduler is a
+cloud scheduled task (since 2026-10-31: Sundays 20:40 Asia/Jerusalem, a fresh session
+that attaches the workspace, runs this from the Expert home, checkpoints `board/` and
+sends a push notification; it needs no connector and no local machine). The Windows
+Task Scheduler (`claude -p "/academy:usage --weekly"` from a home) stays an option. Call the **Workflow** tool with
 `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/weekly.js` and `args: {instance: "<the cwd's
 instance>", days: 7}`. The script holds the cycle (docs/workflows.md): the
 `usage-analyst` gathers and proposes; the script drops a grader's downgrade, a downgrade

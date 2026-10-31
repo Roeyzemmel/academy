@@ -214,6 +214,29 @@ class TestDashboard(BoardFixture, PageContract):
         self.assertIn("(b) Wait.", page)
         self.assertIn("1 decision pending", page)
 
+    def test_interactive_dashboard_records_on_the_page(self):
+        # 2026-10-31: decisions recorded on the page; the owner's applied, others' as input
+        self.packet("expert@main", "Half answered")
+        pk.decide_packet(self.board, "P-0001", "b", 1, date=DATE)
+        page = rp.render_dashboard(self.board, None, date=DATE, interactive=True)
+        self.check_contract(page)
+        self.assertNotIn('data-key="P-0001_D1"', page)          # answered: no control
+        self.assertIn('data-key="P-0001_D2"', page)             # pending: a control
+        self.assertIn('data-option="a" disabled', page)          # disabled until the store answers
+        self.assertIn("owner-decisions/main", page)
+        self.assertIn("'input/' + me", page)
+        self.assertIn("answer in /academy:review", page)        # the no-store fallback
+        self.assertIn('id="live-status"', page)
+        plain = rp.render_dashboard(self.board, None, date=DATE)
+        self.assertNotIn("data-key=", plain)
+        self.assertNotIn("claude.use", plain)
+        caps = rp.LIVE_CAPABILITIES
+        rules = {r["path"]: r for r in caps["db"]["rules"]}
+        self.assertEqual(rules["owner-decisions"]["write"], "owner")
+        self.assertEqual(rules["input"]["write"], "owner")
+        self.assertEqual(rules["input/{self}"]["write"], "interact")
+        self.assertEqual(rp.decision_key("P-0001", 2), "P-0001_D2")
+
     def test_empty_board(self):
         page = rp.render_dashboard(self.board, None, date=DATE)
         self.check_contract(page)
