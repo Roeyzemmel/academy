@@ -45,6 +45,12 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
   acted as.
 - **validate** (the cite workflow): `py <expert plugin>/scripts/cards.py validate <card>`
   from the library home; return ok and every error line.
+- **pdf** (the referee workflow, `expert/workflows/referee.js`): the stage spells out the
+  check; you may run the Author home's `author.build.cmd` there (the referee has no shell),
+  never while `author.build.lock` exists, and you edit nothing else. **find**: the newest
+  referee packet on the board and the copy under the library's `reviews/referee/`.
+- **diff** (the domain workflow, `expert/workflows/domain.js`): `git diff --name-only` of
+  one pack and the last line of its `CHANGELOG.md`; change nothing.
 - **workplan-state** (the cowork pass of `workflows/workplan.js`): `py
   <academy plugin>/scripts/cowork.py status <slug> --json` and the receivers (the `to`
   instances) of the cowork's open tickets.

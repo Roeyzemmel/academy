@@ -227,5 +227,14 @@ class InboxNestedTests(unittest.TestCase):
         self.assertIn("files the falsifier tests", res["for_main"]["why"])
         self.assertEqual(res["for_main"]["to_file"][0]["command"], "c")
 
+    def test_referee_and_domain_run_nested(self):
+        for target, kind, wf in (("expert:referee", "referee", "referee.js"), ("expert:domain", "notation", "domain.js")):
+            res, labels, calls, err = run(INBOX, {"list": [self._one(target, kind, [], "expert@t", "expert")],
+                                                  "workflow " + wf: [{"outcome": "done", "packet": "P-1"}],
+                                                  "check T-3": [{"exit": 0, "status": "delivered", "detail": ""}]}, {"root": "/a"})
+            self.assertIsNone(err, err)
+            self.assertEqual(next(c for c in calls if c["label"] == "workflow " + wf)["args"], {"ticket": "T-3"})
+            self.assertIsNone(res["for_main"])
+
 if __name__ == "__main__":
     unittest.main()

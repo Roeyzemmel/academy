@@ -46,6 +46,8 @@ const NESTED = {
   'expert:cite': ROOT + '/expert/workflows/cite.js',
   'researcher:explore': ROOT + '/researcher/workflows/explore.js',
   'researcher:generalize': ROOT + '/researcher/workflows/generalize.js',
+  'expert:referee': ROOT + '/expert/workflows/referee.js',
+  'expert:domain': ROOT + '/expert/workflows/domain.js',
 }
 // nested: this run is itself a sub-workflow (of workplan.js); nesting is one level only, so
 // the routes that run their own workflow are handed back as for_main instead
@@ -250,6 +252,10 @@ async function handle(row, i) {
   if (rt.how === 'skill' && NESTED[rt.target] && !NESTED_OK)
     return { for_main: { why: `the ${rt.target} workflow cannot nest inside this nested run`, ticket: row.id, instance: inst, skill: rt.target } }
   if (rt.how === 'skill' && NESTED[rt.target]) {
+    if (rt.target === 'expert:referee' || rt.target === 'expert:domain') {
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { ticket: row.id })
+      return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.packet || r.reason || (r.anomalies || []).join('; ') || '') : 'lost', nested: r }
+    }
     if (rt.target === 'expert:cite') {
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? [r.key, r.pinpoint, r.verdict].filter(Boolean).join(', ') || (r.reason || '') : 'lost', nested: r }

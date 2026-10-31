@@ -38,7 +38,7 @@ and nothing more is taken from that instance in this run.
 ## 2. What comes back
 
 - **`for_main`**: the run stopped at a ticket only this main session may run: a skill
-  route (`expert:referee`, `expert:domain`, `author:notes`, `researcher:settle`, ...), a question to the human
+  route (`author:notes`, `researcher:settle`, `/scientist:experiment`, ...), a question to the human
   (an Author ticket with no route: `AskUserQuestion`), a research ticket only `main` may
   file, or `/researcher:settle`. Run it as the role's inbox skill says, then its
   `py <role plugin>/scripts/inbox.py --instance <name> --check T-NNNN`. Then call the

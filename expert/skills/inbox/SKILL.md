@@ -18,7 +18,7 @@ and stop), or ticket ids.
 1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
    and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
 2. **Finish what it hands back**, as `/academy:inbox` section 2 says: a `for_main` ticket
-   (a skill route, run here with the ticket id: `expert:referee`, `expert:domain`; `cite` and `verify` run nested in the workflow), then its
+   (every Expert route runs in the workflow, cite, verify, referee and domain nested; what comes back is a question for the human or a limit), then its
    `inbox.py --check T-NNNN`, then the workflow again with the cap lowered; `stopped` ends
    the run (a limit; `budget.md` rule 4).
 3. **Report**: each ticket, its route and outcome, and how many remain. Never ask

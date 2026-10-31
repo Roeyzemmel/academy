@@ -27,6 +27,11 @@ REASON = ("rigor-reviewer runs are launched by the verify workflow, which holds 
 #: the relays of this plugin: launched only by the inbox workflow (academy/workflows/
 #: inbox.js), which moves their tickets and checks the child they file
 RELAYS = ("research-intake", "paper-liaison")
+REFEREE_REASON = ("referee runs are launched by the referee workflow, which builds the cold brief "
+                  "from facts only and checks the PDF: run Workflow with scriptPath "
+                  "<expert plugin>/workflows/referee.js and args {instance, ticket} (the referee "
+                  "skill gives the exact call). By hand only when the Workflow tool cannot run: "
+                  "the human sets ACADEMY_ALLOW_MANUAL_REVIEW=1.")
 RELAY_REASON = ("%s is launched by the inbox workflow, which makes its ticket moves and "
                 "checks the child it files: run Workflow with scriptPath "
                 "<academy plugin>/workflows/inbox.js (the role's inbox skill gives the "
@@ -44,6 +49,8 @@ def decide(event):
         reason = REASON
     elif bare in RELAYS:
         reason = RELAY_REASON % bare
+    elif bare == "referee":
+        reason = REFEREE_REASON
     else:
         return None
     if os.environ.get("ACADEMY_ALLOW_MANUAL_REVIEW") == "1" or \
@@ -56,7 +63,7 @@ def decide(event):
 
 def main(raw=None):
     raw = sys.stdin.read() if raw is None else raw
-    if AGENT not in raw and not any(r in raw for r in RELAYS):   # the common case
+    if AGENT not in raw and "referee" not in raw and not any(r in raw for r in RELAYS):
         return 0
     try:
         event = json.loads(raw) if raw.strip() else {}
