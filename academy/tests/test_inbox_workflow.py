@@ -189,11 +189,13 @@ class InboxWorkflowTests(unittest.TestCase):
                     kind="review-experiment", to="researcher@u", refs=["lab:x", "P-0009"])]
         res, labels, calls = self.run_wf({
             "list": [{"instances": [inst("researcher@u", rows)]}],
-            "workflow review-experiment.js": [{"outcome": "needs-settle"}]})
-        wf = next(c for c in calls if c["label"] == "workflow review-experiment.js")
-        self.assertEqual(wf["args"]["subject"], "lab:x")
-        self.assertEqual(wf["args"]["report"], "P-0009")
-        self.assertIn("settle", res["for_main"]["why"])
+            "workflow review-experiment.js": [{"outcome": "needs-settle"}, {"outcome": "cleared", "notes": []}],
+            "check T-2": [DONE]})
+        wfs = [c for c in calls if c["label"] == "workflow review-experiment.js"]
+        self.assertEqual(wfs[0]["args"]["subject"], "lab:x")
+        self.assertEqual(wfs[0]["args"]["report"], "P-0009")
+        self.assertEqual(wfs[1]["args"]["mode"], "settle-audit")        # settle chained, no hand-back
+        self.assertIsNone(res["for_main"])
 
     def test_developer_is_reviewed_by_test_engineer(self):
         rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
@@ -208,10 +210,44 @@ class InboxWorkflowTests(unittest.TestCase):
                           "test-engineer T-1"])
         self.assertEqual(res["taken"][0]["outcome"], "delivered")
 
-    def test_experimenter_goes_to_the_main_session(self):
+    def test_an_experiment_runs_its_design_leg_and_stops_at_the_header_gate(self):
         rows = [row("T-1", target="experimenter", kind="experiment", to="scientist@t")]
-        res, _l, _c = self.run_wf({"list": [{"instances": [inst("scientist@t", rows)]}]})
+        gate = {"for_main": {"gate": True, "why": "approve the header", "header": "Kind: search ...", "next": {"mode": "build"}}}
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("scientist@t", rows)]}],
+                                          "workflow experiment.js": [gate]})
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow experiment.js")["args"]["mode"], "design")
         self.assertEqual(res["for_main"]["skill"], "scientist:experiment")
+        self.assertEqual(res["for_main"]["header"], "Kind: search ...")
+
+    def test_a_scientist_question_is_answered_without_compute(self):
+        rows = [row("T-2", target="experimenter", kind="question", to="scientist@t")]
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("scientist@t", rows)]}],
+                                          "T-2 start": [OK], "experimenter T-2": ["answered"], "check T-2": [DONE]})
+        self.assertIn("no new compute", next(c for c in calls if c["label"] == "experimenter T-2")["prompt"])
+
+    def test_loop_sets_gates_aside_and_goes_on_until_quiet(self):
+        rows = [row("T-1", target="experimenter", kind="experiment", to="scientist@t"),
+                row("T-2", how="reject", target=None, kind="prove", to="scientist@t")]
+        gate = {"for_main": {"gate": True, "why": "approve the header", "next": {"mode": "build"}}}
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}],
+                "workflow experiment.js": [gate], "T-2 reject": [OK], "check T-2": [DONE],
+                "list 2": [{"instances": [inst("scientist@t", rows[:1])]}]}
+        res, labels, _ = self.run_wf(plan, loop=True)
+        self.assertEqual(labels, ["list", "workflow experiment.js", "T-2 reject", "check T-2", "list 2"])
+        self.assertEqual([g["ticket"] for g in res["gates"]], ["T-1"])
+        self.assertIn("wait on the human", res["for_main"]["why"])
+        self.assertEqual(res["passes"], 2)                     # pass 2 moved nothing: quiet
+
+    def test_an_author_research_route_is_filed_by_math_writer_and_checked(self):
+        rows = [row("T-5", how="research", target="expert", kind="write", to="author@t")]
+        plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
+                "T-5 start": [OK], "math-writer T-5 (research)": [{"ticket": "T-6", "refusal": ""}],
+                "get T-6": [child("T-6", "T-5", "author@t", "expert@t", "research", "researcher")],
+                "T-5 block-on": [OK], "check T-5": [DONE], "close author@t": [OK]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertIsNone(res["for_main"])
+        self.assertEqual(next(c for c in calls if c["label"] == "math-writer T-5 (research)")["agentType"], "author:math-writer")
+        self.assertEqual(res["taken"][0]["outcome"], "asked as T-6")
 
     def test_clerk_escalation_is_bounded_by_budget(self):
         rows = [row("T-1", target="clerk", kind="lookup", to="expert@t", runs=1)]

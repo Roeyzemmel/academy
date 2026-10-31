@@ -29,7 +29,12 @@ export const meta = {
 const A = args || {}
 if (!A.root) throw new Error('args.root must be the academy repo (the folder holding the plugins)')
 const ROOT = A.root.replace(/[\\/]+$/, '')
-const CAP = Math.max(0, Math.min(A.cap || A.n || 3, (A.campaign || A.cowork) ? 99 : 3))
+// loop (2026-10-31): pass after pass over every inbox until nothing moves; a ticket that needs
+// the human becomes a gate (set aside, collected, asked in one batch) and the others go on.
+// The whole academy then runs in code, with the human asked only where the rules need them.
+const LOOP = !!A.loop
+const CAP = LOOP ? Math.max(1, Math.min(A.cap || 12, 30)) : Math.max(0, Math.min(A.cap || A.n || 3, (A.campaign || A.cowork) ? 99 : 3))
+const MAX_PASSES = LOOP ? Math.max(1, Math.min(A.passes || 6, 12)) : 1
 const ORDER = ['author', 'expert', 'researcher', 'scientist']
 const CLERK = 'academy:inbox-clerk'
 // a relay: the role its child goes to, the kinds the child may have, the final_to default
@@ -48,6 +53,8 @@ const NESTED = {
   'researcher:generalize': ROOT + '/researcher/workflows/generalize.js',
   'expert:referee': ROOT + '/expert/workflows/referee.js',
   'expert:domain': ROOT + '/expert/workflows/domain.js',
+  'author:notes': ROOT + '/author/workflows/notes.js',
+  'scientist:experiment': ROOT + '/scientist/workflows/experiment.js',
 }
 // nested: this run is itself a sub-workflow (of workplan.js); nesting is one level only, so
 // the routes that run their own workflow are handed back as for_main instead
@@ -97,20 +104,25 @@ const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `ac
 
 const notes = []
 const taken = []
-const out = { taken, notes, for_main: null, remaining: {} }
+const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0 }
 
 // ---- List ---------------------------------------------------------------------------
+async function listAll(pass) {
+  const listed = await clerk('list', [
+    `For each instance of workspace.json${A.only ? ' among ' + JSON.stringify(A.only) : ''}, run its role's inbox script:`,
+    `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
+    'Return every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
+  ], LIST, pass > 1 ? `list ${pass}` : 'list')
+  if (!listed) return null
+  const xs = listed.instances.filter(i => !A.only || A.only.includes(i.name))
+  xs.sort((a, b) => ORDER.indexOf(a.role) - ORDER.indexOf(b.role) || (a.name < b.name ? -1 : 1))
+  if (A.ids && A.ids.length) for (const i of xs) i.rows = i.rows.filter(r => A.ids.includes(r.id))
+  for (const i of xs) out.remaining[i.name] = i.waiting
+  return xs
+}
 phase('List')
-const listed = await clerk('list', [
-  `For each instance of workspace.json${A.only ? ' among ' + JSON.stringify(A.only) : ''}, run its role's inbox script:`,
-  `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
-  'Return every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
-], LIST)
-if (!listed) return Object.assign(out, { stopped: 'the list stage returned nothing' })
-let insts = listed.instances.filter(i => !A.only || A.only.includes(i.name))
-insts.sort((a, b) => ORDER.indexOf(a.role) - ORDER.indexOf(b.role) || (a.name < b.name ? -1 : 1))
-if (A.ids && A.ids.length) for (const i of insts) i.rows = i.rows.filter(r => A.ids.includes(r.id))
-for (const i of insts) out.remaining[i.name] = i.waiting
+let insts = await listAll(1)
+if (!insts) return Object.assign(out, { stopped: 'the list stage returned nothing' })
 
 // ---- Sweep (the Author's, before any ticket; counts against no cap) -------------------
 phase('Sweep')
@@ -242,16 +254,55 @@ async function handle(row, i) {
     await move(row, inst, `block-human: blocked, waiting_on [human], reason "${rt.why}"`)
     return { outcome: 'blocked on human', detail: rt.why }
   }
-  if (rt.how === 'research') return { for_main: { why: 'a self-ticket that needs an argument: the main session (the liaison) files the research ticket to the Expert and blocks this one on it', ticket: row.id, instance: inst } }
+  if (rt.how === 'research') {
+    // a self-ticket that needs an argument: math-writer (an author -> expert liaison) files the research ticket,
+    // the script checks it (the Expert, kind research, final_to researcher, parent this ticket), and the clerk parks this one on it
+    const st = await move(row, inst, 'start: move it to in-progress')
+    if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start' }
+    const f = await agent(`WORKFLOW INBOX: the self-ticket ${row.id} of ${inst} (home ${i.home}) asks for an argument nobody has delivered. Write no argument. ` +
+      `File exactly one research ticket to the Expert instance (tickets_create: kind research, final_to researcher, parent ${row.id}, the ask restated with its statement and claim id, ` +
+      `deliverable "A proof (or a refutation) of the statement, as a proof object with its status proposed; the ticket result names it.", agenda and refs as ${row.id}'s). Return its id, or the refusal.`,
+      { label: `math-writer ${row.id} (research)`, phase: 'Tickets', agentType: 'author:math-writer', schema: { type: 'object', properties: { ticket: { type: 'string' }, refusal: { type: 'string' } }, required: ['ticket', 'refusal'] } })
+    if (f === null) return { lost: true }
+    if (!f.ticket) {
+      await move(row, inst, `block-human: blocked, waiting_on [human], reason "the research ticket was refused: ${String(f.refusal).replace(/"/g, "'").slice(0, 160)}"`)
+      return { outcome: 'blocked on human', detail: f.refusal }
+    }
+    const c = await clerk('get', [`ticket: ${f.ticket}`, 'tickets_get it and return its fields.'], TICKET, `get ${f.ticket}`)
+    const bad = !c || !c.found || !/^expert@/.test(c.to) || c.kind !== 'research' || !/^researcher/.test(c.final_to || '') || c.parent !== row.id
+    if (bad) notes.push(`ANOMALY: ${f.ticket} is not a research ticket to the Expert with final_to researcher and parent ${row.id}`)
+    const m = await move(row, inst, `block-on: blocked, waiting_on [${f.ticket}], reason "the argument is asked of the Researcher as ${f.ticket}"`)
+    return { outcome: m && m.ok ? `asked as ${f.ticket}` : 'unfinished', detail: f.ticket }
+  }
   if (RELAYS[rt.target]) return row.return ? relayReturn(row, inst) : relayForward(row, inst, RELAYS[rt.target])
   if (i.role === 'expert' && rt.target === 'clerk') return expertClerk(row, inst)
   // the experimenter's route is the experiment skill: its header is approved by the human
-  if (i.role === 'scientist' && rt.target === 'experimenter')
-    return { for_main: { why: 'an experiment or test ticket runs /scientist:experiment (the header is approved before any compute)', ticket: row.id, instance: inst, skill: 'scientist:experiment' } }
+  if (i.role === 'scientist' && rt.target === 'experimenter' && row.kind === 'question') {
+    // answered from the lab's records and results: no new compute, no header
+    const st = await move(row, inst, 'start: move it to in-progress')
+    if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start' }
+    const r = await agent(`WORKFLOW INBOX: question ticket ${row.id} for ${inst} (home ${i.home}); it is in-progress. Answer it from the lab's records and results only ` +
+      '(no new compute, no script), then deliver it (tickets_update deliver: true, result one line).', { label: `experimenter ${row.id}`, phase: 'Tickets', agentType: 'scientist:experimenter' })
+    return r === null ? { lost: true } : { outcome: 'answered', detail: String(r).split('\n')[0] }
+  }
+  if (i.role === 'scientist' && rt.target === 'experimenter') {
+    // the experiment's design leg runs here; its header gate goes to the human (no body before approval)
+    if (!NESTED_OK) return { for_main: { why: 'an experiment ticket: /scientist:experiment (design, then the header gate)', ticket: row.id, instance: inst, skill: 'scientist:experiment' } }
+    const r = await workflow({ scriptPath: NESTED['scientist:experiment'] }, { mode: 'design', ticket: row.id, kind: row.kind })
+    if (r && r.for_main) return { for_main: Object.assign({ skill: 'scientist:experiment', instance: inst }, r.for_main, { ticket: row.id }) }
+    return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.argument || r.reason || '') : 'lost', nested: r }
+  }
   if (i.role === 'scientist' && rt.target === 'developer') return developerReviewed(row, i)
   if (rt.how === 'skill' && NESTED[rt.target] && !NESTED_OK)
     return { for_main: { why: `the ${rt.target} workflow cannot nest inside this nested run`, ticket: row.id, instance: inst, skill: rt.target } }
   if (rt.how === 'skill' && NESTED[rt.target]) {
+    if (rt.target === 'author:notes') {
+      // a returned referee ticket: its packet (the ticket's packets field) is landed as tickets, then the ticket is closed by its sender
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { home: i.home, instance: inst, root: ROOT, referee_ticket: row.id })
+      if (r && r.outcome !== 'lost' && r.outcome !== 'not-started')
+        await move(row, inst, `close: move it delivered -> closed (you are its sender), with a thread note "${(r.filed || []).length} ticket(s) filed from ${r.packet || 'the packet'}; ${(r.unfiled || []).length} unfiled"`, `${row.id} close`)
+      return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.unfiled || []).join('; ') : 'lost', nested: r }
+    }
     if (rt.target === 'expert:referee' || rt.target === 'expert:domain') {
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.packet || r.reason || (r.anomalies || []).join('; ') || '') : 'lost', nested: r }
@@ -271,7 +322,7 @@ async function handle(row, i) {
       if (!ref) return { for_main: { why: 'a generalize ticket whose refs name no report or lab claim', ticket: row.id, instance: inst } }
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { ref, ticket: row.id, home: i.home, instance: inst })
       if (r && r.to_file && r.to_file.length)
-        return { for_main: { why: 'generalize: the main session files the falsifier tests (the liaison), then delivers with mode deliver', ticket: row.id, instance: inst, to_file: r.to_file } }
+        return { for_main: { why: 'generalize: the falsifier tests are left to file (the lead could not file them)', ticket: row.id, instance: inst, to_file: r.to_file } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.reason || '') : 'lost', nested: r }
     }
     if (rt.target === 'researcher:prove') {
@@ -290,7 +341,13 @@ async function handle(row, i) {
     const subject = firstRef(row, /^lab:\S+$/)
     if (!subject) return { for_main: { why: 'a review-experiment ticket whose refs name no lab claim', ticket: row.id, instance: inst } }
     const r = await workflow({ scriptPath: NESTED[rt.target] }, { subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
-    if (r && r.outcome === 'needs-settle') return { for_main: { why: 'the report lists candidates: run /researcher:settle', ticket: row.id, instance: inst } }
+    if (r && r.outcome === 'needs-settle') {
+      // settle in the same handle (sequential, still one nesting level): the audit, then the candidates' re-derivations
+      const slug = subject.replace(/[^A-Za-z0-9._-]+/g, '-')
+      const st = await workflow({ scriptPath: NESTED[rt.target] }, { subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
+        candidates: `${i.home}/.academy/settle-${slug}.json` })
+      return { outcome: st ? st.outcome : 'unfinished', detail: st ? (st.notes || []).join('; ') : 'lost', nested: st }
+    }
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.notes || []).join('; ') : 'lost', nested: r }
   }
   if (rt.how === 'skill') return { for_main: { why: `the skill ${rt.target} runs in the main session`, ticket: row.id, instance: inst, skill: rt.target } }
@@ -319,30 +376,51 @@ async function handle(row, i) {
 phase('Tickets')
 let count = 0
 const closed = new Set()
+const gated = new Set()              // loop: tickets set aside for the human, never retried this run
+const touched = new Set()            // instances whose tickets ran (the Author's close-out)
 outer:
-for (const i of insts) {
-  for (const row of i.rows) {
-    if (count >= CAP) break outer
-    if (closed.has(i.name)) break
-    const res = await handle(row, i)
-    if (res.for_main) { out.for_main = res.for_main; notes.push(`stopped for the main session at ${row.id}: ${res.for_main.why}`); break outer }
-    count++
-    if (res.lost) {
-      taken.push({ instance: i.name, id: row.id, route: row.route, outcome: 'lost' })
-      out.stopped = `an agent on ${row.id} returned nothing (a limit or an API error): nothing further launched (budget.md rule 4)`
-      await move(row, i.name, 'note: append to the thread "interrupted: the workflow agent returned nothing; what was recorded is above"', `${row.id} interrupted`)
-      break outer
-    }
-    const chk = await clerk('check', [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`, 'Return its exit code, the ticket status and its output in detail.'], CHECK, `check ${row.id}`)
-    const unfinished = !chk || chk.exit === 3
-    if (unfinished) { closed.add(i.name); notes.push(`${row.id} is unfinished: nothing more from ${i.name} this run`) }
-    taken.push({ instance: i.name, id: row.id, route: row.route, outcome: unfinished ? 'unfinished' : res.outcome, status: chk ? chk.status : '', detail: res.detail || '' })
+for (let pass = 1; pass <= MAX_PASSES; pass++) {
+  if (pass > 1) {
+    insts = await listAll(pass)
+    if (!insts) { out.stopped = 'the list stage returned nothing'; break }
   }
+  out.passes = pass
+  let moved = 0
+  for (const i of insts) {
+    for (const row of i.rows) {
+      if (count >= CAP) break outer
+      if (closed.has(i.name)) break
+      if (gated.has(row.id) || taken.some(t => t.id === row.id && t.outcome !== 'unfinished')) continue
+      const res = await handle(row, i)
+      if (res.for_main) {
+        if (!LOOP) { out.for_main = res.for_main; notes.push(`stopped for the main session at ${row.id}: ${res.for_main.why}`); break outer }
+        gated.add(row.id)
+        out.gates.push(Object.assign({ ticket: row.id, instance: i.name }, res.for_main))
+        continue
+      }
+      count++
+      moved++
+      touched.add(i.name)
+      if (res.lost) {
+        taken.push({ instance: i.name, id: row.id, route: row.route, outcome: 'lost' })
+        out.stopped = `an agent on ${row.id} returned nothing (a limit or an API error): nothing further launched (budget.md rule 4)`
+        await move(row, i.name, 'note: append to the thread "interrupted: the workflow agent returned nothing; what was recorded is above"', `${row.id} interrupted`)
+        break outer
+      }
+      const chk = await clerk('check', [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`, 'Return its exit code, the ticket status and its output in detail.'], CHECK, `check ${row.id}`)
+      const unfinished = !chk || chk.exit === 3
+      if (unfinished) { closed.add(i.name); notes.push(`${row.id} is unfinished: nothing more from ${i.name} this run`) }
+      taken.push({ instance: i.name, id: row.id, route: row.route, outcome: unfinished ? 'unfinished' : res.outcome, status: chk ? chk.status : '', detail: res.detail || '' })
+    }
+  }
+  if (!moved) break                  // quiet: nothing in this pass could move without the human
 }
+if (LOOP && out.gates.length && !out.for_main)
+  out.for_main = { why: `${out.gates.length} ticket(s) wait on the human: ask them in one batch, then run the loop again`, gates: out.gates }
 
 // ---- Close: the Author's delivered self-tickets ------------------------------------------
 phase('Close')
-for (const i of insts.filter(i => i.role === 'author' && taken.some(t => t.instance === i.name))) {
+for (const i of (insts || []).filter(i => i.role === 'author' && touched.has(i.name))) {
   await clerk('close-self', [`act as: ${i.name}`, 'Close (delivered -> closed) every delivered ticket whose from and to are both this instance; return how many.'], MOVE, `close ${i.name}`)
 }
 out.count = count

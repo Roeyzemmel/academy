@@ -1,7 +1,7 @@
 export const meta = {
   name: 'academy-review-experiment',
   description: 'Experiment review of one lab claim: experiment-reviewer A, B only when reviews.py decide says need-B, claim-keeper only on a clean clear; settle modes add the candidates plan and decision',
-  whenToUse: 'Every review-experiment ticket, /researcher:review-experiment and /researcher:settle, from the Researcher home. args: {subject: "lab:<id>", ticket?, report?: "P-NNNN", result?, mode?: "review"|"settle-audit"|"settle-conclude", candidates?: <file>, verdicts?: [...]}',
+  whenToUse: 'Every review-experiment ticket, /researcher:review-experiment and /researcher:settle, from the Researcher home. args: {subject: "lab:<id>", ticket?, report?: "P-NNNN", result?, mode?: "review"|"settle-audit"|"settle-review"|"settle-conclude", candidates?: <file>, verdicts?: [...], checklist?: <path>}',
   phases: [
     { title: 'Prepare', detail: 'take the ticket, where the pair stands' },
     { title: 'Review', detail: 'run A; run B only on need-B' },
@@ -23,7 +23,21 @@ const A = args || {}
 if (!A.subject || !/^[a-z][a-z0-9]*:\S+$/.test(A.subject)) {
   throw new Error('args.subject must be a namespaced lab claim id (lab:<id>), got ' + JSON.stringify(A.subject))
 }
-const MODE = ['review', 'settle-audit', 'settle-conclude'].includes(A.mode) ? A.mode : 'review'
+const MODE = ['review', 'settle-audit', 'settle-review', 'settle-conclude'].includes(A.mode) ? A.mode : 'review'
+const LEAD = 'researcher:lead-researcher'   // a researcher -> scientist and researcher -> expert liaison
+const TICKET = { type: 'object', properties: { found: { type: 'boolean' }, to: { type: 'string' }, kind: { type: 'string' }, status: { type: 'string' },
+  refs: { type: 'array', items: { type: 'string' } } }, required: ['found', 'to', 'kind', 'status', 'refs'] }
+const FILED1 = { type: 'object', properties: { ticket: { type: 'string' }, refusal: { type: 'string' } }, required: ['ticket', 'refusal'] }
+// a ticket filed by the lead, then read back by the clerk: the right receiver role, kind and refs
+async function fileChecked(label, ask, role, kind, mustRef) {
+  const f = await agent(ask + ' File exactly this one ticket (tickets_create) and return its id, or the refusal verbatim.',
+    { label, phase: 'Record', agentType: LEAD, schema: FILED1, effort: 'low' })
+  if (!f || !f.ticket) { notes.push(`${label}: not filed (${f ? f.refusal : 'no answer'})`); return null }
+  const t = await clerk('get', [`tickets_get ${f.ticket} and return found, to, kind, status and refs.`], TICKET, `get ${f.ticket}`, 'Record')
+  if (!t || !t.found || !new RegExp('^' + role + '@').test(t.to) || t.kind !== kind || !(t.refs || []).some(r => String(r).includes(mustRef)))
+    notes.push(`ANOMALY: ${f.ticket} is not a ${kind} ticket to the ${role} naming ${mustRef}`)
+  return f.ticket
+}
 if (MODE !== 'review' && !A.candidates) throw new Error('settle modes need args.candidates (the candidates file path)')
 const CLERK = 'researcher:review-clerk'
 const REVIEWER = 'researcher:experiment-reviewer'
@@ -82,8 +96,8 @@ const DONE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { 
 const STAGE = (name, lines) =>
   `WORKFLOW STAGE ${name} of the academy-review-experiment workflow. Subject: ${A.subject}.\n` +
   lines.filter(Boolean).join('\n')
-const clerk = (name, lines, schema, phase) =>
-  agent(STAGE(name, lines), { label: name, phase, agentType: CLERK, schema, effort: 'low' })
+const clerk = (name, lines, schema, a, b) =>   // (name, lines, schema, phase) or (name, lines, schema, label, phase)
+  agent(STAGE(name, lines), { label: b ? a : name, phase: b || a, agentType: CLERK, schema, effort: 'low' })
 
 // reviews.py brief, byte for byte (tests/test_review_experiment_workflow.py pins it)
 function brief(run, result, ticket, report) {
@@ -106,10 +120,11 @@ const out = { subject: A.subject, mode: MODE, notes, runs: [], to_file: [] }
 
 // ---- Prepare -----------------------------------------------------------------
 phase('Prepare')
-const prep = await clerk(MODE === 'settle-conclude' ? 'decide' : 'prepare', [
+const LATER = MODE === 'settle-conclude' || MODE === 'settle-review'   // the audit is already done
+const prep = await clerk(LATER ? 'decide' : 'prepare', [
   A.ticket ? `ticket: ${A.ticket}` : 'ticket: none',
   A.report ? `report: ${A.report}` : '',
-  MODE === 'settle-conclude'
+  LATER
     ? 'Return reviews.py decide <subject> --json parsed, as prepare would (ok true, has_candidates true).'
     : 'Take the ticket (open -> accepted -> in-progress), find the report packet and the result, say whether the report lists candidate counterexamples, and return reviews.py decide <subject> --json parsed.',
 ], PREP, 'Prepare')
@@ -127,7 +142,7 @@ let d = prep.decide
 
 // ---- Review: the table says which run; one relaunch for a run that did not land ----
 phase('Review')
-if (MODE !== 'settle-conclude') {
+if (!LATER) {
   const tried = {}
   while (d && (d.state === 'need-A' || d.state === 'need-B')) {
     const run = d.state === 'need-A' ? 'A' : 'B'
@@ -152,7 +167,7 @@ log(`audit ${out.state}`)
 // ---- Record --------------------------------------------------------------------
 phase('Record')
 const cleanClear = d && CLEARED.includes(d.state) && d.grounds && !(d.grounds_problems || []).length && d.proposed_status
-if (d && !['need-A', 'need-B'].includes(d.state) && MODE !== 'settle-conclude') {
+if (d && !['need-A', 'need-B'].includes(d.state) && !LATER) {
   if (cleanClear) {
     out.keeper = await agent(
       `Set the status of ${A.subject} to ${d.proposed_status} with claims_set_status, grounds exactly as given ` +
@@ -168,9 +183,9 @@ if (d && !['need-A', 'need-B'].includes(d.state) && MODE !== 'settle-conclude') 
       { label: 'claim-keeper evidence', phase: 'Record', agentType: KEEPER })
   }
   if (d.reproduction) {
-    out.to_file.push({ kind: 'test', to_role: 'scientist', parent: A.ticket || '',
-                       title: `Reproduce ${A.subject} on another profile`, ask: d.reproduction })
-    notes.push('a run asked for reproduction: the pair waits on the test ticket in to_file')
+    const tid = await fileChecked('reproduction ticket', `File a test ticket to the Scientist instance: title "Reproduce ${A.subject} on another profile", ` +
+      `ask "${String(d.reproduction).replace(/"/g, "'").slice(0, 300)}", refs [${A.subject}]` + (A.ticket ? `, parent ${A.ticket}` : '') + '.', 'scientist', 'test', A.subject)
+    if (tid) { out.reproduction_ticket = tid; notes.push(`a run asked for reproduction: the pair waits on the test ticket ${tid}`) }
   }
   if (d.state === 'unresolved' || d.reproduction) {
     const pk = await clerk('packet', [
@@ -189,16 +204,44 @@ if (MODE === 'settle-audit' && !['need-A', 'need-B'].includes(out.state)) {
   ], PLAN, 'Record')
   out.plan = plan
   if (plan && CLEARED.includes(out.state)) {
+    out.rederivations = []
     for (const c of (plan.file_now || []).slice(0, 3)) {   // never more than three per run
-      out.to_file.push({ kind: 'experiment', to_role: 'scientist', candidate: c.name, refs: [A.subject, c.ref],
-        title: `Re-derive ${c.name} independently`, detail: c.detail,
-        then: { kind: 'verify', to_role: 'expert', title: `Is ${c.name} a counterexample to the claim ${A.subject} bears on?`,
-                when: 'once the re-derivation report is back (a later run)' } })
+      // the independent re-derivation (the reviewers cannot compute): another route, small cases
+      const tid = await fileChecked(`rederive ${c.name}`, `File an experiment ticket to the Scientist instance for a verify-kind experiment: title "Re-derive ${c.name} independently", ` +
+        `ask "Rebuild the decisive data of ${c.name} from its defining input alone, by a route the pipeline did not use (a second implementation, another library), ` +
+        `small cases only, and report whether it agrees", deliverable "An experiment report stating agree or disagree, with the route used", refs [${A.subject}, ${c.ref}]` +
+        (A.ticket ? `, parent ${A.ticket}` : '') + `, detail "${String(c.detail || '').replace(/"/g, "'").slice(0, 400)}".`, 'scientist', 'experiment', c.name)
+      if (tid) out.rederivations.push({ candidate: c.name, ticket: tid })
     }
+    if (out.rederivations.length)
+      await clerk('record', [`In the candidates file ${A.candidates}, set "rederivation" of each candidate to its ticket: ${JSON.stringify(out.rederivations)} (a mechanical JSON edit, nothing else).`], DONE, 'record tickets', 'Record')
     if ((plan.file_now || []).length > 3) notes.push(`${plan.file_now.length - 3} candidate(s) over the cap of three deferred`)
   } else {
     notes.push(`the script audit is ${out.state}: no candidate ticket is filed`)
   }
+}
+
+if (MODE === 'settle-review') {
+  // a later run: a verify ticket for each candidate whose re-derivation came back, never before
+  const ST = { type: 'object', properties: { candidates: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, ref: { type: 'string' },
+    rederivation: { type: 'string' }, status: { type: 'string', description: 'the re-derivation ticket\'s status' }, report: { type: 'string', description: 'its report packet, if delivered' },
+    verify: { type: 'string', description: 'the verify ticket already filed, or empty' }, detail: { type: 'string' } },
+    required: ['name', 'ref', 'rederivation', 'status', 'report', 'verify', 'detail'] } } }, required: ['candidates'] }
+  const st = await clerk('settle-children', [`For each candidate in ${A.candidates}: its rederivation ticket, that ticket's status (tickets_get) and its report packet when delivered, and the verify ticket already recorded. Write nothing.`],
+    ST, 'candidates state', 'Record')
+  out.verifies = []
+  for (const c of (st ? st.candidates : [])) {
+    if (c.verify) continue
+    if (c.status !== 'delivered') { notes.push(`${c.name}: the re-derivation ${c.rederivation || '(none)'} is ${c.status || 'not filed'}: no verify ticket yet`); continue }
+    const tid = await fileChecked(`verify ${c.name}`, `File a verify ticket to the Expert instance: title "Is ${c.name} a counterexample to the claim ${A.subject} bears on?", ` +
+      `ask "Review the candidate in refutation mode with the rigor-reviewer pair: the completeness of the enumeration first, then the re-derivation report ${c.report || c.rederivation} ` +
+      `(it must exist, use another route and agree), then the witnesses` + (A.checklist ? `; work every item of the verification checklist ${A.checklist}` : '') + `", ` +
+      `deliverable "A verification packet with two verdicts, or one negative verdict", refs [${A.subject}, ${c.ref}, ${c.rederivation}]` + (A.ticket ? `, parent ${A.ticket}` : '') + '.',
+      'expert', 'verify', c.name)
+    if (tid) out.verifies.push({ candidate: c.name, ticket: tid })
+  }
+  if (out.verifies.length)
+    await clerk('record', [`In the candidates file ${A.candidates}, set "ticket" of each candidate to its verify ticket: ${JSON.stringify(out.verifies)} (a mechanical JSON edit).`], DONE, 'record verifies', 'Record')
 }
 
 if (MODE === 'settle-conclude') {
@@ -220,7 +263,8 @@ if (MODE === 'settle-conclude') {
 }
 
 // ---- the ticket -----------------------------------------------------------------
-const waiting = ['need-A', 'need-B'].includes(out.state) || out.to_file.length
+const waiting = ['need-A', 'need-B'].includes(out.state) || out.to_file.length ||
+  MODE === 'settle-audit' || MODE === 'settle-review' || !!out.reproduction_ticket   // tickets are out
 if (A.ticket && !waiting) {
   const v = (d && d.verdicts || []).join(', ') || 'none'
   const res = await clerk('close', [`ticket: ${A.ticket}`, `Deliver it with result: "${out.state}; verdicts ${v}${out.packet ? '; packet ' + out.packet : ''}".`], DONE, 'Record')

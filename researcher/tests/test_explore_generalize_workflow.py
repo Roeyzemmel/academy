@@ -109,12 +109,29 @@ class GeneralizeTests(unittest.TestCase):
             "source": [SRC], "prover": ["wrote"], "validate": [BAD], "prover (fix)": ["fixed"],
             "validate again": [BAD], "drop": [{"ok": True, "detail": ""}], "validate after drop": [dict(GOOD, proposals=1)],
             "create": [{"conjectures": ["flat:CONJ-1"], "lemmas": ["flat:LEM-1"], "error": ""}],
-            "packet": [{"packet": "P-0400", "error": ""}]}, dict(H, ref="P-0009", ticket="T-7"))
+            "packet": [{"packet": "P-0400", "error": ""}],
+            "test specs": [{"specs": [{"to": "scientist@t", "kind": "test", "refs": ["flat:CONJ-1"]}]}],
+            "file tests": [{"tickets": ["T-8"], "refusals": []}],
+            "children": [{"tests": [{"id": "T-8", "refs": ["flat:CONJ-1"]}]}], "close": [{"ok": True, "detail": ""}]},
+            dict(H, ref="P-0009", ticket="T-7"))
         self.assertIsNone(err, err)
         self.assertEqual(labels.count("prover (fix)"), 1)
         self.assertIn("dropped after a second failure: flat:CONJ-2", " ".join(res["notes"]))
-        self.assertIn("generalize.py tickets", res["to_file"][0]["command"])
-        self.assertEqual(res["to_file"][0]["then"]["conjectures"], ["flat:CONJ-1"])
+        self.assertEqual(next(c for c in calls if c["label"] == "file tests")["agentType"], "researcher:lead-researcher")
+        self.assertIn("WITHOUT --apply", next(c for c in calls if c["label"] == "test specs")["prompt"])
+        self.assertEqual(res["outcome"], "delivered")
+        self.assertEqual(res["tests"], ["T-8"])
+
+    def test_a_test_the_lead_did_not_file_comes_back_to_file(self):
+        res, labels, calls, err = run("generalize.js", {
+            "source": [SRC], "prover": ["wrote"], "validate": [GOOD],
+            "create": [{"conjectures": ["flat:CONJ-1", "flat:CONJ-3"], "lemmas": [], "error": ""}],
+            "packet": [{"packet": "P-0400", "error": ""}], "test specs": [{"specs": []}],
+            "file tests": [{"tickets": ["T-8"], "refusals": ["chain: no"]}],
+            "children": [{"tests": [{"id": "T-8", "refs": ["flat:CONJ-1"]}]}]}, dict(H, ref="P-0009", ticket="T-7"))
+        self.assertIsNone(err, err)
+        self.assertEqual(res["to_file"][0]["missing"], ["flat:CONJ-3"])
+        self.assertNotIn("close", labels)
         self.assertIn("Write ONLY that file", next(c for c in calls if c["label"] == "prover")["prompt"])
 
     def test_deliver_checks_a_test_per_conjecture(self):

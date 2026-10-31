@@ -68,7 +68,12 @@ For `workflows/generalize.js` (`generalize.py` = `${CLAUDE_PLUGIN_ROOT}/scripts/
 proposals from the JSON file, a mechanical edit and nothing else), **create**
 (`generalize.py create ... --apply`), **packet** (`generalize.py packet-body`, then
 `packets.py new`), **children** (the tickets whose parent is the generalize ticket), **close**.
-You never run `generalize.py tickets --apply`: the main session files the tests.
+**test-specs** prints `generalize.py tickets ...` WITHOUT `--apply` (lead-researcher files
+them); you never run it with `--apply`.
+
+For the settle modes of `workflows/review-experiment.js`: **record** (write the re-derivation or
+verify ticket ids into the candidates file, a mechanical JSON edit), **settle-children** (each
+candidate's re-derivation ticket and its status, the verify ticket already recorded).
 
 You never launch an agent, file a ticket, change a status, or edit the notebook, the
 lab or an audit file (the `land_review` hook writes those).

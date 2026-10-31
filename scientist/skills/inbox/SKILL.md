@@ -17,11 +17,12 @@ and stop), or ticket ids.
 
 1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
    and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
-2. **Finish what it hands back**, as `/academy:inbox` section 2 says: a `for_main` ticket
-   (an `experiment`, `test` or `question` ticket: `/scientist:experiment` with the ticket id,
-   a `test` ticket testing the falsifier in the ask **first** and linking its report packet
-   with `report.py file --ticket T-NNNN`; a ticket with no route: `AskUserQuestion`, the
-   answer recorded in the thread), then its
+2. **Finish what it hands back**, as `/academy:inbox` section 2 says. An `experiment` or
+   `test` ticket runs `experiment.js`'s `design` leg in the workflow and comes back as a
+   **header gate**: show the header and ask (approve / change / drop), then run the
+   experiment skill's next modes. A `test` ticket tests the falsifier in the ask **first**.
+   A `question` is answered from the lab's records, in the workflow. A ticket with no
+   route: `AskUserQuestion`, the answer recorded in the thread. After each, its
    `inbox.py --check T-NNNN`, then the workflow again with the cap lowered; `stopped` ends
    the run (a limit; `budget.md` rule 4).
 3. **Report**: each ticket, its route and outcome, and how many remain. Ask no question

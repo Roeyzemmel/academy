@@ -100,8 +100,27 @@ const pk = await clerk('packet', [`Run generalize.py packet-body ${FILE} --lab-c
   `--status-proposed conjectured --body <that file>; return the packet id.`], PACKET, 'packet', 'Record')
 Object.assign(out, { lab_claim: LAB, file: FILE, conjectures: c.conjectures, lemmas: c.lemmas, packet: pk && pk.packet ? pk.packet : null })
 if (!out.packet) out.notes.push('the packet was not filed: ' + (pk ? pk.error : 'no answer'))
-out.to_file = [{ why: 'the falsifier tests: main is the researcher -> scientist liaison',
-  command: `py <researcher plugin>/scripts/generalize.py tickets ${FILE} --lab-claim ${LAB} --parent ${T} --apply`,
-  then: { mode: 'deliver', ticket: T, conjectures: c.conjectures, lemmas: c.lemmas, packet: out.packet } }]
-out.outcome = 'proposed'
+// the falsifier tests: lead-researcher (a researcher -> scientist liaison) files the ones
+// generalize.py tickets prints; the script then checks a test names each conjecture and delivers
+const SPECS = { type: 'object', properties: { specs: { type: 'array', items: { type: 'object' } } }, required: ['specs'] }
+const sp = await clerk('test-specs', [`Run generalize.py tickets ${FILE} --lab-claim ${LAB} --parent ${T} (WITHOUT --apply) and return the ticket specs it prints, one object each (to, kind, title, ask, deliverable, refs, parent, detail). File nothing.`],
+  SPECS, 'test specs', 'Record')
+const filed = await agent(`File exactly these falsifier test tickets to the Scientist instance (tickets_create, one each, as given; you are the researcher -> scientist liaison): ` +
+  `${JSON.stringify(sp ? sp.specs : [])}. Return the ticket ids, or the refusals verbatim.`,
+  { label: 'file tests', phase: 'Record', agentType: 'researcher:lead-researcher', schema: { type: 'object', properties: { tickets: { type: 'array', items: { type: 'string' } }, refusals: { type: 'array', items: { type: 'string' } } }, required: ['tickets', 'refusals'] } })
+if (filed && filed.refusals.length) out.notes.push('test tickets refused: ' + filed.refusals.join('; '))
+const ch = await clerk('children', [`List the tickets whose parent is ${T} (tickets_list / tickets_get), kind test, with their refs. Write nothing.`], CHILDREN, 'children', 'Record')
+const tests = ch ? ch.tests : []
+const missing = c.conjectures.filter(cid => !tests.some(t => (t.refs || []).some(r => r === cid || r.endsWith(':' + cid.split(':').pop()))))
+if (missing.length || !filed) {
+  out.to_file = [{ why: 'the falsifier tests the lead did not file', missing,
+    command: `py <researcher plugin>/scripts/generalize.py tickets ${FILE} --lab-claim ${LAB} --parent ${T} --apply`,
+    then: { mode: 'deliver', ticket: T, conjectures: c.conjectures, lemmas: c.lemmas, packet: out.packet } }]
+  out.outcome = 'proposed (tests missing)'
+  return out
+}
+const result = `${c.conjectures.length} conjectures filed: ${c.conjectures.join(', ')}; lemmas ${c.lemmas.join(', ') || 'none'}; tests ${tests.map(t => t.id).join(', ')}`
+const m = await clerk('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result.slice(0, 240)}"` + (out.packet ? ` and fields.packets [${out.packet}]` : '') + '.'], MOVE, 'close', 'Record')
+out.tests = tests.map(t => t.id)
+out.outcome = m && m.ok ? 'delivered' : 'proposed (not delivered)'
 return out

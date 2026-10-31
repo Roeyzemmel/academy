@@ -51,6 +51,14 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
   referee packet on the board and the copy under the library's `reviews/referee/`.
 - **diff** (the domain workflow, `expert/workflows/domain.js`): `git diff --name-only` of
   one pack and the last line of its `CHANGELOG.md`; change nothing.
+- **collect**, **check-filed**, **read back** (the notes workflow, `author/workflows/notes.js`):
+  the note inventory from git (`git diff -U0`, `git grep` per note macro) or a referee
+  packet's points; the proposed tickets written to `<home>/.academy/notes-check.json` (your
+  one scratch file) and checked with `routes.py --check-filed`; the filed tickets read back.
+- **lab-home**, **check**, **committed?**, **queue**, **report-check**, **render**, **report-file**
+  (the experiment workflow, `scientist/workflows/experiment.js`): `lab.py home`, `lab.py cmd
+  check ... --strict`, whether a script is committed, `lab.py cmd queue -Add ...`, `report.py
+  check | render | file`, each run as the stage says, from the lab home.
 - **workplan-state** (the cowork pass of `workflows/workplan.js`): `py
   <academy plugin>/scripts/cowork.py status <slug> --json` and the receivers (the `to`
   instances) of the cowork's open tickets.

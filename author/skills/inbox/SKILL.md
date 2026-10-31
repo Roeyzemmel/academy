@@ -30,16 +30,19 @@ ticket ids (at most three).
    with the pinned statements (`pinned.py`); a returned ticket goes to `math-editor`
    (a verdict or citation) or `math-writer` (a proof or experiment) to land and close;
    `reject` rows are rejected with the route's reason.
-2. **Finish what it hands back** (`for_main`), then its `py $S/inbox.py --check T-NNNN`,
-   then the workflow again with the cap lowered:
-   - a returned referee packet (skill `author:notes`): run `/author:notes` on it;
-   - a self-ticket that needs an argument nobody has delivered (`research`,
-     `routes.needs_argument`): file a `research` ticket to the Expert with
-     `final_to: researcher` (it must pass `routes.check_filed`), move this ticket
-     `blocked` waiting on it, and land what returns. Never write the argument;
-   - a ticket with no Author route (`human`): show it (`board.py show T-NNNN`) and ask the
-     human with `AskUserQuestion` (accept and file a work ticket, reject with a reason,
-     forward). Never guess a route.
+2. **What the workflow does itself, and the one gate it hands back** (`for_main`). After the
+   gate, run `py $S/inbox.py --check T-NNNN`, then call the workflow again with the cap
+   lowered.
+   - A returned referee packet (skill `author:notes`) runs the notes workflow nested; its
+     points become tickets.
+   - A self-ticket that needs an argument nobody has delivered (`research`,
+     `routes.needs_argument`): `math-writer`, an author -> expert liaison, files the
+     `research` ticket to the Expert with `final_to: researcher`, and the script checks
+     it. This ticket is parked on it, and what returns is landed. Nobody here writes the
+     argument.
+   - **The gate:** a ticket with no Author route (`human`). Show it (`board.py show
+     T-NNNN`) and ask the human with `AskUserQuestion` (accept and file a work ticket,
+     reject with a reason, forward). Never guess a route.
 
    `stopped` (an agent returned nothing: a limit) ends the run with no relaunch. Only
    when the primary model is unavailable (not on a limit) relaunch through the Agent

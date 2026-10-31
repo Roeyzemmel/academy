@@ -18,7 +18,10 @@ and stop), or ticket ids.
 1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
    and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
 2. **Finish what it hands back**, as `/academy:inbox` section 2 says: a `for_main` ticket
-   (prove, explore, generalize and review-experiment run nested in the workflow; what comes back here: `researcher:settle`, `/researcher:explore` for a claim with no falsifier yet, and a generalize ticket's falsifier tests, filed with the command in `to_file` and then the generalize workflow again with `mode: "deliver"`), then its
+   (prove, explore, generalize, review-experiment and settle's first leg run nested in the
+   workflow. What can come back here: `/researcher:explore` for a claim with no falsifier
+   yet, and, rarely, the falsifier tests the lead could not file, with the command in
+   `to_file` and then the generalize workflow again with `mode: "deliver"`), then its
    `inbox.py --check T-NNNN`, then the workflow again with the cap lowered; `stopped` ends
    the run (a limit; `budget.md` rule 4).
 3. **Report**: each ticket, its route and outcome, and how many remain. Never ask

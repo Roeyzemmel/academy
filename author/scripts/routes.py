@@ -232,7 +232,15 @@ def main(argv=None):
             with open(argv[1], "w", encoding="utf-8", newline="") as fh:
                 fh.write(new)
         return 0
-    sys.stderr.write("routes.py: --tables | --sync FILE\n")
+    if len(argv) == 2 and argv[0] == "--check-filed":
+        # the notes workflow (2026-10-31): a JSON list of proposed ticket metas in, one list
+        # of check_filed problems per ticket out, in order (empty: the ticket passes)
+        import json
+        with open(argv[1], encoding="utf-8") as fh:
+            metas = json.load(fh)
+        print(json.dumps([check_filed(m) for m in metas]))
+        return 0
+    sys.stderr.write("routes.py: --tables | --sync FILE | --check-filed FILE\n")
     return 2
 
 

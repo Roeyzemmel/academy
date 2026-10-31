@@ -224,7 +224,7 @@ class InboxNestedTests(unittest.TestCase):
         self.assertEqual(next(c for c in calls if c["label"] == "workflow explore.js")["args"]["direction"], "DIR-2")
         res, labels, calls, err = run(INBOX, {"list": [self._one("researcher:generalize", "generalize", ["P-0009"])],
                                               "workflow generalize.js": [{"outcome": "proposed", "to_file": [{"command": "c"}]}]}, {"root": "/a"})
-        self.assertIn("files the falsifier tests", res["for_main"]["why"])
+        self.assertIn("falsifier tests are left to file", res["for_main"]["why"])
         self.assertEqual(res["for_main"]["to_file"][0]["command"], "c")
 
     def test_referee_and_domain_run_nested(self):

@@ -37,13 +37,19 @@ and nothing more is taken from that instance in this run.
 
 ## 2. What comes back
 
-- **`for_main`**: the run stopped at a ticket only this main session may run: a skill
-  route (`author:notes`, `researcher:settle`, `/scientist:experiment`, ...), a question to the human
-  (an Author ticket with no route: `AskUserQuestion`), a research ticket only `main` may
-  file, or `/researcher:settle`. Run it as the role's inbox skill says, then its
-  `py <role plugin>/scripts/inbox.py --instance <name> --check T-NNNN`. Then call the
-  workflow again with `cap` lowered by `count + 1`, until the cap is spent or nothing is
-  left.
+- **`for_main`**: since 2026-10-31 every route runs in code, so this is only a **human gate**:
+  - an experiment header to approve (`/scientist:experiment`, its next mode in `next`);
+  - an experiment script to commit, or a rendered report to look at;
+  - a ticket with no route, which an Author or the Scientist puts to the human;
+  - decisions that pause a campaign.
+
+  Ask with `AskUserQuestion`, carry the answer out (the next mode of the workflow named,
+  or the ticket move), then call the workflow again with `cap` lowered by `count`.
+- **`loop: true`** (the whole academy at once): pass after pass over every inbox until
+  nothing moves, at most `cap` tickets (default 12) and `passes` passes (default 6). A
+  delivered ticket's return leg and the next actor of a filed child are taken in the next
+  pass. A ticket that needs the human is set aside in `gates` and the others go on. At the
+  end, `for_main` lists every gate: ask them in one batch, then run the loop again.
 - **`stopped`**: an agent returned nothing (a limit). Launch nothing further and report it.
 - **`notes`**: put them into the report verbatim (an unfinished ticket that closed its
   instance, a relay child the check refused, the Author's check_paper reminder).

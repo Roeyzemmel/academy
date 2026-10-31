@@ -151,10 +151,19 @@ class GateTests(unittest.TestCase):
         res, calls = self.run_wf({
             "prepare": [prep("need-B")], "run B": ["b"],
             "decide": [dec("cleared", ["SOUND", "SOUND"], GROUNDS, status="refuted")],
-            "claim-keeper status": ["set"], "settle-plan": [plan]},
+            "claim-keeper status": ["set"], "settle-plan": [plan],
+            "rederive m1": [{"ticket": "T-11", "refusal": ""}], "rederive m2": [{"ticket": "T-12", "refusal": ""}],
+            "rederive m3": [{"ticket": "T-13", "refusal": ""}],
+            "get T-11": [{"found": True, "to": "scientist@t", "kind": "experiment", "status": "open", "refs": ["lab:x#m1"]}],
+            "get T-12": [{"found": True, "to": "expert@t", "kind": "experiment", "status": "open", "refs": ["lab:x#m2"]}],
+            "get T-13": [{"found": True, "to": "scientist@t", "kind": "experiment", "status": "open", "refs": ["lab:x#m3"]}],
+            "record tickets": [OK]},
             mode="settle-audit", candidates="/s/c.json")
-        self.assertEqual(len(res["to_file"]), 3)
-        self.assertEqual({t["kind"] for t in res["to_file"]}, {"experiment"})
+        self.assertEqual(res["to_file"], [])                    # filed by the lead, not handed back
+        self.assertEqual([r["ticket"] for r in res["rederivations"]], ["T-11", "T-12", "T-13"])
+        self.assertNotIn("rederive m4", self.labels(calls))     # the cap of three
+        self.assertIn("ANOMALY: T-12", " ".join(res["notes"]))   # the wrong receiver is caught
+        self.assertEqual(next(c for c in calls if c["label"] == "rederive m1")["agentType"], "researcher:lead-researcher")
         self.assertNotIn("close", self.labels(calls))       # waits on the tickets
         res, calls = self.run_wf({
             "prepare": [prep("need-B")], "run B": ["b"],
@@ -164,6 +173,25 @@ class GateTests(unittest.TestCase):
             mode="settle-audit", candidates="/s/c.json")
         self.assertEqual(res["to_file"], [])
         self.assertIn("no candidate ticket is filed", " ".join(res["notes"]))
+
+    def test_settle_review_files_verify_only_after_the_rederivation_is_back(self):
+        st = {"candidates": [
+            {"name": "m1", "ref": "lab:x#m1", "rederivation": "T-11", "status": "delivered", "report": "P-0050", "verify": "", "detail": ""},
+            {"name": "m2", "ref": "lab:x#m2", "rederivation": "T-12", "status": "in-progress", "report": "", "verify": "", "detail": ""},
+            {"name": "m3", "ref": "lab:x#m3", "rederivation": "T-13", "status": "delivered", "report": "P-0051", "verify": "T-30", "detail": ""}]}
+        res, calls = self.run_wf({
+            "decide": [prep("cleared", decide=dec("cleared", ["SOUND", "SOUND"], GROUNDS, status="refuted"))],
+            "candidates state": [st], "verify m1": [{"ticket": "T-21", "refusal": ""}],
+            "get T-21": [{"found": True, "to": "expert@t", "kind": "verify", "status": "open", "refs": ["lab:x#m1"]}],
+            "record verifies": [OK]}, mode="settle-review", candidates="/s/c.json", checklist=".claude/rules/verification-checklist.md")
+        labels = self.labels(calls)
+        self.assertIn("verify m1", labels)
+        self.assertNotIn("verify m2", labels)                    # its re-derivation is not back
+        self.assertNotIn("verify m3", labels)                    # already filed
+        self.assertNotIn("claim-keeper status", labels)          # the audit is not re-recorded
+        v = next(c for c in calls if c["label"] == "verify m1")["prompt"]
+        self.assertIn("completeness of the enumeration first", v)
+        self.assertIn("verification-checklist.md", v)
 
     def test_settle_conclude_sends_only_recordable_candidates_to_the_keeper(self):
         settled = {"recordable": ["m1"], "rows": [{"name": "m1", "decision": "REFUTATION CLEARED"},
