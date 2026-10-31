@@ -136,6 +136,19 @@ class TestAgentAtTheWorkspaceRoot(TwoResearchers):
         self.assertTrue(err)
         self.assertIn("name an instance", msg)
 
+    def test_config_get_for_an_ambiguous_role_agent_lists_the_candidates(self):
+        # ledger 2026-10-21..31: researcher:prover "could act for" two researcher
+        # instances on a read; a read answers per candidate instead
+        err, res = self.server().call("config_get", caller="researcher:prover")
+        self.assertFalse(err, res)
+        self.assertIsNone(res["instance"])
+        self.assertEqual(sorted(res["candidates"]), ["researcher@t", "researcher@u"])
+        self.assertEqual(res["candidates"]["researcher@u"]["instance"], "researcher@u")
+        err, res = self.server().call("config_get", caller="researcher:prover",
+                                      instance="researcher@u")
+        self.assertFalse(err, res)
+        self.assertEqual(res["instance"], "researcher@u")
+
 
 class FakeBackend(object):
     created = []

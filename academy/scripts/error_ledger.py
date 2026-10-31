@@ -247,6 +247,13 @@ FAMILY_RULES = [
     (re.compile(r"\bno domain pack\b"), "no domain pack"),
     (re.compile(r"\bdelivered needs result\b"), "delivered needs result"),
     (re.compile(r"\bdoes not contain the quote\b.*\bverbatim"), "quote not verbatim"),
+    # the 2026-10-31 review: the remaining recurring reasons, one family each
+    (re.compile(r"^deliver: true is for the receiver"), "deliver by a non-receiver"),
+    (re.compile(r"\bis made by the (sender|receiver)"), "move made by the other party"),
+    (re.compile(r"is not a liaison for|may not file to"), "ticket chain refusal"),
+    (re.compile(r"exceeds maximum allowed (tokens|size)"), "file too large to read"),
+    (re.compile(r"^eisdir\b"), "read a directory"),
+    (re.compile(r"sent no response or progress"), "mcp timeout"),
 ]
 
 

@@ -716,6 +716,16 @@ class TestCheckpointBoardDir(CheckpointBase):
                          ["other"])
         self.assertIn("docs/d.md", run(self.root, "diff", "--name-only"))
 
+    def test_board_paths_with_the_board_prefix_are_read_relative(self):
+        # ledger 2026-10-31: --paths board/.errors/x.jsonl became :(top)board/board/...
+        self.on_template()
+        self.write(self.root, os.path.join("board", ".errors", "x.jsonl"))
+        rc, out, err = self.run_ship("commit", "board", "-m", "e", "--paths",
+                                     "board/.errors/x.jsonl")
+        self.assertEqual(rc, 0, err)
+        self.assertIn("--paths are relative to board/", err)
+        self.assertEqual(self.files(self.root), ["board/.errors/x.jsonl"])
+
     def test_start_board_branches_the_superproject(self):
         rc, out, err = self.run_ship("start", "board", "notes")
         self.assertEqual(rc, 0, err)

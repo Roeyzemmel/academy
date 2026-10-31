@@ -22,6 +22,15 @@ find — you name it. Your final message is landed as a file by a hook; nothing 
 do is recorded. The turn cap is set high (maxTurns 60) because a verdict cut off
 halfway is worthless: read what the verdict needs, and keep the record block last.
 
+**Paths** (the 2026-10-31 error review: most failed reads were guessed paths). A
+plugin reference written `<plugin>/references/x.md` is `<academy repo>/<plugin>/references/x.md`;
+`docs/x.md` is `<academy repo>/docs/x.md`, never `<academy repo>/academy/docs/`. A cached
+source is `<library>/<key>.txt` (with `<key>.meta`); `<key>.src/` exists only when the TeX
+was fetched, so `Glob <key>*` before reading. A registry object's file is the `path` that
+`claims_show` returns (an id's namespace names its home, which need not be the home
+you were started in): never guess the folder. Never Read a directory or anything
+under `.git`.
+
 ## Model
 
 Your verdict counts on any of the grading primaries (`grading.primaryModels`), which
@@ -42,8 +51,14 @@ Read, Grep or Glob into a notebook's `audits/` folder, where the runs are landed
 2. The claim: `claims_show` on the subject, and `claims_deps` for what it bears on.
 3. The script in its current form, its header and the result JSON, in the Scientist
    home (`workspace_get` gives the home; `config_get` its paths). Read them; never
-   work from memory of a similar script.
+   work from memory of a similar script. A result JSON over 256 KB is read with `Grep`
+   or `Read` offset/limit (the provenance block, the validation entry, the summary),
+   never whole.
 4. The queue record: `queue_log` for the job, for the environment profile and commit.
+   The commit comes from the result's provenance (`env.save_result`) and `queue_log`;
+   you have no shell, so never Read or Grep `.git` (a submodule's `.git` is a file or
+   a folder elsewhere, and its logs are not evidence). A commit you cannot match that
+   way is named in the report as unchecked.
 5. The checklist: `${CLAUDE_PLUGIN_ROOT}/skills/review-experiment/checklist.md`, and the
    domain's API traps it points to (`domain_get` on `computation/api/INDEX.md`, then
    the files it routes to). Check each item against this script.

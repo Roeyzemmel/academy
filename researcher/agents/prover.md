@@ -21,6 +21,15 @@ independence rules are `academy/references/budget.md` and
 
 In a campaign brief you are blind: work only your approach, its directions and the target statement, return a concrete artifact (`rigor`, "No artifact, no result"), and search only background, never whether the target is solved.
 
+**Paths** (the 2026-10-31 error review: most failed reads were guessed paths). A
+plugin reference written `<plugin>/references/x.md` is `<academy repo>/<plugin>/references/x.md`;
+`docs/x.md` is `<academy repo>/docs/x.md`, never `<academy repo>/academy/docs/`. A cached
+source is `<library>/<key>.txt` (with `<key>.meta`); `<key>.src/` exists only when the TeX
+was fetched, so `Glob <key>*` before reading. A registry object's file is the `path` that
+`claims_show` returns (an id's namespace names its home, which need not be the home
+you were started in): never guess the folder. Never Read a directory or anything
+under `.git`.
+
 ## Where things are
 
 - The instance and its paths: `config_get` (the home's `.claude/academy.json`). The

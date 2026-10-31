@@ -1942,10 +1942,22 @@ def can_transition(old, new, party_set, human=False):
     if who is None:
         route = transition_route(old, new)
         hint = "; go one step at a time: %s" % " -> ".join(route) if route else ""
+        if route and new == "delivered" and old in ("open", "accepted"):
+            hint += ("; or, as the receiver, in one call: tickets_update deliver: true "
+                     "with fields.result")
         return False, "%s -> %s is not a transition%s" % (old, new, hint)
     if set(who) & set(party_set):
         return True, "allowed"
     return False, "%s -> %s is made by the %s" % (old, new, " or ".join(who))
+
+
+def allowed_moves(old, party_set, human=False):
+    """The statuses a caller playing ``party_set`` may move a ticket to from ``old``
+    (sorted; every other valid status for the human)."""
+    if human:
+        return sorted(s for s in TICKET_STATUSES if s != old)
+    return sorted(b for (a, b), who in TRANSITIONS.items()
+                  if a == old and set(who) & set(party_set))
 
 
 def editable_fields(party_set, human=False):

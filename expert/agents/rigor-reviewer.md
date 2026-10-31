@@ -28,6 +28,15 @@ hook refuses it. Your brief is all you are told. The one exception is **reword m
 (below): there the brief hands you the earlier pass, inlined in a bundle file outside
 `reviews/`, and you read it on purpose; `reviews/` itself stays closed.
 
+**Paths** (the 2026-10-31 error review: most failed reads were guessed paths). A
+plugin reference written `<plugin>/references/x.md` is `<academy repo>/<plugin>/references/x.md`;
+`docs/x.md` is `<academy repo>/docs/x.md`, never `<academy repo>/academy/docs/`. A cached
+source is `<library>/<key>.txt` (with `<key>.meta`); `<key>.src/` exists only when the TeX
+was fetched, so `Glob <key>*` before reading. A registry object's file is the `path` that
+`claims_show` returns (an id's namespace names its home, which need not be the home
+you were started in): never guess the folder. Never Read a directory or anything
+under `.git`.
+
 ## Input (the brief)
 
 `subject` (`<ns>:<id>`), where its statement and proof live (a file and label, or the

@@ -101,6 +101,21 @@ class FamilyTests(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertTrue(a.startswith("claims_set_status: "))
 
+    def test_the_2026_10_31_families(self):
+        t = "mcp__plugin_academy_academy__tickets_update"
+        self.assertEqual(self.fam(t, "deliver: true is for the receiver of an open, accepted "
+                                     "or in-progress ticket; T-0820 is open and human is no party"),
+                         "tickets_update: deliver by a non-receiver")
+        self.assertEqual(self.fam(t, "refused: delivered -> closed is made by the sender"),
+                         "tickets_update: move made by the other party")
+        c = "mcp__plugin_academy_academy__tickets_create"
+        self.assertEqual(self.fam(c, "refused: main is not a liaison for expert->researcher"),
+                         self.fam(c, "refused: author may not file to scientist: file to the expert"))
+        self.assertEqual(self.fam("Read", "File content (30662 tokens) exceeds maximum allowed tokens (25000)."),
+                         "Read: file too large to read")
+        self.assertEqual(self.fam("Read", "EISDIR: illegal operation on a directory, read '/a/.git'"),
+                         "Read: read a directory")
+
     def test_fallback_is_the_signature(self):
         sig = el.signature("Bash", "Exit code 1")
         self.assertEqual(el.family(sig), sig)

@@ -473,6 +473,41 @@ class TestTickets(McpTestBase):
         self.assertIn("accepted -> in-progress is made by the sender", str(cm.exception))
         self.assertEqual(before, self._ticket_file(tid))
 
+    def test_result_alias_and_one_call_hint(self):
+        # ledger 2026-10-21..31: agents jumped open -> delivered and forgot fields.result
+        _a, expert, tid = self._deliver_ticket()
+        r = "expert:review-chair"
+        err, msg = expert.call("tickets_update", caller=r, id=tid, status="delivered",
+                               fields={"result": "x"})
+        self.assertTrue(err)
+        self.assertIn("deliver: true with fields.result", msg)
+        self.assertIn("from open you may move it to: accepted, blocked, rejected", msg)
+        err, res = expert.call("tickets_update", caller=r, id=tid, deliver=True,
+                               result="CONFIRMED")
+        self.assertFalse(err, res)
+        _p, meta, _b = ac.as_store(self.board).get(tid)
+        self.assertEqual(("delivered", "CONFIRMED"), (meta["status"], meta["result"]))
+
+    def test_the_human_may_deliver_in_one_call(self):
+        _a, _e, tid = self._deliver_ticket()
+        err, res = self.server().call("tickets_update", id=tid, deliver=True,
+                                      result="answered by the human")
+        self.assertFalse(err, res)
+        self.assertEqual("delivered", res["status"])
+
+    def test_refusal_names_parties_and_who_moves(self):
+        author, expert, tid = self._deliver_ticket()
+        err, msg = author.call("tickets_update", caller="author:math-writer", id=tid,
+                               status="accepted")
+        self.assertTrue(err)
+        self.assertIn("is made by the receiver (expert@t)", msg)
+        self.assertIn("is sender on %s" % tid, msg)
+        self.assertIn("from open you may move it to: cancelled", msg)
+        err, msg = author.call("tickets_update", caller="author:math-writer", id=tid,
+                               deliver=True, result="x")
+        self.assertTrue(err)
+        self.assertIn("only the receiver expert@t delivers it", msg)
+
     def test_budget_max_model_is_optional_and_not_stamped(self):
         # budget.md rule 6: the model comes from the agent file. A new ticket's default budget
         # is runs only; a sender may give runs alone, or add max_model as a note.
@@ -1584,7 +1619,7 @@ class TestRegistryBackend(McpTestBase):
                           id="s1:GEO-1", status="proved",
                           grounds=dict(word, verdict_file=ref.replace("GEO-1.md", "GEO-2.md")))
         self.assertTrue(err)
-        self.assertIn("nor an Expert review ref", msg)
+        self.assertIn("2026-09-28_GEO-2.md does not exist (tried", msg)
         err, res = s.call("claims_set_status", caller="researcher:claim-keeper",
                           id="s1:GEO-1", status="proved", grounds=dict(word, verdict_file=ref))
         self.assertFalse(err, res)

@@ -465,7 +465,7 @@ Consequences for a search pipeline:
 
 #### 6.7.6 Veech-group membership convention, `automorphism_group()` elements **[VERIFIED — run 2026-10-26, cloud Sage 10.7, surface_dynamics 0.7.0, sage-flatsurf 0.8.0]**
 
-Probe: `FlatSurfLab/scratch/probe_api_kdc.py` (T-0688).
+Probe: the lab's `scratch/probe_api_kdc.py` (T-0688).
 
 ```python
 from sage.all import matrix, ZZ, SL2Z

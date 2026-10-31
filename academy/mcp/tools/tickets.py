@@ -21,6 +21,23 @@ DELIVER_FROM = ("open", "accepted", "in-progress")
 FROZEN = ("id", "created", "updated")
 
 
+def _who_moves(meta, pset, me, old, new, human):
+    """The tail of a transition refusal: who this caller is on the ticket, the moves it
+    may make from ``old``, and who makes the move asked for."""
+    role = " and ".join(sorted(pset)) or "no party"
+    moves = ac.allowed_moves(old, pset, human)
+    out = "; %s is %s on %s (sender %s, receiver %s)" % (
+        me, role, meta.get("id"), meta.get("from") or "?", meta.get("to") or "?")
+    out += ("; from %s you may move it to: %s" % (old, ", ".join(moves)) if moves
+            else "; from %s you may make no status move" % old)
+    who = ac.TRANSITIONS.get((old, new))
+    if who:
+        names = [meta.get("from") if w == "sender" else meta.get("to") for w in who]
+        out += "; %s -> %s is made by %s" % (old, new, " or ".join(
+            "the %s (%s)" % (w, n or "?") for w, n in zip(who, names)))
+    return out
+
+
 def _one_line(name, value, required=True):
     if value is None or str(value).strip() == "":
         if required:
@@ -186,6 +203,8 @@ def update_ticket(ctx, a):
                         "%s; pass instance=<its instance>" % (ctx.agent, meta.get("id")))
     pset = ac.parties(meta, me)
     fields = dict(a.get("fields") or {})
+    if a.get("result") is not None and "result" not in fields:
+        fields["result"] = a["result"]          # an alias of fields.result
     new_status = a.get("status")
     deliver = a.get("deliver") is True
     if deliver:
@@ -193,11 +212,25 @@ def update_ticket(ctx, a):
             raise ToolError("deliver: true walks the ticket to delivered; it cannot be "
                             "combined with status %s" % new_status)
         new_status = "delivered"
-        if "receiver" not in pset or meta.get("status") not in DELIVER_FROM:
+        # the human may make every hop, so may deliver in one call too (ledger: 7 refusals
+        # of the human-side session, 2026-10-26..31)
+        if (not human and "receiver" not in pset) or meta.get("status") not in DELIVER_FROM:
+            hint = ""
+            if not human and "receiver" not in pset:
+                hint = ("; only the receiver %s delivers it: work it from that instance "
+                        "(instance=%s, as its own agent)%s"
+                        % (meta.get("to"), meta.get("to"),
+                           ", or the human moves it" if meta.get("to") != ac.HUMAN
+                           else "; a ticket to human is moved by the human"))
             raise ToolError(
-                "deliver: true is for the receiver of an open, accepted or in-progress "
-                "ticket; %s is %s and %s is %s"
-                % (meta["id"], meta.get("status"), me, " and ".join(sorted(pset)) or "no party"))
+                "deliver: true is for the receiver (or the human) of an open, accepted or "
+                "in-progress ticket; %s is %s and %s is %s%s"
+                % (meta["id"], meta.get("status"), me,
+                   " and ".join(sorted(pset)) or "no party", hint))
+        if not (fields.get("result") or meta.get("result")):
+            raise ToolError("delivered needs result: pass fields.result (one line, the "
+                            "answer) in the same call as deliver: true; detail goes in "
+                            "the ## Result body (result_detail)")
     reason = (a.get("reason") or "").strip()
     note = (a.get("note") or "").strip()
     speaker = ctx.speaker
@@ -254,7 +287,8 @@ def update_ticket(ctx, a):
         for hop_old, hop_new in steps:
             ok, why = ac.can_transition(hop_old, hop_new, pset, human)
             if not ok:
-                raise ToolError("refused: %s" % why)
+                raise ToolError("refused: %s%s" % (
+                    why, _who_moves(meta, pset, me, hop_old, hop_new, human)))
         for n, (hop_old, hop_new) in enumerate(steps):
             # the first hop sees the ticket as it was before this call, as a single step did
             hop_meta = old_meta if n == 0 else dict(meta, status=hop_old)
@@ -272,7 +306,7 @@ def update_ticket(ctx, a):
                                                 if reason and not dead_block else ""))
         if new_status in ("delivered", "closed") and not meta.get("result"):
             raise ToolError("%s needs result: pass fields.result (one line, the answer) in the same call as status; "
-                            "detail goes in the ## Result body" % new_status)
+                            "detail goes in the ## Result body (result_detail)" % new_status)
     elif a.get("reopen"):
         raise ToolError(ac.REOPEN_ONLY)
     elif reason and not note:
@@ -367,11 +401,12 @@ TOOLS = [
     Tool("tickets_update", "Change a ticket: a status transition (with reason where the "
          "protocol needs one), owned fields, ## Ask / ## Result detail, and/or a thread "
          "note. Field ownership and transitions per docs/protocol.md. deliver: true (the "
-         "receiver, ticket open/accepted/in-progress, fields.result required) walks "
+         "receiver or the human, ticket open/accepted/in-progress, fields.result required) walks "
          "open -> accepted -> in-progress -> delivered in one call, writing the usual "
-         "thread line per step; every hop must be allowed; not with another status.",
+         "thread line per step; every hop must be allowed; not with another status. "
+         "result is an alias of fields.result.",
          obj({"id": S, "status": {"type": "string", "enum": list(ac.TICKET_STATUSES)},
               "reason": S, "reopen": S, "fields": {"type": "object"}, "ask_detail": S,
-              "result_detail": S, "note": S, "deliver": B, "instance": ACTING}, ["id"]),
+              "result_detail": S, "note": S, "deliver": B, "result": S, "instance": ACTING}, ["id"]),
          update_ticket, write=True),
 ]

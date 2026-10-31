@@ -45,11 +45,26 @@ def _config(ctx, a):
         raise ToolError("unknown instance %r (have: %s)"
                         % (name, ", ".join(sorted(ctx.instances()))))
     if not name and not ctx.is_human:
-        name = ctx.instance             # the agent's own instance, resolved per call
+        try:
+            name = ctx.instance         # the agent's own instance, resolved per call
+        except ToolError as exc:
+            # a read: an agent of a role with several instances (two researchers)
+            # gets each candidate's config instead of a refusal
+            cands = sorted(ctx.instances_by_role(ctx.agent_plugin()))
+            if len(cands) < 2:
+                raise
+            return {"instance": None, "ambiguous": str(exc),
+                    "candidates": {c: _one(ctx, c) for c in cands},
+                    "note": "pass instance=<one of %s> for one config; writes still need "
+                            "the instance" % ", ".join(cands)}
     name = name or ctx.home_instance()
     if not name:
         raise ToolError("the server's cwd is in no academy home; name an instance "
                         "(instance=<one of %s>)" % ", ".join(sorted(ctx.instances())))
+    return _one(ctx, name)
+
+
+def _one(ctx, name):
     home = ctx.home_of(name)
     models = _models(ctx, name.split("@", 1)[0])
     path = os.path.join(home, ac.CONFIG_REL)

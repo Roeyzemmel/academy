@@ -535,7 +535,9 @@ class RegistryBackend(ClaimsBackend):
             (refs[0] if refs else "")
         if vfile and refs and vfile not in refs:
             raise ToolError("refused: grounds.verdict_file %s is none of the verdicts' "
-                            "refs (%s)" % (vfile, ", ".join(refs)))
+                            "refs (%s); pass grounds.verdict_file=%s, or leave it out "
+                            "(the first verdict's ref is used)"
+                            % (vfile, ", ".join(refs), refs[0]))
         human = g.get("basis") == "human"
         settling = status not in UNSETTLED + LIFECYCLE_TARGETS
         why = _grounds.check_verdict_refs(
@@ -555,9 +557,7 @@ class RegistryBackend(ClaimsBackend):
         if vfile:
             vrel = self.s1kb._verdict_relpath(kb.root, vfile)
             if vrel is None:
-                raise ToolError("refused: %r is not an existing file under "
-                                "computation/verdicts/ or audits/ of the home, nor an "
-                                "Expert review ref (file:expert@<name>/reviews/...)" % vfile)
+                raise ToolError("refused: " + self.s1kb.review_ref_miss(kb.root, vfile))
             probs = self.s1kb.verdict_file_problems(kb, vrel, eid, label, human=human)
             if probs:
                 raise ToolError("refused: the verdict file does not carry %s to %s:\n- %s"

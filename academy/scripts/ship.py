@@ -462,6 +462,14 @@ def cmd_commit(a):
         base = os.path.join(top, prefix) if prefix else top
         rels = []
         for p in paths:
+            pp = p.replace("\\", "/")
+            if prefix and not os.path.isabs(p) and pp.startswith(prefix.rstrip("/") + "/") \
+                    and not os.path.exists(os.path.join(base, p)):
+                # --paths are relative to the target; "board/x" for target board meant "x"
+                # (ledger 2026-10-31: :(top)board/board/.errors/... did not match)
+                p = pp[len(prefix.rstrip("/")) + 1:]
+                print("ship: note: --paths are relative to %s/; read %r as %r"
+                      % (prefix.rstrip("/"), pp, p), file=sys.stderr)
             full = os.path.realpath(p if os.path.isabs(p) else os.path.join(base, p))
             try:
                 inside = os.path.commonpath([base, full]) == base
