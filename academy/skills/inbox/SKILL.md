@@ -5,70 +5,50 @@ description: 'Work every instance''s board inbox in one run, in a fixed order (A
 
 # /academy:inbox
 
-The cross-role inbox. Each role keeps its own `/author:inbox`, `/expert:inbox`,
-`/researcher:inbox` and `/scientist:inbox`; this skill runs them in turn and adds no
-routing of its own. `/academy:desk` is unchanged. The shared selection is the academy
-library's `inbox_core` (`docs/protocol.md` section 4; every role's `scripts/inbox.py` is a
-thin wrapper over it). Budget rules: `references/budget.md` (rule 1: three items, rule 2:
-serial, rule 4: a limit error ends the run).
+The cross-role inbox. The rules are code (the human's decision, 2026-10-31):
+`workflows/inbox.js` holds the instance order, the cap over the whole run, one ticket at
+a time with its `--check` checkpoint, the stop on a lost agent, every route of the roles'
+`routes.py`, and the relays' legs and conclusions (docs/workflows.md). This skill only
+calls it and finishes what it hands back.
 
-`$ARGUMENTS`: empty, `--n N` (fewer than 3), `--all` (list only, take nothing),
-`--campaign <target-id>` (only tickets carrying `campaign: <target-id>`, section 4.1 of
-the campaign design), or `--cowork <slug>` (only tickets carrying `cowork: <slug>`, the
-tickets of `/academy:cowork`; the same rules as a campaign). A workplan's tickets wait
-here for their next actor: this run, acting as each instance in turn, is that actor
-(`academy/lib/workplan.py`). With no argument, first show the active workplans
-(`py "${CLAUDE_PLUGIN_ROOT}/scripts/cowork.py" list`) in one line each.
+`$ARGUMENTS`: empty, `--n N` (fewer than 3), `--all` (list only: run
+`py <role plugin>/scripts/inbox.py --instance <name> --all` per instance and stop),
+`--campaign <target-id>` or `--cowork <slug>` (only that workplan's tickets, under its
+own caps, `references/budget.md`), or ticket ids. With no argument, first show the
+active workplans (`py "${CLAUDE_PLUGIN_ROOT}/scripts/cowork.py" list`), one line each.
 
-## 1. Order the instances
+## 1. Run the workflow
 
-Read `workspace.json` (`workspace_get`). The roles go in this fixed order: **Author,
-Expert, Researcher, Scientist**; instances of one role by name. Nothing is taken from an
-instance that is not in `workspace.json`.
+Call the **Workflow** tool:
 
-## 2. Look, instance by instance
+    scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/inbox.js
+    args: {root: "${CLAUDE_PLUGIN_ROOT}/..", n: <N>, cap: <the workplan's cap, campaign/cowork only>,
+           campaign: "<T>", cowork: "<S>", ids: ["T-NNNN", ...]}
 
-For each instance, in order, run its role's script from any directory:
+Give `root` as an absolute path (expand the variable). `only: ["<instance>"]` limits it to
+one instance; the role inboxes pass that.
 
-```
-py "${CLAUDE_PLUGIN_ROOT}/../<role>/scripts/inbox.py" --instance <name> --json [--n N] [--campaign T | --cowork S]
-```
+What the script does, so the report can be read against it: it lists each instance with
+`py <role plugin>/scripts/inbox.py --instance <name> --json` (in progress first, then
+return legs, then `open` and `accepted` by priority, agenda position, id). With `--campaign` each instance's
+listing is not cut at three, and the campaign's own caps apply (`cap`). After each ticket it runs `inbox.py --instance <name> --check T-NNNN`:
+exit 0 means delivered, blocked with its reason or rejected. Exit 3 means unfinished,
+and nothing more is taken from that instance in this run.
 
-(`~/.claude/skills/<role>/scripts/inbox.py` if the variable is not expanded.) Each row has
-`id`, `kind`, `priority`, `return`, `route: {how, target, why}` and `over_budget`; rows
-come already ordered: tickets in progress first (resume), then return legs, then `open` and
-`accepted` by priority, agenda position, id. Dead-route and pending blocked tickets are
-never listed. With `--all`, print each instance's list and stop.
+## 2. What comes back
 
-## 3. Take, one at a time, under one cap
+- **`for_main`**: the run stopped at a ticket only this main session may run: a skill
+  route (`expert:cite`, `researcher:prove`, `author:notes`, ...), a question to the human
+  (an Author ticket with no route: `AskUserQuestion`), a research ticket only `main` may
+  file, or `/researcher:settle`. Run it as the role's inbox skill says, then its
+  `py <role plugin>/scripts/inbox.py --instance <name> --check T-NNNN`. Then call the
+  workflow again with `cap` lowered by `count + 1`, until the cap is spent or nothing is
+  left.
+- **`stopped`**: an agent returned nothing (a limit). Launch nothing further and report it.
+- **`notes`**: put them into the report verbatim (an unfinished ticket that closed its
+  instance, a relay child the check refused, the Author's check_paper reminder).
 
-Count the cap over the **whole run**, not per instance: at most 3 tickets, or `--n`
-(`budget.itemsPerRun` of the instance may lower it). With `--campaign` each instance's
-listing is not cut at three and the campaign's own caps apply (`references/budget.md`,
-"Campaigns"); `--cowork` the same, under "Cowork". Take the first row of the first instance that has one; "first" is per
-instance: in-progress first is the order inside one instance's list, and the instances
-keep their fixed order. Run the row as that role's inbox skill says: follow its step 2
-with the row's route (`/author:inbox`, `/expert:inbox`, `/researcher:inbox` or
-`/scientist:inbox`), in the session or subagent that skill names, never as another role.
-An Author instance sweeps first (`/author:inbox` step 1) and this sweep counts against no
-cap.
+## 3. Report
 
-**Checkpoint before the next ticket** (serial, `budget.md` rule 2). The role skill's own
-step already ends with `py <role plugin>/scripts/inbox.py --check T-NNNN`: that run
-counts; do not run `--check` again here (a finished ticket's `--check` also runs the
-academy's `ship.py checkpoint`, `docs/protocol.md` section 4, so a second run
-would checkpoint twice). Read its exit code: exit 0 means delivered,
-blocked with its reason or rejected. Exit 3 means unfinished: report it, do not
-redispatch it in this run, and take nothing more from that instance while it is
-unfinished (it comes first next run). Then take the next row. Tickets a role files
-while running (a relay, a child) are picked up by the run that reaches their receiver;
-do not restart from the top.
-
-**Stop at once** on a usage or rate-limit error: record in the ticket thread what was and
-was not done, launch nothing further, and report (`budget.md` rule 4).
-
-## 4. Report
-
-One line per ticket taken: instance, id, route, outcome (delivered, blocked with its
-reason, rejected, unfinished). Then per instance how many tickets remain, and anything
-parked on the human (`/academy:decide`).
+One line per ticket in `taken`: instance, id, route, outcome. Then the sweep counts,
+`remaining` per instance, and anything parked on the human (`/academy:decide`).

@@ -209,6 +209,13 @@ class LaunchGuardTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"ACADEMY_ALLOW_MANUAL_REVIEW": "1"}):
             self.assertIsNone(guard.decide(self.ev("researcher:experiment-reviewer")))
 
+    def test_relays_are_launched_only_by_the_inbox_workflow(self):
+        os.environ.pop("ACADEMY_ALLOW_MANUAL_REVIEW", None)
+        for sub in ('researcher:experiment-spec', 'lit-request'):
+            out = guard.decide(self.ev(sub))
+            self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertIn("workflows/inbox.js", out["hookSpecificOutput"]["permissionDecisionReason"])
+
     def test_the_hook_is_registered(self):
         with open(os.path.join(PLUGIN, "hooks", "hooks.json"), encoding="utf-8") as fh:
             hooks = json.load(fh)["hooks"]["PreToolUse"]

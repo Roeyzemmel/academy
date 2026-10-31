@@ -28,6 +28,14 @@ reviewers blind.
   instructions. The pilot did not exercise the PreToolUse blind guard, because the
   reviewer itself refused to read `reviews/`. The guard is the same plugin hook
   mechanism.
+- **The MCP server sees a workflow agent as itself.** A workflow agent of type
+  `expert:clerk` called `workspace_get`, and the server reported the caller
+  `expert:clerk`, verified, acting for the workspace's Expert instance. So `mcp_write_gate`'s caller record,
+  `permissions.json` and the ticket chain apply to workflow agents unchanged. A relay
+  launched by a workflow files its child as itself, a liaison.
+- **Plugin agents are registered at session start.** An agent file added during a
+  session is not a valid `agentType` until the next session; the workflow then fails at
+  once, before any agent runs.
 - **A workflow agent is not launched through the `Agent` tool.** So a PreToolUse hook
   on `Agent|Task` sees only hand launches. That is what `review_launch_guard.py` uses.
 - No filesystem in the script: every file operation is an agent stage, and the script
@@ -55,5 +63,5 @@ reviewers blind.
 |---|---|---|
 | proof review (`/expert:verify`) | `expert/workflows/verify.js` | done 2026-10-31, with `review_launch_guard.py` |
 | experiment review / settle (`/researcher:review-experiment`, `/researcher:settle`) | `researcher/workflows/review-experiment.js` | done 2026-10-31, with the researcher's `review_launch_guard.py` and the clerk agent `review-clerk`. Modes `review`, `settle-audit` (at most three candidates, returned as `to_file` for the main session, the liaison) and `settle-conclude`; the brief is `reviews.py brief`'s text, pinned by a test |
-| all inboxes (`/academy:inbox`) | `academy/workflows/inbox.js` | planned: the fixed instance order, at most three tickets each, one at a time, `ship.py checkpoint` after each |
+| all inboxes (`/academy:inbox` and the four role inboxes, `only: [instance]`) | `academy/workflows/inbox.js` | done 2026-10-31, with the clerk `academy:inbox-clerk`. It holds the instance order, the cap over the run, one ticket at a time with its `--check` (which runs `ship.py checkpoint`), the stop on a lost agent and every route of `routes.py`. Relays: the forward leg is the relay's decision and child, then the script's chain check and conclusion; the return leg is made without the relay. verify and review-experiment run nested. A skill route, a question to the human, a ticket only `main` may file, and `/scientist:experiment` (header approval) end the run with `for_main` |
 | weekly usage and error settle (`/academy:usage --weekly`) | `academy/workflows/weekly.js` | planned: the usage-analyst packet, then `error_ledger.py settle --packet` |

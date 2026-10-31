@@ -5,44 +5,24 @@ description: 'Work the Expert''s inbox: take at most three open or accepted tick
 
 # The Expert's inbox
 
-`$ARGUMENTS` is empty, or a number (at most 3) of tickets to take (`--n N`, or `--limit N`), `--all` (list only), or ticket ids.
-Scripts: `$E` = `${CLAUDE_PLUGIN_ROOT}/scripts`. Run from the library home, so the MCP
-tools act for the Expert instance. The budget rules are `academy/references/budget.md`;
-the ticket lifecycle is `docs/protocol.md` section 4.
+The inbox rules are code: `/academy:inbox`'s workflow (`<academy plugin>/workflows/inbox.js`,
+docs/workflows.md) takes at most `budget.itemsPerRun` tickets (never more than 3), one at a
+time, by the routes of `${CLAUDE_PLUGIN_ROOT}/scripts/routes.py`, with the `--check`
+checkpoint after each, and makes every relay leg and its conclusion: a relay ticket ready
+for its return leg (`blocked`, waiting only on tickets that are all `delivered` or terminal)
+is closed by the script without the relay. Run from the library home.
 
-1. **Plan**: `py $E/inbox.py --json [--n N]` (the shared inbox core; routes are
-   `scripts/routes.py`). It lists what waits, takes at most `budget.itemsPerRun` (never
-   more than 3), and gives each ticket its route. A ticket still `in-progress` from an
-   earlier run comes first and is resumed. Besides `open` and `accepted` tickets it takes a relay ticket ready for its **return leg**:
-   `blocked`, routed to a relay by its `final_to`, waiting only on ticket ids (never
-   `human`), every one of them `delivered` or terminal; its route carries
-   `"return": true` on its row. Say how many are taken and how many wait.
-2. **One ticket at a time**, each finished and checkpointed in its thread before the
-   next starts (`budget.md` rules 1–2):
+`$ARGUMENTS`: empty, `--n N`, `--all` (list only: `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py --all`
+and stop), or ticket ids.
 
-   | route | what to do |
-   |---|---|
-   | `expert:verify` | run the `verify` skill with the claim id from the refs and the ticket id |
-   | `expert:cite` | run the `cite` skill with the ticket id |
-   | `clerk` | `open -> accepted -> in-progress`; one `clerk` run with the ask; its answer becomes the `result` and `## Result`, then `delivered`. An `ESCALATE` answer: append it to the thread and, if the ticket's `budget.runs` allows a second run, dispatch one `librarian` with the escalated ask; otherwise `blocked`, `waiting_on: [human]`, asking for the budget |
-   | `expert:referee` | run the `referee` skill with the ticket id |
-   | `expert:domain` | run the `domain` skill with the ticket id |
-   | `research-intake` | one `research-intake` run on the ticket (a `final_to` toward the Researcher or the Scientist, whatever the kind, or a `research` ticket with no `final_to`); with `"return": true`, the same agent's return leg: it closes the child and delivers the ticket. Make no transition yourself |
-   | `paper-liaison` | one `paper-liaison` run on the ticket (a `final_to` toward an Author, whatever the kind); with `"return": true`, the same agent's return leg: it closes the child and delivers the ticket. Make no transition yourself |
-   | `human` | `blocked`, `waiting_on: [human]`, with a thread line naming the decision needed |
-   | `reject` | `rejected`, with the script's reason in the same write (for Researcher or Scientist work it tells the sender to ask through a `research` ticket to the Expert with `final_to`) |
+1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
+   and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
+2. **Finish what it hands back**, as `/academy:inbox` section 2 says: a `for_main` ticket
+   (a skill route, run here with the ticket id: `expert:cite`, `expert:referee`, `expert:domain`), then its
+   `inbox.py --check T-NNNN`, then the workflow again with the cap lowered; `stopped` ends
+   the run (a limit; `budget.md` rule 4).
+3. **Report**: each ticket, its route and outcome, and how many remain. Never ask
+   questions.
 
-   Each transition goes through `tickets_update`; never edit a ticket file. After each
-   ticket, `py $E/inbox.py --check T-NNNN` (exit 0: delivered, blocked with its reason or
-   rejected; exit 3: unfinished, so report it and take nothing more).
-3. **Stop at once** on a limit error: record in the current ticket's thread what was
-   and was not done, launch nothing further, and report (`budget.md` rule 4). A ticket
-   whose `budget.runs` cannot cover its route goes to `blocked` with
-   `waiting_on: [human]` and a thread line asking for the budget. The model is not a
-   budget question: each agent runs on its agent file's model, and a ticket's
-   `budget.max_model`, if present, is an advisory note that never blocks a route.
-
-## Report
-
-One line per ticket taken: id, route, final status, result or packet id. Then how many
-wait for the next run. Never ask questions.
+A ticket's `budget.max_model`, if present, is an advisory note and never blocks a route;
+each agent runs on its agent file's model.

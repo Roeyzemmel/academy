@@ -24,25 +24,38 @@ REASON = ("rigor-reviewer runs are launched by the verify workflow, which holds 
           "(the verify skill gives the exact call). By hand only when the Workflow tool "
           "cannot run: the human sets ACADEMY_ALLOW_MANUAL_REVIEW=1.")
 
+#: the relays of this plugin: launched only by the inbox workflow (academy/workflows/
+#: inbox.js), which moves their tickets and checks the child they file
+RELAYS = ("research-intake", "paper-liaison")
+RELAY_REASON = ("%s is launched by the inbox workflow, which makes its ticket moves and "
+                "checks the child it files: run Workflow with scriptPath "
+                "<academy plugin>/workflows/inbox.js (the role's inbox skill gives the "
+                "exact call). By hand only when the Workflow tool cannot run: the human sets "
+                "ACADEMY_ALLOW_MANUAL_REVIEW=1.")
+
 
 def decide(event):
     """The PreToolUse output for ``event``, or None to stay silent."""
     if not isinstance(event, dict) or event.get("tool_name") not in ("Agent", "Task"):
         return None
     ti = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
-    sub = str(ti.get("subagent_type") or "")
-    if sub.rsplit(":", 1)[-1] != AGENT:
+    bare = str(ti.get("subagent_type") or "").rsplit(":", 1)[-1]
+    if bare == AGENT:
+        reason = REASON
+    elif bare in RELAYS:
+        reason = RELAY_REASON % bare
+    else:
         return None
     if os.environ.get("ACADEMY_ALLOW_MANUAL_REVIEW") == "1":
         return None
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                    "permissionDecision": "deny",
-                                   "permissionDecisionReason": REASON}}
+                                   "permissionDecisionReason": reason}}
 
 
 def main(raw=None):
     raw = sys.stdin.read() if raw is None else raw
-    if AGENT not in raw:            # the common case: exit before parsing
+    if AGENT not in raw and not any(r in raw for r in RELAYS):   # the common case
         return 0
     try:
         event = json.loads(raw) if raw.strip() else {}

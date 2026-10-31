@@ -6,84 +6,49 @@ description: 'Work the paper''s inbox (replaces /author:next): sweep the machine
 # /author:inbox
 
 The main session **orchestrates and relays only**; every edit happens in an agent. The
-choice of tickets is made by `inbox.py`, not by you. It is the Author's wrapper over the
-academy's shared inbox core, like `/researcher:inbox`, `/expert:inbox` and
-`/scientist:inbox`. Budget and roster rules: `${CLAUDE_PLUGIN_ROOT}/../academy/references/budget.md`
-and `roster-rules.md` (at most `budget.itemsPerRun` tickets, serially, no relaunch after a
-limit error, the lightest agent). Routing table and the lessons kept from the tier pass:
-`references/routing.md`. Scripts: `$S` = `${CLAUDE_PLUGIN_ROOT}/scripts`
-(`~/.claude/skills/author/scripts` if the variable is not expanded).
+inbox rules are code: `/academy:inbox`'s workflow (`<academy plugin>/workflows/inbox.js`,
+docs/workflows.md) runs the machine-note sweep first (`note-sweeper`, no cap), takes at
+most `budget.itemsPerRun` tickets in `inbox.py`'s order (in progress, returned tickets to
+**land**, **released** blocked tickets, then by agenda position, priority, id), one at a
+time, with the `--check` checkpoint after each, and closes the delivered self-tickets.
+Routing table and the lessons of the tier pass: `references/routing.md`. Scripts: `$S` =
+`${CLAUDE_PLUGIN_ROOT}/scripts`.
 
-`$ARGUMENTS`: empty (take the next tickets), `--all` (list only: also the blocked
-tickets), `--n N`, or ticket ids to take in that order (at most three).
+There is no roadmap: the board is the Author's only queue. A work item is a ticket (to
+this Author for `write`, `apply`, `copy`, `figure`, `build`, `notation`, `sweep`; to the
+Expert for an ask) with `--agenda <ns>:<label>` and the claim in `--refs`, or filed by
+`py $S/agenda.py gaps --file` (a refuted claim or one with no record is held for the
+human). If the agenda's status column may be stale, run `py $S/agenda.py status` first.
 
-There is no roadmap: the board is the Author's only queue. A work item is a ticket, filed
-with `board.py new` / `tickets_create` (to this Author itself for `write`, `apply`,
-`copy`, `figure`, `build`, `notation`, `sweep`; to the Expert for an ask) with `--agenda
-<ns>:<label>` (the agenda entry: its position in the paper) and the claim in `--refs`, or by
-`agenda.py gaps --file` (`--campaign TARGET` tags what it files; a refuted claim or one
-with no registry record is held for the human, never ticketed).
+`$ARGUMENTS`: empty, `--all` (list only: `py $S/inbox.py --all` and stop), `--n N`, or
+ticket ids (at most three).
 
-## 1. Sweep first
+1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
+   and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
+   The workflow starts each agent ticket (`math-writer`, `math-editor`, `figure-maker`,
+   `tex-engineer`, `notation-auditor`, `note-sweeper`) in-progress and briefs the agent
+   with the pinned statements (`pinned.py`); a returned ticket goes to `math-editor`
+   (a verdict or citation) or `math-writer` (a proof or experiment) to land and close;
+   `reject` rows are rejected with the route's reason.
+2. **Finish what it hands back** (`for_main`), then its `py $S/inbox.py --check T-NNNN`,
+   then the workflow again with the cap lowered:
+   - a returned referee packet (skill `author:notes`): run `/author:notes` on it;
+   - a self-ticket that needs an argument nobody has delivered (`research`,
+     `routes.needs_argument`): file a `research` ticket to the Expert with
+     `final_to: researcher` (it must pass `routes.check_filed`), move this ticket
+     `blocked` waiting on it, and land what returns. Never write the argument;
+   - a ticket with no Author route (`human`): show it (`board.py show T-NNNN`) and ask the
+     human with `AskUserQuestion` (accept and file a work ticket, reject with a reason,
+     forward). Never guess a route.
 
-Run the machine-note sweep as `/author:sweep` does (`note-sweeper`), before any ticket
-is taken. It counts against no item cap and is reported first. Answered notes are folded
-into the thread of the ticket they belong to (a new ticket where none exists), open
-ones are left.
-
-## 2. Plan
-
-`py $S/inbox.py` from the Author home; add `--json` to parse it. The plan lists, in this
-order: tickets in progress (resume them first), returned tickets to **land**
-(`"return": true`: a ticket this Author filed to another role that came back
-`delivered`), blocked tickets **released** (`"released": true`: everything they
-`waiting_on` is back; move them `blocked -> accepted` first), then open and accepted
-tickets by the earliest agenda position they unblock (their `agenda` field), priority,
-id. The header counts the agenda gaps that have no ticket: `py $S/agenda.py gaps
---file` files them (idempotent; a verification on unproved inputs is held). Exit 1 means
-nothing to take: relay the blocked list (`--all`) and stop. If the agenda's status
-column may be stale, run `py $S/agenda.py status` first.
-
-## 3. Run the taken tickets, one at a time
-
-By each row's `route.how` and `route.target`:
-
-| route | What you do |
-|---|---|
-| `agent` (`math-writer`, `math-editor`, `figure-maker`, `tex-engineer`, `notation-auditor`, `note-sweeper`) | Move the ticket `accepted` then `in-progress` (`py <academy>/scripts/board.py transition T-NNNN accepted --as <instance>`; `<academy>` is `${CLAUDE_PLUGIN_ROOT}/../academy`). Launch the agent with a short brief that starts from the pinned list (`py $S/pinned.py`: statements it must leave byte for byte; their proofs are free): the ticket id (the claim it bears on is in `refs`, its agenda entry in `agenda`), the files it may touch, anything an earlier ticket of this run changed, and "deliver the ticket: `board.py transition T-NNNN delivered --result '<one line>' --as <instance> --agent <agent>`" (or, if it cannot finish, `transition T-NNNN blocked --waiting-on human --reason '<what is needed>'`, which parks it on `human`). |
-| `agent` with `"return": true` | A returned ticket to land: launch the named agent (`math-editor` for a verdict or citation, `math-writer` for a proof or experiment) with the returned ticket's id; it lands the result and then closes the ticket (`board.py transition T-NNNN closed --as <instance>`). |
-| `skill` (`author:notes`) | A returned referee packet: run `/author:notes` on it. |
-| `research` (target `expert`) | A self-ticket whose ask needs an argument nobody has delivered (`routes.needs_argument`): the Researcher proves, the Author only lands (`academy/references/roster-rules.md`, "Role cut"). File a `research` ticket to the Expert with `final_to: researcher` (it must pass `routes.check_filed`), move this ticket `blocked` waiting on it, and land what returns. Never write the argument. |
-| `reject` | Another role's kind (`prove`, `experiment`, ...): `rejected`, with the route's reason in the same write; the reason tells the sender to ask through a `research` ticket to the Expert with `final_to`. |
-| `human` | No Author route for this kind: show it (`py <academy>/scripts/board.py show T-NNNN`) and ask the human with `AskUserQuestion` (accept and file a work ticket, reject with a reason, forward). Never guess a route. |
-
-**Checkpoint after each ticket** before the next: `py $S/inbox.py --check T-NNNN`. Exit 0:
-delivered, blocked with its reason, or rejected. Exit 3: unfinished; report it, do not
-redispatch it in this run, and take nothing while it is unfinished (it comes first next
-time). Nothing runs concurrently.
-
-**Limit stop.** If an agent returns a usage-, rate- or session-limit error, or an empty
-result: launch nothing further, do not relaunch, note it on the ticket
-(`py <academy>/scripts/board.py append T-NNNN --text "interrupted: <what was and was not recorded>" --as <instance>`), and
-go to the report. A result cut off by `maxTurns` is not a limit error: record what is
-unfinished and go on to the next ticket.
-
-**Model fallback.** Only when the primary model is unavailable (not on a limit error),
-relaunch through the Agent tool's `model` override set to the agent's `fallback`, and
-name the substitution in the report.
-
-## 4. Close the run
-
-1. If an agent reported the build not clean, launch `tex-engineer` once.
-2. Run the checker: `py $S/check_paper.py` from the home, and relay its summary lines.
-3. Close the self-tickets the agents delivered (`board.py transition T-NNNN closed --as
-   <instance>`); a returned ticket that was landed is closed the same way.
-
-## 5. Report
-
-The sweep counts first. Then one row per ticket: id, kind, route, files and labels
-touched, outcome. Then verbatim only: every new sketch claim and machine note the agents
-reported, every ticket filed (id, receiver, ask; the verification tickets especially), and every blast-radius finding (a defect reaching past its item).
-Then the build and checker lines, how many tickets remain, and every model substitution.
-If the run was interrupted, say so in the first line. Never ask a question except for a
-`human` route.
+   `stopped` (an agent returned nothing: a limit) ends the run with no relaunch. Only
+   when the primary model is unavailable (not on a limit) relaunch through the Agent
+   tool's `model` override set to the agent's `fallback`, and name it in the report.
+3. **Close the run**: if an agent reported the build not clean, launch `tex-engineer`
+   once; run `py $S/check_paper.py` from the home and relay its summary lines.
+4. **Report**. The sweep counts first. Then one row per ticket: id, kind, route, files
+   and labels touched, outcome. Then verbatim: every new sketch claim and machine note
+   the agents reported, every ticket filed (id, receiver, ask; the verification tickets
+   especially), every blast-radius finding. Then the build and checker lines, how many
+   tickets remain, and every model substitution. If the run was interrupted, say so in
+   the first line. Ask no question except for a `human` route.

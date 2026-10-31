@@ -3,62 +3,29 @@ name: inbox
 description: 'Work the lab''s board inbox: take at most three open or accepted tickets and route each by kind (experiment/test, code, Upstream, question). Use for "work the inbox", "handle T-NNNN", or when SessionStart reports tickets.'
 ---
 
-# The lab's inbox
+# The Scientist's inbox
 
-## Scope notes
+The inbox rules are code: `/academy:inbox`'s workflow (`<academy plugin>/workflows/inbox.js`,
+docs/workflows.md) takes at most `budget.itemsPerRun` tickets (never more than 3), one at a
+time, by the routes of `${CLAUDE_PLUGIN_ROOT}/scripts/routes.py`, with the `--check`
+checkpoint after each, and makes every relay leg and its conclusion. A `code` ticket runs
+`developer`, then `test-engineer` on the diff (never the same agent), within `budget.runs`;
+an "Upstream: ..." one runs `upstream-contributor`. Run from the lab home.
 
-- Routes by kind: `experiment`, `test` and `question` tickets to the experimenter (a `question` is answered from the lab's records, no new compute); `code` tickets to the developer with test-engineer review; a `code` ticket titled "Upstream: ..." to upstream-contributor.
+`$ARGUMENTS`: empty, `--n N`, `--all` (list only: `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py --all`
+and stop), or ticket ids.
 
-`$ARGUMENTS`: nothing (take the next ones), `--n N`, `--all` (list only), or ticket ids to take in that order.
+1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
+   and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
+2. **Finish what it hands back**, as `/academy:inbox` section 2 says: a `for_main` ticket
+   (an `experiment`, `test` or `question` ticket: `/scientist:experiment` with the ticket id,
+   a `test` ticket testing the falsifier in the ask **first** and linking its report packet
+   with `report.py file --ticket T-NNNN`; a ticket with no route: `AskUserQuestion`, the
+   answer recorded in the thread), then its
+   `inbox.py --check T-NNNN`, then the workflow again with the cap lowered; `stopped` ends
+   the run (a limit; `budget.md` rule 4).
+3. **Report**: each ticket, its route and outcome, and how many remain. Ask no question
+   except for a ticket with no route.
 
-## 1. Select (script, not judgement)
-
-```
-py "${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py" --json
-```
-
-It is the shared inbox core (routes: `scripts/routes.py`). It returns up to
-`budget.itemsPerRun` (at most 3) tickets addressed to this instance: an `in-progress`
-ticket from an earlier run first (resume it), then `open` or `accepted` ones ordered by
-priority, agenda position, id; each with its **route**. The routed agent runs on its
-agent file's model; a ticket's `budget.max_model`, if present, is an advisory note and
-never blocks a route. With ticket ids as arguments, take those, still at most three.
-Say how many remain.
-
-## 2. For each ticket, serially
-
-1. Read it (`tickets_get`). `open` → `accepted` (`tickets_update`), then
-   `in-progress` when work starts, each with a thread note.
-2. By route:
-   - `experimenter`: `/scientist:experiment` with the ticket id. A `test` ticket
-     tests the falsifier named in the ask **first**; its report packet is linked to
-     the ticket (`report.py file --ticket T-NNNN`).
-   - `developer`: dispatch `developer` with the ticket id; when it returns, dispatch
-     `test-engineer` to review the diff (never the same agent). Findings go back to
-     the developer through the thread; at most the ticket's `budget.runs` agent runs.
-   - `upstream-contributor`: dispatch it with the ticket id; it returns a packet for
-     the human.
-   - `human`: put the ticket to the human with `AskUserQuestion`, and record their answer in
-     the thread.
-   - `reject`: `rejected`, with the reason and the usual receiver in the thread.
-   - A ticket that needs more agent runs than its `budget.runs`: `blocked`,
-     `waiting_on: [human]`, a thread line asking for more runs.
-3. Finish: `delivered` with a one-line `result` (and `packets` when a packet came
-   out), or `blocked` with what it waits on. Nothing else starts because a ticket
-   was delivered. Checkpoint before the next: `py "${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py"
-   --check T-NNNN` (exit 0: delivered, blocked with its reason or rejected; exit 3:
-   unfinished, so report it and take nothing more).
-
-## Rules
-
-Budget: `${CLAUDE_PLUGIN_ROOT}/../academy/references/budget.md` (three items, serial,
-the lightest agent, no relaunch after a limit error, which also stops the run and is
-recorded in the ticket thread). Independence:
-`${CLAUDE_PLUGIN_ROOT}/../academy/references/roster-rules.md` (whoever wrote code or
-an experiment never reviews it). The board changes only through the MCP tools or
-the academy's `board.py`; field ownership is `docs/protocol.md` section 4.
-
-## Report
-
-Per ticket: id, route, the transitions made, the result line, packets produced; then
-how many tickets remain.
+A ticket's `budget.max_model`, if present, is an advisory note and never blocks a route;
+each agent runs on its agent file's model.
