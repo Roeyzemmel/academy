@@ -39,6 +39,12 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
   3 unfinished), the ticket's status and the output. The check also runs the academy's
   `ship.py checkpoint` for a finished ticket; run it once.
 - **close-self**: `delivered -> closed` for the self-tickets the stage names.
+- **start** (the cite workflow, `expert/workflows/cite.js`): as `move start`, then return from
+  the ticket's ask, `## Ask` and refs the reference (DOI, arXiv id, bib key or title), the
+  pinpoint, the relying sentence or claim id, the target bibliography and the instance you
+  acted as.
+- **validate** (the cite workflow): `py <expert plugin>/scripts/cards.py validate <card>`
+  from the library home; return ok and every error line.
 - **workplan-state** (the cowork pass of `workflows/workplan.js`): `py
   <academy plugin>/scripts/cowork.py status <slug> --json` and the receivers (the `to`
   instances) of the cowork's open tickets.

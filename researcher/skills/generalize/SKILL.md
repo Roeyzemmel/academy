@@ -5,50 +5,34 @@ description: 'Turn a reviewed experiment''s Conclusion into conjectures: prover 
 
 # Generalize from an experiment
 
-`$ARGUMENTS` is an experiment-report packet (`P-NNNN`), a lab claim id, or a
-`generalize` ticket whose `refs` name them. The flow is docs/protocol.md section 6.2.
-Scripts: `$R`, `$A` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Budget:
-`academy/references/budget.md`.
+`$ARGUMENTS` is an experiment-report packet (`P-NNNN`), a lab claim id, or a `generalize`
+ticket whose `refs` name them. The flow is docs/protocol.md section 6.2. Run from the
+Researcher home.
 
-1. **Source.** `py $R/generalize.py source <P-NNNN|lab-id>`: the report's
-   `## Conclusion` and the review state of its lab claim(s). It refuses (exit 2) unless
-   the experiment review has cleared (`/researcher:review-experiment` first). On a
-   ticket: move it `accepted`, then `in-progress`. If there is no `generalize` ticket
-   yet, open one to this instance so the tests have a parent (`py $A/board.py new --to
-   <instance> --kind generalize --title "Generalize <lab-id>" --refs <lab-id>,<P-NNNN>
-   --ask ... --deliverable ... --as <instance>`).
-2. **One `prover`**, on its primary model, briefed with the packet id, the lab claim,
-   the cap (`researcher.generalize.maxPerRun`, at most three) and the output file
-   `<scratchpad>/generalize-<lab-id>.json`. It reads the Conclusion (and the domain's
-   `examples.md` / `theorems/INDEX.md` through `domain_get` for what is already known),
-   scouts prior art, and writes the proposals JSON in the shape `generalize.py`'s
-   docstring gives: id in this instance's namespace, title, statement, kind
-   `conjecture`, status `conjectured`, `bears_on` including the lab claim, the
-   `falsifier`, the `pattern` (wider class / relaxed hypothesis / pattern / invariant)
-   and a one-line rationale. It splits a proposal into the intermediate results it
-   would need and lists them as optional `lemmas` (at most three per proposal: id, title,
-   statement, status `open` or `sketch`, saying what is known and what is missing). It
-   writes only that file; it creates no object.
-3. **Validate.** `py $R/generalize.py validate <file> --lab-claim <lab-id>`. A problem
-   goes back to prover once; a second failure drops that proposal and the report says
-   why.
-4. **Objects.** `py $R/generalize.py create <file> --lab-claim <lab-id>` shows the
-   files; `--apply` writes each as `objects/conjecture/<id>.md`, status `conjectured`,
-   `bears_on` the lab claim, with its `## Falsifier` section, and each lemma as an
-   `objects/claim/<id>.md` the conjecture `depends_on`.
-5. **Tickets.** `py $R/generalize.py tickets <file> --lab-claim <lab-id> --parent
-   <generalize ticket>` prints one `test` ticket per proposal (to the lab instance,
-   "test the falsifier first"); check them, then run it again with `--apply`. This
-   main session files them, as the agent `main` (a researcher -> scientist liaison,
-   docs/protocol.md 5.1); `prover` files no ticket to the Scientist.
-6. **Packet.** `py $R/generalize.py packet-body <file> --lab-claim <lab-id> --report
-   <P-NNNN> --out <scratchpad>/generalize-body.md`, then `py $A/packets.py new
-   --instance <instance> --kind generalization --title "Generalizations of <lab-id>"
-   --ticket <generalize ticket> --subject <new ids, comma-separated>
-   --status-proposed conjectured --body <that file>`.
-7. **Deliver** the generalize ticket with the result "N conjectures filed: <ids>;
-   lemmas <ids>; tests <T-ids>", and report the same.
+**Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/generalize.js`
+and `args: {ref: "<P-NNNN | lab:id>", ticket: "<the generalize ticket>", home: "<this home>", instance: "<this instance>"}`.
+The inbox runs it for a `generalize` ticket. The order is code (2026-10-31;
+docs/workflows.md):
+1. `generalize.py source` refuses unless the experiment review has cleared
+   (`/researcher:review-experiment` first);
+2. one `prover` writes only the proposals file, at most `researcher.generalize.maxPerRun`
+   (three), each a conjecture with its falsifier and at most three lemmas;
+3. `generalize.py validate` checks the file. Problems go back to the prover once; a second
+   failure drops that proposal;
+4. `generalize.py create --apply` writes the objects (`conjectured`, lemmas `open` or
+   `sketch`);
+5. the `generalization` packet.
 
-A generalization that survives its test is proved through `/researcher:prove`; one
-that fails is refuted through claim-keeper on the test's reviewed result. This skill
-never sets any status above `conjectured` (a lemma: `sketch`).
+What comes back for this session:
+- **`needs_ticket`**: open the generalize ticket to this instance first (`py <academy>/scripts/board.py new
+  --to <instance> --kind generalize --title "Generalize <lab-id>" --refs <lab-id>,<P-NNNN> --ask ...
+  --deliverable ... --as <instance>`), then call again with it.
+- **`to_file`**: run its one command (`generalize.py tickets ... --apply`). It files the
+  falsifier tests as `main`, the researcher -> scientist liaison; the prover files no
+  ticket to the Scientist. Then call the workflow again with `mode: "deliver"` and the
+  `then` values. It checks that a test names each conjecture before it delivers the
+  ticket.
+
+A generalization that survives its test is proved through `/researcher:prove`; one that
+fails is refuted through claim-keeper on the test's reviewed result. Nothing here goes
+above `conjectured` (a lemma: `sketch`).

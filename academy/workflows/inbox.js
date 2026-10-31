@@ -43,6 +43,9 @@ const NESTED = {
   'expert:verify': ROOT + '/expert/workflows/verify.js',
   'researcher:review-experiment': ROOT + '/researcher/workflows/review-experiment.js',
   'researcher:prove': ROOT + '/researcher/workflows/prove.js',
+  'expert:cite': ROOT + '/expert/workflows/cite.js',
+  'researcher:explore': ROOT + '/researcher/workflows/explore.js',
+  'researcher:generalize': ROOT + '/researcher/workflows/generalize.js',
 }
 // nested: this run is itself a sub-workflow (of workplan.js); nesting is one level only, so
 // the routes that run their own workflow are handed back as for_main instead
@@ -247,6 +250,24 @@ async function handle(row, i) {
   if (rt.how === 'skill' && NESTED[rt.target] && !NESTED_OK)
     return { for_main: { why: `the ${rt.target} workflow cannot nest inside this nested run`, ticket: row.id, instance: inst, skill: rt.target } }
   if (rt.how === 'skill' && NESTED[rt.target]) {
+    if (rt.target === 'expert:cite') {
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { ticket: row.id })
+      return { outcome: r ? r.outcome : 'unfinished', detail: r ? [r.key, r.pinpoint, r.verdict].filter(Boolean).join(', ') || (r.reason || '') : 'lost', nested: r }
+    }
+    if (rt.target === 'researcher:explore') {
+      const direction = firstRef(row, /^([a-z][a-z0-9]*:)?DIR-\d+$/)
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ ticket: row.id, home: i.home, instance: inst, n: 1 },
+        direction ? { direction: direction.split(':').pop() } : {}))
+      return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.reason ? [r.reason] : []).join('; ') : 'lost', nested: r }
+    }
+    if (rt.target === 'researcher:generalize') {
+      const ref = firstRef(row, /^P-\d{4,}$/) || firstRef(row, /^lab:\S+$/)
+      if (!ref) return { for_main: { why: 'a generalize ticket whose refs name no report or lab claim', ticket: row.id, instance: inst } }
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { ref, ticket: row.id, home: i.home, instance: inst })
+      if (r && r.to_file && r.to_file.length)
+        return { for_main: { why: 'generalize: the main session files the falsifier tests (the liaison), then delivers with mode deliver', ticket: row.id, instance: inst, to_file: r.to_file } }
+      return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.reason || '') : 'lost', nested: r }
+    }
     if (rt.target === 'researcher:prove') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }

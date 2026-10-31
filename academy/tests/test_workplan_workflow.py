@@ -206,5 +206,26 @@ class InboxNestedTests(unittest.TestCase):
         self.assertEqual(res["taken"][0]["outcome"], "verify-filed")
 
 
+    def _one(self, target, kind, refs, to="researcher@u", role="researcher"):
+        row = {"id": "T-3", "kind": kind, "status": "open", "from": "a", "to": to, "final_to": "",
+               "refs": refs, "budget_runs": 1, "route": {"how": "skill", "target": target, "why": ""},
+               "return": False, "released": False, "over_budget": None}
+        return {"instances": [{"name": to, "role": role, "home": "/h", "waiting": 1, "rows": [row]}]}
+
+    def test_cite_explore_and_generalize_run_nested(self):
+        res, labels, calls, err = run(INBOX, {"list": [self._one("expert:cite", "cite", [], "expert@t", "expert")],
+                                              "workflow cite.js": [{"outcome": "cited", "key": "SW10"}],
+                                              "check T-3": [{"exit": 0, "status": "delivered", "detail": ""}]}, {"root": "/a"})
+        self.assertIsNone(err, err)
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow cite.js")["args"], {"ticket": "T-3"})
+        res, labels, calls, err = run(INBOX, {"list": [self._one("researcher:explore", "question", ["flat:DIR-2"])],
+                                              "workflow explore.js": [{"outcome": "moved", "anomalies": []}],
+                                              "check T-3": [{"exit": 0, "status": "delivered", "detail": ""}]}, {"root": "/a"})
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow explore.js")["args"]["direction"], "DIR-2")
+        res, labels, calls, err = run(INBOX, {"list": [self._one("researcher:generalize", "generalize", ["P-0009"])],
+                                              "workflow generalize.js": [{"outcome": "proposed", "to_file": [{"command": "c"}]}]}, {"root": "/a"})
+        self.assertIn("files the falsifier tests", res["for_main"]["why"])
+        self.assertEqual(res["for_main"]["to_file"][0]["command"], "c")
+
 if __name__ == "__main__":
     unittest.main()

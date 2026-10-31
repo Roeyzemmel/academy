@@ -151,7 +151,7 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(res["taken"][1]["outcome"], "delivered (return leg)")
 
     def test_for_main_stops_in_order(self):
-        rows = [row("T-1", how="skill", target="expert:cite", kind="cite", to="expert@t"),
+        rows = [row("T-1", how="skill", target="expert:referee", kind="referee", to="expert@t"),
                 row("T-2", how="human", target="human", kind="decision", to="expert@t")]
         res, labels, _ = self.run_wf({"list": [{"instances": [inst("expert@t", rows)]}]})
         self.assertEqual(res["for_main"]["ticket"], "T-1")

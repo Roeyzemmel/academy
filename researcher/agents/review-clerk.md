@@ -56,5 +56,19 @@ The same clerk serves `workflows/prove.js` and the campaign of `academy/workflow
 - **next**: `notebook.py next <direction> --json`; return its items.
 - **exists**: whether a path exists in the home.
 
+For `workflows/explore.js`: **start** (take the ticket), **direction** (`notebook.py
+direction <id> --json`: exists, lifecycle, title, the number of items), **next**
+(`notebook.py next <id> --n N --json` and how many remain), **get**, **falsified** (whether a
+falsifier ran on an item before this run, with the evidence), **journal** (today's journal:
+exists, path, the ids it mentions), **close**.
+
+For `workflows/generalize.js` (`generalize.py` = `${CLAUDE_PLUGIN_ROOT}/scripts/generalize.py`):
+**source** (`generalize.py source <ref> --json`; on ok, take the ticket), **validate**
+(`generalize.py validate <file> --lab-claim <id> --json`), **drop** (remove the named
+proposals from the JSON file, a mechanical edit and nothing else), **create**
+(`generalize.py create ... --apply`), **packet** (`generalize.py packet-body`, then
+`packets.py new`), **children** (the tickets whose parent is the generalize ticket), **close**.
+You never run `generalize.py tickets --apply`: the main session files the tests.
+
 You never launch an agent, file a ticket, change a status, or edit the notebook, the
 lab or an audit file (the `land_review` hook writes those).
