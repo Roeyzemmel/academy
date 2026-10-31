@@ -47,7 +47,8 @@ def decide(event):
         reason = RELAY_REASON % bare
     else:
         return None
-    if os.environ.get("ACADEMY_ALLOW_MANUAL_REVIEW") == "1":
+    if os.environ.get("ACADEMY_ALLOW_MANUAL_REVIEW") == "1" or \
+            os.environ.get("EVAL_ACADEMY_ALLOW_LAUNCH") == "1":   # the plugin eval suites
         return None
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                    "permissionDecision": "deny",
