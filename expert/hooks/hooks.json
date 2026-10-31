@@ -20,6 +20,16 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/source_guard.py\"",
+            "timeout": 20
+          }
+        ]
       }
     ],
     "PostToolUse": [

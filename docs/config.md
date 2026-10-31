@@ -340,6 +340,7 @@ Author's only queue; a config that still has the key validates and the key is ig
 | `accessLog` | path | Clerk access log feeding `hot.md`: the MCP server appends one line per `library_*` call there, and `hot.py` reads it. Default `.academy/access.log` (derived state, ignored by git); keep it under `.academy/` |
 | `hotSize` | int | Entries kept in `hot.md` |
 | `web` | `{clerk, librarian}` | Whether each agent may fetch from the web (the clerk never does) |
+| `sources` | `{allow: [host...], only: bool}` | The Expert's allowlist of source hosts (2026-10-31): the plugin's default `expert/references/sources.json` plus `allow` (or `allow` alone with `only: true`); a host matches its subdomains. `source_guard.py` (PreToolUse `WebFetch`) refuses the librarian's and the scout's fetches elsewhere; `py source_guard.py --list` prints the list a cloud environment's Allowed domains needs |
 | `shards` | map domain → path | `<library>/<domain>/cards` sharding when the library serves several packs |
 
 **Required paths:** `index`, `cards`, `ledgers`, `reviews`, `hot`, `cache`, `views`.

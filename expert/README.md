@@ -27,6 +27,8 @@ rule is `academy/references/roster-rules.md`, "Model fallback".
 | `rigor-reviewer` | One blind, adversarial proof review (CONFIRMED / PLAUSIBLE / GAP / DISPROVED); read-only, landed by a hook |
 | `referee` | Whole-paper referee report from the built PDF, read cold; read-only, landed by a hook |
 | `related-work-scout` | Prior-art search for one statement, or the literature watch; writes only the library's `ledgers/<instance>/` |
+
+The librarian's and the scout's web fetches stay on the allowlist of sources (`references/sources.json` plus the library's `expert.sources.allow`; `scripts/source_guard.py`, a PreToolUse hook on `WebFetch`). Another host is refused with its name and the place to add it.
 | `research-intake` | Relay, author -> (expert) -> researcher: fails fast, or writes the research block and forwards a `research` ticket |
 | `paper-liaison` | Relay, researcher side -> (expert) -> author: restates a question or result in the paper's terms and forwards it |
 
