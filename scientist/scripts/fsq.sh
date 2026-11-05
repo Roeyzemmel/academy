@@ -53,6 +53,19 @@ CRON_TAG="# fsq-dispatch"
 die() { echo "fsq: $*" >&2; exit 2; }
 now() { date '+%Y-%m-%dT%H:%M:%S'; }
 event() { echo "$(now) $*" >> "$FSQ_HOME/events.log"; }
+# alive PID: the process exists and is not a zombie. kill -0 succeeds on a zombie, and a job
+# whose wrapper was killed is re-parented to PID 1, which in a container may never reap it.
+alive() {
+  local pid="$1" st
+  kill -0 "$pid" 2>/dev/null || return 1
+  if [ -r "/proc/$pid/stat" ]; then
+    st=$(sed 's/^.*) //' "/proc/$pid/stat" 2>/dev/null | cut -c1)
+  else
+    st=$(ps -o stat= -p "$pid" 2>/dev/null | cut -c1)
+  fi
+  case "$st" in Z|X) return 1 ;; esac
+  return 0
+}
 
 clamp() {
   local n="$1"
@@ -266,7 +279,7 @@ reap() {
     if flock -n "$fd"; then
       if [ -d "$FSQ_HOME/running/$id" ]; then
         jp=$(cat "$FSQ_HOME/running/$id/job_pid" 2>/dev/null || true)
-        if [ -n "$jp" ] && kill -0 "$jp" 2>/dev/null; then
+        if [ -n "$jp" ] && alive "$jp"; then
           echo "$(now) warning: $id holds no slot lock but pid $jp is alive; left running" >&2
         else
           finalize "$id" "?" lost

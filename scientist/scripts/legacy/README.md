@@ -19,6 +19,12 @@ itself, which is unchanged; it still runs from the lab on a Linux host
 (`bash scripts/test_fsq.sh`) and was not ported. Do not edit these files; they are the record
 of what was ported, kept until phase 8.
 
+**One change since the port (2026-11-05, Roey's decision, a redeploy):** `fsq.sh` (here and
+`scripts/fsq.sh`, still byte-identical) gained `alive PID`, used by `reap()` in place of
+`kill -0`: a job whose wrapper was killed is re-parented to PID 1, and where PID 1 does not
+reap (a container) it stays a zombie, which `kill -0` counts as alive, so the job was never
+recorded lost (`test_fsq.sh`'s `lost` case failed). Lingo picks it up on its next deploy.
+
 Also here, moved out of `_import/flatsurf` in Group B's review fixes (2026-09-28), as
 reference for the same Group C port:
 
