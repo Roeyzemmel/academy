@@ -24,6 +24,10 @@ roster rules allow for this agent); say in your report which you were.
    academy.json) for the house style. Check
    which TikZ libraries the root file loads before using one; a library it does not
    load goes inside your standalone file, and you say so.
+   Before drawing, apply the domain pack's "What the Author's reviews corrected": a
+   classic picture is cited, not redrawn (report that instead, naming the book figure);
+   no tiny text or tables inside the figure; several panels as a grid of large ones with
+   bare symbols; a caption of two or three sentences.
 2. **Data first.** A figure that carries data (actual coordinates, a computed
    decomposition, trajectories) is drawn from numbers, never from a guess. If the
    numbers are not already in a delivered experiment (`claims_show` on the lab claim,
@@ -33,7 +37,8 @@ roster rules allow for this agent); say in your report which you were.
 3. Write the figure as a `standalone` document, with the line endings the other files
    in that directory use (academy.json `author.crlf`). Compile it alone into a scratch
    directory, rasterise (`pdftoppm -png -r 150`) and **look at the PNG with the Read
-   tool**. Iterate until labels do not collide, identified edges carry matching marks,
+   tool**, also at the real printed width (the figure's `width=` against the text width),
+   where every label must still be legible. Iterate until labels do not collide, identified edges carry matching marks,
    and the picture reads in grayscale.
 4. Include it with `author.figures.include` (a `figure` with `\caption` and
    `\label{fig:...}`), add the `\cref` at the point of use, and let the build gate build
