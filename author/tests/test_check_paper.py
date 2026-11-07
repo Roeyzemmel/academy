@@ -245,5 +245,58 @@ class ConfigValidation(unittest.TestCase):
                       "\n".join(self.probs(statusLevels=[{"name": "x", "kind": "draft"}])))
 
 
+class MarginOverflowScan(unittest.TestCase):
+    """R7 must not run one synctex lookup per clipped fragment (a paper with
+    ~1600 clipped margin lines took a quarter of an hour: the scan 'hung')."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        with open(os.path.join(self.root, "main.tex"), "w") as fh:
+            fh.write("\\documentclass{article}\n")
+        build = os.path.join(self.root, cp._build_rel("pdf").rsplit("/", 1)[0])
+        os.makedirs(build, exist_ok=True)
+        with open(cp._build_path(self.root, "pdf"), "wb") as fh:
+            fh.write(b"%PDF")
+        later = os.path.getmtime(os.path.join(self.root, "main.tex")) + 10
+        os.utime(cp._build_path(self.root, "pdf"), (later, later))
+
+    def scan(self, fragments):
+        from unittest import mock
+        calls = []
+
+        def fake_synctex(root, page, x, y):
+            calls.append(page)
+            return "sections/a.tex", 100 + page
+
+        with mock.patch.object(cp.shutil, "which", return_value="pdftohtml"),              mock.patch.object(cp, "_pdftohtml_fragments", return_value=fragments),              mock.patch.object(cp, "_resolve_synctex", side_effect=fake_synctex):
+            return cp.rule_margin_overflow(self.root), calls
+
+    def test_one_lookup_and_one_finding_per_page(self):
+        frs = [(p, 26.0, 800.0 + i, "line %d" % i)
+               for p in (4, 7) for i in range(500)]
+        out, calls = self.scan(frs)
+        self.assertEqual(sorted(calls), [4, 7])
+        self.assertEqual(len(out), 2)
+        self.assertEqual([(f.file, f.line) for f in out],
+                         [("sections/a.tex", 104), ("sections/a.tex", 107)])
+        self.assertIn("500 clipped fragments on p.4", out[0].message)
+
+    def test_single_fragment_and_clean_pdf(self):
+        out, calls = self.scan([(3, 1.0, 2.0, "x")])
+        self.assertEqual(len(out), 1)
+        self.assertIn("clipped text on p.3", out[0].message)
+        out, calls = self.scan([])
+        self.assertEqual((out, calls), ([], []))
+
+    def test_budget_exhausted_falls_back_to_page_number(self):
+        from unittest import mock
+        with mock.patch.object(cp, "SYNCTEX_BUDGET_SECONDS", -1.0):
+            out, calls = self.scan([(5, 1.0, 2.0, "x")])
+        self.assertEqual(calls, [])
+        self.assertEqual((out[0].file, out[0].line), ("", 0))
+        self.assertIn("(p.5)", out[0].message)
+
+
 if __name__ == "__main__":
     unittest.main()
