@@ -9,6 +9,28 @@ arrow marks for identified edges, same shading for cylinders, same mark for a
 singularity, same mark for a marked point — every figure, every time. Below is a
 consistent scheme; if the existing drafts use a different one, adopt theirs.
 
+## What the Author's reviews corrected (2026-11)
+
+Apply before drawing anything; the templates below are for figures that pass these.
+
+1. **Do not redraw the classics.** The unfolding of a rational billiard (Figure 2
+   below), a polygon with opposite sides glued, the regular octagon surface: a reader
+   knows them, and a book has a better drawing. Cite the figure (Masur--Tabachnikov,
+   Zorich, Cohen--Weiss ...) or ask the Author which one to take; draw only what is
+   specific to this paper.
+2. **No tiny text, no tables inside a figure.** Every label is legible at the printed
+   width (look at the PNG at the real width, not zoomed); a table or a sentence in the
+   picture goes into the caption or the text. Inside a panel only panel letters and bare
+   symbols naming objects the caption refers to (`$e_0$`, `$v_2$`, `$\tau$`).
+3. **Several small pictures become a grid of large ones**: a 2x2 grid of subfigures,
+   each as wide as the column allows, no text within. Never four panels squeezed into
+   one line.
+4. **Short captions**: two or three sentences saying what to look at; the explanation
+   is the paragraph that cites the figure.
+5. **Known objects follow the literature's picture.** A parking garage is drawn as in
+   Cohen--Weiss: a visibly overlapping immersed Gamma-shaped garage, two sheets over
+   the same planar area, not a schematic blob.
+
 ## Preamble
 
 The libraries these styles need. Whether they go in the paper's preamble or in each
@@ -107,6 +129,9 @@ there are more than three identification classes — arrowhead counting past thr
 is unreadable.
 
 ## Figure 2 — unfolding a rational billiard
+
+*Style template only. The plain unfolding is a classic: cite it (rule 1 above) and use
+this drawing for a table that is specific to the paper.*
 
 Show the polygon, then its reflected copies, with the original shaded darker and
 the copies faint. Rotate copies by the elements of the dihedral group; label the

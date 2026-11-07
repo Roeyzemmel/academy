@@ -66,6 +66,17 @@ the reader never pages back.
   the introduction's discussion of open problems. If a step is uncertain, mark it
   visibly (the draft colour, a machine note) rather than softening the prose around it.
 - **First person plural**, consistently.
+- **A result equivalent to a published one is cited, not restated.** No second copy of
+  the source's formulation, no proof sketch of a trivial rewording; state ours once, with
+  the reference (and the original authors' names when the source credits them).
+- **A requested generalization goes into the statement it generalizes** (drop the
+  hypothesis, give the proof or its adaptation there), not into a separate remark.
+- **State a corollary with every direction its source lemma proves**: if the lemma gives
+  an equality of sets, the corollary says the equality, not one inclusion or its
+  consequence.
+- **Letters follow the kind of object**: surfaces X, Y, M; sets of points A, F, P; not an
+  arbitrary B or C for a surface. A letter already used for another object nearby is not
+  reused (`notation-discipline`).
 
 ## Mechanics
 
@@ -86,6 +97,12 @@ arXiv link, referees want the journal reference.
 **Figures.** Each in its own file, compiled on its own while iterating (far faster than
 rebuilding the paper); the directory and inclusion command are the home's, the drawing
 conventions the domain pack's `figures.md`. Check the result in grayscale.
+Reader-review rules (the Author's PR comments, 2026-11): a figure earns its place; a
+textbook-standard picture (the unfolding of a billiard, a polygon with its glued sides) is
+cited from the book or article, not redrawn; no table and no running text inside a figure;
+every label legible at the printed width (judge the PNG at the real width, not zoomed);
+several small panels become a grid of large ones (2x2) with bare symbols only; the caption
+is two or three sentences and the paragraph that cites the figure carries the explanation.
 
 ## Turning scratchwork (or a delivered proof) into a paper
 
@@ -117,7 +134,8 @@ conventions the domain pack's `figures.md`. Check the result in grayscale.
   named in the accompanying message.
 - Every theorem cited from the literature has its hypotheses verified *in the text*
   for the objects at hand, not merely asserted.
-- Figures legible in grayscale; captions stand alone.
+- Figures legible in grayscale and at the printed width, no tiny text or tables inside
+  them; captions short and standing alone.
 - For arXiv: flatten to one directory, include only used files, confirm it builds from
   a clean checkout, remove debugging packages (label display), and check the abstract
   as plain text.

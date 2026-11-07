@@ -25,6 +25,9 @@ project, the project wins in that home and the pack stays as it is.
   finding, not a style preference.
 - **Introduce before use.** Every symbol is defined, or points to its definition,
   before its first use; a result stated in the introduction points forward.
+- **Pick the letter by the kind of object**, in the field's habit: surfaces X, Y, M,
+  finite point sets A, F, P. An unusual letter (a surface called $B$) is a finding even
+  when it clashes with nothing yet.
 - **Follow the settled choices** even where you would choose differently. Propose a
   change; do not make it.
 - **Quoted statements keep the source's notation**, verbatim, with a sentence
