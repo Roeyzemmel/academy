@@ -38,7 +38,10 @@ roster rules allow for this agent); say in your report which you were.
    in that directory use (academy.json `author.crlf`). Compile it alone into a scratch
    directory, rasterise (`pdftoppm -png -r 150`) and **look at the PNG with the Read
    tool**, also at the real printed width (the figure's `width=` against the text width),
-   where every label must still be legible. Iterate until labels do not collide, identified edges carry matching marks,
+   where every label must still be legible. Run `py <plugin>/scripts/figure_check.py tikz
+   <file> --compile --frac <width fraction>` and quote its last line in your report; it
+   must say `ok` (no tables, no running text in a node, nothing tiny at print size), and
+   `figure_check.py captions <section>.tex` must pass for your caption. Iterate until labels do not collide, identified edges carry matching marks,
    and the picture reads in grayscale.
 4. Include it with `author.figures.include` (a `figure` with `\caption` and
    `\label{fig:...}`), add the `\cref` at the point of use, and let the build gate build
