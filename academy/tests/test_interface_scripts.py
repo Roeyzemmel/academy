@@ -847,12 +847,15 @@ class ChainDocsTests(unittest.TestCase):
               ("researcher", "experiment-spec"), ("researcher", "lit-request"))
 
     def test_relays_describe_the_return_leg(self):
-        """F1: close the child, then blocked -> in-progress -> delivered."""
+        """F1: close the child, then blocked -> in-progress -> delivered. Since 2026-10-31
+        the inbox workflow makes the leg; the relay only names that."""
+        wf = self.read("academy", "workflows", "inbox.js")
+        self.assertIn("move it closed", wf)
+        self.assertIn("blocked -> in-progress -> delivered", wf)
         for plugin, name in self.RELAYS:
             text = self.read(plugin, "agents", name + ".md")
-            self.assertIn("return leg", text, name)
-            self.assertRegex(text, r"`closed`", name)
-            self.assertRegex(text, r"`blocked` to `in-progress`,? then `delivered`", name)
+            self.assertIn("return leg** is made by the workflow", text, name)
+            self.assertNotIn("tickets_update", text, name)   # the relay makes no move
 
     def test_inbox_skills_take_the_return_leg(self):
         for plugin in ("expert", "researcher"):

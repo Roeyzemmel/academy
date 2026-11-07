@@ -1741,6 +1741,36 @@ def review_ref_path(root, ref):
     return None if home is None else Path(home) / m.group(2)
 
 
+def review_ref_miss(root, verdict):
+    """Why ``verdict`` does not resolve to a verdict file, in one sentence (the refusal
+    of attach_verdict and set-status). An Expert review ref whose file is missing names
+    the path tried and any library worktree that does hold it (the 2026-10-26 reviews
+    were written in a library worktree, so the main checkout's ref missed them)."""
+    text = str(verdict).strip().replace("\\", "/")
+    m = RE_REVIEW_REF.match(text)
+    if not m:
+        return (f"'{verdict}' is not an existing file under computation/verdicts/ or "
+                "audits/ of the home, nor an Expert review ref "
+                "(file:expert@<name>/reviews/<ns>/<id>/<pass>/<run>.md)")
+    p = review_ref_path(root, text)
+    if p is None:
+        return f"'{verdict}' names {m.group(1)}, which workspace.json gives no home"
+    elsewhere = [w.as_posix() for w in _worktree_copies(p, m.group(2))]
+    tail = (f"; it exists in the library worktree(s) {', '.join(elsewhere)}: merge "
+            "that branch, or work from that checkout" if elsewhere else
+            "; land the verdict first (it is written by the land_verdict hook)")
+    return f"the Expert review {text} does not exist (tried {p.as_posix()}){tail}"
+
+
+def _worktree_copies(p, rel):
+    """The ``.claude/worktrees/*`` checkouts of the Expert home of ``p`` holding ``rel``."""
+    home = Path(str(p)[: -len(rel)]) if str(p).replace("\\", "/").endswith(rel) else None
+    if home is None:
+        return []
+    return [w / rel for w in sorted((home / ".claude" / "worktrees").glob("*"))
+            if (w / rel).is_file()]
+
+
 def _review_ref_of(root, full):
     """The review ref of an absolute path inside an Expert home's ``reviews/``, else None."""
     for inst in _workspace.instances_of_role("expert"):
@@ -2097,10 +2127,7 @@ def cmd_set_status(args) -> int:
     if args.verdict is not None:
         vrel = _verdict_relpath(kb.root, args.verdict)
         if vrel is None:
-            print(f"set-status: '{args.verdict}' is not an existing file under "
-                  + ("computation/verdicts/ or audits/" if kb.layout == "objects"
-                     else "computation/verdicts/")
-                  + ", nor an Expert review ref (file:expert@<name>/reviews/...)",
+            print("set-status: " + review_ref_miss(kb.root, args.verdict),
                   file=sys.stderr)
             return 1
     eid, _ = _resolve_or_complain(kb, args.id)
@@ -2195,8 +2222,7 @@ def attach_verdict(root, text, verdict):
     kb = load_kb(root)
     vrel = _verdict_relpath(kb.root, verdict)
     if vrel is None:
-        raise ValueError(f"'{verdict}' is not an existing file under computation/verdicts/"
-                         + (" or audits/" if kb.layout == "objects" else ""))
+        raise ValueError(review_ref_miss(root, verdict))
     eid, _ = lookup(kb, text)
     if eid is None:
         raise ValueError(f"no entity or alias matches '{text}'")

@@ -361,5 +361,23 @@ class TestS1(Homes):
             s1kb.attach_verdict(self.s1, "CEX-1", "notes/x.md")
 
 
+    def test_a_missing_review_ref_names_the_path_and_the_worktree(self):
+        # ledger 2026-10-26: reviews landed in a library worktree, refs resolved to main
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        lib = Path(tempfile.mkdtemp(prefix="acad-lib-"))
+        rel = "reviews/flat/SYS-1/2026-10-26-T-0654/A.md"
+        write(lib / ".claude" / "worktrees" / "wt1" / rel, "x\n")
+        ref = "file:expert@x/" + rel
+        with mock.patch.object(s1kb._workspace, "instance_home", return_value=lib):
+            msg = s1kb.review_ref_miss(self.s1, ref)
+            self.assertIn("does not exist (tried", msg)
+            self.assertIn("wt1/" + rel, msg)
+            with self.assertRaises(ValueError) as cm:
+                s1kb.attach_verdict(self.s1, "CEX-1", ref)
+            self.assertIn("library worktree", str(cm.exception))
+        self.assertIn("nor an Expert review ref", s1kb.review_ref_miss(self.s1, "notes/x.md"))
+
 if __name__ == "__main__":
     unittest.main()

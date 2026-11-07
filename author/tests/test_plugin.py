@@ -62,47 +62,35 @@ class PluginTests(unittest.TestCase):
         self.assertIn("/author:inbox", text)
         self.assertFalse(os.path.exists(os.path.join(PLUGIN, "skills", "next", "references")))
 
-    def sections(self):
-        text = read("skills", "inbox", "SKILL.md")
-        parts = re.split(r"^## (\d)\. ", text, flags=re.M)
-        return {int(parts[i]): parts[i + 1] for i in range(1, len(parts) - 1, 2)}
-
     def test_inbox_skill_states_the_author_flow(self):
-        sec = self.sections()
-        self.assertEqual(sorted(sec), [1, 2, 3, 4, 5])
-        heads = [sec[n].split("\n", 1)[0] for n in sorted(sec)]
-        self.assertTrue(heads[0].startswith("Sweep first"), heads)
-        self.assertTrue(heads[1].startswith("Plan"), heads)
-        self.assertIn("note-sweeper", sec[1])
-        self.assertIn("no item cap", sec[1])
-        # the plan: in-progress, land (return), released (blocked -> accepted), open
-        plan = sec[2]
-        order = [plan.index(x) for x in ("in progress", "`\"return\": true`", "released",
-                                         "blocked -> accepted", "open and accepted")]
-        self.assertEqual(order, sorted(order), "the plan lists its groups in the core's order")
-        self.assertIn("py $S/inbox.py", plan)
-        self.assertIn("agenda.py gaps", plan)
-        # the run: every route of routes.py is handled, each checkpointed by --check
-        run = sec[3]
+        """Since 2026-10-31 the inbox rules are academy/workflows/inbox.js; the skill names
+        what the workflow does for the Author and what it hands back to the main session."""
+        text = read("skills", "inbox", "SKILL.md")
+        self.assertIn("workflows/inbox.js", text)
+        self.assertIn("note-sweeper", text)
+        self.assertIn("no cap", text)
+        order = [text.index(x) for x in ("in progress", "**land**", "**released**",
+                                         "agenda position")]
+        self.assertEqual(order, sorted(order), "the core's order")
+        self.assertIn("agenda.py gaps", text)
         for agent in routes.agents():
-            if agent != "author:notes":
-                self.assertIn("`%s`" % agent, run, agent)
-        for how in ("`agent`", "`skill`", "`human`"):
-            self.assertIn("| %s" % how, run)
-        self.assertIn("`author:notes`", run)
-        self.assertIn('"return": true', run)
-        rows = [run.index(r) for r in ("\n| `agent` (", "\n| `agent` with `\"return\"",
-                                       "\n| `skill` (", "\n| `human` |",
-                                       "py $S/inbox.py --check T-NNNN")]
-        self.assertEqual(rows, sorted(rows), "rows: agent, landing, skill, human, checkpoint")
-        self.assertIn("Exit 3", run)
-        self.assertIn("Limit stop", run)
-        # self-tickets are closed at the end, then the report
-        self.assertIn("check_paper.py", sec[4])
-        self.assertIn("closed", sec[4])
-        self.assertIn("The sweep counts first", sec[5])
+            self.assertIn("`%s`" % agent, text, agent)
+        for how in ("`author:notes`", "`research`", "`human`", "AskUserQuestion",
+                    "py $S/inbox.py --check T-NNNN", "check_paper.py",
+                    "The sweep counts first"):
+            self.assertIn(how, text, how)
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "skills", "inbox",
                                                     "references", "routing.md")))
+
+    def test_the_workflow_handles_every_route_kind(self):
+        with open(os.path.join(REPO, "academy", "workflows", "inbox.js"), encoding="utf-8") as fh:
+            wf = fh.read()
+        hows = {h for h, _t, _w in routes.KIND_ROUTES.values()} | {"reject", "human", "research", "skill"}
+        for how in hows:
+            self.assertIn("rt.how === '%s'" % how, wf, how)
+        self.assertIn("row.return", wf)                 # the landing of a returned ticket
+        self.assertIn("row.released", wf)               # blocked -> accepted first
+        self.assertIn("note-sweeper", wf)
 
     def test_routing_doc_tables_are_the_generated_ones(self):
         text = read("skills", "inbox", "references", "routing.md")
@@ -124,9 +112,9 @@ class PluginTests(unittest.TestCase):
                          {a: (k, r, ft) for a, (r, k, ft, _d) in routes.OUT_ROUTES.items()})
 
     def test_the_skill_names_exactly_the_agents_the_routes_name(self):
-        text = read("skills", "inbox", "SKILL.md")
-        row = next(ln for ln in text.split("\n") if ln.startswith("| `agent` (`"))
-        named = set(re.findall(r"`([a-z-]+)`", row.split("|")[1])) - {"agent"}
+        text = " ".join(read("skills", "inbox", "SKILL.md").split())
+        sentence = text[text.index("starts each agent ticket ("):].split(")", 1)[0]
+        named = set(re.findall(r"`([a-z-]+)`", sentence))
         self.assertEqual(named, {t for _h, t, _w in routes.KIND_ROUTES.values()}
                          | {"math-editor"})
         self.assertLessEqual(named, set(AGENTS))

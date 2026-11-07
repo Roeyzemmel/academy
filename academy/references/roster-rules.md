@@ -12,12 +12,13 @@ the ticket protocol is `docs/protocol.md`.
    `experiment-reviewer`, `referee`) are read-only. Their verdicts reach the files
    through a SubagentStop hook, never through their own writes or the MCP write tools.
 3. **The commissioner never grades.** An agent or skill that commissioned a piece of
-   work (a lead-researcher that asked for a proof, a review-chair that launched two
-   reviewer runs) adjudicates mechanically at most, by the decision table; it does
+   work (a lead-researcher that asked for a proof, the verify workflow's review-chair
+   stages over two reviewer runs) adjudicates mechanically at most, by the decision table; it does
    not substitute its own reading for a verdict.
 4. **Two agreeing, independent verdicts** are the grounds for raising a status
    (the `status-vocabulary` skill gives the mapping). Run B is launched only if run A
-   is positive, and neither run sees the other. A definition used only as notation is
+   is positive, and neither run sees the other; for proof reviews the `academy-verify`
+   workflow enforces this in code (docs/workflows.md). A definition used only as notation is
    not an input in a verdict's `modulo` list; only a definition whose content the
    argument relies on counts (the human's decision, 2026-10-09, T-0148). So two
    CONFIRMED runs whose `modulo` lists differ only in definitions agree, on the

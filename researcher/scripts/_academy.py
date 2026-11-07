@@ -1942,10 +1942,22 @@ def can_transition(old, new, party_set, human=False):
     if who is None:
         route = transition_route(old, new)
         hint = "; go one step at a time: %s" % " -> ".join(route) if route else ""
+        if route and new == "delivered" and old in ("open", "accepted"):
+            hint += ("; or, as the receiver, in one call: tickets_update deliver: true "
+                     "with fields.result")
         return False, "%s -> %s is not a transition%s" % (old, new, hint)
     if set(who) & set(party_set):
         return True, "allowed"
     return False, "%s -> %s is made by the %s" % (old, new, " or ".join(who))
+
+
+def allowed_moves(old, party_set, human=False):
+    """The statuses a caller playing ``party_set`` may move a ticket to from ``old``
+    (sorted; every other valid status for the human)."""
+    if human:
+        return sorted(s for s in TICKET_STATUSES if s != old)
+    return sorted(b for (a, b), who in TRANSITIONS.items()
+                  if a == old and set(who) & set(party_set))
 
 
 def editable_fields(party_set, human=False):
@@ -2678,6 +2690,10 @@ class inbox_core(object):
                 if st not in inbox_core.SHOW:
                     continue
                 group = 0 if st == "in-progress" else 2 if st in inbox_core.TAKE else 1
+                # a listing without the cut still marks a relay ready for its return leg
+                # (live run 2026-10-31: --ids showed T-0900 pending after its child was delivered)
+                ret = bool(st == "blocked" and return_legs and not dead
+                           and relay_return_ready(m, status_of))
             elif dead:
                 continue
             elif st == "in-progress":
@@ -2725,7 +2741,8 @@ class inbox_core(object):
         if m.get("_return"):
             r["why"] = inbox_core.RETURN_WHY
         return {"id": m.get("id"), "kind": m.get("kind"), "status": m.get("status"),
-                "priority": m.get("priority") or "normal", "from": m.get("from"),
+                "priority": m.get("priority") or "normal", "from": m.get("from"), "to": m.get("to"),
+                "parent": m.get("parent") or "", "final_to": m.get("final_to") or "",
                 "title": m.get("title"), "agenda": m.get("agenda"),
                 "budget": m.get("budget"), "refs": m.get("refs") or [],
                 "campaign": m.get("campaign"), "cowork": m.get("cowork"), "route": r, "return": bool(m.get("_return")),
@@ -2988,6 +3005,10 @@ class inbox_core(object):
                              "no cap of its own to lower: without --n it takes them all); "
                              "--limit is an alias")
         ap.add_argument("--all", action="store_true", help="list without taking or cutting")
+        ap.add_argument("--ids", metavar="T-a,T-b",
+                        help="only these tickets and the tickets whose parent is one of them, "
+                             "listed without the cut (as --all), so a workflow need not "
+                             "transcribe the whole inbox")
         ap.add_argument("--json", action="store_true")
         wp = ap.add_mutually_exclusive_group()
         wp.add_argument("--campaign", metavar="TARGET",
@@ -3023,13 +3044,16 @@ class inbox_core(object):
         else:
             limit = min(max(1, int(args.n)) if args.n else inbox_core.MAX,
                         inbox_core.clamp(budget_limit))
-        rows, total = inbox_core.select(board, instance, limit or 10 ** 9, all=args.all,
+        ids = [t.strip() for t in (getattr(args, "ids", None) or "").split(",") if t.strip()]
+        rows, total = inbox_core.select(board, instance, limit or 10 ** 9, all=args.all or bool(ids),
                                         route=route, campaign=args.campaign,
                                         position=position, return_legs=return_legs,
                                         position_first=position_first, extra=extra,
                                         cowork=cowork)
+        if ids:
+            rows = [r for r in rows if r.get("id") in ids or (r.get("parent") or "") in ids]
         header = header or {}
-        left = 0 if args.all else max(0, total - len(rows))
+        left = 0 if (args.all or ids) else max(0, total - len(rows))
         unfinished = inbox_core.unfinished(rows)
         outside = []
         if plan and not args.all:

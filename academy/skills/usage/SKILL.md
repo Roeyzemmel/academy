@@ -13,14 +13,20 @@ session id, or `--weekly`. Scripts: `$S` as in
 |---|---|---|
 | empty, `--days N`, `--since D` | `py $S/usage_report.py [--days N \| --since D]` | Show the Markdown as it is. Add at most three lines on the flags (limit, fan-out, context-bloat, heavier-than-declared). |
 | a session id | `py $S/session_usage.py <id>` | Show it; compare with the budget rules if a pass overran. |
-| `--weekly` | dispatch one `usage-analyst` subagent (below) | Give the packet id and its one-line summary. |
+| `--weekly` | the `academy-weekly` workflow (below) | Give the packet id, its one-line summary and whether the ledger was settled. |
 
-**`--weekly`** runs unattended from the Windows Task Scheduler
-(`claude -p "/academy:usage --weekly"`), so nothing in it may ask a question. Dispatch
-one `usage-analyst` with only the window (`--days 7`) and the cwd's instance. It runs
-`usage_report.py --days 7 --json` itself, writes one packet of kind `usage` for the
-human (`packets.py new --instance <the cwd's instance> --kind usage ...`), and returns
-its id. If it fails or hits a limit, report that and stop; do not relaunch.
+**`--weekly`** runs unattended, so nothing in it may ask a question. The scheduler is a
+cloud scheduled task (since 2026-10-31: Sundays 20:40 Asia/Jerusalem, a fresh session
+that attaches the workspace, runs this from the Expert home, checkpoints `board/` and
+sends a push notification; it needs no connector and no local machine). The Windows
+Task Scheduler (`claude -p "/academy:usage --weekly"` from a home) stays an option. Call the **Workflow** tool with
+`scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/weekly.js` and `args: {instance: "<the cwd's
+instance>", days: 7}`. The script holds the cycle (docs/workflows.md): the
+`usage-analyst` gathers and proposes; the script drops a grader's downgrade, a downgrade
+that is not a lower tier, and anything past three decisions (regressions first); the
+analyst writes and files one `usage` packet with exactly those; `error_ledger.py settle`
+runs only after the packet is shown to exist. Report `reason` when `filed` or `settled`
+is false; do not relaunch.
 
 **Errors.** A `PostToolUseFailure` hook (`scripts/error_ledger.py hook`) appends every
 failed tool call, redacted and without the command line, to

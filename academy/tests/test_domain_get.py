@@ -76,6 +76,25 @@ class TestCloudLayout(unittest.TestCase):
             res = domain._get(self.ctx(), {"name": "test-pack", "file": "notation.md"})
         self.assertEqual(res["text"], "# R\n")
 
+    def test_the_pack_plugin_name_is_an_alias(self):
+        # ledger 2026-10-27: domain_get('ts-domain'), the plugin's name, not the pack's
+        repo = os.path.join(self.tmp, "repo")
+        write(os.path.join(repo, "domains", "test-pack", "notation.md"), "# A\n")
+        write(os.path.join(repo, "domains", "test-pack", ".claude-plugin", "plugin.json"),
+              json.dumps({"name": "tp-domain"}))
+        os.makedirs(os.path.join(repo, "academy"))
+        with mock.patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT":
+                                          os.path.join(repo, "academy")}):
+            res = domain._get(self.ctx(), {"name": "tp-domain", "file": "notation.md"})
+        self.assertEqual(res["text"], "# A\n")
+
+    def test_an_installed_pack_plugin_folder_name_is_an_alias(self):
+        pack = os.path.join(self.plugins, "cache", "mkt", "ts-domain", "0.1.0")
+        write(os.path.join(pack, "pack.json"), json.dumps({"name": "test-pack"}))
+        write(os.path.join(pack, "notation.md"), "# I\n")
+        res = domain._get(self.ctx(), {"name": "ts-domain"})
+        self.assertIn("notation.md", res["files"])
+
     def test_a_miss_names_the_places_and_says_do_not_retry(self):
         with self.assertRaises(ToolError) as cm:
             domain._get(self.ctx(), {"name": "test-pack"})

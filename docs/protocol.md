@@ -503,14 +503,19 @@ Their models are in the agent files' frontmatter.
 **Recognising a relay ticket.** The check requires `to` to be a neighbour; `final_to`
 may be any role further along the same direction. When a receiver's role is not
 `final_to`, its inbox routes the ticket to the relay of the matching crossing, whatever
-the kind. The relay fails fast (delivers back with the reason), sharpens (a research
-block or an experiment spec), then forwards a child ticket with `parent` = the received
-ticket and `final_to` kept, and sets the received ticket `blocked`, `waiting_on` the
-child. **The return leg**: once every awaited child is `delivered` or terminal (and the
-parent waits on no `human`), the receiver's inbox takes the blocked parent again and
-hands it to the same relay, which closes a delivered child (it is the child's sender),
-moves the parent `blocked` -> `in-progress` -> `delivered` (`blocked -> delivered` is
-not a transition), and writes a short result pointing at the child. A `research`
+the kind. The relay fails fast (delivers back with the reason), or sharpens (a research
+block or an experiment spec) and forwards a child ticket with `parent` = the received
+ticket and `final_to` kept. Since 2026-10-31 the **inbox workflow**
+(`academy/workflows/inbox.js`, docs/workflows.md) makes every move around that decision:
+it starts the ticket, and after the relay returns it checks the child (its parent, its
+sender, a receiver of the next role, the relay's kinds, `final_to`) before it sets the
+received ticket `blocked`, `waiting_on` the child; a child that fails the check, or a
+refused `tickets_create`, parks the ticket on the human. The relays have no
+`tickets_update`. **The return leg**: once every awaited child is `delivered` or terminal
+(and the parent waits on no `human`), the receiver's inbox takes the blocked parent again,
+and the workflow, without the relay, closes a delivered child (acting as its sender),
+moves the parent `blocked` -> `in-progress` -> `delivered` (`blocked -> delivered` is not
+a transition), and writes a short result pointing at the child. A `research`
 ticket to the Expert with no `final_to` reads as `final_to: researcher`.
 
 **Hop limit.** A relay chain has at most `maxHops` (3) links. Only consecutive

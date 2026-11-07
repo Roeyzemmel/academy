@@ -375,6 +375,15 @@ blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(
 .decision li.rec { font-weight: 500; }
 .decision .letter { font-family: var(--mono); color: var(--muted); margin-right: 6px; }
 .decision .reco { font-size: 0.88rem; color: var(--muted); }
+.pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.pick button { font: inherit; padding: 2px 10px; border: 1px solid var(--line); border-radius: 4px;
+  background: transparent; color: inherit; cursor: pointer; }
+.pick button:disabled { opacity: 0.5; cursor: default; }
+.pick .note { font: inherit; flex: 1 1 12em; min-width: 0; padding: 2px 6px; border: 1px solid var(--line);
+  border-radius: 4px; background: transparent; color: inherit; }
+.pick .mine { font-size: 0.88rem; color: var(--muted); }
+.pick .inputs { flex-basis: 100%; margin: 0; padding-left: 1.2em; font-size: 0.88rem; }
+.live { font-size: 0.9rem; color: var(--muted); }
 .answer { font-size: 0.88rem; }
 details.more > summary { cursor: pointer; font-size: 0.88rem; color: var(--muted); }
 details.more[open] > summary { margin-bottom: 8px; }
@@ -479,7 +488,7 @@ STANDARD = ("Summary", "Produced", "Established vs assumed", "Evidence",
             "Decisions needed", "Machine notes", "Decision")
 
 
-def _decisions_html(body, ctx):
+def _decisions_html(body, ctx, pid=None, interactive=False):
     asked, answers = ac.packet_decisions(body), ac.packet_answers(body)
     if not asked:
         if 0 in answers:
@@ -507,6 +516,8 @@ def _decisions_html(body, ctx):
                 (" &middot; " + inline(note, ctx)) if note else "")
         else:
             ans_html = '<p class="answer"><span class="pill warn">awaiting your answer</span></p>'
+            if interactive and pid:
+                ans_html += pick_html(pid, k, sorted(d["options"]))
         parts.append(
             '<div class="decision%s"><h4>D%d. %s</h4><ol>%s</ol>'
             '<p class="reco">Recommendation: %s</p>%s</div>' % (
@@ -515,7 +526,106 @@ def _decisions_html(body, ctx):
     return '<div class="decisions">%s</div>' % "".join(parts)
 
 
-def packet_html(path, meta, body, ctx, board=None):
+def decision_key(pid, k):
+    """The shared-store field of decision ``k`` of packet ``pid`` (``P-0123_D1``)."""
+    return "%s_D%d" % (pid, k)
+
+
+def pick_html(pid, k, letters):
+    """The recording controls of one pending decision (interactive dashboard): an option
+    button per letter, a note, and the place where the coauthors' input is listed. They
+    stay disabled until the page's shared store answers (``LIVE_SCRIPT``)."""
+    key = html.escape(decision_key(pid, k), quote=True)
+    buttons = "".join('<button type="button" data-option="%s" disabled>(%s)</button>'
+                      % (L, L) for L in letters)
+    return ('<div class="pick" data-key="%s">%s'
+            '<input type="text" class="note" placeholder="note (optional)" disabled>'
+            '<span class="mine" aria-live="polite"></span>'
+            '<ul class="inputs"></ul></div>' % (key, buttons))
+
+
+#: the interactive dashboard's script (/academy:review, 2026-10-31): the owner's choice is
+#: written to owner-decisions/main (only the owner may write it, so it is the one the next
+#: /academy:review applies through packets_decide); anyone else's to input/<their id>
+#: (written only by them; shown here with their name, recorded as input, never applied).
+#: Without the store (a plain browser, a viewer who is signed out) the page stays the
+#: read-only dashboard and says to answer in /academy:review.
+LIVE_SCRIPT = r"""<script>(function () {
+  var picks = Array.prototype.slice.call(document.querySelectorAll('.pick'));
+  var line = document.getElementById('live-status');
+  function say(t) { if (line) line.textContent = t; }
+  if (!picks.length) return;
+  if (!window.claude || !window.claude.use) { say('Recording is not available in this view: answer in /academy:review.'); return; }
+  var timer = setTimeout(function () { say('Recording is not available in this view: answer in /academy:review.'); }, 10000);
+  Promise.all([window.claude.use('db'), window.claude.use('user')]).then(function (r) {
+    clearTimeout(timer);
+    var db = r[0], user = r[1];
+    if (!db || !user) { say('Recording is not available in this view: answer in /academy:review.'); return; }
+    Promise.all([user.isOwner(), user.id()]).then(function (who) {
+      var owner = who[0], me = who[1];
+      if (!owner && !me) { say('Sign in to record input.'); return; }
+      var mine = owner ? db.doc('owner-decisions/main') : db.doc('input/' + me);
+      say(owner ? 'Your choices are recorded here and applied by the next /academy:review.'
+                : 'Your input is recorded here for the author; it is shown to them, not applied.');
+      var busy = false, current = {};
+      mine.onSnapshot(function (snap) {
+        current = (snap.exists && snap.data()) || {};
+        picks.forEach(function (p) {
+          var v = current[p.dataset.key];
+          p.querySelector('.mine').textContent = v ? ('recorded: (' + v.option + ')' + (v.note ? ' ' + v.note : '') + (v.applied ? ' - applied' : '')) : '';
+        });
+      }, function () { say('The shared store stopped answering; reload the page.'); });
+      picks.forEach(function (p) {
+        var note = p.querySelector('.note');
+        note.disabled = false;
+        Array.prototype.forEach.call(p.querySelectorAll('button'), function (b) {
+          b.disabled = false;
+          b.addEventListener('click', function () {
+            if (busy) return;
+            busy = true;
+            var patch = {};
+            patch[p.dataset.key] = { option: b.dataset.option, note: note.value.trim().slice(0, 500),
+                                     at: new Date().toISOString() };
+            mine.get().then(function (snap) { return snap.exists ? mine.update(patch) : mine.set(patch); })
+              .catch(function (e) { say('Not recorded (' + ((e && e.code) || 'error') + '): answer in /academy:review.'); })
+              .then(function () { busy = false; });
+          });
+        });
+      });
+      if (!owner) return;
+      db.collection('input').onSnapshot(function (qs) {
+        var rows = (qs && qs.docs) || [];
+        var ids = rows.map(function (d) { return d.id; });
+        user.profiles(ids).then(function (ps) {
+          picks.forEach(function (p) {
+            var ul = p.querySelector('.inputs');
+            ul.textContent = '';
+            rows.forEach(function (d) {
+              var v = (d.data() || {})[p.dataset.key];
+              if (!v) return;
+              var li = document.createElement('li');
+              var nm = (ps && ps[d.id] && ps[d.id].name) || 'A coauthor';
+              li.textContent = nm + ': (' + v.option + ')' + (v.note ? ' ' + v.note : '');
+              ul.appendChild(li);
+            });
+          });
+        });
+      }, function () {});
+    });
+  });
+})();</script>"""
+
+#: the declaration /academy:review publishes the interactive dashboard with
+LIVE_CAPABILITIES = {
+    "db": {"rules": [
+        {"path": "owner-decisions", "read": "view", "write": "owner"},
+        {"path": "input", "read": "view", "write": "owner"},
+        {"path": "input/{self}", "read": "view", "write": "interact"}]},
+    "user": {"scopes": ["profile"]},
+}
+
+
+def packet_html(path, meta, body, ctx, board=None, interactive=False):
     order, secs = _sections(body)
     pid = str(meta.get("packet", "P-????"))
     asked, answers = ac.packet_decisions(body), ac.packet_answers(body)
@@ -553,7 +663,7 @@ def packet_html(path, meta, body, ctx, board=None):
     if secs.get("Established vs assumed"):
         parts.append('<div class="prose"><h4>Established vs assumed</h4>%s</div>'
                      % markdown(secs["Established vs assumed"], ctx, 5))
-    parts.append(_decisions_html(body, ctx))
+    parts.append(_decisions_html(body, ctx, pid, interactive))
     for name in ["Produced", "Evidence"] + [s for s in order if s not in STANDARD] + \
             ["Machine notes"]:
         if secs.get(name):
@@ -629,7 +739,8 @@ def _instance_order(workspace):
     return list((workspace or {}).get("instances", {}).keys())
 
 
-def render_dashboard(board, workspace=None, include_decided=False, date=None):
+def render_dashboard(board, workspace=None, include_decided=False, date=None,
+                     interactive=False):
     """The whole dashboard as one HTML string."""
     items = collect_packets(board, include_decided)
     statuses, titles = registry_statuses(workspace)
@@ -653,6 +764,9 @@ def render_dashboard(board, workspace=None, include_decided=False, date=None):
             '<h1>Review desk</h1><div class="counts">%s</div></header>' % (
                 html.escape(date or ac.today()), "".join(counts)),
             legend_html()]
+    if interactive:
+        body.append('<p class="live" id="live-status" aria-live="polite">Connecting to the '
+                    'decision store&hellip;</p>')
     if not items:
         body.append('<p class="empty">No open packets. Nothing needs a decision.</p>')
     for inst in order:
@@ -661,11 +775,13 @@ def render_dashboard(board, workspace=None, include_decided=False, date=None):
                         html.escape(inst, quote=True), html.escape(inst), len(groups[inst]),
                         "" if len(groups[inst]) == 1 else "s"))
         for p, m, b in groups[inst]:
-            body.append(packet_html(p, m, b, ctx, board))
+            body.append(packet_html(p, m, b, ctx, board, interactive))
         body.append("</section>")
     body.append('<footer class="source">Generated by academy/scripts/render_packets.py from '
                 '%s. Answer in /academy:review or under ## Decision in the packet file.'
                 '</footer></main>' % html.escape(board.replace("\\", "/")))
+    if interactive:
+        body.append(LIVE_SCRIPT)
     return head("Academy Review Desk") + "\n".join(body) + "\n"
 
 
@@ -910,7 +1026,15 @@ def main(argv=None):
     ap.add_argument("--deep-dive", metavar="BUNDLE", help="render a deep-dive bundle JSON")
     ap.add_argument("--kind", choices=DEEP_DIVE_KINDS)
     ap.add_argument("--templates", default=TEMPLATE_DIR)
+    ap.add_argument("--interactive", action="store_true",
+                    help="the dashboard records decisions on the page (publish it with "
+                         "LIVE_CAPABILITIES; print them with --capabilities)")
+    ap.add_argument("--capabilities", action="store_true",
+                    help="print the capabilities the interactive dashboard is published with")
     a = ap.parse_args(argv)
+    if a.capabilities:
+        print(json.dumps(LIVE_CAPABILITIES))
+        return 0
     try:
         ws = None
         try:
@@ -937,7 +1061,7 @@ def main(argv=None):
         else:
             if not board:
                 raise ac.AcademyError("no board: pass --board or provide workspace.json")
-            page = render_dashboard(board, ws, a.all)
+            page = render_dashboard(board, ws, a.all, interactive=a.interactive)
             out = a.out or os.path.join(board, ".render", "review.html")
         ac.atomic_write(out, page)
         print(os.path.abspath(out))

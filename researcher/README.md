@@ -27,6 +27,7 @@ rule is `academy/references/roster-rules.md`, "Model fallback".
 | `prover` | Writes the mathematics: definitions, statements, proof attempts, corollaries, generalizations, prior-art scouts; never computes, never sets a status above `sketch` |
 | `experiment-reviewer` | One blind, adversarial review of a computed result (SOUND / SOUND MODULO / GAP / BROKEN); read-only, landed by a hook |
 | `claim-keeper` | The only agent that changes a status, through `claims_set_status`, and only on grounds on disk |
+| `review-clerk` | The clerical stages of `workflows/review-experiment.js` (which launches the experiment-reviewer runs): the ticket, `reviews.py decide`, the settle plan and record, the packet; grades, launches and files nothing |
 | `experiment-spec` | Relay, expert -> (researcher) -> scientist: fails fast, or writes the experiment spec and forwards it |
 | `lit-request` | Relay, scientist -> (researcher) -> expert / author: answers from the library, or states the cite or literature ask and forwards it |
 
@@ -74,7 +75,11 @@ Tests: `py -m unittest discover researcher/tests` from the academy repo.
 - `audit_blind_guard` (PreToolUse `Read|Grep|Glob`) denies an `experiment-reviewer`
   the audits folders, so run B never sees run A.
 - `land_review` (SubagentStop) fires only for `experiment-reviewer` in a Researcher
-  home. It writes the verdict as `audits/<lab-id>/<date>-<A|B>.md`.
+  home. It writes the verdict as `audits/<lab-id>/<date>-<A|B>.md`. It fires for the
+  runs a workflow launches too.
+- `review_launch_guard` (PreToolUse `Agent|Task`) refuses a hand-launched
+  `experiment-reviewer`: the runs are launched by `workflows/review-experiment.js`
+  (docs/workflows.md). The human's opt-out is `ACADEMY_ALLOW_MANUAL_REVIEW=1`.
 
 ## The ticket chain
 

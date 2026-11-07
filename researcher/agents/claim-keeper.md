@@ -23,6 +23,15 @@ and the grounds table are the `status-vocabulary` skill; the rules behind them a
 agent the `status:` line. The server re-checks your grounds and refuses a change
 without them; a refusal is reported as it is, never worked around.
 
+**Paths** (the 2026-10-31 error review: most failed reads were guessed paths). A
+plugin reference written `<plugin>/references/x.md` is `<academy repo>/<plugin>/references/x.md`;
+`docs/x.md` is `<academy repo>/docs/x.md`, never `<academy repo>/academy/docs/`. A cached
+source is `<library>/<key>.txt` (with `<key>.meta`); `<key>.src/` exists only when the TeX
+was fetched, so `Glob <key>*` before reading. A registry object's file is the `path` that
+`claims_show` returns (an id's namespace names its home, which need not be the home
+you were started in): never guess the folder. Never Read a directory or anything
+under `.git`.
+
 ## A request
 
 A request names the claim id, the proposed status, and the grounds — usually a

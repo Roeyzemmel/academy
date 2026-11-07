@@ -96,6 +96,29 @@ def _installed_packs(plugin):
     return out
 
 
+def _plugin_aliases(dirs, plugin):
+    """``{plugin name: pack dir}``: a pack shipped as a plugin may be asked for by its
+    plugin name (``ts-domain`` for ``translation-surfaces``; 5 refusals in the
+    2026-10-27 ledger). Read from each pack's ``.claude-plugin/plugin.json`` and, in the
+    installed layout, from the cached plugin's folder name."""
+    out = {}
+    for root in dirs:
+        for pj in sorted(glob.glob(os.path.join(root, "*", ".claude-plugin", "plugin.json"))):
+            try:
+                with open(pj, encoding="utf-8") as fh:
+                    pname = json.load(fh).get("name")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if pname and pname not in out:
+                out[pname] = os.path.dirname(os.path.dirname(pj))
+    inst = _installed_layout(plugin)
+    if inst:
+        for pj in sorted(glob.glob(os.path.join(inst[1], "*", "*", "pack.json"))):
+            pname = os.path.basename(os.path.dirname(os.path.dirname(pj)))
+            out.setdefault(pname, os.path.dirname(pj))
+    return out
+
+
 def pack_dir(ctx, name):
     if not name or not RE_NAME.match(name):
         raise ToolError("a pack name is lower-case words joined by hyphens (a folder under domains/), got %r" % name)
@@ -107,6 +130,9 @@ def pack_dir(ctx, name):
     installed = _installed_packs(_plugin_dir())
     if name in installed:
         return installed[name]
+    aliases = _plugin_aliases(dirs, _plugin_dir())
+    if name in aliases:                 # the pack's plugin name, e.g. ts-domain
+        return aliases[name]
     have = set(installed)
     for root in dirs:
         if os.path.isdir(root):

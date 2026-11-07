@@ -17,6 +17,7 @@ AGENTS = {
     "claim-keeper": ("haiku", "sonnet", False),
     "experiment-spec": ("sonnet", "opus", False),
     "lit-request": ("haiku", "sonnet", False),
+    "review-clerk": ("haiku", "sonnet", False),
 }
 SKILLS = ("explore", "campaign", "prove", "corollaries", "generalize", "claims", "review-experiment",
           "settle", "inbox", "status")

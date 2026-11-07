@@ -23,10 +23,12 @@ rule is `academy/references/roster-rules.md`, "Model fallback".
 |---|---|
 | `clerk` | Quick answers from `hot.md`, the cards and the MCP read tools; read-only, no web; a miss becomes an escalation for the librarian |
 | `librarian` | Fetches and caches sources, writes cards and index rows; the only editor of the cards, `index.md` and every Author's `references.bib`; curates the domain packs |
-| `review-chair` | Owns one proof review: the blind rigor-reviewer runs, `decision_table.py`, the record, the evidence, the status proposal and the packet; grades nothing |
+| `review-chair` | The clerical stages of one proof review inside `workflows/verify.js` (which launches the blind rigor-reviewer runs): the pass, `decision_table.py`, the record, the evidence, the status proposal and the packet; grades nothing, launches nothing |
 | `rigor-reviewer` | One blind, adversarial proof review (CONFIRMED / PLAUSIBLE / GAP / DISPROVED); read-only, landed by a hook |
 | `referee` | Whole-paper referee report from the built PDF, read cold; read-only, landed by a hook |
 | `related-work-scout` | Prior-art search for one statement, or the literature watch; writes only the library's `ledgers/<instance>/` |
+
+The librarian's and the scout's web fetches stay on the allowlist of sources (`references/sources.json` plus the library's `expert.sources.allow`; `scripts/source_guard.py`, a PreToolUse hook on `WebFetch`). Another host is refused with its name and the place to add it.
 | `research-intake` | Relay, author -> (expert) -> researcher: fails fast, or writes the research block and forwards a `research` ticket |
 | `paper-liaison` | Relay, researcher side -> (expert) -> author: restates a question or result in the paper's terms and forwards it |
 

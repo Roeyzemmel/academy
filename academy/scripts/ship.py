@@ -462,6 +462,14 @@ def cmd_commit(a):
         base = os.path.join(top, prefix) if prefix else top
         rels = []
         for p in paths:
+            pp = p.replace("\\", "/")
+            if prefix and not os.path.isabs(p) and pp.startswith(prefix.rstrip("/") + "/") \
+                    and not os.path.exists(os.path.join(base, p)):
+                # --paths are relative to the target; "board/x" for target board meant "x"
+                # (ledger 2026-10-31: :(top)board/board/.errors/... did not match)
+                p = pp[len(prefix.rstrip("/")) + 1:]
+                print("ship: note: --paths are relative to %s/; read %r as %r"
+                      % (prefix.rstrip("/"), pp, p), file=sys.stderr)
             full = os.path.realpath(p if os.path.isabs(p) else os.path.join(base, p))
             try:
                 inside = os.path.commonpath([base, full]) == base
@@ -504,7 +512,8 @@ def unstage_gitlinks(repo, scope=()):
     recorded as one) within ``scope`` (``["--", spec...]``; empty: the whole index), so
     pins move only through the human-run 'merge --bump'. Returns the paths unstaged."""
     links = [l.split("\t", 1)[1] for l in
-             git(repo, "diff", "--cached", "--raw", "--no-renames", *scope).splitlines()
+             git(repo, "diff", "--cached", "--raw", "--no-renames", "--ignore-submodules=none",
+                 *scope).splitlines()
              if "\t" in l and "160000" in l.lstrip(":").split()[:2]]
     if links:
         git(repo, "reset", "-q", "--", *links)
@@ -721,7 +730,21 @@ def cmd_publish(a):
     print("%s: origin/main @ %s" % (a.sub, head[:9]))
 
 
+def drifted_pointers():
+    """The submodules whose checked-out commit differs from the superproject's pointer.
+    Read with ``--ignore-submodules=none``: the workspace's .gitmodules sets
+    ``ignore = all`` (2026-10-31) so that git status stays quiet about pointer-only drift,
+    which moves only through 'merge --bump'."""
+    out = git(ROOT, "diff", "--ignore-submodules=none", "--name-only", check=False) or ""
+    subs = set(submodule_names())
+    return [p for p in out.splitlines() if p in subs]
+
+
 def cmd_status(a):
+    drift = drifted_pointers()
+    if drift:
+        print("superproject pointers behind their checkouts (moved only by 'merge --bump'): %s"
+              % ", ".join(drift))
     for sub in targets():
         try:
             repo = repo_of(sub)

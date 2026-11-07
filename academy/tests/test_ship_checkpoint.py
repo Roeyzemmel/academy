@@ -636,6 +636,35 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.assertEqual(self.remote_branches(self.remote), ["refs/heads/main"])  # sub untouched
         self.assertEqual([l.split()[0] for l in out.splitlines() if not l.startswith(" ")], ["board"])
 
+    def ignore_all(self):
+        """The workspace's .gitmodules setting since 2026-10-31: git status is quiet about
+        pointer-only drift."""
+        for name in ("sub", "other"):
+            run(self.root, "config", "-f", ".gitmodules", "submodule.%s.ignore" % name, "all")
+        run(self.root, "commit", "-q", "-m", "ignore all", "--", ".gitmodules")
+
+    def test_status_names_drifted_pointers_under_ignore_all(self):
+        self.on_template()
+        self.ignore_all()
+        self.drift_pointer()
+        self.assertNotIn("sub", run(self.root, "status", "--porcelain"))   # git is quiet
+        rc, out, err = self.run_ship("status")
+        self.assertEqual(rc, 0, err)
+        first = out.splitlines()[0]
+        self.assertIn("pointers behind their checkouts", first)
+        self.assertIn("sub", first)
+
+    def test_board_checkpoint_under_ignore_all_still_leaves_pointers(self):
+        self.on_template()
+        self.ignore_all()
+        self.drift_pointer()
+        self.write(self.root, os.path.join("board", "packets", "P-2.md"))
+        rc, out, err = self.cp("--ticket", "T-0060", "--only", "board")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.files(self.root), ["board/packets/P-2.md"])
+        self.assertEqual(run(self.root, "diff", "--cached", "--name-only",
+                             "--ignore-submodules=none").splitlines(), ["other"])
+
     def test_only_board_with_nothing_under_board_is_unchanged(self):
         self.on_template()
         self.drift_pointer()
@@ -715,6 +744,16 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.assertEqual(sorted(run(self.root, "diff", "--cached", "--name-only").splitlines()),
                          ["other"])
         self.assertIn("docs/d.md", run(self.root, "diff", "--name-only"))
+
+    def test_board_paths_with_the_board_prefix_are_read_relative(self):
+        # ledger 2026-10-31: --paths board/.errors/x.jsonl became :(top)board/board/...
+        self.on_template()
+        self.write(self.root, os.path.join("board", ".errors", "x.jsonl"))
+        rc, out, err = self.run_ship("commit", "board", "-m", "e", "--paths",
+                                     "board/.errors/x.jsonl")
+        self.assertEqual(rc, 0, err)
+        self.assertIn("--paths are relative to board/", err)
+        self.assertEqual(self.files(self.root), ["board/.errors/x.jsonl"])
 
     def test_start_board_branches_the_superproject(self):
         rc, out, err = self.run_ship("start", "board", "notes")

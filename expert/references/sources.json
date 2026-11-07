@@ -1,0 +1,12 @@
+{
+  "about": "The default allowlist of source hosts for the Expert's web fetches (source_guard.py, 2026-10-31). A host matches itself and its subdomains. A library adds hosts under expert.sources.allow in its .claude/academy.json (authors' homepages, a society's journal site); expert.sources.only: true uses that list alone. `py scripts/source_guard.py --list` prints the effective list, which is also what a cloud environment's Allowed domains needs for a scheduled Expert run.",
+  "allow": [
+    "arxiv.org", "export.arxiv.org", "doi.org", "dx.doi.org", "api.crossref.org", "crossref.org",
+    "zbmath.org", "api.zbmath.org", "mathscinet.ams.org", "ams.org",
+    "link.springer.com", "springer.com", "projecteuclid.org", "msp.org", "ems.press",
+    "sciencedirect.com", "onlinelibrary.wiley.com", "cambridge.org", "academic.oup.com",
+    "tandfonline.com", "worldscientific.com", "iopscience.iop.org", "jstor.org",
+    "semanticscholar.org", "api.semanticscholar.org", "scholar.archive.org", "archive.org",
+    "numdam.org", "eudml.org", "hal.science", "mathoverflow.net"
+  ]
+}

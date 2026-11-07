@@ -1,0 +1,836 @@
+{
+ "tools": [
+  {
+   "name": "claims_show",
+   "description": "Show one claim (any namespace) with its evidence and back-links.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "description": "Claim id '<ns>:<id>', e.g. lab:ew-check, paper:lem:strip-bound, nb:BOUND-1"
+     },
+     "full": {
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "claims_list",
+   "description": "List claims of one namespace, filtered by status / where / kind / free text (a notebook namespace: its find command).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "ns": {
+      "type": "string",
+      "description": "A claim namespace: the 'ns' of an instance in workspace.json"
+     },
+     "status": {
+      "type": "string"
+     },
+     "where": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "ns"
+    ]
+   }
+  },
+  {
+   "name": "claims_query",
+   "description": "One read-only SQL SELECT on a namespace's derived registry tables (lab/paper: claims, evidence, history, links, open_items).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "ns": {
+      "type": "string",
+      "description": "A claim namespace: the 'ns' of an instance in workspace.json"
+     },
+     "sql": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "ns",
+     "sql"
+    ]
+   }
+  },
+  {
+   "name": "claims_deps",
+   "description": "What a claim depends on / bears on, or with reverse=true what rests on it; transitive for the closure.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "description": "Claim id '<ns>:<id>', e.g. lab:ew-check, paper:lem:strip-bound, nb:BOUND-1"
+     },
+     "reverse": {
+      "type": "boolean"
+     },
+     "transitive": {
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "claims_check",
+   "description": "Run the registry's consistency check for a namespace.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "ns": {
+      "type": "string",
+      "description": "A claim namespace: the 'ns' of an instance in workspace.json"
+     },
+     "strict": {
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "ns"
+    ]
+   }
+  },
+  {
+   "name": "claims_new",
+   "description": "Create a claim with an unsettled status (open, conjectured, sketch), in the caller's own namespace, or in another instance's namespace with ticket= a live ticket addressed to it. In a notebook namespace the id part is the prefix the id is allocated from.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "description": "Claim id '<ns>:<id>', e.g. lab:ew-check, paper:lem:strip-bound, nb:BOUND-1"
+     },
+     "title": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "conjectured",
+       "sketch"
+      ]
+     },
+     "where": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string"
+     },
+     "instance": {
+      "type": "string",
+      "description": "The instance you act for (workspace.json), e.g. researcher@flat. Needed only when the server cannot tell (a cloud session, whose server runs outside the homes); default: the ticket's party of your role, the server's home, or the only instance of your role. A role agent can never act as 'human'."
+     },
+     "ticket": {
+      "type": "string",
+      "description": "A live ticket addressed to the namespace's instance: lets an agent of that role create there from another home (the ticket's thread records it)"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "title"
+    ]
+   }
+  },
+  {
+   "name": "claims_attach_evidence",
+   "description": "Append one evidence row {type, ref, verdict, run_id, note} to a claim (append-only); type is experiment, audit, verdict (a proof review; 'proof-review' is accepted for it), hand, citation or note. A v1 notebook record: a verdict file, appended to cleared_by.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "instance": {
+      "type": "string",
+      "description": "The instance you act for (workspace.json), e.g. researcher@flat. Needed only when the server cannot tell (a cloud session, whose server runs outside the homes); default: the ticket's party of your role, the server's home, or the only instance of your role. A role agent can never act as 'human'."
+     },
+     "id": {
+      "type": "string",
+      "description": "Claim id '<ns>:<id>', e.g. lab:ew-check, paper:lem:strip-bound, nb:BOUND-1"
+     },
+     "row": {
+      "type": "object"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "row"
+    ]
+   }
+  },
+  {
+   "name": "claims_propose_status",
+   "description": "Propose a status change: files a decision ticket to the claim-keeper's instance; changes nothing itself.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "instance": {
+      "type": "string",
+      "description": "The instance you act for (workspace.json), e.g. researcher@flat. Needed only when the server cannot tell (a cloud session, whose server runs outside the homes); default: the ticket's party of your role, the server's home, or the only instance of your role. A role agent can never act as 'human'."
+     },
+     "id": {
+      "type": "string",
+      "description": "Claim id '<ns>:<id>', e.g. lab:ew-check, paper:lem:strip-bound, nb:BOUND-1"
+     },
+     "status": {
+      "type": "string"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "grounds": {
+      "type": "object",
+      "description": "See check_grounds: basis (proof | computation | human), verdicts[] (verdict, run_id, grader_role, statement_hash, commit, ref), producer_role, statement_hash, commit, validation_passed, outcome, modulo, note; every verdict's ref is its landed review record; superseded: superseded_by; human: quote, where (an agent: the T-/P- id holding the quote); a notebook: verdict_file; a reword review (T-0347): mode 'reword', base_pass, base_hash, and the reword verdict row's mode, base_hash, reword_scope"
+     },
+     "refs": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "status"
+    ]
+   }
+  },
+  {
+   "name": "claims_set_status",
+   "description": "Set a claim's status, or move its lifecycle (superseded, dropped; with a note), as claim-keeper or the human. The server re-checks the grounds (plan section 8) and the review records they cite, and refuses without them.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "instance": {
+      "type": "string",
+      "description": "The instance you act for (workspace.json), e.g. researcher@flat. Needed only when the server cannot tell (a cloud session, whose server runs outside the homes); default: the ticket's party of your role, the server's home, or the only instance of your role. A role agent can never act as 'human'."
+     },
+     "id": {
+      "type": "string",
+      "description": "Claim id '<ns>:<id>', e.g. lab:ew-check, paper:lem:strip-bound, nb:BOUND-1"
+     },
+     "status": {
+      "type": "string"
+     },
+     "grounds": {
+      "type": "object",
+      "description": "See check_grounds: basis (proof | computation | human), verdicts[] (verdict, run_id, grader_role, statement_hash, commit, ref), producer_role, statement_hash, commit, validation_passed, outcome, modulo, note; every verdict's ref is its landed review record; superseded: superseded_by; human: quote, where (an agent: the T-/P- id holding the quote); a notebook: verdict_file; a reword review (T-0347): mode 'reword', base_pass, base_hash, and the reword verdict row's mode, base_hash, reword_scope"
+     },
+     "note": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "status"
+    ]
+   }
+  },
+  {
+   "name": "library_lookup",
+   "description": "What the library holds for one key: index row, cached files, meta, source .tex files, cards. Access-logged.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "key": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "key"
+    ]
+   }
+  },
+  {
+   "name": "library_search",
+   "description": "Full-text (FTS5) search over the cached extractions, index rows and cards; natural-language query, or raw FTS5 syntax with raw=true. Access-logged.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "limit": {
+      "type": "integer"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "text",
+       "index",
+       "card"
+      ]
+     },
+     "key": {
+      "type": "string"
+     },
+     "raw": {
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "query"
+    ]
+   }
+  },
+  {
+   "name": "library_verify_quote",
+   "description": "Check that a quote occurs in <key>.txt, normalising whitespace, line-end hyphenation, ligatures and typographic quotes/dashes (case-sensitive). Access-logged.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "key": {
+      "type": "string"
+     },
+     "quote": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "key",
+     "quote"
+    ]
+   }
+  },
+  {
+   "name": "library_missing",
+   "description": "Gaps in the library: cached files with no index row, rows with no .txt or .meta, and bibliography keys with nothing cached.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "bib": {
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "queue_status",
+   "description": "The lab's job queue from local state: counts per state and the newest jobs (filter by state or label). Never contacts the remote host.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "state": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "running",
+       "done",
+       "parked"
+      ]
+     },
+     "label": {
+      "type": "string"
+     },
+     "limit": {
+      "type": "integer"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "queue_log",
+   "description": "One job's record and the tail of its log if a local copy exists; otherwise where the remote log is and how to fetch it.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "lines": {
+      "type": "integer"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "queue_add",
+   "description": "File a committed experiment script on the lab queue for an env profile (default: policy.run); the next queue tick submits it. In dry-run mode (the default until the lab's academy.json sets scientist.queue.mcpAdd to 'on') it writes nothing and returns the job file it would write.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "script": {
+      "type": "string"
+     },
+     "env": {
+      "type": "string"
+     },
+     "label": {
+      "type": "string"
+     },
+     "note": {
+      "type": "string"
+     },
+     "script_args": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "script"
+    ]
+   }
+  },
+  {
+   "name": "env_list",
+   "description": "The lab's env profiles and policy (probe/test/run) from its academy.json.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "env_check",
+   "description": "A static check of one env profile (default: policy.run). Never contacts a host.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "env": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "tickets_list",
+   "description": "List board tickets, filtered by to / from / instance (either side) / status.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "to": {
+      "type": "string"
+     },
+     "from": {
+      "type": "string"
+     },
+     "instance": {
+      "type": "string"
+     },
+     "status": {
+      "type": [
+       "string",
+       "array"
+      ],
+      "items": {
+       "type": "string"
+      }
+     },
+     "include_terminal": {
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "tickets_get",
+   "description": "Read one ticket (frontmatter, body, validation problems).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "instance": {
+      "type": "string",
+      "description": "The instance you act for (workspace.json), e.g. researcher@flat. Needed only when the server cannot tell (a cloud session, whose server runs outside the homes); default: the ticket's party of your role, the server's home, or the only instance of your role. A role agent can never act as 'human'."
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "tickets_create",
+   "description": "File a ticket from the caller's instance (the human files as 'human'). The server allocates the id and dates; status is open. A ticket must pass the chain (docs/protocol.md section 5): to a neighbouring role, by a liaison; final_to names the role a relay forwards it to. campaign / cowork tag the ticket for a workplan (academy/lib/workplan.py): a campaign's target id or a cowork's slug.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "verify",
+       "cite",
+       "lookup",
+       "prove",
+       "review-experiment",
+       "generalize",
+       "experiment",
+       "test",
+       "code",
+       "notation",
+       "referee",
+       "build",
+       "figure",
+       "decision",
+       "question",
+       "research",
+       "note",
+       "write",
+       "apply",
+       "copy",
+       "sweep",
+       "other"
+      ]
+     },
+     "to": {
+      "type": "string"
+     },
+     "ask": {
+      "type": "string"
+     },
+     "deliverable": {
+      "type": "string"
+     },
+     "ask_detail": {
+      "type": "string"
+     },
+     "priority": {
+      "type": "string",
+      "enum": [
+       "high",
+       "normal",
+       "low"
+      ]
+     },
+     "refs": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "agenda": {
+      "type": "string"
+     },
+     "domain": {
+      "type": "string"
+     },
+     "parent": {
+      "type": "string"
+     },
+     "budget": {
+      "type": "object",
+      "description": "{runs: int >= 1} (default: the home's budget.ticketDefault runs); an optional max_model is an advisory note only, never a gate: an agent runs on its agent file's model"
+     },
+     "note": {
+      "type": "string"
+     },
+     "final_to": {
+      "type": "string"
+     },
+     "campaign": {
+      "type": "string"
+     },
+     "cowork": {
+      "type": "string"
+     },
+     "as_human": {
+      "type": "boolean"
+     },
+     "instance": {
+      "type": "string",
+      "description": "The instance you act for (workspace.json), e.g. researcher@flat. Needed only when the server cannot tell (a cloud session, whose server runs outside the homes); default: the ticket's party of your role, the server's home, or the only instance of your role. A role agent can never act as 'human'."
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "title",
+     "kind",
+     "to",
+     "ask",
+     "deliverable"
+    ]
+   }
+  },
+  {
+   "name": "tickets_update",
+   "description": "Change a ticket: a status transition (with reason where the protocol needs one), owned fields, ## Ask / ## Result detail, and/or a thread note. Field ownership and transitions per docs/protocol.md. deliver: true (the receiver or the human, ticket open/accepted/in-progress, fields.result required) walks open -> accepted -> in-progress -> delivered in one call, writing the usual thread line per step; every hop must be allowed; not with another status. result is an alias of fields.result.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "accepted",
+       "in-progress",
+       "delivered",
+       "closed",
+       "rejected",
+       "cancelled",
+       "blocked"
+      ]
+     },
+     "reason": {
+      "type": "string"
+     },
+     "reopen": {
+      "type": "string"
+     },
+     "fields": {
+      "type": "object"
+     },
+     "ask_detail": {
+      "type": "string"
+     },
+     "result_detail": {
+      "type": "string"
+     },
+     "note": {
+      "type": "string"
+     },
+     "deliver": {
+      "type": "boolean"
+     },
+     "result": {
+      "type": "string"
+     },
+     "instance": {
+      "type": "string",
+      "description": "The instance you act for (workspace.json), e.g. researcher@flat. Needed only when the server cannot tell (a cloud session, whose server runs outside the homes); default: the ticket's party of your role, the server's home, or the only instance of your role. A role agent can never act as 'human'."
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "packets_list",
+   "description": "List review packets, filtered by instance / state / ticket, with their pending decisions.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "instance": {
+      "type": "string"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "open",
+       "decided",
+       "withdrawn"
+      ]
+     },
+     "ticket": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "packets_get",
+   "description": "Read one packet with its parsed decisions and answers.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "packets_create",
+   "description": "Create a review packet from the caller's instance, from a full Markdown body or from sections. Required: title, kind, and body or sections; decisions as '### D1. question' with 2-4 '- (a) option' lines and a '- Recommendation:' line (or 'None.'). ## Decision must be empty. With ticket, the receiver's packet is also listed in the ticket's packets. A refusal lists every problem at once.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "verification",
+       "citation",
+       "referee",
+       "experiment-report",
+       "experiment-review",
+       "generalization",
+       "proof",
+       "notation",
+       "agenda",
+       "migration",
+       "handover",
+       "usage",
+       "failure",
+       "other"
+      ]
+     },
+     "instance": {
+      "type": "string"
+     },
+     "ticket": {
+      "type": "string"
+     },
+     "agenda": {
+      "type": "string"
+     },
+     "subject": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "status_before": {
+      "type": "string",
+      "enum": [
+       "open",
+       "conjectured",
+       "sketch",
+       "supported",
+       "proved-modulo",
+       "proved",
+       "refuted",
+       "refuted-as-stated"
+      ]
+     },
+     "status_proposed": {
+      "type": "string",
+      "enum": [
+       "open",
+       "conjectured",
+       "sketch",
+       "supported",
+       "proved-modulo",
+       "proved",
+       "refuted",
+       "refuted-as-stated"
+      ]
+     },
+     "body": {
+      "type": "string"
+     },
+     "sections": {
+      "type": "object",
+      "description": "summary (<=3 lines), produced, established_vs_assumed, evidence, extra {heading: text} (between Evidence and Decisions needed), decisions_needed ('None.' or ### D1. blocks), machine_notes"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "title",
+     "kind"
+    ]
+   }
+  },
+  {
+   "name": "packets_decide",
+   "description": "Human only: record the answer to decision D<k> (choice a-d, 'other' with a note, or D0 'ack'), set state decided when all are answered, and echo it into the packet's ticket.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "decision": {
+      "type": "integer"
+     },
+     "choice": {
+      "type": "string"
+     },
+     "note": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "decision",
+     "choice"
+    ]
+   }
+  },
+  {
+   "name": "domain_get",
+   "description": "Read a domain pack file (notation.md, traps.md, theorems/INDEX.md, ...) by pack name; without file, list the pack's files.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "file": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false,
+    "required": [
+     "name"
+    ]
+   }
+  },
+  {
+   "name": "workspace_get",
+   "description": "The instance map (workspace.json) and who the caller is.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "config_get",
+   "description": "An instance's .claude/academy.json with defaults merged (default: the instance of the caller's home), and its role's agents resolved agent -> tier -> model for the workspace (models).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "instance": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  }
+ ]
+}

@@ -1,7 +1,13 @@
 # Concluding a proof review
 
-The procedure for the concluder: the `review-chair` agent, or the main session when
-`/expert:verify` runs by hand. A review fails loudly, in a verdict; a conclusion fails
+The procedure for the concluder: the `review-chair` agent in the stages of the
+`academy-verify` workflow (`workflows/verify.js`), or the main session when
+`/expert:verify` runs by hand. In the workflow, **the script launches the runs and holds
+sections 1 and 7.5** (A, B only on `launch_b` with an unchanged hash, the identical
+brief, one relaunch, a lost run stops the pass); the chair's stages are *prepare*
+(section 0, or 7.1-7.4), *table* (the `decision_table.py <run>.md --json` check of
+section 1) and *conclude* (sections 2-6, or 7.6-7.7). Section 1 below is the by-hand
+route. A review fails loudly, in a verdict; a conclusion fails
 silently, by leaving a finding in a transcript nothing will read again. This file is
 about the second.
 
@@ -38,7 +44,7 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   a run is in flight. A reviewer that could read a verdict mid-flight is no longer
   blind (the `review_blind_guard` hook enforces the reviews/ side of this).
 
-## 1. Run A, then the table
+## 1. Run A, then the table (by hand; in the workflow the script does this)
 
 Launch `rigor-reviewer` run A (`subagent_type: expert:rigor-reviewer`). When it
 returns, the `land_verdict` hook has written `<pass dir>/A.md`. Then

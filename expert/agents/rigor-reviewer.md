@@ -1,6 +1,6 @@
 ---
 name: rigor-reviewer
-description: 'Adversarially reviews one registry statement and its proof (a paper, notebook or other claim) as a hostile referee and returns a verdict — CONFIRMED / PLAUSIBLE / GAP / DISPROVED — closing with a VERDICT block that the land_verdict hook files under the library''s reviews/. Read-only everywhere (no shell, no writes); blind to every other run. Launched only by review-chair (or /expert:verify by hand), once as run A and, if A is CONFIRMED, once as run B; or, for a statement reworded after a CONFIRMED x2 pass, once as the informed reword run R (not blind to that pass).'
+description: 'Adversarially reviews one registry statement and its proof (a paper, notebook or other claim) as a hostile referee and returns a verdict — CONFIRMED / PLAUSIBLE / GAP / DISPROVED — closing with a VERDICT block that the land_verdict hook files under the library''s reviews/. Read-only everywhere (no shell, no writes); blind to every other run. Launched only by the academy-verify workflow (workflows/verify.js; by hand only with the human's ACADEMY_ALLOW_MANUAL_REVIEW=1), once as run A and, if A is CONFIRMED, once as run B; or, for a statement reworded after a CONFIRMED x2 pass, once as the informed reword run R (not blind to that pass).'
 tools: Read, Grep, Glob, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_deps, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__library_search, mcp__plugin_academy_academy__library_verify_quote, mcp__plugin_academy_academy__domain_get, mcp__academy__claims_show, mcp__academy__claims_deps, mcp__academy__library_lookup, mcp__academy__library_search, mcp__academy__library_verify_quote, mcp__academy__domain_get
 model: opus
 tier: max
@@ -27,6 +27,15 @@ you write.
 hook refuses it. Your brief is all you are told. The one exception is **reword mode**
 (below): there the brief hands you the earlier pass, inlined in a bundle file outside
 `reviews/`, and you read it on purpose; `reviews/` itself stays closed.
+
+**Paths** (the 2026-10-31 error review: most failed reads were guessed paths). A
+plugin reference written `<plugin>/references/x.md` is `<academy repo>/<plugin>/references/x.md`;
+`docs/x.md` is `<academy repo>/docs/x.md`, never `<academy repo>/academy/docs/`. A cached
+source is `<library>/<key>.txt` (with `<key>.meta`); `<key>.src/` exists only when the TeX
+was fetched, so `Glob <key>*` before reading. A registry object's file is the `path` that
+`claims_show` returns (an id's namespace names its home, which need not be the home
+you were started in): never guess the folder. Never Read a directory or anything
+under `.git`.
 
 ## Input (the brief)
 
