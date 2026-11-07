@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Make a workspace checkout usable by the academy: run once after cloning, on any machine.
 
-    python scripts/bootstrap.py [--workspace DIR] [--no-submodules] [--no-plugins] [--strict] [--adopt-siblings]
+    python scripts/bootstrap.py [--workspace DIR] [--no-submodules] [--no-plugins] [--no-plugin-update] [--strict] [--adopt-siblings]
 
 This is the academy plugin's ``academy/scripts/workspace_bootstrap.py``; a workspace keeps a
 one-line shim at ``scripts/bootstrap.py`` that runs it with ``--workspace <its root>``. The
@@ -31,7 +31,11 @@ academy checkout when it has a ``workspace.template.json``.
    PATH, because the academy's MCP server is started as ``py server.py``;
 5. with the ``claude`` CLI, installs the plugins that are not already available
    (registering the local ``academy`` marketplace) and reports each one as available
-   or MISSING (skipped with --no-plugins). The plugins are the template's ``plugins`` list
+   or MISSING (skipped with --no-plugins), and updates the ones already installed
+   (``claude plugin marketplace update academy``, then ``claude plugin update <name>@academy``
+   for each; skipped with --no-plugin-update), because Claude Code keeps a cached copy per
+   plugin version and an installed plugin is otherwise never refreshed. An update takes
+   effect at the next start of Claude Code. The plugins are the template's ``plugins`` list
    if it has one, else ``academy``, the role plugins of the instances' roles and the
    domain packs of their ``domains`` (from the marketplace's ``./domains/<domain>``).
 
@@ -741,7 +745,22 @@ def available(claude, names):
     return {n for n in names if re.search(r"(?m)^\s*\S*\s*%s@" % re.escape(n), out)}
 
 
-def plugins():
+UP_TO_DATE = re.compile(r"(?i)already (at the )?latest|up[ -]to[ -]date|no update")
+
+
+def update_plugins(claude, names):
+    """Refresh the academy marketplace, then update each installed plugin of ``names``.
+    Never passes -y: a marketplace-declared command is for a person to confirm. Returns
+    {name: "updated" | "up to date" | "update failed"}."""
+    run_claude(claude, "plugin", "marketplace", "update", "academy")
+    result = {}
+    for name in names:
+        rc, out = run_claude(claude, "plugin", "update", name + "@academy", "--scope", "project")
+        result[name] = "update failed" if rc else ("up to date" if UP_TO_DATE.search(out or "") else "updated")
+    return result
+
+
+def plugins(update=True):
     claude = shutil.which("claude")
     if not claude:
         say("claude CLI not on PATH; enable the plugins from .claude/settings.json instead")
@@ -755,13 +774,19 @@ def plugins():
     missing = [n for n in names if n not in have]
     if have:
         say("already available: %s" % ", ".join(sorted(have)))
+    updated = update_plugins(claude, [n for n in names if n in have]) if (have and update) else {}
     if missing:
         run_claude(claude, "plugin", "marketplace", "add", posix(academy_dir()))
         for name in missing:
             run_claude(claude, "plugin", "install", name + "@academy", "--scope", "project")
         have = available(claude, names)
     for name in names:
-        say("plugin %-11s %s" % (name, "available" if name in have else "MISSING"))
+        state = "available" if name in have else "MISSING"
+        if name in updated:
+            state += " (%s)" % updated[name]
+        say("plugin %-11s %s" % (name, state))
+    if any(v == "updated" for v in updated.values()):
+        say("restart Claude Code to load the updated plugins")
 
 
 def main(argv):
@@ -790,7 +815,7 @@ def main(argv):
         if os.name != "nt":
             py_shim()
         if "--no-plugins" not in argv:
-            plugins()
+            plugins(update="--no-plugin-update" not in argv)
     else:
         say("the academy checkout or the board directory is missing, so workspace.json was NOT written")
     if PROBLEMS and "--strict" in argv:

@@ -88,6 +88,13 @@ reviewers blind.
 
 ## Around the workflows
 
+- **Plugin versions and updates** (2026-11-07): Claude Code caches a plugin per version, and the
+  bootstrap used to install only missing plugins, so an installed one kept its old skills (a session
+  ran 0.1.0 skills, which call no workflow). The bootstrap now runs `claude plugin marketplace update
+  academy` and `claude plugin update <name>@academy` for every installed plugin (`--no-plugin-update`
+  skips it; restart Claude Code after an update), and the plugins carry one version, pinned with the MCP
+  server's by `academy/tests/test_bootstrap_plugins.py`. Raise it with any change to skills, agents,
+  hooks or workflows.
 - **Scheduled tasks** (cloud, a fresh session each run, push notification): the weekly
   usage packet and settle (Sundays 20:40 Asia/Jerusalem) and the weekly Expert sources run
   (litwatch and at most three `cite`/`lookup` tickets, Sundays 19:47).
