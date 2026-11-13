@@ -1,2 +1,4 @@
 __pycache__/
 *.sqlite
+# worktrees made by `ship.py start --worktree`
+.claude/worktrees/
