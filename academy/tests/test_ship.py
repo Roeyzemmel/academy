@@ -40,6 +40,32 @@ class Base(unittest.TestCase):
         return ship.current(self.sub)
 
 
+class TestWorktreePlace(Base):
+    """A worktree started from a worktree lands beside it, under the main checkout
+    (2026-11-13: ``--repo`` a worktree nested the new one inside it, and a relative
+    ``--repo`` joined the path twice)."""
+
+    def test_a_worktree_started_from_a_worktree_is_not_nested(self):
+        rc, out, err = self.ship("start", "sub", "one", "--role", "human", "--worktree")
+        self.assertEqual(0, rc, err)
+        home = os.path.join(os.path.realpath(self.sub), ".claude", "worktrees")
+        (first,) = os.listdir(home)
+        for repo in (os.path.join(home, first),
+                     os.path.relpath(os.path.join(home, first), os.getcwd())):
+            topic = "two" if os.path.isabs(repo) else "three"
+            rc, out, err = self.ship("start", "sub", topic, "--role", "human", "--worktree",
+                                     "--repo", repo)
+            self.assertEqual(0, rc, err)
+        self.assertEqual(3, len(os.listdir(home)), os.listdir(home))
+        self.assertFalse(os.path.exists(os.path.join(home, first, ".claude")))
+        listed = [os.path.realpath(ln.split()[1]) for ln in
+                  run(self.sub, "worktree", "list", "--porcelain").splitlines()
+                  if ln.startswith("worktree ")]
+        self.assertEqual(sorted([os.path.realpath(self.sub)]
+                                + [os.path.join(home, d) for d in os.listdir(home)]),
+                         sorted(listed))
+
+
 class TestNames(unittest.TestCase):
     def test_branch_name_slugs_topic(self):
         self.assertEqual(ship.branch_name("Coimage Proof!", "human", today="2026-09-30"),

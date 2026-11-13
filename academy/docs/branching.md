@@ -136,6 +136,14 @@ everything but the board and the submodules; never a submodule pointer; not part
   `{"pushGate": false}` for no gate, or a list of extra local-only steps.
   `"pushGate": false` in workspace.json switches the gate off for the workspace; `push
   --no-gate` skips it with a warning, on the human's word only.
+- **Not waiting for the gate.** The gate checks the checkout it runs in, so that
+  checkout must not change under it. To keep working: `commit`, then `start <sub> <next
+  topic> --worktree --repo <the checkout just committed>` (the new branch is stacked on
+  it, in its own worktree under `<sub>/.claude/worktrees/`, wherever it was started
+  from), then `push <sub> --repo <the checkout just committed>` in the background, and
+  go on in the new worktree. Read the push's own exit status and last lines when it
+  ends (a pipe through `tail` hides a refusal). `commit`, `push` and `ship` take the
+  same `--repo`.
 - `status`, `start`, `commit`, `push`, `ship`, `stack` and `checkpoint` are allowlisted (the
   workspace bootstrap renders the rules from `templates/workspace/permissions.json` into
   `.claude/settings.local.json`).

@@ -299,6 +299,17 @@ def common_dir(path):
     return os.path.normcase(os.path.realpath(full))
 
 
+def main_checkout(repo):
+    """The main working tree of ``repo``'s repository (``repo`` itself unless it is a linked
+    worktree), as an absolute path."""
+    repo = os.path.abspath(repo)
+    out = git(repo, "worktree", "list", "--porcelain", check=False) or ""
+    for ln in out.splitlines():
+        if ln.startswith("worktree "):
+            return os.path.abspath(ln[len("worktree "):])
+    return repo
+
+
 def repo_of(sub, explicit=None):
     """The checkout to work in: ``<ROOT>/<sub>``, or ``--repo`` when it is a checkout of that
     same repository (the checkout itself or one of its worktrees: same git-common-dir).
@@ -384,7 +395,10 @@ def cmd_start(a):
     # the base of the new branch: --on, else the branch the checkout is on (a stack)
     base = (on[len("origin/"):] if on and on.startswith("origin/") else on) or current(repo)
     if a.worktree:
-        wt = os.path.join(repo, ".claude", "worktrees", name.replace("/", "-"))
+        # always beside the other worktrees, under the main checkout: started from a
+        # worktree (--repo), the new one must not be nested inside it, and a relative
+        # --repo must not be joined twice (git runs in ``repo``)
+        wt = os.path.join(main_checkout(repo), ".claude", "worktrees", name.replace("/", "-"))
         args = ["worktree", "add", wt] + ([name] if exists else ["-b", name] + ([on] if on else []))
         git(repo, *args)
         print("worktree %s on %s" % (wt, name))
