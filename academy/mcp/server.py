@@ -30,7 +30,7 @@ from tools import Context, ToolError, parse_caller  # noqa: E402
 from tools import claims, config, domain, library, packets, queue, tickets  # noqa: E402
 
 SERVER_NAME = "academy"
-SERVER_VERSION = "0.2.2"
+SERVER_VERSION = "0.2.3"
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 MODULES = (claims, library, queue, tickets, packets, domain, config)

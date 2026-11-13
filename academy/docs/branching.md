@@ -58,8 +58,36 @@ changed; readers take the last record per session. The same step compacts this h
 (or `"shipCheckpoint": false`) in workspace.json; a failure is a warning, never a failed
 checkpoint.
 
+**Writes in another role's home** (2026-11-13). Some routes write, legitimately, in a
+home that is not the acting role's: the Expert's librarian adds an entry to an Author
+home's `references.bib` (`cite`); a review chair, the librarian or the claim-keeper
+writes an evidence row or a status into the registry of whichever home owns the claim's
+namespace (`claims_attach_evidence`, `claims_set_status`, `claims_new`; for example an
+Expert `verify` on a `paper:` claim, a Researcher `review-experiment` on a `lab:` claim).
+Those files are shipped with the ticket, and nothing else there:
+
+- They are recorded when they are written, in the **touch ledger** (one small file per
+  write under `~/.claude/academy/touched/<workspace>/`, `$ACADEMY_TOUCHED_DIR` overrides;
+  never in a repo): by the `touch_record` hook for an agent's Edit or Write in a home of
+  another role, and by the MCP server for the files a claims write changed in such a home
+  (the home's uncommitted files compared before and after the call). The main session's
+  own edits are the human's and are never recorded.
+- The `--check` of a finished ticket claims the role's unclaimed entries for that ticket
+  (the inbox works one ticket at a time) and passes them as `--touched SUB:PATH`. In
+  each such repo only those paths are staged and committed, on the same
+  `<date>/<ticket-id>/<role>` branch, where role is the acting role (an Expert's bib entry
+  lands on `.../expert` in the paper repo), through that home's commit gate and push gate.
+- The repo is refused, and nothing is shipped there, when it is on `main`, or when it
+  would have to switch to the ticket's branch while anything else in it is uncommitted
+  (a switch would carry that work onto the ticket's branch). Already on the ticket's
+  branch, only the paths are committed. The entries then stay with that ticket, so its
+  next `--check` retries them and no other ticket takes them; a shipped repo's entries
+  are dropped. Entries are pruned after 14 days.
+- `"shipCheckpoint": false` switches this off with the rest (nothing is recorded or
+  shipped).
+
 When the hook says it did not run, or failed, run the scoped command it printed (with its
-`--only`), from your own checkout's root. The unscoped run (no `--only`: every dirty
+`--only` and any `--touched`), from your own checkout's root. The unscoped run (no `--only`: every dirty
 submodule and the board) is for the human or the session that owns the checkout.
 
 ## Working from a CLI session at the workspace root

@@ -114,7 +114,9 @@ if (v && !v.ok) {
 Object.assign(out, { key: c.key, pinpoint: c.pinpoint, card: c.card, verdict: c.verdict, validated: !!(v && v.ok) })
 if (!/^match$/i.test(c.verdict)) out.notes.unshift(`MISMATCH (a mathematical finding): the source differs from what ${ask.relying || 'the paper'} wants: ${c.verdict}`)
 if (!c.reachable) out.notes.push('UNREACHABLE source: the card records how it was read; anything resting on it stays an unverified input until a human reads it')
-if (c.bib_changed) out.notes.push(`${ask.bib || 'references.bib'} changed: it is in the Author home, outside this checkpoint's scope (library and board); ship it from there`)
+// with a ticket, the bib edit in the Author home ships with it: the touch ledger records it and the
+// ticket's --check passes it to ship.py as --touched (docs/branching.md); without one, nothing claims it
+if (c.bib_changed && !T) out.notes.push(`${ask.bib || 'references.bib'} changed in the Author home and no ticket ships it: add --touched <that home's submodule>:references.bib to the command below (else the next Expert ticket's checkpoint carries it)`)
 const end = async () => {
   if (!A.nested) out.ship = await ship({ role: 'expert', ticket: T, done: !!out.ticket_delivered, instance: ask.instance, topic: 'cite-' + (c.key || ask.ref),
     only: 'library board', agentType: CLERK, phase: 'Land', notes: out.notes })

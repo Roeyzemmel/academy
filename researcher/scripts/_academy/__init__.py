@@ -13,6 +13,7 @@ ones); callers never import a part, they use ``ac.<name>`` on the package:
     _base       vocabulary, the error classes, paths
     _config     a home's academy.json, an Author home's tex conventions, path sets
     _workspace  workspace.json, the workspace's environment, model tiers, agent files
+    _touched    the touch ledger: files a role wrote in another role's home
     _agents     agent identity, permissions, the caller handshake
     _files      the frontmatter subset, atomic writes, ids
     _tickets    ticket vocabulary, transitions, edges, blocking, validation, the thread
@@ -59,6 +60,8 @@ Inbox (one core, thin per-role wrappers)
     inbox_core.serial_checkpoint(meta) / check(board, tid), is_dead_route(meta)
     inbox_core.parser(desc) / run(args, instance, board, limit, route)   the shared CLI
     inbox_core.ship_checkpoint(...)  a finished --check runs the workspace's ship.py checkpoint
+Touch ledger (cross-home writes the checkpoint ships)
+    record_touch / claim_touches / drop_touches / touch_entries / is_cross_home
 Packets
     PACKET_KEY_ORDER, validate_packet, packet_decisions, packet_answers,
     record_decision, packet_is_decided, packet_filename, find_packet
@@ -75,12 +78,12 @@ Shell commands (which repository a ``git commit`` runs in)
 import sys
 import types
 
-from . import (_base, _config, _workspace, _agents, _files, _tickets, _store, _inbox,
-               _packets, _hooks)
+from . import (_base, _config, _workspace, _touched, _agents, _files, _tickets, _store,
+               _inbox, _packets, _hooks)
 
 #: the parts, in import order
-_PARTS = (_base, _config, _workspace, _agents, _files, _tickets, _store, _inbox,
-          _packets, _hooks)
+_PARTS = (_base, _config, _workspace, _touched, _agents, _files, _tickets, _store,
+          _inbox, _packets, _hooks)
 
 #: names a part rebinds while running (a ``global`` statement): the package holds no
 #: copy of them, it reads the owner's current value

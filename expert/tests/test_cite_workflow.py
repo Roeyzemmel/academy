@@ -118,6 +118,17 @@ class ShipTests(unittest.TestCase):
         self.assertEqual(res["ship"]["status"], "pushed")
         self.assertEqual(res["ship"]["branches"], ["library 2026-11-13/t-0904/expert"])
 
+    def test_the_bib_in_the_author_home_ships_with_the_ticket(self):
+        # the ticket's --check ships the bib too (the touch ledger, --touched): its line is a
+        # branch like any other, and no note sends the human to ship it by hand
+        out = shipped("T-0904")
+        out["output"] = shipped("T-0904")["output"] + "paper 2026-11-13/t-0904/expert @ def5678 (1 files) pushed\n"
+        res, labels, _ = self.run_wf(dict(self.PLAN, ship=[out]), ticket="T-0904", nested=False)
+        self.assertEqual(res["ship"]["status"], "pushed")
+        self.assertEqual(res["ship"]["branches"], ["library 2026-11-13/t-0904/expert",
+                                                   "paper 2026-11-13/t-0904/expert"])
+        self.assertNotIn("references.bib", " ".join(res["notes"]))
+
     def test_nested_never_ships(self):
         res, labels, _ = self.run_wf(dict(self.PLAN), ticket="T-0904", nested=True)
         self.assertNotIn("ship", labels)
@@ -136,7 +147,7 @@ class ShipTests(unittest.TestCase):
         self.assertNotIn("ship", labels)
         self.assertEqual(res["ship"]["status"], "not-run")
         self.assertEqual(res["ship"]["command"], "py scripts/ship.py checkpoint --ticket cite-sw10 --role expert --only library board")
-        self.assertIn("outside this checkpoint's scope", " ".join(res["notes"]))   # references.bib is in the Author home
+        self.assertIn("--touched <that home's submodule>:references.bib", " ".join(res["notes"]))   # no ticket claims it
 
     def test_a_ticket_parked_on_the_human_does_not_ship(self):
         c = dict(card("unreachable", False), card="none written")

@@ -138,7 +138,8 @@ class McpTestBase(unittest.TestCase):
                                      "status": "ok", "log": "~/fsq/collected/x/log"}))
         os.makedirs(os.path.join(q, "pending"))
         cls.env = dict(os.environ, ACADEMY_WORKSPACE=cls.ws_path, PYTHONUTF8="1",
-                       ACADEMY_CALLER_DIR=os.path.join(cls.tmp, "callers"))
+                       ACADEMY_CALLER_DIR=os.path.join(cls.tmp, "callers"),
+                       ACADEMY_TOUCHED_DIR=os.path.join(cls.tmp, "touched"))
         cls.env.pop("ACADEMY_CWD", None)
 
     @classmethod
@@ -1585,6 +1586,39 @@ class TestRegistryBackend(McpTestBase):
                           id="lab:ew", row=dict(row, ref="audits/none.md"))
         self.assertTrue(err)
         self.assertIn("does not exist", msg)
+
+    def git_home(self, home):
+        for args in (["init", "-q", "-b", "main"], ["config", "user.name", "T"],
+                     ["config", "user.email", "t@example.com"], ["add", "-A"],
+                     ["commit", "-q", "-m", "init"]):
+            subprocess.run(["git", "-C", home] + args, check=True, capture_output=True)
+        self.addCleanup(shutil.rmtree, os.path.join(home, ".git"), True)
+
+    def touched(self):
+        os.environ["ACADEMY_TOUCHED_DIR"] = self.env["ACADEMY_TOUCHED_DIR"]
+        try:
+            return [(os.path.relpath(r["path"], self.tmp).replace(os.sep, "/"), r["role"],
+                     r["via"]) for _, r in ac.touch_entries(self.tmp)]
+        finally:
+            os.environ.pop("ACADEMY_TOUCHED_DIR", None)
+
+    def test_a_write_in_another_roles_home_is_recorded_for_the_checkpoint(self):
+        # the claim-keeper (researcher) writes evidence into the lab's (scientist) registry
+        self.git_home(self.homes["scientist@t"])
+        self.addCleanup(shutil.rmtree, self.env["ACADEMY_TOUCHED_DIR"], True)
+        s = self.server("researcher@t")
+        row = {"type": "audit", "ref": "audits/ew-A.md", "verdict": "SOUND", "run_id": "A"}
+        err, res = s.call("claims_attach_evidence", caller="researcher:claim-keeper",
+                          id="lab:ew", row=row)
+        self.assertFalse(err, res)
+        self.assertEqual(self.touched(),
+                         [("lab/claims/lab/ew.md", "researcher", "claims_attach_evidence")])
+        # the caller's own role's home, or the human: nothing recorded
+        shutil.rmtree(self.env["ACADEMY_TOUCHED_DIR"])
+        err, res = s.call("claims_attach_evidence", caller="scientist:experimenter",
+                          id="lab:ew", row=dict(row, ref="audits/ew/2026-09-28-B.md", run_id="B"))
+        self.assertFalse(err, res)
+        self.assertEqual(self.touched(), [])
 
     def test_attach_evidence_note_with_colon_is_quoted(self):
         # 2026-10-12: "internal error ... a bare value may not contain ': '"

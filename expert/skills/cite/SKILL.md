@@ -42,8 +42,9 @@ The librarian's fetches stay on the allowlist of sources (`scripts/source_guard.
   human reads it. Say that plainly.
 - **`ship`** (a standalone run; docs/workflows.md): with a ticket, its checkpoint ran once
   (`inbox.py --check`); without one it is `not-run` with the `checkpoint` command to run
-  from the workspace root. `references.bib` is in the Author home, outside that scope (the
-  notes say so). A refusal is reported, never retried.
+  from the workspace root. With a ticket the Author home's `references.bib` ships with it
+  (the touch ledger passes it as `--touched`, on the Expert's branch there); without one the
+  notes say to add `--touched` for it. A refusal is reported, never retried.
 
 Never write the entry yourself, never invent a pinpoint, never let a card stand in for a
 statement nobody read. Never ask questions.

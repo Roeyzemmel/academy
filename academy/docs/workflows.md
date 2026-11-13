@@ -109,7 +109,7 @@ detail, branches?, command?}`:
   inbox's exact command, `<role>/scripts/inbox.py [--instance I] --check T-NNNN`, once. Its
   output is read in code like the inbox's check: the ticket's state from its first line,
   each repo from ship.py's lines. `inbox.py` does the scoping (home, `board`, `library` for
-  the Expert), refuses a session outside the workspace or in a worktree, and runs nothing
+  the Expert, and `--touched` for what the role wrote in another role's home), refuses a session outside the workspace or in a worktree, and runs nothing
   under `"shipCheckpoint": false`, which comes back `not-run`.
 - A ticket the run left unfinished (parked on the human, tests still to file) is `not-run`
   without a stage, with the `--check` command: the inbox would not ship it either.
@@ -125,11 +125,12 @@ detail, branches?, command?}`:
 
 | Workflow | Writes | Standalone `ship` |
 |---|---|---|
-| `cite` | library (card, index), the Author home's `references.bib`, board | ticket: the check; else `not-run`. The bib is outside the checkpoint's scope (a note says so) |
-| `verify` | library (`reviews/`), registry evidence, board | ticket: the check; else `not-run` |
+| `cite` | library (card, index), the Author home's `references.bib`, board | ticket: the check, which ships the bib too (`--touched`); else `not-run`, with a note to add `--touched` for the bib |
+| `verify` | library (`reviews/`), registry evidence (in the home owning the claim), board | ticket: the check (the evidence through `--touched`); else `not-run` |
 | `referee` | library (`reviews/referee/`), board | ticket: the check; else `not-run` |
 | `domain` | the academy repo's pack, board | the check (ships the board; the pack is the human's commit) |
-| `prove`, `explore`, `review-experiment` | the notebook, board | ticket: the check; else `not-run` |
+| `prove`, `explore` | the notebook, board | ticket: the check; else `not-run` |
+| `review-experiment` | the notebook, the claim-keeper's status and evidence (in the lab's registry), board | ticket: the check (the registry through `--touched`); else `not-run` |
 | `generalize` | the notebook, board | the check once the ticket is delivered (`mode: deliver` too) |
 | `experiment` | the lab | `file` leg only (the check); the other legs end at a human gate |
 | `notes` | tickets (board files on a file board) | `not-run` (no ticket) |
@@ -137,6 +138,23 @@ detail, branches?, command?}`:
 | `weekly` | board (packet, error ledger) | `not-run` (no ticket) |
 | `workplan` campaign | the notebook (approaches, artifacts) | `not-run`; its tickets ship by the nested inbox's `--check` |
 | `workplan` cowork, `inbox` | only through the inbox | no stage: the `--check` ships each ticket |
+
+### Known gaps
+
+- **Writes in another role's home** are shipped from the touch ledger (`docs/branching.md`,
+  "Writes in another role's home"), closed 2026-11-13; until then the Author home's
+  `references.bib` (cite) and evidence or statuses in another home's registry (verify,
+  review-experiment, claim-keeper) were left uncommitted. What remains open:
+  - A cross-home repo with other uncommitted work is refused, not shipped (the ticket's
+    entries wait for its next `--check`): the human commits or stashes that work first.
+  - The ticket is told by sequence: the role's unclaimed entries go to the next ticket of
+    that role whose `--check` runs. A write made with no ticket (a standalone `/expert:cite`)
+    is carried by the next Expert ticket's checkpoint unless shipped by hand first with
+    `--touched`.
+  - A write through a shell (a script an agent runs that writes another role's home) is not
+    recorded; the audit found none (the claim-keeper has no shell; the review and settle
+    scripts write the acting role's own home or the library).
+  - The domain pack (`domain`) is in the academy repo: the human's commit, not shipped.
 
 ## Around the workflows
 

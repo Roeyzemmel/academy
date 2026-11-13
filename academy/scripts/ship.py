@@ -11,6 +11,7 @@
     py scripts/ship.py merge  <sub> <branch> --sha TIP [-m MSG] [--bump]   # reviewed branch -> local main
     py scripts/ship.py publish <sub> --sha MAIN_TIP                  # local main -> origin main
     py scripts/ship.py checkpoint --ticket T-NNNN [--role R] [--title T] [--remote NAME] [--only SUB...]
+                                  [--touched SUB:PATH...]
 
 This is the academy plugin's ``academy/scripts/ship.py``; a workspace keeps a one-line shim
 at ``scripts/ship.py`` that runs it with ``--workspace <its root>`` and the same arguments,
@@ -70,7 +71,15 @@ as a plain directory of the superproject only ``board/`` paths are staged and co
 (``add -A -- board/``, ``commit -- board/``), whatever else is dirty or staged there.
 The academy plugin's ``inbox.py --check`` runs ``checkpoint --only <the ticket's repos>``
 itself after a finished ticket: with ``--only`` the other submodules are not touched and
-a dirty repo of the set that is on main/master is refused instead of moved.
+a dirty repo of the set that is on main/master is refused instead of moved. With
+``--touched SUB:PATH...`` (from the inbox's touch ledger: files the ticket's role wrote in
+another role's home, such as an Expert's entry in an Author home's references.bib or an
+evidence row in another home's registry) each such submodule outside ``--only`` is
+checkpointed too, for those paths only: they alone are staged and committed, on the same
+``<date>/<ticket-id>/<role>`` branch (the acting role's, given by ``--role``), through that
+home's commit gate and push gate; the repo is refused, and nothing is shipped there, when
+it is on main/master, or when it would have to switch branches while anything else in it
+is uncommitted (that work is not the ticket's).
 
 **Stacks.** ``start`` branches from where the checkout is, so a second ``start`` on a
 template branch stacks on it; ``--on BRANCH`` names the base explicitly (a local branch,
@@ -1042,13 +1051,19 @@ def operation_in_progress(repo):
     return ""
 
 
-def worktree_state(repo, pathspec=None):
+def path_specs(paths):
+    """Literal, top-anchored git pathspecs for repo-relative file paths (``--touched``)."""
+    return [":(top,literal)%s" % p for p in paths]
+
+
+def worktree_state(repo, pathspec=None, specs=None):
     """(dirty, skipped) from ``git status --porcelain -z --untracked-files=all``: dirty is
     True when any entry is left once untracked nested repositories and worktrees (an
     untracked directory with a ``.git`` of its own) are set aside; skipped lists those,
     '/'-terminated. Ignored files are not entries at all. With ``pathspec`` (a directory
-    of a superproject target) only entries under it count."""
-    spec = ["--", scope_spec(pathspec)] if pathspec else []
+    of a superproject target) only entries under it count; with ``specs`` (git pathspecs)
+    only entries they match."""
+    spec = ["--", scope_spec(pathspec)] if pathspec else (["--"] + list(specs) if specs else [])
     # unstripped: a first entry ' M x' would otherwise lose its leading space
     raw = git(repo, "status", "--porcelain", "-z", "--untracked-files=all", *spec, strip=False)
     # tracked submodule pointers (gitlinks): never committed by a checkpoint; pins move
@@ -1077,16 +1092,26 @@ def worktree_state(repo, pathspec=None):
 NAMES_SHOWN = 20
 
 
-def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=None):
+def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=None, paths=None):
     """One repo of a checkpoint; returns its result dict (see ``run_checkpoint``).
 
     ``pathspec`` (a superproject target such as ``board``: the directory, relative to the
     workspace root): only changes under it are looked at, staged (``add -A -- <dir>/``,
     not ``:/``) and committed (``commit -- <dir>/``), so whatever else is dirty or staged
     in the superproject -- another directory, a moved submodule pointer -- is left
-    exactly as it was."""
+    exactly as it was.
+
+    ``paths`` (``--touched``: the files the ticket's role wrote in another role's home,
+    repo-relative): only these are looked at, staged and committed, and the repo is never
+    moved to the ticket's branch while anything else in it is uncommitted -- that work is
+    not the ticket's, and a switch would carry it onto the ticket's branch: the repo is
+    then refused and nothing is shipped there. Already on the ticket's branch, only the
+    paths are committed. Always scoped (a dirty repo on main/master is refused)."""
     res = {"sub": sub, "branch": name, "sha": "", "files": 0, "status": "unchanged", "detail": "",
            "names": [], "skipped": []}
+    specs = path_specs(paths) if paths else None
+    if paths:
+        scoped = True
 
     def sha():
         return git(repo, "rev-parse", "--short", "HEAD", check=False)
@@ -1096,7 +1121,7 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
         return res
 
     tip = git(repo, "rev-parse", "-q", "--verify", "refs/heads/" + name, check=False)
-    dirty, res["skipped"] = worktree_state(repo, pathspec)
+    dirty, res["skipped"] = worktree_state(repo, pathspec, specs)
     if dirty:  # untracked included, ignored files and nested repos/worktrees not
         cur = current(repo)
         if not cur:
@@ -1111,6 +1136,14 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
             return refused("on %r, which is neither main/master nor a <date>/<topic>/<role> branch; "
                            "its changes are not this ticket's to sweep up -- commit or move them by hand"
                            % cur)
+        if specs and cur != name:
+            others, _ = worktree_state(repo, specs=[":/"] + [
+                ":(top,literal,exclude)%s" % p for p in paths])
+            if others:
+                return refused("%s has other uncommitted changes besides %s, which are not "
+                               "this ticket's; nothing is shipped there (commit or stash them, "
+                               "then re-run the ticket's --check)"
+                               % (cur, ", ".join(paths)))
         if cur != name and BRANCH.match(cur):
             print("ship: note: %s is on %s (another ticket's branch); its leftover changes are "
                   "committed under %s" % (sub, cur, message.split(":", 1)[0]), file=sys.stderr)
@@ -1136,8 +1169,8 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
             # everything but the nested repositories/worktrees, which 'add -A' would record
             # as gitlinks
             excl = [":(top,literal,exclude)%s" % p.rstrip("/") for p in res["skipped"]]
-            scope = ["--", scope_spec(pathspec)] if pathspec else []
-            git(repo, "add", "-A", "--", scope_spec(pathspec) if pathspec else ":/", *excl)
+            scope = ["--", scope_spec(pathspec)] if pathspec else (["--"] + specs if specs else [])
+            git(repo, "add", "-A", "--", *(scope[1:] if scope else [":/"]), *excl)
             # a pointer staged beforehand (moved or new) would ride along with the index:
             # unstage every staged gitlink (of the scope), so pins move only through
             # 'merge --bump'
@@ -1212,7 +1245,29 @@ def usage_summaries(only):
         print("ship: warning: usage summary skipped: %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
 
 
-def run_checkpoint(ticket, role, title, remote, only=None):
+def parse_touched(items):
+    """``{sub: [repo-relative paths]}`` from ``--touched SUB:PATH`` items; Refuse on a
+    malformed one (absolute, '..', empty, or a sub that is no submodule)."""
+    out = {}
+    subs = submodule_names()
+    for item in items or []:
+        sub, sep, path = str(item).partition(":")
+        path = path.replace("\\", "/").strip()
+        parts = path.split("/")
+        if (not sep or not sub or not path or path.startswith("/") or os.path.isabs(path)
+                or ".." in parts or re.match(r"^[A-Za-z]:", path)):
+            raise Refuse("--touched %r: expected SUB:PATH, PATH relative to the submodule"
+                         % item)
+        if sub not in subs:
+            raise Refuse("--touched %r: %s is not a submodule in .gitmodules (known: %s)"
+                         % (item, sub, " ".join(subs)))
+        lst = out.setdefault(sub, [])
+        if path not in lst:
+            lst.append(path)
+    return out
+
+
+def run_checkpoint(ticket, role, title, remote, only=None, touched=None):
     """Commit and push, on ``<date>/<ticket-id>/<role>``, every checked-out submodule that
     has uncommitted changes (tracked or untracked, .gitignore honoured) or commits on that
     branch the remote does not have. One dict per submodule: sub, branch, sha, files,
@@ -1227,7 +1282,12 @@ def run_checkpoint(ticket, role, title, remote, only=None):
     .gitmodules path or a superproject target such as ``board``, else Refuse before
     anything is touched); the others are not looked at, and a dirty repo of the set that
     is on main/master is refused instead of moved. A superproject target is committed in
-    the workspace's own repository, limited to its directory (``checkpoint_repo``)."""
+    the workspace's own repository, limited to its directory (``checkpoint_repo``).
+
+    ``touched`` (``{sub: [paths]}``, with ``only``): files the ticket's role wrote in
+    another role's home (the inbox reads them from the touch ledger). Each such submodule
+    not already in ``only`` is checkpointed for those paths only (``checkpoint_repo``'s
+    ``paths``), on the same branch name, after the ``only`` targets."""
     t = (ticket or "").strip()
     if not TICKET.match(t):
         raise Refuse("ticket id %r is not a ticket id like T-0059 (letters, digits, '-')" % ticket)
@@ -1246,12 +1306,16 @@ def run_checkpoint(ticket, role, title, remote, only=None):
     results = []
     subs = targets()
     dirs = root_dirs()
+    extra = parse_touched(touched) if not isinstance(touched, dict) else dict(touched or {})
+    if extra and only is None:
+        raise Refuse("--touched needs --only (an unscoped run commits every dirty repo anyway)")
     if only is not None:
         unknown = [s for s in only if s not in subs]
         if unknown or not only:
             raise Refuse("--only %s: not a submodule in .gitmodules nor a superproject "
                          "directory (known: %s)" % (" ".join(unknown) or "(nothing)", " ".join(subs)))
         subs = [s for s in subs if s in only]
+    extra = {s: p for s, p in extra.items() if s not in subs and p}
     if BOARD in subs:
         usage_summaries(only)  # before the board is staged and committed
     for sub in subs:
@@ -1270,11 +1334,26 @@ def run_checkpoint(ticket, role, title, remote, only=None):
             results.append({"sub": sub, "branch": name, "sha": git(repo, "rev-parse", "--short", "HEAD", check=False),
                             "files": 0, "status": "skipped", "detail": "refused: %s" % e,
                             "names": [], "skipped": []})
+    for sub, paths in extra.items():
+        try:
+            repo = repo_of(sub)
+        except Refuse:
+            results.append({"sub": sub, "branch": "", "sha": "", "files": 0, "status": "skipped",
+                            "detail": "not checked out"})
+            continue
+        name = branch_name(t, role or default_role(repo))
+        try:
+            results.append(checkpoint_repo(sub, repo, name, message, remote, scoped=True,
+                                           paths=paths))
+        except Refuse as e:
+            results.append({"sub": sub, "branch": name, "sha": git(repo, "rev-parse", "--short", "HEAD", check=False),
+                            "files": 0, "status": "skipped", "detail": "refused: %s" % e,
+                            "names": [], "skipped": []})
     return results
 
 
 def cmd_checkpoint(a):
-    results = run_checkpoint(a.ticket, a.role, a.title, a.remote, a.only)
+    results = run_checkpoint(a.ticket, a.role, a.title, a.remote, a.only, a.touched)
     bad = False
     for r in results:
         if r["status"] == "pushed" or r["status"] == "unchanged":
@@ -1345,6 +1424,11 @@ def parser():
                    help="only these submodules or superproject directories (board) -- the inbox "
                         "hook's automatic run: the others are not touched, and a dirty one on "
                         "main/master is refused, not moved")
+    c.add_argument("--touched", nargs="+", metavar="SUB:PATH",
+                   help="with --only: files the ticket's role wrote in another role's home "
+                        "(the inbox reads them from the touch ledger); each such submodule is "
+                        "checkpointed for these paths only, and refused, not moved, while "
+                        "anything else in it is uncommitted")
     c.set_defaults(fn=cmd_checkpoint)
     for x in sp.choices.values():
         if x.prog.split()[-1] not in ("status", "checkpoint"):

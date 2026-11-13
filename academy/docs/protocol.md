@@ -447,7 +447,9 @@ allowlist) to commit and push the ticket's work on its branch (`docs/branching.m
 The repos are the instance's home submodule, `board` (the workspace's `board/`
 directory, whose paths alone are committed in the workspace repository), and `library`
 for the Expert (`board` alone, said on stderr, when the home is not a submodule); under `--only` no other repo is touched and a dirty repo still on
-`main` is refused, not moved. Skipped when that script is absent, when workspace.json
+`main` is refused, not moved. What the role wrote in another role's home while it worked
+the ticket (the touch ledger, `docs/branching.md`) is passed as `--touched SUB:PATH`, and
+only those paths are committed there. Skipped when that script is absent, when workspace.json
 says `"shipCheckpoint": false`, or when the session (`$CLAUDE_PROJECT_DIR`, else the cwd)
 is outside the workspace root or in a worktree under it (a `.claude/worktrees` path
 segment); one stderr line then gives the command to run by hand, always with the same

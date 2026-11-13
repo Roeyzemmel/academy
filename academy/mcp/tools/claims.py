@@ -827,6 +827,95 @@ def _set_status(ctx, a):
     return be.set_status(cid, status, a.get("grounds"), a.get("note"))
 
 
+# -- the touch ledger (docs/branching.md, "After each inbox ticket") --------------
+# A claims write lands in the home that owns the claim's namespace, often not the
+# caller's (a review chair's evidence row on a paper: claim, the claim-keeper's status on
+# a lab: claim). The checkpoint after the caller's ticket is scoped to the caller's
+# repos, so the files such a call changed are recorded (ac.record_touch) and shipped by
+# that ticket's --check. What changed is measured, not guessed: the home's dirty files
+# (git status) with their size and mtime before and after the call.
+
+def _cross_home(ctx, ns):
+    """``(root, home, role, instance)`` when a write in ``ns`` by this caller lands in a
+    home of another role; None otherwise (the human, a base-plugin agent, the caller's
+    own role's home, or ``"shipCheckpoint": false``)."""
+    if ctx.is_human:
+        return None
+    role = ctx.agent_plugin()
+    if role not in ac.ROLES:
+        return None
+    ws = ctx.workspace
+    if ws.get("shipCheckpoint") is False:
+        return None
+    owner = ctx.instance_by_ns(ns)
+    inst = ctx.instances().get(owner or "") or {}
+    if not owner or not inst.get("home") or inst.get("role") == role:
+        return None
+    try:
+        acting = ctx.instance
+    except Exception:            # noqa: BLE001 -- several instances of the role: unknown
+        acting = None
+    if acting == ac.HUMAN:
+        acting = None
+    return os.path.dirname(ws["_path"]), inst["home"], role, acting
+
+
+def _dirty_files(home):
+    """``{absolute path: (size, mtime_ns) or None}`` of the uncommitted files of the
+    repository holding ``home`` (None: deleted). {} when git cannot say."""
+    def git(*args):
+        p = subprocess.run(["git", "-C", home] + list(args), capture_output=True,
+                           stdin=subprocess.DEVNULL, timeout=30)
+        return p.stdout.decode("utf-8", "replace") if p.returncode == 0 else None
+    top = (git("rev-parse", "--show-toplevel") or "").strip()
+    raw = git("status", "--porcelain", "-z", "--untracked-files=all") if top else None
+    if not raw:
+        return {}
+    out, fields, i = {}, raw.split("\0"), 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        if entry[0] in "RC":
+            i += 1
+        path = os.path.join(top, entry[3:])
+        try:
+            st = os.stat(path)
+            out[path] = (st.st_size, st.st_mtime_ns)
+        except OSError:
+            out[path] = None
+    return out
+
+
+def _recorded(handler, via):
+    """``handler`` with its cross-home writes recorded in the touch ledger. Recording is
+    best effort: it never fails or changes the call."""
+    def run(ctx, a):
+        target = None
+        try:
+            ns, _ = split_id(a["id"])
+            target = _cross_home(ctx, ns)
+            before = _dirty_files(target[1]) if target else None
+        except Exception:        # noqa: BLE001
+            target = None
+        res = handler(ctx, a)
+        if target:
+            try:
+                after = _dirty_files(target[1])
+                changed = [p for p, sig in after.items() if before.get(p, False) != sig]
+                if changed:
+                    root, _home, role, acting = target
+                    ac.record_touch(root, sorted(changed), role, acting,
+                                    agent="%s:%s" % (ctx.agent_ns, ctx.agent)
+                                    if ctx.agent_ns else ctx.agent, via=via)
+            except Exception:    # noqa: BLE001
+                pass
+        return res
+    run.__name__ = getattr(handler, "__name__", via)
+    return run
+
+
 ID = {"type": "string", "description": "Claim id '<ns>:<id>', e.g. lab:ew-check, "
                                        "paper:lem:strip-bound, nb:BOUND-1"}
 NS = {"type": "string", "description": "A claim namespace: the 'ns' of an instance in "
@@ -868,13 +957,13 @@ TOOLS = [
                          "A live ticket addressed to the namespace's instance: lets an "
                          "agent of that role create there from another home (the "
                          "ticket's thread records it)"}}, ["id", "title"]),
-         _new, write=True),
+         _recorded(_new, "claims_new"), write=True),
     Tool("claims_attach_evidence", "Append one evidence row {type, ref, verdict, run_id, "
          "note} to a claim (append-only); type is experiment, audit, verdict (a proof "
          "review; 'proof-review' is accepted for it), hand, citation or note. A v1 "
          "notebook record: a verdict file, appended to cleared_by.",
          obj({"instance": _tickets.ACTING, "id": ID, "row": {"type": "object"}},
-             ["id", "row"]), _attach, write=True),
+             ["id", "row"]), _recorded(_attach, "claims_attach_evidence"), write=True),
     Tool("claims_propose_status", "Propose a status change: files a decision ticket to "
          "the claim-keeper's instance; changes nothing itself.",
          obj({"instance": _tickets.ACTING, "id": ID, "status": S, "reason": S, "grounds": GROUNDS, "refs": L},
@@ -884,5 +973,5 @@ TOOLS = [
          "grounds (plan section 8) and the review records they cite, and refuses without "
          "them.",
          obj({"instance": _tickets.ACTING, "id": ID, "status": S, "grounds": GROUNDS, "note": S}, ["id", "status"]),
-         _set_status, write=True),
+         _recorded(_set_status, "claims_set_status"), write=True),
 ]

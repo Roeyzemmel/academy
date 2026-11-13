@@ -1,7 +1,7 @@
 {
   "name": "expert",
   "description": "Expert role: keeps the source library (cited papers, cards, bibliography) and runs independent proof review and refereeing.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "author": {
     "name": "Roey Zemmel"
   }

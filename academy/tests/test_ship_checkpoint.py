@@ -962,6 +962,130 @@ class TestCheckpointOnly(CheckpointBase):
                          run(self.sub, "rev-parse", "HEAD"))
 
 
+class TestCheckpointTouched(CheckpointBase):
+    """``--touched SUB:PATH``: files the ticket's role wrote in another role's home (the
+    inbox reads them from the touch ledger). 'sub' is the acting role's home, 'other'
+    another role's home (an Author home's references.bib, a registry record)."""
+
+    HUMAN_BRANCH = "2026-11-12/notes/author"
+
+    def setUp(self):
+        super().setUp()
+        self.write(self.other, "references.bib", "@book{A,}\n")
+        self.write(self.other, "main.tex", "tex\n")
+        run(self.other, "add", "-A")
+        run(self.other, "commit", "-q", "-m", "paper")
+        run(self.other, "push", "-q", "origin", "main")
+        self.main[self.other] = run(self.other, "rev-parse", "main")
+        run(self.other, "switch", "-q", "-c", self.HUMAN_BRANCH)   # the human's work branch
+        self.mine = self.branch("expert")
+        run(self.sub, "switch", "-q", "-c", self.mine)
+
+    def cp_touched(self, *touched, only=("sub",), role="expert"):
+        return self.cp("--ticket", "T-0059", "--role", role, "--only", *only,
+                       "--touched", *touched)
+
+    def test_ships_only_the_touched_paths_on_the_acting_roles_branch(self):
+        self.write(self.other, "references.bib", "@book{A,}\n@book{B,}\n")
+        self.write(self.other, "claims/paper/lem-x.md", "evidence\n")   # a new record
+        rc, out, err = self.cp_touched("other:references.bib", "other:claims/paper/lem-x.md")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(ship.current(self.other), self.mine)        # .../expert, not author
+        self.assertEqual(self.files(self.other), ["claims/paper/lem-x.md", "references.bib"])
+        self.assertEqual(run(self.other, "rev-parse", "HEAD~1"),
+                         run(self.other, "rev-parse", self.HUMAN_BRANCH))   # stacked on it
+        self.assertEqual(run(self.other_remote, "rev-parse", "refs/heads/" + self.mine),
+                         run(self.other, "rev-parse", "HEAD"))
+        self.assertIn("other %s @ %s (2 files) pushed"
+                      % (self.mine, run(self.other, "rev-parse", "--short", "HEAD")), out)
+        self.assertEqual(run(self.other, "status", "--porcelain"), "")
+        self.assert_main_untouched()
+
+    def test_other_uncommitted_work_there_is_refused_and_nothing_shipped(self):
+        self.write(self.other, "references.bib", "@book{A,}\n@book{B,}\n")
+        self.write(self.other, "main.tex", "the human's edit\n")
+        rc, out, err = self.cp_touched("other:references.bib")
+        self.assertEqual(rc, 1)
+        line = [l for l in out.splitlines() if l.startswith("other ")][0]
+        self.assertIn("REFUSED: %s has other uncommitted changes besides references.bib"
+                      % self.HUMAN_BRANCH, line)
+        self.assertEqual(ship.current(self.other), self.HUMAN_BRANCH)   # not moved
+        self.assertEqual(sorted(l.strip() for l in run(self.other, "status", "--porcelain").splitlines()),
+                         ["M main.tex", "M references.bib"])
+        self.assertEqual(self.remote_branches(self.other_remote), ["refs/heads/main"])
+        self.assertIn("sub ", out)          # the acting role's own repo is not held back
+
+    def test_untracked_unrelated_work_also_holds_it_back(self):
+        self.write(self.other, "references.bib", "@book{A,}\n@book{B,}\n")
+        self.write(self.other, "notes.txt", "mine\n")
+        rc, out, err = self.cp_touched("other:references.bib")
+        self.assertEqual(rc, 1)
+        self.assertEqual(ship.current(self.other), self.HUMAN_BRANCH)
+
+    def test_on_the_tickets_branch_only_the_paths_are_committed(self):
+        run(self.other, "switch", "-q", "-c", self.mine)
+        self.write(self.other, "references.bib", "@book{A,}\n@book{B,}\n")
+        self.write(self.other, "main.tex", "the human's edit\n")
+        rc, out, err = self.cp_touched("other:references.bib")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.files(self.other), ["references.bib"])
+        self.assertEqual(run(self.other, "status", "--porcelain"), "M main.tex")
+
+    def test_a_repo_on_main_is_refused_not_moved(self):
+        run(self.other, "switch", "-q", "main")
+        self.write(self.other, "references.bib", "@book{A,}\n@book{B,}\n")
+        rc, out, err = self.cp_touched("other:references.bib")
+        self.assertEqual(rc, 1)
+        self.assertIn("REFUSED: dirty on main", out)
+        self.assertEqual(ship.current(self.other), "main")
+        self.assertEqual(run(self.other, "status", "--porcelain"), "M references.bib")
+        self.assertEqual(self.remote_branches(self.other_remote), ["refs/heads/main"])
+        self.assert_main_untouched()
+
+    def test_an_untouched_path_is_unchanged(self):
+        rc, out, err = self.cp_touched("other:references.bib")
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("other %s @ " % self.mine, out)
+        self.assertTrue(out.split("other ", 1)[1].splitlines()[0].endswith("unchanged"))
+        self.assertEqual(ship.current(self.other), self.HUMAN_BRANCH)
+
+    def test_the_commit_gate_of_an_author_home_runs_and_a_refusal_is_reported(self):
+        run(self.other, "switch", "-q", "main")
+        self.author_home(self.other)
+        run(self.other, "add", "-A")
+        run(self.other, "commit", "-q", "-m", "author home")
+        run(self.other, "switch", "-q", self.HUMAN_BRANCH)
+        run(self.other, "merge", "-q", "--ff-only", "main")
+        self.write(self.other, "references.bib", "@book{A,}\n@book{B,}\n")
+        self.env("STUB_FINDINGS", json.dumps({"R1": "R1: a new finding"}))
+        rc, out, err = self.cp_touched("other:references.bib")
+        self.assertEqual(rc, 1)
+        self.assertIn("REFUSED: commit gate (normal) found new problems: R1: a new finding", out)
+        self.assertEqual([c["branch"] for c in self.calls()], [self.mine])
+        self.assertEqual(self.remote_branches(self.other_remote), ["refs/heads/main"])
+
+    def test_a_touched_repo_in_only_is_committed_whole(self):
+        self.write(self.other, "references.bib", "@book{A,}\n@book{B,}\n")
+        self.write(self.other, "main.tex", "edit\n")
+        rc, out, err = self.cp_touched("other:references.bib", only=("sub", "other"))
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.files(self.other), ["main.tex", "references.bib"])
+        self.assertEqual(len([l for l in out.splitlines() if l.startswith("other ")]), 1)
+
+    def test_touched_needs_only_and_wellformed_paths(self):
+        self.write(self.other, "references.bib", "@book{A,}\n@book{B,}\n")
+        for argv in (("--touched", "other:references.bib"),
+                     ("--only", "sub", "--touched", "other:../x"),
+                     ("--only", "sub", "--touched", "other:/etc/x"),
+                     ("--only", "sub", "--touched", "references.bib"),
+                     ("--only", "sub", "--touched", "nope:references.bib")):
+            rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert", *argv)
+            self.assertEqual(rc, 1, argv)
+            self.assertIn("--touched", err, argv)
+        self.assertEqual(ship.current(self.other), self.HUMAN_BRANCH)
+        self.assertEqual(self.remote_branches(self.other_remote), ["refs/heads/main"])
+
+
 class TestCheckpointUsage(CheckpointBase):
     """U5: before the board commit, content-free usage summaries land in board/.usage/ and
     are staged by the ordinary ``add -A -- board/`` like .errors/."""

@@ -14,6 +14,7 @@ from ._base import (
     AcademyError, CONFIG_REL, ConfigError, ROLES, _PKG_DIR, _norm, _same_file, find_home)
 from ._config import instance_for_home, load_config
 from ._workspace import load_workspace
+from ._touched import claim_touches, drop_touches
 from ._tickets import is_dead_route, relay_return_ready
 from ._store import FileBoardStore, as_store, board_dir, open_store
 
@@ -236,7 +237,10 @@ class inbox_core(object):
         ``role``: given, else the role of ``instance``, else of the ticket's addressee. The
         repos (``--only``): the instance's home submodule, ``board`` (a submodule, or the
         workspace's own ``board/`` directory), and ``library`` for the Expert; a home that
-        is no submodule leaves ``board`` only, said on stderr. Never
+        is no submodule leaves ``board`` only, said on stderr. Plus ``--touched``: the
+        files the role wrote in another role's home while it worked this ticket, from the
+        touch ledger (``_touched_scope``; ship.py commits those paths only, and an entry
+        is dropped once its repo's line says pushed or unchanged). Never
         fatal and never raises: anything that goes wrong is one warning line on stderr; the
         --check result is unchanged."""
         try:
@@ -272,12 +276,8 @@ class inbox_core(object):
         return cand if os.path.isfile(cand) else None
 
     @staticmethod
-    def _ship_scope(root, ws, name, role):
-        """``(only, note)``: the targets of ``root`` a checkpoint of instance ``name``
-        touches -- its home's submodule (``.gitmodules``), ``board`` (a submodule, or the
-        workspace's board when that is a plain directory inside ``root``: ship.py then
-        commits ``board/`` paths of the workspace repo only) and, for the Expert,
-        ``library`` -- and a note when its home is not a submodule."""
+    def _gitmodule_paths(root):
+        """The submodule paths of the workspace at ``root`` (its ``.gitmodules``)."""
         subs = []
         try:
             with open(os.path.join(root, ".gitmodules"), encoding="utf-8") as fh:
@@ -287,6 +287,53 @@ class inbox_core(object):
                         subs.append(m.group(1).replace("\\", "/"))
         except OSError:
             pass
+        return subs
+
+    @staticmethod
+    def _touched_scope(root, ticket, role, name, only):
+        """``(touched, by_sub, stray)`` for the checkpoint of ``ticket``: the touch-ledger
+        entries of this ticket (``claim_touches``: those already claimed for it, and the
+        unclaimed ones of ``role`` / instance ``name``), grouped by the submodule holding
+        each file. ``touched``: the ``SUB:PATH`` arguments for the submodules outside
+        ``only`` (a submodule in ``only`` is committed whole anyway); ``by_sub``: ``{sub:
+        [entry files]}``, dropped once that sub's line says pushed or unchanged; ``stray``:
+        the entry files of paths in no submodule (nothing can ship them; dropped, and
+        said)."""
+        def real(p):
+            return os.path.normcase(os.path.realpath(p))
+        subs = sorted(inbox_core._gitmodule_paths(root), key=len, reverse=True)
+        top = real(root)
+        touched, by_sub, stray = [], {}, []
+        for f, rec in claim_touches(root, ticket, role, name):
+            full = real(rec["path"])
+            hit = None
+            for s in subs:
+                sp = real(os.path.join(root, s))
+                if full.startswith(sp.rstrip(os.sep) + os.sep):
+                    hit = s
+                    break
+            if not hit or not full.startswith(top.rstrip(os.sep) + os.sep):
+                stray.append((f, rec["path"]))
+                continue
+            by_sub.setdefault(hit, []).append(f)
+            if hit not in only:
+                rel = os.path.relpath(full, real(os.path.join(root, hit))).replace(os.sep, "/")
+                arg = "%s:%s" % (hit, rel)
+                if arg not in touched:
+                    touched.append(arg)
+        return touched, by_sub, stray
+
+    #: a ship.py checkpoint result line whose repo needs nothing more
+    SHIPPED_LINE = re.compile(r"^(\S+) \S+ @ \S+ \(\d+ files\) (?:pushed|unchanged)\s*$")
+
+    @staticmethod
+    def _ship_scope(root, ws, name, role):
+        """``(only, note)``: the targets of ``root`` a checkpoint of instance ``name``
+        touches -- its home's submodule (``.gitmodules``), ``board`` (a submodule, or the
+        workspace's board when that is a plain directory inside ``root``: ship.py then
+        commits ``board/`` paths of the workspace repo only) and, for the Expert,
+        ``library`` -- and a note when its home is not a submodule."""
+        subs = inbox_core._gitmodule_paths(root)
 
         def real(p):
             return os.path.normcase(os.path.realpath(p))
@@ -354,10 +401,19 @@ class inbox_core(object):
                              % (r["id"], role))
             return None
         only, note = inbox_core._ship_scope(root, ws, name, role)
+        # the files this ticket's role wrote in another role's home (the touch ledger)
+        touched, by_sub, stray = inbox_core._touched_scope(root, r["id"], role, name, only)
+        if stray:
+            drop_touches([f for f, _ in stray])
+            sys.stderr.write("checkpoint for %s cannot ship %s: in no submodule of %s; "
+                             "commit it by hand\n"
+                             % (r["id"], ", ".join(p for _, p in stray), root))
         # every by-hand command is scoped: the unscoped manual run sweeps every dirty
         # submodule and is for the human or cloud session that owns the checkout
         by_hand = "py scripts/ship.py checkpoint --ticket %s --role %s --only %s" % (
             r["id"], role, " ".join(only) or "<your home submodule> board")
+        if touched:
+            by_hand += " --touched " + " ".join(touched)
         if not inbox_core._session_inside(root):
             sys.stderr.write("checkpoint not run: session is outside %s; run it by hand: %s\n"
                              % (root, by_hand))
@@ -369,9 +425,13 @@ class inbox_core(object):
         if note:
             sys.stderr.write("checkpoint for %s scoped to %s only: %s\n"
                              % (r["id"], " and ".join(only), note))
+        if touched:
+            sys.stderr.write("checkpoint for %s also ships what %s wrote in another role's "
+                             "home: %s (those paths only)\n"
+                             % (r["id"], role, " ".join(touched)))
         import subprocess
         cmd = [sys.executable, ship, "--workspace", root, "checkpoint", "--ticket", r["id"],
-               "--role", role, "--only"] + only
+               "--role", role, "--only"] + only + (["--touched"] + touched if touched else [])
         # output goes to a file, not a pipe: a git grandchild holding a pipe open would
         # outlive the timeout's kill and hang the read
         with tempfile.TemporaryFile() as log:
@@ -391,6 +451,14 @@ class inbox_core(object):
             text = log.read().decode("utf-8", "replace")
         if out is not None and text:
             out.write(text if text.endswith("\n") else text + "\n")
+        done = set()
+        for line in text.splitlines():
+            m = inbox_core.SHIPPED_LINE.match(line)
+            if m:
+                done.add(m.group(1))
+        # a shipped repo's entries are spent; a refused or failed one's stay with this
+        # ticket, for its next --check
+        drop_touches([f for sub, files in by_sub.items() if sub in done for f in files])
         if p.returncode != 0:
             sys.stderr.write("warning: checkpoint for %s exited %d (see its output). If a "
                              "repo is dirty on main: start a branch first with py "
