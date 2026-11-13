@@ -286,7 +286,7 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("listed under scientist@t but is addressed to researcher@u", " ".join(res["notes"]))
 
     def test_a_return_leg_listed_under_its_sender_is_landed_not_dropped(self):
-        # live run 2026-11-13: T-0369 and T-1153 (delivered back to author@bi, to: expert@ts) were dropped as anomalies
+        # live run 2026-11-13: two return legs (delivered back to the Author, addressed to the Expert) were dropped as anomalies
         r = row("T-5", target="math-editor", kind="verify", ret=True, frm="author@t", to="expert@t")
         plan = {"list": [{"instances": [inst("author@t", [r])]}], "sweep author@t": ["0"],
                 "math-editor T-5 (land)": ["landed"], "check T-5": [{"exit": 0, "status": "closed", "output": "T-5: closed (closed)", "detail": ""}],

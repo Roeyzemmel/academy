@@ -15,7 +15,6 @@ symlinks resolved), and the base plugin is ``<root>/academy``
 """
 
 import importlib.util
-import json
 import os
 import sys
 
@@ -159,57 +158,12 @@ def is_under(path, root):
 # Hook events
 # ----------------------------------------------------------------------------
 
-def _text_of(content):
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for c in content:
-            if isinstance(c, dict) and c.get("type") == "text":
-                parts.append(c.get("text") or "")
-            elif isinstance(c, str):
-                parts.append(c)
-        return "\n".join(parts)
-    return ""
-
-
-def last_message_from_transcript(path):
-    """The text of the last assistant message in a JSONL transcript, or ''."""
-    if not path or not os.path.isfile(path):
-        return ""
-    last = ""
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except ValueError:
-                    continue
-                msg = rec.get("message") if isinstance(rec, dict) else None
-                role = (msg or {}).get("role") or rec.get("type")
-                if role != "assistant":
-                    continue
-                text = _text_of((msg or {}).get("content"))
-                if text.strip():
-                    last = text
-    except OSError:
-        return ""
-    return last
-
-
 def final_message(event):
-    """A finished subagent's final text: ``last_assistant_message`` if the event
-    carries it, else the last assistant text of ``agent_transcript_path``."""
-    for key in ("last_assistant_message", "lastAssistantMessage"):
-        v = event.get(key)
-        text = _text_of(v) if not isinstance(v, str) else v
-        if text and text.strip():
-            return text
-    return last_message_from_transcript(
-        event.get("agent_transcript_path") or event.get("agentTranscriptPath"))
+    """A finished subagent's final report (``ac.subagent_report``): the message of a
+    closing ``SubagentHandback`` call if it ended with one (T-1194), else
+    ``last_assistant_message``, else the last assistant text of
+    ``agent_transcript_path``."""
+    return ac.subagent_report(event)
 
 
 def is_expert_agent(event, bare):

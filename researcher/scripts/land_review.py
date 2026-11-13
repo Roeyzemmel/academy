@@ -26,6 +26,9 @@ verbatim below.
   positive verdict (SOUND / SOUND MODULO) reached on any other model (Sonnet, Haiku, an
   older Opus) is recorded as ``verdict: GAP`` with ``capped: true`` and the original in
   ``verdict_given`` (roster-rules.md, model fallback: a degraded verdict never counts).
+* **Report.** The reviewer's final report (``ac.subagent_report``): the message of a
+  closing ``SubagentHandback`` call when it ended with one (T-1194), else the event's
+  ``last_assistant_message``, else the transcript's last assistant text.
 * **Malformed report.** The first time, the stop is blocked with the list of problems,
   so the reviewer restates its record block. If it stops again still malformed
   (``stop_hook_active``), the report is kept under ``<audits>/_unparsed/`` and nothing
@@ -112,10 +115,11 @@ def land(event, ws=None, date=None):
     if not home:
         return None, ""
     audits = rs.notebook_paths(home, cfg)["audits"]
-    t_text, t_model = transcript_last(event.get("agent_transcript_path")
-                                      or event.get("transcript_path"))
-    report = event.get("last_assistant_message")
-    report = report if isinstance(report, str) and report.strip() else t_text
+    tpath = event.get("agent_transcript_path") or event.get("transcript_path")
+    _, t_model = transcript_last(tpath)
+    # the report: a closing SubagentHandback call's message (T-1194), else the event's
+    # last_assistant_message, else the transcript's last text
+    report = ac.subagent_report(event, path=tpath)
     fields, probs = rs.parse_review(report)
     date = date or ac.today()
     if probs:
