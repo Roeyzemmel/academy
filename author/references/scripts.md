@@ -15,6 +15,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `gaps.py` | inbox, agenda | the gap logic and the one ticket-filing helper (`gaps`, `entry_tickets`, `file_gaps`, `file_ticket`); a module, not a command |
 | `agenda.py` | agenda, status, presync | `check` · `status [--statuses FILE]` · `gaps [--json]` · `gaps --file [--dry-run] [--json]` (one ticket per gap, idempotent) · `milestones [--json]` · `show [--json]` |
 | `check_paper.py` | tex_edit_check, commit_gate, build_gate, inbox, presync, status | `[--root HOME] [--strict] [--registry PATH] [--no-registry] [--no-log] [--config FILE] [--defaults] [--self-test]` |
+| `paper_diff.py` | presync | `--root HOME [--base REF] [--out FILE] [--no-build] [--json]` (coloured-diff PDF of the whole paper, `\input` files flattened, against `--base`, else `author.diff.base`, else the newest `shared-*` / `round-*` / `submitted-*` tag; the base is exported with `git archive`, the home is never touched; writes `<build.dir>/diff/<main>-diff.tex` and `.pdf` and prints the PDF path, the `.tex` with `--no-build`; exit 1 no base, or latexdiff / build failed (log tail and the `.tex` path on stderr), 2 an error) |
 | `commit_gate.py` | the PreToolUse hook; tex-engineer | (hook) · `--write-baseline [--root HOME]` |
 | `build_gate.py` | the SubagentStop hook | (hook) |
 | `tex_edit_check.py` | the PostToolUse hook | (hook) |

@@ -1,6 +1,6 @@
 ---
 name: presync
-description: 'The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone.'
+description: 'The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, coloured diff, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone.'
 ---
 
 # /author:presync
@@ -46,6 +46,13 @@ serially (`${CLAUDE_PLUGIN_ROOT}/../academy/references/budget.md`). Scripts: `$S
 8. **A clean build and the checker once more.** Launch `tex-engineer` only if the build
    is not clean. The PDF the coauthors receive is the one that was checked.
 
+9. **The coloured diff against the last shared version**: `py $S/paper_diff.py` from the
+   home, after the clean build (it builds in `<build.dir>/diff/`, never over the PDF the
+   coauthors receive). The base is the newest `shared-*` / `round-*` / `submitted-*` tag,
+   or `author.diff.base`; with none, exit 1: name the missing base in the summary and
+   suggest `--base REF`. Any non-zero exit is "diff not built" (relay the log tail and the
+   diff `.tex` path); never retry, never fix the source for it.
+
 If a pass fails or comes back blocked, say so and continue with the rest.
 
 ## The summary (in the chat, not a file)
@@ -66,6 +73,9 @@ If a pass fails or comes back blocked, say so and continue with the rest.
   as packets.
 - **The build**: exit status, the `??` count, the warnings and which are the accepted
   baseline.
+- **The diff**: the path of the coloured-diff PDF and the base it compares against (ref and
+  date), or "diff not built" with the reason.
 
-Close with the one sentence that matters: what a coauthor should read first. Never ask
+Close with the one sentence that matters: what a coauthor should read first (the diff PDF,
+when built). Never ask
 questions.
