@@ -204,6 +204,19 @@ class TestSelectParity(StoreCase):
         self.assertNotIn("list_comments", kinds)
         self.assertIn(("list_issues", ("to:" + INST,), "all", 1), self.transport.calls)
 
+    def test_select_asks_about_awaited_tickets_in_one_listing(self):
+        # a blocked ticket's waits were one request each (2026-11-13: 23 of them)
+        self.transport.calls.clear()
+        self.rows(self.gh, limit=9)
+        self.assertNotIn("get_issue", {c[0] for c in self.transport.calls})
+        look = ac.status_lookup(self.gh)
+        self.transport.calls.clear()
+        self.assertEqual([self.gh.status_of(t) for t in ("T-0001", "T-0005", "T-0099")],
+                         [look(t) for t in ("T-0001", "T-0005", "T-0099")])
+        lists = [c for c in self.transport.calls if c[0] == "list_issues" and c[3] == 1]
+        self.assertEqual(1, len(lists))
+        self.assertEqual(self.files.status_of, ac.status_lookup(self.files))   # files: as before
+
     def test_a_path_still_means_the_file_board(self):
         a, _ = core.select(self.board, INST, 3, route=route)
         b, _ = core.select(self.files, INST, 3, route=route)

@@ -150,25 +150,34 @@ def _classify_ticket(t):
     return "substantive" if t.get("kind") in SUBSTANTIVE_TICKET_KINDS else "mechanical"
 
 
-def _packet_unblocks(board, tid):
+def _ticket_metas(board):
+    """``{id: meta}`` of every ticket, from one listing (on the GitHub board a ticket read
+    one at a time is two requests; 2026-11-13: the pending decisions of fourteen packets
+    took 27 s, 32 single reads among them)."""
+    return {str(m.get("id")): m for _ref, m in ac.as_store(board).iter_meta() if m}
+
+
+def _packet_unblocks(board, tid, metas=None):
     if not tid:
         return []
-    store = ac.as_store(board)
-    if not store.find(tid):
+    if metas is None:
+        metas = _ticket_metas(board)
+    meta = metas.get(str(tid))
+    if meta is None:
         return [tid]
-    meta = store.get(tid)[1]
     out = [tid]
     out.extend(str(b) for b in (meta.get("blocks") or []) if str(b) not in out)
     return out
 
 
-def _staleness(board, meta, created):
-    """A later, already-decided packet sharing a subject: worth a second look."""
+def _staleness(board, meta, created, packets=None):
+    """A later, already-decided packet sharing a subject: worth a second look.
+    ``packets`` is the board's packet listing when the caller already holds it."""
     subj = set(str(s) for s in (meta.get("subject") or []))
     if not subj:
         return None
     hints = []
-    for other in packetlib.list_packets(board):
+    for other in (packetlib.list_packets(board) if packets is None else packets):
         if other.get("packet") == meta.get("packet") or other.get("state") != "decided":
             continue
         oshare = subj & set(str(s) for s in (other.get("subject") or []))
@@ -181,7 +190,11 @@ def _staleness(board, meta, created):
 
 def _packet_items(board, instance=None):
     items = []
-    for m in packetlib.list_packets(board, only_open=True, instance=instance):
+    every = packetlib.list_packets(board)                 # read once, for _staleness
+    metas = None                                          # the tickets, listed on first need
+    for m in every:
+        if m.get("state") != "open" or (instance and m.get("instance") != instance):
+            continue
         with open(m["_path"], "r", encoding="utf-8") as fh:
             _meta2, body = ac.read_frontmatter(fh.read())
         asked, answers = ac.packet_decisions(body), ac.packet_answers(body)
@@ -192,6 +205,8 @@ def _packet_items(board, instance=None):
             rec = d.get("recommendation") or ""
             mrec = re.match(r"^\(([a-d])\)", rec)
             kept, note = select_options(d["options"], mrec.group(1) if mrec else None)
+            if metas is None and m.get("ticket"):
+                metas = _ticket_metas(board)
             items.append({
                 "id": "%s/D%d" % (m["packet"], k),
                 "instance": m.get("instance"),
@@ -200,8 +215,8 @@ def _packet_items(board, instance=None):
                 "options": _opt_dicts(kept, note),
                 "recommendation": rec or None,
                 "kind": _classify_packet(m),
-                "unblocks": _packet_unblocks(board, m.get("ticket")),
-                "stale": _staleness(board, m, m.get("created")),
+                "unblocks": _packet_unblocks(board, m.get("ticket"), metas),
+                "stale": _staleness(board, m, m.get("created"), every),
                 "source": "packet",
                 "ref": m["packet"],
             })

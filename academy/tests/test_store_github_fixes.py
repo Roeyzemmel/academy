@@ -25,6 +25,7 @@ import board as bd  # noqa: E402
 import board_codec as bc  # noqa: E402
 import board_store as bs  # noqa: E402
 import decisions as dc  # noqa: E402
+from test_board import DECISION_BODY  # noqa: E402
 import packets as pk  # noqa: E402
 from tools import Context, ToolError, packets as mcp_packets  # noqa: E402
 from tools import claims as mcp_claims  # noqa: E402
@@ -511,6 +512,21 @@ class TestMcpAndScriptsOnGithub(Seeded):
             mcp_claims.check_human_where(self.ctx(), {"where": "T-0001", "quote": "not there"})
         with self.assertRaises(ToolError):
             mcp_claims.check_human_where(self.ctx(), {"where": "T-0099", "quote": "x"})
+
+    def test_pending_decisions_read_the_tickets_in_one_listing(self):
+        # 2026-11-13: one read (two requests) per packet's ticket made the listing 27 s
+        for n in (1, 2, 3):
+            pk.create_packet(self.gh, INST, "Verdict %d" % n, kind="verification",
+                             ticket="T-000%d" % n, body=DECISION_BODY, workspace=self.ws,
+                             date="2026-09-30")
+        self.transport.calls.clear()
+        items = dc.pending_decisions(self.gh)
+        self.assertEqual(6, len([i for i in items if i["source"] == "packet"]))
+        self.assertTrue(all(i["unblocks"][0] == "T-000%s" % i["ref"][-1] for i in items
+                            if i["source"] == "packet"))
+        kinds = [c[0] for c in self.transport.calls]
+        self.assertNotIn("get_issue", kinds)
+        self.assertNotIn("list_comments", kinds)
 
     def test_the_packet_scripts_run_on_a_github_store(self):
         path = pk.create_packet(self.gh, INST, "Verdict", kind="verification", ticket="T-0001",

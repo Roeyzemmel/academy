@@ -210,6 +210,26 @@ def board_dir(board):
     return str(path)
 
 
+def status_lookup(store):
+    """``status_of`` for many tickets: a function from a ticket id to its status (None
+    when it is not on the board).
+
+    On the file board that is the store's own ``status_of``. On a board where one ticket
+    is one request (``backend`` ``github``) it answers from one listing, made on the
+    first question: an inbox that asks about each ticket a blocked one waits on made a
+    request per ticket (2026-11-13: 23 of them, 9 of the Expert inbox's 10 seconds)."""
+    if getattr(store, "backend", "files") == "files":
+        return store.status_of
+    held = {}
+
+    def status_of(tid):
+        if not held:
+            held["by_id"] = {str(m.get("id")): m.get("status")
+                             for _ref, m in store.iter_meta() if m}
+        return held["by_id"].get(str(tid))
+    return status_of
+
+
 def board_cache_dir(cfg=None, environ=None):
     """Where the GitHub board's listing is kept between processes, or None for nowhere.
 
