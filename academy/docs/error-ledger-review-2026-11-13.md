@@ -166,7 +166,13 @@ continues in the same order:
 | 28 | #50 | the ship test workspace is built once; the base suite is two jobs | the gate 92 s -> 58 s |
 | 29 | #51 | two agent definitions the harness could not read whole (below) | |
 | 30 | #52 | the usage ledger records each agent's models; `lighter-than-declared` | |
-| 31 | this one | the map again | |
+| 31 | #53 | the map again | |
+| 32 | #54 | `/academy:decide` and the inboxes read the tickets in one listing | `decisions.py` 27 s -> 1.2 s; the Expert inbox 10.6 s -> 1.0 s; output identical |
+| 33 | #55 | the error-ledger report a session reads is this week's, the rest counted | the analyst's JSON 174 000 -> 15 700; the Markdown 27 000 -> 12 500 |
+| 34 | #56 | the Author's edit hook hands back only what changed since the previous check | 972 characters, then 127 per edit |
+| 35 | #57 | the board cache is private to the user; a failed write leaves no temp file | |
+| 36 | #58 | a text search of the tickets (titles, asks, bodies), and the prompts that look for an existing ticket use it | 83 matches in 1.2 s |
+| 37 | this one | the map, rows 32 to 37 | |
 
 **Found by measuring, not by the suites.**
 
@@ -189,7 +195,17 @@ continues in the same order:
   worktrees, all passed. The checkout being gated must not change under the gate, and a
   background push must be read by its own exit status.
 
-**Looked at and left.** Storage is small (the board 6.5 MB, the repositories a few MB
+- **Reviewing the night's own changes** gave #57 and #58: the cache file of #44 held a
+  private repository's tickets with default permissions, and the 50-row listings of #46
+  and #47 would have let an agent that looks for an existing ticket miss it and file a
+  duplicate. The second is why the listing tools now search by text.
+
+**The cost of one Bash call in hooks** is four processes, 173 ms in all here (the base
+dispatcher, two commit gates, the library check); on Windows a process start costs
+several times more. They belong to three plugins, so they stay four.
+
+**Looked at and left.** `board_relations.py plan` takes 36 s (it reads the board through
+the transport, not the store); it is a maintenance command run by hand. Storage is small (the board 6.5 MB, the repositories a few MB
 each); nothing to prune beyond finished worktrees. The lab's `test_fsq_sh_behaviour`
 (42 s of that suite's 59) drives the real runner with jobs that sleep; it runs in its own
 job. The agent definitions cost every session about 36 000 characters (descriptions
