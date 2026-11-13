@@ -107,3 +107,50 @@ meant").
   review): an installed plugin copy has them, `workspace_get` returns the folder, and the
   repo root's `docs/README.md` is the pointer. Row 11's pointer file is gone with it.
 
+## The whole round, in merge order (plugins 0.2.3 at the end)
+
+The work of 2026-11-13 is one linear chain of pull requests in this repo. Each branch
+has the one before it merged in, and each was pushed through the push gate (every suite
+and the lint) on that cumulative tree, so they merge cleanly in this order and every
+intermediate state is a tested one.
+
+| # | Pull request | What it adds |
+|---|---|---|
+| 1 | #23 | the error-ledger review itself (rows 1-13 above), `sources.py`, the presync diff, board relations, lint, the library split |
+| 2 | #24 | `author/scripts/statement.py`: one statement by its label |
+| 3 | #25 | `docs/` moves into the base plugin |
+| 4 | #26 | `ship.py`: stacks, the push gate that runs the repo's workflows (`ci_local.py`), the `ship_guard` hook |
+| 5 | #27 | the `workspace` target; `.claude/worktrees/` ignored |
+| 6 | #35 | `ci_local`: Git Bash on Windows, never the WSL launcher |
+| 7 | #32 | the ledger does not count a shell command that exits 1 with ordinary output |
+| 8 | #36 | hermetic test suites; the two real-home tests are opt-in (`ACADEMY_TEST_REAL=1`) |
+| 9 | #28 | SessionStart says when the running academy code is behind |
+| 10 | #31 | the desk's `OVERDUE` block for a weekly review gone quiet |
+| 11 | #29 | one PreToolUse process for the base plugin's guards |
+| 12 | #33 | the same for the Author's four edit guards |
+| 13 | #30 | workflow prompts carry the full path of every script they name |
+| 14 | #34 | workflows ship their own work when run outside the inbox (0.2.2) |
+| 15 | #37 | the checkpoint ships what a ticket wrote in another home (0.2.3) |
+
+Outside this repo, from the same round: the workspace (cloud TeX, the max tier, its
+`CLAUDE.md`), the lab (tests skip without Sage or numpy, so its push gate passes), a
+notebook (the library's path, its workflow step), the paper (a gate finding fixed in
+the text).
+
+## After merging: the human's list
+
+1. Merge in the order above, then bump the workspace's academy pointer and run
+   `scripts/bootstrap.py` on each machine (installed plugins go to 0.2.3). The session's
+   first line now says when a checkout or an installed copy is behind.
+2. One smoke run on Windows: a shell command and an edit (the two dispatchers), a
+   `ship.py push` (the gate needs Git Bash), `/author:presync` (the diff).
+3. Resolve the fixed ledger families against the merge commit
+   (`error_ledger.py resolve --family "<family>" --commit <sha>`), as listed above.
+4. The weekly usage task: it has filed nothing since 2026-09-28 because its session
+   starts with no repository and no credentials. The desk shows `OVERDUE` until it does.
+5. `board_relations.py plan`, then `apply` (one missing link when last planned).
+6. Decisions left open by this round: whether an Expert's commit may land in the paper
+   repo through the Author's gate (it does, on an `.../expert` branch), and whether
+   other uncommitted work there should block it (it does); `in-progress -> accepted` and
+   `in-progress -> rejected` as direct transitions; a hosted collector for telemetry.
+

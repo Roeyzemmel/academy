@@ -29,6 +29,17 @@ Moving to campaign mode, the board as the Author's only queue and retiring the r
 Scientist, one ticket at a time). Each role keeps its own public skills (`/author:inbox`, `/expert:lookup`,
 `/scientist:queue`, ...); the desk only routes to them.
 
+## Committing and pushing
+
+Work in a workspace is branched, committed and pushed with one tool, `py scripts/ship.py`
+from the workspace root (`docs/branching.md`): it names the branch, runs the commit gate
+of an Author home and, before a push, the repo's own workflow files on this machine
+(`academy/scripts/ci_local.py`; nothing runs on GitHub). A hook denies raw `git commit`,
+`git push` and new branches in a workspace repo and names the `ship.py` command. A
+stack of pull requests is built with `start` on a work branch and read with `stack`.
+Workflows ship their own work; `/academy:desk` shows an `OVERDUE` block when the weekly
+usage review has gone quiet.
+
 ## Reviewing packets
 
 `/academy:review` writes one private dashboard page (every open packet, grouped by

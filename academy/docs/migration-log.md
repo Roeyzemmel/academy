@@ -1085,3 +1085,16 @@ the base plugin carries the contracts its skills and agents cite, and
 that names `academy`'s `docs/x.md` by path means `academy/academy/docs/x.md` from the
 workspace root.
 
+## 2026-11-13: shipping, gates and hooks (plugins 0.2.2, 0.2.3)
+
+The rest of the 2026-11-13 round, after the ledger review and the docs move: `ship.py`
+is the default way to branch, commit and push (a hook denies raw git for those in a
+workspace repo), knows stacks and a `workspace` target, and runs the repo's
+push-triggered workflows on the pushing machine before a push, since nothing runs on
+GitHub; workflows ship their own work when run outside the inbox, and the checkpoint
+after a ticket ships what it wrote in another home; the PreToolUse guards of the base
+and Author plugins run as one process each; the test suites are hermetic; the desk and
+the session's first line say when a routine job or the running code has fallen behind.
+The chain of pull requests, in merge order, and what is left for the human:
+`docs/error-ledger-review-2026-11-13.md`, "The whole round".
+
