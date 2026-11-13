@@ -969,7 +969,12 @@ def merge_sections(written, gathered_path=None):
     The explainer used to write the gathered bundle back with its sections added; a
     bundle of a large statement is over the Read tool's limit (266 KB, 26k tokens: 3
     failures 2026-11-07), and copying it out by hand could change it. It now writes
-    only ``{"sections": [...]}``."""
+    only ``{"sections": [...]}``, and where it cites sources, ``"statements"``: the status
+    of each citation it shows (``{"id": "bib:KEY#Thm2.1", "status": "cited (card verified,
+    match)", "title": ...}``), read from the bundle's cards. Those are added only for
+    ``bib:`` ids the gathered bundle has no status for: a registry statement's status
+    comes from the registry alone, so an entry for any other id, or for an id the bundle
+    already gives a status, is refused."""
     if not isinstance(written, dict):
         raise ac.AcademyError("the deep-dive file must hold a JSON object")
     if not gathered_path or written.get("subject"):
@@ -978,7 +983,24 @@ def merge_sections(written, gathered_path=None):
         gathered = json.load(fh)
     if not isinstance(gathered, dict):
         raise ac.AcademyError("%s is not a gathered bundle" % gathered_path)
-    return dict(gathered, sections=written.get("sections") or [])
+    out = dict(gathered, sections=written.get("sections") or [])
+    extra = written.get("statements") or []
+    if extra:
+        have = {str(s.get("id")) for s in (gathered.get("statements") or []) if s.get("status")}
+        stmts, bad = list(gathered.get("statements") or []), []
+        for s in extra:
+            sid = str((s or {}).get("id") or "") if isinstance(s, dict) else ""
+            if not sid.startswith("bib:") or sid in have or not s.get("status"):
+                bad.append(sid or "(no id)")
+                continue
+            stmts = [x for x in stmts if str(x.get("id")) != sid]
+            stmts.append(dict(s, role=s.get("role") or "input"))
+        if bad:
+            raise ac.AcademyError(
+                "the deep-dive file may add a status only for a citation (a bib: id with a "
+                "status) the gathered bundle gives none; refused: %s" % ", ".join(bad))
+        out["statements"] = stmts
+    return out
 
 
 def check_deep_dive(bundle, kind=None):

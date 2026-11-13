@@ -29,9 +29,18 @@ Do not Read it whole when it is: Read it in parts (`offset`, `limit`; it is inde
 JSON, one field per line) or Grep it for the keys you need. Never ask for the limit to
 be lifted, and do not retry a Read that was refused for size with the same arguments.
 
-**What you write.** One JSON object with one key, `{"sections": [...]}`: a list of
+**What you write.** One JSON object, `{"sections": [...]}`: a list of
 `{"heading", "markdown"}` in the order a reader needs. Do not copy the bundle into it;
-the renderer lays your sections over the gathered bundle.
+the renderer lays your sections over the gathered bundle. One more key when the page
+shows citations: `"statements"`, one entry `{"id": "bib:KEY#Thm2.1", "title": "...",
+"status": "cited (card verified, match)"}` for each `bib:` id that appears (in your
+prose, in the bundle's cards or reviews, or in a `modulo` list) and has no status in the
+bundle's `statements`. The bundle lists the ones it already knows of as
+`citations_needing_status`; add any other you cite yourself. Its status is what the bundle's card says of it: `cited (card
+verified, match)`, `cited (card unverified, ...)`, `cited (card verified, mismatch:
+...)`, `cited (no card)`. The renderer refuses the page while such a chip has no status,
+and refuses an entry for anything but a `bib:` id without one: a registry statement's
+status is the registry's, never yours.
 
 - **claim**: the statement; what it says in words; where it sits (depends on, rests
   on it); the proof, following the recorded attempt, with each step's inputs; what is

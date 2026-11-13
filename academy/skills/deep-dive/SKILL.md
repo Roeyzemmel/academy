@@ -18,8 +18,10 @@ Scripts: `$S` as in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. One subject p
    report that and stop.
 3. **Explain.** Dispatch one `explainer` subagent with only: the bundle path, the
    output path `<board>/deep-dives/$ID.json`, and the human's question if they asked one. It
-   writes only its prose there, `{"sections": [...]}` (the gathered bundle is not copied:
-   a large one is over the Read limit), and returns a short report. On a
+   writes only its prose there, `{"sections": [...]}`, plus a status for each citation
+   the page shows (`"statements"`, `bib:` ids only; the bundle names them in
+   `citations_needing_status`). The gathered bundle is not copied: a large one is over
+   the Read limit. It returns a short report. On a
    limit error or an empty result, stop and report (no relaunch).
 4. **Render.** `py $S/render_packets.py --deep-dive <board>/deep-dives/$ID.json --bundle
    <board>/.render/$ID.bundle.json --out <board>/deep-dives/$ID.html` (the script lays
