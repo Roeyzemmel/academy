@@ -33,7 +33,10 @@ rule: `academy/references/roster-rules.md`, "Model fallback").
 Skills: `/author:inbox` (replaces `next`, and before it `tier`; `/author:next` stays as a redirect), `/author:agenda`, `/author:notes`, `/author:sweep`, `/author:audit-notation`, `/author:presync`,
 `/author:status`, and `paper-method` (preloaded by the writing agents).
 
-Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home:
+Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home. The four edit
+guards (`bib_gate`, `pinned_guard`, `preamble_guard`, `notation_scope_guard`) are registered
+once, as `pre_tool_use.py`, which calls each guard's `decide(event)` in that order in one
+process (the first denial wins, a guard that raises is skipped); each still runs standalone:
 `tex_edit_check` (PostToolUse edits: checker + dirty marker), `bib_gate` (only
 `expert:librarian` edits the bibliography), `notation_scope_guard` (PreToolUse edits:
 the notation-auditor edits only the home's `notation-decisions.md`; scoped by agent),

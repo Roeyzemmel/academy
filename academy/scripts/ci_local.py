@@ -27,6 +27,9 @@ What is taken from a workflow, and how it is read locally:
   skipped, not failed: the workflow installs that tool, this machine has not;
 * a step that needs GitHub's context (``${{ ... }}`` in its command or its ``env``) is
   skipped, with the reason;
+* the shell is ``bash``; on Windows that is Git Bash (found beside ``git``), never the
+  WSL launcher in System32, which would run the steps in another system
+  (``CI_LOCAL_BASH`` names a shell explicitly);
 * ``python`` in a command is the interpreter running this script (a shim directory is
   put first on PATH), so a workflow written for the runner's ``python`` works where only
   ``py`` or ``python3`` exists;
@@ -268,6 +271,34 @@ def plan(top, workflow=None, job=None):
     return steps, problems
 
 
+def find_bash(which=shutil.which, windows=None, exists=os.path.isfile):
+    """The ``bash`` the steps run in, or None.
+
+    On Windows ``bash`` on PATH is often ``C:\\Windows\\System32\\bash.exe``, the WSL
+    launcher: it would run the steps in another system, with other paths and another
+    Python. The workflows are meant for the shell the session's Bash tool is, Git Bash,
+    which sits beside ``git``: ``<Git>/bin/bash.exe``. So on Windows the candidates are
+    ``$CI_LOCAL_BASH``, Git's own bash (found from ``git``), then a ``bash`` on PATH that
+    is not under System32 or WindowsApps. Elsewhere: ``$CI_LOCAL_BASH``, then PATH."""
+    override = os.environ.get("CI_LOCAL_BASH")
+    if override and exists(override):
+        return override
+    if not (os.name == "nt" if windows is None else windows):
+        return which("bash")
+    git = which("git")
+    if git:
+        d = os.path.dirname(os.path.abspath(git))
+        for rel in (("..", "bin", "bash.exe"), ("..", "..", "bin", "bash.exe"),
+                    ("bash.exe",), ("..", "usr", "bin", "bash.exe")):
+            cand = os.path.normpath(os.path.join(d, *rel))
+            if exists(cand):
+                return cand
+    found = which("bash")
+    if found and not re.search(r"(?i)[\\/](system32|sysnative|windowsapps)[\\/]", found):
+        return found
+    return None
+
+
 def _shim_dir():
     """A directory whose ``python`` is the interpreter running this script."""
     d = tempfile.mkdtemp(prefix="ci-local-")
@@ -288,9 +319,10 @@ def run(top, workflow=None, job=None, timeout=1800):
     ok = not problems
     if not steps:
         return ok, lines
-    bash = shutil.which("bash")
+    bash = find_bash()
     if not bash:
-        return False, lines + ["ci: bash is not installed; the workflow steps cannot run here"]
+        return False, lines + ["ci: no bash to run the workflow steps in (on Windows: Git Bash, "
+                               "beside git; WSL's bash is not used; CI_LOCAL_BASH names one)"]
     shim = _shim_dir()
     failed_jobs = set()
     try:

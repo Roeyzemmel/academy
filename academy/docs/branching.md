@@ -76,7 +76,9 @@ allowlist matches; `py scripts/ship.py --help` lists the flags):
     (human)  py scripts/ship.py merge <sub> <branch> --sha <tip> [-m MSG] [--bump]
     (human)  py scripts/ship.py publish <sub> --sha <main tip>
 
-`<sub>` is a submodule path, or `board`. `--paths` are relative to the submodule (for
+`<sub>` is a submodule path, `board`, or `workspace` (the workspace repo's own files:
+everything but the board and the submodules; never a submodule pointer; not part of a
+`checkpoint`). `--paths` are relative to the submodule (for
 `board`, to the board's directory), not the cwd.
 
 - **The tool is the default, by a hook** (`ship_guard`, 2026-11-13): in the workspace

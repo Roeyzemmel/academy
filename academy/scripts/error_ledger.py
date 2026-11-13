@@ -12,7 +12,7 @@ machines never merge-conflict; the board's SessionStart commit carries it). It i
 append-only; each line is one JSON record:
 
     {"t": "error",   "ts", "session", "instance", "tool", "sig", "msg",
-                     ["detail"], ["cmd"], ["cwd"], ["path"], ["rev"], ["ver"]}
+                     ["detail"], ["cmd"], ["cause"], ["cwd"], ["path"], ["rev"], ["ver"]}
     {"t": "settle",  "ts", "packet", "upto"}      # a weekly review took the errors up to ``upto``
     {"t": "resolve", "ts", "sig", "note", "by", ["commit"], ["version"]}   # the class is closed
 
@@ -299,6 +299,22 @@ def has_fix(rec, commit, version, root=None):
     return None
 
 
+BENIGN_CAUSE = "no error text"
+
+
+def is_benign(rec):
+    """A shell command whose last stage exited 1 with ordinary output and nothing that
+    reads as an error (a probe that found nothing, ``ls`` of a file not there yet behind
+    ``2>/dev/null``, a ``diff`` with differences): recorded, but not counted as an error.
+    68 of the 655 records of the 2026-11-13 review were these. Only exit code 1, and only
+    a record that kept its ``detail`` (one without cannot be judged and counts)."""
+    if rec.get("t") != "error" or rec.get("tool") not in SHELL_TOOLS or not rec.get("detail"):
+        return False
+    if not re.fullmatch(r"(?i)\s*exit code 1\s*", rec.get("msg") or ""):
+        return False
+    return (rec.get("cause") or bash_cause(rec)) == BENIGN_CAUSE
+
+
 def classes(records):
     """Open error classes: sig -> {sig, tool, msg, count, sessions, instances, first,
     last, reported} over the errors after each class's last ``resolve``. ``reported``
@@ -316,7 +332,7 @@ def classes(records):
             settles.append(r.get("upto") or r["ts"])
     out = {}
     for r in records:
-        if r["t"] != "error" or not r.get("sig"):
+        if r["t"] != "error" or not r.get("sig") or is_benign(r):
             continue
         if r["ts"] <= last_resolve.get(r["sig"], ""):
             continue
@@ -481,8 +497,11 @@ def report(records, start, now=None):
     lo = _stamp(start)
     cls = classes(records)
     in_window = collections.Counter()
+    benign = 0
     for r in records:
-        if r["t"] == "error" and r["ts"] >= lo and r.get("sig") in cls:
+        if r["t"] == "error" and r["ts"] >= lo and is_benign(r):
+            benign += 1
+        elif r["t"] == "error" and r["ts"] >= lo and r.get("sig") in cls:
             in_window[r["sig"]] += 1
     rows = []
     starts = {}
@@ -540,6 +559,7 @@ def report(records, start, now=None):
                       key=lambda f: (-f["bursts"], -f["count"], f["family"]))
     return {"window": {"start": start.strftime("%Y-%m-%d"), "end": now.strftime("%Y-%m-%d")},
             "errors_in_window": sum(in_window.values()),
+            "benign_in_window": benign,
             "families": families,
             "open_classes": len(rows),
             "recurring": [r for r in rows if r["recurring"]],
@@ -551,6 +571,9 @@ def render_markdown(rep):
     out = ["# Errors %s .. %s" % (w["start"], w["end"]), "",
            "%d error(s) in the window; %d open class(es), %d recurring."
            % (rep["errors_in_window"], rep["open_classes"], len(rep["recurring"])), ""]
+    if rep.get("benign_in_window"):
+        out += ["%d more shell command(s) exited 1 with ordinary output and no error text "
+                "(a probe that found nothing); not counted." % rep["benign_in_window"], ""]
     fams = [f for f in rep.get("families", []) if f["in_window"]][:10]
     if fams:
         out += ["## Top families", "",
@@ -620,6 +643,8 @@ def hook_record(event, instance, now=None):
     ns, bare = ac.agent_identity(event)
     rec["agent"] = redact(("%s:%s" % (ns, bare)) if ns else bare)[:80] if bare else "MAIN"
     rec.update(context(event, tool, err))
+    if tool in SHELL_TOOLS and rec.get("detail"):
+        rec["cause"] = bash_cause(rec)          # what the report's families read
     # the code the session ran: a session on an old checkout or an old installed plugin
     # repeats errors already fixed (``has_fix``)
     for k, v in (("rev", code_rev()), ("ver", code_version())):
