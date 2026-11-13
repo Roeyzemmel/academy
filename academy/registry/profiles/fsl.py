@@ -42,7 +42,7 @@ from pathlib import Path
 
 from ..core import fm, legacy_fm, workspace, federation, projection, schema, grounds as _grounds
 from ..core.edit import Doc
-from ..core.model import Record, Store, statement_hash_of
+from ..core.model import Record, Store
 
 #: the repo used when a function is called without one (the shim sets its own lab)
 ROOT = Path.cwd()
@@ -450,8 +450,8 @@ def check(claims, repo=None, root=None, only=None):
         if only and c.path.resolve() not in only:
             continue
         where = c.path
-        e = lambda m: errs.append(f"{where}: ERROR: {m}")
-        w = lambda m: warns.append(f"{where}: WARN: {m}")
+        e = lambda m: errs.append(f"{where}: ERROR: {m}")  # noqa: B023 -- called in-loop
+        w = lambda m: warns.append(f"{where}: WARN: {m}")  # noqa: B023 -- called in-loop
         if c.dialect_error:
             w(f"not in the registry dialect ({c.dialect_error}); read with the old parser. "
               "Requote it: py -m registry requote")

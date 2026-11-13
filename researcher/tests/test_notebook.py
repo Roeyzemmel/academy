@@ -197,7 +197,7 @@ class ApproachTests(Workspace):
             self.nb.new_object("approach", "AP-4", "t", status="open", target="C-9")
 
     def test_direction_carries_an_optional_approach(self):
-        p = self.nb.new_object("direction", "D-7", "Program", approach="s9:AP-2")
+        self.nb.new_object("direction", "D-7", "Program", approach="s9:AP-2")
         self.assertEqual(self.nb.find("D-7")["approach"], "AP-2")
         p2 = self.nb.new_object("direction", "D-8", "Program")
         self.assertNotIn("approach:", rs.read_text(p2))
@@ -290,7 +290,7 @@ class ApproachTests(Workspace):
         self.nb.set_approach("AP-1", "blocked", blocked_by="paper:lem:x", reopen_if="x y")
         self.assertEqual(self.nb.approach("AP-1")["blocked_by"], "paper:lem:x")
         # hand edits are caught too
-        path = self.put_approach("AP-6", "blocked",
+        self.put_approach("AP-6", "blocked",
                                  extra="blocked_by: C-9\nreopen_if: x\n")
         self.assertTrue(any("target" in p for p in self.nb.approach_problems("AP-6")))
         self.put_approach("AP-7", "blocked", extra="blocked_by: free text\nreopen_if: x\n")

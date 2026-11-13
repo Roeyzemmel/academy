@@ -35,7 +35,7 @@ import sys
 
 import academy_common as ac
 
-from . import Tool, ToolError, obj, S, I, B, L
+from . import Tool, ToolError, obj, S, B, L
 from . import tickets as _tickets
 
 _PLUGIN = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

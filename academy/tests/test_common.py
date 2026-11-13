@@ -61,21 +61,6 @@ class TempDir(unittest.TestCase):
             {"instances": inst, "board": os.path.join(self.tmp, "board"),
              "human": {"name": "Ada"}}))
 
-    def fixture_workspace(self):
-        """A workspace.json for the five standard instances, homes under the temp dir."""
-        spec = {"expert@main": ("library", None), "scientist@main": ("lab", "lab"),
-                "researcher@alpha": ("notebook", "nb"), "researcher@beta": ("flat", "flat"),
-                "author@main": ("paper", "paper")}
-        inst = {}
-        for name, (home, ns) in spec.items():
-            inst[name] = {"role": name.split("@")[0], "home": os.path.join(self.tmp, home),
-                          "domains": ["translation-surfaces"]}
-            if ns:
-                inst[name]["ns"] = ns
-        return self.write("fixture/workspace.json", json.dumps(
-            {"instances": inst, "board": os.path.join(self.tmp, "board"),
-             "human": {"name": "Ada"}}))
-
 
 # ---------------------------------------------------------------------------
 # Config
