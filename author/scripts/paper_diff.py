@@ -19,9 +19,13 @@ directory, so figures and the bibliography resolve as in the normal build. The b
 directory is a sub-directory of the normal one, so it does not collide with the build
 lock's builds.
 
-``author.diff.args`` (a list) replaces the default latexdiff options; ``--math-markup=whole``
-marks a changed formula as one unit, which stays compilable where fine-grained markup
-inside display math does not.
+``author.diff.args`` (a list) replaces the default latexdiff options. The defaults are the
+ones that built on a real 130-page paper (2026-11-13): ``--math-markup=off`` (a changed
+formula shows its new version, unmarked: latexdiff's formula markup wraps a display in
+``\DIFdel{...}``, inside which a ``tikzcd`` or an alignment with ``&`` does not compile)
+and diagrams (``tikzcd``, ``tikzpicture``) treated as pictures, replaced whole. Prose,
+statements and proofs are marked as usual. A home whose formulas are plain can set
+``["--math-markup=whole", "--allow-spaces"]``.
 
 Exit codes: 0 the diff (and, unless ``--no-build``, the PDF) was written; 1 no base was
 found, or latexdiff / the build failed (the log tail and the diff ``.tex`` path are
@@ -45,9 +49,14 @@ if HERE not in sys.path:
 import _author as au  # noqa: E402
 
 DEFAULT_TAGS = ("shared-*", "round-*", "submitted-*")
-#: latexdiff options when ``author.diff.args`` is absent. whole: a changed formula is
-#: marked as one unit (robust for display math); allow-spaces: ``\\input {x}``.
-DEFAULT_LATEXDIFF_ARGS = ("--math-markup=whole", "--allow-spaces")
+#: latexdiff options when ``author.diff.args`` is absent (the module docstring says why
+#: formula markup is off); allow-spaces: ``\\input {x}``.
+DEFAULT_LATEXDIFF_ARGS = (
+    "--math-markup=off", "--allow-spaces",
+    # a commutative diagram or a TikZ picture is replaced whole, never marked up cell by
+    # cell (on a real paper the cell markup of one changed tikzcd broke the build)
+    r"--config=PICTUREENV=(?:picture|tikzpicture|tikzcd|DIFnomarkup)[\w\d*@]*",
+)
 LATEXDIFF_TIMEOUT = 600
 BUILD_TIMEOUT = 900
 LOG_TAIL = 40

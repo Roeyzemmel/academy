@@ -155,7 +155,9 @@ class Commands(unittest.TestCase):
                                "/old/main.tex", "/new/main.tex"])
 
     def test_default_options_are_math_safe_and_overridable(self):
-        self.assertIn("--math-markup=whole", pd.latexdiff_args({}))
+        self.assertIn("--math-markup=off", pd.latexdiff_args({}))
+        self.assertTrue(any(a.startswith("--config=PICTUREENV=") and "tikzcd" in a
+                            for a in pd.latexdiff_args({})))
         cfg = {"diff": {"args": ["--type=CFONT", "--math-markup=coarse"]}}
         self.assertEqual(pd.latexdiff_args(cfg), ["--type=CFONT", "--math-markup=coarse"])
         self.assertEqual(pd.latexdiff_args({"diff": {"args": []}}), [])
@@ -243,7 +245,7 @@ class WithFakeLatexdiff(unittest.TestCase):
         self.assertEqual(code, 0, err)
         argv = slurp(self.argv_file).split("\n")
         self.assertIn("--type=CFONT", argv)
-        self.assertNotIn("--math-markup=whole", argv)
+        self.assertNotIn("--math-markup=off", argv)
 
     def test_not_a_git_repo_is_exit_2(self):
         plain = tempfile.mkdtemp(prefix="pdiff-plain-")
@@ -279,6 +281,31 @@ class EndToEnd(unittest.TestCase):
         self.assertIn(r"\DIFadd", tex)
         self.assertTrue(os.path.isfile(os.path.join(repo.home, ".build", "diff",
                                                     "main-diff.pdf")))
+
+    @unittest.skipUnless(shutil.which("kpsewhich") and subprocess.run(
+        ["kpsewhich", "tikz-cd.sty"], capture_output=True).returncode == 0, "tikz-cd needed")
+    def test_a_changed_commutative_diagram_builds_with_the_default_options(self):
+        # 2026-11-13, on a real paper: latexdiff's formula markup put a changed tikzcd
+        # inside \DIFdel{...}, where its & does not compile; the defaults avoid that
+        repo = Repo()
+        self.addCleanup(repo.cleanup)
+        main = MAIN.replace(r"\usepackage{amsthm}", r"\usepackage{amsthm}" "\n" r"\usepackage{tikz-cd}")
+        diagram = (r"\begin{lem}\label{lem:x} The square commutes." "\n" r"\end{lem}" "\n"
+                   r"\begin{equation}\label{eq:d}" "\n" r"\begin{tikzcd}" "\n"
+                   r"A \arrow[r] \arrow[d] & %s \arrow[d] \\" "\n"
+                   r"C \arrow[r] & D" "\n" r"\end{tikzcd}" "\n" r"\end{equation}" "\n")
+        repo.write("main.tex", main)
+        repo.write("sections/a.tex", diagram % "B")
+        repo.git("add", "-A")
+        repo.commit("v1 with a diagram", "2026-01-01T10:00:00")
+        repo.tag("shared-1", "2026-01-02T10:00:00")
+        repo.write("sections/a.tex", (diagram % "B'").replace("The square", "The new square"))
+        repo.git("add", "-A")
+        repo.commit("v2", "2026-02-01T10:00:00")
+        code, out, err = run_main(["--root", repo.home, "--json"])
+        self.assertEqual(code, 0, err)
+        self.assertTrue(json.loads(out)["built"])
+        self.assertIn(r"\DIFadd", slurp(json.loads(out)["diff_tex"]))     # the prose is marked
 
     def test_broken_diff_reports_exit_1_with_the_tex_path(self):
         repo = Repo({"diff": {"args": ["--math-markup=whole", "--type=CFONT"]}})
