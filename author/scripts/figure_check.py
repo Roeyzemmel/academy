@@ -86,7 +86,7 @@ def compiled_tikz(path, frac, textwidth):
     work = tempfile.mkdtemp(prefix="figcheck-")
     try:
         env = dict(os.environ, TEXINPUTS=os.path.dirname(os.path.abspath(path)) + os.pathsep)
-        res = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
+        subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
                               "-output-directory", work, os.path.abspath(path)],
                              capture_output=True, text=True, env=env, cwd=work)
         pdf = os.path.join(work, os.path.splitext(os.path.basename(path))[0] + ".pdf")

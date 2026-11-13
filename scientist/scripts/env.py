@@ -1161,7 +1161,6 @@ def parse_queue(argv):
     if first in LEGACY_VALUE or first in LEGACY_SWITCH or first == "-scriptargs":
         seen = set()
         i = 0
-        in_args = False
         while i < len(argv):
             tok, low = argv[i], argv[i].lower()
             if low in LEGACY_VALUE:
@@ -1178,7 +1177,6 @@ def parse_queue(argv):
                 if key in ("add", "log"):
                     seen.add(key)
                 i += 2
-                in_args = False
                 continue
             if low in LEGACY_SWITCH:
                 if low == "-nocron":
@@ -1186,10 +1184,8 @@ def parse_queue(argv):
                 else:
                     seen.add(low[1:])
                 i += 1
-                in_args = False
                 continue
             if low == "-scriptargs":
-                in_args = True
                 i += 1
                 continue
             opts["args"].append(tok)       # ValueFromRemainingArguments

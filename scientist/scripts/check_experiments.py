@@ -193,7 +193,7 @@ def calls(text):
     return names
 
 
-def _vendored_academy(_cache=[]):
+def _vendored_academy(_cache=[]):  # noqa: B006 -- memo cache
     """This plugin's vendored ``_academy.py``, loaded by its path (not ``import
     _academy``: a lab's tests load the checker in process with their own
     ``tests/_academy.py`` helper already imported under that name). None when it cannot
@@ -232,7 +232,7 @@ def _rule_set_of(ns):
     return ac.registry_rule_set(ns) or "lab"
 
 
-def unchecked_namespace(ns, _cache={}):
+def unchecked_namespace(ns, _cache={}):  # noqa: B006 -- memo cache
     """True when ``ns`` is another kind of registry (rule set ``paper`` or ``notebook``),
     whose ids this checker does not validate."""
     if ns not in _cache:

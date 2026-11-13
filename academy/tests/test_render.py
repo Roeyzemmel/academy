@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.join(PLUGIN, "scripts"))
 sys.path.insert(0, HERE)
 
 import academy_common as ac  # noqa: E402
-import board as bd  # noqa: E402
 import packets as pk  # noqa: E402
 import render_packets as rp  # noqa: E402
 import gather_deep_dive as gd  # noqa: E402

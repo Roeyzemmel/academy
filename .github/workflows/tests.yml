@@ -43,3 +43,14 @@ jobs:
       - name: translation-surfaces domain pack
         if: ${{ !cancelled() }}
         run: python -m unittest discover -s domains/translation-surfaces/tests -t domains/translation-surfaces/tests
+  lint:
+    # Correctness-only ruff rules (ruff.toml); not a style check.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install ruff==0.16.9
+      - run: ruff check .

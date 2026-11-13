@@ -15,9 +15,7 @@ promotion is off), which is what makes a clean merge possible without a LaTeX bu
 """
 import json
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))

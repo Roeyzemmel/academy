@@ -1025,7 +1025,7 @@ class TestCheckpointUsage(CheckpointBase):
                 self.assertFalse(os.path.exists(self.usage_file()))
 
     def test_usage_keep_days_from_workspace_json(self):
-        import usage_ledger
+        import usage_ledger  # noqa: F401 -- import probe
         old = (_dt.datetime.now() - _dt.timedelta(days=40)).strftime("%Y-%m-%dT%H:%M:%SZ")
         rec = {"t": "usage", "session": "ancient", "ts": old, "instance": "workspace", "turns": 1, "read": 1}
         for keep, survives in ((30, False), ("30", True), (3, True), (None, True)):

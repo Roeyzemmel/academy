@@ -4,7 +4,6 @@ Run from the repo root:  py -m unittest discover academy/tests
 """
 
 import datetime as dt
-import io
 import json
 import os
 import shutil

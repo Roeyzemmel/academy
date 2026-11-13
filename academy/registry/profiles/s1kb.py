@@ -241,7 +241,7 @@ from ..core.fm import (FrontmatterError, _fail, _is_skippable, _expect_end, ESCA
                        BAD_START, _parse_quoted, parse_scalar, _BARE_ITEM, _parse_inline_list,
                        parse_value, _indent_of, _parse_nested_entry, _block_end, _KEY_LINE,
                        _needs_quotes, _double_quote, format_scalar, format_list, _format_value)
-from ..core.model import Record, Store, statement_hash_of  # noqa: E402
+from ..core.model import Record, Store  # noqa: E402
 from ..core import projection as _projection  # noqa: E402
 from ..core import schema as _schema  # noqa: E402
 from ..core import workspace as _workspace  # noqa: E402
@@ -1119,7 +1119,7 @@ def fill_sqlite(kb, con):
         CREATE TABLE edges(src TEXT, dst TEXT, kind TEXT);""")
     con.execute("INSERT INTO meta VALUES ('generated', ?)", (GENERATED_TEXT,))
     for e in kb.sorted():
-        g = lambda k: e.meta.get(k) if isinstance(e.meta.get(k), str) else None  # noqa: E731
+        g = lambda k: e.meta.get(k) if isinstance(e.meta.get(k), str) else None  # noqa: E731, B023 -- called in-loop
         topics = ",".join(e.meta.get("topics", [])) if isinstance(e.meta.get("topics"), list) else None
         con.execute("INSERT INTO entities VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (e.id, e.etype, e.path, g("kind"), g("status"), g("status_note"),

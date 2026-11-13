@@ -13,7 +13,7 @@ if str(ENGINE) not in sys.path:
     sys.path.insert(0, str(ENGINE))
 
 import registry  # noqa: E402
-from registry.core import federation  # noqa: E402
+from registry.core import federation  # noqa: E402, F401 -- side effect
 
 LAB_GOOD = """---
 id: lab:foo

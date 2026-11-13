@@ -17,7 +17,6 @@ Hand computations are written in each test's docstring.
 """
 
 import importlib.util
-import io
 import json
 import os
 import shutil
@@ -25,7 +24,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(HERE)

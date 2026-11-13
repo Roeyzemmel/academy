@@ -26,7 +26,7 @@ import board_codec as bc  # noqa: E402
 import board_store as bs  # noqa: E402
 import decisions as dc  # noqa: E402
 import packets as pk  # noqa: E402
-from tools import Context, ToolError, tickets as mcp_tickets, packets as mcp_packets  # noqa: E402
+from tools import Context, ToolError, packets as mcp_packets  # noqa: E402
 from tools import claims as mcp_claims  # noqa: E402
 
 core = ac.inbox_core

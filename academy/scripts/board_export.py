@@ -20,7 +20,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
 sys.path.insert(0, HERE)
 
-import academy_common as ac  # noqa: E402
 import board as bd  # noqa: E402
 import board_codec as bc  # noqa: E402
 
