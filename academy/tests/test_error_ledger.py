@@ -120,6 +120,49 @@ class FamilyTests(unittest.TestCase):
         self.assertEqual(el.family(sig), sig)
 
 
+class BriefReportTests(unittest.TestCase):
+    """What a session reads of the report stays small (2026-11-13: 174 000 characters of
+    JSON for a week with 130 open classes, 84 of them with no error that week)."""
+
+    def rep(self):
+        recs = [err(1, "Bash: this week %d" % i, session="s%d" % i) for i in range(30)]
+        recs += [err(20, "Read: long ago %d" % i, session="q%d" % i) for i in range(40)]
+        recs += [err(d, "Grep: every week", session="w%d" % d) for d in (30, 20, 10)]
+        return el.report(recs, NOW - dt.timedelta(days=7), now=NOW)
+
+    def test_the_brief_lists_this_weeks_classes_and_counts_the_rest(self):
+        rep = self.rep()
+        b = el.brief(rep)
+        self.assertEqual(71, b["open_classes"])
+        self.assertEqual((el.BRIEF_ROWS, 30 - el.BRIEF_ROWS), (len(b["classes"]), b["classes_omitted"]))
+        self.assertTrue(all(c["in_window"] for c in b["classes"]))
+        self.assertEqual({"sig", "in_window", "bursts", "count", "sessions", "instances",
+                          "first", "last", "weeks_open", "state"}, set(b["classes"][0]))
+        self.assertEqual((41, 41, 1), (b["quiet"]["classes"], b["quiet"]["never_reported"],
+                                       b["quiet"]["recurring"]))
+        self.assertEqual("Grep: every week", b["quiet"]["largest"][0]["sig"])
+        self.assertTrue(all(f["in_window"] for f in b["families"]))
+        self.assertLess(len(json.dumps(b)), len(json.dumps(rep)) / 3)
+        self.assertEqual([], el.brief(el.report([], NOW - dt.timedelta(days=7), now=NOW))["classes"])
+
+    def test_the_markdown_table_counts_the_quiet_classes_unless_asked_for_all(self):
+        rep = self.rep()
+        md = el.render_markdown(rep)
+        table = md.split("## Classes")[1].split("Example messages:")[0]
+        self.assertEqual(30, table.count("| `Bash: this week"))
+        self.assertNotIn("| `Read: long ago", table)
+        self.assertIn("41 more open class(es) had no error in the window (1 recurring, "
+                      "41 never reported)", md)
+        every = el.render_markdown(rep, every=True)
+        self.assertEqual(40, every.split("## Classes")[1].count("| `Read: long ago"))
+        self.assertNotIn("more open class(es)", every)
+
+    def test_a_regression_is_listed_even_when_quiet(self):
+        rows = [{"in_window": 0, "regression": True}, {"in_window": 0}, {"in_window": 2}]
+        live, quiet = el._split({"classes": rows})
+        self.assertEqual((2, 1), (len(live), len(quiet)))
+
+
 class TopFamiliesTests(unittest.TestCase):
     def test_section_precedes_class_table_and_folds(self):
         t = "mcp__plugin_academy_academy__claims_set_status"
