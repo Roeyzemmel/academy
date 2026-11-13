@@ -131,6 +131,17 @@ intermediate state is a tested one.
 | 13 | #30 | workflow prompts carry the full path of every script they name |
 | 14 | #34 | workflows ship their own work when run outside the inbox (0.2.2) |
 | 15 | #37 | the checkpoint ships what a ticket wrote in another home (0.2.3) |
+| 16 | #38 | this map |
+| 17 | #39 | `paper_diff` defaults that build on a real paper (formula markup off, diagrams whole) |
+| 18 | #40 | a commented-out or verbatim statement is not a statement (`pinned.live_text`) |
+| 19 | #41 | the checker's registry view keeps every parsed statement |
+| 20 | #42 | deep-dive: the explainer supplies the status of the citations it shows |
+
+Rows 17 to 20 were found by running the round's tools on the real paper and board, after
+the suites passed: the presync diff never built there, the statement tool listed ten
+commented-out statements, the checker's view was five rows short, and a deep-dive of a
+claim with cited inputs could not render with a sections-only file. Each has a test now
+that fails without its fix.
 
 Outside this repo, from the same round: the workspace (cloud TeX, the max tier, its
 `CLAUDE.md`), the lab (tests skip without Sage or numpy, so its push gate passes), a
@@ -149,7 +160,12 @@ the text).
 4. The weekly usage task: it has filed nothing since 2026-09-28 because its session
    starts with no repository and no credentials. The desk shows `OVERDUE` until it does.
 5. `board_relations.py plan`, then `apply` (one missing link when last planned).
-6. Decisions left open by this round: whether an Expert's commit may land in the paper
+6. The paper's claim registry has ten errors of its own (`registry.py check` in the
+   Author home): three questions and two definitions black in the draft whose records
+   say `open` or `sketch`, four records whose label is no longer in the tex, one record
+   with an unknown field. They predate this round and are the Author's and the
+   claim-keeper's to settle.
+7. Decisions left open by this round: whether an Expert's commit may land in the paper
    repo through the Author's gate (it does, on an `.../expert` branch), and whether
    other uncommitted work there should block it (it does); `in-progress -> accepted` and
    `in-progress -> rejected` as direct transitions; a hosted collector for telemetry.
