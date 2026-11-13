@@ -1,35 +1,20 @@
 """library_index.py: cached files without index rows, drafted rows, apply -- on a
 fixture library and on a temp copy of the real library's index (never on the real one)."""
 
-import json
 import os
 import shutil
 import tempfile
 import unittest
 
+import _env
 import fixtures
 import library_index as li
 
 
-def _real_home(**want):
-    """The home of the first workspace.json instance matching ``want`` (role=..., ns=...), or ''
-    when there is no workspace: these tests run against real homes only where they exist."""
-    try:
-        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8-sig") as fh:
-            ws = json.load(fh)
-    except (KeyError, OSError, ValueError):
-        return ""
-    for inst in ws.get("instances", {}).values():
-        if all(inst.get(k) == v for k, v in want.items()):
-            return inst["home"]
-    return ""
-
-
-# on CI, and in the push gate that runs the CI steps here (CI=true), there is no real
-# library to read: a result that depends on its state (a cached file not yet indexed)
-# must not decide whether this repo may be pushed
-REAL = "" if (os.environ.get("CI") or os.environ.get("ACADEMY_TEST_HERMETIC")) \
-    else _real_home(role="expert")
+# the real library is read only on request (ACADEMY_TEST_REAL=1, never on CI): a result
+# that depends on its state (a cached file not yet indexed) must not decide whether this
+# repo may be pushed
+REAL = _env.real_home(role="expert")
 
 
 class FixtureLibraryTests(unittest.TestCase):
@@ -101,7 +86,8 @@ class FixtureLibraryTests(unittest.TestCase):
         self.assertEqual(code, 0, (out, err))
 
 
-@unittest.skipUnless(os.path.isfile(os.path.join(REAL, "index.md")), "no real library")
+@unittest.skipUnless(REAL and os.path.isfile(os.path.join(REAL, "index.md")),
+                     _env.SKIP_REASON + " (and the library must have an index.md)")
 class RealLibraryCopyTests(unittest.TestCase):
     """A temp copy of the real index.md plus empty stand-ins named like the real
     cached files (no PDF is copied). The real library is only listed and read."""

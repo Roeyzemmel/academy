@@ -18,7 +18,7 @@ import ship  # noqa: E402
 from ship_fixture import run as git_run  # noqa: E402
 from test_ship import Base  # noqa: E402
 
-BASH = shutil.which("bash")
+BASH = ci.find_bash()
 
 WORKFLOW = """# a comment
 name: tests
@@ -111,6 +111,28 @@ class Parse(unittest.TestCase):
         self.assertTrue(any(lbl.endswith(": academy") for lbl in ran), ran)
         self.assertTrue(any("ruff check" in lbl for lbl in ran), ran)
         self.assertTrue(all("git identity" not in lbl and "pip install" not in lbl for lbl in ran))
+
+
+class FindBash(unittest.TestCase):
+    def test_on_windows_git_bash_is_used_and_the_wsl_launcher_is_not(self):
+        git = os.path.join("C:\\", "Program Files", "Git", "cmd", "git.exe")
+        gitbash = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(git)),
+                                                "..", "bin", "bash.exe"))
+        wsl = "C:\\Windows\\System32\\bash.exe"
+        which = lambda n: {"git": git, "bash": wsl}.get(n)
+        old = os.environ.pop("CI_LOCAL_BASH", None)
+        self.addCleanup(lambda: old is not None and os.environ.__setitem__("CI_LOCAL_BASH", old))
+        self.assertEqual(gitbash, ci.find_bash(which, windows=True, exists=lambda p: p == gitbash))
+        # no Git bash beside git: the WSL launcher is still refused
+        self.assertIsNone(ci.find_bash(which, windows=True, exists=lambda p: False))
+        other = "D:\\msys64\\usr\\bin\\bash.exe"
+        self.assertEqual(other, ci.find_bash(lambda n: {"bash": other}.get(n), windows=True,
+                                             exists=lambda p: False))
+        # elsewhere PATH decides, and the override wins everywhere
+        self.assertEqual("/bin/bash", ci.find_bash(lambda n: "/bin/bash", windows=False))
+        os.environ["CI_LOCAL_BASH"] = "/opt/bash"
+        self.assertEqual("/opt/bash", ci.find_bash(which, windows=True, exists=lambda p: True))
+        del os.environ["CI_LOCAL_BASH"]
 
 
 class Plan(unittest.TestCase):
