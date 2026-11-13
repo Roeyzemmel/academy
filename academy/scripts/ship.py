@@ -383,7 +383,15 @@ def cmd_start(a):
         git(repo, "switch", name) if exists else git(repo, "switch", "-c", name, *([on] if on else []))
         print("%s on %s (uncommitted changes carried along)" % (repo, name))
     main = main_branch(repo)
-    main_ref = next((r for r in ("refs/heads/" + main, "refs/remotes/origin/" + main)
+    if not exists and base and base not in PROTECTED:
+        # a session's clone can hold an old origin/main, against which a fresh session
+        # branch looks like work of its own; ask the remote once, and go on without it
+        try:
+            subprocess.run(["git", "-C", repo, "fetch", "-q", "origin", main], capture_output=True,
+                           env=git_env(), stdin=subprocess.DEVNULL, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    main_ref = next((r for r in ("refs/remotes/origin/" + main, "refs/heads/" + main)
                      if git(repo, "rev-parse", "--verify", "--quiet", r, check=False)), None)
     own = git(repo, "rev-list", "--count", "%s..%s" % (main_ref, on or base), check=False) \
         if (main_ref and base) else "1"
