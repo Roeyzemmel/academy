@@ -85,6 +85,35 @@ class Statement(unittest.TestCase):
         self.assertIn("near: lem:lift", err)
         self.assertEqual(2, self.run_cli()[0])
 
+    def test_commented_out_and_verbatim_statements_are_not_statements(self):
+        # 2026-11-13: ten commented-out or quoted statements were listed as live ones
+        tex = ("%% \\begin{lem}\\label{lem:dead} An old version. \\end{lem}\n"
+               "% \\begin{lem}\\label{lem:lift} A commented copy of a live label.\n"
+               "% \\end{lem}\n"
+               "\\begin{verbatim}\n  \\begin{prop} \\label{prop:foo} ... \\end{prop}\n\\end{verbatim}\n"
+               "Costs 5\\% more.\n" + TEX)
+        with open(os.path.join(self.home, "sections", "flat.tex"), "w", newline="") as fh:
+            fh.write(tex)
+        self.assertIsNone(st.find(self.home, {}, "lem:dead"))
+        self.assertIsNone(st.find(self.home, {}, "prop:foo"))
+        rec = st.find(self.home, {}, "lem:lift", proof=True)
+        self.assertEqual([4 + 7, 9 + 7], rec["lines"])          # the live one, seven lines down
+        self.assertTrue(rec["text"].startswith("\\begin{lem}[Lifting]"))
+        labels = [r["label"] for r in st.outline(self.home, {}, os.path.join(
+            self.home, "sections", "flat.tex"))["rows"] if "label" in r]
+        self.assertEqual(["lem:lift", "prop:free"], labels)
+        self.assertNotIn("lem:dead", st.all_labels(self.home, {}))
+
+    def test_a_file_the_paper_does_not_input_is_said_to_be_so(self):
+        with open(os.path.join(self.home, "sections", "old.tex"), "w", newline="") as fh:
+            fh.write("\\begin{lem}\\label{lem:old} Left behind.\n\\end{lem}\n")
+        rec = st.find(self.home, {}, "lem:old")
+        self.assertIn("not \\input by the paper's main file", rec["note"])
+        self.assertNotIn("note", st.find(self.home, {}, "lem:lift"))
+        rc, out, err = self.run_cli("--outline", "sections/old.tex")
+        self.assertIn("note: this file is not", out)
+        self.assertNotIn("note:", self.run_cli("--outline", "sections/flat.tex")[1])
+
     def test_outline_is_the_map_of_a_file(self):
         rc, out, err = self.run_cli("--outline", "sections/flat.tex")
         self.assertEqual(0, rc, err)

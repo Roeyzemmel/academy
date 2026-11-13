@@ -64,6 +64,34 @@ def proof_span(text, end):
     return None
 
 
+RE_INPUT = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]+)\}")
+
+
+def included_files(home, cfg):
+    """The tex files the paper reads: the main file and what it (transitively) inputs,
+    relative to ``home``; None when the main file cannot be read (then nothing is said)."""
+    main = ((cfg or {}).get("paths") or {}).get("main") or "main.tex"
+    seen, todo = set(), [main]
+    while todo:
+        rel = todo.pop()
+        rel = rel if rel.endswith(".tex") else rel + ".tex"
+        rel = os.path.normpath(rel).replace(os.sep, "/")
+        if rel in seen:
+            continue
+        try:
+            text = pinned.live_text(_read(os.path.join(home, rel)))
+        except OSError:
+            if rel == os.path.normpath(main).replace(os.sep, "/"):
+                return None
+            continue
+        seen.add(rel)
+        todo += RE_INPUT.findall(text)
+    return seen
+
+
+NOT_INPUT = "this file is not \\input by the paper's main file: not part of the paper as built"
+
+
 def find(home, cfg, label, proof=False, context=0):
     """The statement of ``label``: ``{label, file, env, lines: [a, b], text, proof?:
     {lines, text}, before?, after?}``, or None."""
@@ -81,6 +109,9 @@ def find(home, cfg, label, proof=False, context=0):
                "env": m.group(2) if m else "",
                "lines": [_line(text, span[0]), _line(text, span[1] - 1)],
                "text": text[span[0]:span[1]]}
+        inc = included_files(home, cfg)
+        if inc is not None and out["file"] not in inc:
+            out["note"] = NOT_INPUT
         last = out["lines"][1]
         if proof:
             ps = proof_span(text, span[1])
@@ -101,7 +132,7 @@ def all_labels(home, cfg):
     out = []
     for path in pinned.tex_files(home, cfg):
         try:
-            out += RE_LABEL.findall(_read(path))
+            out += RE_LABEL.findall(pinned.live_text(_read(path)))
         except OSError:
             continue
     return out
@@ -112,31 +143,38 @@ def outline(home, cfg, path):
     text = _read(path)
     envs = pinned.statement_envs(cfg)
     rows, seen = [], set()
-    for n, ln in enumerate(text.split("\n"), 1):
+    for n, ln in enumerate(pinned.live_text(text).split("\n"), 1):
         h = RE_HEADING.match(ln)
         if h:
             rows.append({"lines": [n, n], "kind": h.group(1),
                          "title": h.group(2).rstrip().rstrip("}")[:80]})
-    for m in RE_LABEL.finditer(text):
+    live = pinned.live_text(text)
+    for m in RE_LABEL.finditer(live):
         span = pinned.statement_env(text, m.group(1), envs)
         if not span or span[0] in seen:
             continue                    # a label inside a statement already listed
         seen.add(span[0])
         b = pinned.RE_BEGIN_END.match(text, span[0])
-        first = RE_LABEL.search(text, span[0], span[1])
+        first = RE_LABEL.search(live, span[0], span[1])
         ps = proof_span(text, span[1])
         rows.append({"lines": [_line(text, span[0]), _line(text, span[1] - 1)],
                      "kind": b.group(2) if b else "", "label": first.group(1),
                      "proof": [_line(text, ps[0]), _line(text, ps[1] - 1)] if ps else None})
     rows.sort(key=lambda r: r["lines"][0])
-    return {"file": os.path.relpath(path, home).replace("\\", "/"),
-            "total_lines": len(text.splitlines()), "rows": rows}
+    out = {"file": os.path.relpath(path, home).replace("\\", "/"),
+           "total_lines": len(text.splitlines()), "rows": rows}
+    inc = included_files(home, cfg)
+    if inc is not None and out["file"] not in inc:
+        out["note"] = NOT_INPUT
+    return out
 
 
 def render(rec):
     head = "%s  %s:%d-%d  (%s)" % (rec["label"], rec["file"], rec["lines"][0],
                                    rec["lines"][1], rec["env"])
     parts = [head]
+    if rec.get("note"):
+        parts.append("note: " + rec["note"])
     if rec.get("before"):
         parts += ["--- %d line(s) before" % (rec["before"].count("\n") + 1), rec["before"]]
     parts += ["--- statement", rec["text"]]
@@ -149,6 +187,8 @@ def render(rec):
 
 def render_outline(o):
     lines = ["%s  (%d lines)" % (o["file"], o["total_lines"])]
+    if o.get("note"):
+        lines.append("note: " + o["note"])
     for r in o["rows"]:
         if "label" not in r:
             lines.append("%5d        \\%s{%s}" % (r["lines"][0], r["kind"], r["title"]))
