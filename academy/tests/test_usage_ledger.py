@@ -73,6 +73,7 @@ class TestSummaries(LedgerBase):
         self.assertEqual((r["turns"], r["read"], r["write"]), (3, 1000 + 2000 + 50, 205))
         self.assertEqual(r["models"], {"opus": 2, "haiku": 1})
         self.assertEqual(r["subagents"], {"academy:concierge": 1})
+        self.assertEqual(r["agent_models"], {"academy:concierge": {"haiku": 1}})
         self.assertRegex(r["ts"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         self.assertRegex(usage_ledger.host_hash(), r"^[0-9a-f]{8}$")
 

@@ -150,6 +150,12 @@ class UsageReportTest(Sandbox):
         self.assertEqual(usage_report.role_of_agent("general-purpose", roster), "builtin")
         self.assertEqual(usage_report.model_family("claude-fable-5-1"), "fable")
 
+    def flag_lines(self, flags):
+        rep = {"sessions": 0, "subagents": 0, "total": {k: 0 for k in usage_report.COUNTED},
+               "by_instance": {}, "by_role": {}, "by_agent": [], "flags": flags}
+        now = _dt.datetime(2026, 11, 8)
+        return usage_report.render_markdown(rep, now - _dt.timedelta(days=7), now)
+
     def test_report(self):
         root = self.make_projects()
         agents = os.path.join(self.tmp, "repo", "academy", "agents")
@@ -286,6 +292,28 @@ class UsageReportTest(Sandbox):
         flags = usage_report.aggregate(sess, {}, dec)["flags"]
         self.assertEqual([f["kind"] for f in flags], ["heavier-than-declared"])
         self.assertEqual(flags[0]["tier"], "medium")
+        # the other way round: an agent that declares opus and ran on sonnet
+        light = [dict(sess[0], subagents=[dict(sess[0]["subagents"][0],
+                                               models={"claude-sonnet-5-5": 7,
+                                                       "claude-opus-5-5": 2})])]
+        lf = usage_report.aggregate(light, {}, {"concierge": "opus"})["flags"]
+        self.assertEqual([("lighter-than-declared", {"sonnet": 7})],
+                         [(f["kind"], f["turns"]) for f in lf])
+        self.assertEqual([], usage_report.model_flags("x:concierge", {"opus": 3},
+                                                      {"concierge": "opus"}))
+        self.assertEqual([], usage_report.model_flags("x:unknown", {"haiku": 3}, {}))
+        # a board summary's agent_models are checked the same way, with its session
+        rep = {"by_instance": {}, "total": {k: 0 for k in usage_report.COUNTED},
+               "sessions": 0, "subagents": 0, "flags": []}
+        usage_report.merge_board(rep, [
+            {"session": "abcdef123456", "instance": "expert@e", "turns": 5,
+             "subagents": {"expert:concierge": 1},
+             "agent_models": {"expert:concierge": {"sonnet": 4}}},
+            {"session": "old", "instance": "expert@e", "turns": 1, "subagents": {}}],
+            {"concierge": "opus"})
+        self.assertEqual([("lighter-than-declared", "abcdef123456")],
+                         [(f["kind"], f["session"]) for f in rep["flags"]])
+        self.assertIn("ran on sonnet (4 turns) in session abcdef12", self.flag_lines(rep["flags"]))
         ws = {"models": {"tiers": {"medium": "opus"}}}
         dec = usage_report.declared_models(repo, ws)
         self.assertEqual(dec["concierge"], "opus")

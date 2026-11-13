@@ -71,7 +71,11 @@ plugin).
      `experiment-reviewer`, `referee`). A downgrade is a lower `tier:` for the agent
      (or a different `models.tiers` map for the workspace), never a model name: an
      agent's "declared" model is the workspace's model for its tier, and a
-     heavier-than-declared flag names the tier. If there is nothing to decide, `None.`.
+     heavier-than-declared flag names the tier. A lighter-than-declared flag on a grader
+     is never a saving: report it first under `## Summary` (which grader, which model,
+     which sessions), because its verdicts from those runs are not at full strength, and
+     ask as a decision whether the passes are to be re-run. If there is nothing to
+     decide, `None.`.
    - `## Machine notes`: each judgement call you made, one bullet each, naming
      `usage-analyst`.
    - `## Decision`: empty.
