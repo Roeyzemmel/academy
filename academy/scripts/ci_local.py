@@ -38,6 +38,10 @@ What is taken from a workflow, and how it is read locally:
 * a step with ``if:`` naming ``always()`` or ``!cancelled()`` runs even after a failure
   in its job, as on GitHub; any other step is skipped once its job has failed. Every
   job runs; the result is a failure when any step failed.
+* the jobs run at the same time (up to the machine's processors; ``CI_LOCAL_JOBS=N``
+  sets the number, ``1`` runs them one after another), as on GitHub, and the report keeps
+  the workflow's order. Unlike GitHub's runners they share one checkout: jobs that write
+  into the tree need ``CI_LOCAL_JOBS=1``, or belong in one job.
 
 The YAML read is the subset workflow files use (maps, lists, plain and quoted scalars,
 ``|`` and ``>`` blocks, flow lists, comments); anything else in a file makes that file
@@ -311,9 +315,64 @@ def _shim_dir():
     return d
 
 
-def run(top, workflow=None, job=None, timeout=1800):
+def max_jobs(environ=None):
+    """How many jobs run at once: ``CI_LOCAL_JOBS`` (1 = one after another), else the
+    machine's processors."""
+    env = os.environ if environ is None else environ
+    try:
+        n = int(env.get("CI_LOCAL_JOBS", ""))
+    except ValueError:
+        n = os.cpu_count() or 1
+    return max(1, n)
+
+
+def _run_job(steps, top, bash, shim, timeout):
+    """One job's steps, in order. Returns ``(ok, [(position, [lines])])``."""
+    ok, failed, out = True, False, []
+    for pos, st in steps:
+        if st["skip"]:
+            out.append((pos, ["ci: %s skipped: %s" % (st["label"], st["skip"])]))
+            continue
+        if failed and not st["always"]:
+            out.append((pos, ["ci: %s skipped: an earlier step of its job failed" % st["label"]]))
+            continue
+        if not os.path.isdir(st["cwd"]):
+            ok, failed = False, True
+            out.append((pos, ["ci: %s failed: its working directory %s is not here"
+                              % (st["label"], os.path.relpath(st["cwd"], top))]))
+            continue
+        env = dict(os.environ, CI="true", SHIP_GATE="1", **st["env"])
+        env["PATH"] = shim + os.pathsep + env.get("PATH", "")
+        try:
+            p = subprocess.run([bash, "-e", "-c", st["run"]], cwd=st["cwd"], env=env,
+                               capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                               timeout=timeout, encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            ok, failed = False, True
+            out.append((pos, ["ci: %s timed out" % st["label"]]))
+            continue
+        if p.returncode == 0:
+            out.append((pos, ["ci: %s ok" % st["label"]]))
+        elif p.returncode == 127 and st["after_skipped_setup"]:
+            last = (p.stderr or "").strip().splitlines()[-1:]
+            out.append((pos, ["ci: %s skipped: a tool the workflow installs is not on this "
+                              "machine (%s)" % (st["label"], last and last[0][:80])]))
+        else:
+            ok, failed = False, True
+            tail = ((p.stdout or "") + (p.stderr or "")).strip().splitlines()[-TAIL:]
+            out.append((pos, ["ci: %s failed (exit %d):" % (st["label"], p.returncode)]
+                        + ["    " + t for t in tail]))
+    return ok, out
+
+
+def run(top, workflow=None, job=None, timeout=1800, jobs=None):
     """Run the local plan. Returns ``(ok, lines)``; ``lines`` name each step as ok,
-    skipped (with the reason) or failed (with the tail of its output)."""
+    skipped (with the reason) or failed (with the tail of its output), in the plan's order.
+
+    The steps of a job run in order; the jobs run at the same time, up to ``jobs`` of them
+    (default ``max_jobs()``), as they do on GitHub, where each job has its own runner. Here
+    they share the checkout, so a workflow whose jobs write into the tree must be run with
+    ``CI_LOCAL_JOBS=1``."""
     steps, problems = plan(top, workflow, job)
     lines = ["ci: " + p for p in problems]
     ok = not problems
@@ -323,47 +382,25 @@ def run(top, workflow=None, job=None, timeout=1800):
     if not bash:
         return False, lines + ["ci: no bash to run the workflow steps in (on Windows: Git Bash, "
                                "beside git; WSL's bash is not used; CI_LOCAL_BASH names one)"]
+    by_job = {}
+    for pos, st in enumerate(steps):
+        by_job.setdefault(st["job"], []).append((pos, st))
     shim = _shim_dir()
-    failed_jobs = set()
     try:
-        for st in steps:
-            if st["skip"]:
-                lines.append("ci: %s skipped: %s" % (st["label"], st["skip"]))
-                continue
-            if st["job"] in failed_jobs and not st["always"]:
-                lines.append("ci: %s skipped: an earlier step of its job failed" % st["label"])
-                continue
-            if not os.path.isdir(st["cwd"]):
-                ok = False
-                failed_jobs.add(st["job"])
-                lines.append("ci: %s failed: its working directory %s is not here"
-                             % (st["label"], os.path.relpath(st["cwd"], top)))
-                continue
-            env = dict(os.environ, CI="true", SHIP_GATE="1", **st["env"])
-            env["PATH"] = shim + os.pathsep + env.get("PATH", "")
-            try:
-                p = subprocess.run([bash, "-e", "-c", st["run"]], cwd=st["cwd"], env=env,
-                                   capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                                   timeout=timeout, encoding="utf-8", errors="replace")
-            except subprocess.TimeoutExpired:
-                ok = False
-                failed_jobs.add(st["job"])
-                lines.append("ci: %s timed out" % st["label"])
-                continue
-            if p.returncode == 0:
-                lines.append("ci: %s ok" % st["label"])
-            elif p.returncode == 127 and st["after_skipped_setup"]:
-                lines.append("ci: %s skipped: a tool the workflow installs is not on this "
-                             "machine (%s)" % (st["label"], (p.stderr or "").strip().splitlines()[-1:]
-                                               and (p.stderr or "").strip().splitlines()[-1][:80]))
-            else:
-                ok = False
-                failed_jobs.add(st["job"])
-                tail = ((p.stdout or "") + (p.stderr or "")).strip().splitlines()[-TAIL:]
-                lines.append("ci: %s failed (exit %d):" % (st["label"], p.returncode))
-                lines += ["    " + t for t in tail]
+        workers = min(len(by_job), jobs or max_jobs())
+        if workers <= 1:
+            results = [_run_job(g, top, bash, shim, timeout) for g in by_job.values()]
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                results = list(pool.map(lambda g: _run_job(g, top, bash, shim, timeout),
+                                        by_job.values()))
     finally:
         shutil.rmtree(shim, ignore_errors=True)
+    for job_ok, out in results:
+        ok = ok and job_ok
+    for _pos, ls in sorted(p for _ok, out in results for p in out):
+        lines += ls
     return ok, lines
 
 

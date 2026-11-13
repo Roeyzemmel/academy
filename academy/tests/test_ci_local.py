@@ -187,6 +187,60 @@ class Plan(unittest.TestCase):
         self.assertIn("second ok", text)
 
 
+MEET = """on: push
+jobs:
+  a:
+    steps:
+      - name: a waits for b
+        run: |
+          touch a.here
+          for i in $(seq 100); do test -e b.here && exit 0; sleep 0.1; done
+          exit 3
+      - name: a after
+        run: echo done
+  b:
+    steps:
+      - name: b waits for a
+        run: |
+          touch b.here
+          for i in $(seq 100); do test -e a.here && exit 0; sleep 0.1; done
+          exit 3
+"""
+
+
+class Jobs(unittest.TestCase):
+    def setUp(self):
+        self.top = tempfile.mkdtemp(prefix="ci-local-jobs-")
+        self.addCleanup(shutil.rmtree, self.top, True)
+
+    def test_how_many_at_once(self):
+        self.assertEqual(1, ci.max_jobs({"CI_LOCAL_JOBS": "1"}))
+        self.assertEqual(3, ci.max_jobs({"CI_LOCAL_JOBS": "3"}))
+        self.assertEqual(1, ci.max_jobs({"CI_LOCAL_JOBS": "0"}))
+        self.assertEqual(os.cpu_count() or 1, ci.max_jobs({"CI_LOCAL_JOBS": "many"}))
+        self.assertEqual(os.cpu_count() or 1, ci.max_jobs({}))
+
+    @unittest.skipUnless(BASH, "bash is not installed")
+    def test_jobs_run_side_by_side_and_the_report_keeps_the_order(self):
+        write(self.top, "meet.yml", MEET)
+        ok, lines = ci.run(self.top, jobs=2)          # each job needs the other to have started
+        self.assertTrue(ok, lines)
+        self.assertEqual(["ci: meet.yml/a: a waits for b ok", "ci: meet.yml/a: a after ok",
+                          "ci: meet.yml/b: b waits for a ok"], lines)
+
+    @unittest.skipUnless(BASH, "bash is not installed")
+    def test_one_at_a_time_and_a_failed_job_does_not_stop_another(self):
+        write(self.top, "two.yml", "on: push\njobs:\n  a:\n    steps:\n      - name: bad\n"
+              "        run: exit 5\n      - name: after bad\n        run: echo no\n"
+              "  b:\n    steps:\n      - name: good\n        run: echo yes\n")
+        for n in (1, 2):
+            ok, lines = ci.run(self.top, jobs=n)
+            self.assertFalse(ok)
+            self.assertEqual(["ci: two.yml/a: bad failed (exit 5):",
+                              "ci: two.yml/a: after bad skipped: an earlier step of its job failed",
+                              "ci: two.yml/b: good ok"], lines, n)
+
+
 @unittest.skipUnless(BASH, "bash is not installed")
 class GateRunsTheWorkflows(Base):
     def branch_with_workflow(self, body):
