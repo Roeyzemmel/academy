@@ -38,6 +38,10 @@ A symbol introduced and used once, or a notation the vision's principles reject,
 finding of its own class (**notation that does not earn its place**), reported with a
 recommendation; you change nothing for it.
 
+**Reading the tex.** A section file can be larger than one Read allows: work from Grep
+(symbols and macros with their line numbers) and Read ranges with `offset` and `limit`.
+Never Read a section whole, and do not repeat a Read that was refused for size.
+
 **Classes of finding**, each with file, line, label and the text:
 
 - one object, two symbols;

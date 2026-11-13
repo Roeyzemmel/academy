@@ -20,6 +20,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `build_gate.py` | the SubagentStop hook | (hook) |
 | `tex_edit_check.py` | the PostToolUse hook | (hook) |
 | `bib_gate.py` | the PreToolUse hook | (hook) |
+| `statement.py` | the writer, editor and sweeper (reading the tex); any agent that needs one statement | `<label>... [--proof] [--context N] [--json]` (the statement's environment with file and lines, and the proof that follows) · `--outline FILE` (the labelled statements and headings of one tex file with their lines). Exit 1 when a label is not found (near labels named) |
 | `pinned.py` | inbox, agenda, presync, the writer and editor briefs | `[--home H] [--library L] [--json]` · `--labels` (the statements a CONFIRMED review pinned: their environment is not edited, the proof is free; `.claude/pinned-release.txt` is the human's release list) |
 | `pinned_guard.py` | the PreToolUse hook | (hook: refuses an edit that changes a pinned statement's environment) |
 
