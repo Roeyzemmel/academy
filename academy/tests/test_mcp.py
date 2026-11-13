@@ -22,6 +22,8 @@ SERVER = os.path.join(PLUGIN, "mcp", "server.py")
 sys.path.insert(0, os.path.join(PLUGIN, "lib"))
 sys.path.insert(0, os.path.join(PLUGIN, "mcp"))
 
+sys.path.insert(0, HERE)
+import _env  # noqa: E402
 import academy_common as ac  # noqa: E402
 from tools.claims import check_grounds  # noqa: E402
 from tools import library as lib  # noqa: E402
@@ -1811,23 +1813,9 @@ class TestRegistryBackend(McpTestBase):
 
 
 
-def _real_home(**want):
-    """The home of the first workspace.json instance matching ``want`` (role=..., ns=...), or ''
-    when there is no workspace: these tests run against real homes only where they exist."""
-    try:
-        with open(os.environ["ACADEMY_WORKSPACE"], encoding="utf-8-sig") as fh:
-            ws = json.load(fh)
-    except (KeyError, OSError, ValueError):
-        return ""
-    for inst in ws.get("instances", {}).values():
-        if all(inst.get(k) == v for k, v in want.items()):
-            return inst["home"]
-    return ""
-
-
-REAL_LAB = _real_home(ns="lab")
-REAL_S1 = _real_home(ns="s1")
-REAL_PAPER = _real_home(ns="paper")
+REAL_LAB = _env.real_home(ns="lab")
+REAL_S1 = _env.real_home(ns="s1")
+REAL_PAPER = _env.real_home(ns="paper")
 
 
 REGISTRY_PY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -1836,7 +1824,7 @@ REGISTRY_PY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 @unittest.skipUnless(REAL_LAB and REAL_S1 and REAL_PAPER and os.path.isdir(REAL_LAB + "/claims")
                      and os.path.isdir(REAL_S1 + "/objects"),
-                     "the real registries are not on this machine")
+                     _env.SKIP_REASON + " (and the real registries must be on this machine)")
 class TestRealRegistries(unittest.TestCase):
     """claims_show equals the legacy command line (read-only on the homes)."""
 

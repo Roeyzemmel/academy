@@ -26,6 +26,11 @@ when the workspace's board (workspace.json ``board``, default ``board/``) is a p
 directory of the superproject: then the repo is the workspace itself and every staging,
 status and commit is limited to the pathspec ``board/`` (``--paths`` are relative to
 ``board/``), so nothing outside it is committed, and never a submodule pointer.
+``workspace`` is the workspace repo's own files: everything of the superproject except
+the board's directory and the submodules (its CLAUDE.md, ``scripts/``, ``docs/``, the
+template). ``start`` / ``commit`` / ``push`` / ``ship`` / ``stack`` take it; a path inside
+the board or a submodule is refused (that is the other target), a submodule pointer is
+never staged, and ``checkpoint`` does not include it (a ticket's work is not there).
 
 Works from the workspace root in an ordinary CLI session (git is run with ``-C <sub>``
 from here; nothing needs a worktree), and equally from a session isolated in a
@@ -253,17 +258,38 @@ def targets():
     return subs + [n for n in root_dirs() if n not in subs]
 
 
+#: the target of the workspace repo's own files (not the board, not a submodule)
+WORKSPACE = "workspace"
+
+
 def prefix_of(sub):
     """The pathspec (a directory relative to the workspace root) a superproject target is
-    limited to, or None for a submodule."""
+    limited to, or None for a submodule. ``workspace`` is ``.``: the whole superproject,
+    less what ``scope_specs`` excludes."""
     if sub in submodule_names():
         return None
+    if sub == WORKSPACE and os.path.exists(os.path.join(ROOT, ".git")):
+        return "."
     return root_dirs().get(sub)
 
 
 def scope_spec(prefix):
     """The git pathspec for a superproject target's directory (top-anchored, literal)."""
     return ":(top,literal)%s" % prefix.rstrip("/")
+
+
+def foreign_dirs():
+    """The directories of the superproject that are other targets' (the board's, each
+    submodule's), relative to the workspace root."""
+    return sorted(set(root_dirs().values()) | set(submodule_names()))
+
+
+def scope_specs(prefix):
+    """The pathspecs of a superproject target: its directory, or for ``workspace`` the
+    whole tree without the other targets' directories."""
+    if prefix != ".":
+        return [scope_spec(prefix)]
+    return [":(top)"] + [":(top,exclude,literal)%s" % d for d in foreign_dirs()]
 
 
 def common_dir(path):
@@ -366,7 +392,15 @@ def cmd_start(a):
         git(repo, "switch", name) if exists else git(repo, "switch", "-c", name, *([on] if on else []))
         print("%s on %s (uncommitted changes carried along)" % (repo, name))
     main = main_branch(repo)
-    main_ref = next((r for r in ("refs/heads/" + main, "refs/remotes/origin/" + main)
+    if not exists and base and base not in PROTECTED:
+        # a session's clone can hold an old origin/main, against which a fresh session
+        # branch looks like work of its own; ask the remote once, and go on without it
+        try:
+            subprocess.run(["git", "-C", repo, "fetch", "-q", "origin", main], capture_output=True,
+                           env=git_env(), stdin=subprocess.DEVNULL, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    main_ref = next((r for r in ("refs/remotes/origin/" + main, "refs/heads/" + main)
                      if git(repo, "rev-parse", "--verify", "--quiet", r, check=False)), None)
     own = git(repo, "rev-list", "--count", "%s..%s" % (main_ref, on or base), check=False) \
         if (main_ref and base) else "1"
@@ -686,7 +720,7 @@ def cmd_commit(a):
     paths = list(a.paths or [])
     if paths:
         top = os.path.realpath(repo)
-        base = os.path.join(top, prefix) if prefix else top
+        base = os.path.realpath(os.path.join(top, prefix)) if prefix else top
         rels = []
         for p in paths:
             pp = p.replace("\\", "/")
@@ -705,6 +739,13 @@ def cmd_commit(a):
             if not inside:
                 raise Refuse("path %r is outside the %s %s" % (p, "directory" if prefix else "repo", base))
             rels.append(os.path.relpath(full, top).replace(os.sep, "/"))
+            if prefix == ".":
+                other = next((d for d in foreign_dirs()
+                              if rels[-1] == d or rels[-1].startswith(d + "/")), None)
+                if other:
+                    raise Refuse("path %r is in %s/, which is the target %s, not %s"
+                                 % (p, other, next((n for n, r in root_dirs().items() if r == other),
+                                                   other), WORKSPACE))
         if prefix:  # superproject target: top-anchored, so the cwd of git does not matter
             paths = [":(top)%s" % r for r in rels]
     if a.no_gate:
@@ -722,7 +763,7 @@ def cmd_commit(a):
                 print("ship: gate warning: %s" % line, file=sys.stderr)
     if prefix:
         # a superproject target: stage and commit its directory only, never a pointer
-        scope = ["--"] + (paths or [scope_spec(prefix)])
+        scope = ["--"] + (paths or scope_specs(prefix))
         git(repo, "add", *(["-A"] if a.all else []), *scope)
         unstage_gitlinks(repo, scope)
     else:
@@ -976,7 +1017,7 @@ def cmd_status(a):
     if drift:
         print("superproject pointers behind their checkouts (moved only by 'merge --bump'): %s"
               % ", ".join(drift))
-    for sub in targets():
+    for sub in targets() + ([WORKSPACE] if prefix_of(WORKSPACE) == "." else []):
         try:
             repo = repo_of(sub)
         except Refuse:
@@ -985,13 +1026,15 @@ def cmd_status(a):
         prefix = prefix_of(sub)
         b = current(repo)
         # a superproject target counts its own directory only (submodule pointers aside)
-        spec = ["--", scope_spec(prefix)] if prefix else []
+        spec = ["--"] + scope_specs(prefix) if prefix else []
         dirty = len([l for l in git(repo, "status", "--porcelain", *spec).splitlines()
                      if not l.startswith("??")])
         up = git(repo, "rev-list", "--count", "@{u}..HEAD", check=False) if b else ""
         flag = "ok" if BRANCH.match(b) else ("PROTECTED" if b in PROTECTED else "off-template")
         print("%-28s %-44s dirty=%s unpushed=%s [%s]%s" % (sub, b or "(detached)", dirty, up or "-", flag,
-                                                       " (superproject, %s/ only)" % prefix if prefix else ""))
+                                                       (" (superproject, without the board and the submodules)"
+                                                        if prefix == "." else
+                                                        " (superproject, %s/ only)" % prefix) if prefix else ""))
 
 
 TICKET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")

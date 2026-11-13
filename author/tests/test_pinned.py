@@ -159,9 +159,11 @@ class PinnedGuard(PinnedBase):
         rc, out, _ = self.edit("Let $X$ be a compact flat structure.", "Let", path=other)
         self.assertIsNone(out)
 
-    def test_the_hook_is_registered(self):
+    def test_the_hook_is_registered_through_the_dispatcher(self):
         with open(os.path.join(pn.au.PLUGIN_ROOT, "hooks", "hooks.json")) as fh:
-            self.assertIn("pinned_guard.py", fh.read())
+            self.assertIn("pre_tool_use.py", fh.read())
+        import pre_tool_use
+        self.assertIn("pinned_guard", pre_tool_use.guards_for("Edit"))
 
 
 if __name__ == "__main__":

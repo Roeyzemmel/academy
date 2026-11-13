@@ -866,23 +866,21 @@ class HooksJsonTests(unittest.TestCase):
                                                             'scripts/'), h["command"])
                     script = h["command"].split("/scripts/")[1].rstrip('"')
                     self.assertTrue(os.path.isfile(os.path.join(SCRIPTS, script)), script)
-                    cmds[script] = (event, g.get("matcher"))
+                    cmds.setdefault(script, []).append((event, g.get("matcher")))
         self.assertEqual(cmds, {
-            "session_start.py": ("SessionStart", None),
-            "mcp_write_gate.py": ("PreToolUse", "mcp__.*academy.*"),
-            "generated_view_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|Bash|PowerShell"),
-            "script_path_guard.py": ("PreToolUse", "Bash|PowerShell"),
-            "ship_guard.py": ("PreToolUse", "Bash|PowerShell"),
-            "explainer_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
-            "role_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
-            "ticket_edit_check.py": ("PostToolUse", "Edit|Write|MultiEdit"),
-            "touch_record.py": ("PostToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
-            "error_ledger.py": ("PostToolUseFailure", None),
+            "session_start.py": [("SessionStart", None)],
+            "mcp_write_gate.py": [("PreToolUse", "mcp__.*academy.*")],
+            # one process per shell or edit call: the dispatcher runs the guards
+            "pre_tool_use.py": [("PreToolUse", "Bash|PowerShell"),
+                                ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit")],
+            "ticket_edit_check.py": [("PostToolUse", "Edit|Write|MultiEdit")],
+            "touch_record.py": [("PostToolUse", "Edit|Write|MultiEdit|NotebookEdit")],
+            "error_ledger.py": [("PostToolUseFailure", None)],
         })
 
     def test_scripts_import_the_vendored_copy(self):
         for name in ("session_start.py", "mcp_write_gate.py", "generated_view_guard.py",
-                     "script_path_guard.py", "ship_guard.py",
+                     "script_path_guard.py", "ship_guard.py", "pre_tool_use.py",
                      "ticket_edit_check.py", "explainer_write_guard.py",
                      "role_write_guard.py", "touch_record.py"):
             with open(os.path.join(SCRIPTS, name), encoding="utf-8") as fh:
@@ -940,6 +938,134 @@ class RoleWriteGuardTests(Fixture):
         self.assertIn({"author": ["researcher"]},
                       [{r["role"]: r.get("homes")} for r in rules if r.get("homes")])
         self.assertIn(".tex", [s for r in rules for s in r.get("suffixes") or []])
+
+
+
+# ---------------------------------------------------------------------------
+# pre_tool_use: the PreToolUse guards in one process
+# ---------------------------------------------------------------------------
+
+def _dispatcher():
+    if SCRIPTS not in sys.path:
+        sys.path.insert(0, SCRIPTS)
+    import pre_tool_use
+    return pre_tool_use
+
+
+class PreToolUseDispatcherTests(unittest.TestCase):
+    def test_tool_selects_the_guards_of_the_former_matchers(self):
+        d = _dispatcher()
+        shell = ("script_path_guard", "ship_guard", "generated_view_guard")
+        edit = ("explainer_write_guard", "role_write_guard", "generated_view_guard")
+        for tool in ("Bash", "PowerShell"):
+            self.assertEqual(d.guards_for(tool), shell)
+        for tool in ("Edit", "Write", "MultiEdit"):
+            self.assertEqual(d.guards_for(tool), edit)
+        # generated_view_guard was never registered on NotebookEdit
+        self.assertEqual(d.guards_for("NotebookEdit"), edit[:2])
+        for tool in ("Read", "Grep", "Agent", "mcp__academy__tickets_get", ""):
+            self.assertEqual(d.guards_for(tool), (), tool)
+        for name in set(shell + edit):
+            self.assertTrue(callable(getattr(__import__(name), "decide")), name)
+
+    def fakes(self, verdicts, calls):
+        def make(name):
+            def fn(event):
+                calls.append(name)
+                v = verdicts.get(name)
+                if isinstance(v, Exception):
+                    raise v
+                return v
+            return fn
+        names = ("script_path_guard", "ship_guard", "generated_view_guard",
+                 "explainer_write_guard", "role_write_guard")
+        return {n: make(n) for n in names}
+
+    def test_order_and_all_pass(self):
+        d, calls = _dispatcher(), []
+        self.assertIsNone(d.decide({"tool_name": "Bash"}, self.fakes({}, calls)))
+        self.assertEqual(calls, ["script_path_guard", "ship_guard", "generated_view_guard"])
+        calls.clear()
+        self.assertIsNone(d.decide({"tool_name": "Write"}, self.fakes({}, calls)))
+        self.assertEqual(calls, ["explainer_write_guard", "role_write_guard",
+                                 "generated_view_guard"])
+        calls.clear()
+        self.assertIsNone(d.decide({"tool_name": "Read"}, self.fakes({}, calls)))
+        self.assertEqual(calls, [])
+
+    def test_first_denial_wins_and_stops(self):
+        d, calls = _dispatcher(), []
+        v = {"ship_guard": ("deny", "ship"), "generated_view_guard": ("deny", "view")}
+        self.assertEqual(d.decide({"tool_name": "Bash"}, self.fakes(v, calls)),
+                         ("deny", "ship"))
+        self.assertEqual(calls, ["script_path_guard", "ship_guard"])
+
+    def test_a_crashing_guard_is_skipped(self):
+        d, calls, errors = _dispatcher(), [], []
+        v = {"explainer_write_guard": RuntimeError("boom"),
+             "generated_view_guard": ("deny", "view")}
+        self.assertEqual(d.decide({"tool_name": "Edit"}, self.fakes(v, calls), errors),
+                         ("deny", "view"))
+        self.assertEqual(calls, ["explainer_write_guard", "role_write_guard",
+                                 "generated_view_guard"])
+        self.assertEqual([n for n, _ in errors], ["explainer_write_guard"])
+        v = {"script_path_guard": ValueError("x"), "ship_guard": KeyError("y")}
+        self.assertIsNone(d.decide({"tool_name": "Bash"}, self.fakes(v, [])))
+        # a guard missing from the map (an import failure) is skipped the same way
+        self.assertIsNone(d.decide({"tool_name": "Bash"}, {}))
+
+
+class PreToolUseEndToEndTests(Fixture):
+    def run_event(self, tool, tool_input, agent=None, cwd=None):
+        event = {"hook_event_name": "PreToolUse", "tool_name": tool,
+                 "tool_input": tool_input, "cwd": cwd or self.outside}
+        if agent:
+            event["agent_type"] = agent
+        rc, out, err = run_hook("pre_tool_use.py", event, self.env)
+        self.assertEqual(rc, 0, err)
+        return out
+
+    def reason(self, out):
+        return out["hookSpecificOutput"]["permissionDecisionReason"]
+
+    def test_bash_pass_and_denials(self):
+        self.assertIsNone(self.run_event("Bash", {"command": "ls"}))
+        # script_path_guard: an academy script at a path where it is not
+        out = self.run_event("Bash", {"command": "py academy/scripts/cowork.py status x"})
+        self.assertEqual(decision(out), "deny")
+        self.assertIn("cowork.py", self.reason(out))
+        self.assertIn("does not exist", self.reason(out))
+        # generated_view_guard, the third guard: the caller handshake directory
+        out = self.run_event("Bash", {"command": "echo x > %s/f.json"
+                                      % self.callers.replace("\\", "/")})
+        self.assertEqual(decision(out), "deny")
+        self.assertIn("caller handshake", self.reason(out))
+
+    def test_edit_pass_and_denials(self):
+        plain = self.write(os.path.join(self.outside, "notes.md"), "x\n")
+        self.assertIsNone(self.run_event("Edit", {"file_path": plain, "old_string": "x",
+                                                  "new_string": "y"}))
+        view = self.write(os.path.join(self.outside, "INDEX.md"), MARKER_HEADER + "x\n")
+        out = self.run_event("Edit", {"file_path": view, "old_string": "x",
+                                      "new_string": "y"})
+        self.assertEqual(decision(out), "deny")
+        self.assertIn("generated view", self.reason(out))
+        # both explainer_write_guard and generated_view_guard deny: the first one speaks
+        out = self.run_event("Write", {"file_path": view, "content": "y"},
+                             agent="academy:explainer")
+        self.assertEqual(decision(out), "deny")
+        self.assertIn("the explainer is read-only", self.reason(out))
+        # NotebookEdit does not run generated_view_guard (never registered on it)
+        self.assertIsNone(self.run_event("NotebookEdit", {"notebook_path": view,
+                                                          "new_source": "y"}))
+
+    def test_other_tools_and_bad_input_pass(self):
+        self.assertIsNone(self.run_event("Read", {"file_path": os.path.join(
+            self.callers, "f.json")}))
+        res = subprocess.run([sys.executable, os.path.join(SCRIPTS, "pre_tool_use.py")],
+                             input=b"not json", capture_output=True, timeout=60,
+                             env=dict(os.environ, **self.env))
+        self.assertEqual((res.returncode, res.stdout.strip()), (0, b""))
 
 
 if __name__ == "__main__":

@@ -564,9 +564,12 @@ class HooksJsonTests(unittest.TestCase):
                     script = h["command"].split("/scripts/")[1].rstrip('"')
                     seen[script] = (event, g.get("matcher"))
         self.assertEqual(seen["commit_gate.py"], ("PreToolUse", "Bash|PowerShell"))
-        self.assertEqual(seen["bib_gate.py"], ("PreToolUse", "Edit|Write|MultiEdit"))
-        self.assertEqual(seen["notation_scope_guard.py"],
+        # the four edit guards are one process (pre_tool_use.py), not registered one by one
+        self.assertEqual(seen["pre_tool_use.py"],
                          ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"))
+        for guard in ("bib_gate.py", "pinned_guard.py", "preamble_guard.py",
+                      "notation_scope_guard.py"):
+            self.assertNotIn(guard, seen)
         self.assertEqual(seen["tex_edit_check.py"], ("PostToolUse", "Edit|Write|MultiEdit"))
         self.assertEqual(seen["build_gate.py"], ("SubagentStop", None))
         for script in seen:
