@@ -488,6 +488,44 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(1, main("resolve", "--family", "no such family"))
 
 
+class BenignExitTests(unittest.TestCase):
+    """A shell command that exits 1 with ordinary output is recorded but not counted."""
+
+    def rec(self, msg, detail, tool="Bash", days=1, **kw):
+        r = dict(err(days, "Bash: exit code <n>"), tool=tool, msg=msg, **kw)
+        if detail is not None:
+            r["detail"] = detail
+        return r
+
+    def test_which_records_are_benign(self):
+        self.assertTrue(el.is_benign(self.rec("Exit code 1", "T-0068 delivered | T-0364 open")))
+        self.assertTrue(el.is_benign(self.rec("Exit code 1", "0 | 0", cause="no error text")))
+        for r in (self.rec("Exit code 1", "ls: cannot access 'x': No such file or directory"),
+                  self.rec("Exit code 2", "T-0068 delivered"),             # not exit 1
+                  self.rec("Exit code 1", None),                           # nothing to judge
+                  self.rec("Exit code 1", "FAILED (failures=1)"),
+                  self.rec("Exit code 1", "fine", tool="Read")):
+            self.assertFalse(el.is_benign(r), r)
+
+    def test_the_report_counts_them_apart(self):
+        recs = [self.rec("Exit code 1", "T-0068 delivered | T-0364 open"),
+                self.rec("Exit code 1", "Traceback (most recent call last): | boom")]
+        rep = el.report(recs, NOW - dt.timedelta(days=7), now=NOW)
+        self.assertEqual((1, 1), (rep["errors_in_window"], rep["benign_in_window"]))
+        self.assertEqual(["Bash: python traceback"], [f["family"] for f in rep["families"]])
+        md = el.render_markdown(rep)
+        self.assertIn("1 more shell command(s) exited 1 with ordinary output", md)
+        self.assertLess(md.index("1 error(s) in the window"), md.index("1 more shell command"))
+        only = el.report(recs[:1], NOW - dt.timedelta(days=7), now=NOW)
+        self.assertEqual((0, 0), (only["errors_in_window"], only["open_classes"]))
+
+    def test_the_hook_records_the_cause(self):
+        rec = el.hook_record({"tool_name": "Bash", "error": "Exit code 1\nall quiet",
+                              "tool_input": {"command": "ls x"}}, "i@x")
+        self.assertEqual("no error text", rec["cause"])
+        self.assertTrue(el.is_benign(rec))
+
+
 class HookProcessTests(unittest.TestCase):
     def test_hook_end_to_end_and_never_fails(self):
         d = tempfile.mkdtemp()
@@ -505,7 +543,7 @@ class HookProcessTests(unittest.TestCase):
                                                   "domains": ["x"]}}, "board": board}, fh)
         env = dict(os.environ, ACADEMY_WORKSPACE=ws)
         env.pop("ACADEMY_ENV_WORKSPACE", None)
-        ev = {"tool_name": "Bash", "error": "Exit code 1\nboom", "cwd": home, "session_id": "S1"}
+        ev = {"tool_name": "Bash", "error": "Exit code 1\nboom: cannot open the file", "cwd": home, "session_id": "S1"}
         run = lambda data: subprocess.run(
             [sys.executable, os.path.join(SCRIPTS, "error_ledger.py"), "hook"],
             input=data, capture_output=True, env=env, cwd=home, timeout=60)

@@ -60,7 +60,7 @@ class ShipGuard(unittest.TestCase):
     def test_the_superproject_is_the_board_target(self):
         v = self.decide("git commit -m x", cwd=self.root)
         self.assertIn("ship.py commit board", v[1])
-        self.assertIn("only board/", v[1])
+        self.assertIn("commit workspace", v[1])
 
     def test_reads_and_everything_outside_the_workspace_pass(self):
         for cmd in ("git status", "git log --oneline -3", "git diff", "git fetch origin main",

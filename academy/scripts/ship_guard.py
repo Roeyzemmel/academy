@@ -155,8 +155,9 @@ def target_of(directory, targets):
 def advice(action, target):
     if action == "commit":
         if target == "board":
-            return ("py scripts/ship.py commit board -m \"...\" --paths P...  (only board/ "
-                    "is committed in the workspace repo; anything else there is the human's)")
+            return ("py scripts/ship.py commit board -m \"...\" --paths P...  for board/ "
+                    "files, or `commit workspace ...` for the workspace's own files (its "
+                    "CLAUDE.md, scripts/, docs/); a submodule pointer is never committed")
         return "py scripts/ship.py commit %s -m \"...\" (--paths P... | --all)" % target
     if action == "push":
         return ("py scripts/ship.py push %s  (it runs the push gate; 'ship' is commit + push, "
