@@ -780,5 +780,35 @@ class FollowUpRoutingTests(unittest.TestCase):
                       dt._text(dt.decide(rec("GAP", blocking="step 3"))))
 
 
+class MissingVerdictTests(unittest.TestCase):
+    """A verdict that is not there says what to check (the ledger: five bare
+    '[Errno 2] No such file' in five weeks)."""
+
+    def run_cli(self, *argv):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            rc = dt.main(list(argv))
+        return rc, err.getvalue()
+
+    def test_a_missing_folder_and_a_run_not_landed(self):
+        with tempfile.TemporaryDirectory() as d:
+            rc, err = self.run_cli(os.path.join(d, "no-pass", "A.md"))
+            self.assertEqual(2, rc)
+            self.assertIn("run A's verdict is not at", err)
+            self.assertIn("does not exist", err)
+            self.assertIn("reviews.py dir", err)
+            self.assertNotIn("Errno", err)
+            os.makedirs(os.path.join(d, "pass"))
+            with open(os.path.join(d, "pass", "brief.md"), "w", encoding="utf-8") as fh:
+                fh.write("x")
+            rc, err = self.run_cli(os.path.join(d, "pass", "A.md"))
+            self.assertEqual(2, rc)
+            self.assertIn("the pass folder holds brief.md", err)
+            self.assertIn("land_verdict", err)
+            self.assertIn("Nothing to decide yet.", err)
+
+
 if __name__ == "__main__":
     unittest.main()
