@@ -148,6 +148,54 @@ Outside this repo, from the same round: the workspace (cloud TeX, the max tier, 
 notebook (the library's path, its workflow step), the paper (a gate finding fixed in
 the text).
 
+## The night of 2026-11-13: optimisation, and what measuring found
+
+The human's ask was run time, storage, memory, tokens and context. Everything below was
+measured on the live board (1195 tickets, 346 packets) before and after. The chain
+continues in the same order:
+
+| # | Pull request | What it adds | Measured |
+|---|---|---|---|
+| 21 | #43 | this map, brought to the tip | |
+| 22 | #44 | the GitHub board's listing is incremental and kept between processes | a listing 20 s -> 1.1 s; `cowork.py list` 3 min 49 s -> 1.6 s |
+| 23 | #45 | the push gate runs a workflow's jobs side by side | this repo's gate 4 min 30 s -> 92 s |
+| 24 | #46 | MCP listings are paged, filterable and compact | `tickets_list {}` 384 000 characters -> 15 000; `packets_list {}` 166 000 -> 18 000 |
+| 25 | #47 | the status screen and the list commands stay one screen; a brief listing for reviews | `academy_status` 47 700 -> 5 700; `board.py list` 149 000 -> 9 900; the review's listing 189 000 -> 19 000 |
+| 26 | #48 | an italic note line in a packet's `## Decision` is not a problem | invalid open packets 68 -> 5; packets with a decision to make 5 -> 14 |
+| 27 | #49 | `ship.py start --worktree` always lands under the main checkout; the recipe for not waiting on the gate | |
+| 28 | #50 | the ship test workspace is built once; the base suite is two jobs | the gate 92 s -> 58 s |
+| 29 | #51 | two agent definitions the harness could not read whole (below) | |
+| 30 | #52 | the usage ledger records each agent's models; `lighter-than-declared` | |
+| 31 | this one | the map again | |
+
+**Found by measuring, not by the suites.**
+
+- **`rigor-reviewer` ran without its definition since 2026-10-31** (#51). An apostrophe
+  not doubled in its single-quoted description made its frontmatter unreadable; a
+  session lists it as "Agent from expert plugin (Tools: All tools)". Its tool list was
+  not applied, and its model, effort, turn limit and preloaded skills sit in the same
+  block. `experimenter`'s description was cut at a ` #`. Both are fixed and a test reads
+  every agent, skill and command frontmatter for these mistakes. Which model the
+  reviews since then ran on cannot be told from the board; #52 makes it visible from
+  now on.
+- **Nine packets with a decision were never put to the human** (#48): a renumbering note
+  under `## Decision` made 64 packets invalid, and an invalid packet is shown but not
+  asked. Five packets are still invalid for real reasons; T-1214 (Expert) and T-1215
+  (Scientist, whose P-0183 hides a decision since 2026-10-27) ask for the repairs.
+- **A listing could silently lose tests** (#50): splitting a suite by file name dropped
+  two registry test files until the counts were compared; a test now holds the patterns
+  to every file exactly once.
+- **Gates can run while work continues** (#49): six gate runs, two at a time in two
+  worktrees, all passed. The checkout being gated must not change under the gate, and a
+  background push must be read by its own exit status.
+
+**Looked at and left.** Storage is small (the board 6.5 MB, the repositories a few MB
+each); nothing to prune beyond finished worktrees. The lab's `test_fsq_sh_behaviour`
+(42 s of that suite's 59) drives the real runner with jobs that sleep; it runs in its own
+job. The agent definitions cost every session about 36 000 characters (descriptions
+16 000, tool lists 20 000, of which 7 400 are the `mcp__academy__` names for a server
+registered outside the plugin): see the human's list.
+
 ## After merging: the human's list
 
 1. Merge in the order above, then bump the workspace's academy pointer and run
@@ -165,7 +213,20 @@ the text).
    say `open` or `sketch`, four records whose label is no longer in the tex, one record
    with an unknown field. They predate this round and are the Author's and the
    claim-keeper's to settle.
-7. Decisions left open by this round: whether an Expert's commit may land in the paper
+7. **First, from the night:** merge #51 early and confirm in a new session's agent list
+   that `expert:rigor-reviewer` shows its description and six read tools. Then decide
+   about the proof reviews run between 2026-10-31 and that merge: the session
+   transcripts on your machine say which model each run used; a pass whose runs were not
+   on a primary model is not CONFIRMED x2 at full strength (`grading.primaryModels`).
+   Nothing was changed in any registry.
+8. Is the MCP server still registered outside the plugin anywhere (tools named
+   `mcp__academy__...`)? If not, dropping those names from the 31 agent definitions
+   saves about 7 400 characters in every session. Shortening the agent descriptions
+   (median 517 characters) would save more, but they carry each agent's guard rails,
+   so that is a pass to do together.
+9. The board cache is one file per repository under `~/.cache/academy/board`
+   (`%LOCALAPPDATA%\academy\board` on Windows); `ACADEMY_BOARD_CACHE=off` disables it.
+10. Decisions left open by this round: whether an Expert's commit may land in the paper
    repo through the Author's gate (it does, on an `.../expert` branch), and whether
    other uncommitted work there should block it (it does); `in-progress -> accepted` and
    `in-progress -> rejected` as direct transitions; a hosted collector for telemetry.
