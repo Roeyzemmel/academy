@@ -44,6 +44,10 @@ notebook object and its `proofs/` attempt), the question (usually "may it be rai
 to proved?"), and the `pass`, `run`, `statement_hash` and `ticket` values you copy into
 your VERDICT block unchanged.
 
+Read a tex file by lines, never whole: the brief gives the line ranges of the statement
+and its proof (`Read` with `offset` and `limit`); for another label, `Grep` it and read
+around the hit. A section file is larger than one read allows.
+
 Gather, in their current wording and never from memory: the statement
 (`claims_show`), the proof, every definition and lemma it uses (grep the labels or
 `claims_deps`), every citation it relies on, and the project's standing conventions
