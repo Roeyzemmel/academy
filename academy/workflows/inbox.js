@@ -316,7 +316,7 @@ async function handle(row, i) {
   if (i.role === 'scientist' && rt.target === 'experimenter') {
     // the experiment's design leg runs here; its header gate goes to the human (no body before approval)
     if (!NESTED_OK) return { for_main: { why: 'an experiment ticket: /scientist:experiment (design, then the header gate)', ticket: row.id, instance: inst, skill: 'scientist:experiment' } }
-    const r = await workflow({ scriptPath: NESTED['scientist:experiment'] }, { mode: 'design', ticket: row.id, kind: row.kind })
+    const r = await workflow({ scriptPath: NESTED['scientist:experiment'] }, { root: ROOT, mode: 'design', ticket: row.id, kind: row.kind })
     if (r && r.for_main) return { for_main: Object.assign({ skill: 'scientist:experiment', instance: inst }, r.for_main, { ticket: row.id }) }
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.argument || r.reason || '') : 'lost', nested: r }
   }
@@ -332,24 +332,24 @@ async function handle(row, i) {
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.unfiled || []).join('; ') : 'lost', nested: r }
     }
     if (rt.target === 'expert:referee' || rt.target === 'expert:domain') {
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { root: ROOT, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.packet || r.reason || (r.anomalies || []).join('; ') || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:cite') {
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { root: ROOT, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? [r.key, r.pinpoint, r.verdict].filter(Boolean).join(', ') || (r.reason || '') : 'lost', nested: r,
         parked: !!(r && r.gate), gate: r && r.gate ? Object.assign({ skill: 'expert:cite' }, r.gate) : null }
     }
     if (rt.target === 'researcher:explore') {
       const direction = firstRef(row, /^([a-z][a-z0-9]*:)?DIR-\d+$/)
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ ticket: row.id, home: i.home, instance: inst, n: 1 },
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ root: ROOT, ticket: row.id, home: i.home, instance: inst, n: 1 },
         direction ? { direction: direction.split(':').pop() } : {}))
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.reason ? [r.reason] : []).join('; ') : 'lost', nested: r }
     }
     if (rt.target === 'researcher:generalize') {
       const ref = firstRef(row, /^P-\d{4,}$/) || firstRef(row, /^lab:\S+$/)
       if (!ref) return { for_main: { why: 'a generalize ticket whose refs name no report or lab claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { ref, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { root: ROOT, ref, ticket: row.id, home: i.home, instance: inst })
       if (r && r.to_file && r.to_file.length)
         return { for_main: { why: 'generalize: the falsifier tests are left to file (the lead could not file them)', ticket: row.id, instance: inst, to_file: r.to_file } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.reason || '') : 'lost', nested: r }
@@ -357,23 +357,23 @@ async function handle(row, i) {
     if (rt.target === 'researcher:prove') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { claim, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
       if (r && r.needs_explore) return { for_main: { why: 'the claim has no falsifier yet: run /researcher:explore first', ticket: row.id, instance: inst, skill: 'researcher:explore' } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:verify') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/)
       if (!claim) return { for_main: { why: 'a verify ticket whose refs name no claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { claim, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { root: ROOT, claim, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
     const subject = firstRef(row, /^lab:\S+$/)
     if (!subject) return { for_main: { why: 'a review-experiment ticket whose refs name no lab claim', ticket: row.id, instance: inst } }
-    const r = await workflow({ scriptPath: NESTED[rt.target] }, { subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
+    const r = await workflow({ scriptPath: NESTED[rt.target] }, { root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
     if (r && r.outcome === 'needs-settle') {
       // settle in the same handle (sequential, still one nesting level): the audit, then the candidates' re-derivations
       const slug = subject.replace(/[^A-Za-z0-9._-]+/g, '-')
-      const st = await workflow({ scriptPath: NESTED[rt.target] }, { subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
+      const st = await workflow({ scriptPath: NESTED[rt.target] }, { root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
         candidates: `${i.home}/.academy/settle-${slug}.json` })
       return { outcome: st ? st.outcome : 'unfinished', detail: st ? (st.notes || []).join('; ') : 'lost', nested: st }
     }
@@ -387,7 +387,7 @@ async function handle(row, i) {
         { label: `${rt.target} ${row.id} (land)`, phase: 'Tickets', agentType: type })
       return r === null ? { lost: true } : { outcome: 'landed', detail: String(r).split('\n')[0] }
     }
-    const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (the statements to leave byte for byte)' : ''))
+    const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py`; the statements to leave byte for byte)' : ''))
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
     const r = await agent(
       `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
@@ -465,5 +465,5 @@ for (const i of (insts || []).filter(i => i.role === 'author' && touched.has(i.n
 out.count = count
 out.cap = CAP
 if (insts.some(i => i.role === 'author') && taken.some(t => roleOf(t.instance) === 'author'))
-  notes.push('Author: run check_paper.py from the home and relay its summary; launch tex-engineer once if an agent reported the build not clean')
+  notes.push('Author: run check_paper.py (`py ' + ROOT + '/author/scripts/check_paper.py --root <home>`) from the home and relay its summary; launch tex-engineer once if an agent reported the build not clean')
 return out

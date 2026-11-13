@@ -21,7 +21,7 @@ that attaches the workspace, runs this from the Expert home, checkpoints `board/
 sends a push notification; it needs no connector and no local machine). The Windows
 Task Scheduler (`claude -p "/academy:usage --weekly"` from a home) stays an option. Call the **Workflow** tool with
 `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/weekly.js` and `args: {instance: "<the cwd's
-instance>", days: 7}`. The script holds the cycle (docs/workflows.md): the
+instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", days: 7}`. The script holds the cycle (docs/workflows.md): the
 `usage-analyst` gathers and proposes; the script drops a grader's downgrade, a downgrade
 that is not a lower tier, and anything past three decisions (regressions first); the
 analyst writes and files one `usage` packet with exactly those; `error_ledger.py settle`

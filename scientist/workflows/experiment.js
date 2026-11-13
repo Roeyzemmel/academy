@@ -20,7 +20,11 @@ if (!MODES.includes(A.mode)) throw new Error('args.mode must be one of ' + MODES
 const CLERK = 'academy:inbox-clerk'
 const EXP = 'scientist:experimenter'
 const T = A.ticket || ''
-const clerk = (stage, lines, schema, label) => agent(`WORKFLOW STAGE ${stage} of the academy-experiment workflow (mode ${A.mode}). Run from the lab home (lab.py home names it).\n` + lines.filter(Boolean).join('\n'),
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: lab.py is \`py ${AR}/scientist/scripts/lab.py\`, report.py is \`py ${AR}/scientist/scripts/report.py\`, from the lab home (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.scientist is the scripts folder).\n')
+const clerk = (stage, lines, schema, label) => agent(`WORKFLOW STAGE ${stage} of the academy-experiment workflow (mode ${A.mode}). Run from the lab home (lab.py home names it).\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase: 'Leg', agentType: CLERK, schema, effort: 'low' })
 
 const HOME = { type: 'object', properties: { ok: { type: 'boolean' }, instance: { type: 'string' }, home: { type: 'string' }, run_profile: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'instance', 'home', 'run_profile', 'detail'] }
@@ -101,7 +105,7 @@ if (A.mode === 'report') {
   let c = await clerk('report-check', [`Run report.py check experiments/${A.stem}.py${opts}; return ok and every refusal line.`], CHECK, 'report check')
   if (c && !c.ok) {
     out.notes.push('report.py check refused; one fix round: ' + c.errors.join('; '))
-    dr = await agent(`report.py check refuses experiments/${A.stem}.py:\n- ${c.errors.join('\n- ')}\nFix the header or the draft (never a hand-written packet).`, { label: 'report draft (fix)', phase: 'Leg', agentType: EXP, schema: DRAFT }) || dr
+    dr = await agent(SCRIPTS + `report.py check refuses experiments/${A.stem}.py:\n- ${c.errors.join('\n- ')}\nFix the header or the draft (never a hand-written packet).`, { label: 'report draft (fix)', phase: 'Leg', agentType: EXP, schema: DRAFT }) || dr
     c = await clerk('report-check', [`Run report.py check experiments/${A.stem}.py${opts} again; return ok and the refusal lines.`], CHECK, 'report check again')
   }
   if (!c || !c.ok) return Object.assign(out, { outcome: 'check-failed', reason: (c ? c.errors : []).join('; ') })

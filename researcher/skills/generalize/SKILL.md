@@ -10,7 +10,7 @@ ticket whose `refs` name them. The flow is docs/protocol.md section 6.2. Run fro
 Researcher home.
 
 **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/generalize.js`
-and `args: {ref: "<P-NNNN | lab:id>", ticket: "<the generalize ticket>", home: "<this home>", instance: "<this instance>"}`.
+and `args: {ref: "<P-NNNN | lab:id>", ticket: "<the generalize ticket>", home: "<this home>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"}`.
 The inbox runs it for a `generalize` ticket. The order is code (2026-10-31;
 docs/workflows.md):
 1. `generalize.py source` refuses unless the experiment review has cleared

@@ -22,8 +22,12 @@ if (!A.home) throw new Error('args.home must be the Researcher home')
 const CLERK = 'researcher:review-clerk'
 const PROVER = 'researcher:prover'
 const T = A.ticket || ''
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: notebook.py is \`py ${AR}/researcher/scripts/notebook.py --home ${A.home}\` (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.researcher is the scripts folder).\n')
 const STAGE = (name, lines) => `WORKFLOW STAGE ${name} of the academy-prove workflow. Claim: ${A.claim}. Home: ${A.home}.` +
-  (A.instance ? ` Instance: ${A.instance}.` : '') + (T ? ` Ticket: ${T}.` : '') + '\n' + lines.filter(Boolean).join('\n')
+  (A.instance ? ` Instance: ${A.instance}.` : '') + (T ? ` Ticket: ${T}.` : '') + '\n' + SCRIPTS + lines.filter(Boolean).join('\n')
 
 const STATE = { type: 'object', properties: {
   ok: { type: 'boolean' }, stop_reason: { type: 'string' },

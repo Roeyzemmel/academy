@@ -20,7 +20,11 @@ if (!A.ticket && !A.ref) throw new Error('give args.ticket or args.ref')
 const CLERK = 'academy:inbox-clerk'
 const LIB = 'expert:librarian'
 const T = A.ticket || ''
-const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-cite workflow.\n` + lines.filter(Boolean).join('\n'),
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: cards.py is \`py ${AR}/expert/scripts/cards.py\`, from the library home (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.expert is the scripts folder).\n')
+const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-cite workflow.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const ASK = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' },
@@ -53,7 +57,7 @@ if (!ask.ref) return Object.assign(out, { outcome: 'not-started', reason: 'the a
 
 // ---- Cite: one librarian run, the card checked by script ------------------------------------
 phase('Cite')
-const brief = `${ask.ref}. ` + (ask.pinpoint ? `The pinpoint intended: ${ask.pinpoint}. ` : 'No pinpoint given: locate the statement. ') +
+const brief = SCRIPTS + `${ask.ref}. ` + (ask.pinpoint ? `The pinpoint intended: ${ask.pinpoint}. ` : 'No pinpoint given: locate the statement. ') +
   (ask.relying ? `It is relied on by: ${ask.relying}. ` : '') + (ask.bib ? `The bibliography: ${ask.bib}.` : '') + '\n\n' +
   'If the key is already in that bibliography, verify it against the record rather than adding it again, and say whether the fields match. ' +
   'If it is new, fetch the record and add the entry in the file\'s key style. Then locate the statement, write its card with a verbatim quote ' +
@@ -63,7 +67,7 @@ let c = await agent(brief, { label: 'librarian', phase: 'Cite', agentType: LIB, 
 if (c === null) return Object.assign(out, { outcome: 'lost', reason: 'the librarian run returned nothing (a limit?): nothing further launched' })
 // an unreachable source has no card to validate (live run 2026-10-31 validated the words "none written"): skip the check
 const noCard = !c.reachable && !/\.(md|ya?ml)$/i.test(String(c.card || '').trim())
-let v = noCard ? null : await clerk('validate', [`Run py <expert plugin>/scripts/cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
+let v = noCard ? null : await clerk('validate', [`Run cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
 if (v && !v.ok) {
   out.notes.push('the card failed validation; sent back to the librarian once: ' + v.errors.join('; '))
   const c2 = await agent(brief + `\n\nYour card ${c.card} fails cards.py validate:\n- ${v.errors.join('\n- ')}\n` +

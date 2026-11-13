@@ -24,8 +24,12 @@ const REFEREE = A.referee || (A.referee_ticket ? `the referee packet in the pack
 const CLERK = 'academy:inbox-clerk'
 const FILER = 'general-purpose'
 const SELF_KINDS = ['apply', 'write', 'copy', 'figure', 'build', 'notation', 'sweep']
-const ROUTES = A.root ? `${A.root.replace(/[\\/]+$/, '')}/author/scripts/routes.py` : '<author plugin>/scripts/routes.py'
-const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-notes workflow. Author home: ${A.home}. Instance: ${A.instance}.\n` + lines.filter(Boolean).join('\n'),
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const ROUTES = `${AR}/author/scripts/routes.py`
+const SCRIPTS = `Scripts: board.py is \`py ${AR}/academy/scripts/board.py\`, routes.py is \`py ${AR}/author/scripts/routes.py\` (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.<plugin> is each scripts folder).\n')
+const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-notes workflow. Author home: ${A.home}. Instance: ${A.instance}.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const NOTE = { type: 'object', properties: { id: { type: 'string', description: 'file:line, or P-NNNN point k' }, file: { type: 'string' }, line: { type: 'number' },
@@ -71,7 +75,7 @@ if (!inv.new.length) return Object.assign(out, { outcome: 'nothing-new' })
 
 // ---- Classify ----------------------------------------------------------------------------
 phase('Classify')
-const brief = (extra) => `You decide, for each new ${REFEREE ? 'point of ' + REFEREE : 'margin note'} of the paper in ${A.home} (instance ${A.instance}), what it is; you FILE NOTHING here. ` +
+const brief = (extra) => SCRIPTS + `You decide, for each new ${REFEREE ? 'point of ' + REFEREE : 'margin note'} of the paper in ${A.home} (instance ${A.instance}), what it is; you FILE NOTHING here. ` +
   'Read the agenda format in the Author plugin\'s references/formats.md. For each note: covered (an active ticket carries the same question: tickets_list / board.py list, a distinctive phrase; give the ticket and the new words if it is weaker); ' +
   'answers (it answers a machine note: give the ticket whose thread records which question is now answered); discrepancy (it says something was changed, "I removed", "renamed to", but the file shows only the note: give the claim and the actual text, and propose an apply ticket if plainly an instruction, else a ticket to this instance parked on human); ' +
   `new (propose the ticket: work that stays in the Author goes to ${A.instance} as apply, write, copy, figure, build or notation; a verification to the Expert as verify; a citation as cite; a note asking for a proof is research to the Expert with final_to researcher, an experiment final_to scientist, never write: the Author invents no argument; ` +
@@ -125,7 +129,7 @@ out.discrepancies = cls.decisions.filter(d => d.decision === 'discrepancy').map(
 // ---- File: exactly the checked tickets, then read back ---------------------------------------------
 phase('File')
 if (fileable.length || appends.length) {
-  const f = await agent(`File exactly these tickets for ${A.instance} (Author home ${A.home}), and nothing else: py <academy plugin>/scripts/board.py new --as ${A.instance} ` +
+  const f = await agent(SCRIPTS + `File exactly these tickets for ${A.instance} (Author home ${A.home}), and nothing else: board.py new --as ${A.instance} ` +
     '--to <to> --kind <kind> --title ... --ask ... --deliverable ... [--agenda ...] --refs ... [--final-to ...] --detail ...; then, for a ticket with park_on, ' +
     'board.py transition <id> blocked --waiting-on <human | the ticket filed for that note> --reason "<why>" --as ' + A.instance + '.\n' +
     `Tickets: ${JSON.stringify(fileable.map(d => Object.assign({ note: d.note }, d.proposed)))}\n` +

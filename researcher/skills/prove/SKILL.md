@@ -10,7 +10,7 @@ Independence: `academy/references/roster-rules.md` (the producer never grades it
 
 The order is code (2026-10-31; docs/workflows.md). Call the **Workflow** tool with
 `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/prove.js` and
-`args: {claim: "<ns:id>", ticket: "T-NNNN" or omitted, home: "<this home, absolute>", instance: "<this instance>"}`.
+`args: {claim: "<ns:id>", ticket: "T-NNNN" or omitted, home: "<this home, absolute>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"}`.
 The inbox runs the same script for a `prove` ticket. The script:
 
 1. **State.** The clerk takes the ticket and reports the claim's status, its unsettled

@@ -18,7 +18,7 @@ The sequencing is code, not prose (the human's decision, 2026-10-31): call the *
 tool with
 
     scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/verify.js
-    args: {claim: "<ns:id>", ticket: "T-NNNN" or omitted, question: "<if not 'may it be raised to proved?'>",
+    args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", claim: "<ns:id>", ticket: "T-NNNN" or omitted, question: "<if not 'may it be raised to proved?'>",
            mode: "blind" | "reword", base_pass: "<reword only>", base_subject: "<renamed label only>"}
 
 The script runs the blind `rigor-reviewer` run A, launches B (A's brief byte for byte,

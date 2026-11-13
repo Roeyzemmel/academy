@@ -93,8 +93,12 @@ const SETTLED = {
 }
 const DONE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
 
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: reviews.py is \`py ${AR}/researcher/scripts/reviews.py\`, settle.py is \`py ${AR}/researcher/scripts/settle.py\`, from the Researcher home (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.researcher is the scripts folder).\n')
 const STAGE = (name, lines) =>
-  `WORKFLOW STAGE ${name} of the academy-review-experiment workflow. Subject: ${A.subject}.\n` +
+  `WORKFLOW STAGE ${name} of the academy-review-experiment workflow. Subject: ${A.subject}.\n` + SCRIPTS +
   lines.filter(Boolean).join('\n')
 const clerk = (name, lines, schema, a, b) =>   // (name, lines, schema, phase) or (name, lines, schema, label, phase)
   agent(STAGE(name, lines), { label: b ? a : name, phase: b || a, agentType: CLERK, schema, effort: 'low' })

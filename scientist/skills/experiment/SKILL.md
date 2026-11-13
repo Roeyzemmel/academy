@@ -11,7 +11,7 @@ description: 'Take a mathematical claim from words to a queued, provenance-stamp
 
 One leg per call of the Workflow tool, `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/experiment.js`
 (2026-10-31; docs/workflows.md). The human gates are the human's, and the script makes them
-unskippable; between the legs this session asks with `AskUserQuestion`:
+unskippable (every call also takes `root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"`, the academy repo, so the stage prompts name the scripts' paths); between the legs this session asks with `AskUserQuestion`:
 
 1. **`design`** (`{mode: "design", claim | ticket, kind}`): the lab is located
    (`lab.py home`), and the experimenter classifies the path:

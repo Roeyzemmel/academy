@@ -25,6 +25,10 @@ const MODE = A.mode === 'reword' ? 'reword' : 'blind'
 const QUESTION = A.question || 'may it be raised to proved?'
 const CHAIR = 'expert:review-chair'
 const REVIEWER = 'expert:rigor-reviewer'
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: reviews.py is \`py ${AR}/expert/scripts/reviews.py\`, decision_table.py is \`py ${AR}/expert/scripts/decision_table.py\` (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.expert is the scripts folder).\n')
 const RE_PASS = /^\d{4}-\d{2}-\d{2}(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?$/
 const RE_HASH = /^[0-9a-f]{6,}$/
 
@@ -71,7 +75,7 @@ const DONE = {
 const STAGE = (name, body) =>
   `WORKFLOW STAGE ${name} of the academy-verify workflow (review-chair, workflow mode). ` +
   `Do this stage only, as conclude.md describes it, and return the structured result. ` +
-  `Launch no agent: the workflow launches the reviewers.\n\n${body}`
+  `Launch no agent: the workflow launches the reviewers.\n${SCRIPTS}\n${body}`
 
 // ---- 1. Prepare -------------------------------------------------------------
 phase('Prepare')

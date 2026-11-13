@@ -24,8 +24,12 @@ const MODE = A.mode === 'deliver' ? 'deliver' : 'propose'
 const CLERK = 'researcher:review-clerk'
 const PROVER = 'researcher:prover'
 const T = A.ticket || ''
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: generalize.py is \`py ${AR}/researcher/scripts/generalize.py --home ${A.home}\`, packets.py is \`py ${AR}/academy/scripts/packets.py\` (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.<plugin> is each scripts folder).\n')
 const clerk = (stage, lines, schema, label, phase) => agent(
-  `WORKFLOW STAGE ${stage} of the academy-generalize workflow. Home: ${A.home}.` + (A.instance ? ` Instance: ${A.instance}.` : '') + (T ? ` Ticket: ${T}.` : '') + '\n' + lines.filter(Boolean).join('\n'),
+  `WORKFLOW STAGE ${stage} of the academy-generalize workflow. Home: ${A.home}.` + (A.instance ? ` Instance: ${A.instance}.` : '') + (T ? ` Ticket: ${T}.` : '') + '\n' + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const SOURCE = { type: 'object', properties: { ok: { type: 'boolean' }, refusal: { type: 'string', description: 'the exit-2 message when the review has not cleared' },
@@ -67,7 +71,7 @@ const FILE = A.file || `${A.home}/.academy/generalize-${LAB.replace(/[^A-Za-z0-9
 
 // ---- Propose: the file, validated by script ---------------------------------------------------
 phase('Propose')
-const brief = `Generalize the reviewed experiment ${s.report || A.ref} (lab claim ${LAB}; home ${A.home}). Read its ## Conclusion, and the domain's examples.md and ` +
+const brief = SCRIPTS + `Generalize the reviewed experiment ${s.report || A.ref} (lab claim ${LAB}; home ${A.home}). Read its ## Conclusion, and the domain's examples.md and ` +
   `theorems/INDEX.md (domain_get) for what is known; scout prior art. Write at most ${MAX} proposals to ${FILE} (create the folder), in the shape generalize.py's docstring gives: ` +
   `id in this instance's namespace, title, statement, kind conjecture, status conjectured, bears_on including ${LAB}, the falsifier, the pattern (wider class / ` +
   `relaxed hypothesis / pattern / invariant) and a one-line rationale; optional lemmas (at most three per proposal, status open or sketch, saying what is known and ` +
@@ -114,7 +118,7 @@ const tests = ch ? ch.tests : []
 const missing = c.conjectures.filter(cid => !tests.some(t => (t.refs || []).some(r => r === cid || r.endsWith(':' + cid.split(':').pop()))))
 if (missing.length || !filed) {
   out.to_file = [{ why: 'the falsifier tests the lead did not file', missing,
-    command: `py <researcher plugin>/scripts/generalize.py tickets ${FILE} --lab-claim ${LAB} --parent ${T} --apply`,
+    command: `py ${AR}/researcher/scripts/generalize.py tickets ${FILE} --lab-claim ${LAB} --parent ${T} --apply`,
     then: { mode: 'deliver', ticket: T, conjectures: c.conjectures, lemmas: c.lemmas, packet: out.packet } }]
   out.outcome = 'proposed (tests missing)'
   return out

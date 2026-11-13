@@ -16,7 +16,7 @@ paper. A plausible entry with a nonexistent lemma number survives every check bu
 one.
 
 **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/cite.js` and
-`args: {ticket: "T-NNNN"}` or `{ref, pinpoint, relying, bib: "<author instance>:references.bib"}`.
+`args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", ticket: "T-NNNN"}` or `{root, ref, pinpoint, relying, bib: "<author instance>:references.bib"}`.
 The inbox runs the same script for a `cite` ticket. The order is code (2026-10-31;
 docs/workflows.md):
 1. the ticket is taken and its ask read;

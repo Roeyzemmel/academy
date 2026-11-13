@@ -23,8 +23,12 @@ const CLERK = 'researcher:review-clerk'
 const LEAD = 'researcher:lead-researcher'
 const CAP = Math.max(1, Math.min(A.n || 3, 3))
 const T = A.ticket || ''
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: notebook.py is \`py ${AR}/researcher/scripts/notebook.py --home ${A.home}\` (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.researcher is the scripts folder).\n')
 const clerk = (stage, lines, schema, label, phase) => agent(
-  `WORKFLOW STAGE ${stage} of the academy-explore workflow. Home: ${A.home}.` + (A.instance ? ` Instance: ${A.instance}.` : '') + '\n' + lines.filter(Boolean).join('\n'),
+  `WORKFLOW STAGE ${stage} of the academy-explore workflow. Home: ${A.home}.` + (A.instance ? ` Instance: ${A.instance}.` : '') + '\n' + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const DIR = { type: 'object', properties: { exists: { type: 'boolean' }, lifecycle: { type: 'string' }, title: { type: 'string' }, items: { type: 'number' } }, required: ['exists', 'lifecycle', 'title', 'items'] }
@@ -51,7 +55,7 @@ let picks = []
 if (A.direction) {
   let d = await clerk('direction', [`Return notebook.py direction ${A.direction} --json: whether it exists, its lifecycle, title and the number of items. Write nothing.`], DIR, 'direction', 'Pick')
   if (d && !d.exists) {
-    const f = await agent(`The direction ${A.direction} has no object yet (home ${A.home}). Create it (notebook.py new direction ${A.direction} --title "...") ` +
+    const f = await agent(SCRIPTS + `The direction ${A.direction} has no object yet (home ${A.home}). Create it (notebook.py new direction ${A.direction} --title "...") ` +
       'and fill its program and its lists (questions, candidate claims with falsifiers) from what the notebook holds; work no item yet. Report what you wrote.',
       { label: 'fill direction', phase: 'Pick', agentType: LEAD })
     if (f === null) return Object.assign(out, { outcome: 'lost', reason: 'the lead run that fills the direction returned nothing' })
@@ -71,7 +75,7 @@ out.picked = picks
 // ---- Move: one lead, ids only --------------------------------------------------------------
 phase('Move')
 const lead = await agent(
-  (A.direction ? `Work direction ${A.direction} (home ${A.home}), items ${picks.join(', ')}.` :
+  SCRIPTS + (A.direction ? `Work direction ${A.direction} (home ${A.home}), items ${picks.join(', ')}.` :
     `Answer the question ticket ${T} (home ${A.home}) as a one-item run; read it with tickets_get.`) +
   ' Move each item ONE step, in this order: falsify (a candidate claim gets its smallest falsifier: you file the experiment ticket to the Scientist, ' +
   'a probe for one named example, a search for a family or a range, with the claim id, what refutes it, a validation case and the unsettled inputs); ' +

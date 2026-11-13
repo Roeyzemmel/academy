@@ -15,7 +15,7 @@ The main session briefs and relays. It writes no mathematics, no code and no exp
 script, and decides no truth.
 
 **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/explore.js` and
-`args: {direction: "DIR-n", items: [...], ticket: "T-NNNN", home: "<this home>", instance: "<this instance>"}`.
+`args: {direction: "DIR-n", items: [...], ticket: "T-NNNN", home: "<this home>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"}`.
 The inbox runs it for a `question` ticket. The order is code (2026-10-31; docs/workflows.md):
 1. the clerk reads the direction. A missing one is created and filled by `lead-researcher`
    first, and no item is worked in that run;

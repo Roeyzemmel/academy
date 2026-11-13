@@ -17,7 +17,7 @@ gets two runs, and a disagreement is reported, never averaged.
 The sequencing is code (the human's decision, 2026-10-31). Call the **Workflow** tool:
 
     scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/review-experiment.js
-    args: {subject: "lab:<id>", ticket: "T-NNNN", report: "P-NNNN", mode: "review"}
+    args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", subject: "lab:<id>", ticket: "T-NNNN", report: "P-NNNN", mode: "review"}
 
 The script does the following:
 - the `review-clerk` takes the ticket and reads `reviews.py decide`;

@@ -184,7 +184,7 @@ class InboxWorkflowTests(unittest.TestCase):
             "workflow verify.js": [{"outcome": "confirmed", "proposed_status": "proved"}],
             "check T-1": [DONE]})
         wf = next(c for c in calls if c["label"] == "workflow verify.js")
-        self.assertEqual(wf["args"], {"claim": "paper:lem:x", "ticket": "T-1"})
+        self.assertEqual(wf["args"], {"root": "/academy", "claim": "paper:lem:x", "ticket": "T-1"})
         rows = [row("T-2", how="skill", target="researcher:review-experiment",
                     kind="review-experiment", to="researcher@u", refs=["lab:x", "P-0009"])]
         res, labels, calls = self.run_wf({
