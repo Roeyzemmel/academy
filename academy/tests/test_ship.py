@@ -66,6 +66,34 @@ class TestWorktreePlace(Base):
                          sorted(listed))
 
 
+class TestFixtureCleanup(unittest.TestCase):
+    def test_a_tree_with_read_only_entries_is_removed(self):
+        import ship_fixture
+        import stat
+        d = tempfile.mkdtemp(prefix="ship-fixture-ro-")
+        os.makedirs(os.path.join(d, "objects", "ab"))
+        f = os.path.join(d, "objects", "ab", "cd")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write("x")
+        os.chmod(f, stat.S_IREAD)
+        calls = []
+        real = os.unlink
+
+        def refuse_read_only(p, *a, **k):          # as Windows does
+            if not os.access(p, os.W_OK):
+                calls.append(p)
+                raise PermissionError(13, "Access is denied", p)
+            return real(p, *a, **k)
+        os.unlink = refuse_read_only
+        try:
+            ship_fixture.remove_tree(d)
+        finally:
+            os.unlink = real
+        self.assertFalse(os.path.exists(d))
+        self.assertTrue(calls)                         # the refusal happened and was retried
+        ship_fixture.remove_tree(d + "-never-there")   # a missing tree is not an error
+
+
 class TestNames(unittest.TestCase):
     def test_branch_name_slugs_topic(self):
         self.assertEqual(ship.branch_name("Coimage Proof!", "human", today="2026-09-30"),

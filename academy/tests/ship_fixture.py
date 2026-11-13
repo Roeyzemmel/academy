@@ -2,7 +2,9 @@
 import atexit
 import os
 import shutil
+import stat
 import subprocess
+import sys
 import tempfile
 
 # Never wait on an editor, pager or credential prompt; set process-wide so ship.py's own
@@ -48,6 +50,21 @@ def add_submodule(tmp, root, name):
 _TEMPLATE = None
 
 
+def remove_tree(path):
+    """Delete ``path`` even where a read-only file cannot be deleted as it is (git's
+    objects, on Windows): make the entry writable and try once more."""
+    def retry(func, p, _exc):
+        try:
+            os.chmod(p, stat.S_IWRITE | stat.S_IREAD)
+            func(p)
+        except OSError:
+            pass
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=retry)
+    else:
+        shutil.rmtree(path, onerror=retry)
+
+
 def make_workspace(tmp):
     """Return (root, sub_path, remote_path). The submodule is 'sub', on main, one commit pushed.
 
@@ -58,7 +75,7 @@ def make_workspace(tmp):
     global _TEMPLATE
     if _TEMPLATE is None:
         holder = tempfile.mkdtemp(prefix="ship-fixture-")
-        atexit.register(shutil.rmtree, holder, True)
+        atexit.register(remove_tree, holder)
         _build_workspace(holder)
         for top, _dirs, files in os.walk(holder):         # git's sample hooks: 40 files
             for name in files:                            # no test needs, copied each time
