@@ -132,6 +132,9 @@ There is one line per answered decision, appended in answer order:
   the same way.
 - **Last line wins.** A later line for the same `D<k>` supersedes an earlier one.
   Lines are never deleted.
+- **A note.** One whole line in italics (`_Renumbered 2026-11-13 from P-0308 ..._`) is a
+  note about the packet: it answers nothing and the packet stays valid. Anything else
+  that is not a decision line is a problem.
 - **When every `D<k>` has a line** (or the `D0` line is present), the writer sets
   `state: decided` and `decided: <date>`.
 - **Echo into the ticket.** For each decision written, if `ticket` is set, one

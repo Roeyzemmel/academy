@@ -860,6 +860,18 @@ class PacketTests(unittest.TestCase):
                              "## Decisions needed")
         self.assertEqual(ac.validate_packet(meta, extra), [])
 
+    def test_a_note_line_in_the_decision_section_is_not_a_problem(self):
+        meta, body = ac.read_frontmatter(packet_doc_example())
+        self.assertEqual([], ac.validate_packet(meta, body))
+        note = "\n_Renumbered 2026-11-13 from P-0308 (ID collision with a packet on main)._\n"
+        noted = body.rstrip("\n") + "\n" + note
+        self.assertEqual([], ac.validate_packet(meta, noted))
+        self.assertEqual(ac.packet_answers(body), ac.packet_answers(noted))     # answers nothing
+        self.assertEqual(ac.packet_decisions(body), ac.packet_decisions(noted))
+        for bad in ("Renumbered from P-0308.", "_half a note", "- _a list item_", "__"):
+            probs = ac.validate_packet(meta, body.rstrip("\n") + "\n\n" + bad + "\n")
+            self.assertTrue(any("malformed decision line" in p for p in probs), bad)
+
 
 # ---------------------------------------------------------------------------
 # Hook I/O
