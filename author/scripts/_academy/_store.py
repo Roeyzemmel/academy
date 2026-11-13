@@ -47,6 +47,17 @@ class BoardStore(object):
         """The metas (with ``_path`` = ref) of the tickets addressed to ``instance``."""
         raise NotImplementedError
 
+    def search(self, text):
+        """The ids of the tickets whose id, title, ask, agenda or body holds ``text``
+        (words in that order, any case, any spacing). The body is the ticket's text as
+        this store can read it in one pass: with its thread on the file board, without
+        it on a board where the thread is a request per ticket."""
+        want = search_key(text)
+        if not want:
+            return []
+        return [str(meta.get("id")) for _ref, meta, body in self.iter_tickets()
+                if meta is not None and want in search_key(ticket_text(meta, body))]
+
     def find(self, tid):
         """The ref of ticket ``tid``, or None."""
         raise NotImplementedError
@@ -176,6 +187,17 @@ class FileBoardStore(BoardStore):
 
 STORE_METHODS = ("iter_tickets", "iter_meta", "read_all", "find", "get", "save", "create",
                  "status_of")
+
+
+def search_key(text):
+    """``text`` lower-cased with every run of whitespace one space."""
+    return " ".join(str(text or "").lower().split())
+
+
+def ticket_text(meta, body):
+    """What a text search of a ticket reads: its id, title, ask, agenda and body."""
+    return "\n".join([str(meta.get(k) or "") for k in ("id", "title", "ask", "agenda")]
+                     + [body or ""])
 
 
 def is_store(obj):

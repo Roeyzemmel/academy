@@ -266,6 +266,22 @@ class GithubBoardStore(ac.BoardStore):
                 except (bc.CodecError, ValueError):
                     continue
 
+    def search(self, text):
+        """As ``BoardStore.search``, from the listing: title, ask, agenda and the issue's
+        body (the ask's detail, the result), not the thread comments."""
+        want = self.lib.search_key(text)
+        out = []
+        for issue in self._issues() if want else ():
+            if not self._is_ticket(issue):
+                continue
+            try:
+                meta, body = bc.decode(issue, ())
+            except (bc.CodecError, ValueError):
+                continue
+            if want in self.lib.search_key(self.lib.ticket_text(meta, body)):
+                out.append(str(meta.get("id")))
+        return out
+
     def read_all(self, instance):
         out = []
         for issue in self._issues(["to:" + instance]):

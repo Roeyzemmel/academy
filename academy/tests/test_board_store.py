@@ -217,6 +217,24 @@ class TestSelectParity(StoreCase):
         self.assertEqual(1, len(lists))
         self.assertEqual(self.files.status_of, ac.status_lookup(self.files))   # files: as before
 
+    def test_text_search_agrees_on_both_boards_and_reads_no_ticket_alone(self):
+        metas = [m for _r, m in self.files.iter_meta()]
+        word = str(metas[2]["title"]).split()[-1]
+        for text in (word, word.upper() + "  ", metas[4]["id"], "no such words anywhere"):
+            self.transport.calls.clear()
+            got = self.gh.search(text)
+            self.assertEqual(sorted(self.files.search(text)), sorted(got), text)
+            self.assertFalse({"get_issue", "list_comments"} & {c[0] for c in self.transport.calls})
+        self.assertIn(metas[2]["id"], self.gh.search(word))
+        self.assertEqual([], self.gh.search("   "))
+        # through the listing tool and the board command
+        ctx = Context(cwd=self.tmp, workspace=self.ws, store=self.gh)
+        rows = mcp_tickets._list(ctx, {"text": word, "limit": 0})["tickets"]
+        self.assertEqual(sorted(self.gh.search(word)), sorted(r["id"] for r in rows))
+        self.assertEqual(sorted(self.files.search(word)),
+                         sorted(m["id"] for m in bd.list_tickets(self.files, text=word,
+                                                                 include_terminal=True)))
+
     def test_a_path_still_means_the_file_board(self):
         a, _ = core.select(self.board, INST, 3, route=route)
         b, _ = core.select(self.files, INST, 3, route=route)

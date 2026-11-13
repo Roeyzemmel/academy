@@ -25,8 +25,9 @@ pass, because the margin is the only place it was written down.
 Where an answer can live, checked in this order:
 
 1. **The board** (the Author's only queue; there is no roadmap): a ticket whose thread
-   or result records the decision, open, delivered or closed (`tickets_list`,
-   `tickets_get`), or a packet whose `## Decision` does (`packets_get`).
+   or result records the decision, open, delivered or closed (`tickets_list` with `text:` a distinctive phrase of
+   the note or the label it sits on, then `tickets_get`; an unfiltered listing is cut to
+   50 rows and proves nothing), or a packet whose `## Decision` does (`packets_get`).
 2. **The human's later margin notes** (`author.noteMacros.human` and `coauthors`): a
    reply, usually adjacent. Quote it into the thread of the ticket the note belongs to
    before deleting the note.

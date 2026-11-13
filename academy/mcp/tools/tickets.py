@@ -428,7 +428,8 @@ def _list(ctx, a):
     statuses = a.get("status")
     if isinstance(statuses, str):
         statuses = [statuses]
-    text = " ".join(str(a.get("text") or "").lower().split())
+    text = ac.search_key(a.get("text"))
+    hits = set(ctx.store.search(text)) if text and hasattr(ctx.store, "search") else None
     for p, m in ctx.store.iter_meta():
         if a.get("to") and m.get("to") != a["to"]:
             continue
@@ -446,8 +447,8 @@ def _list(ctx, a):
             continue
         if any(a.get(k) and m.get(k) != a[k] for k in ("campaign", "cowork")):
             continue
-        if text and text not in (" ".join(str(m.get(k) or "") for k in
-                                          ("id", "title", "ask", "agenda"))).lower():
+        if text and (str(m.get("id")) not in hits if hits is not None
+                     else text not in ac.search_key(ac.ticket_text(m, ""))):
             continue
         out.append(_summary(p, m))
     out.sort(key=lambda t: (PRIORITY_ORDER.get(t.get("priority"), 1), t["id"]))
@@ -463,7 +464,8 @@ def _get(ctx, a):
 TOOLS = [
     Tool("tickets_list", "List board tickets, filtered by to / from / instance (either "
          "side) / status / kind / parent (a ticket's children) / campaign / cowork / text "
-         "(words in the id, title, ask or agenda). At most limit rows (default 50, 0 = "
+         "(words in the id, title, ask, agenda or body: the way to ask whether a ticket "
+         "on something exists already). At most limit rows (default 50, 0 = "
          "all) from offset; a cut listing says truncated, with the counts by status.",
          obj({"to": S, "from": S, "instance": S,
               "status": {"type": ["string", "array"], "items": {"type": "string"}},
