@@ -3,6 +3,10 @@
 Newest first. One line per change to a pack file; a theorem entry or an API finding
 names its section.
 
+## Unreleased — 2026-11-07: notation (T-0997, first of three changes)
+
+- 2026-11-07 T-0997: `notation.md` (slope of an irreducible 2-point marking, signed rational form, slope locus, AW21/LMW16 normalisations; "Billiards, unfolding, illumination"). Blocking sets `B_n(X)` and decorated tori `T_L`, `T_Lambda`, `T[n]` are not yet done (own tickets).
+
 ## Unreleased — 2026-10-26: API check for the symmetric-origami sweep (T-0688)
 
 - `computation/api/origamis.md` §6.7.6 (new): `A in o.veech_group()` convention (A acts on column vectors; checked on the 2x1 / 1x2 tori and the L), `automorphism_group()` element access (callable, 1-based), the cost of `veech_group()` at n = 9, the homology linear-algebra calls used for Lefschetz traces. Written by the Scientist's api-check pass; contradicts nothing in `traps.md`.
