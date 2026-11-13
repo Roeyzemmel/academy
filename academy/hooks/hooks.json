@@ -25,55 +25,24 @@
         ]
       },
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/explainer_write_guard.py\"",
-            "statusMessage": "academy: checking the explainer's write",
-            "timeout": 20
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/role_write_guard.py\"",
-            "statusMessage": "academy: checking the role cut",
-            "timeout": 20
-          }
-        ]
-      },
-      {
         "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/script_path_guard.py\"",
-            "timeout": 15
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_use.py\"",
+            "statusMessage": "academy: checking the command",
+            "timeout": 60
           }
         ]
       },
       {
-        "matcher": "Bash|PowerShell",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/ship_guard.py\"",
-            "timeout": 20
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit|Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/generated_view_guard.py\"",
-            "statusMessage": "academy: checking for a generated view",
-            "timeout": 30
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_use.py\"",
+            "statusMessage": "academy: checking the write",
+            "timeout": 60
           }
         ]
       }
