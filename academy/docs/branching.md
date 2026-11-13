@@ -71,13 +71,33 @@ allowlist matches; `py scripts/ship.py --help` lists the flags):
     py scripts/ship.py start <sub> <topic> [--role R]       # branch <date>/<topic>/<role> (--worktree for an isolated checkout)
     ... edit ...
     py scripts/ship.py ship <sub> -m "..." --paths P...     # commit + push (or `commit` and `push` separately)
+    py scripts/ship.py start <sub> <next topic>             # on a template branch: stacked on it (--on BRANCH names the base)
+    py scripts/ship.py stack <sub>                          # the chain, bottom first, and each pull request's head and base
     (human)  py scripts/ship.py merge <sub> <branch> --sha <tip> [-m MSG] [--bump]
     (human)  py scripts/ship.py publish <sub> --sha <main tip>
 
 `<sub>` is a submodule path, or `board`. `--paths` are relative to the submodule (for
 `board`, to the board's directory), not the cwd.
 
-- `status`, `start`, `commit`, `push`, `ship` and `checkpoint` are allowlisted (the
+- **The tool is the default, by a hook** (`ship_guard`, 2026-11-13): in the workspace
+  repo and in every submodule checkout (and its worktrees), a shell `git commit`, `git
+  push` or new branch (`git switch -c`, `git checkout -b`, `git branch <new>`) is denied
+  with the `ship.py` command that does it. Reading, staging, stashing and switching to an
+  existing branch are untouched, and so is any repository outside the workspace.
+  `"shipGuard": false` in workspace.json switches it off.
+- **A stack of pull requests.** A `start` made on a template branch records that branch
+  as the new one's base; `stack <sub>` prints the chain and, for each branch, the pull
+  request it wants: its head, and as base the branch under it (`main` only for the
+  bottom one). Open them bottom first, with the session's GitHub tool or `gh pr create
+  --head H --base B`; `ship.py` opens none. Merge bottom first too; after a merge the
+  next one's base is retargeted to `main`.
+- **The push gate.** Nothing runs on GitHub for these repos, so `push`, `ship` and
+  `checkpoint` run the repo's own checks first: the steps of `ship.json` at the repo's top
+  level (`pushGate`: lint, the test suites), in order, refusing the push at the first
+  failure and keeping the commit. A tree that passed is not gated again. A repo without
+  `ship.json` has no push gate; `"pushGate": false` in workspace.json switches it off;
+  `push --no-gate` skips it with a warning, on the human's word only.
+- `status`, `start`, `commit`, `push`, `ship`, `stack` and `checkpoint` are allowlisted (the
   workspace bootstrap renders the rules from `templates/workspace/permissions.json` into
   `.claude/settings.local.json`).
 - `merge`, `publish` and `accept-baseline` are not: they always raise a permission

@@ -2,9 +2,10 @@
 """Branch, commit and push in one repo of an academy workspace, one plain command per step.
 
     py scripts/ship.py [--workspace DIR] status
-    py scripts/ship.py start  <sub> <topic> [--role R] [--worktree]
+    py scripts/ship.py start  <sub> <topic> [--role R] [--worktree] [--on BRANCH]
     py scripts/ship.py commit <sub> -m MSG (--paths P... | --all)
-    py scripts/ship.py push   <sub>
+    py scripts/ship.py push   <sub> [--no-gate]
+    py scripts/ship.py stack  <sub> [--json]                         # the branch's stack and the PRs to open
     py scripts/ship.py accept-baseline <sub>                         # Author homes: rewrite the gate baseline
     py scripts/ship.py ship   <sub> -m MSG (--paths P... | --all)    # commit + push
     py scripts/ship.py merge  <sub> <branch> --sha TIP [-m MSG] [--bump]   # reviewed branch -> local main
@@ -70,6 +71,33 @@ as a plain directory of the superproject only ``board/`` paths are staged and co
 The academy plugin's ``inbox.py --check`` runs ``checkpoint --only <the ticket's repos>``
 itself after a finished ticket: with ``--only`` the other submodules are not touched and
 a dirty repo of the set that is on main/master is refused instead of moved.
+
+**Stacks.** ``start`` branches from where the checkout is, so a second ``start`` on a
+template branch stacks on it; ``--on BRANCH`` names the base explicitly (a local branch,
+or ``origin/<branch>``). The base is recorded (``git config branch.<name>.ship-base``) and
+``stack`` prints the chain from the current branch down to ``main``: each branch, its tip,
+whether it is pushed, and the pull request it wants (``head`` and ``base``; a stacked
+branch's base is the branch under it, never ``main``). ``stack`` opens nothing: the
+session opens each PR with its GitHub tool (or ``gh pr create --head H --base B``),
+bottom first.
+
+**The push gate.** There is no CI behind these repos, so what CI would run is run here,
+before a push: a repo's ``ship.json`` (at its top level) lists the steps,
+
+    {"pushGate": [{"name": "lint", "run": ["ruff", "check", "."], "optional": true},
+                  {"name": "tests", "run": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
+                   "timeout": 900, "env": {"X": "1"}}]}
+
+``push`` / ``ship`` / ``checkpoint`` run them in order from the repo's top level
+(``{python}`` is the interpreter running ship.py) and refuse the push at the first step
+that exits non-zero, with the tail of its output; the commit stays. A step whose
+executable is not installed is a failure unless it is ``optional`` (then it is named as
+skipped). A tree that passed is remembered (``<git dir>/ship-gate/<tree sha>``, clean
+trees only), so pushing the same tree again, or the next branch of a stack before it
+changed, does not rerun the steps. ``--no-gate`` on ``push`` / ``ship`` skips it with a
+warning, as for the commit gate: only on the human's word. ``"pushGate": false`` in
+workspace.json switches it off for the workspace. A repo without ``ship.json`` has no
+push gate.
 
 Usage on the board: when the ``board`` target is part of a checkpoint, ``usage_ledger``
 first appends one content-free summary per recently active session of this machine
@@ -290,18 +318,174 @@ def require_template(repo):
     return b
 
 
+def main_branch(repo):
+    for b in PROTECTED:
+        if git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + b, check=False) \
+                or git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + b, check=False):
+            return b
+    return PROTECTED[0]
+
+
+def base_of(repo, branch):
+    """The branch ``branch`` was started on (``start`` records it), else the main branch."""
+    b = git(repo, "config", "--get", "branch.%s.ship-base" % branch, check=False)
+    return b or main_branch(repo)
+
+
 def cmd_start(a):
     repo = repo_of(a.sub, a.repo)
     name = branch_name(a.topic, a.role or default_role(repo))
     exists = git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + name, check=False)
+    on = getattr(a, "on", None)
+    if on:
+        if exists:
+            raise Refuse("%s exists already; --on names the base of a new branch" % name)
+        if not git(repo, "rev-parse", "--verify", "--quiet", on + "^{commit}", check=False):
+            raise Refuse("--on %r is not a branch or commit of %s" % (on, repo))
+    # the base of the new branch: --on, else the branch the checkout is on (a stack)
+    base = (on[len("origin/"):] if on and on.startswith("origin/") else on) or current(repo)
     if a.worktree:
         wt = os.path.join(repo, ".claude", "worktrees", name.replace("/", "-"))
-        args = ["worktree", "add", wt] + ([name] if exists else ["-b", name])
+        args = ["worktree", "add", wt] + ([name] if exists else ["-b", name] + ([on] if on else []))
         git(repo, *args)
         print("worktree %s on %s" % (wt, name))
     else:
-        git(repo, "switch", name) if exists else git(repo, "switch", "-c", name)
+        git(repo, "switch", name) if exists else git(repo, "switch", "-c", name, *([on] if on else []))
         print("%s on %s (uncommitted changes carried along)" % (repo, name))
+    main = main_branch(repo)
+    main_ref = next((r for r in ("refs/heads/" + main, "refs/remotes/origin/" + main)
+                     if git(repo, "rev-parse", "--verify", "--quiet", r, check=False)), None)
+    own = git(repo, "rev-list", "--count", "%s..%s" % (main_ref, on or base), check=False) \
+        if (main_ref and base) else "1"
+    # a base with no commit of its own over main (a fresh session branch) is not a stack
+    if not exists and base and base != name and base not in PROTECTED and own != "0":
+        git(repo, "config", "branch.%s.ship-base" % name, base)
+        print("stacked on %s (its pull request's base; 'stack %s' shows the chain)" % (base, a.sub))
+
+
+def stack_of(repo, branch=None):
+    """The chain from ``branch`` (default: the current one) down to the main branch:
+    ``[{branch, base, sha, pushed, ahead}]``, top first. ``ahead`` counts the commits the
+    branch has over its base; ``pushed`` says the remote branch is at the local tip."""
+    out, seen = [], set()
+    b = branch or current(repo)
+    main = main_branch(repo)
+    while b and b not in PROTECTED and b not in seen:
+        seen.add(b)
+        tip = git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + b, check=False)
+        if not tip:
+            break
+        base = base_of(repo, b)
+        base_ref = next((r for r in ("refs/heads/" + base, "refs/remotes/origin/" + base)
+                         if git(repo, "rev-parse", "--verify", "--quiet", r, check=False)), None)
+        ahead = git(repo, "rev-list", "--count", "%s..%s" % (base_ref, tip), check=False) if base_ref else ""
+        remote = git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + b, check=False)
+        out.append({"branch": b, "base": base, "sha": tip[:12], "pushed": remote == tip,
+                    "ahead": int(ahead) if ahead.isdigit() else None})
+        b = base
+    if not out:
+        raise Refuse("%s is on %r: no stack (run 'start' first)" % (repo, current(repo) or "(detached)"))
+    out[-1].setdefault("root", main)
+    return out
+
+
+def cmd_stack(a):
+    repo = repo_of(a.sub, a.repo)
+    chain = stack_of(repo)
+    if a.json:
+        print(json.dumps(chain, indent=1))
+        return
+    n = len(chain)
+    print("%s: a stack of %d branch(es), bottom first; open the pull requests in this order" % (a.sub, n))
+    for k, row in enumerate(reversed(chain), 1):
+        print("%d/%d  %s @ %s  %s commit(s) over %s  [%s]" % (
+            k, n, row["branch"], row["sha"][:7], "?" if row["ahead"] is None else row["ahead"],
+            row["base"], "pushed" if row["pushed"] else "NOT pushed: 'push' first"))
+        print("     pull request: head %s -> base %s" % (row["branch"], row["base"]))
+
+
+# ----------------------------------------------------------------------------
+# The push gate: what CI would run, run here before a push (module docstring)
+# ----------------------------------------------------------------------------
+
+GATE_FILE = "ship.json"
+GATE_TAIL = 25
+
+
+def push_gate_steps(repo):
+    """The steps of ``repo``'s push gate (``ship.json`` at its top level), or []."""
+    top = git(repo, "rev-parse", "--show-toplevel", check=False) or repo
+    try:
+        with open(os.path.join(top, GATE_FILE), encoding="utf-8") as f:
+            steps = json.load(f).get("pushGate")
+    except (OSError, ValueError, AttributeError):
+        return top, []
+    out = []
+    for s in steps if isinstance(steps, list) else []:
+        if isinstance(s, dict) and isinstance(s.get("run"), list) and s["run"]:
+            out.append(s)
+    return top, out
+
+
+def run_push_gate(repo):
+    """Run the push gate of ``repo``. Returns ``(ok, lines)``: ``lines`` say what ran, was
+    skipped or failed (a failure with the tail of the step's output)."""
+    if workspace_json().get("pushGate") is False:
+        return True, []
+    top, steps = push_gate_steps(repo)
+    if not steps:
+        return True, []
+    tree = git(repo, "rev-parse", "HEAD^{tree}", check=False)
+    clean = not git(repo, "status", "--porcelain", "--untracked-files=no", check=False)
+    gdir = git(repo, "rev-parse", "--absolute-git-dir", check=False)
+    marker = os.path.join(gdir, "ship-gate", tree) if (gdir and tree and clean) else None
+    if marker and os.path.isfile(marker):
+        return True, ["push gate: this tree passed before (%s)" % tree[:12]]
+    lines = []
+    if not clean:
+        lines.append("push gate: note: uncommitted changes in tracked files; the gate runs "
+                     "on the working tree, not on what is pushed")
+    for s in steps:
+        name = str(s.get("name") or s["run"][0])
+        argv = [sys.executable if str(x) == "{python}" else str(x) for x in s["run"]]
+        env = dict(os.environ, **{str(k): str(v) for k, v in (s.get("env") or {}).items()})
+        try:
+            p = subprocess.run(argv, cwd=top, capture_output=True, text=True, env=env,
+                               stdin=subprocess.DEVNULL, timeout=int(s.get("timeout") or 900))
+        except FileNotFoundError:
+            if s.get("optional"):
+                lines.append("push gate: %s skipped (%s is not installed)" % (name, argv[0]))
+                continue
+            return False, lines + ["push gate: %s: %s is not installed" % (name, argv[0])]
+        except subprocess.TimeoutExpired:
+            return False, lines + ["push gate: %s timed out" % name]
+        if p.returncode:
+            tail = ((p.stdout or "") + (p.stderr or "")).strip().splitlines()[-GATE_TAIL:]
+            return False, lines + ["push gate: %s failed (exit %d):" % (name, p.returncode)] \
+                + ["    " + t for t in tail]
+        lines.append("push gate: %s ok" % name)
+    if marker:
+        try:
+            os.makedirs(os.path.dirname(marker), exist_ok=True)
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(datetime.datetime.now(datetime.timezone.utc).isoformat() + "\n")
+        except OSError:
+            pass
+    return True, lines
+
+
+def require_push_gate(repo, no_gate=False):
+    if no_gate:
+        if push_gate_steps(repo)[1]:
+            print("ship: warning: --no-gate given, the push gate is skipped", file=sys.stderr)
+        return
+    ok, lines = run_push_gate(repo)
+    for ln in lines if ok else []:
+        print("ship: " + ln, file=sys.stderr)
+    if not ok:
+        raise Refuse("the push gate refused the push (the commit is kept):\n  %s\n"
+                     "(fix it and push again; --no-gate only on the human's word)"
+                     % "\n  ".join(lines))
 
 
 def academy_cfg(repo):
@@ -523,8 +707,12 @@ def unstage_gitlinks(repo, scope=()):
 def cmd_push(a):
     repo = repo_of(a.sub, a.repo)
     b = require_template(repo)
+    require_push_gate(repo, getattr(a, "no_gate", False))
     git(repo, "push", "-q", "-u", "origin", "HEAD:refs/heads/" + b)
     print("%s -> origin/%s @ %s" % (a.sub, b, git(repo, "rev-parse", "--short", "HEAD")))
+    base = base_of(repo, b)
+    if base not in PROTECTED:
+        print("stacked on %s: its pull request's base is %s ('stack %s')" % (base, base, a.sub))
 
 
 def cmd_ship(a):
@@ -945,6 +1133,11 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
             return res
     assert BRANCH.match(name) and name not in PROTECTED, name
     res["sha"] = git(repo, "rev-parse", "--short", tip)
+    ok, gate_lines = run_push_gate(repo)
+    if not ok:
+        res.update(status="push-failed", detail="not pushed, the commit is kept: "
+                   + " / ".join(l.strip() for l in gate_lines[-6:]))
+        return res
     p = subprocess.run(["git", "-C", repo, "push", "-q", "--no-follow-tags", "--recurse-submodules=no",
                         remote, "refs/heads/%s:refs/heads/%s" % (name, name)],
                        capture_output=True, text=True, env=git_env(), stdin=subprocess.DEVNULL)
@@ -1080,15 +1273,25 @@ def parser():
     s = sp.add_parser("start")
     s.add_argument("sub"); s.add_argument("topic")
     s.add_argument("--role"); s.add_argument("--worktree", action="store_true")
+    s.add_argument("--on", metavar="BRANCH",
+                   help="the base of the new branch (default: where the checkout is); the "
+                        "new branch is stacked on it")
     s.set_defaults(fn=cmd_start)
     for name, fn in (("commit", cmd_commit), ("ship", cmd_ship)):
         c = sp.add_parser(name)
         c.add_argument("sub"); c.add_argument("-m", required=True)
         c.add_argument("--paths", nargs="+"); c.add_argument("--all", action="store_true")
-        c.add_argument("--no-gate", action="store_true", help="skip the Author commit gate (warns)")
+        c.add_argument("--no-gate", action="store_true",
+                       help="skip the Author commit gate%s (warns)"
+                            % (" and the push gate" if name == "ship" else ""))
         c.set_defaults(fn=fn)
     c = sp.add_parser("accept-baseline"); c.add_argument("sub"); c.set_defaults(fn=cmd_accept_baseline)
-    c = sp.add_parser("push"); c.add_argument("sub"); c.set_defaults(fn=cmd_push)
+    c = sp.add_parser("push"); c.add_argument("sub")
+    c.add_argument("--no-gate", action="store_true", help="skip the push gate (warns)")
+    c.set_defaults(fn=cmd_push)
+    c = sp.add_parser("stack", help="the current branch's stack and the pull requests to open")
+    c.add_argument("sub"); c.add_argument("--json", action="store_true")
+    c.set_defaults(fn=cmd_stack)
     c = sp.add_parser("merge", help="merge a reviewed branch into local main (no push)")
     c.add_argument("sub"); c.add_argument("branch")
     c.add_argument("--sha", required=True, help="the reviewed tip of origin/<branch> (>= 7 hex chars)")

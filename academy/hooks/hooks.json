@@ -57,6 +57,16 @@
         ]
       },
       {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/ship_guard.py\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write|MultiEdit|Bash|PowerShell",
         "hooks": [
           {

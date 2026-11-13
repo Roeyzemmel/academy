@@ -872,6 +872,7 @@ class HooksJsonTests(unittest.TestCase):
             "mcp_write_gate.py": ("PreToolUse", "mcp__.*academy.*"),
             "generated_view_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|Bash|PowerShell"),
             "script_path_guard.py": ("PreToolUse", "Bash|PowerShell"),
+            "ship_guard.py": ("PreToolUse", "Bash|PowerShell"),
             "explainer_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
             "role_write_guard.py": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
             "ticket_edit_check.py": ("PostToolUse", "Edit|Write|MultiEdit"),
@@ -880,7 +881,7 @@ class HooksJsonTests(unittest.TestCase):
 
     def test_scripts_import_the_vendored_copy(self):
         for name in ("session_start.py", "mcp_write_gate.py", "generated_view_guard.py",
-                     "script_path_guard.py",
+                     "script_path_guard.py", "ship_guard.py",
                      "ticket_edit_check.py", "explainer_write_guard.py",
                      "role_write_guard.py"):
             with open(os.path.join(SCRIPTS, name), encoding="utf-8") as fh:

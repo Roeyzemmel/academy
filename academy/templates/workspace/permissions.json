@@ -7,12 +7,14 @@
     "Bash(py {WORKSPACE}/scripts/ship.py push:*)",
     "Bash(py {WORKSPACE}/scripts/ship.py ship:*)",
     "Bash(py {WORKSPACE}/scripts/ship.py checkpoint:*)",
+    "Bash(py {WORKSPACE}/scripts/ship.py stack:*)",
     "Bash(py scripts/ship.py status:*)",
     "Bash(py scripts/ship.py start:*)",
     "Bash(py scripts/ship.py commit:*)",
     "Bash(py scripts/ship.py push:*)",
     "Bash(py scripts/ship.py ship:*)",
-    "Bash(py scripts/ship.py checkpoint:*)"
+    "Bash(py scripts/ship.py checkpoint:*)",
+    "Bash(py scripts/ship.py stack:*)"
   ],
   "common": [
     "Bash(py {ROOT}/academy/scripts/registry.py:*)",

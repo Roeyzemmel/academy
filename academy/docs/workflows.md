@@ -86,6 +86,18 @@ reviewers blind.
 - A `cite` whose source cannot be read is parked on the human with the exact ask (project rule "inaccessible sources") and comes back as a gate, not delivered; there is no card to validate.
 - `ship.py checkpoint` refuses a repo on a branch that is neither `main` nor `<date>/<topic>/<role>` (a cloud session's own branch): it reports, and the session commits by hand.
 
+## Shipping is a step of the workflow, not a habit of the session
+
+A workflow that changes files ends by shipping them, in code: the inbox's `--check` runs
+`ship.py checkpoint --only <the ticket's repos>`, and any new workflow that writes to a
+home, the library or the board does the same as its last stage (a clerk stage that runs
+the scoped `checkpoint`, or `ship ... --paths` for work that belongs to no ticket). The
+stage's result is part of the workflow's return (`pushed`, or the refusal: a branch off
+the template, a commit gate, a push gate), so a refused push is reported and never
+retried in a loop. Outside a workflow the same default is held by the `ship_guard` hook
+(`docs/branching.md`): raw `git commit` / `git push` / a new branch in a workspace repo is
+denied with the `ship.py` command.
+
 ## Around the workflows
 
 - **Plugin versions and updates** (2026-11-07): Claude Code caches a plugin per version, and the
