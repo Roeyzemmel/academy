@@ -3,7 +3,8 @@
 ``GhTransport(repo)`` implements the transport of ``board_store`` (list/get/create/update
 issues, list/add comments) plus what the migration needs: ``last_number``, labels
 (``list_labels``, ``create_label``), native relations (``set_parent``, ``get_parent``,
-``add_dependency``, ``remove_dependency``, ``list_dependencies``) and assignees on
+``add_dependency``, ``remove_dependency``, ``list_dependencies``; read exactly for
+``board_relations.py`` by ``relations_available``, ``parent_ref``, ``blocker_refs``) and assignees on
 ``create_issue``. It shells out to ``gh api`` (stdlib only; gh carries the credentials, so
 no token is handled here) and sends every payload on stdin as JSON, so bodies reach GitHub
 byte for byte -- unlike the github MCP, which appends an attribution footer to comments and
@@ -197,6 +198,60 @@ class GhTransport(object):
         rows = self.api("GET", "issues/%d/dependencies/blocked_by?per_page=100" % number,
                         missing_ok=True)
         return [r["number"] for r in rows or []]
+
+    # -- native relations read exactly (board_relations.py) --------------------
+    # ``get_parent`` / ``list_dependencies`` above read a 404 as "none", which cannot tell
+    # a repository without the feature from an issue without links, and drop the repository
+    # of a cross-repo link. These keep both apart.
+    def relations_available(self, number):
+        """Which native relation kinds the repository serves, probed on the existing issue
+        ``number``: ``{"sub_issues": bool, "dependencies": bool}``; 404 or 410 means not."""
+        out = {}
+        for kind, path in (("sub_issues", "issues/%d/sub_issues?per_page=1"),
+                           ("dependencies", "issues/%d/dependencies/blocked_by?per_page=1")):
+            try:
+                self.api("GET", path % number)
+                out[kind] = True
+            except GhError as e:
+                if e.status not in (404, 410):
+                    raise
+                out[kind] = False
+        return out
+
+    def parent_ref(self, number):
+        """``{"number", "repo"}`` of the issue's parent, None when it has none (GitHub answers
+        404 "No parent issue found")."""
+        try:
+            p = self.api("GET", "issues/%d/parent" % number)
+        except GhError as e:
+            if e.status == 404:
+                return None
+            raise
+        return _ref(p) if p else None
+
+    def blocker_refs(self, number):
+        """``[{"number", "repo"}]``: the issues ``number`` is blocked by, every page."""
+        out, page = [], 1
+        while True:
+            rows = self.api("GET", "issues/%d/dependencies/blocked_by?per_page=100&page=%d"
+                            % (number, page)) or []
+            out += [_ref(r) for r in rows]
+            if len(rows) < 100:
+                return out
+            page += 1
+
+    def note_ids(self, issues):
+        """Remember the issue ids of listed issues, so a link write needs no extra read."""
+        for i in issues:
+            if i.get("number") is not None and i.get("id") is not None:
+                self._ids[i["number"]] = i["id"]
+
+
+def _ref(issue):
+    repo = (issue.get("repository") or {}).get("full_name")
+    if not repo and "/repos/" in (issue.get("url") or ""):
+        repo = issue["url"].split("/repos/", 1)[1].rsplit("/issues/", 1)[0]
+    return {"number": issue["number"], "repo": repo}
 
 
 def transport(cfg):

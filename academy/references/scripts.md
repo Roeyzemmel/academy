@@ -27,6 +27,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `workspace_bootstrap.py` | a workspace's `scripts/bootstrap.py` shim, `cloud-setup.sh` | `[--workspace DIR] [--no-submodules] [--no-plugins] [--strict] [--adopt-siblings]`: writes `workspace.json`, the environment and the permission rules (`templates/workspace/`) |
 | `cowork.py` | cowork, desk, inbox | `new SLUG --goal G [--agents A]` (the plan `<board>/cowork/<slug>.md`) · `status SLUG [--json]` (state from the tagged tickets: ACTIVE, WAITING, PAUSE, DONE) · `list [--kind cowork\|campaign\|all] [--json]` (the active workplans; exit 1 none); the mechanics are `academy/lib/workplan.py` |
 | `role_write_guard.py` | the PreToolUse hook (Edit/Write) | (hook: `permissions.json` `files.cross_role`; roster-rules.md, "Role cut") |
+| `board_relations.py` | board (sync), the human | `plan [--ids T-NNNN,...] [--repo OWNER/NAME] [--json]` (reads only) · `apply [--ids ...] [--dry-run] [--json]` (exit 1 if a write failed; rerun to resume): the GitHub board's native sub-issues (`parent`) and "blocked by" dependencies (`waiting_on` ticket ids) brought in step with the meta lines; `docs/github-board.md`, "Native relations" |
 | `board_templates.py` | board-migrate | `ticket-form [--workspace F]` · `render --out REPO` · `check --out REPO` (exit 1 on drift): the GitHub board's `.github/` files, the issue form's instance dropdown filled from workspace.json |
 
 `board.py new` requires `--as <instance>` (the main session inside a home files as

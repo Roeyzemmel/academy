@@ -257,19 +257,34 @@ class GithubBoardStore(ac.BoardStore):
             raise
 
 
+class RelationUnavailable(RuntimeError):
+    """A native relation kind the repository does not serve (the REST API's 404/410)."""
+    status = 410
+
+
 class MemoryTransport(object):
     """An in-memory GitHub issues API (the fake for tests, the reference for a real one).
 
     ``max_page`` caps ``per_page`` as the REST API does (tests lower it to exercise paging);
     ``add_pull_request`` puts a PR among the issues, as GitHub does; ``inject`` makes a
     method fail after some successful calls (``inject("update_issue", after=1)``).
+
+    Native links: ``parents`` maps child -> parent and ``dependencies`` holds ``(issue,
+    blocker)``; a parent or blocker in another repository is an ``("owner/name", number)``
+    pair. ``unavailable`` names the relation kinds the fake repository does not serve
+    (``"sub_issues"``, ``"dependencies"``): their methods then fail with status 410.
+    ``summaries`` makes ``list_issues`` carry ``parent_issue_url`` and
+    ``issue_dependencies_summary``, as the REST listing does.
     """
 
-    def __init__(self, max_page=100):
+    def __init__(self, max_page=100, repo="o/r"):
         self.issues = {}
         self.comments = {}
         self.parents = {}
         self.dependencies = []
+        self.repo = repo
+        self.unavailable = set()
+        self.summaries = False
         self.labels = {}
         self.calls = []
         self.max_page = max_page
@@ -329,7 +344,17 @@ class MemoryTransport(object):
                 continue
             if labels and not set(labels) <= set(bc.label_names(i["labels"])):
                 continue
-            out.append(self._pub(n))
+            pub = self._pub(n)
+            if self.summaries:
+                p = self._ref(self.parents.get(n))
+                pub["sub_issues_summary"] = {"total": sum(1 for v in self.parents.values()
+                                                          if v == n)}
+                if p:                     # GitHub leaves the key out when there is none
+                    pub["parent_issue_url"] = ("https://api.github.com/repos/%s/issues/%d"
+                                               % (p["repo"], p["number"]))
+                k = sum(1 for m, _b in self.dependencies if m == n)
+                pub["issue_dependencies_summary"] = {"blocked_by": k, "total_blocked_by": k}
+            out.append(pub)
         return self._page(out, page, per_page)
 
     def get_issue(self, number):
@@ -375,31 +400,61 @@ class MemoryTransport(object):
         self._tick("add_comment", number)
         return dict(self._add_comment(number, body))
 
+    def _ref(self, x):
+        if x is None:
+            return None
+        repo, n = x if isinstance(x, tuple) else (self.repo, x)
+        return {"number": n, "repo": repo}
+
+    def _need(self, kind):
+        if kind in self.unavailable:
+            raise RelationUnavailable("%s: not available on this repository (HTTP 410)" % kind)
+
+    def relations_available(self, number):
+        self._tick("relations_available", number)
+        return {k: k not in self.unavailable for k in ("sub_issues", "dependencies")}
+
+    def parent_ref(self, number):
+        self._tick("parent_ref", number)
+        self._need("sub_issues")
+        return self._ref(self.parents.get(number))
+
+    def blocker_refs(self, number):
+        self._tick("blocker_refs", number)
+        self._need("dependencies")
+        return [self._ref(b) for n, b in self.dependencies if n == number]
+
     def set_parent(self, number, parent):
         self._tick("set_parent", number)
+        self._need("sub_issues")
         self.parents[number] = parent
 
     def get_parent(self, number):
         self._tick("get_parent", number)
+        self._need("sub_issues")
         return self.parents.get(number)
 
     def remove_parent(self, number, parent):
         self._tick("remove_parent", number)
+        self._need("sub_issues")
         if self.parents.get(number) == parent:
             del self.parents[number]
 
     def add_dependency(self, number, blocker):
         self._tick("add_dependency", number)
+        self._need("dependencies")
         if (number, blocker) not in self.dependencies:
             self.dependencies.append((number, blocker))
 
     def remove_dependency(self, number, blocker):
         self._tick("remove_dependency", number)
+        self._need("dependencies")
         if (number, blocker) in self.dependencies:
             self.dependencies.remove((number, blocker))
 
     def list_dependencies(self, number):
         self._tick("list_dependencies", number)
+        self._need("dependencies")
         return [b for n, b in self.dependencies if n == number]
 
     def last_number(self):

@@ -19,8 +19,8 @@ numbering is empty; an id that was never used is a closed placeholder issue).
 | role of `to` | label `role:<author\|researcher\|expert\|scientist\|human>`, derived from `to` and rewritten by `board-sync`; Project **Role** |
 | dead route | label `route:dead`, zero or one, derived from the block (present exactly when the ticket is `blocked` with both `blocked_by` and `reopen_if`, `board_codec.is_dead_block` over `ac.is_dead_route`; like `role:` from `to`; a ticket that is not blocked but carries both fields is a validation error, not a dead route) and rewritten by `board-sync`; Project **Block** = `pending` \| `dead-route` on a blocked ticket |
 | `from`, `kind`, `priority` | labels `from:`, `kind:`, `prio:`; Project **Kind**, **Priority** (P0/P1/P2 = high/normal/low) |
-| `parent` | native sub-issue |
-| `waiting_on` / `blocks` | native issue dependencies for ticket targets; the rest in the meta line; `status:blocked` is the queryable signal |
+| `parent` | native sub-issue (a mirror of the meta line: "Native relations" below) |
+| `waiting_on` / `blocks` | native issue dependencies ("blocked by") for `waiting_on` ticket targets, a mirror as above; the rest in the meta line; `status:blocked` is the queryable signal |
 | `## Ask`, `## Result` | issue body, after the line `<!-- academy:meta {json} -->` that carries the other fields (never a label's field, `id` or `title`: decode refuses such a line; a key the schema does not know is kept, after the known ones) |
 | `## Thread` | one comment per entry, marked `<!-- academy:thread -->`; other comments are conversation, not Thread |
 | `campaign`, `blocked_by`, `reopen_if` | the meta line (ticket-only fields, `docs/protocol.md` section 4 and the campaign design); a dead-route ticket is `status:blocked` like a pending one, told apart by `blocked_by` + `reopen_if` in the meta line. `blocked_by` is **not** a native issue dependency: only `waiting_on` ticket ids are (codec payload key `waits_on`, manifest relation `dependency`), so the ticket field `blocked_by` never gets confused with GitHub's "blocked by" relation |
@@ -79,7 +79,8 @@ in the comment; the write hook and `board-sync` check the rules, not the account
 `board_verify.py` (issues or manifest against the files, byte for byte; a manifest's relations and each issue's `parent`/`waits_on` are compared too, a dump without link data reports them as unverified), `board_import.py`
 (issues back to files: backup, rollback), `board_push.py` (the manifest executed over REST
 through `gh api`, resumable, numbering checked by reading issues by number) and
-`board_dump.py` (the byte-exact verify dump, parents and dependencies included), both on the
+`board_dump.py` (the byte-exact verify dump, parents and dependencies included), `board_relations.py`
+(the native sub-issues and dependencies brought in step with the meta lines, below), all on the
 `lib/board_gh.py` transport, `board_batch.py` (a reviewed batch of board changes applied as the
 human through the MCP tools' code, `--dry-run` on a copy of the file board, resumable),
 `board_sync.py` (the workflow), `board_project.py`
@@ -90,6 +91,42 @@ ticket kind, Priority, Agenda, Block; `--check` proves it covers every kind and 
 `/academy:board-migrate`. Templates: `academy/templates/github-board/.github/`, rendered
 into the repository that holds the issues (`board.repo`) by `board_templates.py render --out <repo>` (the issue form's
 instance dropdown is filled from workspace.json, instances + `human`; `check` reports drift).
+
+## Native relations
+
+The meta line is the source of truth for a ticket's links; GitHub's native relations are a
+mirror of it, so the issue pages and the Project show them:
+
+| ticket | native relation |
+|---|---|
+| `parent: T-a` on T-b | issue b is a **sub-issue** of issue a |
+| T-a in T-b's `waiting_on` | issue b is **blocked by** issue a |
+| `waiting_on` tokens that are not ticket ids (`human`, an instance) | none (meta line only) |
+| `blocks` | not read: it is the bookkeeping mirror of `waiting_on` and is never pruned |
+| dead-route `blocked_by` (+ `reopen_if`) | none: the id the route *ended at* is not something whose closing frees the ticket, and GitHub would show the ticket as unblocked once it closes; the `route:dead` label and the Project's Block field carry it |
+
+A ticket save writes the links that changed against the ticket's previous meta line
+(`GithubBoardStore.save`, above). What drifts past that (a failed save, a link made before
+the save learned to remove links, a hand edit on GitHub) is put right by
+`board_relations.py`, a sync run by hand, which ticket writes never wait on:
+
+    py $S/board_relations.py plan  [--ids T-0001,T-0002] [--json]   # reads only, prints the diff
+    py $S/board_relations.py apply [--ids ...] [--dry-run] [--json] # writes the diff
+
+It reads every issue (the listing's `parent_issue_url` and `issue_dependencies_summary`
+spare a read per issue; only issues with a blocker get one more read), compares each
+ticket's wanted parent and blockers with the native ones, and writes only the difference:
+removals first, then additions; a moved parent is one `replace_parent` write. A link whose
+target is not a ticket on the board (an unused id, a placeholder) is reported as unresolved
+and skipped; a native link to an issue that is not a board ticket (an ordinary issue,
+another repository) is kept, never removed. A failed write is reported and the others go
+on (exit 1); a rerun recomputes the diff, so it resumes, and a second run in step writes
+nothing. A repository where the probe (`GET .../sub_issues`, `GET
+.../dependencies/blocked_by` on one issue) answers 404 or 410 has that kind reported as
+"not available" and left alone (exit 0). `--repo OWNER/NAME` reads and writes through `gh`
+directly; otherwise it uses the workspace's github board and its `board.transport`. Writes
+are spaced like every `board_gh` write. **The human runs the first `apply`**, after reading
+the `plan`, with a `gh` login that can write issues; later runs are routine.
 
 ## The Project
 
