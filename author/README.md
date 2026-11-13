@@ -56,6 +56,8 @@ the Scientist is a `research` ticket to the Expert with `final_to`, which the Ex
 `research-intake` relays. Which agents may file to the Expert is `academy/permissions.json`
 `tickets.edges`, described in `docs/protocol.md` section 5.1.
 
+`/author:presync` also builds a coloured-diff PDF against the last shared version (`scripts/paper_diff.py`, latexdiff; needs `latexdiff` and `latexmk`, base: `author.diff.base` or the newest `shared-*` / `round-*` / `submitted-*` tag).
+
 Scripts and formats: `references/scripts.md`, `references/formats.md`; what the Author
 delegates to the Expert and the Scientist: `references/delegation.md`; tex mechanics and
 colours: `skills/paper-method/references/editing-tex.md`, `draft-colours.md`. Tests:
@@ -73,7 +75,7 @@ colours: `skills/paper-method/references/editing-tex.md`, `draft-colours.md`. Te
 | /author:next | Retired: /author:next is now /author:inbox. Use only to be redirected; for "next" or "run the agenda" use /author:inbox. |
 | /author:notes | File the human's new margin notes as tickets on their agenda entry (to the Author, or to the role owning the work), and referee-packet points. Use when the human left notes in the PDF, after an Overleaf sync, or when a referee packet returns. |
 | /author:paper-method | How to write a research mathematics paper in LaTeX so a reader one field over can follow it: structure, prose, labels, macros, bibliography, exposition from proofs, pre-send checklist. Use whenever writing, restructuring or cleaning up a paper. |
-| /author:presync | The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone. |
+| /author:presync | The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, coloured diff, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone. |
 | /author:slideshow-maker | Build a research talk as a beamer deck plus lecture notes from one TeX source set: verified statements, definitions before use, figures that show the mechanism, no status tags, a review loop. Use for "make slides", "a 25-minute talk". |
 | /author:status | The paper's state at a glance: agenda progress, what /author:inbox would run, what waits on which ticket, tickets to this Author, checker summary. Read-only. Use for "where is the paper", "author status", "how far is the milestone". |
 | /author:sweep | The machine-note sweep: inventory machine margin notes in the tex, fold answered ones into their ticket's thread and delete them, leave open ones, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full. |
