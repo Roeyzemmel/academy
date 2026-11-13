@@ -1,7 +1,7 @@
 """_author -- helpers shared by the Author plugin's hooks and scripts.
 
 Plugin-local (not vendored). Everything protocol-level comes from the vendored
-``_academy.py`` (never edit that copy; see academy/scripts/sync_common.py). This
+``_academy/`` (never edit that copy; see academy/scripts/sync_common.py). This
 module adds only what the Author role needs:
 
     author_home(path)          (home, config) when ``path`` lies in an Author home

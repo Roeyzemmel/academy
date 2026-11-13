@@ -60,8 +60,8 @@ belongs in the plugin** (`${CLAUDE_PLUGIN_ROOT}/scripts/`), parameterised by
   `${CLAUDE_PLUGIN_ROOT}/scripts/legacy/` until the old plugins are retired; the lab
   keeps one-line shims at the old paths. The profile keys are in the academy's
   `docs/config.md` (scientist block).
-- **Shared library.** `${CLAUDE_PLUGIN_ROOT}/scripts/_academy.py` is vendored from
-  the academy's `academy/lib/academy_common.py`; never edit the copy. A library
+- **Shared library.** `${CLAUDE_PLUGIN_ROOT}/scripts/_academy/` is vendored from
+  the academy's `academy/lib/academy_common/`; never edit the copy. A library
   change is made in `academy/lib` and synced with `academy/scripts/sync_common.py`,
   and the report says so.
 - **Domain code** (computations about the subject) belongs in the domain pack's

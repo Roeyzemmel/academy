@@ -46,7 +46,7 @@ import _author as au
 ac = au.ac
 
 # The command parser is shared with the Scientist commit gate and lives in
-# academy_common (vendored as _academy.py); these names keep the old API.
+# academy_common (vendored as _academy/); these names keep the old API.
 ParseFailure = ac.ShellParseFailure
 split_segments = ac.split_segments
 resolve_dir = ac.resolve_dir

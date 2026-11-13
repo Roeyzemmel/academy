@@ -29,8 +29,9 @@ py academy/scripts/sync_common.py --check    # the vendored copies of the shared
 py academy/scripts/skill_index.py --check    # skill descriptions: form, length, total budget
 ```
 
-`academy/lib/academy_common.py` is the one shared library. Each plugin carries a
-byte-identical copy as `scripts/_academy.py`; run `py academy/scripts/sync_common.py`
-after changing the lib.
+`academy/lib/academy_common/` is the one shared library: a package of parts (config,
+workspace, tickets, the board store, the inbox core, packets, hooks, ...) that callers
+use as one module, `ac.<name>`. Each plugin carries a byte-identical copy as
+`scripts/_academy/`; run `py academy/scripts/sync_common.py` after changing the lib.
 
 New files use LF (`.gitattributes`); `*.ps1` keeps CRLF.

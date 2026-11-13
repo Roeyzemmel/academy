@@ -48,7 +48,7 @@ same day; part C waits on something that is not built yet (section 7).
 2. Update the installed plugins (`academy`, `author`, `researcher`, `expert`,
    `scientist`) in every checkout that uses them, for example by refreshing the marketplace
    copy. The plugins must all come from the same commit: each one vendors the shared
-   library as `scripts/_academy.py`, and a mixed set breaks the shared inbox. In the
+   library as `scripts/_academy/`, and a mixed set breaks the shared inbox. In the
    academy repo a test guards this: `py academy\scripts\sync_common.py --check` must be
    silent.
 3. Check each home still validates: `/academy:status` (config and `workspace.json`), then

@@ -2,7 +2,7 @@
 
 Nothing here re-implements the base plugin. It locates and imports:
 
-* the vendored lib ``_academy.py`` (= ``academy/lib/academy_common.py``);
+* the vendored lib ``_academy/`` (= ``academy/lib/academy_common/``);
 * the MCP server's library module (``academy/mcp/tools/library.py``), so quote
   normalisation and index parsing are the exact code ``library_verify_quote``
   and ``library_missing`` run;

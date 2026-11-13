@@ -11,7 +11,7 @@ actor (academy/references/roster-rules.md, "Role cut", rule 5):
 
 This module is stdlib only and knows nothing of a board's storage: it reads ticket
 metadata dicts (as ``BoardStore.iter_meta`` yields them). ``academy_common`` (vendored as
-every plugin's ``_academy.py``) knows the two tag fields; a script outside the academy
+every plugin's ``_academy/``) knows the two tag fields; a script outside the academy
 plugin imports this file by path (``import_workplan`` in researcher's notebook.py).
 
 **State**, computed from the tagged tickets, never hand-kept. Each ticket is classed:

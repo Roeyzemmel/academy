@@ -1,4 +1,4 @@
-"""Unit tests for academy/lib/academy_common.py and the contracts it implements.
+"""Unit tests for academy/lib/academy_common/ and the contracts it implements.
 
 Run from the repo root:  py -m unittest discover academy/tests
 """
