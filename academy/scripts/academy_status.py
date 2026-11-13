@@ -21,6 +21,12 @@ Sections (plan section 7):
 4. **Instances**: for each workspace instance, whether its home exists and whether
    its academy.json is present, valid and in agreement with workspace.json.
 5. **Usage** (``--usage``): the one-line week summary from usage_report.py.
+6. **Overdue** (only when something is): the routine jobs that have gone quiet. The
+   weekly usage review files a ``usage`` packet and settles the error ledger; when the
+   newest ``usage`` packet is older than ``OVERDUE_DAYS`` (or there is none while the
+   ledger has errors), the job is not doing its work, whatever its scheduler reports
+   (2026-11-13: the weekly cloud task had "succeeded" every Sunday for five weeks
+   while stopping at its first step, with no packet since 2026-09-28).
 
 Read-only on the board and the homes; ``--mark-visit`` writes only the visit file.
 """
@@ -90,6 +96,44 @@ def instance_health(name, row):
     return True, "ok"
 
 
+#: a weekly job is overdue after this many days without its packet
+OVERDUE_DAYS = 10
+
+
+def overdue(board, today=None):
+    """Lines for the routine jobs that have gone quiet (empty when none has)."""
+    today = today or _dt.date.today()
+    out = []
+    usage = sorted(str(p.get("created") or "") for p in packetlib.list_packets(board)
+                   if p.get("kind") == "usage" and p.get("created"))
+    errors, last_settle = 0, ""
+    try:
+        import error_ledger
+        recs = error_ledger.read_all(board)
+        week = (today - _dt.timedelta(days=7)).isoformat()
+        errors = sum(1 for r in recs if r.get("t") == "error" and r.get("ts", "") >= week)
+        settles = [r.get("ts", "")[:10] for r in recs if r.get("t") == "settle"]
+        last_settle = max(settles) if settles else ""
+    except Exception:           # the ledger is optional; its absence is not overdue
+        recs = []
+    if usage:
+        try:
+            age = (today - _dt.date.fromisoformat(usage[-1][:10])).days
+        except ValueError:
+            age = 0
+        if age > OVERDUE_DAYS:
+            out.append("weekly usage review: the last usage packet is of %s (%d days ago); the "
+                       "weekly job is not filing one (check its last run, not its status)"
+                       % (usage[-1][:10], age))
+    elif recs:
+        out.append("weekly usage review: no usage packet on the board, and the error ledger "
+                   "has records; run /academy:usage --weekly or check the scheduled job")
+    if recs and (out or not usage):
+        out.append("error ledger: %s; %d error(s) in the last 7 days"
+                   % ("last settled %s" % last_settle if last_settle else "never settled", errors))
+    return out
+
+
 def summary(board, workspace, since, include_instances=True):
     """The status dict (see the module docstring)."""
     tickets = boardlib.list_tickets(board, include_terminal=True)
@@ -113,6 +157,7 @@ def summary(board, workspace, since, include_instances=True):
         "needs_you": needs,
         "in_flight": {k: dict(v) for k, v in sorted(flight.items())},
         "came_back": {"tickets": back_tickets, "packets": back_packets},
+        "overdue": overdue(board),
     }
     if include_instances:
         out["instances"] = {}
@@ -136,6 +181,9 @@ def _p(p):
 
 def render(s, usage_line=None):
     out = []
+    if s.get("overdue"):
+        out.append("OVERDUE")
+        out += ["  " + ln for ln in s["overdue"]]
     n = s["needs_you"]
     count = len(n["tickets_to_human"]) + len(n["blocked_on_human"]) + len(n["packets"])
     out.append("NEEDS YOU (%d)" % count)

@@ -29,6 +29,19 @@ py academy/scripts/sync_common.py --check    # the vendored copies of the shared
 py academy/scripts/skill_index.py --check    # skill descriptions: form, length, total budget
 ```
 
+The suites are hermetic: every test builds its own workspace, homes, board and library in a
+temp directory, so the result depends on the repo and not on the machine (no `ACADEMY_*`
+variables, `~/.claude`, global git identity or network needed). The few tests that compare the
+code with the real data of a workspace (the real registries, the real library index) are opt-in:
+they run only with `ACADEMY_TEST_REAL=1`, and never when `CI` is set, which the push gate sets;
+`academy/tests/test_no_real_home_leaks.py` fails if a test reaches a real home any other way.
+Some tests need an optional tool and skip without it: `node` (the workflow scripts of every
+plugin), `bash` (`ci_local`, the runner test of the scientist plugin), `latexmk` and
+`latexdiff` (the author plugin's coloured diff), `git` (the tests that make a throw-away
+repo), `powershell` (the lab queue's `.ps1` front end); a machine without them tests less.
+Importing the shared library still reads `/etc/environment` (a workspace's tagged variables):
+it has no override, so run the suites on a machine without such a file for a fully scrubbed run.
+
 `academy/lib/academy_common/` is the one shared library: a package of parts (config,
 workspace, tickets, the board store, the inbox core, packets, hooks, ...) that callers
 use as one module, `ac.<name>`. Each plugin carries a byte-identical copy as
