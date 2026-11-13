@@ -210,6 +210,27 @@ def board_dir(board):
     return str(path)
 
 
+def board_cache_dir(cfg=None, environ=None):
+    """Where the GitHub board's listing is kept between processes, or None for nowhere.
+
+    ``ACADEMY_BOARD_CACHE`` wins: a directory, or ``0`` / ``off`` / ``no`` for none; then
+    ``board.cache`` of workspace.json (``false``, or a directory); else the user's cache
+    directory (``%LOCALAPPDATA%`` on Windows, ``$XDG_CACHE_HOME`` or ``~/.cache``
+    elsewhere), under ``academy/board``. The cache holds what the board's readers may read
+    anyway; deleting it only costs the next listing a full read."""
+    env = os.environ if environ is None else environ
+    val = env.get("ACADEMY_BOARD_CACHE")
+    if val is None:
+        val = (cfg or {}).get("cache")
+    if val is False or str(val).strip().lower() in ("0", "off", "no", "false"):
+        return None
+    if val and val is not True and str(val).strip().lower() not in ("1", "on", "yes", "true"):
+        return os.path.expanduser(str(val))
+    base = env.get("LOCALAPPDATA") if os.name == "nt" else env.get("XDG_CACHE_HOME")
+    base = base or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "academy", "board")
+
+
 def open_store(workspace=None, transport=None, board=None):
     """The board store of a workspace: ``board.backend`` of workspace.json, ``files`` by default.
 
@@ -226,8 +247,11 @@ def open_store(workspace=None, transport=None, board=None):
     backend = cfg.get("backend", "files")
     if backend == "files":
         return FileBoardStore(ws["board"])
+    cache_dir = None
     if transport is None and cfg.get("transport"):
         import importlib
+        cache_dir = board_cache_dir(cfg)      # only for the configured transport, never
+                                              # for one a caller (a test) hands in
         _import_board_store()         # puts academy/lib, where board_gh lives, on the path
         mod, _, fn = str(cfg["transport"]).partition(":")
         transport = getattr(importlib.import_module(mod), fn or "transport")(cfg)
@@ -238,7 +262,7 @@ def open_store(workspace=None, transport=None, board=None):
     # the store speaks through THIS copy of the library (its errors, its helpers)
     store = board_store.GithubBoardStore(transport, cfg.get("repo", ""),
                                          lib=sys.modules[__package__],
-                                         assignee=cfg.get("assignee"))
+                                         assignee=cfg.get("assignee"), cache_dir=cache_dir)
     store.board = ws["board"]         # packets, deep dives and ids stay files (board_dir)
     return store
 

@@ -76,6 +76,8 @@ class GhTransport(object):
         self.write_interval = write_interval
         self._last_write = None
         self._ids = {}
+        #: list_issues takes ``since`` (board_store's incremental listing)
+        self.since = True
 
     # -- plumbing -------------------------------------------------------------
     def api(self, method, path, payload=None, missing_ok=False):
@@ -123,11 +125,13 @@ class GhTransport(object):
         return self._ids[number]
 
     # -- the board_store transport -------------------------------------------
-    def list_issues(self, labels=None, state="all", page=1, per_page=100):
+    def list_issues(self, labels=None, state="all", page=1, per_page=100, since=None):
         q = "issues?state=%s&sort=created&direction=asc&per_page=%d&page=%d" % (
             state, per_page, page)
         if labels:
             q += "&labels=" + ",".join(labels)
+        if since:
+            q += "&since=" + since
         return self.api("GET", q)
 
     def get_issue(self, number):

@@ -189,11 +189,25 @@ rule is written once.
 
 Selection is `workspace.json`: `"board": "<path>"` (files, the default) or an object
 `{"path": "<local board dir>", "backend": "files" | "github", "repo": "owner/name",
-"transport": "module:factory"}`. The path stays (packets, deep-dives and `.render/` are files either
+"transport": "module:factory", "cache": false | "<dir>"}` (`cache` is optional, see below). The path stays (packets, deep-dives and `.render/` are files either
 way); `ac.open_store(workspace, transport=None)` and `board.resolve_store()` pick the store (a github store also carries the board path as `.board`, for
 packets), and an
 explicit `--board DIR` always means the file board there. `github` without a transport (given, or named
 by `board.transport`, a factory called with the config dict) is a `ConfigError`.
+
+**The listing is incremental** (2026-11-13). A transport that sets `since = True` (the `gh` one does)
+takes `list_issues(since=ISO)`. The store then reads the whole board once and afterwards asks only for
+the issues updated since the newest `updated_at` it holds (less two seconds; the times are GitHub's own),
+keeping the listing in the process and, between processes, in one JSON file per repository under the
+user's cache directory (`~/.cache/academy/board`, `%LOCALAPPDATA%\academy\board` on Windows). Measured
+on a board of 1192 tickets: a listing went from 20 s (twelve requests) to 1 s (one request), and
+`cowork.py list`, which lists once per workplan, from minutes to under 2 s. The whole board is read
+again once a day (an issue that was deleted or transferred leaves no trace in `since`), and whenever the
+file is unreadable or of another repository. A script reuses its listing for five seconds without asking
+(its own writes drop that); the MCP server asks on every call. One ticket (`get`, `status_of`, `save`)
+is always read live. `ACADEMY_BOARD_CACHE` (a directory, or `off`) or `board.cache` in `workspace.json`
+(`false`, or a directory) moves or disables the file; deleting it costs one full read. A transport handed
+to `open_store` (a test's) never gets a file. `test_board_listing.py` holds this to the full listing.
 
 `test_board_store.py` builds a GitHub board from a file board through the codec and shows that
 `inbox_core.select` (default, `--all`, `--campaign`, return legs, position order, the `--json`/text

@@ -98,6 +98,10 @@ class Context(object):
         one injected (tests, a session with a github transport)."""
         if self._store is None:
             self._store = ac.open_store(self.workspace)
+            # the server outlives the scripts that write between two of its calls: every
+            # listing asks GitHub what changed (one request), none is reused blind
+            if hasattr(self._store, "list_ttl"):
+                self._store.list_ttl = 0
         return self._store
 
     @property
