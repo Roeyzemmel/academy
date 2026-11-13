@@ -189,17 +189,25 @@ class GithubBoardStore(ac.BoardStore):
         path = self._cache_file()
         if not path:
             return
+        tmp = "%s.%d.tmp" % (path, os.getpid())
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            tmp = "%s.%d.tmp" % (path, os.getpid())
-            with open(tmp, "w", encoding="utf-8") as fh:
+            # the tickets of a private repository: readable by the user only (where the
+            # system has file modes)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump({"version": CACHE_VERSION, "repo": self.repo,
                            "full_at": self._held["full_at"],
                            "issues": {str(n): i for n, i in self._held["issues"].items()}},
                           fh, ensure_ascii=False, separators=(",", ":"))
             os.replace(tmp, path)
         except OSError:
-            pass                 # the cache is an optimisation; the listing is in hand
+            # the cache is an optimisation and the listing is in hand. On Windows the
+            # replace fails while another process reads the file: leave no temp behind
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
     def _listing(self):
         """``{number: issue}`` of the whole board, asking only for what changed (see the

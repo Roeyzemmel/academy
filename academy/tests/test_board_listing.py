@@ -168,6 +168,28 @@ class BetweenProcesses(Case):
         self.assertEqual(4, len(list(s.iter_meta())))
         self.assertEqual(self.plain(), list(self.store().iter_meta()))
 
+    def test_the_file_is_private_and_a_failed_write_leaves_nothing_behind(self):
+        list(self.store().iter_meta())
+        path = os.path.join(self.dir, "o__r.json")
+        if os.name != "nt":
+            self.assertEqual(0o600, os.stat(path).st_mode & 0o777)
+        # the replace fails (on Windows: another process is reading the file)
+        real, calls = os.replace, []
+
+        def refuse(a, b):
+            calls.append(a)
+            raise PermissionError("in use")
+        self.t.add_encoded(bc.encode(meta(9), "later"))
+        self.later()
+        os.replace = refuse
+        try:
+            got = list(self.store().iter_meta())
+        finally:
+            os.replace = real
+        self.assertEqual(1, len(calls))
+        self.assertEqual(self.plain(), got)                      # the listing is still right
+        self.assertEqual(["o__r.json"], os.listdir(self.dir))    # and no temp file is left
+
     def test_no_directory_means_no_file(self):
         list(self.store(cache_dir=None).iter_meta())
         self.assertEqual([], os.listdir(self.dir))
