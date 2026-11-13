@@ -1,7 +1,7 @@
 # Correctness-only lint (CI: .github/workflows/tests.yml, job `lint`). No style or
 # formatting rules; line length is deliberately not enforced (no E501).
 target-version = "py310"
-extend-exclude = ["docs", "evals", "scientist/scripts/legacy", "__pycache__",
+extend-exclude = ["docs", "academy/docs", "evals", "scientist/scripts/legacy", "__pycache__",
                   # a lab template with {{package}} placeholders, not valid Python
                   "scientist/templates/lab/experiments/_template.py"]
 

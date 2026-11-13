@@ -30,11 +30,11 @@ NAMES = re.compile(r"Roey|\broey\b|Roeyzemmel|roeyzemmel|lingo|TAU VPN|tau\.ac\.
 
 #: whole files that are history, kept as written
 HISTORY = (
-    "docs/migration-log.md",
-    "docs/migration-campaign-mode.md",
-    "docs/workflow-triage-*.md",
-    "docs/error-ledger-review-*.md",
-    "docs/superpowers/*",
+    "academy/docs/migration-log.md",
+    "academy/docs/migration-campaign-mode.md",
+    "academy/docs/workflow-triage-*.md",
+    "academy/docs/error-ledger-review-*.md",
+    "academy/docs/superpowers/*",
     "domains/*/CHANGELOG.md",
     "scientist/scripts/legacy/*",
     "academy/tests/test_generic.py",            # this file names what it looks for

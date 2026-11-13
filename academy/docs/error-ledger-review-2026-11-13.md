@@ -103,4 +103,7 @@ meant").
 - **Not done: Sage in the cloud.** The distribution has no `sagemath` package and
   fetching a conda installer was not permitted in the session; experiments that need
   Sage stay on the lab's worker.
+- **The docs moved into the base plugin** (`academy/docs/`, a stacked change after this
+  review): an installed plugin copy has them, `workspace_get` returns the folder, and the
+  repo root's `docs/README.md` is the pointer. Row 11's pointer file is gone with it.
 

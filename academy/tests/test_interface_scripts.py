@@ -888,7 +888,7 @@ class ChainDocsTests(unittest.TestCase):
 
     def test_protocol_research_flow_names_the_research_kind(self):
         """M4: research-intake forwards a `research` child; /author:inbox files as main."""
-        flow = self.section(self.read("docs", "protocol.md"),
+        flow = self.section(self.read("academy", "docs", "protocol.md"),
                             "### 6.4", "### 6.5")
         self.assertNotIn("`lead`", flow)
         self.assertIn("child `research` ticket", flow)
@@ -896,7 +896,7 @@ class ChainDocsTests(unittest.TestCase):
 
     def test_protocol_chain_section_warns_about_nesting_and_the_cli(self):
         """M6, M7: relay-within-relay and the self-declared CLI identity."""
-        chain = self.section(self.read("docs", "protocol.md"), "### 5.1", "## 6.")
+        chain = self.section(self.read("academy", "docs", "protocol.md"), "### 5.1", "## 6.")
         self.assertIn("fresh chain", chain)
         self.assertIn("self-declared", chain)
         self.assertIn("advisory", chain)

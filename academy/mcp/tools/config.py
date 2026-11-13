@@ -24,7 +24,8 @@ def _workspace(ctx, a):
     scripts = {p: "%s/%s/scripts" % (repo, p) for p in ac.PLUGINS
                if os.path.isdir(os.path.join(repo, p, "scripts"))}
     ws["academy"] = {"root": repo, "scripts": scripts,
-                     "docs": repo + "/docs" if os.path.isdir(repo + "/docs") else None}
+                     "docs": next((d for d in (repo + "/academy/docs", repo + "/docs")
+                                   if os.path.isfile(d + "/protocol.md")), None)}
     return ws
 
 

@@ -148,7 +148,7 @@ class PluginTests(unittest.TestCase):
         "author/references/formats.md",
         "author/tests/test_inbox.py",
         "author/tests/test_plugin.py", "academy/tests/test_interface_scripts.py",
-        "docs/migration-campaign-mode.md",
+        "academy/docs/migration-campaign-mode.md",
         "scientist/tests/fixtures/lab/experiments/2026-09-24_torus_cover_periodic_growth.py",
     }
     SKIP_DIRS = {".git", "__pycache__", "golden", "goldens", "_import", "docs-notes",

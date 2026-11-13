@@ -68,7 +68,7 @@ class TempDir(unittest.TestCase):
 
 def config_examples():
     """{instance: config} for every '### Example: <instance>' block in docs/config.md."""
-    text = read(os.path.join(REPO, "docs", "config.md"))
+    text = read(os.path.join(REPO, "academy", "docs", "config.md"))
     out = {}
     for m in re.finditer(r"^### Example: (\S+)\n\n```json\n(.*?)^```", text, re.M | re.S):
         out[m.group(1)] = json.loads(m.group(2))
@@ -609,7 +609,7 @@ class FileTests(TempDir):
 # ---------------------------------------------------------------------------
 
 def protocol_example():
-    text = read(os.path.join(REPO, "docs", "protocol.md"))
+    text = read(os.path.join(REPO, "academy", "docs", "protocol.md"))
     blocks = [b for b in fenced(text, "markdown") if b.startswith("---\nid: T-0007")]
     assert len(blocks) == 1
     return blocks[0]
@@ -779,7 +779,7 @@ class TicketTests(TempDir):
 # ---------------------------------------------------------------------------
 
 def packet_doc_example():
-    text = read(os.path.join(REPO, "docs", "packet-template.md"))
+    text = read(os.path.join(REPO, "academy", "docs", "packet-template.md"))
     blocks = [b for b in fenced(text, "markdown") if b.startswith("---\npacket: P-0012")]
     assert len(blocks) == 1
     return blocks[0]

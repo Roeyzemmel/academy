@@ -51,8 +51,9 @@ INSTRUCTIONS = (
     "one of the verdicts' refs (A.md), not the pass's decision.md.\n"
     "- Tickets are T-NNNN (tickets_get), packets P-NNNN (packets_get).\n"
     "- The plugins' scripts are <academy repo>/<plugin>/scripts/<name>.py (the base "
-    "plugin's: academy/academy/scripts); the docs cited as docs/<name>.md are "
-    "<academy repo>/docs. workspace_get names the academy repo and every home.\n"
+    "plugin's: academy/academy/scripts); the docs cited as docs/<name>.md are the base "
+    "plugin's, <academy repo>/academy/docs. workspace_get names these folders and "
+    "every home.\n"
     "- A refusal says what to change; change the call, do not repeat it."
 )
 

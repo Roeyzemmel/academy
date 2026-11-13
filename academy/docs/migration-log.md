@@ -1075,3 +1075,13 @@ misplaced academy script with its real path; the error records say which code pr
 them, so an error from a stale checkout or plugin copy reads `stale code` and not
 `regression`. Resolving the fixed classes is left to the human (the list is in the
 review).
+
+## 2026-11-13: the docs are part of the base plugin
+
+`docs/` moved to `academy/docs/` (history kept by `git mv`), so that an installed copy of
+the base plugin carries the contracts its skills and agents cite, and
+`${CLAUDE_PLUGIN_ROOT}/docs/<name>.md` resolves. The plugins' text still says
+`docs/<name>.md`; the repo root keeps `docs/README.md` as a pointer. A workspace or a home
+that names `academy`'s `docs/x.md` by path means `academy/academy/docs/x.md` from the
+workspace root.
+
