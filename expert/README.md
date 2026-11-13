@@ -58,7 +58,7 @@ Each script's usage is in its docstring.
 | `land_verdict.py`, `land_referee.py` | SubagentStop hooks (below) |
 | `review_blind_guard.py`, `library_edit_check.py` | PreToolUse and PostToolUse hooks (below) |
 | `_expert.py` | Shared helpers: imports the vendored lib and the MCP server's library and claims modules |
-| `_academy.py` | Vendored `academy/lib/academy_common.py`; never edit |
+| `_academy/` | Vendored `academy/lib/academy_common/` (a package); never edit |
 
 Tests: `py -m unittest discover expert/tests` from the academy repo.
 

@@ -7,7 +7,7 @@ Common options: ``--home DIR`` (default: the Author home holding the cwd), and f
 tests ``--agenda FILE --board DIR --workspace FILE --instance NAME --ns NS`` in place
 of the home's config.
 
-A thin wrapper over the academy's ``inbox_core`` (``_academy.py``). There is no
+A thin wrapper over the academy's ``inbox_core`` (``_academy``). There is no
 roadmap: a work item is a ticket (kind write / apply / copy / figure / build /
 notation / sweep to this Author itself, or an ask to another role), filed with
 ``board.py new`` / ``tickets_create`` or, from an agenda gap, ``agenda.py gaps --file``.

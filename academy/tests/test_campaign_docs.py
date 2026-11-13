@@ -110,7 +110,7 @@ class DocumentedCommands(unittest.TestCase):
     def test_the_docs_use_the_field_name_the_core_filters_on(self):
         for rel in (SKILL, REF, INBOX):
             self.assertRegex(text(*rel), r"campaign")
-        src = text("academy", "lib", "academy_common.py")
+        src = text("academy", "lib", "academy_common", "_inbox.py")
         self.assertIn('m.get("campaign") != campaign', src)
 
 

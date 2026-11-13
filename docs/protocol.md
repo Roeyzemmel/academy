@@ -1,8 +1,8 @@
 # The ticket protocol
 
 Plan sections 2, 5 and 7. This is the contract between instances. Every builder
-codes against it. `academy/lib/academy_common.py` implements it (vendored as
-`<plugin>/scripts/_academy.py`), and `academy/permissions.json` holds the permission
+codes against it. `academy/lib/academy_common/` implements it (a package, vendored as
+`<plugin>/scripts/_academy/`), and `academy/permissions.json` holds the permission
 tables. Where this text and the code disagree, fix one of them in the same commit.
 
 ## 1. Parties and names
@@ -454,7 +454,7 @@ segment); one stderr line then gives the command to run by hand, always with the
 `--only` (the unscoped manual run is for the session that owns the checkout). Never
 fatal: anything that goes wrong is one warning line on stderr, and the exit code is
 `--check`'s, unchanged. Selection, ordering, return legs and the
-checkpoint live once, in the academy library (`inbox_core` in `academy_common.py`); each
+checkpoint live once, in the academy library (`inbox_core` in `academy_common`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
 `--campaign <target>` (and `--cowork <slug>`, the same way, for a cowork's tickets;
@@ -638,7 +638,7 @@ the packet's ticket: `- <date> human: decision on P-NNNN D<k>: (<letter>) <optio
 ## 7. Hooks of the base plugin
 
 The base plugin's hooks (`academy/hooks/hooks.json`) enforce parts of this protocol
-directly. Each script imports the vendored lib `scripts/_academy.py`.
+directly. Each script imports the vendored lib `scripts/_academy/`.
 
 ### 7.1 Generated views
 

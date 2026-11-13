@@ -24,7 +24,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 
 Library modules (imported, not run): `agenda_lib.py` (the agenda format), `_author.py` (hook
 helpers: home and config, checker runs, baseline, dirty marker, build lock),
-`_academy.py` (the vendored `academy_common`; never edit the copy, run
+`_academy/` (the vendored `academy_common` package; never edit the copy, run
 `academy/scripts/sync_common.py` after a lib change).
 
 Tests: `py -m unittest discover -s ${CLAUDE_PLUGIN_ROOT}/tests -t ${CLAUDE_PLUGIN_ROOT}/tests`.

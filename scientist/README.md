@@ -47,7 +47,7 @@ rule: `academy/references/roster-rules.md`, "Model fallback").
 | `commit_gate.py` | PreToolUse `Bash\|PowerShell` hook on `git commit` in the lab repo | `tests/test_hooks.py` |
 | `experiment_edit_check.py` | PostToolUse hook: the header checker on an edited lab experiment | `tests/test_hooks.py` |
 | `_common.py` | lab scoping, the checker, git, commit-target parsing | via the above |
-| `_academy.py` | vendored `academy/lib/academy_common.py`; never edit | academy's `test_vendored.py` |
+| `_academy/` | vendored `academy/lib/academy_common/` (a package); never edit | academy's `test_vendored.py` |
 | `legacy/` | byte-exact copies of the lab's queue/runner scripts, the source of the Group C port; kept until phase 8 | — |
 
 Run the tests: `py -m unittest discover -s tests -t tests` from this folder.

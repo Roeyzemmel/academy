@@ -779,8 +779,9 @@ class AsHumanLintTests(unittest.TestCase):
             for sub in ("skills", "agents", "scripts", "hooks"):
                 root = os.path.join(repo, plugin, sub)
                 for dp, _dn, fns in os.walk(root):
+                    _dn[:] = [d for d in _dn if d != "_academy"]     # the vendored lib
                     for fn in fns:
-                        if not fn.endswith((".md", ".py", ".json")) or fn == "_academy.py":
+                        if not fn.endswith((".md", ".py", ".json")):
                             continue
                         rel = os.path.relpath(os.path.join(dp, fn), repo)
                         with open(os.path.join(dp, fn), encoding="utf-8") as fh:

@@ -10,7 +10,7 @@ Usage:
     py inbox.py [--instance researcher@x] [--n N] [--all] [--json] [--campaign TARGET | --cowork SLUG]
     py inbox.py --check T-NNNN          the serial checkpoint of a ticket just handled
 
-A thin wrapper over the academy's ``inbox_core`` (``_academy.py``): in-progress tickets
+A thin wrapper over the academy's ``inbox_core`` (``_academy``): in-progress tickets
 first (resume), then relay parents ready for their return leg (``"return": true``),
 then ``open`` and ``accepted`` tickets; never dead-route or pending blocked ones.
 ``--all`` lists every open/accepted/in-progress/blocked ticket without taking any.

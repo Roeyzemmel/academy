@@ -11,7 +11,17 @@ import _academy as ac
 import inbox
 
 PLUGIN = fixtures.PLUGIN
-LIB = os.path.join(fixtures.REPO, "academy", "lib", "academy_common.py")
+LIB = os.path.join(fixtures.REPO, "academy", "lib", "academy_common")
+
+
+def _package_files(directory):
+    """{name: bytes} of the ``*.py`` files of the library package in ``directory``."""
+    out = {}
+    for name in sorted(os.listdir(directory)):
+        if name.endswith(".py"):
+            with open(os.path.join(directory, name), "rb") as fh:
+                out[name] = fh.read()
+    return out
 
 # plan section 3.4: model, effort, fallback
 PLAN = {
@@ -159,9 +169,10 @@ class HookConfigTests(unittest.TestCase):
         self.assertIn(("PostToolUse", "library_edit_check.py"), seen)
 
     def test_vendored_lib_is_current(self):
-        with open(LIB, "rb") as a, open(os.path.join(PLUGIN, "scripts", "_academy.py"),
-                                         "rb") as b:
-            self.assertEqual(a.read(), b.read(), "run py academy/scripts/sync_common.py")
+        lib = _package_files(LIB)
+        self.assertIn("__init__.py", lib)
+        self.assertEqual(_package_files(os.path.join(PLUGIN, "scripts", "_academy")), lib,
+                         "run py academy/scripts/sync_common.py")
 
     def test_new_files_are_lf(self):
         for dp, dn, fn in os.walk(PLUGIN):

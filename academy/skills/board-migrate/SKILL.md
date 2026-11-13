@@ -58,7 +58,7 @@ still current for the board's files. Fix or report drift, never "fix" by editing
 that will hold the issues (`board.repo`, normally the workspace repository) with
 `py $S/board_templates.py render --out <that checkout>` (the issue form's instance dropdown
 comes from workspace.json, instances + `human`; `check --out` reports drift later, e.g. after
-a new instance), copy `scripts/{board_sync,board_codec}.py` + `lib/academy_common.py` into
+a new instance), copy `scripts/{board_sync,board_codec}.py` + the package `lib/academy_common/` (in place of an older `lib/academy_common.py`) into
 that repository's `.github/academy/{scripts,lib}/` (from a checkout that has the
 footer-tolerant codec), and set the repository variable `ACADEMY_HUMAN_LOGINS` to the
 human's login (`human.login`); set the board in `workspace.json` to `{"path", "backend":

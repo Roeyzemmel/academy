@@ -40,8 +40,9 @@ def vendored(role):
     import as ``_academy``): a different module object from ``academy_common``."""
     if role not in _VENDORED:
         name = "_academy_" + role
+        pkg = os.path.join(REPO, role, "scripts", "_academy")
         spec = importlib.util.spec_from_file_location(
-            name, os.path.join(REPO, role, "scripts", "_academy.py"))
+            name, os.path.join(pkg, "__init__.py"), submodule_search_locations=[pkg])
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod
         spec.loader.exec_module(mod)

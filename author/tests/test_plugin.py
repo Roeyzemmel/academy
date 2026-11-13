@@ -9,6 +9,16 @@ from fixtures import PLUGIN, REPO, SCRIPTS
 import _academy as ac  # noqa: E402
 import routes  # noqa: E402
 
+
+def _package_files(directory):
+    """{name: bytes} of the ``*.py`` files of the library package in ``directory``."""
+    out = {}
+    for name in sorted(os.listdir(directory)):
+        if name.endswith(".py"):
+            with open(os.path.join(directory, name), "rb") as fh:
+                out[name] = fh.read()
+    return out
+
 SKILLS = ("agenda", "audit-notation", "inbox", "next", "notes", "paper-method", "presync",
           "slideshow-maker", "status", "sweep")
 AGENTS = ("figure-maker", "math-editor", "math-writer", "notation-auditor", "note-sweeper",
@@ -142,8 +152,8 @@ class PluginTests(unittest.TestCase):
         "scientist/tests/fixtures/lab/experiments/2026-09-24_torus_cover_periodic_growth.py",
     }
     SKIP_DIRS = {".git", "__pycache__", "golden", "goldens", "_import", "docs-notes",
-                 "node_modules"}
-    SKIP_FILES = {"_academy.py", "migration-log.md"}     # vendored copies; history
+                 "node_modules", "_academy"}             # _academy: the vendored copies
+    SKIP_FILES = {"migration-log.md"}                    # history
     STALE = re.compile(r"next\.py|/author:next|roadmap\.md|roadmap item|\bR-\d{4}\b|R-NNNN")
 
     def test_no_stale_next_or_roadmap_references_anywhere_in_the_repo(self):
@@ -179,10 +189,9 @@ class PluginTests(unittest.TestCase):
 
     def test_vendored_lib_carries_the_inbox_core(self):
         self.assertTrue(hasattr(ac, "inbox_core"))
-        with open(os.path.join(REPO, "academy", "lib", "academy_common.py"), "rb") as fh:
-            lib = fh.read()
-        with open(os.path.join(SCRIPTS, "_academy.py"), "rb") as fh:
-            self.assertEqual(fh.read(), lib)
+        lib = _package_files(os.path.join(REPO, "academy", "lib", "academy_common"))
+        self.assertIn("_inbox.py", lib)
+        self.assertEqual(_package_files(os.path.join(SCRIPTS, "_academy")), lib)
 
 
 class VisionTests(unittest.TestCase):
