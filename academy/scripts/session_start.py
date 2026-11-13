@@ -14,6 +14,13 @@ silent no-op. Inside one it
      are all terminal, or all delivered for a relay parent ("; freed: T-0003"), by
      the board-wide pending-decision count from decisions.py ("; D decisions waiting
      — /academy:decide"), and by config problems.
+
+In a home or anywhere else inside a workspace it also says when the academy code the
+session runs is behind (``staleness``): the checkout is N commits behind ``origin/main``
+as last fetched, or the installed plugin copy is an older version than the workspace's
+academy checkout. A session on old code repeats errors that are already fixed (the
+2026-11-13 ledger review: three weeks of them read as regressions); the line says what
+to run. Nothing is fetched: a SessionStart hook does not wait on the network.
 """
 
 import os
@@ -247,6 +254,72 @@ def decisions_waiting(board, all_tickets):
         return None
 
 
+PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _version(plugin_root):
+    try:
+        import json
+        with open(os.path.join(plugin_root, ".claude-plugin", "plugin.json"),
+                  encoding="utf-8") as fh:
+            return str(json.load(fh).get("version") or "")
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def _vtuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3])
+
+
+def _git_out(path, *args):
+    try:
+        p = subprocess.run(["git", "-C", path] + list(args), capture_output=True, text=True,
+                           timeout=10, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return p.stdout.strip() if p.returncode == 0 else ""
+
+
+def staleness(plugin_root=PLUGIN_ROOT, workspace=None):
+    """One clause saying the running academy code is behind, or ''.
+
+    * the code runs from a git checkout: how many commits of ``origin/main`` (as last
+      fetched) it lacks, when any;
+    * the code runs from an installed plugin copy (no git): its version against the
+      version of the workspace's academy checkout, when that is newer.
+    """
+    repo = os.path.dirname(plugin_root)
+    if _git_out(repo, "rev-parse", "--is-inside-work-tree") == "true" \
+            and os.path.exists(os.path.join(repo, ".git")):
+        for ref in ("refs/remotes/origin/main", "refs/remotes/origin/master"):
+            if _git_out(repo, "rev-parse", "--verify", "--quiet", ref):
+                n = _git_out(repo, "rev-list", "--count", "HEAD..%s" % ref)
+                if n.isdigit() and int(n) > 0:
+                    return ("the academy checkout is %s commit%s behind %s (as last fetched): "
+                            "errors already fixed there will recur; ask the human for the "
+                            "pointer bump, or fetch and merge" % (
+                                n, "" if n == "1" else "s", ref.split("/", 2)[2]))
+                return ""
+        return ""
+    mine = _version(plugin_root)
+    root = None
+    try:
+        ws = workspace if workspace is not None else ac.load_workspace()
+        root = os.path.dirname(ws["_path"]) if ws and ws.get("_path") else None
+    except ac.AcademyError:
+        root = None
+    for cand in ([os.environ.get("ACADEMY_ROOT")] if os.environ.get("ACADEMY_ROOT") else []) + \
+            ([os.path.join(root, "academy")] if root else []):
+        theirs = _version(os.path.join(cand, os.path.basename(plugin_root)))
+        if mine and theirs and _vtuple(mine) < _vtuple(theirs):
+            return ("the installed academy plugins are %s, the workspace's academy checkout is "
+                    "%s: run scripts/bootstrap.py and restart (errors already fixed will "
+                    "recur until then)" % (mine, theirs))
+        if theirs:
+            break
+    return ""
+
+
 def status_line(event):
     """The one line to print, or None outside an academy home."""
     home = ac.find_home(ac.event_cwd(event))
@@ -300,6 +373,12 @@ def main():
         line = status_line(event)
     except Exception as exc:                     # a SessionStart hook never breaks a session
         line = "academy: session_start failed: %s" % exc
+    try:
+        stale = staleness()
+    except Exception:
+        stale = ""
+    if stale:
+        line = (line + "; " if line else "academy: ") + stale
     if line:
         ac.emit_context("SessionStart", line)
     return 0

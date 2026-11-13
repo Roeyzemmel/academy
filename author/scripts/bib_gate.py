@@ -27,22 +27,28 @@ def allowed(event, config):
     return ns in ("", au.BIB_WRITER_NAMESPACE)
 
 
-def main():
-    event = ac.read_event()
+def decide(event):
+    """``None`` or ``("deny", reason)``."""
     path = ac.edited_path(event)
     home, cfg = au.author_home(path)
     if not home or not ac.path_in_role(path, cfg, "bib"):
-        return 0
+        return None
     if allowed(event, cfg):
-        return 0
+        return None
     ns, bare = ac.agent_identity(event)
     who = ("%s:%s" % (ns, bare) if ns else bare) if bare else "the main session (no agent)"
-    ac.emit_permission("deny", (
+    return ("deny", (
         "The bibliography of %s is edited only by the Expert's librarian, which fetches "
         "the record (Crossref / arXiv / MathSciNet) and writes a card with the verbatim "
         "quote. This edit came from %s. File a `cite` ticket to the Expert instance "
         "(/expert:cite, or tickets_create kind=cite) instead of writing the entry here; "
         "do not route around this gate." % (cfg.get("instance", "this paper"), who)))
+
+
+def main():
+    verdict = decide(ac.read_event())
+    if verdict:
+        ac.emit_permission(verdict[0], verdict[1])
     return 0
 
 

@@ -2,42 +2,12 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/bib_gate.py\"",
-            "timeout": 20
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/pinned_guard.py\"",
-            "statusMessage": "author: checking pinned statements",
-            "timeout": 20
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/preamble_guard.py\"",
-            "timeout": 20
-          }
-        ]
-      },
-      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/notation_scope_guard.py\"",
+            "command": "\"${ACADEMY_PYTHON:-$(command -v py || command -v python3)}\" \"${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_use.py\"",
+            "statusMessage": "author: checking the edit",
             "timeout": 20
           }
         ]
