@@ -729,9 +729,14 @@ def build_paper(root: str) -> Paper:
             all_labels.setdefault(label, []).append((rel, line))
         ref_uses.extend(refs)
         anomalies.extend(probs)
-        key = section
-        if key not in order:
-            order.append(key)
+        # a file's statements carry the section they stand in, which is the file's own
+        # \\section when it has one and main.tex's otherwise: list every one of them, or
+        # the registry view drops the statements of a file that opens its own section
+        # after an \\input with no \\section of main.tex before it (2026-11-13: the five
+        # statements of an appendix were parsed and checked but had no row)
+        for key in [section] + [s.section for s in stmts]:
+            if key not in order:
+                order.append(key)
 
     by_label: Dict[str, Statement] = {}
     for stmt in statements:

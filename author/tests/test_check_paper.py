@@ -34,6 +34,32 @@ class SelfTest(unittest.TestCase):
         self.assertIn("Self-test: 0 checks failed.", out)
 
 
+class RegistryViewTests(unittest.TestCase):
+    """Every parsed statement has a row in the generated view (2026-11-13: the statements
+    of a file that opens its own \\section, input after another section of main.tex,
+    were checked but had no row)."""
+
+    def test_a_file_with_its_own_section_keeps_its_rows(self):
+        tmp = tempfile.mkdtemp(prefix="cp-view-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.makedirs(os.path.join(tmp, "sections"))
+        with open(os.path.join(tmp, "main.tex"), "w", encoding="utf-8") as fh:
+            fh.write("\\documentclass{amsart}\n\\begin{document}\n\\section{Body}\n"
+                     "\\input{sections/a}\n\\appendix\n\\input{sections/b}\n\\end{document}\n")
+        with open(os.path.join(tmp, "sections", "a.tex"), "w", encoding="utf-8") as fh:
+            fh.write("\\begin{lem}\\label{lem:a}\nA.\n\\end{lem}\n")
+        with open(os.path.join(tmp, "sections", "b.tex"), "w", encoding="utf-8") as fh:
+            fh.write("\\section{Basics}\n\\begin{lem}\\label{lem:b}\nB.\n\\end{lem}\n")
+        view = os.path.join(tmp, "statements.md")
+        code, out, err = run("--root", tmp, "--registry", view, "--no-log")
+        with open(view, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("| `lem:a` |", text)
+        self.assertIn("## Basics", text)
+        self.assertIn("| `lem:b` |", text, out + err)
+        self.assertLess(text.index("## Body"), text.index("## Basics"))
+
+
 class ConfigTests(unittest.TestCase):
     MAIN = "\\documentclass{amsart}\n\\begin{document}\n\\section{A}\n\\input{sections/a}\n" \
            "\\end{document}\n"
