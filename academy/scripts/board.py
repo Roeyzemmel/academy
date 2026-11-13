@@ -26,6 +26,7 @@ Nothing here commits: board commits are made by session_start / board sync.
 """
 
 import argparse
+import collections
 import json
 import os
 import sys
@@ -309,6 +310,10 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
 # CLI
 # ----------------------------------------------------------------------------
 
+#: rows of the text listing when no --limit is given
+LIST_ROWS = 50
+
+
 def _fmt_row(m):
     return "%-8s %-11s %-6s %-18s -> %-18s %s" % (
         m.get("id"), m.get("status"), m.get("priority"), m.get("from"), m.get("to"),
@@ -334,6 +339,8 @@ def main(argv=None):
     p.add_argument("--to"); p.add_argument("--from", dest="frm"); p.add_argument("--status")
     p.add_argument("--all", action="store_true", help="include closed/rejected/cancelled")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--limit", type=int, default=LIST_ROWS,
+                   help="rows of the text listing (default %d, 0 = all)" % LIST_ROWS)
 
     p = sub.add_parser("new", help="file a new ticket")
     p.add_argument("--to", required=True); p.add_argument("--title", required=True)
@@ -391,9 +398,15 @@ def main(argv=None):
             if a.json:
                 print(json.dumps(rows, indent=2, ensure_ascii=False))
             else:
-                for m in rows:
+                shown = rows[:a.limit] if a.limit > 0 else rows
+                for m in shown:
                     print(_fmt_row(m))
                 print("%d ticket(s)" % len(rows))
+                if len(shown) < len(rows):
+                    counts = collections.Counter(m.get("status") for m in rows)
+                    print("(the first %d; %s; narrow with --to / --from / --status, or "
+                          "--limit 0 for all)" % (len(shown), ", ".join(
+                              "%s %d" % kv for kv in sorted(counts.items()))))
         elif a.cmd == "new":
             budget = _default_budget()
             if a.runs:

@@ -89,6 +89,34 @@ def list_packets(board, only_open=False, instance=None):
     return out
 
 
+#: rows of the text listing when no --limit is given
+LIST_ROWS = 50
+
+
+def brief(rows):
+    """What a review reads from a listing, and no more (2026-11-13: 273 open packets were
+    189 000 characters of JSON, mostly paths, nulls and the titles of packets that only
+    want an acknowledgement).
+
+    ``decide``: a row (packet, title, instance, kind, ticket, pending) per valid packet
+    with a decision to make; ``problems``: packet, instance and the problems of each
+    invalid one (shown on the dashboard, not asked); ``acknowledge``: the ids of the valid
+    packets with nothing to decide. ``packets.py show P-NNNN`` prints any one in full."""
+    out = {"count": len(rows), "decide": [], "problems": [], "acknowledge": []}
+    for m in rows:
+        if m.get("_problems"):
+            out["problems"].append({"packet": m.get("packet"), "instance": m.get("instance"),
+                                    "pending": m["_pending"], "problems": m["_problems"]})
+        elif m["_pending"]:
+            out["decide"].append({k: v for k, v in (
+                ("packet", m.get("packet")), ("title", m.get("title")),
+                ("instance", m.get("instance")), ("kind", m.get("kind")),
+                ("ticket", m.get("ticket")), ("pending", m["_pending"])) if v})
+        else:
+            out["acknowledge"].append(m.get("packet"))
+    return out
+
+
 def get_packet(board, pid):
     path = ac.find_packet(ac.board_dir(board), pid)
     if not path:
@@ -226,7 +254,14 @@ def main(argv=None):
 
     p = sub.add_parser("list", help="list packets")
     p.add_argument("--open", action="store_true"); p.add_argument("--instance")
+    p.add_argument("--pending", action="store_true",
+                   help="only packets with a decision still to make")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--brief", action="store_true",
+                   help="with --json: what a review needs and no more (see brief())")
+    p.add_argument("--limit", type=int, default=LIST_ROWS,
+                   help="rows of the text listing, newest first (default %d, 0 = all)"
+                        % LIST_ROWS)
 
     p = sub.add_parser("show", help="print one packet")
     p.add_argument("id")
@@ -250,15 +285,24 @@ def main(argv=None):
                                 a.status_proposed, body, workspace=ws))
         elif a.cmd == "list":
             rows = list_packets(board, a.open, a.instance)
-            if a.json:
+            if a.pending:
+                rows = [m for m in rows if m["_pending"]]
+            if a.json and a.brief:
+                print(json.dumps(brief(rows), ensure_ascii=False))
+            elif a.json:
                 print(json.dumps(rows, indent=2, ensure_ascii=False))
             else:
+                total = len(rows)
+                if a.limit > 0 and total > a.limit:
+                    rows = rows[-a.limit:]
+                    print("(the newest %d of %d; --limit 0 lists all, --pending only those "
+                          "with a decision to make)" % (a.limit, total))
                 for m in rows:
                     pend = ",".join("D%d" % k for k in m["_pending"]) or "-"
                     print("%-8s %-8s %-18s %-18s pending:%-8s %s" % (
                         m.get("packet"), m.get("state"), m.get("instance"), m.get("kind"),
                         pend, m.get("title")))
-                print("%d packet(s)" % len(rows))
+                print("%d packet(s)" % total)
         elif a.cmd == "show":
             path, meta, body = get_packet(board, a.id)
             with open(path, "r", encoding="utf-8") as fh:

@@ -788,6 +788,43 @@ class AcademyStatusTest(Sandbox):
         self.assertTrue(ac.RE_DATE.match(d))
 
 
+class AcademyStatusScreenTest(unittest.TestCase):
+    """The screen stays a screen (2026-11-13: 286 waiting items were 48 000 characters)."""
+
+    def summary(self, n):
+        tickets = [{"id": "T-%04d" % i, "title": "t%d" % i, "from": "author@a" if i % 3 else "expert@e",
+                    "to": "human", "status": "open", "priority": "high" if i == 5 else "normal"}
+                   for i in range(1, n + 1)]
+        packets = [{"packet": "P-%04d" % i, "title": "p%d" % i, "instance": "expert@e",
+                    "kind": "citation", "_pending": [1] if i == 2 else []}
+                   for i in range(1, n + 1)]
+        return {"needs_you": {"tickets_to_human": tickets, "blocked_on_human": [],
+                              "packets": packets},
+                "in_flight": {}, "since": "2026-11-01",
+                "came_back": {"tickets": [dict(t, result="word " * 100) for t in tickets],
+                              "packets": []}}
+
+    def test_long_lists_are_cut_urgent_first_and_the_rest_is_counted(self):
+        text = academy_status.render(self.summary(40))
+        lines = text.splitlines()
+        self.assertEqual("NEEDS YOU (80)", lines[0])
+        self.assertTrue(lines[1].startswith("  ticket  T-0005"), lines[1])       # high priority
+        self.assertTrue(lines[2].startswith("  ticket  T-0040"), lines[2])       # then newest
+        self.assertIn("  ... and 28 more tickets to you (author@a 19, expert@e 9); --all lists them",
+                      lines)
+        packets = [ln for ln in lines if ln.startswith("  packet  ")]
+        self.assertEqual(academy_status.SCREEN_ROWS, len(packets))
+        self.assertIn("P-0002", packets[0])                                      # a decision waits
+        self.assertTrue(all(len(ln) < 260 for ln in lines), max(map(len, lines)))
+        self.assertLess(len(text), 6000)
+
+    def test_all_lists_every_row_and_a_short_list_is_untouched(self):
+        self.assertEqual(40, academy_status.render(self.summary(40), cap=0).count("  ticket  "))
+        short = academy_status.render(self.summary(3))
+        self.assertNotIn("more", short)
+        self.assertEqual(3, short.count("  ticket  "))
+
+
 class AsHumanLintTests(unittest.TestCase):
     ALLOWED = {os.path.join("academy", "skills", s, "SKILL.md")
                for s in ("board", "desk", "decide", "cowork")}
