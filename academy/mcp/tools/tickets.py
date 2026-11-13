@@ -9,7 +9,7 @@ import re
 
 import academy_common as ac
 
-from . import Tool, ToolError, obj, S, B, L
+from . import Tool, ToolError, obj, page, S, B, I, L
 
 PRIORITY_ORDER = {"high": 0, "normal": 1, "low": 2}
 #: the ``instance`` argument of a write: the instance the caller acts for
@@ -416,9 +416,11 @@ def update_ticket(ctx, a):
 
 
 def _summary(path, meta):
-    return {k: meta.get(k) for k in ("id", "title", "kind", "from", "to", "status",
-                                     "priority", "agenda", "updated")} | {
-        "path": path.replace("\\", "/")}
+    row = {k: meta.get(k) for k in ("id", "title", "kind", "from", "to", "status",
+                                    "priority", "agenda", "parent", "updated")}
+    if not str(path).startswith("github#"):       # an issue's ref is its id; a file's is not
+        row["path"] = path.replace("\\", "/")
+    return row
 
 
 def _list(ctx, a):
@@ -426,6 +428,7 @@ def _list(ctx, a):
     statuses = a.get("status")
     if isinstance(statuses, str):
         statuses = [statuses]
+    text = " ".join(str(a.get("text") or "").lower().split())
     for p, m in ctx.store.iter_meta():
         if a.get("to") and m.get("to") != a["to"]:
             continue
@@ -437,9 +440,18 @@ def _list(ctx, a):
             continue
         if not a.get("include_terminal", True) and m.get("status") in ac.TERMINAL:
             continue
+        if a.get("kind") and m.get("kind") != a["kind"]:
+            continue
+        if a.get("parent") and m.get("parent") != a["parent"]:
+            continue
+        if any(a.get(k) and m.get(k) != a[k] for k in ("campaign", "cowork")):
+            continue
+        if text and text not in (" ".join(str(m.get(k) or "") for k in
+                                          ("id", "title", "ask", "agenda"))).lower():
+            continue
         out.append(_summary(p, m))
     out.sort(key=lambda t: (PRIORITY_ORDER.get(t.get("priority"), 1), t["id"]))
-    return {"board": ctx.board, "count": len(out), "tickets": out}
+    return {"board": ctx.board} | page(out, a, "tickets", by="status")
 
 
 def _get(ctx, a):
@@ -450,10 +462,13 @@ def _get(ctx, a):
 
 TOOLS = [
     Tool("tickets_list", "List board tickets, filtered by to / from / instance (either "
-         "side) / status.",
+         "side) / status / kind / parent (a ticket's children) / campaign / cowork / text "
+         "(words in the id, title, ask or agenda). At most limit rows (default 50, 0 = "
+         "all) from offset; a cut listing says truncated, with the counts by status.",
          obj({"to": S, "from": S, "instance": S,
               "status": {"type": ["string", "array"], "items": {"type": "string"}},
-              "include_terminal": B}), _list),
+              "kind": S, "parent": S, "campaign": S, "cowork": S, "text": S,
+              "include_terminal": B, "limit": I, "offset": I}), _list),
     Tool("tickets_get", "Read one ticket (frontmatter, body, validation problems).",
          obj({"id": S, "instance": ACTING}, ["id"]), _get),
     Tool("tickets_create", "File a ticket from the caller's instance (the human files "

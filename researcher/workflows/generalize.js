@@ -86,7 +86,7 @@ const end = async (delivered) => {
 if (MODE === 'deliver') {
   if (!T) throw new Error('mode deliver needs args.ticket')
   if (!A.conjectures || !A.conjectures.length) throw new Error('mode deliver needs args.conjectures (the ids propose returned)')
-  const ch = await clerk('children', [`List the tickets whose parent is ${T} (tickets_list / tickets_get), kind test, with their refs. Write nothing.`], CHILDREN, 'children', 'Record')
+  const ch = await clerk('children', [`List the tickets whose parent is ${T} (tickets_list with parent: "${T}" and kind: "test"; tickets_get for one), with their refs. Write nothing.`], CHILDREN, 'children', 'Record')
   const tests = ch ? ch.tests : []
   const missing = A.conjectures.filter(cid => !tests.some(t => (t.refs || []).some(r => r === cid || r.endsWith(':' + cid.split(':').pop()))))
   if (missing.length) return Object.assign(out, { outcome: 'tests-missing', missing, reason: 'no test ticket names ' + missing.join(', ') + ': file them first' })
@@ -152,7 +152,7 @@ const filed = await agent(`File exactly these falsifier test tickets to the Scie
   `${JSON.stringify(sp ? sp.specs : [])}. Return the ticket ids, or the refusals verbatim.`,
   { label: 'file tests', phase: 'Record', agentType: 'researcher:lead-researcher', schema: { type: 'object', properties: { tickets: { type: 'array', items: { type: 'string' } }, refusals: { type: 'array', items: { type: 'string' } } }, required: ['tickets', 'refusals'] } })
 if (filed && filed.refusals.length) out.notes.push('test tickets refused: ' + filed.refusals.join('; '))
-const ch = await clerk('children', [`List the tickets whose parent is ${T} (tickets_list / tickets_get), kind test, with their refs. Write nothing.`], CHILDREN, 'children', 'Record')
+const ch = await clerk('children', [`List the tickets whose parent is ${T} (tickets_list with parent: "${T}" and kind: "test"; tickets_get for one), with their refs. Write nothing.`], CHILDREN, 'children', 'Record')
 const tests = ch ? ch.tests : []
 const missing = c.conjectures.filter(cid => !tests.some(t => (t.refs || []).some(r => r === cid || r.endsWith(':' + cid.split(':').pop()))))
 if (missing.length || !filed) {

@@ -51,6 +51,39 @@ def obj(props, required=()):
     return out
 
 
+#: rows a listing tool returns when the caller names no ``limit``
+LIST_LIMIT = 50
+
+
+def page(rows, a, key, by=None):
+    """The listing result for ``rows``: ``{"count", key: rows}``, cut to ``limit`` rows
+    (default LIST_LIMIT, 0 for all) from ``offset``. A cut listing says so: ``shown``,
+    ``truncated``, how the matches split (``by`` -> counts) and how to narrow, so that a
+    caller never takes a part for the whole and a board of a thousand tickets does not
+    fill its context."""
+    try:
+        limit = int(a.get("limit", LIST_LIMIT))
+        offset = max(0, int(a.get("offset", 0)))
+    except (TypeError, ValueError):
+        raise ToolError("limit and offset are integers (limit 0 = every row)")
+    shown = rows[offset:] if limit <= 0 else rows[offset:offset + limit]
+    out = {"count": len(rows), key: [{k: v for k, v in r.items() if v not in (None, "")}
+                                     for r in shown]}
+    if len(shown) < len(rows):
+        out["shown"] = len(shown)
+        out["offset"] = offset
+        out["truncated"] = True
+        if by:
+            counts = {}
+            for r in rows:
+                counts[r.get(by)] = counts.get(r.get(by), 0) + 1
+            out["by_" + by] = counts
+        out["hint"] = ("%d of %d rows: narrow the filters, or read on with offset=%d "
+                       "(limit=0 returns every row)"
+                       % (len(shown), len(rows), offset + len(shown)))
+    return out
+
+
 S = {"type": "string"}
 I = {"type": "integer"}
 B = {"type": "boolean"}

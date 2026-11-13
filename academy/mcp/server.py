@@ -50,6 +50,9 @@ INSTRUCTIONS = (
     "- A file reference is home-relative or file:<instance>/<path>; a verdict_file is "
     "one of the verdicts' refs (A.md), not the pass's decision.md.\n"
     "- Tickets are T-NNNN (tickets_get), packets P-NNNN (packets_get).\n"
+    "- tickets_list and packets_list return at most 50 rows and say truncated when more "
+    "match: filter (to, status, kind, parent, text; pending for packets) before paging "
+    "with offset.\n"
     "- The plugins' scripts are <academy repo>/<plugin>/scripts/<name>.py (the base "
     "plugin's: academy/academy/scripts); the docs cited as docs/<name>.md are the base "
     "plugin's, <academy repo>/academy/docs. workspace_get names these folders and "
@@ -80,8 +83,9 @@ TOOLS = all_tools()
 
 
 def _result(value, is_error=False):
-    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False,
-                                                           indent=1)
+    # no indentation: a listing of a hundred rows is a third smaller, and it is read by a
+    # model, not by eye
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     return {"content": [{"type": "text", "text": text}], "isError": bool(is_error)}
 
 
