@@ -18,6 +18,13 @@ def _workspace(ctx, a):
         if ctx.agent else ac.HUMAN
     ws["caller"] = {"agent": who, "instance": inst, "verified": ctx.verified,
                     "home_instance": ctx.home_instance(), "cwd": ctx.cwd.replace("\\", "/")}
+    # where the plugins' scripts and the docs are, so nobody guesses (2026-11-13)
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))).replace("\\", "/")
+    scripts = {p: "%s/%s/scripts" % (repo, p) for p in ac.PLUGINS
+               if os.path.isdir(os.path.join(repo, p, "scripts"))}
+    ws["academy"] = {"root": repo, "scripts": scripts,
+                     "docs": repo + "/docs" if os.path.isdir(repo + "/docs") else None}
     return ws
 
 

@@ -83,3 +83,24 @@ meant").
 - **Large section files** (`sections/markings.tex`, 40k tokens): 9 whole-file reads
   refused. The Author's agents could be given the statement by label (`claims_show`)
   or a line range from the checker instead of the file.
+
+## Follow-up the same day: harness and tooling
+
+- **The server says where things are.** The MCP server's `instructions` (read by every
+  session before its first call) carry the conventions of rows 1-8 in a dozen lines,
+  and `workspace_get` returns `academy.root`, `academy.scripts` per plugin and
+  `academy.docs`.
+- **`script_path_guard` met its first live session** and wrongly denied two commands:
+  one with a second `cd`, one quoting a call inside a here-document. It now follows
+  every `cd` before the call, does not read here-document bodies, and says nothing
+  once it cannot tell where a command runs.
+- **`expert/scripts/sources.py`**: bibliographic records from the arXiv and Crossref
+  APIs instead of fetched pages (`lookup`, `search`); the librarian's entry step and
+  the scout's arXiv step use the APIs. Two hosts, both on the source allowlist.
+- **TeX in the cloud**: the workspace's `scripts/cloud-tex.sh` (apt, about a minute),
+  run by `cloud-setup.sh`; a `build` workflow in the paper's repo with the same
+  package list.
+- **Not done: Sage in the cloud.** The distribution has no `sagemath` package and
+  fetching a conda installer was not permitted in the session; experiments that need
+  Sage stay on the lab's worker.
+

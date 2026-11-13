@@ -26,6 +26,7 @@ class ScriptPathGuard(unittest.TestCase):
 
     def test_the_ledgers_guesses_are_answered_with_the_real_path(self):
         real = os.path.realpath(os.path.join(PLUGIN, "scripts", "cowork.py")).replace("\\", "/")
+        os.makedirs(os.path.join(self.cwd, "sub"))
         for cmd in ("python3 academy/scripts/cowork.py status x --json",
                     "py scripts/cowork.py status x --json 2>&1 || python3 scripts/cowork.py status x",
                     "cd sub && py 'scripts/cowork.py' status x",
@@ -39,6 +40,25 @@ class ScriptPathGuard(unittest.TestCase):
         v = self.decide("py 'C:\\\\x\\\\academy\\\\0.1.0\\\\scripts\\\\cards.py' validate c.md",
                         tool="PowerShell")
         self.assertIn("/expert/scripts/cards.py", v[1])
+
+    def test_every_cd_before_the_call_is_followed_and_an_unknown_one_silences(self):
+        # the guard's own first live false positives (2026-11-13): a second cd in the
+        # command, and a call quoted inside a here-document
+        real_dir = os.path.join(PLUGIN, "scripts")
+        os.makedirs(os.path.join(self.cwd, "a", "b"))
+        rel = os.path.relpath(real_dir, os.path.join(self.cwd, "a", "b")).replace("\\", "/")
+        self.assertIsNone(self.decide("cd a && ls; cd b && py %s/cowork.py list" % rel))
+        self.assertIsNotNone(self.decide("cd a && cd b && py scripts/cowork.py list"))
+        for cmd in ("cd $HOME && py scripts/cowork.py list",       # where is that?
+                    "cd nowhere && py scripts/cowork.py list",
+                    "cd a; cd - ; py scripts/cowork.py list",
+                    "pushd a; popd; py scripts/cowork.py list",
+                    "python3 - <<'E'\ncmd = 'py scripts/cowork.py list'\nE",
+                    "cat > t.txt <<EOF\n; python3 scripts/cowork.py status x\nEOF\nls"):
+            self.assertIsNone(self.decide(cmd), cmd)
+        # a cd after the call does not move it; a call after a here-document is still read
+        self.assertIsNotNone(self.decide("py scripts/cowork.py list; cd $HOME"))
+        self.assertIsNotNone(self.decide("cat <<E\nx\nE\npy scripts/cowork.py list"))
 
     def test_a_script_of_several_plugins_lists_them(self):
         v = self.decide("python3 scripts/inbox.py --json")

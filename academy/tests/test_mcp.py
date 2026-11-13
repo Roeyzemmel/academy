@@ -1385,6 +1385,19 @@ Corners of $P$ are cycles.
 """
 
 
+class TestServerSaysWhereThingsAre(McpTestBase):
+    def test_instructions_and_workspace_get_name_the_conventions(self):
+        res = self.server().request("initialize", {"protocolVersion": "2025-06-18"})["result"]
+        for want in ("instance", "deliver: true", "waiting_on", "<plugin>/scripts", "docs"):
+            self.assertIn(want, res["instructions"])
+        self.assertLess(len(res["instructions"]), 1500)
+        err, ws = self.server().call("workspace_get")
+        self.assertFalse(err, ws)
+        self.assertTrue(os.path.isfile(os.path.join(ws["academy"]["scripts"]["academy"],
+                                                    "cowork.py")))
+        self.assertTrue(os.path.isfile(os.path.join(ws["academy"]["docs"], "protocol.md")))
+
+
 class TestEvidenceRowAndVerdictFile(unittest.TestCase):
     """The 2026-11-13 ledger round: a bar in free text, and a verdict_file naming the pass."""
 

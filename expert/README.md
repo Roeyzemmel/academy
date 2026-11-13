@@ -50,6 +50,7 @@ Each script's usage is in its docstring.
 | `decision_table.py` | The proof-review decision table, applied mechanically to runs A and B |
 | `reviews.py` | Where review records live (`reviews/<ns>/<id>/<pass>/`), pass names, the statement hash |
 | `cards.py` | The citation card: schema, scaffold, validation |
+| `sources.py` | A bibliographic record from the arXiv and Crossref APIs (`lookup <id \| DOI>`), and arXiv search / new listings (`search "<q>" [--cat C] [--since D]`) |
 | `library_index.py` | Cached keys with no `index.md` row; draft and append the rows |
 | `hot.py` | Builds `hot.md`, the clerk's digest, from the MCP server's access log (a generated view) |
 | `expert_status.py` | One read-only screen on an Expert instance |

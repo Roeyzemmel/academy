@@ -35,7 +35,6 @@ PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RE_RUN = re.compile(r"""(?:^|[\s;&|(])(?:py|python3?)(?:\.exe)?\s+(?:-[A-Za-z]\s+)*
                         (?:"([^"]+\.py)"|'([^']+\.py)'|([^\s"';|&<>()]+\.py))(?=$|[\s;&|)])""",
                     re.X)
-RE_CD = re.compile(r"""^\s*(?:cd|Set-Location)\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))\s*(?:&&|;)""")
 UNRESOLVABLE = re.compile(r"[$`*?%~]")
 
 
@@ -69,24 +68,57 @@ def _native(path):
     return path
 
 
+RE_CD_ANY = re.compile(r"""(?:^|[;&|(]\s*|&&\s*|\|\|\s*)(?:cd|pushd|Set-Location)\s+
+                           (?:"([^"]*)"|'([^']*)'|([^\s;&|)]+))""", re.X | re.M)
+RE_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?^\s*\2\s*$",
+                        re.S | re.M)
+
+
+def shell_text(command):
+    """``command`` without the bodies of its here-documents, which are data (a script
+    fed to an interpreter, a file being written), not commands the shell runs."""
+    return RE_HEREDOC.sub(lambda m: m.group(0).split("\n", 1)[0] + "\n", command)
+
+
 def missing_scripts(command, cwd):
     """``[(path as written, name)]`` for each ``py <path>.py`` of ``command`` whose file
-    does not exist, read from ``cwd`` (after a leading ``cd``)."""
-    m = RE_CD.match(command)
-    if m:
-        d = next(g for g in m.groups() if g)
-        if UNRESOLVABLE.search(d):
-            return []
-        cwd = os.path.join(cwd, _native(d))
+    does not exist, read from the directory in force where it is run: ``cwd``, moved by
+    every ``cd`` that precedes it in the command. Here-document bodies are not read.
+    Once a ``cd`` cannot be followed (a variable, ``cd -``, ``popd``, a directory that
+    does not exist) nothing after it is judged: a guard that cannot tell where a command
+    runs says nothing."""
+    whole = command
+    command = shell_text(command)
+    moves = []                                        # (position, directory or None)
+    for m in RE_CD_ANY.finditer(command):
+        d = next((g for g in m.groups() if g is not None), "")
+        moves.append((m.start(), None if (not d or d == "-" or UNRESOLVABLE.search(d))
+                      else _native(d)))
+    for m in re.finditer(r"(?:^|[;&|(]\s*)popd\b", command, re.M):
+        moves.append((m.start(), None))
+    moves.sort()
     out = []
     for m in RE_RUN.finditer(command):
         written = next(g for g in m.groups() if g)
         if UNRESOLVABLE.search(written):
             continue
+        here, known = cwd, True
+        for pos, d in moves:
+            if pos > m.start():
+                break
+            if d is None:
+                known = False
+                break
+            here = os.path.normpath(os.path.join(here, d))
+            if not os.path.isdir(here):
+                known = False
+                break
+        if not known:
+            continue
         name = os.path.basename(written.replace("\\", "/"))
-        if re.search(r">\s*[\"']?[^\s\"']*%s" % re.escape(name), command):
+        if re.search(r">\s*[\"']?[^\s\"']*%s" % re.escape(name), whole):
             continue                                  # the command writes it first
-        full = os.path.join(cwd, _native(written))
+        full = os.path.join(here, _native(written))
         if not os.path.exists(full):
             out.append((written, name))
     return out
@@ -110,7 +142,7 @@ def decide(event, roots=None, stub=None):
     cmd = ac.shell_command(event)
     if not cmd:
         return None
-    m = RE_PYTHON_WORD.search(cmd)
+    m = RE_PYTHON_WORD.search(shell_text(cmd))
     if m and (store_stub() if stub is None else stub):
         return ("deny", "academy: on this machine `%s` is the Microsoft Store stub (it "
                         "prints \"Python was not found\"); run the same command with "

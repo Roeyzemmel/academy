@@ -35,6 +35,27 @@ PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 MODULES = (claims, library, queue, tickets, packets, domain, config)
 
+#: what every session with the server reads before its first call: the conventions the
+#: error ledger shows agents guessing (docs/error-ledger-review-2026-11-13.md). Kept
+#: short; the rules themselves are docs/protocol.md.
+INSTRUCTIONS = (
+    "Academy board, registry, library and queue tools. Writes are gated by "
+    "permissions.json.\n"
+    "- instance (on a write) is the instance YOU act for, e.g. researcher@x, never a "
+    "party of the ticket you touch; it is needed only when the server cannot tell.\n"
+    "- tickets_update: deliver: true with result delivers in one call; status "
+    "in-progress from open passes through accepted. blocked needs waiting_on: [ids or "
+    "'human'] (pending), or blocked_by + reopen_if + reason (a dead route). ask and "
+    "result are one line; detail goes in ask_detail / result_detail.\n"
+    "- A file reference is home-relative or file:<instance>/<path>; a verdict_file is "
+    "one of the verdicts' refs (A.md), not the pass's decision.md.\n"
+    "- Tickets are T-NNNN (tickets_get), packets P-NNNN (packets_get).\n"
+    "- The plugins' scripts are <academy repo>/<plugin>/scripts/<name>.py (the base "
+    "plugin's: academy/academy/scripts); the docs cited as docs/<name>.md are "
+    "<academy repo>/docs. workspace_get names the academy repo and every home.\n"
+    "- A refusal says what to change; change the call, do not repeat it."
+)
+
 #: tools whose ``instance`` argument names the instance the caller acts for (it is
 #: removed from the arguments before the handler runs)
 ACTING_INSTANCE_TOOLS = ("tickets_create", "tickets_update", "tickets_get",
@@ -139,8 +160,7 @@ def handle(msg):
             res = {"protocolVersion": ver,
                    "capabilities": {"tools": {"listChanged": False}},
                    "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-                   "instructions": "Academy board, registry, library and queue tools. "
-                                   "Writes are gated by permissions.json."}
+                   "instructions": INSTRUCTIONS}
         elif method == "ping":
             res = {}
         elif method == "tools/list":

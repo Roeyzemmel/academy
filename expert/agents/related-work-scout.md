@@ -31,7 +31,12 @@ source worth caching goes into the report for the librarian.
    mathematical content in three or four search phrasings: the objects, the property,
    the classical name if there is one. `ledgers/<instance>/_header.md` carries the
    instance's keyword and author lists and anchor keys; use them and say which you ran.
-2. Search the relevant arXiv listing pages, Google Scholar through WebSearch,
+2. Search arXiv through its API, which returns records and not a page to read: fetch
+   `https://export.arxiv.org/api/query?search_query=<terms>&max_results=25&sortBy=lastUpdatedDate&sortOrder=descending`
+   with `<terms>` such as `all:"finite blocking" AND (cat:math.DS OR cat:math.GT)`
+   (URL-encoded; `ti:`, `au:`, `abs:` narrow a term). Each `<entry>` has the id with
+   its version, title, authors, dates, categories, journal reference and DOI: deduplicate
+   by the id. Then Google Scholar through WebSearch,
    MathSciNet if reachable, and the citing and cited lists of the closest anchor
    entries.
 3. For each candidate: authors, title, year, arXiv id or DOI, the abstract or the
@@ -45,7 +50,8 @@ source worth caching goes into the report for the librarian.
 ## Watch mode (/expert:litwatch)
 
 Cover new listings only: since the date of the newest `watch-*.md` in the folder, or
-the last 30 days. Arxiv listing pages for the primary categories in the header, then
+the last 30 days. The arXiv API for the primary categories in the header (step 2's URL,
+sorted by `lastUpdatedDate`; stop at the first entry older than the window), then
 one targeted search per keyword, then the recent-citations lists of the anchor
 entries (the `## Search vocabulary` block, format and fallback location in
 `${CLAUDE_PLUGIN_ROOT}/skills/litwatch/SKILL.md`). Write `ledgers/<instance>/watch-<YYYY-MM-DD>.md` with the window, the pages
