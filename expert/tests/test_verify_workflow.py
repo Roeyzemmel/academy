@@ -130,6 +130,30 @@ class GateTests(unittest.TestCase):
                                    "conclude": dict(DONE, run_files=["A.md", "B.md"])})
         self.assertEqual(out["result"]["anomalies"], ["B.md"])
 
+    def test_the_hash_is_the_engine_hash_of_the_claim(self):
+        # T-1179: prepare and the table hash the claim through the registry engine
+        # (`reviews.py hash --claim`), never a hand-copied extract (`hash --file`), which
+        # for s1 records dropped the '## Statement' heading the engine hashes
+        _o, _l, calls = self.run_wf({
+            "prepare": PREP, "run A": "report", "table A": tab("CONFIRMED", "awaiting-b", True),
+            "run B": "report", "table B": tab("CONFIRMED", "confirmed", run="B"),
+            "conclude": DONE})
+        for label in ("prepare", "table A", "table B"):
+            p = next(c for c in calls if c["label"] == label)["prompt"]
+            self.assertIn("reviews.py hash --claim paper:lem:x", p, label)
+            self.assertNotIn("hash --file", p, label)
+
+    def test_a_reword_pass_hashes_the_new_statement_through_the_engine(self):
+        prep = dict(PREP, bundle="/s/bundle.md")
+        prep["pass"] = "2026-10-31-reword"
+        _o, _l, calls = self.run_wf({
+            "prepare": prep, "run R": "r", "table R": tab("CONFIRMED", "confirmed", True, run="R"),
+            "conclude": dict(DONE, run_files=["R.md"])}, mode="reword", base_pass="2026-10-01")
+        p = next(c for c in calls if c["label"] == "prepare")["prompt"]
+        self.assertIn("reviews.py hash --claim paper:lem:x", p)
+        t = next(c for c in calls if c["label"] == "table R")["prompt"]
+        self.assertIn("reviews.py hash --claim paper:lem:x", t)
+
     def test_a_malformed_claim_or_pass_is_refused(self):
         out, labels, _ = self.run_wf({}, claim="GEO-3")
         self.assertIn("namespaced registry id", out["error"])

@@ -107,6 +107,19 @@ class TestHomes(Homes):
         back = graph.walk("s1:CEX-1", self.s1, reverse=True, transitive=True)
         self.assertEqual([(e["from"], e["class"]) for e in back], [("lab:foo", "unsettled")])
 
+    def test_s1_statement_text_keeps_its_heading(self):
+        # T-1179: the s1 rule is the '## Statement' section heading included, the rule
+        # most recorded s1/flat review passes were hashed under; the verify workflow
+        # takes this hash from the engine (reviews.py hash --claim), so a change here
+        # would orphan those passes
+        from registry.core.model import statement_hash_of
+        write(self.s1 / "claims" / "CEX-1.md", S1_Q + "\n## Proof\nBy example.\n")
+        federation.CACHE.clear()
+        st = federation.store("s1", self.s1)
+        self.assertEqual(st.statement_text("CEX-1"), "## Statement\nIt fails.\n")
+        self.assertEqual(st.statement_hash("CEX-1"), statement_hash_of("## Statement\nIt fails."))
+        self.assertNotEqual(st.statement_hash("CEX-1"), statement_hash_of("It fails."))
+
     def test_paper_statement_hash_is_the_tex_environment(self):
         write(self.bi / "claims" / "paper" / "prop__foo.md",
               "---\nid: paper:prop:foo\ntitle: t\nstatus: open\nevidence: []\n"
