@@ -25,9 +25,11 @@ def _real_home(**want):
     return ""
 
 
-# the push gate runs hermetic: a result that depends on the real library's state (a
-# cached file not yet indexed) must not decide whether this repo may be pushed
-REAL = "" if os.environ.get("ACADEMY_TEST_HERMETIC") else _real_home(role="expert")
+# on CI, and in the push gate that runs the CI steps here (CI=true), there is no real
+# library to read: a result that depends on its state (a cached file not yet indexed)
+# must not decide whether this repo may be pushed
+REAL = "" if (os.environ.get("CI") or os.environ.get("ACADEMY_TEST_HERMETIC")) \
+    else _real_home(role="expert")
 
 
 class FixtureLibraryTests(unittest.TestCase):

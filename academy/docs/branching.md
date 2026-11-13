@@ -92,11 +92,17 @@ allowlist matches; `py scripts/ship.py --help` lists the flags):
   --head H --base B`; `ship.py` opens none. Merge bottom first too; after a merge the
   next one's base is retargeted to `main`.
 - **The push gate.** Nothing runs on GitHub for these repos, so `push`, `ship` and
-  `checkpoint` run the repo's own checks first: the steps of `ship.json` at the repo's top
-  level (`pushGate`: lint, the test suites), in order, refusing the push at the first
-  failure and keeping the commit. A tree that passed is not gated again. A repo without
-  `ship.json` has no push gate; `"pushGate": false` in workspace.json switches it off;
-  `push --no-gate` skips it with a warning, on the human's word only.
+  `checkpoint` run the repo's CI here first. The workflow files stay the one description
+  of the checks: the gate runs the `run:` steps of every `.github/workflows/*.yml`
+  triggered by `push` (`academy/scripts/ci_local.py`: the runner's setup and install
+  steps are skipped, `python` is this machine's interpreter, `CI=true` is set, a step
+  that needs GitHub's context is skipped with the reason), refuses the push when a step
+  fails and keeps the commit. A tree that passed is not gated again. To change what is
+  checked, edit the workflow file; `py academy/scripts/ci_local.py list --repo <dir>`
+  shows what will run here and `run` runs it by hand. A repo's `ship.json` is optional:
+  `{"pushGate": false}` for no gate, or a list of extra local-only steps.
+  `"pushGate": false` in workspace.json switches the gate off for the workspace; `push
+  --no-gate` skips it with a warning, on the human's word only.
 - `status`, `start`, `commit`, `push`, `ship`, `stack` and `checkpoint` are allowlisted (the
   workspace bootstrap renders the rules from `templates/workspace/permissions.json` into
   `.claude/settings.local.json`).

@@ -81,23 +81,27 @@ branch's base is the branch under it, never ``main``). ``stack`` opens nothing: 
 session opens each PR with its GitHub tool (or ``gh pr create --head H --base B``),
 bottom first.
 
-**The push gate.** There is no CI behind these repos, so what CI would run is run here,
-before a push: a repo's ``ship.json`` (at its top level) lists the steps,
+**The push gate.** Nothing runs on GitHub for these repos, so what CI would run is run
+here, before a push. The description of the checks stays where CI keeps it: the repo's
+``.github/workflows/*.yml``. ``push`` / ``ship`` / ``checkpoint`` run the ``run:`` steps of
+every workflow triggered by ``push`` (``ci_local.py``, whose docstring says how a step is
+read locally: setup and install steps skipped, ``python`` mapped to this interpreter,
+``CI=true``), and refuse the push when a step fails, with the tail of its output; the
+commit stays. ``py ci_local.py list --repo <dir>`` shows the plan, ``run`` runs it by hand.
 
-    {"pushGate": [{"name": "lint", "run": ["ruff", "check", "."], "optional": true},
-                  {"name": "tests", "run": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
+A repo's ``ship.json`` (at its top level) is optional: ``{"pushGate": false}`` gives the
+repo no push gate, and a list adds steps that are local only, run before the workflows,
+
+    {"pushGate": [{"name": "build", "run": ["{python}", "tools/build.py"], "optional": true,
                    "timeout": 900, "env": {"X": "1"}}]}
 
-``push`` / ``ship`` / ``checkpoint`` run them in order from the repo's top level
-(``{python}`` is the interpreter running ship.py) and refuse the push at the first step
-that exits non-zero, with the tail of its output; the commit stays. A step whose
-executable is not installed is a failure unless it is ``optional`` (then it is named as
-skipped). A tree that passed is remembered (``<git dir>/ship-gate/<tree sha>``, clean
+from the repo's top level (``{python}`` is the interpreter running ship.py; a step whose
+executable is not installed is a failure unless it is ``optional``). A tree that passed is remembered (``<git dir>/ship-gate/<tree sha>``, clean
 trees only), so pushing the same tree again, or the next branch of a stack before it
 changed, does not rerun the steps. ``--no-gate`` on ``push`` / ``ship`` skips it with a
 warning, as for the commit gate: only on the human's word. ``"pushGate": false`` in
-workspace.json switches it off for the workspace. A repo without ``ship.json`` has no
-push gate.
+workspace.json switches it off for the workspace. A repo with neither a push-triggered
+workflow nor a ``ship.json`` has no push gate.
 
 Usage on the board: when the ``board`` target is part of a checkpoint, ``usage_ledger``
 first appends one content-free summary per recently active session of this machine
@@ -376,7 +380,10 @@ def stack_of(repo, branch=None):
         if not tip:
             break
         base = base_of(repo, b)
-        base_ref = next((r for r in ("refs/heads/" + base, "refs/remotes/origin/" + base)
+        # main is counted from the remote's (a local main is often behind in a session)
+        order = ("refs/remotes/origin/" + base, "refs/heads/" + base) if base in PROTECTED \
+            else ("refs/heads/" + base, "refs/remotes/origin/" + base)
+        base_ref = next((r for r in order
                          if git(repo, "rev-parse", "--verify", "--quiet", r, check=False)), None)
         ahead = git(repo, "rev-list", "--count", "%s..%s" % (base_ref, tip), check=False) if base_ref else ""
         remote = git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + b, check=False)
@@ -420,6 +427,8 @@ def push_gate_steps(repo):
             steps = json.load(f).get("pushGate")
     except (OSError, ValueError, AttributeError):
         return top, []
+    if steps is False:
+        return top, None                    # the repo declares it has no push gate
     out = []
     for s in steps if isinstance(steps, list) else []:
         if isinstance(s, dict) and isinstance(s.get("run"), list) and s["run"]:
@@ -433,7 +442,10 @@ def run_push_gate(repo):
     if workspace_json().get("pushGate") is False:
         return True, []
     top, steps = push_gate_steps(repo)
-    if not steps:
+    if steps is None:
+        return True, []
+    ci_steps, ci_problems = ci_plan(top)
+    if not steps and not ci_steps and not ci_problems:
         return True, []
     tree = git(repo, "rev-parse", "HEAD^{tree}", check=False)
     clean = not git(repo, "status", "--porcelain", "--untracked-files=no", check=False)
@@ -464,6 +476,11 @@ def run_push_gate(repo):
             return False, lines + ["push gate: %s failed (exit %d):" % (name, p.returncode)] \
                 + ["    " + t for t in tail]
         lines.append("push gate: %s ok" % name)
+    if ci_steps or ci_problems:
+        ok, ci_lines = _ci().run(top)
+        lines += ["push gate: " + ln if not ln.startswith("    ") else ln for ln in ci_lines]
+        if not ok:
+            return False, lines
     if marker:
         try:
             os.makedirs(os.path.dirname(marker), exist_ok=True)
@@ -474,9 +491,26 @@ def run_push_gate(repo):
     return True, lines
 
 
+def _ci():
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import ci_local
+    return ci_local
+
+
+def ci_plan(top):
+    """The workflow steps the push gate runs for the repo at ``top`` (``ci_local.plan``)."""
+    try:
+        return _ci().plan(top)
+    except Exception as exc:        # a broken runner must fail the gate, not pass it
+        return [], ["the workflow files could not be planned (%s)" % exc]
+
+
 def require_push_gate(repo, no_gate=False):
     if no_gate:
-        if push_gate_steps(repo)[1]:
+        top, steps = push_gate_steps(repo)
+        if steps or (steps is not None and any(ci_plan(top))):
             print("ship: warning: --no-gate given, the push gate is skipped", file=sys.stderr)
         return
     ok, lines = run_push_gate(repo)
