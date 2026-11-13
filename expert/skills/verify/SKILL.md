@@ -51,6 +51,8 @@ report says the pass ran by hand.
   Author's `math-editor` makes it.
 - **A counterexample** (DISPROVED) goes to the human at once, in full.
 - The status moves only when the claim-keeper accepts the proposal ticket.
+- `ship`: the pass's checkpoint (`inbox.py --check` of its ticket, run once; without a
+  ticket `not-run` with the command). Report a refusal; never retry it.
 
 ## 3. Report
 

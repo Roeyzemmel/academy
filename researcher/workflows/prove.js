@@ -47,7 +47,45 @@ const FILED = { type: 'object', properties: { ticket: { type: 'string' }, propos
 const TICKET = { type: 'object', properties: { found: { type: 'boolean' }, to: { type: 'string' }, kind: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } }, required: ['found', 'to', 'kind', 'refs'] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
 
+// ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
+// workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
+// finished ticket gets the inbox's own scoped checkpoint (inbox.py --check, which honours
+// "shipCheckpoint": false); anything else is not-run, with the command for the session.
+const SHIP = { type: 'object', properties: { status: { type: 'string', enum: ['pushed', 'nothing', 'refused', 'not-run'] }, detail: { type: 'string' },
+  branches: { type: 'array', items: { type: 'string' } }, output: { type: 'string', description: 'the whole output, stdout and stderr, verbatim' } },
+  required: ['status', 'detail', 'branches', 'output'] }
+async function ship(s) {   // {role, ticket, done, instance, topic, only, agentType, phase, notes}
+  if (!s.ticket) return { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
+  const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
+  if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
+  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+    '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
+  const lines = String(r ? r.output : '').split(/\r?\n/)
+  const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
+  const rows = lines.map(l => /^(\S+) (\S+) @ \S+ \(\d+ files\) (.*)$/.exec(l)).filter(Boolean)
+  const bad = lines.find(l => /REFUSED|PUSH FAILED|checkpoint incomplete|checkpoint for \S+ (exited [1-9]|timed out|could not start|failed)/.test(l))
+  const skipped = lines.find(l => /checkpoint not run/.test(l))
+  const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
+  const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
+    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : bad ? { status: 'refused', detail: bad.trim() }
+    : skipped ? { status: 'not-run', detail: skipped.trim() }
+    : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
+    : rows.length ? { status: 'nothing', detail: 'nothing to commit or push' }
+    : m ? { status: 'not-run', detail: 'no checkpoint ran ("shipCheckpoint": false, another board, or no ship script)' }
+    : { status: r.status, detail: r.detail }
+  if (!/^(pushed|nothing)$/.test(res.status)) res.command = check
+  if (res.status === 'refused' && s.notes) s.notes.push(`the ship stage was refused (${res.detail}); fix the cause, then run \`${check}\` once by hand`)
+  return res
+}
+
 const out = { claim: A.claim, ticket: T || null, notes: [] }
+const end = async () => {
+  if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!out.ticket_delivered, instance: A.instance, topic: 'prove-' + A.claim,
+    only: '<home submodule> board', agentType: CLERK, phase: 'File', notes: out.notes })
+  return out
+}
 const deliver = async (result) => {
   if (!T) return
   const m = await agent(STAGE('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result.replace(/"/g, "'")}".`]),
@@ -98,7 +136,7 @@ out.gaps = o.gaps
 if (o.outcome !== 'complete' || (o.gaps || []).length) {
   out.outcome = 'attempt-incomplete'
   await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}; gaps: ${(o.gaps || []).join('; ') || 'none listed'}; nothing filed for review`)
-  return out
+  return await end()
 }
 const f = await agent(`Your attempt ${p.path} on ${A.claim} is complete. File exactly one verify ticket to the Expert instance (tickets_create: kind verify, ` +
   `title "Verify ${A.claim}", ask "Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?", deliverable "A verification packet with two verdicts, or one negative verdict.", ` +
@@ -109,7 +147,7 @@ const f = await agent(`Your attempt ${p.path} on ${A.claim} is complete. File ex
 if (!f || !f.ticket) {
   out.outcome = 'blocked'
   out.reason = 'the verify ticket was not filed: ' + (f ? f.refusal : 'the stage returned nothing')
-  return out
+  return await end()
 }
 const chk = await agent(STAGE('get', [`tickets_get ${f.ticket} and return its to, kind and refs.`]), { label: 'check verify', phase: 'File', agentType: CLERK, schema: TICKET, effort: 'low' })
 const bad = !chk || !chk.found || !/^expert@/.test(chk.to) || chk.kind !== 'verify' || !(chk.refs || []).includes(A.claim)
@@ -118,4 +156,4 @@ out.verify_ticket = f.ticket
 out.proposal = f.proposal || null
 out.outcome = 'verify-filed'
 await deliver(`complete attempt ${p.path}; verify ticket ${f.ticket}${f.proposal ? '; sketch proposed (' + f.proposal + ')' : ''}`)
-return out
+return await end()

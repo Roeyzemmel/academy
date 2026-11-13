@@ -25,7 +25,8 @@ async function agent(prompt, opts) {
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}).then(
+// the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
+body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -97,6 +98,52 @@ class CiteTests(unittest.TestCase):
         res, labels, _ = self.run_wf({"start": [ASK], "librarian": [None]}, ticket="T-0904")
         self.assertEqual(res["outcome"], "lost")
         self.assertNotIn("packet", labels)
+
+
+def shipped(t, line="library 2026-11-13/t-0904/expert @ abc1234 (2 files) pushed"):
+    return {"status": "pushed", "detail": "", "branches": [], "output": "%s: delivered (delivered)\n%s\n" % (t, line)}
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class ShipTests(unittest.TestCase):
+    """docs/workflows.md, "Shipping is a step of the workflow": a standalone run ships once; a nested one never."""
+    run_wf = CiteTests.run_wf
+    PLAN = {"start": [ASK], "librarian": [card()], "validate": [OK], "packet": [{"packet": "P-0300", "error": ""}], "deliver": [MOVE]}
+
+    def test_standalone_with_a_ticket_ships_once_by_the_inbox_check(self):
+        res, labels, calls = self.run_wf(dict(self.PLAN, ship=[shipped("T-0904")]), ticket="T-0904", nested=False, root="/acad")
+        self.assertEqual(labels, ["start", "librarian", "validate", "packet", "deliver", "ship"])
+        self.assertIn("py /acad/expert/scripts/inbox.py --instance expert@t --check T-0904", calls[-1]["prompt"])
+        self.assertEqual(calls[-1]["agentType"], "academy:inbox-clerk")
+        self.assertEqual(res["ship"]["status"], "pushed")
+        self.assertEqual(res["ship"]["branches"], ["library 2026-11-13/t-0904/expert"])
+
+    def test_nested_never_ships(self):
+        res, labels, _ = self.run_wf(dict(self.PLAN), ticket="T-0904", nested=True)
+        self.assertNotIn("ship", labels)
+        self.assertNotIn("ship", res)
+
+    def test_a_refused_ship_is_returned_once_and_noted(self):
+        bad = shipped("T-0904", "library main @ abc (0 files) REFUSED: dirty on main")
+        res, labels, _ = self.run_wf(dict(self.PLAN, ship=[bad, bad]), ticket="T-0904", nested=False)
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "refused")
+        self.assertIn("ship stage was refused", " ".join(res["notes"]))
+
+    def test_no_ticket_is_not_run_with_the_command(self):
+        res, labels, _ = self.run_wf({"librarian": [card()], "validate": [OK], "packet": [{"packet": "P-0302", "error": ""}]},
+                                     ref="SW10", nested=False)
+        self.assertNotIn("ship", labels)
+        self.assertEqual(res["ship"]["status"], "not-run")
+        self.assertEqual(res["ship"]["command"], "py scripts/ship.py checkpoint --ticket cite-sw10 --role expert --only library board")
+        self.assertIn("outside this checkpoint's scope", " ".join(res["notes"]))   # references.bib is in the Author home
+
+    def test_a_ticket_parked_on_the_human_does_not_ship(self):
+        c = dict(card("unreachable", False), card="none written")
+        res, labels, _ = self.run_wf({"start": [ASK], "librarian": [c], "packet": [{"packet": "P-0303", "error": ""}],
+                                      "park on human": [MOVE]}, ticket="T-0904", nested=False)
+        self.assertNotIn("ship", labels)
+        self.assertEqual(res["ship"]["status"], "not-run")
 
 
 if __name__ == "__main__":

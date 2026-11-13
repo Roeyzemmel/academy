@@ -32,6 +32,8 @@ What comes back for this session:
   ticket to the Scientist. Then call the workflow again with `mode: "deliver"` and the
   `then` values. It checks that a test names each conjecture before it delivers the
   ticket.
+- **`ship`**: the generalize ticket's checkpoint, run once when the ticket is delivered
+  (until then `not-run`); a refusal is reported, never retried.
 
 A generalization that survives its test is proved through `/researcher:prove`; one that
 fails is refuted through claim-keeper on the test's reviewed result. Nothing here goes

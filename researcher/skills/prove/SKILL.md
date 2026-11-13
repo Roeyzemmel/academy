@@ -35,5 +35,6 @@ The inbox runs the same script for a `prove` ticket. The script:
 
 Nothing goes above `sketch`: `proved` and `proved-modulo` come only from two agreeing
 Expert reviews, through claim-keeper. **Report** the attempt path and outcome, each gap,
-the inputs and their statuses, the ticket filed, the status proposed, and the script's
-`notes`.
+the inputs and their statuses, the ticket filed, the status proposed, the script's
+`notes`, and `ship` (the ticket's checkpoint, run once; without a ticket `not-run` with
+the command to run from the workspace root; a refusal is reported, never retried).

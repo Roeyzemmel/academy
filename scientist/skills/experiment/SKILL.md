@@ -39,7 +39,10 @@ unskippable (every call also takes `root: "<the absolute path of ${CLAUDE_PLUGIN
    `report.py render`. **Gate:** the human sees the rendered packet.
 5. **`file`** (`{mode: "file", stem, job, env, ticket}`): `report.py file` writes the
    `experiment-report` packet and the `review-experiment` ticket to the Researcher that
-   owns the claim's namespace (say which and why), and the ticket is delivered.
+   owns the claim's namespace (say which and why), and the ticket is delivered. The leg
+   ends with `ship`: the ticket's checkpoint, run once (no ticket: `not-run` with the
+   command); a refusal is reported, never retried. The other legs end at a human gate and
+   ship nothing.
 
 **A surprising result is a bug until shown otherwise** (`superpowers:systematic-debugging`).
 A status change on the lab claim is proposed only. Script and result JSON are committed

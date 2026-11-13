@@ -26,7 +26,8 @@ instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", days: 7}`. 
 that is not a lower tier, and anything past three decisions (regressions first); the
 analyst writes and files one `usage` packet with exactly those; `error_ledger.py settle`
 runs only after the packet is shown to exist. Report `reason` when `filed` or `settled`
-is false; do not relaunch.
+is false; do not relaunch. `ship` is `not-run` with the `checkpoint` command for the board
+(the run has no ticket): run it once from the workspace root.
 
 **Errors.** A `PostToolUseFailure` hook (`scripts/error_ledger.py hook`) appends every
 failed tool call, redacted and without the command line, to

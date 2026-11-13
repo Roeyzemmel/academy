@@ -98,6 +98,46 @@ retried in a loop. Outside a workflow the same default is held by the `ship_guar
 (`docs/branching.md`): raw `git commit` / `git push` / a new branch in a workspace repo is
 denied with the `ship.py` command.
 
+**The ship stage** (2026-11-13). The workflow runtime cannot import across files, so each
+workflow that ships carries the same block (`SHIP` and `ship()`; `tests/test_workflow_ship_stage.py`
+pins that it is identical). It returns `ship: {status: pushed | nothing | refused | not-run,
+detail, branches?, command?}`:
+
+- It runs only standalone. The inbox calls every child with `nested: true`, and a nested
+  run has no `ship` field: the inbox's own `--check` ships the ticket.
+- With a finished ticket, one clerk stage (the workflow's clerical agent type) runs the
+  inbox's exact command, `<role>/scripts/inbox.py [--instance I] --check T-NNNN`, once. Its
+  output is read in code like the inbox's check: the ticket's state from its first line,
+  each repo from ship.py's lines. `inbox.py` does the scoping (home, `board`, `library` for
+  the Expert), refuses a session outside the workspace or in a worktree, and runs nothing
+  under `"shipCheckpoint": false`, which comes back `not-run`.
+- A ticket the run left unfinished (parked on the human, tests still to file) is `not-run`
+  without a stage, with the `--check` command: the inbox would not ship it either.
+- A refusal (off-template branch, commit gate, push gate, timeout) is returned with the
+  command, and one sentence goes into the workflow's `notes`. Nothing retries it.
+- Without a ticket nothing is run (a direct `ship.py checkpoint` would bypass the scoping,
+  the worktree guard and `"shipCheckpoint": false`): `not-run` with `py scripts/ship.py
+  checkpoint --ticket <slug> --role <role> --only <targets>` for the session to run from the
+  workspace root. The slug is one the run already has (`cite-<key>`, `verify-<claim>`,
+  `prove-<claim>`, `explore-<direction>`, `review-<subject>`, `referee-<instance>`,
+  `report-<stem>`, `litwatch-<instance>`, `campaign-<target>`, the usage packet's id), so the
+  branch is `<date>/<slug>/<role>`.
+
+| Workflow | Writes | Standalone `ship` |
+|---|---|---|
+| `cite` | library (card, index), the Author home's `references.bib`, board | ticket: the check; else `not-run`. The bib is outside the checkpoint's scope (a note says so) |
+| `verify` | library (`reviews/`), registry evidence, board | ticket: the check; else `not-run` |
+| `referee` | library (`reviews/referee/`), board | ticket: the check; else `not-run` |
+| `domain` | the academy repo's pack, board | the check (ships the board; the pack is the human's commit) |
+| `prove`, `explore`, `review-experiment` | the notebook, board | ticket: the check; else `not-run` |
+| `generalize` | the notebook, board | the check once the ticket is delivered (`mode: deliver` too) |
+| `experiment` | the lab | `file` leg only (the check); the other legs end at a human gate |
+| `notes` | tickets (board files on a file board) | `not-run` (no ticket) |
+| `litwatch` | library ledger | `not-run` (no ticket) |
+| `weekly` | board (packet, error ledger) | `not-run` (no ticket) |
+| `workplan` campaign | the notebook (approaches, artifacts) | `not-run`; its tickets ship by the nested inbox's `--check` |
+| `workplan` cowork, `inbox` | only through the inbox | no stage: the `--check` ships each ticket |
+
 ## Around the workflows
 
 - **Plugin versions and updates** (2026-11-07): Claude Code caches a plugin per version, and the

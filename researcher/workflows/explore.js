@@ -43,6 +43,39 @@ const FALS = { type: 'object', properties: { falsified: { type: 'boolean' }, evi
 const JOURNAL = { type: 'object', properties: { exists: { type: 'boolean' }, path: { type: 'string' }, mentions: { type: 'array', items: { type: 'string' }, description: 'the item ids today\'s journal mentions' } }, required: ['exists', 'path', 'mentions'] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
 
+// ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
+// workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
+// finished ticket gets the inbox's own scoped checkpoint (inbox.py --check, which honours
+// "shipCheckpoint": false); anything else is not-run, with the command for the session.
+const SHIP = { type: 'object', properties: { status: { type: 'string', enum: ['pushed', 'nothing', 'refused', 'not-run'] }, detail: { type: 'string' },
+  branches: { type: 'array', items: { type: 'string' } }, output: { type: 'string', description: 'the whole output, stdout and stderr, verbatim' } },
+  required: ['status', 'detail', 'branches', 'output'] }
+async function ship(s) {   // {role, ticket, done, instance, topic, only, agentType, phase, notes}
+  if (!s.ticket) return { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
+  const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
+  if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
+  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+    '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
+  const lines = String(r ? r.output : '').split(/\r?\n/)
+  const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
+  const rows = lines.map(l => /^(\S+) (\S+) @ \S+ \(\d+ files\) (.*)$/.exec(l)).filter(Boolean)
+  const bad = lines.find(l => /REFUSED|PUSH FAILED|checkpoint incomplete|checkpoint for \S+ (exited [1-9]|timed out|could not start|failed)/.test(l))
+  const skipped = lines.find(l => /checkpoint not run/.test(l))
+  const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
+  const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
+    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : bad ? { status: 'refused', detail: bad.trim() }
+    : skipped ? { status: 'not-run', detail: skipped.trim() }
+    : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
+    : rows.length ? { status: 'nothing', detail: 'nothing to commit or push' }
+    : m ? { status: 'not-run', detail: 'no checkpoint ran ("shipCheckpoint": false, another board, or no ship script)' }
+    : { status: r.status, detail: r.detail }
+  if (!/^(pushed|nothing)$/.test(res.status)) res.command = check
+  if (res.status === 'refused' && s.notes) s.notes.push(`the ship stage was refused (${res.detail}); fix the cause, then run \`${check}\` once by hand`)
+  return res
+}
+
 const out = { direction: A.direction || null, ticket: T || null, notes: [], anomalies: [] }
 
 // ---- Pick ---------------------------------------------------------------------------------
@@ -122,4 +155,6 @@ if (T) {
   out.ticket_delivered = !!(m && m.ok)
 }
 out.outcome = out.anomalies.length ? 'moved (with anomalies)' : 'moved'
+if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!out.ticket_delivered, instance: A.instance, topic: 'explore-' + (A.direction || ''),
+  only: '<home submodule> board', agentType: CLERK, phase: 'Check', notes: out.notes })
 return out

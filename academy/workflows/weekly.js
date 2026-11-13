@@ -118,4 +118,8 @@ out.settled = !!(s && s.ok)
 out.closed = s ? s.closed : 0
 if (!out.settled) out.reason = 'the packet is filed but the settle did not run: ' + (s ? s.detail : 'the stage returned nothing') + ' (run `py ' + AR + '/academy/scripts/error_ledger.py settle --packet ' + f.packet + '` by hand)'
 out.summary = d.summary
+// Ship (docs/workflows.md, "Shipping is a step of the workflow"): the packet, its body and the settled ledger are board files, under no ticket, so the stage is
+// not-run and names the command for the session; a nested run leaves it to its parent.
+out.ship = { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+  command: `py scripts/ship.py checkpoint --ticket ${f.packet.toLowerCase()} --role ${A.instance.split('@')[0]} --only board` }
 return out

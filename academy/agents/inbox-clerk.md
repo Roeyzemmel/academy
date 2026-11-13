@@ -38,6 +38,9 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
 - **check**: run the `--check` command given and return its exit code (0 finished,
   3 unfinished), the ticket's status and the output. The check also runs the academy's
   `ship.py checkpoint` for a finished ticket; run it once.
+- **ship** (the last stage of a standalone cite, referee, domain or experiment `file` run):
+  the same `--check` command, run once, stderr joined; return its whole output verbatim and
+  never run it again, whatever it prints.
 - **close-self**: `delivered -> closed` for the self-tickets the stage names.
 - **start** (the cite workflow, `expert/workflows/cite.js`): as `move start`, then return from
   the ticket's ask, `## Ask` and refs the reference (DOI, arXiv id, bib key or title), the

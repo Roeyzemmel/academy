@@ -40,6 +40,10 @@ The librarian's fetches stay on the allowlist of sources (`scripts/source_guard.
 - **Unreachable** (paywalled, image-only, no text): the entry may still be added, but the
   card records how it was read. Anything resting on it stays an unverified input until a
   human reads it. Say that plainly.
+- **`ship`** (a standalone run; docs/workflows.md): with a ticket, its checkpoint ran once
+  (`inbox.py --check`); without one it is `not-run` with the `checkpoint` command to run
+  from the workspace root. `references.bib` is in the Author home, outside that scope (the
+  notes say so). A refusal is reported, never retried.
 
 Never write the entry yourself, never invent a pinpoint, never let a card stand in for a
 statement nobody read. Never ask questions.

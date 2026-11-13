@@ -40,7 +40,8 @@ async function agent(prompt, opts) {
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}).then(
+// the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
+body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -215,6 +216,40 @@ class GateTests(unittest.TestCase):
             p = subprocess.run([NODE, h, SCRIPT, json.dumps(plan)], capture_output=True,
                                text=True, timeout=60)
             self.assertIn("error", json.loads(p.stdout.strip().splitlines()[-1]))
+
+
+def shipped(line):
+    return {"status": "nothing", "detail": "", "branches": [], "output": "T-0003: delivered (delivered)\n%s\n" % line}
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class ShipTests(unittest.TestCase):
+    """docs/workflows.md, "Shipping is a step of the workflow": standalone ships once; nested never."""
+    run_wf = GateTests.run_wf
+    PLAN = {"prepare": [prep()], "run A": ["r"], "decide": [dec("not-cleared", ["BROKEN"])],
+            "claim-keeper evidence": ["rows"], "close": [OK]}
+
+    def test_standalone_ships_once_nested_never_refusal_once(self):
+        res, calls = self.run_wf(dict(self.PLAN, ship=[shipped("Slope 2026-11-13/t-0003/researcher @ a (1 files) pushed")]),
+                                 nested=False, root="/acad")
+        labels = [c["label"] for c in calls]
+        self.assertEqual(labels[-2:], ["close", "ship"])
+        self.assertIn("py /acad/researcher/scripts/inbox.py --check T-0003", calls[-1]["prompt"])
+        self.assertEqual(res["ship"]["status"], "pushed")
+        res, calls = self.run_wf(dict(self.PLAN))
+        self.assertNotIn("ship", [c["label"] for c in calls])
+        bad = shipped("Slope x @ a (1 files) PUSH FAILED: gate")
+        res, calls = self.run_wf(dict(self.PLAN, ship=[bad, bad]), nested=False)
+        self.assertEqual([c["label"] for c in calls].count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "refused")
+        self.assertIn("ship stage was refused", " ".join(res["notes"]))
+
+    def test_no_ticket_is_not_run(self):
+        plan = dict(self.PLAN)
+        del plan["close"]
+        res, calls = self.run_wf(plan, ticket=None, nested=False)
+        self.assertNotIn("ship", [c["label"] for c in calls])
+        self.assertIn("--ticket review-lab-ew-check --role researcher", res["ship"]["command"])
 
 
 class LaunchGuardTests(unittest.TestCase):

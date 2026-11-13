@@ -208,4 +208,11 @@ for (let round = 1; round <= cp.rounds; round++) {
 }
 phase('Report')
 st = await state('state final')
+// Ship (docs/workflows.md, "Shipping is a step of the workflow"): the tickets the nested inbox took are
+// checkpointed by its --check; the approaches and artifacts the campaign itself wrote belong to no
+// ticket, so the stage is not-run and names the command for the session. A cowork pass writes only
+// through the nested inbox, so it has no ship stage.
+if (out.agents_used || out.tickets_filed.length)
+  out.ship = { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: `py scripts/ship.py checkpoint --ticket campaign-${String(TAG).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role researcher --only <home submodule> board` }
 return report(st, why || stopRule(st) || `--rounds (${cp.rounds}) reached`)

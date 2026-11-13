@@ -155,4 +155,9 @@ if (fileable.length || appends.length) {
 const carried = new Set([].concat(out.filed.map(x => x.note), appends.map(d => d.note)))
 out.not_carried = inv.new.filter(n => !carried.has(n.id)).map(n => n.id)
 out.outcome = out.anomalies.length || out.unfiled.length ? 'filed (with problems)' : 'filed'
+// Ship (docs/workflows.md, "Shipping is a step of the workflow"): its writes are tickets (board files on a file board), under no ticket, so the stage is
+// not-run and names the command for the session; a nested run leaves it to its parent.
+if (!A.nested && (out.filed.length || out.covered.length))
+  out.ship = { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: 'py scripts/ship.py checkpoint --ticket author-notes --role author --only board' }
 return out

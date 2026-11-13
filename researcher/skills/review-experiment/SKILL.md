@@ -45,6 +45,8 @@ the report says the pass ran by hand.
   reproduction request is a `test` ticket to the Scientist, `--parent` the review ticket.
   The pair waits on it.
 - Put `notes` (a skipped B, a relaunch, a lost run) into the report verbatim.
+- `ship`: the delivered ticket's checkpoint, run once (`not-run` with the command when
+  there is no ticket or it waits); a refusal is reported, never retried.
 
 ## 3. Report
 

@@ -34,7 +34,9 @@ The inbox runs it for a `question` ticket. The order is code (2026-10-31; docs/w
    - today's journal records the run.
 
 **Report** the lead's `report` (not a summary of it), each item's step and tickets, every
-`anomalies` entry, and the next picks.
+`anomalies` entry, the next picks, and `ship` (a question ticket's checkpoint, run once; a
+direction run is `not-run` with the command to run from the workspace root; a refusal is
+reported, never retried).
 
 **Reading a returned result.** An undecided search (a cap hit) is not a counterexample. A
 candidate counterexample from a probe is a lead, not a finding: it has no provenance and no
