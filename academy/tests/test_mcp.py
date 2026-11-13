@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(PLUGIN, "mcp"))
 import academy_common as ac  # noqa: E402
 from tools.claims import check_grounds  # noqa: E402
 from tools import library as lib  # noqa: E402
+from tools import ToolError  # noqa: E402
 
 EXTRACTION = (
     "LEMMA 6. Let M be a translation surface. The boundary of a maxi-\n"
@@ -430,11 +431,11 @@ class TestTickets(McpTestBase):
         self.assertTrue(err)
         self.assertIn("receiver", msg)
         self.assertEqual(before, self._ticket_file(tid))
-        # an ordinary jump open -> delivered is still refused, naming the route
-        err, msg = expert.call("tickets_update", caller=r, id=tid, status="delivered",
+        # a jump that passes through delivered is still refused, naming the route
+        err, msg = expert.call("tickets_update", caller=r, id=tid, status="closed",
                                fields={"result": "x"})
         self.assertTrue(err)
-        self.assertIn("open -> accepted -> in-progress -> delivered", msg)
+        self.assertIn("open -> accepted -> in-progress -> delivered -> closed", msg)
         self.assertEqual(before, self._ticket_file(tid))
         # a blocked ticket is refused, naming its state
         err, res = expert.call("tickets_update", caller=r, id=tid, status="blocked",
@@ -477,16 +478,114 @@ class TestTickets(McpTestBase):
         # ledger 2026-10-21..31: agents jumped open -> delivered and forgot fields.result
         _a, expert, tid = self._deliver_ticket()
         r = "expert:review-chair"
-        err, msg = expert.call("tickets_update", caller=r, id=tid, status="delivered",
-                               fields={"result": "x"})
+        err, msg = expert.call("tickets_update", caller=r, id=tid, status="delivered")
         self.assertTrue(err)
-        self.assertIn("deliver: true with fields.result", msg)
-        self.assertIn("from open you may move it to: accepted, blocked, rejected", msg)
+        self.assertIn("delivered needs result", msg)
         err, res = expert.call("tickets_update", caller=r, id=tid, deliver=True,
                                result="CONFIRMED")
         self.assertFalse(err, res)
         _p, meta, _b = ac.as_store(self.board).get(tid)
         self.assertEqual(("delivered", "CONFIRMED"), (meta["status"], meta["result"]))
+
+    # -- the 2026-11-13 ledger round: the tool does what was plainly meant -------
+    def test_a_status_move_walks_through_accepted_and_in_progress(self):
+        _a, expert, tid = self._deliver_ticket()
+        r = "expert:review-chair"
+        err, res = expert.call("tickets_update", caller=r, id=tid, status="in-progress")
+        self.assertFalse(err, res)
+        self.assertEqual(["status open -> accepted", "status accepted -> in-progress"],
+                         res["thread"])
+        _a, expert, tid = self._deliver_ticket()
+        err, res = expert.call("tickets_update", caller=r, id=tid, status="delivered",
+                               result="x")
+        self.assertFalse(err, res)
+        self.assertEqual("delivered", res["status"])
+        self.assertEqual(3, len([t for t in res["thread"] if t.startswith("status ")]))
+
+    def test_a_walk_is_only_for_the_party_of_every_hop_and_never_through_blocked(self):
+        author, expert, tid = self._deliver_ticket()
+        before = self._ticket_file(tid)
+        err, msg = author.call("tickets_update", caller="author:math-writer", id=tid,
+                               status="in-progress")
+        self.assertTrue(err)
+        self.assertIn("is made by the receiver", msg)
+        self.assertEqual(before, self._ticket_file(tid))
+        _a, expert, tid = self._deliver_ticket("in-progress")
+        err, msg = expert.call("tickets_update", caller="expert:review-chair", id=tid,
+                               status="accepted")
+        self.assertTrue(err)
+        self.assertIn("in-progress -> blocked -> accepted", msg)
+
+    def test_a_multi_line_result_keeps_its_first_line_and_fills_the_body(self):
+        _a, expert, tid = self._deliver_ticket()
+        r = "expert:review-chair"
+        err, res = expert.call("tickets_update", caller=r, id=tid, deliver=True,
+                               result="CONFIRMED.\n\nThe proof holds as written.")
+        self.assertFalse(err, res)
+        _p, meta, body = ac.as_store(self.board).get(tid)
+        self.assertEqual("CONFIRMED.", meta["result"])
+        self.assertIn("The proof holds as written.", body)
+        # a result given only as detail: its first line is the field
+        _a, expert, tid = self._deliver_ticket()
+        err, res = expert.call("tickets_update", caller=r, id=tid, deliver=True,
+                               result_detail="REFUTED: the case n = 2 fails.\nDetails.")
+        self.assertFalse(err, res)
+        self.assertEqual("REFUTED: the case n = 2 fails.",
+                         ac.as_store(self.board).get(tid)[1]["result"])
+
+    def test_delivering_a_delivered_ticket_amends_the_result_or_changes_nothing(self):
+        _a, expert, tid = self._deliver_ticket()
+        r = "expert:review-chair"
+        expert.call("tickets_update", caller=r, id=tid, deliver=True, result="first")
+        before = self._ticket_file(tid)
+        err, res = expert.call("tickets_update", caller=r, id=tid, deliver=True,
+                               result="first")
+        self.assertFalse(err, res)
+        self.assertIs(False, res["changed"])
+        self.assertEqual(before, self._ticket_file(tid))
+        err, res = expert.call("tickets_update", caller=r, id=tid, deliver=True,
+                               result="second")
+        self.assertFalse(err, res)
+        self.assertEqual(["set result: second"], res["thread"])
+
+    def test_block_aliases_and_the_hint_of_a_bare_blocked(self):
+        _a, expert, tid = self._deliver_ticket()
+        r = "expert:review-chair"
+        err, msg = expert.call("tickets_update", caller=r, id=tid, status="blocked",
+                               reason="needs the source")
+        self.assertTrue(err)
+        self.assertIn("waiting_on: ['T-0123']", msg)
+        err, res = expert.call("tickets_update", caller=r, id=tid, status="blocked",
+                               waiting_on="human")
+        self.assertFalse(err, res)
+        self.assertEqual(["human"], ac.as_store(self.board).get(tid)[1]["waiting_on"])
+
+    def test_arguments_put_inside_fields_are_taken_as_arguments(self):
+        _a, expert, tid = self._deliver_ticket()
+        err, res = expert.call("tickets_update", caller="expert:review-chair", id=tid,
+                               deliver=True, fields={"result": "ok",
+                                                     "result_detail": "the long story"})
+        self.assertFalse(err, res)
+        self.assertIn("the long story", ac.as_store(self.board).get(tid)[2])
+
+    def test_a_multi_line_ask_keeps_its_first_line(self):
+        author = self.server("author@t")
+        err, res = author.call("tickets_create", caller="author:math-writer",
+                               title="Prior\nart", kind="lookup", to="expert@t",
+                               ask="Is it known?\n\nSee Section 3 of the draft.",
+                               deliverable="A note.")
+        self.assertFalse(err, res)
+        _p, meta, body = ac.as_store(self.board).get(res["id"])
+        self.assertEqual(("Prior art", "Is it known?"), (meta["title"], meta["ask"]))
+        self.assertIn("See Section 3 of the draft.", body)
+
+    def test_a_ticket_id_given_to_packets_get_says_so(self):
+        err, msg = self.server().call("packets_get", id="T-0001")
+        self.assertTrue(err)
+        self.assertIn("tickets_get", msg)
+        err, msg = self.server().call("tickets_get", id="P-0001")
+        self.assertTrue(err)
+        self.assertIn("packets_get", msg)
 
     def test_the_human_may_deliver_in_one_call(self):
         _a, _e, tid = self._deliver_ticket()
@@ -1284,6 +1383,28 @@ Corners of $P$ are cycles.
 ## History
 - 2026-09-20: created
 """
+
+
+class TestEvidenceRowAndVerdictFile(unittest.TestCase):
+    """The 2026-11-13 ledger round: a bar in free text, and a verdict_file naming the pass."""
+
+    def test_a_bar_in_the_note_or_verdict_is_rewritten_not_refused(self):
+        from tools.claims import RegistryBackend
+        row = RegistryBackend.row_text({"type": "hand", "ref": "T-0001", "verdict": "ok",
+                                        "note": "|x| < 1 | checked"})
+        self.assertEqual(5, len(row.split(" | ")))
+        self.assertIn("\u2223x\u2223 < 1", row)
+        with self.assertRaises(ToolError):
+            RegistryBackend.row_text({"type": "hand", "ref": "a|b", "verdict": "ok"})
+
+    def test_a_verdict_file_naming_the_pass_means_its_first_verdict(self):
+        from tools.claims import RegistryBackend
+        refs = ["file:expert@l/reviews/s1/CEX-8/p1/A.md", "file:expert@l/reviews/s1/CEX-8/p1/B.md"]
+        f = RegistryBackend._pass_verdict
+        self.assertEqual(refs[0], f("file:expert@l/reviews/s1/CEX-8/p1/decision.md", refs))
+        self.assertEqual(refs[0], f("file:expert@l/reviews/s1/CEX-8/p1/", refs))
+        self.assertIsNone(f("file:expert@l/reviews/s1/CEX-8/p2/decision.md", refs))
+        self.assertIsNone(f("file:expert@l/reviews/s1/CEX-8/p1/C.md", refs))
 
 
 class TestRegistryBackend(McpTestBase):

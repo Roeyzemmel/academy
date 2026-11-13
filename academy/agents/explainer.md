@@ -24,8 +24,14 @@ a `.json` file directly inside the board's `deep-dives/` folder. The hook
 home, the registry, a ticket, a packet or any other board file. If the output path is
 anywhere else, stop and say so.
 
-**What you write.** The bundle unchanged, plus a `sections` list of
-`{"heading", "markdown"}` in the order a reader needs:
+**Reading the bundle.** A bundle can be larger than one Read allows (25,000 tokens).
+Do not Read it whole when it is: Read it in parts (`offset`, `limit`; it is indented
+JSON, one field per line) or Grep it for the keys you need. Never ask for the limit to
+be lifted, and do not retry a Read that was refused for size with the same arguments.
+
+**What you write.** One JSON object with one key, `{"sections": [...]}`: a list of
+`{"heading", "markdown"}` in the order a reader needs. Do not copy the bundle into it;
+the renderer lays your sections over the gathered bundle.
 
 - **claim**: the statement; what it says in words; where it sits (depends on, rests
   on it); the proof, following the recorded attempt, with each step's inputs; what is

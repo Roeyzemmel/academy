@@ -961,6 +961,26 @@ def _strings(value):
                 yield s
 
 
+def merge_sections(written, gathered_path=None):
+    """The bundle to render: the explainer's file ``written`` as it is when it holds the
+    whole bundle, else the gathered bundle at ``gathered_path`` with the explainer's
+    ``sections`` (and nothing else of ``written``) laid over it.
+
+    The explainer used to write the gathered bundle back with its sections added; a
+    bundle of a large statement is over the Read tool's limit (266 KB, 26k tokens: 3
+    failures 2026-11-07), and copying it out by hand could change it. It now writes
+    only ``{"sections": [...]}``."""
+    if not isinstance(written, dict):
+        raise ac.AcademyError("the deep-dive file must hold a JSON object")
+    if not gathered_path or written.get("subject"):
+        return written
+    with open(gathered_path, "r", encoding="utf-8") as fh:
+        gathered = json.load(fh)
+    if not isinstance(gathered, dict):
+        raise ac.AcademyError("%s is not a gathered bundle" % gathered_path)
+    return dict(gathered, sections=written.get("sections") or [])
+
+
 def check_deep_dive(bundle, kind=None):
     """Problems that forbid publishing a deep-dive: [] when every status is shown.
 
@@ -1024,6 +1044,9 @@ def main(argv=None):
     ap.add_argument("--out"); ap.add_argument("--all", action="store_true",
                                               help="include decided packets")
     ap.add_argument("--deep-dive", metavar="BUNDLE", help="render a deep-dive bundle JSON")
+    ap.add_argument("--bundle", metavar="GATHERED",
+                    help="with --deep-dive: the gathered bundle the file's sections "
+                         "belong to, when the file holds only {\"sections\": [...]}")
     ap.add_argument("--kind", choices=DEEP_DIVE_KINDS)
     ap.add_argument("--templates", default=TEMPLATE_DIR)
     ap.add_argument("--interactive", action="store_true",
@@ -1045,6 +1068,7 @@ def main(argv=None):
         if a.deep_dive:
             with open(a.deep_dive, "r", encoding="utf-8") as fh:
                 bundle = json.load(fh)
+            bundle = merge_sections(bundle, a.bundle)
             problems = check_deep_dive(bundle, a.kind)
             if problems:
                 sys.stderr.write("render_packets: refused, the deep-dive would show "

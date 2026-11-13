@@ -33,6 +33,7 @@ HISTORY = (
     "docs/migration-log.md",
     "docs/migration-campaign-mode.md",
     "docs/workflow-triage-*.md",
+    "docs/error-ledger-review-*.md",
     "docs/superpowers/*",
     "domains/*/CHANGELOG.md",
     "scientist/scripts/legacy/*",

@@ -331,6 +331,24 @@ class TestDeepDive(unittest.TestCase, PageContract):
         self.assertIsNotNone(chip)
         self.assertIn("st-conj", chip.group(1))
 
+    def test_sections_only_file_is_laid_over_the_gathered_bundle(self):
+        # 2026-11-13: the explainer writes {"sections": [...]}, not a copy of the bundle
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        gathered = sample_bundle("claim")
+        gathered.pop("sections", None)
+        gp = os.path.join(d, "g.json")
+        with open(gp, "w", encoding="utf-8") as fh:
+            json.dump(gathered, fh)
+        secs = [{"heading": "In words", "markdown": "It says so."}]
+        merged = rp.merge_sections({"sections": secs}, gp)
+        self.assertEqual(secs, merged["sections"])
+        self.assertEqual(gathered["subject"], merged["subject"])
+        self.assertIn("In words", rp.render_deep_dive(merged))
+        whole = dict(gathered, sections=secs)               # the old form still renders
+        self.assertIs(whole, rp.merge_sections(whole, gp))
+        self.assertIs(whole, rp.merge_sections(whole, None))
+
     def test_unknown_kind_refused(self):
         with self.assertRaises(ac.AcademyError):
             rp.render_deep_dive(sample_bundle("claim"), kind="poem")

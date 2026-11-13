@@ -34,7 +34,10 @@ failed tool call, redacted and without the command line, to
 error classes and carries the unresolved ones forward; `settle`, run after the packet is
 filed, closes the classes that were reported and stayed quiet for seven days. From the
 main session: `py $S/error_ledger.py report [--days N]` shows the picture, and
-`py $S/error_ledger.py resolve "<class>" --note "<why>"` closes a class by hand.
+`py $S/error_ledger.py resolve "<class>" --note "<why>"` closes a class by hand
+(`--family "<family>"` closes every open class of a family of the report's first table;
+`--commit SHA` names the fix, and an error that then comes from a copy older than the
+fix is reported as `stale code`, not as a regression).
 
 **Cloud sessions.** `ship.py checkpoint` writes content-free session summaries to
 `<board>/.usage/<instance>.<host>.jsonl`; the report adds those whose transcript is not on this

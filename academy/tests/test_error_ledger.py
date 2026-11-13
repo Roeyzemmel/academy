@@ -133,13 +133,50 @@ class TopFamiliesTests(unittest.TestCase):
         rep = el.report(recs, NOW - dt.timedelta(days=7), now=NOW)
         top = rep["families"][0]
         self.assertEqual((top["family"], top["in_window"], top["classes"], top["sessions"]),
-                         ("claims_set_status: grounds do not support", 3, 3, 3))
+                         ("claims_set_status: grounds do not support", 3, 1, 3))
+        # one class, whatever the claim, the instance or the host (2026-11-13)
+        self.assertEqual(el.signature("WebFetch", "getaddrinfo ENOTFOUND arxiv.org. In"),
+                         el.signature("WebFetch", "getaddrinfo ENOTFOUND ems.press. In"))
+        self.assertEqual(
+            el.signature(t, "agent researcher:prover could act for researcher@flat or x"),
+            el.signature(t, "agent researcher:lead could act for researcher@u or x"))
         md = el.render_markdown(rep)
         self.assertIn("## Top families", md)
         self.assertLess(md.index("## Top families"), md.index("| class |"))
         self.assertIn("Example messages:", md)
 
-    def test_bash_exit_code_splits_by_command_word(self):
+    def test_bash_exit_code_splits_by_cause(self):
+        cases = [
+            ("python3: can't open file '/w/academy/scripts/cowork.py': [Errno 2] No such "
+             "file or directory", "script not found"),
+            ("Python was not found; run without arguments to install from the Microsoft "
+             "Store", "python launcher missing"),
+            ("/usr/bin/bash: -c: line 81: unexpected EOF while looking for matching `''",
+             "shell quoting"),
+            ("File \"<stdin>\", line 4 | SyntaxError: (unicode error) 'unicodeescape'",
+             "python syntax error"),
+            ("reviews: refused: the old statement hashes to 6a77", "script refused"),
+            ("Traceback (most recent call last): | File \"<stdin>\", line 4",
+             "python traceback"),
+            ("ls: cannot access 'scratch/x.log': No such file or directory", "path not found"),
+            ("T-0068 delivered high researcher@n -> author@t thm", "no error text"),
+            ("something failed oddly", "other"),
+        ]
+        recs = []
+        for i, (detail, _c) in enumerate(cases):
+            r = err(1, "Bash: exit code <n>", session="s%d" % i)
+            r["detail"], r["cmd"] = detail, "cd /w && x"
+            recs.append(r)
+        k = err(1, "Bash: exit code <n>", session="k")
+        k["detail"], k["msg"] = "0 | 0", "Exit code 144"
+        recs.append(k)
+        fams = {f["family"]: f["in_window"] for f in
+                el.report(recs, NOW - dt.timedelta(days=7), now=NOW)["families"]}
+        want = {"Bash: %s" % c: 1 for _d, c in cases}
+        want["Bash: killed or timed out"] = 1
+        self.assertEqual(want, fams)
+
+    def test_bash_exit_code_without_detail_splits_by_command_word(self):
         recs = []
         for i, cmd in enumerate(["git status", "git push", "py x.py", "python3 -c 1",
                                  "ls -l", None]):
@@ -390,6 +427,66 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(main("resolve", "B", "--instance", "i@x"), 0)
         recs = [r for r in el.read_all(board) if r["t"] == "resolve" and r["sig"] == "B"]
         self.assertNotIn("commit", recs[0])
+
+
+    # -- stale code: the error came from a copy older than the fix (2026-11-13) ----
+    def test_an_error_from_a_plugin_older_than_the_fix_is_stale_not_a_regression(self):
+        fix = {"t": "resolve", "ts": at(5), "sig": "A", "commit": "abc1234", "version": "0.2.1"}
+        old = dict(err(1, "A", "s2"), ver="0.2.0")
+        row = self.rep([err(10, "A"), fix, old])["classes"][0]
+        self.assertEqual((row["regression"], row["stale"]), (False, True))
+        self.assertIn("| stale code |", el.render_markdown(self.rep([err(10, "A"), fix, old])))
+        # one error from a copy that has the fix: the fix did not hold
+        new = dict(err(1, "A", "s3"), ver="0.2.1")
+        row = self.rep([err(10, "A"), fix, old, new])["classes"][0]
+        self.assertEqual((row["regression"], row["stale"]), (True, False))
+        # a record that does not say where it came from keeps the old reading
+        row = self.rep([err(10, "A"), fix, err(1, "A", "s2")])["classes"][0]
+        self.assertEqual((row["regression"], row["stale"]), (True, False))
+
+    def test_has_fix_by_commit_ancestry(self):
+        repo = os.path.dirname(PLUGIN)
+        head = el.code_rev()
+        if not head:
+            self.skipTest("not a git checkout")
+        self.assertEqual(head, subprocess.run(
+            ["git", "-C", repo, "rev-parse", "--short=12", "HEAD"],
+            capture_output=True, text=True).stdout.strip())
+        parent = subprocess.run(["git", "-C", repo, "rev-parse", "--short=12", "HEAD~1"],
+                                capture_output=True, text=True).stdout.strip()
+        if not parent:
+            self.skipTest("a shallow checkout")
+        self.assertIs(True, el.has_fix({"rev": head}, parent, ""))
+        self.assertIs(False, el.has_fix({"rev": parent}, head, ""))
+        self.assertIsNone(el.has_fix({}, head, ""))
+
+    def test_the_hook_record_says_which_code_ran(self):
+        rec = el.hook_record({"tool_name": "Read", "error": "File does not exist."}, "i@x")
+        self.assertEqual(el.code_version(), rec["ver"])
+        self.assertRegex(rec["ver"], r"^\d+\.\d+\.\d+$")
+
+    def test_resolve_by_family(self):
+        board = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, board, True)
+        ws = os.path.join(board, "workspace.json")
+        with open(ws, "w") as fh:
+            json.dump({"board": board, "instances": {}}, fh)
+        t = "mcp__plugin_academy_academy__tickets_update"
+        sigs = [el.signature(t, "refused: open -> %s is not a transition" % x)
+                for x in ("in-progress", "closed")]
+        for sig in sigs + ["Other: thing"]:
+            el.append(board, "i@x", {**err(3, sig), "instance": "i@x"})
+        old = el.ac.load_workspace
+        el.ac.load_workspace = lambda path=None: {"board": board, "_path": ws}
+        self.addCleanup(setattr, el.ac, "load_workspace", old)
+        main = lambda *a: el.main(list(a) + ["--workspace", ws, "--instance", "i@x"])
+        self.assertEqual(0, main("resolve", "--family", "tickets_update: not a transition",
+                                 "--commit", "deadbee", "--note", "walked"))
+        res = [r for r in el.read_all(board) if r["t"] == "resolve"]
+        self.assertEqual(sorted(sigs), sorted(r["sig"] for r in res))
+        self.assertTrue(all(r["version"] == el.code_version() for r in res))
+        self.assertEqual(["Other: thing"], sorted(el.classes(el.read_all(board))))
+        self.assertEqual(1, main("resolve", "--family", "no such family"))
 
 
 class HookProcessTests(unittest.TestCase):

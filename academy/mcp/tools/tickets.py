@@ -5,6 +5,8 @@ decided by its instance against the ticket's ``from`` / ``to``; the human may do
 anything, and is the only party on a ticket addressed to ``human``.
 """
 
+import re
+
 import academy_common as ac
 
 from . import Tool, ToolError, obj, S, B, L
@@ -19,6 +21,17 @@ ACTING = {"type": "string", "description":
 #: statuses ``deliver: true`` may start from
 DELIVER_FROM = ("open", "accepted", "in-progress")
 FROZEN = ("id", "created", "updated")
+#: a status move that is not one transition is walked in one call when every status in
+#: between is one of these (they need nothing of their own: no reason, no waiting_on,
+#: no result) and the caller may make every hop. The ledger, 2026-10-31..11-13: 12
+#: refusals of ``open -> in-progress`` after the refusal had learnt to name the route.
+WALK_THROUGH = ("accepted", "in-progress")
+#: arguments an agent puts inside ``fields`` although they are arguments of the call
+FIELD_ARGS = ("result_detail", "ask_detail", "note", "reason", "reopen")
+BLOCK_HINT = ("; pending: status 'blocked' with waiting_on: ['T-0123'] (the tickets, or "
+              "'human', it waits for); a dead route: blocked_by: 'T-0123' (a ticket or "
+              "registry id), reopen_if: '<what would reopen it>' and reason: '<what was "
+              "tried>'")
 
 
 def _who_moves(meta, pset, me, old, new, human):
@@ -38,15 +51,33 @@ def _who_moves(meta, pset, me, old, new, human):
     return out
 
 
-def _one_line(name, value, required=True):
+def _one_line(name, value, required=True, tag=False):
+    """``value`` as one line: runs of whitespace (line breaks included) become one space.
+    A wrapped title or deliverable is still one sentence; ``ask`` and ``result``, whose
+    extra lines are detail, go through ``_headline`` first. A ``tag`` (an instance, a
+    role, a workplan's name) is refused when it spans lines: nothing sensible is meant."""
     if value is None or str(value).strip() == "":
         if required:
             raise ToolError("%s is required" % name)
         return None
     s = str(value).strip()
-    if "\n" in s or "\r" in s:
-        raise ToolError("%s must be one line (detail goes in the body)" % name)
-    return s
+    if tag and ("\n" in s or "\r" in s):
+        raise ToolError("%s must be one line" % name)
+    return " ".join(s.split())
+
+
+def _headline(value):
+    """``(first line, whole text or None)`` of a field that must be one line. A caller
+    that writes the detail into ``ask`` or ``result`` (18 and 1 refusals in the ledger,
+    five weeks running) gets what it meant: the first line is the field, the whole text
+    goes to the body section."""
+    if value is None:
+        return None, None
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if "\n" not in text:
+        return text, None
+    first = next(ln.strip() for ln in text.split("\n") if ln.strip())
+    return first.lstrip("#-* ").strip() or first, text
 
 
 def _default_budget(ctx):
@@ -62,7 +93,10 @@ def _default_budget(ctx):
 def load_ticket(ctx, tid):
     """``(ref, meta, body)`` of ticket ``tid`` on the caller's store (one fetch)."""
     if not ac.RE_TICKET_ID.match(str(tid or "")):
-        raise ToolError("a ticket id looks like T-0007, got %r" % tid)
+        hint = ""
+        if re.match(r"^P-\d+$", str(tid or "")):
+            hint = "; %s is a packet: read it with packets_get" % tid
+        raise ToolError("a ticket id looks like T-0007, got %r%s" % (tid, hint))
     try:
         return ctx.store.get(tid)
     except ac.AcademyError:
@@ -100,6 +134,12 @@ def create_ticket(ctx, a, clerical=False):
             ctx.ticket_hint = load_ticket(ctx, a["parent"])[1]
         except ToolError:
             pass
+    a = dict(a)
+    ask, ask_rest = _headline(a.get("ask"))
+    if ask_rest:
+        a["ask"] = ask
+        a["ask_detail"] = "\n\n".join(x for x in (ask_rest, (a.get("ask_detail") or "").strip())
+                                      if x)
     sender, agent = ctx.filer(bool(a.get("as_human")))
     if sender == ac.HUMAN and not ctx.is_human:
         raise ToolError("refused: only the main session files as 'human'")
@@ -113,10 +153,10 @@ def create_ticket(ctx, a, clerical=False):
     if not sender:
         raise ToolError("agent %r runs outside every academy home; it cannot file tickets"
                         % ctx.agent)
-    to = _one_line("to", a.get("to"))
+    to = _one_line("to", a.get("to"), tag=True)
     if to != ac.HUMAN and to not in ctx.instances():
         raise ToolError("to must be a workspace instance or 'human', got %r" % to)
-    final_to = _one_line("final_to", a.get("final_to"), required=False)
+    final_to = _one_line("final_to", a.get("final_to"), required=False, tag=True)
     parent = a.get("parent") or None
     if parent and not ctx.store.find(parent):
         raise ToolError("parent %s is not on the board" % parent)
@@ -159,10 +199,10 @@ def create_ticket(ctx, a, clerical=False):
         "created": today,
         "updated": today,
     }
-    campaign = _one_line("campaign", a.get("campaign"), required=False)
+    campaign = _one_line("campaign", a.get("campaign"), required=False, tag=True)
     if campaign:
         meta["campaign"] = campaign     # the campaign's target id (inbox --campaign)
-    cowork = _one_line("cowork", a.get("cowork"), required=False)
+    cowork = _one_line("cowork", a.get("cowork"), required=False, tag=True)
     if cowork:
         meta["cowork"] = cowork         # the cowork's slug (inbox --cowork; /academy:cowork)
     meta["id"] = "T-0000"                           # placeholder for validation
@@ -202,11 +242,37 @@ def update_ticket(ctx, a):
         raise ToolError("agent %r runs outside every academy home and is no party of "
                         "%s; pass instance=<its instance>" % (ctx.agent, meta.get("id")))
     pset = ac.parties(meta, me)
+    a = dict(a)
     fields = dict(a.get("fields") or {})
     if a.get("result") is not None and "result" not in fields:
         fields["result"] = a["result"]          # an alias of fields.result
+    for k in ac.BLOCK_FIELDS:                   # likewise waiting_on, blocked_by, reopen_if
+        if a.get(k) is not None and k not in fields:
+            fields[k] = a[k]
+    for k in FIELD_ARGS:                        # and an argument put inside fields
+        if k in fields:
+            v = fields.pop(k)
+            if a.get(k) is None:
+                a[k] = v
+    if isinstance(fields.get("waiting_on"), str):
+        fields["waiting_on"] = [w for w in re.split(r"[,\s]+", fields["waiting_on"]) if w]
     new_status = a.get("status")
     deliver = a.get("deliver") is True
+    # the result's extra lines are its detail; a result given only as detail has its
+    # first line as the field (12 refusals "delivered needs result" after 2026-10-31)
+    result, result_rest = _headline(fields.get("result"))
+    if result_rest:
+        fields["result"] = result
+        if a.get("result_detail") is None:
+            a["result_detail"] = result_rest
+    elif (not fields.get("result") and not meta.get("result") and a.get("result_detail")
+          and (deliver or new_status in ("delivered", "closed"))):
+        fields["result"] = _headline(a["result_detail"])[0]
+    if (deliver or new_status == "delivered") and meta.get("status") == "delivered" \
+            and (human or "receiver" in pset):
+        # delivering a delivered ticket again is the receiver amending its result, not a
+        # status move (4 refusals, 2026-11-07..12)
+        deliver, new_status = False, None
     if deliver:
         if new_status not in (None, "delivered"):
             raise ToolError("deliver: true walks the ticket to delivered; it cannot be "
@@ -282,7 +348,13 @@ def update_ticket(ctx, a):
         if meta.get("to") == ac.HUMAN and not human:
             raise ToolError("refused: a ticket addressed to human changes status only "
                             "by the human")
-        chain = ac.transition_route(old_status, new_status) if deliver else None
+        chain = None
+        if deliver:
+            chain = ac.transition_route(old_status, new_status)
+        elif not human and (old_status, new_status) not in ac.TRANSITIONS:
+            route = ac.transition_route(old_status, new_status)
+            if route and all(s in WALK_THROUGH for s in route[1:-1]):
+                chain = route
         steps = list(zip(chain, chain[1:])) if chain else [(old_status, new_status)]
         for hop_old, hop_new in steps:
             ok, why = ac.can_transition(hop_old, hop_new, pset, human)
@@ -297,7 +369,7 @@ def update_ticket(ctx, a):
                     hop_meta, meta, hop_new, reason, staged.get("waiting_on"),
                     staged.get("blocked_by"), staged.get("reopen_if"), a.get("reopen"), human)
             except ac.AcademyError as exc:
-                raise ToolError(str(exc))
+                raise ToolError(str(exc) + (BLOCK_HINT if hop_new == "blocked" else ""))
             lines.extend(blines)
             meta["status"] = hop_new
             dead_block = hop_new == "blocked" and ac.is_dead_route(meta)
@@ -314,7 +386,10 @@ def update_ticket(ctx, a):
     if note:
         lines.append(note)
     if not lines:
-        raise ToolError("nothing to change")
+        # not an error: the ticket already reads as asked (8 ledger entries, five weeks)
+        return {"id": meta["id"], "path": path.replace("\\", "/"), "status": meta.get("status"),
+                "changed": False, "thread": [], "mirrored_blocks_into": [],
+                "note": "nothing to change: the ticket already reads so"}
 
     for ln in lines:
         body = ac.append_thread(body, speaker, ln)
@@ -382,7 +457,8 @@ TOOLS = [
     Tool("tickets_get", "Read one ticket (frontmatter, body, validation problems).",
          obj({"id": S, "instance": ACTING}, ["id"]), _get),
     Tool("tickets_create", "File a ticket from the caller's instance (the human files "
-         "as 'human'). The server allocates the id and dates; status is open. A ticket must pass the chain "
+         "as 'human'). The server allocates the id and dates; status is open. ask is one line: a "
+         "longer ask keeps its first line and goes whole to the ## Ask body. A ticket must pass the chain "
          "(docs/protocol.md section 5): to a neighbouring role, by a liaison; final_to "
          "names the role a relay forwards it to. campaign / cowork tag the ticket for a "
          "workplan (academy/lib/workplan.py): a campaign's target id or a cowork's slug.",
@@ -404,9 +480,15 @@ TOOLS = [
          "receiver or the human, ticket open/accepted/in-progress, fields.result required) walks "
          "open -> accepted -> in-progress -> delivered in one call, writing the usual "
          "thread line per step; every hop must be allowed; not with another status. "
-         "result is an alias of fields.result.",
+         "status in-progress from open likewise passes through accepted. result, "
+         "waiting_on, blocked_by and reopen_if are aliases of the fields of that name; a "
+         "multi-line result keeps its first line and goes whole to ## Result. blocked "
+         "needs waiting_on (pending), or blocked_by + reopen_if + reason (a dead route). "
+         "A call that changes nothing answers changed: false.",
          obj({"id": S, "status": {"type": "string", "enum": list(ac.TICKET_STATUSES)},
               "reason": S, "reopen": S, "fields": {"type": "object"}, "ask_detail": S,
-              "result_detail": S, "note": S, "deliver": B, "result": S, "instance": ACTING}, ["id"]),
+              "result_detail": S, "note": S, "deliver": B, "result": S,
+              "waiting_on": {"type": ["array", "string"], "items": {"type": "string"}},
+              "blocked_by": S, "reopen_if": S, "instance": ACTING}, ["id"]),
          update_ticket, write=True),
 ]

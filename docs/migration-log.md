@@ -1063,3 +1063,15 @@ The board branches were merged into `main` in one plan (streams `ship`, `compute
 registry through the home's `scripts/claims.py`, which the lab no longer has, so E7 (a
 `Claims:` id missing from the registry) is dormant until it reads the academy registry
 engine instead.
+
+## 2026-11-13: the error-ledger review (plugins 0.2.1)
+
+`docs/error-ledger-review-2026-11-13.md`: what the ledger of 2026-10-14..11-13 showed and
+the thirteen changes made from it. In short: `tickets_update` / `tickets_create` and the
+claims tools take a legal request in the forms agents actually use (a status walked
+through `accepted` / `in-progress`, a multi-line ask or result, a file reference in any
+form) instead of refusing with instructions; a new `script_path_guard` hook answers a
+misplaced academy script with its real path; the error records say which code produced
+them, so an error from a stale checkout or plugin copy reads `stale code` and not
+`regression`. Resolving the fixed classes is left to the human (the list is in the
+review).

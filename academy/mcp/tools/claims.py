@@ -417,10 +417,50 @@ class RegistryBackend(ClaimsBackend):
             bits.append("grader %s" % str(row["grader_role"]).strip())
         if row.get("note"):
             bits.append(str(row["note"]).strip())
-        cells = [kind, ref, verdict, run, "; ".join(bits)]
+        # the row is cells joined by '|': a bar in the free text (|x|, a table cell
+        # pasted into a note) is written as the divides sign, which reads the same
+        # (9 refusals in the ledger, five weeks); a bar in an id or a ref stays an error
+        cells = [kind, ref, verdict.replace("|", "\u2223"), run,
+                 "; ".join(bits).replace("|", "\u2223")]
         if any("|" in c for c in cells):
-            raise ToolError("an evidence cell may not contain '|'")
+            raise ToolError("an evidence type, ref or run_id may not contain '|'")
         return " | ".join(cells)
+
+    def _canon_ref(self, home, ref):
+        """``ref`` in the protocol's form when it names one existing file of the
+        workspace (``workspace.canonical_ref``); otherwise as given."""
+        from pathlib import Path
+        if not isinstance(ref, str) or not ref.strip():
+            return ref
+        try:
+            return self.workspace.canonical_ref(ref, Path(home))
+        except (OSError, ValueError):
+            return ref
+
+    def _canon_grounds(self, home, grounds):
+        """The grounds with every verdict's ``ref`` and ``verdict_file`` canonical."""
+        if not isinstance(grounds, dict):
+            return grounds
+        g = dict(grounds)
+        if isinstance(g.get("verdicts"), list):
+            g["verdicts"] = [dict(v, ref=self._canon_ref(home, v.get("ref")))
+                             if isinstance(v, dict) and v.get("ref") else v
+                             for v in g["verdicts"]]
+        if g.get("verdict_file"):
+            g["verdict_file"] = self._canon_ref(home, g["verdict_file"])
+        return g
+
+    @staticmethod
+    def _pass_verdict(vfile, refs):
+        """The verdict ref a ``verdict_file`` means when it names the pass instead of a
+        verdict: the pass folder, or its ``decision.md`` (the chair's table, which is
+        not a verdict; 4 refusals 2026-10-31..11-03). The first ref in that folder."""
+        folder = vfile.rstrip("/")
+        if folder.endswith(".md"):
+            if os.path.basename(folder) != "decision.md":
+                return None
+            folder = os.path.dirname(folder)
+        return next((r for r in refs if os.path.dirname(r) == folder), None)
 
     def _s1_is_v2(self, home, rest):
         kb = self.s1kb.load_kb(home)
@@ -432,6 +472,8 @@ class RegistryBackend(ClaimsBackend):
             raise ToolError("row must be an object: {type, ref, verdict, run_id, note}")
         ns, rest = split_id(cid)
         home = self._home(ns)
+        if row.get("ref"):
+            row = dict(row, ref=self._canon_ref(home, row["ref"]))
         if self._profile(ns) == "s1-kb":
             kind = str(row.get("type") or row.get("kind") or "")
             if kind != "verdict" and self._s1_is_v2(home, rest):
@@ -485,6 +527,7 @@ class RegistryBackend(ClaimsBackend):
     def set_status(self, cid, status, grounds, note=None):
         ns, rest = split_id(cid)
         home = self._home(ns)
+        grounds = self._canon_grounds(home, grounds)
         if self._profile(ns) == "s1-kb":
             # a schema-v2 record takes the one vocabulary as is (R5); a v1 one its label
             label = status if self._s1_is_v2(home, rest) else S1_WORDS.get(status)
@@ -533,6 +576,8 @@ class RegistryBackend(ClaimsBackend):
         refs = self._s1_verdict_refs(home, g)
         vfile = str(g.get("verdict_file") or "").replace("\\", "/") or \
             (refs[0] if refs else "")
+        if vfile and refs and vfile not in refs:
+            vfile = self._pass_verdict(vfile, refs) or vfile
         if vfile and refs and vfile not in refs:
             raise ToolError("refused: grounds.verdict_file %s is none of the verdicts' "
                             "refs (%s); pass grounds.verdict_file=%s, or leave it out "

@@ -347,6 +347,37 @@ caller; if one is refused, nothing changes. It cannot be combined with a `status
 `delivered`, and is an error for a sender or a ticket in any other state. `board.py transition`
 keeps single steps.
 
+**What `tickets_update` and `tickets_create` take as meant (2026-11-13, from the error
+ledger).** The rules above are unchanged; a call that plainly means a legal change is no
+longer refused for its form:
+
+- a `status` that is not one transition away is walked like `deliver: true` when every
+  status in between is `accepted` or `in-progress` and the caller may make every hop
+  (`open -> in-progress`, `open -> delivered` with a result). A route through `blocked`
+  or `delivered` (`in-progress -> accepted`, `open -> closed`) is still refused, naming
+  the route;
+- `deliver: true` (or `status: delivered`) on a ticket that is already `delivered`, by
+  its receiver or the human, is an amendment of the result, or nothing; a call that
+  changes nothing answers `changed: false` and is not an error;
+- `ask` and `result` are still one line on the ticket: of a longer text the first line
+  is the field and the whole text goes to `## Ask` / `## Result`. A result given only
+  as `result_detail` has its first line as the field. A wrapped `title` or `deliverable`
+  is joined into one line;
+- `result`, `waiting_on`, `blocked_by` and `reopen_if` may be given as arguments of the
+  call or inside `fields`; `result_detail`, `ask_detail`, `note`, `reason` and `reopen`
+  put inside `fields` are taken as the arguments they are;
+- a role agent that is no party of the ticket (a claim-keeper noting a verify ticket
+  between Author and Expert) acts for the instance of its role whose namespace the
+  ticket names (`s1:GEO-70` in its title, ask, deliverable, refs or agenda), when exactly
+  one does.
+
+Likewise in `claims_set_status` and `claims_attach_evidence`: a `ref` or `verdict_file`
+given as an absolute path, a path from the workspace root or a path relative to another
+instance's home is recorded in the protocol's form (`file:<instance>/<path>`, or
+home-relative) when it names exactly one existing file; a `verdict_file` naming a
+review pass (its folder or its `decision.md`) means the first verdict of that pass; a
+`|` in an evidence note is written as `∣`.
+
 **Party rules:**
 - An instance is the *sender* when it equals `from`, and the *receiver* when it
   equals `to`. It may be both.
