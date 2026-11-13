@@ -108,9 +108,29 @@ class Parse(unittest.TestCase):
         steps, problems = ci.plan(REPO)
         self.assertEqual([], problems)
         ran = [s["label"] for s in steps if not s["skip"]]
-        self.assertTrue(any(lbl.endswith(": academy") for lbl in ran), ran)
+        self.assertTrue(any(": academy" in lbl for lbl in ran), ran)
         self.assertTrue(any("ruff check" in lbl for lbl in ran), ran)
         self.assertTrue(all("git identity" not in lbl and "pip install" not in lbl for lbl in ran))
+
+
+class OwnWorkflowCoversEveryTestFile(unittest.TestCase):
+    """The base suite is run as two steps split by file name (tests.yml). A file that
+    neither pattern takes would never run, and nobody would see it."""
+
+    def test_the_patterns_take_every_test_file_of_the_base_suite_once(self):
+        import fnmatch
+        import re as _re
+        steps, _problems = ci.plan(REPO)
+        pats = []
+        for st in steps:
+            if "-s academy/tests " in st["run"]:
+                m = _re.search(r'-p "([^"]+)"', st["run"])
+                pats.append(m.group(1) if m else "test*.py")
+        self.assertTrue(pats, "tests.yml no longer runs academy/tests")
+        files = sorted(f for f in os.listdir(HERE) if fnmatch.fnmatch(f, "test*.py"))
+        self.assertGreater(len(files), 50)
+        taken = {f: [p for p in pats if fnmatch.fnmatch(f, p)] for f in files}
+        self.assertEqual({}, {f: ps for f, ps in taken.items() if len(ps) != 1})
 
 
 class FindBash(unittest.TestCase):

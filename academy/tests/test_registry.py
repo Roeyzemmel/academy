@@ -19,5 +19,7 @@ REG_TESTS = os.path.join(os.path.dirname(HERE), "registry", "tests")
 
 
 def load_tests(loader, tests, pattern):
-    return unittest.TestLoader().discover(REG_TESTS, pattern=pattern or "test_*.py",
+    # every registry test, whatever pattern selected this file: the pattern is about
+    # the files of this directory (tests.yml runs it in two steps split by file name)
+    return unittest.TestLoader().discover(REG_TESTS, pattern="test_*.py",
                                           top_level_dir=REG_TESTS)

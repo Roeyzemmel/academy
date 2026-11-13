@@ -129,8 +129,8 @@ everything but the board and the submodules; never a submodule pointer; not part
   that needs GitHub's context is skipped with the reason), refuses the push when a step
   fails and keeps the commit. A tree that passed is not gated again. The jobs of a
   workflow run side by side (`CI_LOCAL_JOBS=1` for one after another), which is why this
-  repo's suites are three jobs: its gate takes about a minute and a half, where the one
-  job took four and a half. To change what is
+  repo's suites are several jobs: its gate takes about a minute, where the one job took
+  four and a half. To change what is
   checked, edit the workflow file; `py academy/scripts/ci_local.py list --repo <dir>`
   shows what will run here and `run` runs it by hand. A repo's `ship.json` is optional:
   `{"pushGate": false}` for no gate, or a list of extra local-only steps.

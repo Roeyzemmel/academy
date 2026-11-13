@@ -1,6 +1,9 @@
 """Temp superproject with one submodule checkout and a bare remote, for ship.py tests."""
+import atexit
 import os
+import shutil
 import subprocess
+import tempfile
 
 # Never wait on an editor, pager or credential prompt; set process-wide so ship.py's own
 # git calls in the tests inherit it too.
@@ -42,8 +45,42 @@ def add_submodule(tmp, root, name):
     return sub, remote
 
 
+_TEMPLATE = None
+
+
 def make_workspace(tmp):
-    """Return (root, sub_path, remote_path). The submodule is 'sub', on main, one commit pushed."""
+    """Return (root, sub_path, remote_path). The submodule is 'sub', on main, one commit pushed.
+
+    The workspace is built with git once per process and copied for each test (thirteen
+    git calls, 85 ms, against a copy of 10 ms; some 260 tests start from it). The two
+    files that hold the workspace's own path (the submodule's remote url in
+    ``.gitmodules`` and in ``sub/.git/config``) are rewritten for the copy."""
+    global _TEMPLATE
+    if _TEMPLATE is None:
+        holder = tempfile.mkdtemp(prefix="ship-fixture-")
+        atexit.register(shutil.rmtree, holder, True)
+        _build_workspace(holder)
+        for top, _dirs, files in os.walk(holder):         # git's sample hooks: 40 files
+            for name in files:                            # no test needs, copied each time
+                if name.endswith(".sample") and os.path.basename(top) == "hooks":
+                    os.remove(os.path.join(top, name))
+        _TEMPLATE = holder
+    was = os.path.join(_TEMPLATE, "remote.git").replace("\\", "/")
+    root, remote = os.path.join(tmp, "root"), os.path.join(tmp, "remote.git")
+    sub = os.path.join(root, "sub")
+    for name in ("root", "remote.git"):
+        shutil.copytree(os.path.join(_TEMPLATE, name), os.path.join(tmp, name), symlinks=True)
+    for path in (os.path.join(root, ".gitmodules"), os.path.join(sub, ".git", "config")):
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        if was not in text:
+            raise RuntimeError("ship_fixture: %s does not name the template's remote" % path)
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(text.replace(was, remote.replace("\\", "/")))
+    return root, sub, remote
+
+
+def _build_workspace(tmp):
     root = os.path.join(tmp, "root")
     remote = os.path.join(tmp, "remote.git")
     sub = os.path.join(root, "sub")
