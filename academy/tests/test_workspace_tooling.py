@@ -2,7 +2,6 @@
 workspace's scripts/bootstrap.py shim runs it), ship.py's workspace discovery, and the
 shims in templates/workspace/scripts. Temp directories and temp git repos only; nothing
 here writes outside them (the bootstrap's machine-wide steps are not run)."""
-import io
 import json
 import os
 import shutil
@@ -10,7 +9,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))

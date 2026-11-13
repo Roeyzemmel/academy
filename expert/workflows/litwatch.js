@@ -19,6 +19,11 @@ if (!A.instance || !/^[a-z]+@[a-z0-9][a-z0-9-]*$/.test(A.instance)) throw new Er
 const SCOUT = 'expert:related-work-scout'
 const GROUPS = Math.max(1, Math.min(A.groups || 4, 6))
 const LEDGER = `ledgers/${A.instance}/`
+// Ship (docs/workflows.md, "Shipping is a step of the workflow"): the ledger file is written under no ticket, so the stage is
+// not-run and names the command for the session; a nested run leaves it to its parent.
+const shipNotRun = (topic) => A.nested ? undefined : { status: 'not-run',
+  detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+  command: `py scripts/ship.py checkpoint --ticket ${String(topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role expert --only library board` }
 
 const PLAN = { type: 'object', properties: {
   ok: { type: 'boolean' }, stop_reason: { type: 'string' },
@@ -46,7 +51,7 @@ const WROTE = { type: 'object', properties: {
 if (A.statement) {
   const r = await agent(`Search for prior work on ${A.statement} for ${A.instance}, as your agent definition says, and write ` +
     `${LEDGER}<today>-<id-slug>.md. Report the queries run and the hits ranked by overlap.`, { label: `prior art ${A.statement}`, agentType: SCOUT })
-  return { instance: A.instance, statement: A.statement, report: r }
+  return { instance: A.instance, statement: A.statement, report: r, ship: shipNotRun('prior-art-' + A.statement) }
 }
 
 // ---- Plan ---------------------------------------------------------------------------
@@ -110,4 +115,4 @@ const before = new Set(plan.files_before || [])
 const extra = w ? (w.files_after || []).filter(f => !before.has(f) && !file.endsWith(f)) : []
 return { instance: A.instance, window: [plan.window_start, plan.today], file: w ? w.file : null,
          hits, ran, lost, anomalies: extra.length ? ['files written outside the Record stage: ' + extra.join(', ')] : [],
-         cite_candidates: hits.filter(h => h.overlap || /^(overlap|related)$/i.test(h.verdict)) }
+         cite_candidates: hits.filter(h => h.overlap || /^(overlap|related)$/i.test(h.verdict)), ship: w ? shipNotRun('litwatch-' + A.instance) : undefined }

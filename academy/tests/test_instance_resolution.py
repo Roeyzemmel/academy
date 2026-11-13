@@ -83,6 +83,24 @@ class TestAgentAtTheWorkspaceRoot(TwoResearchers):
         self.assertTrue(err)
         self.assertIn("pass instance", msg)
 
+    def test_a_non_party_keeper_is_resolved_by_the_namespace_the_ticket_names(self):
+        # ledger: claim-keeper noting a verify ticket between Author and Expert
+        tid = self.ticket("expert@t", ask="Verify s2:GEO-70 as stated.")
+        err, res = self.server().call("tickets_update", caller="researcher:claim-keeper",
+                                      id=tid, note="status recorded")
+        self.assertFalse(err, res)
+        err, got = self.server().call("tickets_get", id=tid)
+        self.assertIn("researcher@u/claim-keeper: status recorded", got["body"])
+        tid = self.ticket("expert@t", ask="Verify the lemma.")
+        err, msg = self.server().call("tickets_update", caller="researcher:claim-keeper",
+                                      id=tid, note="status recorded")
+        self.assertTrue(err)
+        self.assertIn("not a party of the ticket", msg)
+        err, msg = self.server().call("tickets_update", caller="researcher:claim-keeper",
+                                      id=tid, note="x", instance="expert@t")
+        self.assertTrue(err)
+        self.assertIn("pass instance=researcher@", msg)
+
     def test_unique_role_resolves_from_another_roles_home(self):
         # the server ran in the library (expert home); a math-writer still is author@t
         err, t = self.server("expert@t").call("tickets_create", caller="author:math-writer",

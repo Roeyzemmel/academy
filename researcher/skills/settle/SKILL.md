@@ -10,7 +10,7 @@ table is in `settle.py`'s docstring. A result that hands you a counterexample to
 the notebook has been circling is the most dangerous kind: nothing is recorded until it
 clears.
 
-Three calls of `${CLAUDE_PLUGIN_ROOT}/workflows/review-experiment.js` (the Workflow tool, `args: {subject: "lab:<id>", ticket, report, candidates: "<home>/.academy/settle-<id>.json", mode}`),
+Three calls of `${CLAUDE_PLUGIN_ROOT}/workflows/review-experiment.js` (the Workflow tool, `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", subject: "lab:<id>", ticket, report, candidates: "<home>/.academy/settle-<id>.json", mode}`),
 each a later run than the one before; nothing waits in a loop. The inbox runs the first
 itself when a review finds candidates. The order is code (2026-10-31; docs/workflows.md):
 

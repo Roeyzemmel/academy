@@ -59,7 +59,8 @@ class Parity(StoreCase):
         try:
             mcp_tickets.update_ticket(ctx, a)
         except ToolError as exc:
-            return "error", core(exc)
+            # the MCP refusal of a move to blocked adds how to call it; the rule is the same
+            return "error", core(exc).replace(mcp_tickets.BLOCK_HINT, "")
         return "ok", None
 
     def thread(self, store, tid):

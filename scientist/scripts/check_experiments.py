@@ -193,19 +193,23 @@ def calls(text):
     return names
 
 
-def _vendored_academy(_cache=[]):
-    """This plugin's vendored ``_academy.py``, loaded by its path (not ``import
+def _vendored_academy(_cache=[]):  # noqa: B006 -- memo cache
+    """This plugin's vendored ``_academy`` package, loaded by its path (not ``import
     _academy``: a lab's tests load the checker in process with their own
     ``tests/_academy.py`` helper already imported under that name). None when it cannot
     be loaded."""
     if not _cache:
         import importlib.util
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_academy.py")
+        name = "_scientist_check_academy"
+        pkg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_academy")
         try:
-            spec = importlib.util.spec_from_file_location("_scientist_check_academy", path)
+            spec = importlib.util.spec_from_file_location(
+                name, os.path.join(pkg, "__init__.py"), submodule_search_locations=[pkg])
             mod = importlib.util.module_from_spec(spec)
+            sys.modules[name] = mod      # a package's parts import each other through it
             spec.loader.exec_module(mod)
         except Exception:
+            sys.modules.pop(name, None)
             mod = None
         _cache.append(mod)
     return _cache[0]
@@ -232,7 +236,7 @@ def _rule_set_of(ns):
     return ac.registry_rule_set(ns) or "lab"
 
 
-def unchecked_namespace(ns, _cache={}):
+def unchecked_namespace(ns, _cache={}):  # noqa: B006 -- memo cache
     """True when ``ns`` is another kind of registry (rule set ``paper`` or ``notebook``),
     whose ids this checker does not validate."""
     if ns not in _cache:

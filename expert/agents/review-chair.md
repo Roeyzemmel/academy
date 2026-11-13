@@ -51,6 +51,10 @@ structured result the stage asks for.
 - **conclude**: conclude.md sections 2-6 (blind) or section 7 steps 6-7 and sections 4-6
   (reword), over the runs the workflow lists, copying its process notes into the
   record's process note; then list the pass folder's files.
+- **ship** (a standalone run of `workflows/verify.js`): run the `inbox.py --check` command the stage gives
+  once, stderr joined, and return its whole output verbatim. It commits and pushes the
+  ticket's work through `ship.py checkpoint`; whatever it prints, never run it again
+  and fix nothing (a refusal is the result).
 
 Outside a workflow (the by-hand route of the verify skill, `ACADEMY_ALLOW_MANUAL_REVIEW=1`)
 the main session follows conclude.md itself; you are not used for it.

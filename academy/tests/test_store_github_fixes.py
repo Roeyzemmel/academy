@@ -26,7 +26,7 @@ import board_codec as bc  # noqa: E402
 import board_store as bs  # noqa: E402
 import decisions as dc  # noqa: E402
 import packets as pk  # noqa: E402
-from tools import Context, ToolError, tickets as mcp_tickets, packets as mcp_packets  # noqa: E402
+from tools import Context, ToolError, packets as mcp_packets  # noqa: E402
 from tools import claims as mcp_claims  # noqa: E402
 
 core = ac.inbox_core
@@ -40,8 +40,9 @@ def vendored(role):
     import as ``_academy``): a different module object from ``academy_common``."""
     if role not in _VENDORED:
         name = "_academy_" + role
+        pkg = os.path.join(REPO, role, "scripts", "_academy")
         spec = importlib.util.spec_from_file_location(
-            name, os.path.join(REPO, role, "scripts", "_academy.py"))
+            name, os.path.join(pkg, "__init__.py"), submodule_search_locations=[pkg])
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod
         spec.loader.exec_module(mod)

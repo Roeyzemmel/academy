@@ -25,7 +25,8 @@ async function agent(prompt, opts) {
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}).then(
+// the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
+body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -95,6 +96,43 @@ class ExperimentTests(unittest.TestCase):
                                                "deliver": [{"ok": True, "detail": ""}]}, mode="file", stem="s", ticket="T-1")
         self.assertEqual(res["outcome"], "filed")
         self.assertIn("--ticket T-1", next(c for c in calls if c["label"] == "file")["prompt"])
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class ShipTests(unittest.TestCase):
+    """docs/workflows.md, "Shipping is a step of the workflow": only the file leg ships (the others end at
+    a human gate), standalone once, nested never."""
+    run_wf = ExperimentTests.run_wf
+    FILE = {"file": [{"packet": "P-1", "review_ticket": "T-9", "researcher": "researcher@u", "why": "w", "error": ""}],
+            "deliver": [{"ok": True, "detail": ""}]}
+
+    @staticmethod
+    def out(line):
+        return {"status": "nothing", "detail": "", "branches": [], "output": "T-1: delivered (delivered)\n%s\n" % line}
+
+    def test_the_file_leg_ships_once_standalone(self):
+        res, labels, calls, err = self.run_wf(dict(self.FILE, ship=[self.out("lab 2026-11-13/t-1/scientist @ a (3 files) pushed")]),
+                                              mode="file", stem="s", ticket="T-1", root="/acad", nested=False)
+        self.assertIsNone(err, err)
+        self.assertEqual(labels, ["file", "deliver", "ship"])
+        self.assertIn("py /acad/scientist/scripts/inbox.py --check T-1", calls[-1]["prompt"])
+        self.assertEqual(res["ship"]["branches"], ["lab 2026-11-13/t-1/scientist"])
+        res, labels, _, err = self.run_wf(dict(self.FILE), mode="file", stem="s", ticket="T-1", nested=True)
+        self.assertNotIn("ship", labels)
+
+    def test_a_refusal_is_returned_once(self):
+        bad = self.out("lab main @ a (0 files) REFUSED: dirty on main")
+        res, labels, _, err = self.run_wf(dict(self.FILE, ship=[bad, bad]), mode="file", stem="s", ticket="T-1", nested=False)
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "refused")
+        self.assertIn("ship stage was refused", " ".join(res["notes"]))
+
+    def test_other_legs_never_ship_and_no_ticket_is_not_run(self):
+        res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [DESIGN]}, mode="design", claim="lab:x", ticket="T-1", nested=False)
+        self.assertNotIn("ship", res)
+        res, labels, _, err = self.run_wf({"file": self.FILE["file"]}, mode="file", stem="2026-11-13_x", nested=False)
+        self.assertNotIn("ship", labels)
+        self.assertIn("--ticket report-2026-11-13-x --role scientist", res["ship"]["command"])
 
 
 if __name__ == "__main__":

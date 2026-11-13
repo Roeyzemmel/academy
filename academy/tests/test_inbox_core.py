@@ -426,7 +426,7 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "calls.log"),
     f.write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd()}) + "\n")
 if mode == "sleep":
     time.sleep(30)
-print("checkpoint stub: pushed")
+print(os.environ.get("STUB_OUT") or "checkpoint stub: pushed")
 sys.exit(1 if mode == "fail" else 0)
 '''
 
@@ -454,6 +454,11 @@ class ShipCheckpointHookTests(Board):
         q = mock.patch.object(core, "SHIP_SCRIPT", os.path.join(self.ws, "scripts", "ship.py"))
         q.start()
         self.addCleanup(q.stop)
+        # the touch ledger of this test only, never ~/.claude/academy/touched
+        self.touched = os.path.join(self.ws, ".touched")
+        t = mock.patch.dict(os.environ, {"ACADEMY_TOUCHED_DIR": self.touched, "STUB_OUT": ""})
+        t.start()
+        self.addCleanup(t.stop)
 
     def tearDown(self):
         shutil.rmtree(self.ws, ignore_errors=True)
@@ -729,6 +734,103 @@ class ShipCheckpointHookTests(Board):
         self.assertEqual(code, 0)
         self.assertEqual(len(err.getvalue().strip().splitlines()), 1)
         self.assertIn("warning", err.getvalue())
+
+    # -- the touch ledger: what the role wrote in another role's home ----------------
+    def touch(self, rel, role="expert", instance=None):
+        path = os.path.join(self.ws, *rel.split("/"))
+        return ac.record_touch(self.ws, [path], role, instance)[0]
+
+    def touched_args(self, n=0):
+        argv = self.calls()[n]["argv"]
+        return argv[argv.index("--touched") + 1:] if "--touched" in argv else []
+
+    def ledger(self):
+        return sorted((os.path.relpath(r["path"], self.ws).replace(os.sep, "/"), r["ticket"])
+                      for _, r in ac.touch_entries(self.ws))
+
+    def test_a_cite_ships_the_bib_it_wrote_in_the_author_home(self):
+        self.touch("a/references.bib")
+        self.put("T-0001", status="delivered", to="expert@t", kind="cite")
+        os.environ["STUB_OUT"] = ("library x @ 1 (1 files) pushed\n"
+                                  "a 2026-11-13/t-0001/expert @ 2 (1 files) pushed")
+        code, out, err = self.check("T-0001", instance="expert@t")
+        self.assertEqual(code, 0)
+        argv = self.calls()[0]["argv"]
+        self.assertEqual(argv[argv.index("--role") + 1], "expert")
+        self.assertEqual(argv[argv.index("--only") + 1:argv.index("--touched")],
+                         ["library", "board"])
+        self.assertEqual(self.touched_args(), ["a:references.bib"])
+        self.assertIn("also ships what expert wrote in another role's home: a:references.bib",
+                      err)
+        self.assertNotIn("checkpoint not run", err)
+        self.assertEqual(self.ledger(), [])                     # shipped: spent
+
+    def test_a_verify_ships_the_record_its_evidence_changed(self):
+        # a review chair's evidence row on paper:lem:x lands in the Author home's registry
+        self.touch("a/claims/paper/lem-x.md")
+        self.touch("a/Drafts/statements.md")
+        self.put("T-0001", status="delivered", to="expert@t", kind="verify")
+        self.check("T-0001", instance="expert@t")
+        self.assertEqual(self.touched_args(),
+                         ["a:claims/paper/lem-x.md", "a:Drafts/statements.md"])
+
+    def test_a_refused_repo_keeps_its_entries_for_this_ticket_only(self):
+        self.touch("a/references.bib")
+        self.put("T-0001", status="delivered", to="expert@t", kind="cite")
+        self.put("T-0002", status="delivered", to="expert@t", kind="lookup")
+        os.environ["STUB_OUT"] = "a 2026-11-13/t-0001/expert @ 2 (0 files) REFUSED: dirty on main"
+        self.stub("fail")
+        self.check("T-0001", instance="expert@t")
+        self.assertEqual(self.ledger(), [("a/references.bib", "T-0001")])
+        self.check("T-0002", instance="expert@t")             # another ticket: not its write
+        self.assertEqual(self.touched_args(1), [])
+        self.check("T-0001", instance="expert@t")             # its own re-check: retried
+        self.assertEqual(self.touched_args(2), ["a:references.bib"])
+        self.assertIn("--touched a:references.bib", self.calls_err_hint())
+
+    def calls_err_hint(self):
+        # the by-hand command names the touched paths too
+        os.environ["STUB_OUT"] = ""
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": tempfile.gettempdir()}):
+            return self.check("T-0001", instance="expert@t")[2]
+
+    def test_nothing_extra_without_a_cross_home_write(self):
+        self.put("T-0001", status="delivered", to="expert@t")
+        self.check("T-0001", instance="expert@t")
+        self.assertNotIn("--touched", self.calls()[0]["argv"])
+
+    def test_another_roles_writes_are_not_taken(self):
+        self.touch("a/references.bib", role="researcher")
+        self.touch("home/x.md", role="expert", instance="expert@other")
+        self.put("T-0001", status="delivered", to="expert@t")
+        self.check("T-0001", instance="expert@t")
+        self.assertNotIn("--touched", self.calls()[0]["argv"])
+        self.assertEqual(self.ledger(), [("a/references.bib", None), ("home/x.md", None)])
+
+    def test_a_write_in_a_repo_of_the_scope_is_not_repeated(self):
+        self.touch("library/cards/x.md")
+        self.put("T-0001", status="delivered", to="expert@t")
+        os.environ["STUB_OUT"] = "library x @ 1 (1 files) pushed"
+        self.check("T-0001", instance="expert@t")
+        self.assertNotIn("--touched", self.calls()[0]["argv"])
+        self.assertEqual(self.ledger(), [])
+
+    def test_a_path_in_no_submodule_is_dropped_and_said(self):
+        self.touch("elsewhere/x.md")
+        self.put("T-0001", status="delivered", to="expert@t")
+        code, out, err = self.check("T-0001", instance="expert@t")
+        self.assertNotIn("--touched", self.calls()[0]["argv"])
+        self.assertIn("cannot ship", err)
+        self.assertEqual(self.ledger(), [])
+
+    def test_ship_checkpoint_false_switches_the_extra_repos_off_too(self):
+        self.write_ws(shipCheckpoint=False)
+        self.touch("a/references.bib")
+        self.put("T-0001", status="delivered", to="expert@t")
+        self.assertEqual(self.check("T-0001", instance="expert@t")[0], 0)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.ledger(), [("a/references.bib", None)])
 
     def test_timeout_is_90_seconds(self):
         self.assertEqual(core.SHIP_TIMEOUT, 90)

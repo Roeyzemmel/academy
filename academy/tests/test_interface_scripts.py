@@ -762,6 +762,27 @@ class AcademyStatusTest(Sandbox):
         self.assertIn("IN FLIGHT", text)
         self.assertIn("usage 7d", text)
 
+    def test_overdue_names_a_weekly_review_gone_quiet(self):
+        # 2026-11-13: the weekly job "succeeded" for five weeks without filing a packet
+        today = _dt.date(2026, 11, 13)
+        self.assertEqual([], academy_status.overdue(self.board, today))     # nothing to review
+        os.makedirs(os.path.join(self.board, ".errors"))
+        with open(os.path.join(self.board, ".errors", "i.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write('{"t": "error", "ts": "2026-11-10T10:00:00", "sig": "A", "tool": "Bash"}\n')
+        lines = academy_status.overdue(self.board, today)
+        self.assertIn("no usage packet on the board", lines[0])
+        self.assertIn("never settled; 1 error(s) in the last 7 days", lines[1])
+        academy_status.packetlib.create_packet(self.board, "expert@d", "Usage", kind="usage", date="2026-09-28")
+        lines = academy_status.overdue(self.board, today)
+        self.assertIn("last usage packet is of 2026-09-28 (46 days ago)", lines[0])
+        ws = ac.load_workspace(self.ws_path)
+        text = academy_status.render(academy_status.summary(self.board, ws, "2026-09-01"))
+        self.assertNotIn("OVERDUE", text.split("NEEDS YOU")[1])
+        academy_status.packetlib.create_packet(self.board, "expert@d", "Usage", kind="usage", date="2026-11-09")
+        self.assertEqual([], academy_status.overdue(self.board, today))
+        self.assertNotIn("OVERDUE", academy_status.render(
+            dict(academy_status.summary(self.board, ws, "2026-09-01"), overdue=[])))
+
     def test_last_visit_default(self):
         d = academy_status.last_visit(default_days=7, today=_dt.date(2026, 9, 27))
         self.assertTrue(ac.RE_DATE.match(d))
@@ -779,8 +800,9 @@ class AsHumanLintTests(unittest.TestCase):
             for sub in ("skills", "agents", "scripts", "hooks"):
                 root = os.path.join(repo, plugin, sub)
                 for dp, _dn, fns in os.walk(root):
+                    _dn[:] = [d for d in _dn if d != "_academy"]     # the vendored lib
                     for fn in fns:
-                        if not fn.endswith((".md", ".py", ".json")) or fn == "_academy.py":
+                        if not fn.endswith((".md", ".py", ".json")):
                             continue
                         rel = os.path.relpath(os.path.join(dp, fn), repo)
                         with open(os.path.join(dp, fn), encoding="utf-8") as fh:
@@ -887,7 +909,7 @@ class ChainDocsTests(unittest.TestCase):
 
     def test_protocol_research_flow_names_the_research_kind(self):
         """M4: research-intake forwards a `research` child; /author:inbox files as main."""
-        flow = self.section(self.read("docs", "protocol.md"),
+        flow = self.section(self.read("academy", "docs", "protocol.md"),
                             "### 6.4", "### 6.5")
         self.assertNotIn("`lead`", flow)
         self.assertIn("child `research` ticket", flow)
@@ -895,7 +917,7 @@ class ChainDocsTests(unittest.TestCase):
 
     def test_protocol_chain_section_warns_about_nesting_and_the_cli(self):
         """M6, M7: relay-within-relay and the self-declared CLI identity."""
-        chain = self.section(self.read("docs", "protocol.md"), "### 5.1", "## 6.")
+        chain = self.section(self.read("academy", "docs", "protocol.md"), "### 5.1", "## 6.")
         self.assertIn("fresh chain", chain)
         self.assertIn("self-declared", chain)
         self.assertIn("advisory", chain)

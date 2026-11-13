@@ -10,7 +10,7 @@ Independence: `academy/references/roster-rules.md` (the producer never grades it
 
 The order is code (2026-10-31; docs/workflows.md). Call the **Workflow** tool with
 `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/prove.js` and
-`args: {claim: "<ns:id>", ticket: "T-NNNN" or omitted, home: "<this home, absolute>", instance: "<this instance>"}`.
+`args: {claim: "<ns:id>", ticket: "T-NNNN" or omitted, home: "<this home, absolute>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"}`.
 The inbox runs the same script for a `prove` ticket. The script:
 
 1. **State.** The clerk takes the ticket and reports the claim's status, its unsettled
@@ -35,5 +35,6 @@ The inbox runs the same script for a `prove` ticket. The script:
 
 Nothing goes above `sketch`: `proved` and `proved-modulo` come only from two agreeing
 Expert reviews, through claim-keeper. **Report** the attempt path and outcome, each gap,
-the inputs and their statuses, the ticket filed, the status proposed, and the script's
-`notes`.
+the inputs and their statuses, the ticket filed, the status proposed, the script's
+`notes`, and `ship` (the ticket's checkpoint, run once; without a ticket `not-run` with
+the command to run from the workspace root; a refusal is reported, never retried).

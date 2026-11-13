@@ -26,7 +26,8 @@ async function agent(prompt, opts) {
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}).then(
+// the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
+body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -100,6 +101,44 @@ class ProveTests(unittest.TestCase):
             "check verify": [{"found": True, "to": "author@t", "kind": "write", "refs": []}],
             "close": [MOVE]})
         self.assertIn("ANOMALY", " ".join(res["notes"]))
+
+
+def shipped(t, line):
+    return {"status": "nothing", "detail": "", "branches": [], "output": "%s: delivered (delivered)\n%s\n" % (t, line)}
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class ShipTests(unittest.TestCase):
+    """docs/workflows.md, "Shipping is a step of the workflow": standalone ships once; nested never."""
+    run_wf = ProveTests.run_wf
+    PLAN = {"state": [state()], "attempt path": [{"path": "proofs/GEO-3/attempt-2.md"}], "attempt": ["done"],
+            "outcome": [{"exists": True, "outcome": "partial", "gaps": ["g"], "objects": []}], "close": [MOVE]}
+
+    def test_standalone_ships_once_and_nested_never(self):
+        line = "notebook 2026-11-13/t-0010/researcher @ a (2 files) pushed"
+        res, labels, calls = self.run_wf(dict(self.PLAN, ship=[shipped("T-0010", line)]), nested=False, root="/acad", instance="researcher@u")
+        self.assertEqual(labels[-2:], ["close", "ship"])
+        self.assertEqual(calls[-1]["agentType"], "researcher:review-clerk")
+        self.assertIn("py /acad/researcher/scripts/inbox.py --instance researcher@u --check T-0010", calls[-1]["prompt"])
+        self.assertEqual(res["ship"]["status"], "pushed")
+        res, labels, _ = self.run_wf(dict(self.PLAN))
+        self.assertNotIn("ship", labels)
+        self.assertNotIn("ship", res)
+
+    def test_a_refusal_is_returned_once(self):
+        bad = shipped("T-0010", "notebook main @ a (0 files) REFUSED: dirty on main")
+        res, labels, _ = self.run_wf(dict(self.PLAN, ship=[bad, bad]), nested=False)
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "refused")
+        self.assertIn("ship stage was refused", " ".join(res["notes"]))
+
+    def test_no_ticket_is_not_run_with_the_command(self):
+        plan = dict(self.PLAN)
+        del plan["close"]
+        res, labels, _ = self.run_wf(plan, ticket=None, nested=False)
+        self.assertNotIn("ship", labels)
+        self.assertEqual(res["ship"]["command"],
+                         "py scripts/ship.py checkpoint --ticket prove-flat-geo-3 --role researcher --only <home submodule> board")
 
 
 if __name__ == "__main__":

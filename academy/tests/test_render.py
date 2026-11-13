@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.join(PLUGIN, "scripts"))
 sys.path.insert(0, HERE)
 
 import academy_common as ac  # noqa: E402
-import board as bd  # noqa: E402
 import packets as pk  # noqa: E402
 import render_packets as rp  # noqa: E402
 import gather_deep_dive as gd  # noqa: E402
@@ -330,6 +329,57 @@ class TestDeepDive(unittest.TestCase, PageContract):
                          r'(<span class="badge[^"]*">[^<]*</span>)', page)
         self.assertIsNotNone(chip)
         self.assertIn("st-conj", chip.group(1))
+
+    def test_sections_only_file_is_laid_over_the_gathered_bundle(self):
+        # 2026-11-13: the explainer writes {"sections": [...]}, not a copy of the bundle
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        gathered = sample_bundle("claim")
+        gathered.pop("sections", None)
+        gp = os.path.join(d, "g.json")
+        with open(gp, "w", encoding="utf-8") as fh:
+            json.dump(gathered, fh)
+        secs = [{"heading": "In words", "markdown": "It says so."}]
+        merged = rp.merge_sections({"sections": secs}, gp)
+        self.assertEqual(secs, merged["sections"])
+        self.assertEqual(gathered["subject"], merged["subject"])
+        self.assertIn("In words", rp.render_deep_dive(merged))
+        whole = dict(gathered, sections=secs)               # the old form still renders
+        self.assertIs(whole, rp.merge_sections(whole, gp))
+        self.assertIs(whole, rp.merge_sections(whole, None))
+
+    def test_the_explainer_may_give_a_citation_its_status_and_nothing_else(self):
+        # 2026-11-13: a claim resting on cited theorems could not render with a
+        # sections-only file; the citation statuses were what the explainer used to add
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        gathered = complete_bundle()
+        gathered["statements"] = list(gathered.get("statements") or []) + [
+            {"id": "paper:lem:known", "title": "known", "status": "sketch", "role": "dependency"}]
+        gathered["object"] = dict(gathered["object"], modulo=["bib:AB12#Thm2.1"])
+        gp = os.path.join(d, "g.json")
+        with open(gp, "w", encoding="utf-8") as fh:
+            json.dump(gathered, fh)
+        self.assertTrue(any("bib:AB12#Thm2.1" in p for p in rp.check_deep_dive(gathered)))
+        self.assertEqual(["bib:AB12#Thm2.1"], gd.citations_needing_status(gathered))
+        cited = {"id": "bib:AB12#Thm2.1", "title": "AB12, Theorem 2.1",
+                 "status": "cited (card verified, match)"}
+        merged = rp.merge_sections({"sections": [], "statements": [cited]}, gp)
+        self.assertEqual([], rp.check_deep_dive(merged))
+        self.assertEqual("input", [s for s in merged["statements"]
+                                   if s["id"] == cited["id"]][0]["role"])
+        for bad in ({"id": "paper:lem:known", "status": "proved"},       # a registry status
+                    {"id": "paper:lem:new", "status": "proved"},          # not a citation
+                    {"id": "bib:AB12#Thm2.1"}):                           # no status
+            with self.assertRaises(ac.AcademyError):
+                rp.merge_sections({"sections": [], "statements": [bad]}, gp)
+        already = dict(cited, status="cited (no card)")
+        twice = rp.merge_sections({"sections": [], "statements": [cited]}, gp)
+        gp2 = os.path.join(d, "g2.json")
+        with open(gp2, "w", encoding="utf-8") as fh:
+            json.dump(twice, fh)
+        with self.assertRaises(ac.AcademyError):          # the bundle already gives it one
+            rp.merge_sections({"sections": [], "statements": [already]}, gp2)
 
     def test_unknown_kind_refused(self):
         with self.assertRaises(ac.AcademyError):

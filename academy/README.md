@@ -7,7 +7,7 @@ Shared references beside it: `references/registry.md` (the `lab` / `paper` recor
 |---|---|
 | `skills/`, `agents/` | The cross-role skills (below) and their agents (concierge, explainer, secretary, usage-analyst) |
 | `scripts/` | The board, packets, decisions, deep-dives, usage, the registry CLI (`registry.py`), the workspace tools (`ship.py`, `workspace_bootstrap.py`; `docs/branching.md`), and the hooks' scripts; `references/scripts.md` lists them |
-| `lib/` | `academy_common.py`, the shared library vendored into every plugin as `scripts/_academy.py`, and the GitHub board's store and transport |
+| `lib/` | `academy_common/`, the shared library (a package) vendored into every plugin as `scripts/_academy/`, and the GitHub board's store and transport |
 | `registry/` | The claim-registry engine and its rule sets (`paper`, `notebook`, `lab`) |
 | `mcp/`, `hooks/`, `permissions.json` | The MCP server, the hook wiring, and the write permissions it enforces |
 | `templates/` | `academy.json` per role, packets, deep-dives, the cowork plan, the GitHub board's files, the workspace's setup files |

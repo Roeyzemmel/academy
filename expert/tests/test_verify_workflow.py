@@ -39,7 +39,8 @@ async function agent(prompt, opts) {
   return ans
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}).then(
+// the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
+body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -177,6 +178,42 @@ class LaunchGuardTests(unittest.TestCase):
             hooks = json.load(fh)["hooks"]["PreToolUse"]
         self.assertTrue(any(h.get("matcher") == "Agent|Task" and "review_launch_guard.py"
                             in h["hooks"][0]["command"] for h in hooks))
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class ShipTests(unittest.TestCase):
+    """docs/workflows.md, "Shipping is a step of the workflow": a standalone pass ships once, by the
+    inbox's own --check (which reads the ticket's state itself); a nested pass never."""
+    run_wf = GateTests.run_wf
+    PLAN = {"prepare": PREP, "run A": "r", "table A": tab("GAP", "single-negative"), "conclude": DONE}
+    OUT = "T-0001: delivered (delivered)\nlibrary 2026-11-13/t-0001/expert @ abc (3 files) pushed\n"
+
+    def test_standalone_ships_once_after_conclude(self):
+        out, labels, calls = self.run_wf(dict(self.PLAN, ship={"status": "pushed", "detail": "", "branches": [], "output": self.OUT}),
+                                         nested=False, root="/acad")
+        self.assertEqual(labels, ["prepare", "run A", "table A", "conclude", "ship"])
+        self.assertEqual(calls[-1]["agentType"], "expert:review-chair")
+        self.assertIn("py /acad/expert/scripts/inbox.py --check T-0001", calls[-1]["prompt"])
+        self.assertEqual(out["result"]["ship"]["status"], "pushed")
+
+    def test_nested_never_ships(self):
+        out, labels, _ = self.run_wf(dict(self.PLAN))
+        self.assertNotIn("ship", labels)
+        self.assertNotIn("ship", out["result"])
+
+    def test_a_refusal_is_returned_and_noted_once(self):
+        bad = {"status": "pushed", "detail": "", "branches": [],
+               "output": "T-0001: delivered (delivered)\nlibrary 2026-11-13/t-0001/expert @ abc (3 files) PUSH FAILED: gate\n"}
+        out, labels, _ = self.run_wf(dict(self.PLAN, ship=bad), nested=False)
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(out["result"]["ship"]["status"], "refused")
+        self.assertIn("ship stage was refused", " ".join(out["result"]["notes"]))
+
+    def test_no_ticket_is_not_run(self):
+        out, labels, _ = self.run_wf(dict(self.PLAN, prepare=dict(PREP, ticket="none")), ticket=None, nested=False)
+        self.assertNotIn("ship", labels)
+        self.assertEqual(out["result"]["ship"]["command"],
+                         "py scripts/ship.py checkpoint --ticket verify-paper-lem-x --role expert --only library board")
 
 
 if __name__ == "__main__":

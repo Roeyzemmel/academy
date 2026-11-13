@@ -104,5 +104,22 @@ class LitwatchTests(unittest.TestCase):
         self.assertEqual([c["label"] for c in calls], ["prior art paper:thm:x"])
 
 
+    def test_the_watch_file_is_not_shipped_here_but_the_command_is_returned(self):
+        # docs/workflows.md, "Shipping is a step of the workflow": no ticket, so not-run with the command
+        plan = {"plan": [dict(PLAN, sources=[{"kind": "keyword", "item": "k"}])], "search keywords 1": [{"ran": [], "hits": []}],
+                "record": [{"file": "f", "files_after": []}]}
+        res, calls = self.run_wf(plan, groups=1)
+        self.assertEqual(len(calls), 3)                                   # no ship agent
+        self.assertEqual(res["ship"], {"status": "not-run", "command":
+                         "py scripts/ship.py checkpoint --ticket litwatch-author-t --role expert --only library board",
+                                       "detail": res["ship"]["detail"]})
+        res, calls = self.run_wf(dict(plan, **{"plan": [dict(PLAN, sources=[{"kind": "keyword", "item": "k"}])],
+                                               "search keywords 1": [{"ran": [], "hits": []}], "record": [{"file": "f", "files_after": []}]}),
+                                 groups=1, nested=True)
+        self.assertNotIn("ship", res)
+        res, _ = self.run_wf({"prior art paper:thm:x": ["report"]}, statement="paper:thm:x")
+        self.assertIn("--ticket prior-art-paper-thm-x ", res["ship"]["command"])
+
+
 if __name__ == "__main__":
     unittest.main()

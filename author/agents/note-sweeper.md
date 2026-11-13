@@ -39,6 +39,11 @@ Where an answer can live, checked in this order:
    "Blue because unverified" is answered by two agreeing verdicts; the recolouring
    itself is math-editor's separate edit, not part of this sweep.
 
+**Reading the tex.** A section file can be larger than one Read allows: find the notes
+with Grep (it gives line numbers) and Read around each with `offset` and `limit`; the
+statement a note sits in is `py ${CLAUDE_PLUGIN_ROOT}/scripts/statement.py <label>`.
+Never Read a section whole, and do not repeat a Read that was refused for size.
+
 **Procedure**
 
 1. **Inventory.** Grep the tex files (`paths.tex`) for the machine macros, taking the

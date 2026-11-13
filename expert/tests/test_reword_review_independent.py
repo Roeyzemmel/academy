@@ -11,7 +11,7 @@ import re
 import unittest
 
 import fixtures
-import _academy as ac
+import _academy as ac  # noqa: F401 -- vendored load
 import decision_table as dt
 
 SUBJ = "paper:lem:strip-bound"

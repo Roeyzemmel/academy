@@ -59,6 +59,10 @@ Work for another role is only ever a ticket tagged `campaign: <target>` (the
 role's next actor (`/<role>:inbox --campaign <target>`). It never runs another role's
 agents. If the run is unattended and stops on a limit, write `board/human/RESUME.md`.
 
+The tickets the nested inbox took are checkpointed by its `--check`. The approaches and
+artifacts the campaign wrote itself belong to no ticket, so nothing ships them in code:
+`ship` names the `checkpoint` command; run it once from the workspace root.
+
 ## Final report
 
 Per `honest-reporting` ("The final report of a long run"), plus the tickets filed,

@@ -30,7 +30,8 @@ async function agent(prompt, opts) {
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}).then(
+// the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
+body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -134,6 +135,51 @@ class DomainTests(unittest.TestCase):
     def test_no_ticket_is_refused(self):
         res, labels, _, err = run("domain.js", {}, {})
         self.assertIn("args.ticket is required", err)
+
+
+def shipped(t, line):
+    return {"status": "nothing", "detail": "", "branches": [], "output": "%s: delivered (delivered)\n%s\n" % (t, line)}
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class ShipTests(unittest.TestCase):
+    """docs/workflows.md, "Shipping is a step of the workflow": standalone ships once; nested never."""
+    REF = {"start": [{"ok": True, "detail": "", "instance": "author@t", "acted_as": "expert@t"}], "pdf": [PDF], "referee": ["r"],
+           "find packet": [{"packet": "P-0500", "blocking": 2, "copy": "c.md"}], "deliver": [MOVE]}
+    DOM = {"start": [START], "librarian": [EDIT], "close": [MOVE],
+           "diff": [{"changed": ["theorems/dynamics.md", "CHANGELOG.md"], "changelog_last": EDIT["changelog"]}]}
+
+    def test_referee_standalone_ships_once_and_nested_never(self):
+        res, labels, calls, err = run("referee.js", dict(self.REF, ship=[shipped("T-0700", "board 2026-11-13/t-0700/expert @ a (1 files) pushed")]),
+                                      {"ticket": "T-0700", "nested": False, "root": "/acad"})
+        self.assertIsNone(err, err)
+        self.assertEqual(labels[-1], "ship")
+        self.assertIn("py /acad/expert/scripts/inbox.py --instance expert@t --check T-0700", calls[-1]["prompt"])
+        self.assertEqual(res["ship"]["branches"], ["board 2026-11-13/t-0700/expert"])
+        res, labels, _, err = run("referee.js", dict(self.REF), {"ticket": "T-0700", "nested": True})
+        self.assertIsNone(err, err)
+        self.assertNotIn("ship", labels)
+
+    def test_referee_without_a_ticket_is_not_run(self):
+        res, labels, _, err = run("referee.js", {"pdf": [PDF], "referee": ["r"], "find packet": [{"packet": "P-0500", "blocking": 0, "copy": "c"}]},
+                                  {"instance": "author@t", "nested": False})
+        self.assertNotIn("ship", labels)
+        self.assertEqual(res["ship"]["command"], "py scripts/ship.py checkpoint --ticket referee-author-t --role expert --only library board")
+
+    def test_domain_standalone_ships_once_refusal_returned(self):
+        res, labels, _, err = run("domain.js", dict(self.DOM, ship=[shipped("T-0800", "library x @ a (0 files) REFUSED: off-template branch")] * 2),
+                                  {"ticket": "T-0800", "nested": False})
+        self.assertIsNone(err, err)
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "refused")
+        self.assertIn("ship stage was refused", " ".join(res["notes"]))
+
+    def test_domain_parked_on_the_human_does_not_ship(self):
+        dom = dict(self.DOM, diff=[{"changed": ["notation.md", "CHANGELOG.md"], "changelog_last": EDIT["changelog"]}],
+                   close=[dict(MOVE, status="blocked")])
+        res, labels, _, err = run("domain.js", dom, {"ticket": "T-0800", "nested": False})
+        self.assertNotIn("ship", labels)
+        self.assertEqual(res["ship"]["status"], "not-run")
 
 
 class RefereeGuardTests(unittest.TestCase):

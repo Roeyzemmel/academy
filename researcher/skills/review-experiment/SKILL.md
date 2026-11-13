@@ -17,7 +17,7 @@ gets two runs, and a disagreement is reported, never averaged.
 The sequencing is code (the human's decision, 2026-10-31). Call the **Workflow** tool:
 
     scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/review-experiment.js
-    args: {subject: "lab:<id>", ticket: "T-NNNN", report: "P-NNNN", mode: "review"}
+    args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", subject: "lab:<id>", ticket: "T-NNNN", report: "P-NNNN", mode: "review"}
 
 The script does the following:
 - the `review-clerk` takes the ticket and reads `reviews.py decide`;
@@ -45,6 +45,8 @@ the report says the pass ran by hand.
   reproduction request is a `test` ticket to the Scientist, `--parent` the review ticket.
   The pair waits on it.
 - Put `notes` (a skipped B, a relaunch, a lost run) into the report verbatim.
+- `ship`: the delivered ticket's checkpoint, run once (`not-run` with the command when
+  there is no ticket or it waits); a refusal is reported, never retried.
 
 ## 3. Report
 

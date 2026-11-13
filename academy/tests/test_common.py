@@ -1,4 +1,4 @@
-"""Unit tests for academy/lib/academy_common.py and the contracts it implements.
+"""Unit tests for academy/lib/academy_common/ and the contracts it implements.
 
 Run from the repo root:  py -m unittest discover academy/tests
 """
@@ -61,21 +61,6 @@ class TempDir(unittest.TestCase):
             {"instances": inst, "board": os.path.join(self.tmp, "board"),
              "human": {"name": "Ada"}}))
 
-    def fixture_workspace(self):
-        """A workspace.json for the five standard instances, homes under the temp dir."""
-        spec = {"expert@main": ("library", None), "scientist@main": ("lab", "lab"),
-                "researcher@alpha": ("notebook", "nb"), "researcher@beta": ("flat", "flat"),
-                "author@main": ("paper", "paper")}
-        inst = {}
-        for name, (home, ns) in spec.items():
-            inst[name] = {"role": name.split("@")[0], "home": os.path.join(self.tmp, home),
-                          "domains": ["translation-surfaces"]}
-            if ns:
-                inst[name]["ns"] = ns
-        return self.write("fixture/workspace.json", json.dumps(
-            {"instances": inst, "board": os.path.join(self.tmp, "board"),
-             "human": {"name": "Ada"}}))
-
 
 # ---------------------------------------------------------------------------
 # Config
@@ -83,7 +68,7 @@ class TempDir(unittest.TestCase):
 
 def config_examples():
     """{instance: config} for every '### Example: <instance>' block in docs/config.md."""
-    text = read(os.path.join(REPO, "docs", "config.md"))
+    text = read(os.path.join(REPO, "academy", "docs", "config.md"))
     out = {}
     for m in re.finditer(r"^### Example: (\S+)\n\n```json\n(.*?)^```", text, re.M | re.S):
         out[m.group(1)] = json.loads(m.group(2))
@@ -624,7 +609,7 @@ class FileTests(TempDir):
 # ---------------------------------------------------------------------------
 
 def protocol_example():
-    text = read(os.path.join(REPO, "docs", "protocol.md"))
+    text = read(os.path.join(REPO, "academy", "docs", "protocol.md"))
     blocks = [b for b in fenced(text, "markdown") if b.startswith("---\nid: T-0007")]
     assert len(blocks) == 1
     return blocks[0]
@@ -794,7 +779,7 @@ class TicketTests(TempDir):
 # ---------------------------------------------------------------------------
 
 def packet_doc_example():
-    text = read(os.path.join(REPO, "docs", "packet-template.md"))
+    text = read(os.path.join(REPO, "academy", "docs", "packet-template.md"))
     blocks = [b for b in fenced(text, "markdown") if b.startswith("---\npacket: P-0012")]
     assert len(blocks) == 1
     return blocks[0]

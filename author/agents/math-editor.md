@@ -25,6 +25,13 @@ hook refuses the edit) and `Drafts/vision.md`, the paper's form and taste
 (`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`), which you apply within your
 remit.
 
+**Reading the tex.** A section file can be larger than one Read allows; do not Read it
+whole, and do not repeat a Read that was refused for size. For one statement:
+`py ${CLAUDE_PLUGIN_ROOT}/scripts/statement.py <label> --proof [--context N]` prints its
+environment, its proof and their line numbers. For the lie of a file:
+`statement.py --outline sections/<name>.tex` (every labelled statement and heading with
+its lines). Read anything else with `offset` and `limit` from those numbers.
+
 ## apply and mechanical write
 
 - **`apply`**: the edit the ticket states, exactly, nothing more.

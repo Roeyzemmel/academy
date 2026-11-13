@@ -27,8 +27,13 @@ const TAG = KIND === 'campaign' ? A.target : A.slug
 if (!TAG) throw new Error(KIND === 'campaign' ? 'args.target is required' : 'args.slug is required')
 if (KIND === 'campaign' && !A.home) throw new Error('a campaign needs args.home (the Researcher home)')
 const CLERK = KIND === 'campaign' ? 'researcher:review-clerk' : 'academy:inbox-clerk'
+// The prompts name the two scripts by their bare names; every prompt carries where they
+// are (the ledger, 2026-11-07: nine failed guesses of cowork.py's folder in one cowork).
+const SCRIPTS = KIND === 'campaign'
+  ? `Scripts: notebook.py is \`py ${ROOT}/researcher/scripts/notebook.py --home ${A.home}\` (python3 where there is no py).\n`
+  : `Scripts: cowork.py is \`py ${ROOT}/academy/scripts/cowork.py\` (python3 where there is no py).\n`
 const STAGE = (name, lines) => `WORKFLOW STAGE ${name} of the academy-workplan workflow (${KIND} ${TAG}).` +
-  (A.home ? ` Home: ${A.home}.` : '') + (A.instance ? ` Instance: ${A.instance}.` : '') + '\n' + lines.filter(Boolean).join('\n')
+  (A.home ? ` Home: ${A.home}.` : '') + (A.instance ? ` Instance: ${A.instance}.` : '') + '\n' + SCRIPTS + lines.filter(Boolean).join('\n')
 
 const CAPS = { type: 'object', properties: { ok: { type: 'boolean' }, error: { type: 'string' },
   rounds: { type: ['number', 'null'] }, agents: { type: 'number' }, runs: { type: 'number' }, profile: { type: ['string', 'null'] } },
@@ -132,7 +137,7 @@ phase('Seed')
 let st = await state('state')
 if (!st) return report(null, 'the state stage returned nothing')
 if (!st.approach_count_ok) {
-  const seed = await agent(`Round 0 of the campaign on ${TAG} (home ${A.home}): seed at least four approach objects with notebook.py new approach ` +
+  const seed = await agent(SCRIPTS + `Round 0 of the campaign on ${TAG} (home ${A.home}): seed at least four approach objects with notebook.py new approach ` +
     `(substantially different mechanisms, grouped by idea, duplicates merged), each with at least one concrete direction; file the one target-level ` +
     `prior-art check to the Expert as a lookup or cite ticket tagged campaign ${TAG}. Return the updates and the tickets filed.`,
     { label: 'seed', phase: 'Seed', agentType: LEAD_TYPE, schema: LEAD })
@@ -153,7 +158,7 @@ for (let round = 1; round <= cp.rounds; round++) {
   why = stopRule(st)
   if (why) break
   if (reseed) {
-    const s = await agent(`The last round of the campaign on ${TAG} was a failed wave (no artifact, or every approach blocked). Reseed: fresh formulations, ` +
+    const s = await agent(SCRIPTS + `The last round of the campaign on ${TAG} was a failed wave (no artifact, or every approach blocked). Reseed: fresh formulations, ` +
       `and reopen any approach whose reopen_if now holds (notebook.py approach set ... --note naming the new mechanism). Return the updates.`,
       { label: `reseed ${round}`, phase: 'Rounds', agentType: LEAD_TYPE, schema: LEAD })
     if (s === null) { why = 'the reseeding run was lost'; break }
@@ -191,7 +196,7 @@ for (let round = 1; round <= cp.rounds; round++) {
   // 4-7. the lead: reduction audit, approach updates, diversity check, hand-off tickets
   const survivors = (st.approaches || []).filter(a => a.lifecycle === 'active')
   const cross = survivors.length > 0 && survivors.every(a => (rounds[a.approach] || 0) >= 2)
-  const l = await agent(`Round ${round} of the campaign on ${TAG} (home ${A.home}) is done. The artifacts: ${JSON.stringify(artifacts)}.\n` +
+  const l = await agent(SCRIPTS + `Round ${round} of the campaign on ${TAG} (home ${A.home}) is done. The artifacts: ${JSON.stringify(artifacts)}.\n` +
     `Audit them with the rigor reduction audit (anything claimed proved goes to /researcher:prove's verify route as a ticket; nothing is graded here); ` +
     `update the approaches (notebook.py approach set AP-n <lifecycle> ...; blocked needs --blocked-by and --reopen-if); run the diversity check ` +
     `(more than half the active directions in one family: redirect the extras); file every ask for another role as a ticket tagged campaign ${TAG}. ` +
@@ -203,4 +208,11 @@ for (let round = 1; round <= cp.rounds; round++) {
 }
 phase('Report')
 st = await state('state final')
+// Ship (docs/workflows.md, "Shipping is a step of the workflow"): the tickets the nested inbox took are
+// checkpointed by its --check; the approaches and artifacts the campaign itself wrote belong to no
+// ticket, so the stage is not-run and names the command for the session. A cowork pass writes only
+// through the nested inbox, so it has no ship stage.
+if (out.agents_used || out.tickets_filed.length)
+  out.ship = { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: `py scripts/ship.py checkpoint --ticket campaign-${String(TAG).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role researcher --only <home submodule> board` }
 return report(st, why || stopRule(st) || `--rounds (${cp.rounds}) reached`)

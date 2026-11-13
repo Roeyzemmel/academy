@@ -21,12 +21,13 @@ that attaches the workspace, runs this from the Expert home, checkpoints `board/
 sends a push notification; it needs no connector and no local machine). The Windows
 Task Scheduler (`claude -p "/academy:usage --weekly"` from a home) stays an option. Call the **Workflow** tool with
 `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/weekly.js` and `args: {instance: "<the cwd's
-instance>", days: 7}`. The script holds the cycle (docs/workflows.md): the
+instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", days: 7}`. The script holds the cycle (docs/workflows.md): the
 `usage-analyst` gathers and proposes; the script drops a grader's downgrade, a downgrade
 that is not a lower tier, and anything past three decisions (regressions first); the
 analyst writes and files one `usage` packet with exactly those; `error_ledger.py settle`
 runs only after the packet is shown to exist. Report `reason` when `filed` or `settled`
-is false; do not relaunch.
+is false; do not relaunch. `ship` is `not-run` with the `checkpoint` command for the board
+(the run has no ticket): run it once from the workspace root.
 
 **Errors.** A `PostToolUseFailure` hook (`scripts/error_ledger.py hook`) appends every
 failed tool call, redacted and without the command line, to
@@ -34,7 +35,10 @@ failed tool call, redacted and without the command line, to
 error classes and carries the unresolved ones forward; `settle`, run after the packet is
 filed, closes the classes that were reported and stayed quiet for seven days. From the
 main session: `py $S/error_ledger.py report [--days N]` shows the picture, and
-`py $S/error_ledger.py resolve "<class>" --note "<why>"` closes a class by hand.
+`py $S/error_ledger.py resolve "<class>" --note "<why>"` closes a class by hand
+(`--family "<family>"` closes every open class of a family of the report's first table;
+`--commit SHA` names the fix, and an error that then comes from a copy older than the
+fix is reported as `stale code`, not as a regression).
 
 **Cloud sessions.** `ship.py checkpoint` writes content-free session summaries to
 `<board>/.usage/<instance>.<host>.jsonl`; the report adds those whose transcript is not on this

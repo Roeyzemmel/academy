@@ -6,7 +6,7 @@ Usage::
                 [--campaign TARGET | --cowork SLUG]
     py inbox.py --check T-NNNN          the serial checkpoint of a ticket just handled
 
-A thin wrapper over the academy's ``inbox_core`` (``_academy.py``): the tickets addressed
+A thin wrapper over the academy's ``inbox_core`` (``_academy``): the tickets addressed
 to this Scientist instance, in-progress ones first (resume), then ``open`` and
 ``accepted`` ones in the protocol's order (priority, agenda position, id); never
 dead-route or pending blocked ones. It keeps the first ``budget.itemsPerRun`` (at most 3);

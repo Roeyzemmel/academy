@@ -58,7 +58,7 @@ rest.
 | `inbox.py` | The tickets to take and each one's route, including relay return legs |
 | `status_guard.py`, `claims_edit_check.py`, `audit_blind_guard.py`, `land_review.py` | Hooks (below) |
 | `_researcher.py` | Shared helpers: homes, record roots, tolerant frontmatter |
-| `_academy.py` | Vendored `academy/lib/academy_common.py`; never edit |
+| `_academy/` | Vendored `academy/lib/academy_common/` (a package); never edit |
 
 Tests: `py -m unittest discover researcher/tests` from the academy repo.
 

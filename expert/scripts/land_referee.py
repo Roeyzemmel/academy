@@ -61,16 +61,13 @@ def parse_block(text, word="REFEREE"):
     if start is None:
         return None, text
     out = {}
-    end = len(lines)
     for j, ln in enumerate(lines[start + 1:], start + 1):
         if not ln.strip() or ln.strip().startswith("```"):
             if out:
-                end = j
                 break
             continue
         m = re.match(r"^\s*([A-Za-z_]+)\s*:\s*(.*?)\s*$", ln)
         if not m:
-            end = j
             break
         out[m.group(1).lower()] = m.group(2)
     # the report is everything before the block (dropping an opening fence line)

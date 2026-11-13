@@ -15,7 +15,7 @@ The main session briefs and relays. It writes no mathematics, no code and no exp
 script, and decides no truth.
 
 **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/explore.js` and
-`args: {direction: "DIR-n", items: [...], ticket: "T-NNNN", home: "<this home>", instance: "<this instance>"}`.
+`args: {direction: "DIR-n", items: [...], ticket: "T-NNNN", home: "<this home>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"}`.
 The inbox runs it for a `question` ticket. The order is code (2026-10-31; docs/workflows.md):
 1. the clerk reads the direction. A missing one is created and filled by `lead-researcher`
    first, and no item is worked in that run;
@@ -34,7 +34,9 @@ The inbox runs it for a `question` ticket. The order is code (2026-10-31; docs/w
    - today's journal records the run.
 
 **Report** the lead's `report` (not a summary of it), each item's step and tickets, every
-`anomalies` entry, and the next picks.
+`anomalies` entry, the next picks, and `ship` (a question ticket's checkpoint, run once; a
+direction run is `not-run` with the command to run from the workspace root; a refusal is
+reported, never retried).
 
 **Reading a returned result.** An undecided search (a cap hit) is not a counterexample. A
 candidate counterexample from a probe is a lead, not a finding: it has no provenance and no

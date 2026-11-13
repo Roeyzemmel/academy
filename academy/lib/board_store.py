@@ -27,6 +27,19 @@ than ``per_page`` on any page (the REST API caps it), so the store reads pages u
 empty. Comments are ordered by ``id`` (else ``created_at``) when the transport gives them,
 otherwise as returned.
 
+**The listing is incremental** (2026-11-13). Every listing used to read the whole board:
+1192 issues took twelve requests and 20 seconds, and a command that lists once per workplan
+took minutes. A transport that sets ``since = True`` accepts ``list_issues(since=ISO)``
+(the issues updated at or after that time, GitHub's ``since``); the store then keeps the
+last listing (in the process, and on disk under ``cache_dir`` when one is given) and each
+later listing asks only for what changed since the newest ``updated_at`` it holds, less
+``SINCE_MARGIN`` seconds. The times compared are the server's own. A full listing is still
+read when nothing is held, when an issue lacks ``updated_at``, and once every
+``FULL_REFRESH`` seconds (an issue that was deleted or transferred leaves no trace in
+``since``). Inside ``list_ttl`` seconds a process reuses its listing with no request;
+any write through this store drops that. The cached issues keep only ``KEEP`` (a ninth of
+the REST payload); a single ticket (``get``, ``status_of``, ``save``) is always read live.
+
 and optionally ``set_parent(number, parent_number)`` and ``add_dependency(number,
 blocker_number)`` (native sub-issue and dependency links; when absent the links are not
 written, but listed in ``store.skipped_relations`` and reported on stderr). The real
@@ -35,8 +48,11 @@ transport (the github MCP in a session, or REST with a token) is not in this rep
 """
 
 import copy
+import datetime as _dt
+import json
 import os
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -47,6 +63,39 @@ import board_codec as bc  # noqa: E402
 
 
 PER_PAGE = 100
+#: seconds taken off the newest ``updated_at`` held, so an update in that same second is seen
+SINCE_MARGIN = 2
+#: seconds after which the whole board is listed again (deleted or transferred issues)
+FULL_REFRESH = 24 * 3600
+#: seconds a process reuses its last listing without asking (dropped on its own writes)
+LIST_TTL = 5.0
+#: the issue fields a cached listing keeps (what the codec, this store and the board
+#: scripts read; the REST payload is nine times larger)
+KEEP = ("number", "id", "node_id", "title", "body", "state", "state_reason", "updated_at",
+        "created_at", "closed_at", "comments", "parent_issue_url", "sub_issues_summary",
+        "issue_dependencies_summary")
+CACHE_VERSION = 1
+
+
+def slim(issue):
+    """``issue`` with only the fields a listing needs (labels and assignees by name)."""
+    out = {k: issue[k] for k in KEEP if k in issue}
+    out["labels"] = [{"name": n} for n in bc.label_names(issue.get("labels"))]
+    if issue.get("assignees"):
+        out["assignees"] = [{"login": a.get("login")} if isinstance(a, dict) else a
+                            for a in issue["assignees"]]
+    if "pull_request" in issue:
+        out["pull_request"] = {}
+    return out
+
+
+def _since(stamp):
+    """``stamp`` (``2026-11-13T20:38:35Z``) less SINCE_MARGIN seconds, or None if unreadable."""
+    try:
+        t = _dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError):
+        return None
+    return (t - _dt.timedelta(seconds=SINCE_MARGIN)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _body(c):
@@ -77,9 +126,16 @@ def _ordered(comments):
 class GithubBoardStore(ac.BoardStore):
     backend = "github"
 
-    def __init__(self, transport, repo="", lib=None, assignee=None):
+    def __init__(self, transport, repo="", lib=None, assignee=None, cache_dir=None,
+                 list_ttl=LIST_TTL, clock=time.time):
         self.t = transport
         self.repo = repo
+        #: where the listing is kept between processes (None: in this process only)
+        self.cache_dir = cache_dir
+        self.list_ttl = list_ttl
+        self.clock = clock
+        self._held = None        # {"issues": {number: issue}, "full_at": epoch seconds}
+        self._listed_at = None   # when this process last listed (None: must ask again)
         #: the human's GitHub login (``board.assignee``): a saved ticket is assigned to them
         #: exactly when ``board_codec.wants_human``; None leaves assignees alone
         self.assignee = assignee
@@ -103,8 +159,81 @@ class GithubBoardStore(ac.BoardStore):
         return [_body(c) for c in _ordered(pages(self.t.list_comments, number=number))]
 
     def _issues(self, labels=None):
-        return sorted(pages(self.t.list_issues, labels=labels, state="all"),
-                      key=lambda i: i["number"])
+        if not getattr(self.t, "since", False):
+            return sorted(pages(self.t.list_issues, labels=labels, state="all"),
+                          key=lambda i: i["number"])
+        want = set(labels or ())
+        return [copy.deepcopy(i) for _n, i in sorted(self._listing().items())
+                if want <= set(bc.label_names(i.get("labels")))]
+
+    def _cache_file(self):
+        if not self.cache_dir or not self.repo:
+            return None
+        return os.path.join(self.cache_dir, self.repo.replace("/", "__") + ".json")
+
+    def _load(self):
+        path = self._cache_file()
+        if not path:
+            return None
+        try:
+            with open(path, encoding="utf-8") as fh:
+                d = json.load(fh)
+            if d.get("version") != CACHE_VERSION or d.get("repo") != self.repo:
+                return None
+            return {"issues": {int(n): i for n, i in d["issues"].items()},
+                    "full_at": float(d["full_at"])}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None          # an unreadable cache is no cache
+
+    def _store_cache(self):
+        path = self._cache_file()
+        if not path:
+            return
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = "%s.%d.tmp" % (path, os.getpid())
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump({"version": CACHE_VERSION, "repo": self.repo,
+                           "full_at": self._held["full_at"],
+                           "issues": {str(n): i for n, i in self._held["issues"].items()}},
+                          fh, ensure_ascii=False, separators=(",", ":"))
+            os.replace(tmp, path)
+        except OSError:
+            pass                 # the cache is an optimisation; the listing is in hand
+
+    def _listing(self):
+        """``{number: issue}`` of the whole board, asking only for what changed (see the
+        module docstring)."""
+        now = self.clock()
+        if self._held is not None and self._listed_at is not None \
+                and 0 <= now - self._listed_at < self.list_ttl:
+            return self._held["issues"]
+        held = self._held if self._held is not None else self._load()
+        since = None
+        if held and held["issues"] and 0 <= now - held["full_at"] < FULL_REFRESH:
+            stamps = [i.get("updated_at") for i in held["issues"].values()]
+            if all(stamps):
+                since = _since(max(stamps))
+        if since:
+            changed = pages(self.t.list_issues, state="all", since=since)
+            issues = dict(held["issues"])
+            before = {i["number"]: issues.get(i["number"]) for i in changed}
+            issues.update((i["number"], slim(i)) for i in changed)
+            dirty = any(issues[n] != old for n, old in before.items())
+            self._held = {"issues": issues, "full_at": held["full_at"]}
+        else:
+            self._held = {"issues": {i["number"]: slim(i)
+                                     for i in pages(self.t.list_issues, state="all")},
+                          "full_at": now}
+            dirty = True
+        if dirty:
+            self._store_cache()
+        self._listed_at = now
+        return self._held["issues"]
+
+    def _wrote(self):
+        """A write went out: the next listing asks GitHub again."""
+        self._listed_at = None
 
     @staticmethod
     def _is_ticket(issue):
@@ -179,6 +308,7 @@ class GithubBoardStore(ac.BoardStore):
         title/body/labels/state last (the commit point)."""
         e = bc.encode(meta, body)
         n = e["number"]
+        self._wrote()
         cur = self.t.get_issue(n)
         if not cur or not self._is_ticket(cur):
             raise self.lib.AcademyError("%s: issue #%d is not a ticket of %s"
@@ -240,6 +370,7 @@ class GithubBoardStore(ac.BoardStore):
         """Open the issue first (GitHub assigns the number, which is the ticket id), then
         write the ticket into it. If that fails the issue is turned into a closed
         placeholder (a reserved number), never left as an open '(new ticket)'."""
+        self._wrote()
         issue = self.t.create_issue("(new ticket)", "", [])
         n = issue["number"]
         meta = dict(meta)
@@ -257,25 +388,48 @@ class GithubBoardStore(ac.BoardStore):
             raise
 
 
+class RelationUnavailable(RuntimeError):
+    """A native relation kind the repository does not serve (the REST API's 404/410)."""
+    status = 410
+
+
 class MemoryTransport(object):
     """An in-memory GitHub issues API (the fake for tests, the reference for a real one).
 
     ``max_page`` caps ``per_page`` as the REST API does (tests lower it to exercise paging);
     ``add_pull_request`` puts a PR among the issues, as GitHub does; ``inject`` makes a
     method fail after some successful calls (``inject("update_issue", after=1)``).
+
+    Native links: ``parents`` maps child -> parent and ``dependencies`` holds ``(issue,
+    blocker)``; a parent or blocker in another repository is an ``("owner/name", number)``
+    pair. ``unavailable`` names the relation kinds the fake repository does not serve
+    (``"sub_issues"``, ``"dependencies"``): their methods then fail with status 410.
+    ``summaries`` makes ``list_issues`` carry ``parent_issue_url`` and
+    ``issue_dependencies_summary``, as the REST listing does.
     """
 
-    def __init__(self, max_page=100):
+    def __init__(self, max_page=100, repo="o/r"):
         self.issues = {}
         self.comments = {}
         self.parents = {}
         self.dependencies = []
+        self.repo = repo
+        self.unavailable = set()
+        self.summaries = False
         self.labels = {}
         self.calls = []
         self.max_page = max_page
         self._failures = {}
         self._comment_id = 0
         self._cids = {}
+        #: set True to serve ``list_issues(since=...)`` (the store's incremental listing);
+        #: ``now`` is the fake server clock, one second per write
+        self.since = False
+        self.now = _dt.datetime(2026, 1, 1)
+
+    def _touch(self, n):
+        self.now += _dt.timedelta(seconds=1)
+        self.issues[n]["updated_at"] = self.now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # -- failure injection ---------------------------------------------------
     def inject(self, method, after=0, exc=None):
@@ -307,6 +461,7 @@ class MemoryTransport(object):
                           ("number", "title", "body", "labels", "state", "state_reason")}
         self.comments[n] = []
         self._cids[n] = []
+        self._touch(n)
         for text in e["comments"]:
             self._add_comment(n, text)
         return self._pub(n)
@@ -318,18 +473,32 @@ class MemoryTransport(object):
                           "state": "open", "state_reason": None, "pull_request": {}}
         self.comments[n] = []
         self._cids[n] = []
+        self._touch(n)
         return self._pub(n)
 
-    def list_issues(self, labels=None, state="all", page=1, per_page=100):
-        self._tick("list_issues", tuple(labels or ()), state, page)
+    def list_issues(self, labels=None, state="all", page=1, per_page=100, since=None):
+        self._tick(*(("list_issues", tuple(labels or ()), state, page)
+                     + ((since,) if since else ())))
         out = []
         for n in sorted(self.issues):
             i = self.issues[n]
             if state != "all" and i["state"] != state:
                 continue
+            if since and i.get("updated_at", "") < since:
+                continue
             if labels and not set(labels) <= set(bc.label_names(i["labels"])):
                 continue
-            out.append(self._pub(n))
+            pub = self._pub(n)
+            if self.summaries:
+                p = self._ref(self.parents.get(n))
+                pub["sub_issues_summary"] = {"total": sum(1 for v in self.parents.values()
+                                                          if v == n)}
+                if p:                     # GitHub leaves the key out when there is none
+                    pub["parent_issue_url"] = ("https://api.github.com/repos/%s/issues/%d"
+                                               % (p["repo"], p["number"]))
+                k = sum(1 for m, _b in self.dependencies if m == n)
+                pub["issue_dependencies_summary"] = {"blocked_by": k, "total_blocked_by": k}
+            out.append(pub)
         return self._page(out, page, per_page)
 
     def get_issue(self, number):
@@ -346,6 +515,7 @@ class MemoryTransport(object):
             self.labels.setdefault(name, {"name": name, "color": "ededed", "description": ""})
         self.comments[n] = []
         self._cids[n] = []
+        self._touch(n)
         return self._pub(n)
 
     def update_issue(self, number, title=None, body=None, labels=None, state=None,
@@ -357,12 +527,15 @@ class MemoryTransport(object):
             if v is not None:
                 i[k] = copy.deepcopy(v)
         i["state_reason"] = state_reason if state == "closed" else None
+        self._touch(number)
         return self._pub(number)
 
     def _add_comment(self, number, body):
         self._comment_id += 1
         self.comments.setdefault(number, []).append(body)
         self._cids.setdefault(number, []).append(self._comment_id)
+        if number in self.issues:
+            self._touch(number)
         return {"id": self._comment_id, "body": body}
 
     def list_comments(self, number, page=1, per_page=100):
@@ -375,31 +548,61 @@ class MemoryTransport(object):
         self._tick("add_comment", number)
         return dict(self._add_comment(number, body))
 
+    def _ref(self, x):
+        if x is None:
+            return None
+        repo, n = x if isinstance(x, tuple) else (self.repo, x)
+        return {"number": n, "repo": repo}
+
+    def _need(self, kind):
+        if kind in self.unavailable:
+            raise RelationUnavailable("%s: not available on this repository (HTTP 410)" % kind)
+
+    def relations_available(self, number):
+        self._tick("relations_available", number)
+        return {k: k not in self.unavailable for k in ("sub_issues", "dependencies")}
+
+    def parent_ref(self, number):
+        self._tick("parent_ref", number)
+        self._need("sub_issues")
+        return self._ref(self.parents.get(number))
+
+    def blocker_refs(self, number):
+        self._tick("blocker_refs", number)
+        self._need("dependencies")
+        return [self._ref(b) for n, b in self.dependencies if n == number]
+
     def set_parent(self, number, parent):
         self._tick("set_parent", number)
+        self._need("sub_issues")
         self.parents[number] = parent
 
     def get_parent(self, number):
         self._tick("get_parent", number)
+        self._need("sub_issues")
         return self.parents.get(number)
 
     def remove_parent(self, number, parent):
         self._tick("remove_parent", number)
+        self._need("sub_issues")
         if self.parents.get(number) == parent:
             del self.parents[number]
 
     def add_dependency(self, number, blocker):
         self._tick("add_dependency", number)
+        self._need("dependencies")
         if (number, blocker) not in self.dependencies:
             self.dependencies.append((number, blocker))
 
     def remove_dependency(self, number, blocker):
         self._tick("remove_dependency", number)
+        self._need("dependencies")
         if (number, blocker) in self.dependencies:
             self.dependencies.remove((number, blocker))
 
     def list_dependencies(self, number):
         self._tick("list_dependencies", number)
+        self._need("dependencies")
         return [b for n, b in self.dependencies if n == number]
 
     def last_number(self):

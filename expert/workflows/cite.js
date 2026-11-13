@@ -20,7 +20,11 @@ if (!A.ticket && !A.ref) throw new Error('give args.ticket or args.ref')
 const CLERK = 'academy:inbox-clerk'
 const LIB = 'expert:librarian'
 const T = A.ticket || ''
-const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-cite workflow.\n` + lines.filter(Boolean).join('\n'),
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: cards.py is \`py ${AR}/expert/scripts/cards.py\`, from the library home (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.expert is the scripts folder).\n')
+const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-cite workflow.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const ASK = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' },
@@ -35,6 +39,39 @@ const CARD = { type: 'object', properties: {
 const CHECK = { type: 'object', properties: { ok: { type: 'boolean' }, errors: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'errors'] }
 const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'error'] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status', 'detail'] }
+
+// ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
+// workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
+// finished ticket gets the inbox's own scoped checkpoint (inbox.py --check, which honours
+// "shipCheckpoint": false); anything else is not-run, with the command for the session.
+const SHIP = { type: 'object', properties: { status: { type: 'string', enum: ['pushed', 'nothing', 'refused', 'not-run'] }, detail: { type: 'string' },
+  branches: { type: 'array', items: { type: 'string' } }, output: { type: 'string', description: 'the whole output, stdout and stderr, verbatim' } },
+  required: ['status', 'detail', 'branches', 'output'] }
+async function ship(s) {   // {role, ticket, done, instance, topic, only, agentType, phase, notes}
+  if (!s.ticket) return { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
+  const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
+  if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
+  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+    '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
+  const lines = String(r ? r.output : '').split(/\r?\n/)
+  const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
+  const rows = lines.map(l => /^(\S+) (\S+) @ \S+ \(\d+ files\) (.*)$/.exec(l)).filter(Boolean)
+  const bad = lines.find(l => /REFUSED|PUSH FAILED|checkpoint incomplete|checkpoint for \S+ (exited [1-9]|timed out|could not start|failed)/.test(l))
+  const skipped = lines.find(l => /checkpoint not run/.test(l))
+  const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
+  const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
+    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : bad ? { status: 'refused', detail: bad.trim() }
+    : skipped ? { status: 'not-run', detail: skipped.trim() }
+    : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
+    : rows.length ? { status: 'nothing', detail: 'nothing to commit or push' }
+    : m ? { status: 'not-run', detail: 'no checkpoint ran ("shipCheckpoint": false, another board, or no ship script)' }
+    : { status: r.status, detail: r.detail }
+  if (!/^(pushed|nothing)$/.test(res.status)) res.command = check
+  if (res.status === 'refused' && s.notes) s.notes.push(`the ship stage was refused (${res.detail}); fix the cause, then run \`${check}\` once by hand`)
+  return res
+}
 
 const out = { ticket: T || null, notes: [] }
 
@@ -53,7 +90,7 @@ if (!ask.ref) return Object.assign(out, { outcome: 'not-started', reason: 'the a
 
 // ---- Cite: one librarian run, the card checked by script ------------------------------------
 phase('Cite')
-const brief = `${ask.ref}. ` + (ask.pinpoint ? `The pinpoint intended: ${ask.pinpoint}. ` : 'No pinpoint given: locate the statement. ') +
+const brief = SCRIPTS + `${ask.ref}. ` + (ask.pinpoint ? `The pinpoint intended: ${ask.pinpoint}. ` : 'No pinpoint given: locate the statement. ') +
   (ask.relying ? `It is relied on by: ${ask.relying}. ` : '') + (ask.bib ? `The bibliography: ${ask.bib}.` : '') + '\n\n' +
   'If the key is already in that bibliography, verify it against the record rather than adding it again, and say whether the fields match. ' +
   'If it is new, fetch the record and add the entry in the file\'s key style. Then locate the statement, write its card with a verbatim quote ' +
@@ -63,7 +100,7 @@ let c = await agent(brief, { label: 'librarian', phase: 'Cite', agentType: LIB, 
 if (c === null) return Object.assign(out, { outcome: 'lost', reason: 'the librarian run returned nothing (a limit?): nothing further launched' })
 // an unreachable source has no card to validate (live run 2026-10-31 validated the words "none written"): skip the check
 const noCard = !c.reachable && !/\.(md|ya?ml)$/i.test(String(c.card || '').trim())
-let v = noCard ? null : await clerk('validate', [`Run py <expert plugin>/scripts/cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
+let v = noCard ? null : await clerk('validate', [`Run cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
 if (v && !v.ok) {
   out.notes.push('the card failed validation; sent back to the librarian once: ' + v.errors.join('; '))
   const c2 = await agent(brief + `\n\nYour card ${c.card} fails cards.py validate:\n- ${v.errors.join('\n- ')}\n` +
@@ -77,6 +114,14 @@ if (v && !v.ok) {
 Object.assign(out, { key: c.key, pinpoint: c.pinpoint, card: c.card, verdict: c.verdict, validated: !!(v && v.ok) })
 if (!/^match$/i.test(c.verdict)) out.notes.unshift(`MISMATCH (a mathematical finding): the source differs from what ${ask.relying || 'the paper'} wants: ${c.verdict}`)
 if (!c.reachable) out.notes.push('UNREACHABLE source: the card records how it was read; anything resting on it stays an unverified input until a human reads it')
+// with a ticket, the bib edit in the Author home ships with it: the touch ledger records it and the
+// ticket's --check passes it to ship.py as --touched (docs/branching.md); without one, nothing claims it
+if (c.bib_changed && !T) out.notes.push(`${ask.bib || 'references.bib'} changed in the Author home and no ticket ships it: add --touched <that home's submodule>:references.bib to the command below (else the next Expert ticket's checkpoint carries it)`)
+const end = async () => {
+  if (!A.nested) out.ship = await ship({ role: 'expert', ticket: T, done: !!out.ticket_delivered, instance: ask.instance, topic: 'cite-' + (c.key || ask.ref),
+    only: 'library board', agentType: CLERK, phase: 'Land', notes: out.notes })
+  return out
+}
 
 // ---- Land --------------------------------------------------------------------------------
 phase('Land')
@@ -95,7 +140,7 @@ if (T && !c.reachable) {
   out.ticket_delivered = false
   out.outcome = m && m.ok ? 'unreachable (on the human)' : 'unfinished'
   out.gate = { why, source: c.key || ask.ref, pinpoint: ask.pinpoint || '', relying: ask.relying || '', packet: out.packet }
-  return out
+  return await end()
 }
 if (T) {
   const result = `${c.key}, ${c.pinpoint || 'no pinpoint'}, verdict ${c.verdict}, card ${c.card}`.replace(/"/g, "'")
@@ -104,4 +149,4 @@ if (T) {
   out.ticket_delivered = !!(m && m.ok)
 }
 out.outcome = out.validated ? 'cited' : 'cited (card not validated)'
-return out
+return await end()

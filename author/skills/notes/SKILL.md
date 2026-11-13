@@ -38,5 +38,6 @@ docs/workflows.md):
 
 **Report** the four lists from the result: Found, Filed, Already covered (`covered`),
 Discrepancies. Then the inventory count, the notes no ticket carries (`not_carried`,
-`unfiled`), and every `anomalies` entry. Filing starts no work: `/author:inbox` takes the
+`unfiled`), every `anomalies` entry, and `ship`: `not-run` with the `checkpoint`
+command for the board (the run has no ticket of its own). Filing starts no work: `/author:inbox` takes the
 tickets in agenda order. Never ask questions.
