@@ -3387,6 +3387,99 @@ def event_cwd(event):
     return root if root and os.path.isdir(root) else os.getcwd()
 
 
+#: tools a subagent ends its run with when its caller asked for a hand-off; the report
+#: is the call's ``input.message``, not a text block (T-1194)
+HANDBACK_TOOLS = ("SubagentHandback",)
+
+
+def _content_text(content):
+    """The text blocks of a message's ``content`` (a string or a block list), joined."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join((c.get("text") or "") if isinstance(c, dict) else c
+                         for c in content
+                         if (isinstance(c, dict) and c.get("type") == "text")
+                         or isinstance(c, str))
+    return ""
+
+
+def transcript_report(path):
+    """``(text, source)`` of the last report-bearing assistant block of a JSONL transcript.
+
+    A report is either an assistant text block (``source`` 'text', consecutive text blocks
+    of one record joined) or the ``message`` of a hand-off call (a ``tool_use`` named in
+    ``HANDBACK_TOOLS``; ``source`` 'handback'), whichever comes last in the file. A
+    missing or unreadable transcript, or one with no report, gives ``('', '')``; bad
+    lines are skipped.
+    """
+    last = ("", "")
+    if not path or not os.path.isfile(path):
+        return last
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                msg = rec.get("message")
+                msg = msg if isinstance(msg, dict) else {}
+                if (msg.get("role") or rec.get("type")) != "assistant":
+                    continue
+                content = msg.get("content")
+                if isinstance(content, str):
+                    content = [{"type": "text", "text": content}]
+                texts = []
+                for block in content if isinstance(content, list) else []:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "text":
+                        texts.append(block.get("text") or "")
+                        continue
+                    if block.get("type") == "tool_use" and block.get("name") in HANDBACK_TOOLS:
+                        if "\n".join(texts).strip():
+                            last = ("\n".join(texts), "text")
+                        texts = []
+                        inp = block.get("input")
+                        m = inp.get("message") if isinstance(inp, dict) else None
+                        if isinstance(m, str) and m.strip():
+                            last = (m, "handback")
+                if "\n".join(texts).strip():
+                    last = ("\n".join(texts), "text")
+    except OSError:
+        return ("", "")
+    return last
+
+
+def subagent_report(event, path=None):
+    """A finished subagent's report, for a SubagentStop hook that lands it.
+
+    When the subagent ended with a hand-off call (``HANDBACK_TOOLS``), its report is that
+    call's message: the event's ``last_assistant_message`` is then empty or only the text
+    written in the hand-off's own turn, so the transcript's hand-off wins. Otherwise the
+    event's ``last_assistant_message`` (or ``lastAssistantMessage``), else the last
+    assistant text of the transcript. The transcript is ``path`` if given, else the
+    event's ``agent_transcript_path`` (or ``agentTranscriptPath``). '' when none.
+    """
+    if not isinstance(event, dict):
+        event = {}
+    path = path or event.get("agent_transcript_path") or event.get("agentTranscriptPath")
+    text, source = transcript_report(path)
+    if source == "handback":
+        return text
+    for key in ("last_assistant_message", "lastAssistantMessage"):
+        given = _content_text(event.get(key))
+        if given.strip():
+            return given
+    return text
+
+
 def tool_name(event):
     """The event's ``tool_name`` or ''."""
     name = event.get("tool_name") if isinstance(event, dict) else None

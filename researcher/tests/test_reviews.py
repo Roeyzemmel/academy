@@ -102,6 +102,26 @@ class LandReviewTests(Workspace):
         ev = self.event("", agent_transcript_path=tr)
         self.assertEqual(land_review.land(ev)[0], "landed")
 
+    def test_report_handed_back_by_subagent_handback_lands(self):
+        # T-1194: a reviewer that ends with a SubagentHandback call has no final text;
+        # its report is the call's message (and the event's message only its preamble)
+        tr = write(os.path.join(self.tmp, "t.jsonl"), "\n".join(json.dumps(r) for r in [
+            {"type": "assistant", "message": {"model": "claude-opus-5-5", "content": [
+                {"type": "text", "text": "Handing back."},
+                {"type": "tool_use", "id": "toolu_1", "name": "SubagentHandback",
+                 "input": {"message": report()}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"}]}},
+        ]) + "\n")
+        for given in ("", "Handing back."):
+            with self.subTest(last_assistant_message=given):
+                ev = self.event(given, agent_transcript_path=tr)
+                action, path = land_review.land(ev, date="2026-09-28")
+                self.assertEqual(action, "landed", path)
+                meta, body = ac.read_frontmatter(rs.read_text(path))
+                self.assertEqual((meta["verdict"], meta["model"]), ("SOUND", "opus-5.5"))
+                self.assertIn("## Review record", body)
+
     def test_malformed_report_blocks_once_then_is_kept_unparsed(self):
         action, reason = land_review.land(self.event("I think it is fine."))
         self.assertEqual(action, "block")

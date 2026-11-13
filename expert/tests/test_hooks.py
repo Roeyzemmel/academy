@@ -278,6 +278,46 @@ class LandVerdictTests(unittest.TestCase):
         fixtures.run_script("land_verdict.py", ev)
         self.assertTrue(os.path.isfile(os.path.join(self.pass_dir(), "A.md")))
 
+    def handback_transcript(self, report, preamble=None):
+        """A reviewer transcript that ends the way T-1193's run A did (T-1194): the
+        report is a SubagentHandback call's message, then its tool result and the
+        hook attachments; no assistant text after it."""
+        blocks = ([{"type": "text", "text": preamble}] if preamble else []) + [
+            {"type": "tool_use", "id": "toolu_1", "name": "SubagentHandback",
+             "input": {"message": report}}]
+        return self.sb.write("tr.jsonl", "\n".join(json.dumps(r) for r in [
+            {"type": "user", "message": {"role": "user", "content": "brief"}},
+            {"type": "assistant", "message": {"role": "assistant", "content": blocks}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_1",
+                 "content": [{"type": "text", "text": "Report delivered to your caller."}]}]}},
+            {"type": "attachment", "attachment": {"type": "hook_success"}},
+        ]) + "\n")
+
+    def test_lands_a_report_handed_back_by_subagent_handback(self):
+        # T-1194: the verdict was in the SubagentHandback message; the hook found no
+        # text and said "no final message", and no A.md was written
+        ev = stop_event("expert:rigor-reviewer", "",
+                        agent_transcript_path=self.handback_transcript(REPORT))
+        code, out, err = fixtures.run_script("land_verdict.py", ev)
+        self.assertEqual(code, 0, err)
+        path = os.path.join(self.pass_dir(), "A.md")
+        self.assertTrue(os.path.isfile(path), (out, err))
+        self.assertIn("verdict landed", out["systemMessage"])
+        with open(path, encoding="utf-8") as fh:
+            meta, body = ac.read_frontmatter(fh.read())
+        self.assertEqual((meta["verdict"], meta["run"]), ("CONFIRMED", "A"))
+        self.assertIn("VERDICT", body)
+
+    def test_a_handback_is_read_over_its_preamble(self):
+        # a short text written in the hand-off's own turn is not the report
+        ev = stop_event("expert:rigor-reviewer", "Handing back.",
+                        agent_transcript_path=self.handback_transcript(
+                            REPORT, preamble="Handing back."))
+        code, out, err = fixtures.run_script("land_verdict.py", ev)
+        self.assertNotEqual((out or {}).get("decision"), "block", out)
+        self.assertTrue(os.path.isfile(os.path.join(self.pass_dir(), "A.md")), (out, err))
+
 
 class LandRefereeTests(unittest.TestCase):
     def setUp(self):
@@ -373,6 +413,20 @@ class LandRefereeTests(unittest.TestCase):
                                              stop_event("expert:referee", "no block"))
         self.assertEqual(out["decision"], "block")
         self.assertEqual(self.packets(), [])
+
+    def test_lands_a_report_handed_back_by_subagent_handback(self):
+        # T-1194: the referee's report may arrive only as a SubagentHandback message
+        tr = self.sb.write("tr.jsonl", "\n".join(json.dumps(r) for r in [
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "toolu_1", "name": "SubagentHandback",
+                 "input": {"message": REFEREE_REPORT}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"}]}},
+        ]) + "\n")
+        ev = stop_event("expert:referee", "", agent_transcript_path=tr)
+        code, out, err = fixtures.run_script("land_referee.py", ev)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.packets()), 1, (out, err))
 
 
 class BlindGuardTests(unittest.TestCase):
