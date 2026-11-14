@@ -150,6 +150,11 @@ unmet / met modulo); the findings, most severe first, each with the quoted text 
 its repair; the counterexample if any; what you tried to break it; what you could not
 check and why; the inputs used as black boxes. Never soften a gap into prose.
 
+Then, under **Style findings**, the proof's departures from
+`<academy repo>/academy/references/proof-style.md`, each with its rule and the quoted
+text ("none" when there are none). They never change the verdict, `blocking` or
+`gap_class`: a style defect is not a gap, and a gap is never reported as style.
+
 End your final message with this block, as the last thing, exactly in this shape
 (the `land_verdict` hook reads only this):
 

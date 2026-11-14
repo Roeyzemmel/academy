@@ -60,8 +60,9 @@ the reader never pages back.
   used throughout. Never both.
 - **Kill "clearly", "obviously", "trivially".** They either add nothing or mark the
   place the author stopped thinking. `\cref{lem:x}` is shorter *and* more informative.
-- **One idea per paragraph.** Long proofs get `claim` sub-environments or numbered
-  steps, not more paragraphs.
+- **One idea per paragraph.** How a proof is shaped (length, a chain of lemmas, the plan
+  and intuition of a composite proof, what is left out) is
+  `${CLAUDE_PLUGIN_ROOT}/../academy/references/proof-style.md`.
 - **Don't hedge inside the mathematics.** "We believe", "roughly", "it seems" belong in
   the introduction's discussion of open problems. If a step is uncertain, mark it
   visibly (the draft colour, a machine note) rather than softening the prose around it.

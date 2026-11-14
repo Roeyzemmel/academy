@@ -19,7 +19,8 @@ labels); this file is the judgement about what the paper should look like.
    once, before its first use, and never for two objects (`academy:notation-discipline`).
 4. **Proofs at the right level.** Short proofs for the paper's reader; routine details
    omitted or moved to a lemma or an appendix; a long proof is a sign the plan needs a
-   supporting lemma or a better definition, not more text.
+   supporting lemma or a better definition, not more text. The rules are
+   `academy/references/proof-style.md` in the base plugin.
 5. **Examples and figures where they carry the idea.** An example right after a
    definition that is hard to picture; a figure where a picture replaces a paragraph.
    Never decoration.
