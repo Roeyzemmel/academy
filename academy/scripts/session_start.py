@@ -374,7 +374,9 @@ def main():
     except Exception as exc:                     # a SessionStart hook never breaks a session
         line = "academy: session_start failed: %s" % exc
     try:
-        stale = staleness()
+        # ACADEMY_STALENESS=off: the suites, whose result must not depend on how far the
+        # checkout under test is behind main (2026-11-14: six tests failed once main moved)
+        stale = "" if os.environ.get("ACADEMY_STALENESS") == "off" else staleness()
     except Exception:
         stale = ""
     if stale:

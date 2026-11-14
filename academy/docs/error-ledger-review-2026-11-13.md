@@ -194,7 +194,11 @@ continues in the same order:
 | 56 | #78 | a receiver may reject a ticket it has started, with a reason | |
 | 57 | #79 | maintenance stays in the base plugin (`/academy:maintain`, both modes); the `maintainer` plugin of row 50 is removed | |
 | 58 | #80 | **decisions hold nothing back**: `decisions.py proceed` lets work go on under a packet's recommendation, provisionally; another choice returns the ticket | 11 decisions on the live board (dry run) |
-| 59 | this one | the map, rows 55 to 59 | |
+| 59 | #81 | the map, rows 55 to 59 | |
+| 60 | after the merge | the handoff note for another session (`error-ledger-review-2026-11-13-handoff.md`); the session-start tests no longer depend on how far the checkout is behind `main` | |
+
+Rows 1 to 59 were merged into `main` on 2026-11-14 (one merge of the tip). Row 60 is a
+pull request against `main`.
 
 **Found by measuring, not by the suites.**
 
