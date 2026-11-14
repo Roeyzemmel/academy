@@ -3,7 +3,7 @@
     py maintain.py survey [--days 7] [--json] [--workspace W] [--no-probes]
     py maintain.py union --base BRANCH --branches B1 B2 ... [--repo DIR] [--json]
 
-A maintenance round (``/academy:maintain``, ``academy/workflows/maintain.js``) finds what
+A maintenance round (``/maintainer:round``, ``maintainer/workflows/round.js``) finds what
 is worth doing in the plugins, does each thing on its own branch, and proves the branches
 work together. The judgement is the agents'; what can be measured is here, so that a round
 starts from numbers and ends on a tested tree (the round of 2026-11-13 was done by hand:
@@ -31,6 +31,10 @@ gated alone; the union is what will be on ``main`` once all are merged. It creat
 branch, pushes nothing and leaves the checkout untouched. Exit 0 when every merge was
 clean and the gate passed, 1 otherwise, 2 on an error.
 
+This plugin is opt-in and stands alone: it imports nothing from the other plugins. The
+base plugin's ``error_ledger.py`` and ``ci_local.py`` are run as commands, from the
+``academy/scripts`` folder beside this plugin (the academy repo's checkout).
+
 Standard library only.
 """
 
@@ -48,10 +52,41 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(HERE)
 REPO = os.path.dirname(PLUGIN)
-sys.path.insert(0, os.path.join(PLUGIN, "lib"))
-sys.path.insert(0, HERE)
+BASE_SCRIPTS = os.path.join(REPO, "academy", "scripts")
 
-import _academy as ac  # noqa: E402
+
+class MaintainError(Exception):
+    pass
+
+
+def load_workspace(path=None, environ=None, cwd=None):
+    """The workspace map as this script needs it: ``{"_path", "board", "instances"}``.
+    ``path``, else ``ACADEMY_WORKSPACE``, else the first ``workspace.json`` found going up
+    from the current directory. ``board`` is its directory (``board.path`` when the board
+    is an object); an instance is ``{"role", "home"}``."""
+    env = os.environ if environ is None else environ
+    path = path or env.get("ACADEMY_WORKSPACE")
+    d = os.path.abspath(cwd or os.getcwd())
+    while not path:
+        if os.path.isfile(os.path.join(d, "workspace.json")):
+            path = os.path.join(d, "workspace.json")
+        elif os.path.dirname(d) == d:
+            raise MaintainError("no workspace.json here or above (give --workspace)")
+        d = os.path.dirname(d)
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            ws = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise MaintainError("cannot read %s: %s" % (path, exc))
+    board = ws.get("board")
+    if isinstance(board, dict):
+        board = board.get("path")
+    root = os.path.dirname(os.path.abspath(path))
+    if isinstance(board, str) and not os.path.isabs(board):
+        board = os.path.join(root, board)
+    return {"_path": os.path.abspath(path), "board": board,
+            "instances": {k: v for k, v in (ws.get("instances") or {}).items()
+                          if isinstance(v, dict)}}
 
 #: a command a session waits for: seconds before it is a candidate
 BUDGET_SECONDS = 5.0
@@ -201,12 +236,20 @@ def probe_candidates(results, seconds=BUDGET_SECONDS, chars=BUDGET_CHARS):
     return out
 
 
-def error_candidates(board, days=7, now=None):
+def ledger_brief(ws_path, days=7, scripts=BASE_SCRIPTS):
+    """The base plugin's ``error_ledger.py report --json --brief``, as a dict."""
+    p = subprocess.run([sys.executable, os.path.join(scripts, "error_ledger.py"), "report",
+                        "--days", str(days), "--json", "--brief", "--workspace", ws_path],
+                       capture_output=True, text=True, timeout=PROBE_TIMEOUT,
+                       stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace")
+    if p.returncode:
+        raise MaintainError((p.stderr or p.stdout).strip()[-300:] or "exit %d" % p.returncode)
+    return json.loads(p.stdout)
+
+
+def error_candidates(ws_path, days=7, brief=ledger_brief):
     try:
-        import datetime as _dt
-        import error_ledger as el
-        now = now or el._now()
-        rep = el.brief(el.report(el.read_all(board), now - _dt.timedelta(days=days), now))
+        rep = brief(ws_path, days)
     except Exception as exc:        # the ledger is optional; the survey goes on without it
         return [], "error ledger not read: %s" % exc
     rank = {"regression": 0, "recurring": 1}
@@ -231,7 +274,7 @@ def worktree_candidates(repo=REPO):
             for t in trees[1:]]
 
 
-def survey(ws=None, days=7, probes=True, repo=REPO, run=run_probe):
+def survey(ws=None, days=7, probes=True, repo=REPO, run=run_probe, brief=ledger_brief):
     """``{"candidates": [...], "probes": [...], "notes": [...]}``."""
     notes, cands, measured = [], [], []
     for p in frontmatter_problems(repo):
@@ -239,7 +282,7 @@ def survey(ws=None, days=7, probes=True, repo=REPO, run=run_probe):
                       "title": "the harness cannot read " + p.split(":")[0], "evidence": p})
     board = (ws or {}).get("board")
     if isinstance(board, str) and os.path.isdir(board):
-        found, note = error_candidates(board, days)
+        found, note = error_candidates(ws["_path"], days, brief)
         cands += found
         if note:
             notes.append(note)
@@ -277,12 +320,18 @@ def _git(cwd, *args):
     return p.returncode, (p.stdout + p.stderr).strip()
 
 
-def union(repo, base, branches, gate=None):
+def push_gate(tree, scripts=BASE_SCRIPTS):
+    """The repo's push gate on ``tree`` (the base plugin's ``ci_local.py run``):
+    ``(ok, lines)``."""
+    p = subprocess.run([sys.executable, os.path.join(scripts, "ci_local.py"), "run", "--repo",
+                        tree], capture_output=True, text=True, timeout=3600,
+                       stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace")
+    return p.returncode == 0, (p.stdout + p.stderr).strip().splitlines()
+
+
+def union(repo, base, branches, gate=push_gate):
     """Merge ``branches`` in turn onto ``base`` in a throwaway detached worktree and run
     the push gate there. Returns ``{"ok", "merged", "conflict", "gate_ok", "gate"}``."""
-    if gate is None:
-        import ci_local
-        gate = ci_local.run
     res = {"ok": False, "base": base, "merged": [], "conflict": None, "gate_ok": None,
            "gate": []}
     holder = tempfile.mkdtemp(prefix="academy-union-")
@@ -290,7 +339,7 @@ def union(repo, base, branches, gate=None):
     code, out = _git(repo, "worktree", "add", "--detach", tree, base)
     if code:
         shutil.rmtree(holder, ignore_errors=True)
-        raise ac.AcademyError("cannot check out %s: %s" % (base, out))
+        raise MaintainError("cannot check out %s: %s" % (base, out))
     try:
         for b in branches:
             code, out = _git(tree, "-c", "user.name=union", "-c", "user.email=union@localhost",
@@ -340,8 +389,8 @@ def main(argv=None):
     try:
         if a.cmd == "survey":
             try:
-                ws = ac.load_workspace(a.workspace)
-            except ac.AcademyError:
+                ws = load_workspace(a.workspace)
+            except MaintainError:
                 ws = None
             s = survey(ws, a.days, not a.no_probes)
             print(json.dumps(s, ensure_ascii=False) if a.json else render_survey(s), end="")
@@ -349,7 +398,7 @@ def main(argv=None):
         r = union(os.path.abspath(a.repo), a.base, a.branches)
         print(json.dumps(r, ensure_ascii=False) if a.json else render_union(r), end="")
         return 0 if r["ok"] else 1
-    except (ac.AcademyError, OSError) as exc:
+    except (MaintainError, OSError) as exc:
         print("maintain: %s" % exc, file=sys.stderr)
         return 2
 

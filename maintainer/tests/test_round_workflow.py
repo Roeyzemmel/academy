@@ -1,4 +1,4 @@
-"""The maintenance-round workflow (academy/workflows/maintain.js).
+"""The maintenance-round workflow (maintainer/workflows/round.js).
 
 Under node with a fake ``agent()``: tasks that share a file share a lane and are stacked,
 the others run in lanes of their own; a blocking finding gets one fix round and a second
@@ -15,7 +15,7 @@ import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(HERE), "workflows", "maintain.js")
+SCRIPT = os.path.join(os.path.dirname(HERE), "workflows", "round.js")
 NODE = shutil.which("node")
 
 HARNESS = r"""

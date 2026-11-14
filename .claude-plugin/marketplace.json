@@ -34,6 +34,11 @@
       "name": "ts-domain",
       "source": "./domains/translation-surfaces",
       "description": "Domain pack: translation surfaces and rational billiards."
+    },
+    {
+      "name": "maintainer",
+      "source": "./maintainer",
+      "description": "Opt-in: maintenance rounds on the academy plugins themselves (survey by measurement, fix, independent review, gate). Not needed for research work."
     }
   ]
 }

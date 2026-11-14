@@ -1,0 +1,8 @@
+{
+  "name": "maintainer",
+  "description": "Opt-in: maintenance rounds on the academy plugins themselves (survey by measurement, fix, independent review, gate). Install it only in a session that works on the academy's own code.",
+  "version": "0.2.3",
+  "author": {
+    "name": "Roey Zemmel"
+  }
+}
