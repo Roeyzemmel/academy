@@ -37,12 +37,27 @@ def norm(line):
     return next(iter(hit)) if hit else " ".join(line.split())
 
 
+def counts(keep):
+    """``{finding: how many lines report it}`` for the indented lines of a check. Several
+    findings can share one key (two unlabelled statements in a file, two notes over the
+    margin, two findings of one rule under one label), so they are counted, not merely
+    present (review, 2026-11-14: a second one was reported as "nothing new"). The
+    checker's own ``none`` line is not a finding."""
+    out = {}
+    for ln in keep:
+        if ln[:1].isspace() and ln.strip() != "none":
+            out[norm(ln)] = out.get(norm(ln), 0) + 1
+    return out
+
+
 def load_seen(home, cfg):
     try:
         with open(os.path.join(au.build_dir(home, cfg), STATE), encoding="utf-8") as fh:
             seen = json.load(fh)
-        return set(seen) if isinstance(seen, list) else None
-    except (OSError, ValueError):
+        if isinstance(seen, list):                      # the first form: a list of keys
+            return {k: 1 for k in seen}
+        return {str(k): int(v) for k, v in seen.items()} if isinstance(seen, dict) else None
+    except (OSError, ValueError, TypeError, AttributeError):
         return None
 
 
@@ -50,9 +65,9 @@ def save_seen(home, cfg, seen):
     try:
         d = au.build_dir(home, cfg)
         os.makedirs(d, exist_ok=True)
-        tmp = os.path.join(d, STATE + ".tmp")
+        tmp = os.path.join(d, "%s.%d.tmp" % (STATE, os.getpid()))
         with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-            json.dump(sorted(seen), fh, ensure_ascii=False)
+            json.dump(seen, fh, ensure_ascii=False, sort_keys=True)
         os.replace(tmp, os.path.join(d, STATE))
     except OSError:
         pass
@@ -60,18 +75,17 @@ def save_seen(home, cfg, seen):
 
 def changed_only(keep, seen):
     """``(lines, new, gone, same)``: the section and count lines (not indented) as they
-    are, of the indented ones only those not in ``seen``; how many are new, how many of
-    ``seen`` are gone, how many are as before."""
-    detail = [ln for ln in keep if ln[:1].isspace()]
-    now = {norm(ln) for ln in detail}
-    out, new = [], 0
-    for ln in keep:
-        if not ln[:1].isspace():
-            out.append(ln)
-        elif norm(ln) not in seen:
-            out.append(ln)
-            new += 1
-    return out, new, len(seen - now), len(now & seen)
+    are, and of the findings only those reported more often than at the previous check
+    (every line of such a finding: which of them is the new one cannot be told once the
+    line numbers have moved). How many are new, gone and as before."""
+    now = counts(keep)
+    more = {k for k, n in now.items() if n > seen.get(k, 0)}
+    out = [ln for ln in keep if not ln[:1].isspace()
+           or (ln.strip() != "none" and norm(ln) in more)]
+    new = sum(n - seen.get(k, 0) for k, n in now.items() if n > seen.get(k, 0))
+    gone = sum(n - now.get(k, 0) for k, n in seen.items() if n > now.get(k, 0))
+    same = sum(min(n, seen.get(k, 0)) for k, n in now.items())
+    return out, new, gone, same
 
 
 def main():
@@ -93,7 +107,7 @@ def main():
     keep = [ln for ln in output.splitlines()
             if ln.strip() and not ln.startswith("Registry written")]
     seen = load_seen(home, cfg)
-    save_seen(home, cfg, {norm(ln) for ln in keep if ln[:1].isspace()})
+    save_seen(home, cfg, counts(keep))
     rel = ac._rel_to(home, path) or path
     verdict = "clean" if code == 0 else "violations"
     if seen is None:

@@ -572,6 +572,30 @@ class TexEditCheckTests(unittest.TestCase):
         self.assertIn("a.tex: clean", clean)
         self.assertIn("2 gone", clean)
 
+    def test_a_second_finding_of_the_same_kind_is_new(self):
+        # review, 2026-11-14: two findings can share file, label and rule
+        tex = os.path.join(self.sb.home, "sections", "a.tex")
+        one = "WARNINGS (1)\n  sections/a.tex:9: (unlabelled): [W3] unlabelled quest\n"
+        self.sb.set_checker("VIOLATIONS (0)\n  none\n" + one, 1)
+        self.edit(tex)
+        two = ("VIOLATIONS (0)\n  none\nWARNINGS (2)\n"
+               "  sections/a.tex:9: (unlabelled): [W3] unlabelled quest\n"
+               "  sections/a.tex:31: (unlabelled): [W3] unlabelled quest\n")
+        self.sb.set_checker(two, 1)
+        ctx = self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("nothing new", ctx)
+        self.assertIn("WARNINGS (2)", ctx)
+        self.assertIn("a.tex:31", ctx)
+        self.assertIn("1 new (listed above), 0 gone, 1 as before", ctx)
+        self.assertNotIn("\n  none", ctx)                       # 'none' is not a finding
+        self.sb.set_checker("VIOLATIONS (0)\n  none\n" + one, 1)
+        back = self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("0 new (listed above), 1 gone, 1 as before", back)
+        # a state file written by the first form (a list of keys) is still read
+        with open(os.path.join(self.sb.home, ".build", ".last-check.json"), "w") as fh:
+            json.dump(["sections/a.tex|(unlabelled)|W3"], fh)
+        self.assertIn("nothing new", self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"])
+
     def test_bib_edit_only_marks_dirty(self):
         code, out, _e = self.edit(os.path.join(self.sb.home, "references.bib"))
         self.assertEqual((code, out), (0, None))
