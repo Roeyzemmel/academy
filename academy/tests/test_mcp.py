@@ -433,6 +433,22 @@ class TestTickets(McpTestBase):
         self.assertEqual(["status blocked -> in-progress", "status in-progress -> delivered"],
                          [ln for ln in res["thread"] if ln.startswith("status ")])
 
+    def test_a_started_ticket_can_be_rejected_with_a_reason(self):
+        # the human's decision, 2026-11-14 (before: in-progress -> blocked -> accepted -> rejected)
+        author, expert, tid = self._deliver_ticket("in-progress")
+        err, msg = expert.call("tickets_update", caller="expert:review-chair", id=tid,
+                               status="rejected")
+        self.assertTrue(err)
+        self.assertIn("reason", msg)
+        err, msg = author.call("tickets_update", caller="author:math-writer", id=tid,
+                               status="rejected", reason="not ours")
+        self.assertTrue(err)                                      # the receiver's move, not the sender's
+        err, res = expert.call("tickets_update", caller="expert:review-chair", id=tid,
+                               status="rejected", reason="the statement is not in the paper any more")
+        self.assertFalse(err, res)
+        self.assertEqual("rejected", res["status"])
+        self.assertTrue(any("in-progress -> rejected" in ln for ln in res["thread"]), res["thread"])
+
     def test_deliver_from_accepted_and_in_progress(self):
         for upto, lines in (("accepted", ["status accepted -> in-progress",
                                           "status in-progress -> delivered"]),

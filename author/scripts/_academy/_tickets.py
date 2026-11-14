@@ -40,6 +40,10 @@ TRANSITIONS = {
     ("accepted", "cancelled"): ("sender",),
     ("in-progress", "delivered"): ("receiver",),
     ("in-progress", "blocked"): ("receiver",),
+    # started, and it turns out it cannot be done as asked: rejected with a reason, as from
+    # open or accepted (the human's decision, 2026-11-14; before, the route offered was
+    # in-progress -> blocked -> accepted -> rejected)
+    ("in-progress", "rejected"): ("receiver",),
     ("in-progress", "cancelled"): ("sender",),
     ("blocked", "accepted"): ("receiver",),
     ("blocked", "in-progress"): ("receiver",),

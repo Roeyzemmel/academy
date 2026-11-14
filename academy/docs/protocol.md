@@ -329,6 +329,7 @@ permissions.json). **The human may make any transition**, including re-opening
 | accepted | cancelled | sender | reason in thread |
 | in-progress | delivered | receiver | `result` non-empty |
 | in-progress | blocked | receiver | `waiting_on` non-empty, or a dead route |
+| in-progress | rejected | receiver | a reason, as for every rejection (it turned out it cannot be done as asked; since 2026-11-14) |
 | in-progress | cancelled | sender | reason in thread |
 | blocked | accepted | receiver | `waiting_on` cleared; a dead route needs `--reopen` |
 | blocked | in-progress | receiver | `waiting_on` cleared (never a dead route, except by the human) |
