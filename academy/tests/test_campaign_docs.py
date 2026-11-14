@@ -169,7 +169,7 @@ class DispatchLoop(unittest.TestCase):
     def test_checkpoint_exit_codes_as_the_reference_describes(self):
         ref, inbox = text(*REF), text(*INBOX)        # the checkpoint is the inbox skill's
         self.assertRegex(inbox, r"exit 0 means delivered,\s+blocked with its reason or rejected")
-        self.assertRegex(inbox, r"Exit 3 means unfinished")
+        self.assertRegex(inbox, r"otherwise it means unfinished: that ticket is left as it is")
         self.assertRegex(ref, r"exit 3 means unfinished")
         self.assertEqual(3, self.inbox("--check", "T-0002")[0])       # open: unfinished
         self.assertEqual(3, self.inbox("--check", "T-0001")[0])       # in progress
