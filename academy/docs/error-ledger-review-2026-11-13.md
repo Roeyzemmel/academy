@@ -172,7 +172,18 @@ continues in the same order:
 | 34 | #56 | the Author's edit hook hands back only what changed since the previous check | 972 characters, then 127 per edit |
 | 35 | #57 | the board cache is private to the user; a failed write leaves no temp file | |
 | 36 | #58 | a text search of the tickets (titles, asks, bodies), and the prompts that look for an existing ticket use it | 83 matches in 1.2 s |
-| 37 | this one | the map, rows 32 to 37 | |
+| 37 | #59 | the map, rows 32 to 37 | |
+| 38 | #60 | two invalid escape sequences fixed, `W605` linted; nothing needs a Python newer than 3.10, the suites pass on 3.11 and 3.13 | |
+| 39 | #61 | the test workspace template is removed on Windows too | |
+| 40 | #62 | a proof-review brief gives the lines of the statement and its proof (`statement.py --where`) | |
+| 41 | #63 | `decision_table.py`: a verdict that is not there says what to check | |
+| 42 | #64 | the round itself as a workflow: `/academy:maintain`, `maintain.py survey` and `union`, `workflows/maintain.js` | the survey: 11 s, 26 candidates |
+| 43 | #65 | **fix to #44**: the next board read starts no later than the previous one began (an update made during a multi-page read was lost) | |
+| 44 | #66 | **fix to #46**: the last page of a listing says it is the last | |
+| 45 | #67 | **fix to #56**: the edit hook counts findings (a second one of the same kind was "nothing new") | |
+| 46 | #68 | **fix to #49**: the main checkout of a real submodule (a worktree would have landed in the superproject's `.git`) | |
+| 47 | #69 | the review's two smaller findings: ticket ids by number in the status lookup, `needs:` in the local CI | |
+| 48 | this one | the map, rows 38 to 48 | |
 
 **Found by measuring, not by the suites.**
 
@@ -200,6 +211,15 @@ continues in the same order:
   and #47 would have let an agent that looks for an existing ticket miss it and file a
   duplicate. The second is why the listing tools now search by text.
 
+- **An independent review found what the tests did not** (rows 43 to 47). A second
+  agent, given the night's diff and no conclusions, reproduced four defects in changes
+  whose suites all passed: the incremental listing lost an update made while its pages
+  were being read; every page after the first claimed more rows followed; the edit hook
+  compared findings by a key several findings share; and worktree placement was wrong for
+  a submodule as git makes one (the test fixture's submodule is not one). The rule this
+  leaves, and which the `maintain` workflow carries: a change is pushed only after someone
+  who did not write it has read it.
+
 **The cost of one Bash call in hooks** is four processes, 173 ms in all here (the base
 dispatcher, two commit gates, the library check); on Windows a process start costs
 several times more. They belong to three plugins, so they stay four.
@@ -214,6 +234,11 @@ registered outside the plugin): see the human's list.
 
 ## After merging: the human's list
 
+0. **One merge lands the whole chain.** Every branch holds the ones before it and `main`
+   has not moved under them, so merging the last branch of the chain (with `ship.py
+   merge academy <branch> --sha <tip>`, whose prompt is the approval) brings in every row
+   above; GitHub then shows each pull request as merged. Merging them one at a time,
+   bottom first, gives the same tree.
 1. Merge in the order above, then bump the workspace's academy pointer and run
    `scripts/bootstrap.py` on each machine (installed plugins go to 0.2.3). The session's
    first line now says when a checkout or an installed copy is behind.
