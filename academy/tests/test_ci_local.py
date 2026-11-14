@@ -249,6 +249,18 @@ class Jobs(unittest.TestCase):
                           "ci: meet.yml/b: b waits for a ok"], lines)
 
     @unittest.skipUnless(BASH, "bash is not installed")
+    def test_a_workflow_with_needs_runs_its_jobs_in_order(self):
+        # the second job reads what the first wrote: side by side it would race
+        write(self.top, "chain.yml", "on: push\njobs:\n  build:\n    steps:\n      - name: make\n"
+              "        run: |\n          sleep 0.3\n          echo built > out.txt\n"
+              "  check:\n    needs: build\n    steps:\n      - name: read\n"
+              "        run: test \"$(cat out.txt)\" = built\n")
+        ok, lines = ci.run(self.top, jobs=4)
+        self.assertTrue(ok, lines)
+        steps, _p = ci.plan(self.top)
+        self.assertEqual([False, True], [s["needs"] for s in steps])
+
+    @unittest.skipUnless(BASH, "bash is not installed")
     def test_one_at_a_time_and_a_failed_job_does_not_stop_another(self):
         write(self.top, "two.yml", "on: push\njobs:\n  a:\n    steps:\n      - name: bad\n"
               "        run: exit 5\n      - name: after bad\n        run: echo no\n"

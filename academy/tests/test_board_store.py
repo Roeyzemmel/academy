@@ -216,6 +216,10 @@ class TestSelectParity(StoreCase):
         lists = [c for c in self.transport.calls if c[0] == "list_issues" and c[3] == 1]
         self.assertEqual(1, len(lists))
         self.assertEqual(self.files.status_of, ac.status_lookup(self.files))   # files: as before
+        # an id written with other zero padding is the same ticket (review, 2026-11-14)
+        self.assertEqual(self.gh.status_of("T-00005"), look("T-00005"))
+        self.assertEqual("blocked", look("T-00005"))
+        self.assertIsNone(look("human"))
 
     def test_text_search_agrees_on_both_boards_and_reads_no_ticket_alone(self):
         metas = [m for _r, m in self.files.iter_meta()]

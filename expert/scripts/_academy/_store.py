@@ -244,11 +244,17 @@ def status_lookup(store):
         return store.status_of
     held = {}
 
+    def number(tid):
+        # by number, as the store's own status_of finds an issue: T-00012 is T-0012
+        m = RE_TICKET_ID.match(str(tid))
+        digits = re.search(r"\d+", str(tid)) if m else None
+        return int(digits.group()) if digits else str(tid)
+
     def status_of(tid):
         if not held:
-            held["by_id"] = {str(m.get("id")): m.get("status")
+            held["by_id"] = {number(m.get("id")): m.get("status")
                              for _ref, m in store.iter_meta() if m}
-        return held["by_id"].get(str(tid))
+        return held["by_id"].get(number(tid))
     return status_of
 
 
