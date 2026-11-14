@@ -13,8 +13,14 @@ export const meta = {
 // The inbox rules of /academy:inbox and the four role inboxes, and the relays' legs, in
 // code (the human's decision, 2026-10-31; docs/workflows.md):
 //  * the instance order, the cap over the whole run (budget.md rule 1), one ticket at a
-//    time with its --check checkpoint (rule 2), an unfinished ticket closes its
-//    instance for the run, a lost agent stops the run (rule 4);
+//    time with its --check checkpoint (rule 2), a lost agent stops the run (rule 4).
+//    A ticket the run leaves unfinished skips only itself (2026-11-14: one ticket waiting
+//    on a decision, listed first in every run, closed its whole instance in every run):
+//    it is not taken again this run; a ticket that ends blocked is parked, not unfinished;
+//    one that was already in-progress before the run and is still unfinished after it is
+//    handed to the human (blocked, waiting_on human), so it reaches /academy:decide and
+//    stops heading the list; a second unfinished ticket of one instance closes that
+//    instance for the run (something there is failing, and the cap is not to be spent on it);
 //  * the route is the role's routes.py (in the inbox.py row); this script dispatches it:
 //    reject / human / over-budget are clerk moves; a relay's forward leg is the relay's
 //    decision and its child ticket only, and the script then checks the child (parent,
@@ -407,6 +413,8 @@ async function handle(row, i) {
 phase('Tickets')
 let count = 0
 const closed = new Set()
+const stuck = new Set()              // tickets this run left unfinished: not taken again this run
+const unfinishedBy = new Map()       // instance -> how many it left unfinished
 const gated = new Set()              // loop: tickets set aside for the human, never retried this run
 const touched = new Set()            // instances whose tickets ran (the Author's close-out)
 outer:
@@ -421,7 +429,7 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
     for (const row of i.rows) {
       if (count >= CAP) break outer
       if (closed.has(i.name)) break
-      if (gated.has(row.id) || taken.some(t => t.id === row.id && t.outcome !== 'unfinished')) continue
+      if (gated.has(row.id) || stuck.has(row.id) || taken.some(t => t.id === row.id)) continue
       const res = await handle(row, i)
       if (res.for_main) {
         if (!LOOP) { out.for_main = res.for_main; notes.push(`stopped for the main session at ${row.id}: ${res.for_main.why}`); break outer }
@@ -444,12 +452,27 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
       const chk = readCheck(await clerk('check', [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`,
         'Run it once. Return the exit code the shell printed (echo $?), the ticket status, and the whole output verbatim in output.'], CHECK, `check ${row.id}`), row.id)
       if (chk && !chk.shipped) notes.push(`${row.id}: the checkpoint did not ship everything (see its output); commit by hand`)
-      // a ticket the route parked on its child (a relay's forward, a research ask) is blocked by design: --check's
-      // exit 3 is then its expected end, not unfinished work (live run 2026-10-31 closed the Expert on it)
-      const parkedOk = res.parked && chk && chk.exit === 3 && chk.status === 'blocked'
+      // a ticket that ends blocked is parked (on its child, on the human, on a dead route): --check's exit 3 is
+      // then its expected end, not unfinished work (live run 2026-10-31 closed the Expert on it)
+      const parkedOk = chk && chk.exit === 3 && chk.status === 'blocked'
       const unfinished = !chk || (chk.exit === 3 && !parkedOk)
-      if (unfinished) { closed.add(i.name); notes.push(`${row.id} is unfinished: nothing more from ${i.name} this run`) }
-      taken.push({ instance: i.name, id: row.id, route: row.route, outcome: unfinished ? 'unfinished' : res.outcome, status: chk ? chk.status : '', detail: res.detail || '' })
+      let outcome = unfinished ? 'unfinished' : res.outcome
+      if (unfinished) {
+        stuck.add(row.id)
+        const n = (unfinishedBy.get(i.name) || 0) + 1
+        unfinishedBy.set(i.name, n)
+        if (row.status === 'in-progress' && chk && chk.status === 'in-progress') {
+          // it was in progress before this run and still is: a second run will not finish it either
+          const why = String(res.detail || 'no result recorded').replace(/\s+/g, ' ').slice(0, 200)
+          const m = await move(row, i.name, `block: it was in-progress before this run and is still unfinished after it. Move it to blocked with waiting_on ["human"] and the thread line "unfinished after two inbox runs (${why}): decide how it goes on"`, `${row.id} park`)
+          if (m && m.ok) { outcome = 'parked on the human'; notes.push(`${row.id} was in-progress before the run and is still unfinished: parked on the human (/academy:decide)`) }
+          else notes.push(`${row.id} is unfinished for the second run and could not be parked: ${m ? m.detail : 'the move returned nothing'}`)
+        } else {
+          notes.push(`${row.id} is unfinished: it is left as it is and not taken again this run`)
+        }
+        if (n >= 2) { closed.add(i.name); notes.push(`${i.name} left ${n} tickets unfinished: nothing more from it this run`) }
+      }
+      taken.push({ instance: i.name, id: row.id, route: row.route, outcome, status: chk ? chk.status : '', detail: res.detail || '' })
       if (res.gate) out.gates.push(Object.assign({ ticket: row.id, instance: i.name }, res.gate))   // done, but it waits on the human
     }
   }

@@ -32,8 +32,13 @@ What the script does, so the report can be read against it: it lists each instan
 `py <role plugin>/scripts/inbox.py --instance <name> --json` (in progress first, then
 return legs, then `open` and `accepted` by priority, agenda position, id). With `--campaign` each instance's
 listing is not cut at three, and the campaign's own caps apply (`cap`). After each ticket it runs `inbox.py --instance <name> --check T-NNNN`:
-exit 0 means delivered, blocked with its reason or rejected. Exit 3 means unfinished,
-and nothing more is taken from that instance in this run.
+exit 0 means delivered, blocked with its reason or rejected. Exit 3 on a ticket that is
+`blocked` means parked; otherwise it means unfinished: that ticket is left as it is and not
+taken again in this run, and the instance goes on with its next one. A ticket that was
+already `in-progress` before the run and is still unfinished after it is moved to
+`blocked`, `waiting_on: [human]`, so that it reaches `/academy:decide` instead of heading
+every later listing. A second unfinished ticket of one instance closes that instance for
+the run.
 
 ## 2. What comes back
 
@@ -51,8 +56,8 @@ and nothing more is taken from that instance in this run.
   pass. A ticket that needs the human is set aside in `gates` and the others go on. At the
   end, `for_main` lists every gate: ask them in one batch, then run the loop again.
 - **`stopped`**: an agent returned nothing (a limit). Launch nothing further and report it.
-- **`notes`**: put them into the report verbatim (an unfinished ticket that closed its
-  instance, a relay child the check refused, the Author's check_paper reminder).
+- **`notes`**: put them into the report verbatim (an unfinished ticket, one parked on the
+  human after two runs, an instance closed after two unfinished tickets, a relay child the check refused, the Author's check_paper reminder).
 
 ## 3. Report
 

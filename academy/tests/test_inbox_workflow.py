@@ -5,7 +5,7 @@ The inbox rules and the relays' legs are code. The script runs under node with a
 checked without a model: the instance order and one cap over the run, the sweep first
 and outside the cap, a relay's forward leg concluded by the script after it checked the
 child (and refused when the child breaks the chain), a fail-fast delivered, a return leg
-made without the relay, a for_main stop, an unfinished ticket closing its instance, a
+made without the relay, a for_main stop, an unfinished ticket skipping only itself (two close the instance), a
 lost agent stopping the run, verify and review-experiment run nested, the developer's
 diff reviewed by test-engineer, the clerk's escalation bounded by budget.runs. Skipped
 where node is not installed.
@@ -162,12 +162,18 @@ class InboxWorkflowTests(unittest.TestCase):
         rows = [row("T-1", how="human", target="human", kind="decision", to="expert@t"),
                 row("T-2", how="reject", target=None, kind="prove", to="expert@t")]
         other = [row("T-5", how="reject", target=None, kind="prove", to="researcher@u")]
+        # one unfinished ticket skips only itself; a second of the same instance closes it
+        rows.append(row("T-3", how="reject", target=None, kind="prove", to="expert@t"))
         plan = {"list": [{"instances": [inst("expert@t", rows), inst("researcher@u", other)]}],
                 "T-1 block-human": [OK], "check T-1": [{"exit": 3, "status": "open", "detail": ""}],
+                "T-2 reject": [OK], "check T-2": [{"exit": 3, "status": "open", "detail": ""}],
                 "T-5 reject": [OK], "check T-5": [DONE]}
         res, labels, _ = self.run_wf(plan)
-        self.assertNotIn("T-2 reject", labels)
+        self.assertIn("T-2 reject", labels)                      # T-1 did not close the Expert
+        self.assertNotIn("T-3 reject", labels)                   # two unfinished did
         self.assertIn("T-5 reject", labels)
+        self.assertEqual(["unfinished", "unfinished", "rejected"], [t["outcome"] for t in res["taken"]])
+        self.assertIn("expert@t left 2 tickets unfinished", " ".join(res["notes"]))
         rows = [row("T-1", target="lead-researcher", kind="research", to="researcher@u"),
                 row("T-2", how="reject", target=None, kind="prove", to="researcher@u")]
         plan = {"list": [{"instances": [inst("researcher@u", rows)]}],
@@ -175,6 +181,28 @@ class InboxWorkflowTests(unittest.TestCase):
         res, labels, _ = self.run_wf(plan)
         self.assertIn("nothing further launched", res["stopped"])
         self.assertNotIn("T-2 reject", labels)
+
+    def test_a_blocked_ticket_is_parked_and_a_twice_unfinished_one_goes_to_the_human(self):
+        # 2026-11-14: one ticket waiting on a decision, first in every listing, closed its
+        # instance in every run
+        old = row("T-1", how="reject", target=None, kind="prove", to="expert@t")
+        old["status"] = "in-progress"                            # left so by an earlier run
+        rows = [old, row("T-2", how="human", target="human", kind="decision", to="expert@t"),
+                row("T-3", how="reject", target=None, kind="prove", to="expert@t")]
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}],
+                "T-1 reject": [OK], "check T-1": [{"exit": 3, "status": "in-progress", "detail": ""}],
+                "T-1 park": [OK],
+                "T-2 block-human": [OK], "check T-2": [{"exit": 3, "status": "blocked", "detail": ""}],
+                "T-3 reject": [OK], "check T-3": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        got = [t["outcome"] for t in res["taken"]]
+        self.assertEqual(("parked on the human", "rejected"), (got[0], got[2]))
+        self.assertNotEqual("unfinished", res["taken"][1]["outcome"])   # blocked is parked
+        self.assertIn("T-3 reject", labels)                              # the instance stayed open
+        park = [c for c in calls if c["label"] == "T-1 park"][0]["prompt"]
+        self.assertIn('waiting_on ["human"]', park)
+        self.assertIn("unfinished after two inbox runs", park)
+        self.assertIn("/academy:decide", " ".join(res["notes"]))
 
     def test_verify_and_review_experiment_run_nested(self):
         rows = [row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t",
