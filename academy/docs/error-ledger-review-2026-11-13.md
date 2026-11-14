@@ -189,7 +189,12 @@ continues in the same order:
 | 51 | #73 | **the budget is the run's**: each route's cost declared in code, counted as the run goes; a ticket that does not fit waits, none is blocked for budget | |
 | 52 | #74 | the decisions listing as one line of JSON without empty keys | 24 809 -> 19 760 |
 | 53 | #75 | `deliver: true` on a blocked ticket once what it waited on is back | |
-| 54 | this one | the map, rows 49 to 54 | |
+| 54 | #76 | the map, rows 49 to 54 | |
+| 55 | #77 | `math-editor` files its findings to its own instance (it is no liaison to the Expert); the refusal says where to file | 9 refusals in the ticket sessions' ledger |
+| 56 | #78 | a receiver may reject a ticket it has started, with a reason | |
+| 57 | #79 | maintenance stays in the base plugin (`/academy:maintain`, both modes); the `maintainer` plugin of row 50 is removed | |
+| 58 | #80 | **decisions hold nothing back**: `decisions.py proceed` lets work go on under a packet's recommendation, provisionally; another choice returns the ticket | 11 decisions on the live board (dry run) |
+| 59 | this one | the map, rows 55 to 59 | |
 
 **Found by measuring, not by the suites.**
 
