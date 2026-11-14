@@ -6,16 +6,16 @@ attempts), math-writer and math-editor (the paper), and the reviewers who judge 
 argument *looks like*. A style defect is never a gap: a reviewer reports it as a separate
 style finding.
 
-**Models** (Roey, 2026-11-14): Roey's own notes *Dynamics on moduli spaces of translation
+**Models** (the human, 2026-11-14): the human's own notes *Dynamics on moduli spaces of translation
 surfaces — exercises solution*; Apisa–Wright `AW21`; Lelièvre–Monteil–Weiss `LMW16`;
-Smillie–Weiss `SW08`. Where they disagree, Roey's choice is recorded at the rule. A paper
+Smillie–Weiss `SW08`. Where they disagree, the human's choice is recorded at the rule. A paper
 home's `Drafts/vision.md` wins over this file.
 
 The rules are in order of weight: when two pull apart, the earlier one wins.
 
 ## 1. Every statement is fully proved or precisely cited
 
-Roey, 2026-11-14: "I am a master's student and do not have the reputation to leave
+The human, 2026-11-14: "I am a master's student and do not have the reputation to leave
 half-proved statements."
 
 - **No "Proof sketch" in the paper.** A sketch is a notebook status (`sketch`) and a draft
@@ -35,7 +35,7 @@ half-proved statements."
 - **A proof is short.** Most are 1–10 lines. Past about **15 lines of output** (the typeset
   PDF at the paper's text width, displays included; the rendered Markdown for a notebook
   attempt; never the source), extract a lemma. A proof that keeps growing is a sign to
-  re-plan the chain with Roey (a supporting lemma or a better definition), not to push on.
+  re-plan the chain with the human (a supporting lemma or a better definition), not to push on.
 - **Build a chain:** definition, lemma, corollary, each small. A corollary's proof is often
   one line ("Follows from Lemma 6.").
 - **The main theorem is an assembly** of named results in a few sentences ("By Lemma 2.13
@@ -62,7 +62,7 @@ half-proved statements."
 
 ## 4. Discussion and intuition live outside the proof
 
-SW08's way (Roey, 2026-11-14; earlier: "Way too much discussion").
+SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 
 - **A proof is deduction.** The exception is a composite proof kept together (rule 3).
 - **A statement holds assumptions, then the claim in one sentence, then optionally a list
