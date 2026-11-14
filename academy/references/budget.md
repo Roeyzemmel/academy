@@ -16,8 +16,11 @@ happen again.
    The rest waits for the next invocation. Say how many remain.
 2. **Serially.** One item finishes and is checkpointed in its file (ticket thread,
    packet, agenda) before the next starts. No parallel fan-out of items.
-3. **Nothing starts itself.** Writing a decision, closing a ticket or landing a packet
-   starts no work. Work starts only when the human invokes a skill (or a scheduled job they
+3. **Nothing starts itself, and a decision holds nothing back.** Writing a decision,
+   closing a ticket or landing a packet starts no work. A pending decision parks only
+   its own ticket; work that depends on it goes on under the packet's recommended
+   option, marked provisional (`decisions.py proceed`, docs/packet-template.md section
+   4), and the decision is collected when the human comes to it (`/academy:decide`). Work starts only when the human invokes a skill (or a scheduled job they
    set up, such as the weekly usage report).
 4. **No relaunch after a limit error.** If an agent returns a usage-limit, rate-limit
    or session-limit error, or an empty result: do not relaunch it, launch nothing

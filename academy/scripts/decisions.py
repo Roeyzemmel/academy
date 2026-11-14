@@ -215,6 +215,11 @@ def _packet_items(board, instance=None):
                 "options": _opt_dicts(kept, note),
                 "recommendation": rec or None,
                 "kind": _classify_packet(m),
+                # the packet proposes a status that publishes a result: never worked on
+                # provisionally (proceed), the human decides first
+                "publishing": (m.get("status_proposed") in PUBLISHING_STATUSES
+                               and m.get("status_proposed") != m.get("status_before")),
+                "provisional": packetlib.provisional_choices(body).get(k),
                 "unblocks": _packet_unblocks(board, m.get("ticket"), metas),
                 "stale": _staleness(board, m, m.get("created"), every),
                 "source": "packet",
@@ -378,6 +383,49 @@ def accept_recommended(board, mechanical_only=False, dry_run=False, workspace=No
     return out
 
 
+def proceed(board, instance=None, dry_run=False, date=None):
+    """Let the work go on under each pending packet decision's own recommendation, without
+    deciding it (the human's rule, 2026-11-14: a decision is collected when the human
+    comes to it; it does not hold the work that depends on it).
+
+    For every pending packet decision that has a recommended option and whose packet does
+    not propose a publishing status: the packet gets a provisional note (it stays open, the
+    decision stays pending and is still asked), and the tickets the decision unblocks get
+    one thread line naming the option. What is done under it is provisional: it raises no
+    status, and if the human then chooses another option the decision's echo says so and a
+    delivered ticket is returned to its receiver. Returns ``[{"id", "choice", "tickets"}]``
+    (with ``dry_run``, what would be done)."""
+    date = date or ac.today()
+    out = []
+    for item in pending_decisions(board, instance):
+        if item["source"] != "packet" or item.get("publishing") or item.get("provisional"):
+            continue
+        m = re.match(r"^\(([a-d])\)", item.get("recommendation") or "")
+        if not m:
+            continue
+        letter, pid, k = m.group(1), item["ref"], int(item["id"].rsplit("/D", 1)[1])
+        option = next((o["description"] for o in item["options"]
+                       if o["label"].startswith("(%s)" % letter)), "")
+        tickets = []
+        if not dry_run:
+            if not packetlib.note_provisional(board, pid, k, letter, date):
+                continue
+            store = ac.as_store(board)
+            for tid in item.get("unblocks") or []:
+                if not store.find(tid):
+                    continue
+                boardlib.append_to_ticket(
+                    board, tid, "proceeding on %s D%d (%s) %s -- the recommendation, not yet "
+                    "decided: what is done on it is provisional and raises no status"
+                    % (pid, k, letter, " ".join(option.split())[:160]),
+                    as_instance=item.get("instance") or ac.HUMAN, agent="decisions", date=date)
+                tickets.append(tid)
+        else:
+            tickets = list(item.get("unblocks") or [])
+        out.append({"id": item["id"], "choice": letter, "tickets": tickets})
+    return out
+
+
 # ----------------------------------------------------------------------------
 # CLI
 # ----------------------------------------------------------------------------
@@ -420,6 +468,12 @@ def main(argv=None):
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("proceed", help="let the work go on under each pending decision's "
+                                       "recommendation, provisionally; nothing is decided")
+    p.add_argument("--instance")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--json", action="store_true")
+
     a = ap.parse_args(argv)
     boardlib._utf8_stdout()
     try:
@@ -445,6 +499,16 @@ def main(argv=None):
         elif a.cmd == "record":
             print(json.dumps(record(board, a.id, a.choice, a.comment, ws),
                              ensure_ascii=False))
+        elif a.cmd == "proceed":
+            done = proceed(board, a.instance, a.dry_run)
+            if a.json:
+                print(_wire(done))
+            else:
+                for d in done:
+                    print("%s (%s) provisional%s" % (d["id"], d["choice"], (
+                        ": " + ", ".join(d["tickets"])) if d["tickets"] else ""))
+                print("%d decision(s) %s on their recommendation; none is decided" % (
+                    len(done), "would proceed" if a.dry_run else "proceed"))
         elif a.cmd == "accept-recommended":
             out = accept_recommended(board, a.mechanical_only, a.dry_run, ws)
             if a.json:

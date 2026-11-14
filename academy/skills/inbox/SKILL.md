@@ -17,6 +17,15 @@ calls it and finishes what it hands back.
 own caps, `references/budget.md`), or ticket ids. With no argument, first show the
 active workplans (`py "${CLAUDE_PLUGIN_ROOT}/scripts/cowork.py" list`), one line each.
 
+## 0. Decisions hold nothing back
+
+First run `py "${CLAUDE_PLUGIN_ROOT}/scripts/decisions.py" proceed`: every pending packet
+decision that has a recommended option (and whose packet proposes no publishing status)
+is marked provisional and its tickets are told in one thread line, so the work that
+depends on it goes on in this run. Nothing is decided by it; the decisions stay for
+`/academy:decide`. Say in the report how many proceed provisionally. An agent that works
+under a line "proceeding on P-NNNN Dk (x)" says so in its result and raises no status.
+
 ## 1. Run the workflow
 
 Call the **Workflow** tool:

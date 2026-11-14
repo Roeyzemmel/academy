@@ -133,7 +133,17 @@ There is one line per answered decision, appended in answer order:
 - **Last line wins.** A later line for the same `D<k>` supersedes an earlier one.
   Lines are never deleted.
 - **A note.** One whole line in italics (`_Renumbered 2026-11-13 from P-0308 ..._`) is a
-  note about the packet: it answers nothing and the packet stays valid. Anything else
+  note about the packet: it answers nothing and the packet stays valid.
+- **A provisional note** (since 2026-11-14) is the note
+  `_Provisional <YYYY-MM-DD>: proceeding on D<k> (<letter>), the recommendation; not decided._`,
+  written by `decisions.py proceed`. A decision does not hold the work that depends on
+  it: under this note the work goes on with the packet's own recommended option, the
+  packet stays open and the decision is still asked. What is done under it is
+  provisional and raises no status. When the human answers, the same option confirms
+  it; another option is echoed as overturning the provisional one, and a delivered
+  ticket is returned to its receiver. A packet that proposes a publishing status
+  (`proved`, `proved-modulo`, `refuted`, `refuted-as-stated`) and a decision with no
+  recommended option are never worked on provisionally. Anything else
   that is not a decision line is a problem.
 - **When every `D<k>` has a line** (or the `D0` line is present), the writer sets
   `state: decided` and `decided: <date>`.

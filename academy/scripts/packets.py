@@ -184,6 +184,42 @@ def _choice_letter(choice):
     raise ac.AcademyError("choice must be a-d, 1-4, 'other' or 'ack', not %r" % choice)
 
 
+#: the note a packet carries while work goes on under a recommendation that the human has
+#: not decided yet (a note line of '## Decision': it answers nothing, docs/packet-template.md)
+RE_PROVISIONAL = re.compile(r"^_Provisional (\d{4}-\d{2}-\d{2}): proceeding on D(\d+) "
+                            r"\(([a-d])\), the recommendation; not decided\._$")
+
+
+def provisional_choices(body):
+    """``{k: letter}`` of the decisions a packet is being worked on provisionally."""
+    out = {}
+    for ln in body.replace("\r\n", "\n").split("\n"):
+        m = RE_PROVISIONAL.match(ln.strip())
+        if m:
+            out[int(m.group(2))] = m.group(3)
+    return out
+
+
+def note_provisional(board, pid, k, letter, date=None):
+    """Add the provisional note for decision ``k`` to the packet (once). Returns True when
+    it was added. The packet stays open and the decision stays pending."""
+    path, meta, body = get_packet(board, pid)
+    if k in provisional_choices(body) or k in ac.packet_answers(body):
+        return False
+    lines = body.replace("\r\n", "\n").rstrip("\n").split("\n")
+    if "## Decision" not in lines:
+        raise ac.AcademyError("%s has no '## Decision' section" % pid)
+    start = lines.index("## Decision") + 1
+    end = next((j for j in range(start, len(lines)) if lines[j].startswith("## ")), len(lines))
+    while end > start and not lines[end - 1].strip():
+        end -= 1
+    note = "_Provisional %s: proceeding on D%d (%s), the recommendation; not decided._" % (
+        date or ac.today(), k, letter)
+    lines[end:end] = ([""] if end == start else []) + [note]
+    write_packet(path, meta, "\n".join(lines) + "\n")
+    return True
+
+
 def decide_packet(board, pid, choice, decision=None, comment="", date=None):
     """Write the human's answer into a packet and echo it into its ticket.
 
@@ -212,6 +248,8 @@ def decide_packet(board, pid, choice, decision=None, comment="", date=None):
             raise ac.AcademyError("%s has no decision D%d" % (pid, k))
         if letter != "other" and letter not in asked[k]["options"]:
             raise ac.AcademyError("D%d has no option (%s)" % (k, letter))
+    was = provisional_choices(body).get(k)
+    overturned = bool(was) and letter not in (was, "ack")
     body = ac.record_decision(body, k, letter, comment or "", ac.HUMAN, date)
     decided = ac.packet_is_decided(body)
     if decided:
@@ -232,10 +270,21 @@ def decide_packet(board, pid, choice, decision=None, comment="", date=None):
                                                         asked[k]["options"][letter])
             if comment.strip() and letter != "other":
                 text += "\n" + " ".join(comment.split())
+            if overturned:
+                text += ("\nthis overturns the provisional (%s) the work went on under: what "
+                         "was done on it is to be revisited" % was)
             _r, tm, tb = store.get(tid)
             tb = ac.append_thread(tb, ac.HUMAN, text, date)
             tm["updated"] = date
             store.save(tm, tb, tref)
+            if overturned and tm.get("status") == "delivered":
+                # the human chose otherwise: the ticket goes back to its receiver
+                try:
+                    boardlib.transition_ticket(board, tid, "in-progress", date=date, reason=(
+                        "returned: the decision on %s D%d overturns the provisional (%s)"
+                        % (pid, k, was)))
+                except ac.AcademyError:
+                    pass
     return path, k, decided
 
 
