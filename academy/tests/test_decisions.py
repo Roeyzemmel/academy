@@ -418,5 +418,16 @@ class TestCLI(DecisionsCase):
         self.assertIn("error:", err.getvalue())
 
 
+class WireTests(unittest.TestCase):
+    def test_the_json_a_session_reads_is_one_line_without_empty_keys(self):
+        items = [{"id": "P-0001/D1", "stale": None, "recommendation": "", "unblocks": [],
+                  "options": [{"label": "(a) Yes", "description": "Yes."}], "kind": "mechanical"}]
+        text = dc._wire([items])
+        self.assertNotIn("\n", text)
+        self.assertEqual([[{"id": "P-0001/D1", "kind": "mechanical",
+                            "options": [{"label": "(a) Yes", "description": "Yes."}]}]],
+                         json.loads(text))
+
+
 if __name__ == "__main__":
     unittest.main()

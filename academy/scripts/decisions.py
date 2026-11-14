@@ -386,6 +386,19 @@ def _fmt_item(i):
     return "%-14s %-20s [%-11s] %s" % (i["id"], i.get("instance") or "-", i["kind"], i["question"])
 
 
+def _wire(obj):
+    """``obj`` as the JSON a session reads: one line, and no key whose value is null or
+    empty (a decision without a staleness hint or a recommendation simply has no such
+    key). 21 pending decisions were 24 800 characters indented."""
+    def lean(x):
+        if isinstance(x, dict):
+            return {k: lean(v) for k, v in x.items() if v not in (None, "", [], {})}
+        if isinstance(x, list):
+            return [lean(v) for v in x]
+        return x
+    return json.dumps(lean(obj), ensure_ascii=False, separators=(",", ":"))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="decisions.py", description=__doc__.split("\n")[0])
     ap.add_argument("--board"); ap.add_argument("--workspace")
@@ -415,7 +428,7 @@ def main(argv=None):
         if a.cmd == "list":
             items = pending_decisions(board, a.instance)
             if a.json:
-                print(json.dumps(items, indent=2, ensure_ascii=False))
+                print(_wire(items))
             else:
                 for i in items:
                     print(_fmt_item(i))
@@ -423,7 +436,7 @@ def main(argv=None):
         elif a.cmd == "batches":
             bs = batches(pending_decisions(board, a.instance), a.size)
             if a.json:
-                print(json.dumps(bs, indent=2, ensure_ascii=False))
+                print(_wire(bs))
             else:
                 for n, b in enumerate(bs, 1):
                     print("Batch %d (%d item(s))" % (n, len(b)))
