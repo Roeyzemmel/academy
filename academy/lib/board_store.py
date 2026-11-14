@@ -33,7 +33,14 @@ took minutes. A transport that sets ``since = True`` accepts ``list_issues(since
 (the issues updated at or after that time, GitHub's ``since``); the store then keeps the
 last listing (in the process, and on disk under ``cache_dir`` when one is given) and each
 later listing asks only for what changed since the newest ``updated_at`` it holds, less
-``SINCE_MARGIN`` seconds. The times compared are the server's own. A full listing is still
+``SINCE_MARGIN`` seconds, **and never later than when the previous read began, less
+``READ_SKEW``**. The second bound is what makes it correct: a listing is several requests,
+and an issue on a page already read can change while a later page is fetched; the newest
+stamp held is then past that change, and asking from it would miss the change for good
+(found by review, 2026-11-14). Whatever changed during a read is at or after the read's
+start, so the next read starts from there. The start is this machine's clock; ``READ_SKEW``
+(five minutes) is the room for its difference from GitHub's and for a listing endpoint
+that lags behind a write. A full listing is still
 read when nothing is held, when an issue lacks ``updated_at``, and once every
 ``FULL_REFRESH`` seconds (an issue that was deleted or transferred leaves no trace in
 ``since``). Inside ``list_ttl`` seconds a process reuses its listing with no request;
@@ -65,6 +72,9 @@ import board_codec as bc  # noqa: E402
 PER_PAGE = 100
 #: seconds taken off the newest ``updated_at`` held, so an update in that same second is seen
 SINCE_MARGIN = 2
+#: seconds taken off the start of the previous read: this machine's clock against the
+#: server's, and a listing that lags behind a write
+READ_SKEW = 300
 #: seconds after which the whole board is listed again (deleted or transferred issues)
 FULL_REFRESH = 24 * 3600
 #: seconds a process reuses its last listing without asking (dropped on its own writes)
@@ -74,7 +84,7 @@ LIST_TTL = 5.0
 KEEP = ("number", "id", "node_id", "title", "body", "state", "state_reason", "updated_at",
         "created_at", "closed_at", "comments", "parent_issue_url", "sub_issues_summary",
         "issue_dependencies_summary")
-CACHE_VERSION = 1
+CACHE_VERSION = 2          # 2: the cache holds asked_at (when its last read began)
 
 
 def slim(issue):
@@ -89,13 +99,19 @@ def slim(issue):
     return out
 
 
-def _since(stamp):
-    """``stamp`` (``2026-11-13T20:38:35Z``) less SINCE_MARGIN seconds, or None if unreadable."""
+def _since(stamp, asked_at=None):
+    """Where the next read starts: ``stamp`` (the newest ``updated_at`` held,
+    ``2026-11-13T20:38:35Z``) less SINCE_MARGIN seconds, and no later than ``asked_at``
+    (epoch seconds, when the previous read began) less READ_SKEW. None if unreadable."""
     try:
-        t = _dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")
-    except (TypeError, ValueError):
+        t = _dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ") \
+            - _dt.timedelta(seconds=SINCE_MARGIN)
+        if asked_at is not None:
+            began = _dt.datetime(1970, 1, 1) + _dt.timedelta(seconds=float(asked_at) - READ_SKEW)
+            t = min(t, began)
+    except (TypeError, ValueError, OverflowError):
         return None
-    return (t - _dt.timedelta(seconds=SINCE_MARGIN)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _body(c):
@@ -181,7 +197,7 @@ class GithubBoardStore(ac.BoardStore):
             if d.get("version") != CACHE_VERSION or d.get("repo") != self.repo:
                 return None
             return {"issues": {int(n): i for n, i in d["issues"].items()},
-                    "full_at": float(d["full_at"])}
+                    "full_at": float(d["full_at"]), "asked_at": float(d["asked_at"])}
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return None          # an unreadable cache is no cache
 
@@ -198,6 +214,7 @@ class GithubBoardStore(ac.BoardStore):
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump({"version": CACHE_VERSION, "repo": self.repo,
                            "full_at": self._held["full_at"],
+                           "asked_at": self._held["asked_at"],
                            "issues": {str(n): i for n, i in self._held["issues"].items()}},
                           fh, ensure_ascii=False, separators=(",", ":"))
             os.replace(tmp, path)
@@ -221,18 +238,21 @@ class GithubBoardStore(ac.BoardStore):
         if held and held["issues"] and 0 <= now - held["full_at"] < FULL_REFRESH:
             stamps = [i.get("updated_at") for i in held["issues"].values()]
             if all(stamps):
-                since = _since(max(stamps))
+                since = _since(max(stamps), held.get("asked_at"))
         if since:
             changed = pages(self.t.list_issues, state="all", since=since)
             issues = dict(held["issues"])
             before = {i["number"]: issues.get(i["number"]) for i in changed}
             issues.update((i["number"], slim(i)) for i in changed)
             dirty = any(issues[n] != old for n, old in before.items())
-            self._held = {"issues": issues, "full_at": held["full_at"]}
+            # asked_at moves on only with something to write: an idle board is not
+            # rewritten on every listing, and an older start only asks for more
+            self._held = {"issues": issues, "full_at": held["full_at"],
+                          "asked_at": now if dirty else held.get("asked_at", now)}
         else:
             self._held = {"issues": {i["number"]: slim(i)
                                      for i in pages(self.t.list_issues, state="all")},
-                          "full_at": now}
+                          "full_at": now, "asked_at": now}
             dirty = True
         if dirty:
             self._store_cache()
