@@ -10,8 +10,9 @@ Configuration
 -------------
 Everything paper-specific is read from the home's ``.claude/academy.json``
 (``author`` block, docs/config.md section 3), found from ``--root`` upwards, or
-from ``--config``: ``theorems.all/provable/commentary/definitions`` replace
-``THEOREM_ENVS``, ``PROVABLE_ENVS``, ``COMMENTARY_ENVS`` and ``DEFINITION_ENVS``;
+from ``--config``: ``theorems.all/provable/commentary/definitions/questions`` replace
+``THEOREM_ENVS``, ``PROVABLE_ENVS``, ``COMMENTARY_ENVS``, ``DEFINITION_ENVS`` and
+``QUESTION_ENVS``;
 ``statusLevels`` (or, without it, the older ``envs`` / ``colourCommands`` /
 ``colours``) gives the draft levels, their environments and macros, colours and
 kinds (established / unestablished / commentary); ``noteMacros.machine`` gives the
@@ -89,6 +90,11 @@ DEFAULT_PROVABLE_ENVS = ("thm", "prop", "lem", "cor", "claim", "claim*")
 #: environments whose cross-references are commentary, not logical dependence
 DEFAULT_COMMENTARY_ENVS = ("rmk", "quest")
 
+#: environments that ask rather than assert: a dependence on a question, or of a question
+#: on anything, is undefined, so a reference to or from one is never a dependency
+#: (the human, 2026-11-14)
+DEFAULT_QUESTION_ENVS = ("quest",)
+
 #: definition environments (W1: a definition on a sketched definition is a warning)
 DEFAULT_DEFINITION_ENVS = ("defn",)
 
@@ -121,6 +127,7 @@ COMMENTARY_ENVS: Set[str] = set()
 COLOUR_ENVS: Dict[str, str] = {}
 COLOUR_COMMANDS: Dict[str, str] = {}
 DEFINITION_ENVS: Set[str] = set()
+QUESTION_ENVS: Set[str] = set()
 #: level name -> kind (established / unestablished / commentary)
 LEVEL_KIND: Dict[str, str] = {}
 #: level name -> colour name, and the levels that may carry the registry status sketch
@@ -159,6 +166,7 @@ def configure(author: Optional[dict] = None) -> None:
     global COLOUR_COMMANDS, RE_CLAUDE, MAIN_TEX, BUILD_DIR, BUILD_CMD
     global REGISTRY_DEFAULT, DEFINITION_ENVS, LEVEL_KIND, LEVEL_COLOUR, SKETCH_LEVELS
     global LEVEL_ORDER, ESTABLISHED, ACCEPTED_BIB_WARNINGS, MAIN_RESULTS, RE_REF
+    global QUESTION_ENVS
     global NOTE_MAX_LINES
     a = author if isinstance(author, dict) else {}
     th = a.get("theorems") if isinstance(a.get("theorems"), dict) else {}
@@ -166,6 +174,7 @@ def configure(author: Optional[dict] = None) -> None:
     PROVABLE_ENVS = set(th.get("provable") or DEFAULT_PROVABLE_ENVS)
     COMMENTARY_ENVS = set(th.get("commentary") or DEFAULT_COMMENTARY_ENVS)
     DEFINITION_ENVS = set(th.get("definitions") or DEFAULT_DEFINITION_ENVS)
+    QUESTION_ENVS = set(th.get("questions") or DEFAULT_QUESTION_ENVS)
     levels = _ac.author_status_levels(a)
     ESTABLISHED = next((lv["name"] for lv in levels if lv.get("kind") == "established"),
                        "established")
@@ -743,14 +752,17 @@ def build_paper(root: str) -> Paper:
         if stmt.label != "(unlabelled)" and stmt.label not in by_label:
             by_label[stmt.label] = stmt
 
-    # split each statement's references into theorem dependencies and the rest
+    # split each statement's references into theorem dependencies and the rest; a
+    # question neither depends nor is depended on (QUESTION_ENVS)
     for stmt in statements:
         uses, others, seen = [], [], set()
+        asks = stmt.env in QUESTION_ENVS
         for label in stmt.uses:
             if label in seen:
                 continue
             seen.add(label)
-            if label in by_label and label != stmt.label:
+            if (label in by_label and label != stmt.label and not asks
+                    and by_label[label].env not in QUESTION_ENVS):
                 uses.append(label)
             elif label != stmt.label:
                 others.append(label)
