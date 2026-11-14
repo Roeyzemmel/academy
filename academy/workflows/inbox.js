@@ -41,6 +41,30 @@ const ROOT = A.root.replace(/[\\/]+$/, '')
 const LOOP = !!A.loop
 const CAP = LOOP ? Math.max(1, Math.min(A.cap || 12, 30)) : Math.max(0, Math.min(A.cap || A.n || 3, (A.campaign || A.cowork) ? 99 : 3))
 const MAX_PASSES = LOOP ? Math.max(1, Math.min(A.passes || 6, 12)) : 1
+// ---- The run's budget (references/budget.md rule 7, as of 2026-11-14) ---------------------
+// A budget is the run's, counted here as the run goes; it is no longer a number guessed on
+// each ticket when it was filed (916 of 1201 tickets carried the default of 1, and a route
+// that needed more blocked its ticket on the human "asking for the budget"). Each route's
+// cost in agent runs is declared below, by the code that launches them. A ticket whose cost
+// does not fit what is left WAITS for the next run (deferred, reported, first in line then);
+// it is never blocked for budget. One threshold stays: a ticket costing more than BIG runs
+// needs the human's word (args.approve names it). The session's token target, when the human
+// set one, ends the taking as well.
+const RUN_BUDGET = Math.max(1, Math.min(A.runs || (LOOP ? 36 : 12), 200))
+const BIG = Math.max(1, A.big || 8)
+const APPROVED = new Set(A.approve || [])
+const NESTED_COST = { 'expert:verify': 3, 'researcher:review-experiment': 3, 'researcher:settle': 4, 'researcher:explore': 3,
+  'researcher:prove': 2, 'researcher:generalize': 2, 'expert:cite': 1, 'expert:domain': 1, 'expert:referee': 1, 'author:notes': 1 }
+function costOf(row, i) {
+  const rt = row.route || {}
+  if (row.return || row.released || rt.how === 'reject' || rt.how === 'human') return 0   // clerk moves only
+  if (i.role === 'expert' && rt.target === 'clerk') return 2            // the clerk, and the librarian if it escalates
+  if (i.role === 'scientist' && rt.target === 'developer') return 4     // developer and test-engineer, two rounds
+  if (rt.how === 'skill') return NESTED_COST[rt.target] || 1
+  return 1
+}
+let spent = 0
+const deferred = []
 const ORDER = ['author', 'expert', 'researcher', 'scientist']
 const CLERK = 'academy:inbox-clerk'
 // a relay: the role its child goes to, the kinds the child may have, the final_to default
@@ -125,7 +149,7 @@ const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `ac
 
 const notes = []
 const taken = []
-const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0 }
+const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0, budget: null }
 const followed = new Set(A.ids || [])
 const children = new Set()           // follow: the child ids this run's relays and research asks filed
 
@@ -225,26 +249,24 @@ async function expertClerk(row, inst) {
   let ans = await agent(`Answer ticket ${row.id} (tickets_get it): its ask, from the library and the registry. ` +
     `Begin your answer with ESCALATE if the library cannot answer it.`, { label: `clerk ${row.id}`, phase: 'Tickets', agentType: 'expert:clerk' })
   if (ans === null) return { lost: true }
+  let used = 1
   if (/^\s*ESCALATE/.test(ans)) {
-    if ((row.budget_runs || 1) < 2) {
-      await move(row, inst, `block-human: append the clerk's escalation to the thread, then blocked, waiting_on [human], reason "the escalation to the librarian needs budget.runs 2"`)
-      return { outcome: 'blocked on human (budget)', detail: 'escalated' }
-    }
+    used = 2
     ans = await agent(`Ticket ${row.id} escalated by the clerk: ${ans}\nAnswer it as the librarian (look-ups the clerk escalated).`,
       { label: `librarian ${row.id}`, phase: 'Tickets', agentType: 'expert:librarian' })
     if (ans === null) return { lost: true }
   }
   const first = String(ans).trim().split('\n')[0].slice(0, 200).replace(/"/g, "'")
   const m = await move(row, inst, `deliver: deliver: true with result "${first}" and result_detail = the full answer:\n${ans}`)
-  return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: first }
+  return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: first, runs_used: used }
 }
 
 async function developerReviewed(row, i) {
   // the producer of code never grades it: developer, then test-engineer on the diff, the
-  // findings back through the thread, at most budget.runs agent runs in all
+  // findings back through the thread, two rounds at most (the route's declared cost, costOf)
   const st = await move(row, i.name, 'start: move it to in-progress')
   if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start' }
-  const runs = Math.max(2, row.budget_runs || 2)
+  const runs = 4
   let used = 0, verdict = ''
   while (used + 2 <= runs) {
     const d = await agent(`WORKFLOW INBOX: code ticket ${row.id} for ${i.name} (home ${i.home}); it is in-progress, make no status move. ` +
@@ -261,21 +283,17 @@ async function developerReviewed(row, i) {
     await move(row, i.name, `note: append to the thread "test-engineer: ${verdict.split('\n')[0].slice(0, 200).replace(/"/g, "'")}"`, `${row.id} review note`)
     if (/^\s*APPROVED/.test(verdict)) {
       const m = await move(row, i.name, `deliver: deliver: true with result "code delivered, test-engineer APPROVED: ${String(d).split('\n')[0].slice(0, 120).replace(/"/g, "'")}"`)
-      return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: 'approved' }
+      return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: 'approved', runs_used: used }
     }
   }
-  await move(row, i.name, 'block-human: blocked, waiting_on [human], reason "the review still has findings and budget.runs is spent: asking for more runs"')
-  return { outcome: 'blocked on human (budget)', detail: verdict.split('\n')[0] }
+  await move(row, i.name, 'block-human: blocked, waiting_on [human], reason "two rounds of review still leave findings: decide how it goes on"')
+  return { outcome: 'blocked on human (review)', detail: verdict.split('\n')[0], runs_used: used }
 }
 
 const firstRef = (row, re) => (row.refs || []).find(x => re.test(x)) || ''
 
 async function handle(row, i) {
   const inst = i.name, rt = row.route || {}
-  if (row.over_budget) {
-    await move(row, inst, `block-human: blocked, waiting_on [human], reason "over budget: ${row.over_budget}; asking for the budget"`)
-    return { outcome: 'blocked on human (budget)', detail: row.over_budget }
-  }
   if (row.released) {
     const r = await move(row, inst, 'release: blocked -> accepted (everything it waited on is back)')
     if (!r || !r.ok) return { outcome: 'unfinished', detail: 'release failed' }
@@ -430,7 +448,24 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
       if (count >= CAP) break outer
       if (closed.has(i.name)) break
       if (gated.has(row.id) || stuck.has(row.id) || taken.some(t => t.id === row.id)) continue
+      if (deferred.some(d => d.ticket === row.id)) continue
+      const need = costOf(row, i)
+      if (need > BIG && !APPROVED.has(row.id)) {
+        // an expensive ticket is the human's to start, once; it holds nothing else back
+        gated.add(row.id)
+        out.gates.push({ ticket: row.id, instance: i.name, why: `it costs about ${need} agent runs (more than ${BIG}): start it with approve: ["${row.id}"]` })
+        if (!LOOP && !out.for_main) out.for_main = { why: `${row.id} costs about ${need} agent runs: approve it or leave it`, ticket: row.id, instance: i.name }
+        continue
+      }
+      if (typeof budget !== 'undefined' && budget.total && budget.remaining() < 30000) { out.stopped = 'the token budget is spent: nothing further launched'; break outer }
+      if (spent + need > RUN_BUDGET) {
+        deferred.push({ ticket: row.id, instance: i.name, needs: need, left: RUN_BUDGET - spent })
+        notes.push(`${row.id} waits for the next run: its route costs ${need} agent run(s), ${RUN_BUDGET - spent} left of ${RUN_BUDGET}`)
+        continue
+      }
+      spent += need
       const res = await handle(row, i)
+      if (typeof res.runs_used === 'number') spent += res.runs_used - need      // what it really took
       if (res.for_main) {
         if (!LOOP) { out.for_main = res.for_main; notes.push(`stopped for the main session at ${row.id}: ${res.for_main.why}`); break outer }
         gated.add(row.id)
@@ -479,6 +514,7 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
   if (!moved) break                  // quiet: nothing in this pass could move without the human
   if (count >= CAP) break            // the cap is spent: no further listing
 }
+out.budget = { runs: RUN_BUDGET, spent, deferred }
 if (LOOP && out.gates.length && !out.for_main)
   out.for_main = { why: `${out.gates.length} ticket(s) wait on the human: ask them in one batch, then run the loop again`, gates: out.gates }
 

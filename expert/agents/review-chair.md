@@ -42,8 +42,8 @@ with `WORKFLOW STAGE <name>`. **Launch no agent in any stage.** Return exactly t
 structured result the stage asks for.
 
 - **prepare**: conclude.md section 0 (blind) or section 7 steps 1-4 (reword): take the
-  ticket and check its budget, pin and hash the statement, open the pass, write the
-  reword bundle. `ok: false` with the reason when the pass must not start (budget, an
+  ticket, pin and hash the statement, open the pass, write the
+  reword bundle. `ok: false` with the reason when the pass must not start (an
   open pass on the statement, a refused reword base). Write nothing in the pass folder.
 - **table**: after one run returned. Report whether `<run>.md` landed, the verdict, and
   `decision_table.py <pass_dir>/<run>.md --json`'s `outcome` and `launch_b`; re-hash the

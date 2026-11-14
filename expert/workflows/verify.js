@@ -35,7 +35,7 @@ const RE_HASH = /^[0-9a-f]{6,}$/
 const PREP = {
   type: 'object',
   properties: {
-    ok: { type: 'boolean', description: 'false when the pass must not start (budget, an open pass, a refused reword base)' },
+    ok: { type: 'boolean', description: 'false when the pass must not start (an open pass, a refused reword base)' },
     stop_reason: { type: 'string' },
     pass: { type: 'string' },
     pass_dir: { type: 'string', description: 'absolute path of the pass folder' },
@@ -119,8 +119,8 @@ const prep = await agent(STAGE('prepare', [
   A.findings ? `findings for the bundle: ${A.findings}` : '',
   '',
   MODE === 'reword'
-    ? 'conclude.md section 7 steps 1-4: take the ticket (budget: one reviewer run plus you), recover old.txt / new.txt, check the old hash, `reviews.py new-pass <id> --reword-of <base pass>` (with --base-subject when given), write the bundle with `reviews.py reword-brief`. statement_hash is the NEW statement\'s hash.'
-    : 'conclude.md section 0: take the ticket (budget: two reviewer runs plus you; else block it and return ok=false), pin and hash the statement (`reviews.py hash --file`), open the pass (`reviews.py new-pass`, `reviews.py dir`). For a statement that lives in a tex file, location is the output line of `statement.py <label> --where --home <that Author home>` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder.',
+    ? 'conclude.md section 7 steps 1-4: take the ticket, recover old.txt / new.txt, check the old hash, `reviews.py new-pass <id> --reword-of <base pass>` (with --base-subject when given), write the bundle with `reviews.py reword-brief`. statement_hash is the NEW statement\'s hash.'
+    : 'conclude.md section 0: take the ticket (its budget field gates nothing: never block it for budget), pin and hash the statement (`reviews.py hash --file`), open the pass (`reviews.py new-pass`, `reviews.py dir`). For a statement that lives in a tex file, location is the output line of `statement.py <label> --where --home <that Author home>` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder.',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {

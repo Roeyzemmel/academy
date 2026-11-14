@@ -137,7 +137,7 @@ class ConfigTests(TempDir):
             ({"instance": "Author@BI"}, "instance must look like"),
             ({"domains": []}, "domains"),
             ({"ns": None}, "ns is required"),
-            ({"budget": dict(base["budget"], itemsPerRun=5)}, "itemsPerRun"),
+            ({"budget": dict(base["budget"], itemsPerRun="many")}, "itemsPerRun"),
             ({"budget": dict(base["budget"], maxModel="gpt")}, "maxModel"),
             ({"gate": dict(base["gate"], commit="sometimes")}, "gate.commit"),
             ({"paths": {"tex": "main.tex"}}, "paths.bib"),
@@ -149,6 +149,11 @@ class ConfigTests(TempDir):
             cfg.update(patch)
             probs = ac.validate_config(cfg)
             self.assertTrue(any(needle in p for p in probs), (patch, probs))
+        # out of range is clamped by the inbox, not refused (2026-11-14)
+        for n in (0, 5, 99):
+            cfg = dict(base, budget=dict(base["budget"], itemsPerRun=n))
+            self.assertFalse(any("itemsPerRun" in p for p in ac.validate_config(cfg)), n)
+            self.assertIn(ac.inbox_core.clamp(n), (1, 2, 3))
 
     def test_scientist_env_kinds(self):
         base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["scientist@main"])

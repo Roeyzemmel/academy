@@ -9,7 +9,7 @@ The inbox rules are code: `/academy:inbox`'s workflow (`<academy plugin>/workflo
 docs/workflows.md) takes at most `budget.itemsPerRun` tickets (never more than 3), one at a
 time, by the routes of `${CLAUDE_PLUGIN_ROOT}/scripts/routes.py`, with the `--check`
 checkpoint after each, and makes every relay leg and its conclusion. A `code` ticket runs
-`developer`, then `test-engineer` on the diff (never the same agent), within `budget.runs`;
+`developer`, then `test-engineer` on the diff (never the same agent), two rounds at most;
 an "Upstream: ..." one runs `upstream-contributor`. Run from the lab home.
 
 `$ARGUMENTS`: empty, `--n N`, `--all` (list only: `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py --all`

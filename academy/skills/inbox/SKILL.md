@@ -23,7 +23,9 @@ Call the **Workflow** tool:
 
     scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/inbox.js
     args: {root: "${CLAUDE_PLUGIN_ROOT}/..", n: <N>, cap: <the workplan's cap, campaign/cowork only>,
-           campaign: "<T>", cowork: "<S>", ids: ["T-NNNN", ...]}
+           campaign: "<T>", cowork: "<S>", ids: ["T-NNNN", ...],
+           runs: <agent runs for this run, only when the human gave a number>,
+           approve: ["T-NNNN", ...]   (expensive tickets the human said to start)}
 
 Give `root` as an absolute path (expand the variable). `only: ["<instance>"]` limits it to
 one instance; the role inboxes pass that.
@@ -55,6 +57,12 @@ the run.
   delivered ticket's return leg and the next actor of a filed child are taken in the next
   pass. A ticket that needs the human is set aside in `gates` and the others go on. At the
   end, `for_main` lists every gate: ask them in one batch, then run the loop again.
+- **`budget`**: `{runs, spent, deferred}`. The budget is the run's (`references/budget.md`
+  rule 7): each route's cost is declared in the script and counted as the run goes. A
+  ticket in `deferred` did not fit what was left; it was not started and is not blocked,
+  and comes up in the next run. Report the deferred ones in one line. A gate that says a
+  ticket "costs about N agent runs" is the human's to answer: run again with
+  `approve: ["<id>"]` if they say so. Never block a ticket to ask for budget.
 - **`stopped`**: an agent returned nothing (a limit). Launch nothing further and report it.
 - **`notes`**: put them into the report verbatim (an unfinished ticket, one parked on the
   human after two runs, an instance closed after two unfinished tickets, a relay child the check refused, the Author's check_paper reminder).

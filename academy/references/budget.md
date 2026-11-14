@@ -38,10 +38,19 @@ happen again.
    primaries (the tier floor `grading.minTier` and `grading.primaryModels`), which count equally (roster-rules.md, "Model
    fallback"); a grader run on a lighter model spends a run for a verdict that cannot
    count.
-7. **A ticket spends at most its own `budget.runs` agent runs** (the issuer's limit).
-   If it needs more,
-   the receiver moves it to `blocked` with `waiting_on: [human]` and a thread line
-   asking for more budget (docs/protocol.md section 4).
+7. **The budget is the run's, counted as it goes** (since 2026-11-14). Each route's cost
+   in agent runs is declared where it is launched (`workflows/inbox.js`, `costOf`: a
+   look-up 2, a verify 3, a code ticket 4, a clerk move 0, ...). A run has `runs` agent
+   runs (default 12; 36 for the loop; the human may give another number) and counts what
+   its tickets take; a route gives back what it did not use. A ticket whose route does
+   not fit what is left **waits for the next run** and is reported as deferred: it is
+   not started, and it is never blocked "for budget". One threshold stays: a ticket
+   whose route costs more than `big` (8) agent runs needs the human's word once
+   (`approve: [id]`); it holds nothing else back. When the human set a token target for
+   the session, the workflow stops taking tickets as it runs out. A ticket's own
+   `budget.runs` is a note from its sender and gates nothing. (Before, the limit was a
+   number guessed on each ticket when it was filed, 1 on 916 of 1201 tickets, and a route
+   that needed more blocked its ticket on the human.)
 8. **Turn caps.** Agents that can wander carry `maxTurns`. A capped agent returns a
    partial result: record what is unfinished and move on. Neither relaunch it nor
    raise the cap. Graders whose verdict is worthless when cut off have no cap.

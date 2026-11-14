@@ -7,7 +7,7 @@ and outside the cap, a relay's forward leg concluded by the script after it chec
 child (and refused when the child breaks the chain), a fail-fast delivered, a return leg
 made without the relay, a for_main stop, an unfinished ticket skipping only itself (two close the instance), a
 lost agent stopping the run, verify and review-experiment run nested, the developer's
-diff reviewed by test-engineer, the clerk's escalation bounded by budget.runs. Skipped
+diff reviewed by test-engineer, the run's budget (a route's declared cost; a ticket that does not fit waits). Skipped
 where node is not installed.
 """
 
@@ -345,19 +345,50 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("--ids T-1,T-2", calls[0]["prompt"])          # filtered in the script, not transcribed whole
         self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
 
-    def test_clerk_escalation_is_bounded_by_budget(self):
+    def test_the_budget_is_the_runs_and_a_ticket_that_does_not_fit_waits(self):
+        # 2026-11-14: no ticket is blocked "for budget"; the run counts what its routes cost
         rows = [row("T-1", target="clerk", kind="lookup", to="expert@t", runs=1)]
         plan = {"list": [{"instances": [inst("expert@t", rows)]}],
                 "T-1 start": [OK], "clerk T-1": ["ESCALATE: not cached"],
-                "T-1 block-human": [OK], "check T-1": [DONE]}
-        res, labels, _ = self.run_wf(plan)
-        self.assertNotIn("librarian T-1", labels)
-        self.assertEqual(res["taken"][0]["outcome"], "blocked on human (budget)")
-        plan = {"list": [{"instances": [inst("expert@t", [dict(rows[0], budget_runs=2)])]}],
-                "T-1 start": [OK], "clerk T-1": ["ESCALATE: not cached"],
                 "librarian T-1": ["AB12 Thm 3 says ..."], "T-1 deliver": [OK], "check T-1": [DONE]}
         res, labels, _ = self.run_wf(plan)
-        self.assertIn("librarian T-1", labels)
+        self.assertIn("librarian T-1", labels)                    # budget.runs 1 on the ticket gates nothing
+        self.assertNotIn("T-1 block-human", labels)
+        self.assertEqual({"runs": 12, "spent": 2, "deferred": []}, res["budget"])
+        # an answered look-up gives back the escalation it did not need
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}],
+                "T-1 start": [OK], "clerk T-1": ["It says X."], "T-1 deliver": [OK], "check T-1": [DONE]}
+        self.assertEqual(1, self.run_wf(plan)[0]["budget"]["spent"])
+        # a run of two agent runs: the look-up fits, the next one waits, the reject costs nothing
+        rows = [row("T-1", target="clerk", kind="lookup", to="expert@t"),
+                row("T-2", target="clerk", kind="lookup", to="expert@t"),
+                row("T-3", how="reject", target=None, kind="prove", to="expert@t")]
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}],
+                "T-1 start": [OK], "clerk T-1": ["ESCALATE"], "librarian T-1": ["X"], "T-1 deliver": [OK],
+                "check T-1": [DONE], "T-3 reject": [OK], "check T-3": [DONE]}
+        res, labels, _ = self.run_wf(plan, runs=2)
+        self.assertEqual(["T-1", "T-3"], [t["id"] for t in res["taken"]])
+        self.assertEqual([{"ticket": "T-2", "instance": "expert@t", "needs": 2, "left": 0}],
+                         res["budget"]["deferred"])
+        self.assertNotIn("T-2 start", labels)                     # not started, not blocked
+        self.assertIn("T-2 waits for the next run", " ".join(res["notes"]))
+
+    def test_an_expensive_ticket_needs_the_humans_word_once(self):
+        rows = [row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t",
+                    refs=["paper:lem:x"]),
+                row("T-2", how="reject", target=None, kind="prove", to="expert@t")]
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}], "T-2 reject": [OK], "check T-2": [DONE]}
+        res, labels, _ = self.run_wf(plan, big=2)                # a verify costs 3
+        self.assertEqual(["T-2"], [t["id"] for t in res["taken"]])    # and holds nothing else back
+        self.assertIn('approve: ["T-1"]', res["gates"][0]["why"])
+        self.assertEqual("T-1", res["for_main"]["ticket"])
+
+    def test_an_over_budget_row_of_an_older_listing_is_not_blocked(self):
+        rows = [row("T-1", how="reject", target=None, kind="prove", to="expert@t", over="needs 2 runs")]
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}], "T-1 reject": [OK], "check T-1": [DONE]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual("rejected", res["taken"][0]["outcome"])
+        self.assertNotIn("T-1 block-human", labels)
 
     def test_root_is_required(self):
         plan = {"__args": {}}
