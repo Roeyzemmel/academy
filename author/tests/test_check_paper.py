@@ -326,3 +326,34 @@ class MarginOverflowScan(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuestionTests(unittest.TestCase):
+    """A dependence on a question, or of a question, is undefined (the human, 2026-11-14):
+    a lemma and a question that refer to each other are not a cycle, while two lemmas
+    that do still are."""
+
+    def check(self, body):
+        tmp = tempfile.mkdtemp(prefix="cp-quest-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.makedirs(os.path.join(tmp, "sections"))
+        with open(os.path.join(tmp, "main.tex"), "w", encoding="utf-8") as fh:
+            fh.write("\\documentclass{amsart}\n\\begin{document}\n"
+                     "\\input{sections/a}\n\\end{document}\n")
+        with open(os.path.join(tmp, "sections", "a.tex"), "w", encoding="utf-8") as fh:
+            fh.write(body)
+        code, out, err = run("--root", tmp, "--no-log")
+        self.assertIn("Parsed 2 theorem-like statements", out)
+        return out + err
+
+    def test_a_question_neither_depends_nor_is_depended_on(self):
+        out = self.check(
+            "\\begin{quest}\\label{quest:q}\nIs \\cref{lem:a} sharp?\n\\end{quest}\n"
+            "\\begin{lem}\\label{lem:a}\nA, as asked in \\cref{quest:q}.\n\\end{lem}\n")
+        self.assertNotIn("circular dependency", out)
+
+    def test_two_lemmas_still_make_a_cycle(self):
+        out = self.check(
+            "\\begin{lem}\\label{lem:b}\nB, by \\cref{lem:a}.\n\\end{lem}\n"
+            "\\begin{lem}\\label{lem:a}\nA, by \\cref{lem:b}.\n\\end{lem}\n")
+        self.assertIn("circular dependency", out)
