@@ -30,6 +30,11 @@ RE_DECISION_Q = re.compile(r"^### D(\d+)\. (.+)$")
 RE_OPTION = re.compile(r"^- \(([a-d])\) (.+)$")
 RE_DECISION_LINE = re.compile(
     r"^- D(\d+): (\([a-d]\)|other|ack) \| (\d{4}-\d{2}-\d{2}) \| ([^\s|]+)(?: \| (.*))?$")
+#: a note in '## Decision': one whole line in italics (``_Renumbered ... from P-0308._``).
+#: It answers nothing and does not make the packet invalid (2026-11-13: 64 open packets
+#: carried a renumbering note there, read as "malformed decision line", so no review
+#: asked their decisions).
+RE_DECISION_NOTE = re.compile(r"^_[^_].*_$")
 
 
 def _sections(body):
@@ -136,7 +141,8 @@ def validate_packet(meta, body):
         if not d["recommendation"]:
             probs.append("D%d needs a Recommendation line" % k)
     for ln in secs.get("## Decision", []):
-        if ln.strip() and not RE_DECISION_LINE.match(ln.rstrip()):
+        if ln.strip() and not RE_DECISION_LINE.match(ln.rstrip()) \
+                and not RE_DECISION_NOTE.match(ln.strip()):
             probs.append("malformed decision line: %r" % ln)
     return probs
 

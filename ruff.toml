@@ -6,9 +6,10 @@ extend-exclude = [".claude", "docs", "academy/docs", "evals", "scientist/scripts
                   "scientist/templates/lab/experiments/_template.py"]
 
 [lint]
-select = ["F", "E9", "PLE", "B006", "B008", "B018", "B023"]
+# W605: an invalid escape sequence (a SyntaxWarning since Python 3.12, an error later)
+select = ["F", "E9", "PLE", "B006", "B008", "B018", "B023", "W605"]
 
 [lint.per-file-ignores]
 # Byte-identical vendored copies; kept in step by academy/tests/test_vendored.py.
-"academy/lib/academy_common/*.py" = ["F", "E9", "PLE", "B"]
-"**/scripts/_academy/*.py" = ["F", "E9", "PLE", "B"]
+"academy/lib/academy_common/*.py" = ["F", "E9", "PLE", "B", "W605"]
+"**/scripts/_academy/*.py" = ["F", "E9", "PLE", "B", "W605"]

@@ -17,6 +17,11 @@ phrases the questions. Neither one asks the human or records on its own.
 
 ## Procedure
 
+0. **What is already under way.** A decision in the batches may carry `provisional`:
+   the work went on under that option (the packet's recommendation) without waiting.
+   Say so in the question ("work is proceeding on (a)"). The human still decides: the
+   same option confirms it; another is recorded as overturning it, and a delivered
+   ticket goes back to its receiver.
 1. **Batch.** `py $S/decisions.py batches --json [--instance X]` (a single id in
    `$ARGUMENTS` instead runs `list --json` and keeps only that one). If it reports no
    pending decisions, say so and stop.

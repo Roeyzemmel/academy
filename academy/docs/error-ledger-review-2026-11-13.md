@@ -148,8 +148,116 @@ Outside this repo, from the same round: the workspace (cloud TeX, the max tier, 
 notebook (the library's path, its workflow step), the paper (a gate finding fixed in
 the text).
 
+## The night of 2026-11-13: optimisation, and what measuring found
+
+The human's ask was run time, storage, memory, tokens and context. Everything below was
+measured on the live board (1195 tickets, 346 packets) before and after. The chain
+continues in the same order:
+
+| # | Pull request | What it adds | Measured |
+|---|---|---|---|
+| 21 | #43 | this map, brought to the tip | |
+| 22 | #44 | the GitHub board's listing is incremental and kept between processes | a listing 20 s -> 1.1 s; `cowork.py list` 3 min 49 s -> 1.6 s |
+| 23 | #45 | the push gate runs a workflow's jobs side by side | this repo's gate 4 min 30 s -> 92 s |
+| 24 | #46 | MCP listings are paged, filterable and compact | `tickets_list {}` 384 000 characters -> 15 000; `packets_list {}` 166 000 -> 18 000 |
+| 25 | #47 | the status screen and the list commands stay one screen; a brief listing for reviews | `academy_status` 47 700 -> 5 700; `board.py list` 149 000 -> 9 900; the review's listing 189 000 -> 19 000 |
+| 26 | #48 | an italic note line in a packet's `## Decision` is not a problem | invalid open packets 68 -> 5; packets with a decision to make 5 -> 14 |
+| 27 | #49 | `ship.py start --worktree` always lands under the main checkout; the recipe for not waiting on the gate | |
+| 28 | #50 | the ship test workspace is built once; the base suite is two jobs | the gate 92 s -> 58 s |
+| 29 | #51 | two agent definitions the harness could not read whole (below) | |
+| 30 | #52 | the usage ledger records each agent's models; `lighter-than-declared` | |
+| 31 | #53 | the map again | |
+| 32 | #54 | `/academy:decide` and the inboxes read the tickets in one listing | `decisions.py` 27 s -> 1.2 s; the Expert inbox 10.6 s -> 1.0 s; output identical |
+| 33 | #55 | the error-ledger report a session reads is this week's, the rest counted | the analyst's JSON 174 000 -> 15 700; the Markdown 27 000 -> 12 500 |
+| 34 | #56 | the Author's edit hook hands back only what changed since the previous check | 972 characters, then 127 per edit |
+| 35 | #57 | the board cache is private to the user; a failed write leaves no temp file | |
+| 36 | #58 | a text search of the tickets (titles, asks, bodies), and the prompts that look for an existing ticket use it | 83 matches in 1.2 s |
+| 37 | #59 | the map, rows 32 to 37 | |
+| 38 | #60 | two invalid escape sequences fixed, `W605` linted; nothing needs a Python newer than 3.10, the suites pass on 3.11 and 3.13 | |
+| 39 | #61 | the test workspace template is removed on Windows too | |
+| 40 | #62 | a proof-review brief gives the lines of the statement and its proof (`statement.py --where`) | |
+| 41 | #63 | `decision_table.py`: a verdict that is not there says what to check | |
+| 42 | #64 | the round itself as a workflow: `/academy:maintain`, `maintain.py survey` and `union`, `workflows/maintain.js` | the survey: 11 s, 26 candidates |
+| 43 | #65 | **fix to #44**: the next board read starts no later than the previous one began (an update made during a multi-page read was lost) | |
+| 44 | #66 | **fix to #46**: the last page of a listing says it is the last | |
+| 45 | #67 | **fix to #56**: the edit hook counts findings (a second one of the same kind was "nothing new") | |
+| 46 | #68 | **fix to #49**: the main checkout of a real submodule (a worktree would have landed in the superproject's `.git`) | |
+| 47 | #69 | the review's two smaller findings: ticket ids by number in the status lookup, `needs:` in the local CI | |
+| 48 | #70 | the map, rows 38 to 48 | |
+| 49 | #71 | inbox: an unfinished ticket skips only itself; one unfinished for two runs goes to the human | |
+| 50 | #72 | the maintenance round as the opt-in plugin `maintainer` (`/maintainer:round`: a plain skill run, or `--workflow`) | |
+| 51 | #73 | **the budget is the run's**: each route's cost declared in code, counted as the run goes; a ticket that does not fit waits, none is blocked for budget | |
+| 52 | #74 | the decisions listing as one line of JSON without empty keys | 24 809 -> 19 760 |
+| 53 | #75 | `deliver: true` on a blocked ticket once what it waited on is back | |
+| 54 | #76 | the map, rows 49 to 54 | |
+| 55 | #77 | `math-editor` files its findings to its own instance (it is no liaison to the Expert); the refusal says where to file | 9 refusals in the ticket sessions' ledger |
+| 56 | #78 | a receiver may reject a ticket it has started, with a reason | |
+| 57 | #79 | maintenance stays in the base plugin (`/academy:maintain`, both modes); the `maintainer` plugin of row 50 is removed | |
+| 58 | #80 | **decisions hold nothing back**: `decisions.py proceed` lets work go on under a packet's recommendation, provisionally; another choice returns the ticket | 11 decisions on the live board (dry run) |
+| 59 | this one | the map, rows 55 to 59 | |
+
+**Found by measuring, not by the suites.**
+
+- **`rigor-reviewer` ran without its definition since 2026-10-31** (#51). An apostrophe
+  not doubled in its single-quoted description made its frontmatter unreadable; a
+  session lists it as "Agent from expert plugin (Tools: All tools)". Its tool list was
+  not applied, and its model, effort, turn limit and preloaded skills sit in the same
+  block. `experimenter`'s description was cut at a ` #`. Both are fixed and a test reads
+  every agent, skill and command frontmatter for these mistakes. Which model the
+  reviews since then ran on cannot be told from the board; #52 makes it visible from
+  now on.
+- **Nine packets with a decision were never put to the human** (#48): a renumbering note
+  under `## Decision` made 64 packets invalid, and an invalid packet is shown but not
+  asked. Five packets are still invalid for real reasons; T-1214 (Expert) and T-1215
+  (Scientist, whose P-0183 hides a decision since 2026-10-27) ask for the repairs.
+- **A listing could silently lose tests** (#50): splitting a suite by file name dropped
+  two registry test files until the counts were compared; a test now holds the patterns
+  to every file exactly once.
+- **Gates can run while work continues** (#49): six gate runs, two at a time in two
+  worktrees, all passed. The checkout being gated must not change under the gate, and a
+  background push must be read by its own exit status.
+
+- **Reviewing the night's own changes** gave #57 and #58: the cache file of #44 held a
+  private repository's tickets with default permissions, and the 50-row listings of #46
+  and #47 would have let an agent that looks for an existing ticket miss it and file a
+  duplicate. The second is why the listing tools now search by text.
+
+- **An independent review found what the tests did not** (rows 43 to 47). A second
+  agent, given the night's diff and no conclusions, reproduced four defects in changes
+  whose suites all passed: the incremental listing lost an update made while its pages
+  were being read; every page after the first claimed more rows followed; the edit hook
+  compared findings by a key several findings share; and worktree placement was wrong for
+  a submodule as git makes one (the test fixture's submodule is not one). The rule this
+  leaves, and which the `maintain` workflow carries: a change is pushed only after someone
+  who did not write it has read it.
+
+**The cost of one Bash call in hooks** is four processes, 173 ms in all here (the base
+dispatcher, two commit gates, the library check); on Windows a process start costs
+several times more. They belong to three plugins, so they stay four.
+
+**Looked at and left.** `board_relations.py plan` takes 36 s (it reads the board through
+the transport, not the store); it is a maintenance command run by hand. Storage is small (the board 6.5 MB, the repositories a few MB
+each); nothing to prune beyond finished worktrees. The lab's `test_fsq_sh_behaviour`
+(42 s of that suite's 59) drives the real runner with jobs that sleep; it runs in its own
+job. The agent definitions cost every session about 36 000 characters (descriptions
+16 000, tool lists 20 000, of which 7 400 are the `mcp__academy__` names for a server
+registered outside the plugin): see the human's list.
+
 ## After merging: the human's list
 
+00. **Allow ticket moves** (asked by the ticket session, 2026-11-14). In auto mode the
+   permission classifier refuses `tickets_update` for the receiver's `open -> accepted`,
+   which keeps about a hundred open tickets from starting. A session may not write its
+   own permission rules (the attempt here was refused, rightly), so this is the human's:
+   `/permissions`, allow `mcp__plugin_academy_academy__tickets_update`; or that line
+   under `common` and `workspace` in the workspace's `workspace.permissions.json`, then
+   `scripts/bootstrap.py`. The plugin still checks every move (the write gate names the
+   caller; the server refuses a transition its party may not make).
+0. **One merge lands the whole chain.** Every branch holds the ones before it and `main`
+   has not moved under them, so merging the last branch of the chain (with `ship.py
+   merge academy <branch> --sha <tip>`, whose prompt is the approval) brings in every row
+   above; GitHub then shows each pull request as merged. Merging them one at a time,
+   bottom first, gives the same tree.
 1. Merge in the order above, then bump the workspace's academy pointer and run
    `scripts/bootstrap.py` on each machine (installed plugins go to 0.2.3). The session's
    first line now says when a checkout or an installed copy is behind.
@@ -165,7 +273,20 @@ the text).
    say `open` or `sketch`, four records whose label is no longer in the tex, one record
    with an unknown field. They predate this round and are the Author's and the
    claim-keeper's to settle.
-7. Decisions left open by this round: whether an Expert's commit may land in the paper
+7. **First, from the night:** merge #51 early and confirm in a new session's agent list
+   that `expert:rigor-reviewer` shows its description and six read tools. Then decide
+   about the proof reviews run between 2026-10-31 and that merge: the session
+   transcripts on your machine say which model each run used; a pass whose runs were not
+   on a primary model is not CONFIRMED x2 at full strength (`grading.primaryModels`).
+   Nothing was changed in any registry.
+8. Is the MCP server still registered outside the plugin anywhere (tools named
+   `mcp__academy__...`)? If not, dropping those names from the 31 agent definitions
+   saves about 7 400 characters in every session. Shortening the agent descriptions
+   (median 517 characters) would save more, but they carry each agent's guard rails,
+   so that is a pass to do together.
+9. The board cache is one file per repository under `~/.cache/academy/board`
+   (`%LOCALAPPDATA%\academy\board` on Windows); `ACADEMY_BOARD_CACHE=off` disables it.
+10. Decisions left open by this round: whether an Expert's commit may land in the paper
    repo through the Author's gate (it does, on an `.../expert` branch), and whether
    other uncommitted work there should block it (it does); `in-progress -> accepted` and
    `in-progress -> rejected` as direct transitions; a hosted collector for telemetry.

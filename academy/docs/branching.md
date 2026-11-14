@@ -129,13 +129,21 @@ everything but the board and the submodules; never a submodule pointer; not part
   that needs GitHub's context is skipped with the reason), refuses the push when a step
   fails and keeps the commit. A tree that passed is not gated again. The jobs of a
   workflow run side by side (`CI_LOCAL_JOBS=1` for one after another), which is why this
-  repo's suites are three jobs: its gate takes about a minute and a half, where the one
-  job took four and a half. To change what is
+  repo's suites are several jobs: its gate takes about a minute, where the one job took
+  four and a half. To change what is
   checked, edit the workflow file; `py academy/scripts/ci_local.py list --repo <dir>`
   shows what will run here and `run` runs it by hand. A repo's `ship.json` is optional:
   `{"pushGate": false}` for no gate, or a list of extra local-only steps.
   `"pushGate": false` in workspace.json switches the gate off for the workspace; `push
   --no-gate` skips it with a warning, on the human's word only.
+- **Not waiting for the gate.** The gate checks the checkout it runs in, so that
+  checkout must not change under it. To keep working: `commit`, then `start <sub> <next
+  topic> --worktree --repo <the checkout just committed>` (the new branch is stacked on
+  it, in its own worktree under `<sub>/.claude/worktrees/`, wherever it was started
+  from), then `push <sub> --repo <the checkout just committed>` in the background, and
+  go on in the new worktree. Read the push's own exit status and last lines when it
+  ends (a pipe through `tail` hides a refusal). `commit`, `push` and `ship` take the
+  same `--repo`.
 - `status`, `start`, `commit`, `push`, `ship`, `stack` and `checkpoint` are allowlisted (the
   workspace bootstrap renders the rules from `templates/workspace/permissions.json` into
   `.claude/settings.local.json`).

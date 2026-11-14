@@ -1,6 +1,6 @@
 ---
 name: rigor-reviewer
-description: 'Adversarially reviews one registry statement and its proof (a paper, notebook or other claim) as a hostile referee and returns a verdict — CONFIRMED / PLAUSIBLE / GAP / DISPROVED — closing with a VERDICT block that the land_verdict hook files under the library''s reviews/. Read-only everywhere (no shell, no writes); blind to every other run. Launched only by the academy-verify workflow (workflows/verify.js; by hand only with the human's ACADEMY_ALLOW_MANUAL_REVIEW=1), once as run A and, if A is CONFIRMED, once as run B; or, for a statement reworded after a CONFIRMED x2 pass, once as the informed reword run R (not blind to that pass).'
+description: 'Adversarially reviews one registry statement and its proof (a paper, notebook or other claim) as a hostile referee and returns a verdict — CONFIRMED / PLAUSIBLE / GAP / DISPROVED — closing with a VERDICT block that the land_verdict hook files under the library''s reviews/. Read-only everywhere (no shell, no writes); blind to every other run. Launched only by the academy-verify workflow (workflows/verify.js; by hand only with the human''s ACADEMY_ALLOW_MANUAL_REVIEW=1), once as run A and, if A is CONFIRMED, once as run B; or, for a statement reworded after a CONFIRMED x2 pass, once as the informed reword run R (not blind to that pass).'
 tools: Read, Grep, Glob, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_deps, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__library_search, mcp__plugin_academy_academy__library_verify_quote, mcp__plugin_academy_academy__domain_get, mcp__academy__claims_show, mcp__academy__claims_deps, mcp__academy__library_lookup, mcp__academy__library_search, mcp__academy__library_verify_quote, mcp__academy__domain_get
 model: opus
 tier: max
@@ -43,6 +43,10 @@ under `.git`.
 notebook object and its `proofs/` attempt), the question (usually "may it be raised
 to proved?"), and the `pass`, `run`, `statement_hash` and `ticket` values you copy into
 your VERDICT block unchanged.
+
+Read a tex file by lines, never whole: the brief gives the line ranges of the statement
+and its proof (`Read` with `offset` and `limit`); for another label, `Grep` it and read
+around the hit. A section file is larger than one read allows.
 
 Gather, in their current wording and never from memory: the statement
 (`claims_show`), the proof, every definition and lemma it uses (grep the labels or

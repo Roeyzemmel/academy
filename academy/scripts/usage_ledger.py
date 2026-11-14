@@ -14,7 +14,11 @@ branches written on different machines never conflict; the board's own commit ca
     {"t": "usage", "session": ID, "ts": last-modified (UTC, ISO), "instance": bucket,
      "turns": N, "read": cache-read tokens, "write": cache-write + input tokens,
      "limit_failures": N, "models": {family: turns}, "subagents": {agent_type: runs},
-     "host": 8 hex chars}
+     "agent_models": {agent_type: {family: turns}}, "host": 8 hex chars}
+
+(``agent_models`` since 2026-11-13: which model each kind of agent ran on, so that a
+grading agent run on a weaker model than it declares shows in the weekly report even when
+the session left no transcript on the human's machine. Older records lack it.)
 
 and nothing else: no prompt, no path, no tool input, no agent description, no ticket
 text. ``host`` is a short hash of the hostname, so two machines are told apart without
@@ -55,7 +59,7 @@ DEFAULT_DAYS = 14
 #: a session id is a transcript file name; anything else is not summarised
 RE_SESSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
 FIELDS = ("t", "session", "ts", "instance", "turns", "read", "write", "limit_failures",
-          "models", "subagents", "host")
+          "models", "subagents", "agent_models", "host")
 
 
 def host_hash(name=None):
@@ -99,12 +103,19 @@ def summarise_sessions(projects_root, since, workspace, host=None):
                 tot[k] += part["counts"].get(k, 0)
             for model, n in part["models"].items():
                 models[usage_report.model_family(model)] += n
+        agent_models = {}
         for sub in s["subagents"]:
-            subs[str(sub.get("agent_type") or "?")] += 1
+            at = str(sub.get("agent_type") or "?")
+            subs[at] += 1
+            for model, n in sub["models"].items():
+                fam = usage_report.model_family(model)
+                agent_models.setdefault(at, collections.Counter())[fam] += n
         out.append({"t": "usage", "session": sid, "ts": _iso_utc(mtime), "instance": s["instance"],
                     "turns": tot["turns"], "read": tot["read"], "write": tot["write"],
                     "limit_failures": tot["limit_failures"],
                     "models": dict(sorted(models.items())), "subagents": dict(sorted(subs.items())),
+                    "agent_models": {a: dict(sorted(m.items()))
+                                     for a, m in sorted(agent_models.items())},
                     "host": host})
     return out
 

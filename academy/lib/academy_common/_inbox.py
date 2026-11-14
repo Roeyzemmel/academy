@@ -16,7 +16,7 @@ from ._config import instance_for_home, load_config
 from ._workspace import load_workspace
 from ._touched import claim_touches, drop_touches
 from ._tickets import is_dead_route, relay_return_ready
-from ._store import FileBoardStore, as_store, board_dir, open_store
+from ._store import FileBoardStore, as_store, board_dir, open_store, status_lookup
 
 # ----------------------------------------------------------------------------
 # The inbox core (docs/protocol.md section 4; campaign-mode design sections 8, 10)
@@ -98,7 +98,7 @@ class inbox_core(object):
         """
         pos = position or (lambda m: 0 if m.get("agenda") else 10 ** 9)
         store = as_store(board)
-        status_of = store.status_of
+        status_of = status_lookup(store)
         pool = []
         for m in store.read_all(instance):
             st = m.get("status")

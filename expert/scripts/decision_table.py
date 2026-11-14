@@ -364,6 +364,26 @@ def is_definition(qid, kind_of=None):
     return bool(RE_DEF_LABEL.match(name or q))
 
 
+def missing_verdict(path, a, b):
+    """What to say when a verdict file is not there. It is nearly always one of two
+    things (the ledger, five times in five weeks): the run has not ended, so the
+    ``land_verdict`` hook has not filed its verdict yet, or the folder is not the pass
+    folder (a path relative to another directory, a pass of another statement)."""
+    run = "A" if path == a else "B" if path == b else "the base pass"
+    folder = os.path.dirname(os.path.abspath(path)) if path else "?"
+    there = sorted(os.listdir(folder)) if os.path.isdir(folder) else None
+    if there is None:
+        what = ("the folder %s does not exist: `reviews.py dir <id> <pass>` prints the pass "
+                "folder (an absolute path), `reviews.py list <id>` the passes" % folder)
+    else:
+        what = ("the pass folder holds %s: the land_verdict hook files a run's verdict when "
+                "the reviewer ends, so the run is still going, ended without a VERDICT "
+                "block, or landed elsewhere (`reviews.py list <id>`)"
+                % (", ".join(there) or "nothing yet"))
+    return ("decision_table: run %s's verdict is not at %s; %s. Nothing to decide yet.\n"
+            % (run, path, what))
+
+
 def read_record(path):
     if path in (None, "", "-"):
         return None
@@ -1000,6 +1020,9 @@ def main(argv=None):
             ba, bb, notes = base_records(args.a, ra.get("base_pass"), args.base_dir,
                                          ra.get("base_subject"))
             base = (ba, bb)
+    except FileNotFoundError as exc:
+        sys.stderr.write(missing_verdict(exc.filename or "", args.a, args.b))
+        return 2
     except OSError as exc:
         sys.stderr.write("decision_table: %s\n" % exc)
         return 2

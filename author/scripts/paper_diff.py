@@ -22,7 +22,7 @@ lock's builds.
 ``author.diff.args`` (a list) replaces the default latexdiff options. The defaults are the
 ones that built on a real 130-page paper (2026-11-13): ``--math-markup=off`` (a changed
 formula shows its new version, unmarked: latexdiff's formula markup wraps a display in
-``\DIFdel{...}``, inside which a ``tikzcd`` or an alignment with ``&`` does not compile)
+``\\DIFdel{...}``, inside which a ``tikzcd`` or an alignment with ``&`` does not compile)
 and diagrams (``tikzcd``, ``tikzpicture``) treated as pictures, replaced whole. Prose,
 statements and proofs are marked as usual. A home whose formulas are plain can set
 ``["--math-markup=whole", "--allow-spaces"]``.

@@ -17,13 +17,24 @@ calls it and finishes what it hands back.
 own caps, `references/budget.md`), or ticket ids. With no argument, first show the
 active workplans (`py "${CLAUDE_PLUGIN_ROOT}/scripts/cowork.py" list`), one line each.
 
+## 0. Decisions hold nothing back
+
+First run `py "${CLAUDE_PLUGIN_ROOT}/scripts/decisions.py" proceed`: every pending packet
+decision that has a recommended option (and whose packet proposes no publishing status)
+is marked provisional and its tickets are told in one thread line, so the work that
+depends on it goes on in this run. Nothing is decided by it; the decisions stay for
+`/academy:decide`. Say in the report how many proceed provisionally. An agent that works
+under a line "proceeding on P-NNNN Dk (x)" says so in its result and raises no status.
+
 ## 1. Run the workflow
 
 Call the **Workflow** tool:
 
     scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/inbox.js
     args: {root: "${CLAUDE_PLUGIN_ROOT}/..", n: <N>, cap: <the workplan's cap, campaign/cowork only>,
-           campaign: "<T>", cowork: "<S>", ids: ["T-NNNN", ...]}
+           campaign: "<T>", cowork: "<S>", ids: ["T-NNNN", ...],
+           runs: <agent runs for this run, only when the human gave a number>,
+           approve: ["T-NNNN", ...]   (expensive tickets the human said to start)}
 
 Give `root` as an absolute path (expand the variable). `only: ["<instance>"]` limits it to
 one instance; the role inboxes pass that.
@@ -32,8 +43,13 @@ What the script does, so the report can be read against it: it lists each instan
 `py <role plugin>/scripts/inbox.py --instance <name> --json` (in progress first, then
 return legs, then `open` and `accepted` by priority, agenda position, id). With `--campaign` each instance's
 listing is not cut at three, and the campaign's own caps apply (`cap`). After each ticket it runs `inbox.py --instance <name> --check T-NNNN`:
-exit 0 means delivered, blocked with its reason or rejected. Exit 3 means unfinished,
-and nothing more is taken from that instance in this run.
+exit 0 means delivered, blocked with its reason or rejected. Exit 3 on a ticket that is
+`blocked` means parked; otherwise it means unfinished: that ticket is left as it is and not
+taken again in this run, and the instance goes on with its next one. A ticket that was
+already `in-progress` before the run and is still unfinished after it is moved to
+`blocked`, `waiting_on: [human]`, so that it reaches `/academy:decide` instead of heading
+every later listing. A second unfinished ticket of one instance closes that instance for
+the run.
 
 ## 2. What comes back
 
@@ -50,9 +66,15 @@ and nothing more is taken from that instance in this run.
   delivered ticket's return leg and the next actor of a filed child are taken in the next
   pass. A ticket that needs the human is set aside in `gates` and the others go on. At the
   end, `for_main` lists every gate: ask them in one batch, then run the loop again.
+- **`budget`**: `{runs, spent, deferred}`. The budget is the run's (`references/budget.md`
+  rule 7): each route's cost is declared in the script and counted as the run goes. A
+  ticket in `deferred` did not fit what was left; it was not started and is not blocked,
+  and comes up in the next run. Report the deferred ones in one line. A gate that says a
+  ticket "costs about N agent runs" is the human's to answer: run again with
+  `approve: ["<id>"]` if they say so. Never block a ticket to ask for budget.
 - **`stopped`**: an agent returned nothing (a limit). Launch nothing further and report it.
-- **`notes`**: put them into the report verbatim (an unfinished ticket that closed its
-  instance, a relay child the check refused, the Author's check_paper reminder).
+- **`notes`**: put them into the report verbatim (an unfinished ticket, one parked on the
+  human after two runs, an instance closed after two unfinished tickets, a relay child the check refused, the Author's check_paper reminder).
 
 ## 3. Report
 

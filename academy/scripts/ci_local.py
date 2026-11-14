@@ -41,7 +41,8 @@ What is taken from a workflow, and how it is read locally:
 * the jobs run at the same time (up to the machine's processors; ``CI_LOCAL_JOBS=N``
   sets the number, ``1`` runs them one after another), as on GitHub, and the report keeps
   the workflow's order. Unlike GitHub's runners they share one checkout: jobs that write
-  into the tree need ``CI_LOCAL_JOBS=1``, or belong in one job.
+  into the tree need ``CI_LOCAL_JOBS=1``, or belong in one job. When any job declares
+  ``needs:``, all jobs run one after another in the file's order.
 
 The YAML read is the subset workflow files use (maps, lists, plain and quoted scalars,
 ``|`` and ``>`` blocks, flow lists, comments); anything else in a file makes that file
@@ -271,6 +272,7 @@ def plan(top, workflow=None, job=None):
                               "env": {str(k): "" if v is None else str(v) for k, v in env.items()},
                               "always": bool(re.search(r"always\(\)|!\s*cancelled\(\)", cond)),
                               "job": "%s/%s" % (name, jid), "skip": skip,
+                              "needs": bool(jd.get("needs")),
                               "after_skipped_setup": skipped_setup})
     return steps, problems
 
@@ -388,6 +390,10 @@ def run(top, workflow=None, job=None, timeout=1800, jobs=None):
     shim = _shim_dir()
     try:
         workers = min(len(by_job), jobs or max_jobs())
+        if any(st.get("needs") for st in steps):
+            # a job that needs another is ordered after it; this runner does not model
+            # the graph, so such a workflow runs as written, one job after another
+            workers = 1
         if workers <= 1:
             results = [_run_job(g, top, bash, shim, timeout) for g in by_job.values()]
         else:

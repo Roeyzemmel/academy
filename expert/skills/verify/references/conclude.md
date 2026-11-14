@@ -18,10 +18,15 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
 ## 0. Before run A
 
 - **Take the ticket.** With a ticket: `tickets_update` it `open -> accepted ->
-  in-progress` (receiver transitions). Its `budget.runs` must allow two reviewer runs
-  plus you; if it does not, move it to `blocked`, `waiting_on: [human]`, with a thread
-  line asking for the budget, and stop (`budget.md` rule 7).
-- **Pin the statement.** `claims_show {id}` gives the statement and where it lives.
+  in-progress` (receiver transitions). The review costs two reviewer runs plus you;
+  that cost is the route's, counted by the run that launched you (`budget.md` rule 7).
+  The ticket's own `budget` field gates nothing: never block a ticket to ask for budget.
+- **Pin the statement.** `claims_show {id}` gives the statement and where it lives. For
+  a statement of a tex file, `py <academy repo>/author/scripts/statement.py <label>
+  --where --home <the Author home>` prints its file and the line ranges of the statement
+  and its proof; that line is the brief's location (2026-11-13: a brief that named only
+  the file sent the reviewer, who has no shell, to a 160 000-character section it
+  cannot read whole).
   Copy the statement text exactly as it stands (the registry's `statement`, or the
   environment's text in the file) into a scratch file and hash it:
   `py $E/reviews.py hash --file <scratch>`.
@@ -34,8 +39,9 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
   reviewer reads the files, `budget.md` rule 9):
 
-  > Review `<id>`: its statement and proof are at `<file:label or object + proofs/
-  > attempt>`. The question: may it be raised to `proved`? Work through your
+  > Review `<id>`: its statement and proof are at `<for a tex file: the line of
+  > statement.py --where, i.e. file, statement lines A-B, proof lines C-D; else the
+  > object + proofs/ attempt>`. The question: may it be raised to `proved`? Work through your
   > obligation ledger before reading the proof.
   > subject: `<id>` · pass: `<pass>` · run: `A` · statement_hash: `<hash>` ·
   > ticket: `<T-NNNN or none>`
@@ -188,7 +194,7 @@ answers a hypothesis / statement / proof finding: those take a full blind pass
 **Steps** (`$E` as above; scratch files in the session scratchpad, never under
 `reviews/`):
 
-1. Take the ticket as in section 0. The budget is one reviewer run plus you.
+1. Take the ticket as in section 0. The cost is one reviewer run plus you.
 2. Recover the statement **as the base pass reviewed it** (its `decision.md` names
    which file and label; `git show <commit>:<file>` from the commit before the
    rewording) into `old.txt`, and the current statement into `new.txt`.

@@ -199,6 +199,16 @@ def render_outline(o):
     return "\n".join(lines)
 
 
+def where_line(rec):
+    """``<label>: <file> lines A-B, proof lines C-D`` (``no proof environment follows``
+    when there is none)."""
+    proof = rec.get("proof")
+    return "%s: %s lines %d-%d, %s" % (
+        rec["label"], rec["file"], rec["lines"][0], rec["lines"][1],
+        "proof lines %d-%d" % tuple(proof["lines"]) if proof
+        else "no proof environment follows")
+
+
 def main(argv=None):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -211,6 +221,9 @@ def main(argv=None):
     ap.add_argument("--context", type=int, default=0)
     ap.add_argument("--home", default=None)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--where", action="store_true",
+                    help="only where it is: '<label>: <file> lines A-B, proof lines C-D' "
+                         "(for a brief that sends a reader to the lines, not the file)")
     a = ap.parse_args(argv)
     home, cfg = au.author_home(a.home or os.getcwd())
     if not home:
@@ -233,9 +246,12 @@ def main(argv=None):
     found, missed = [], []
     for lab in a.labels:
         lab = lab.split(":", 1)[1] if lab.startswith("paper:") else lab
-        rec = find(home, cfg, lab, a.proof, a.context)
+        rec = find(home, cfg, lab, a.proof or a.where, a.context)
         (found if rec else missed).append(rec or lab)
-    if a.json:
+    if a.where:
+        for r in found:
+            print(where_line(r))
+    elif a.json:
         print(json.dumps({"found": found, "missing": missed}, indent=1, ensure_ascii=False))
     else:
         print("\n\n".join(render(r) for r in found))

@@ -197,7 +197,10 @@ by `board.transport`, a factory called with the config dict) is a `ConfigError`.
 
 **The listing is incremental** (2026-11-13). A transport that sets `since = True` (the `gh` one does)
 takes `list_issues(since=ISO)`. The store then reads the whole board once and afterwards asks only for
-the issues updated since the newest `updated_at` it holds (less two seconds; the times are GitHub's own),
+the issues updated since the newest `updated_at` it holds (less two seconds), and never from later than
+when its previous read began less five minutes: an issue on a page already read can change while a later
+page is fetched, and only a start taken before the read catches that (the read's start is this machine's
+clock; five minutes is the room for its difference from GitHub's),
 keeping the listing in the process and, between processes, in one JSON file per repository under the
 user's cache directory (`~/.cache/academy/board`, `%LOCALAPPDATA%\academy\board` on Windows). Measured
 on a board of 1192 tickets: a listing went from 20 s (twelve requests) to 1 s (one request), and
@@ -207,7 +210,9 @@ file is unreadable or of another repository. A script reuses its listing for fiv
 (its own writes drop that); the MCP server asks on every call. One ticket (`get`, `status_of`, `save`)
 is always read live. `ACADEMY_BOARD_CACHE` (a directory, or `off`) or `board.cache` in `workspace.json`
 (`false`, or a directory) moves or disables the file; deleting it costs one full read. A transport handed
-to `open_store` (a test's) never gets a file. `test_board_listing.py` holds this to the full listing.
+to `open_store` (a test's) never gets a file. One thing the incremental read cannot see: a change that does
+not update the issue, such as renaming a label for the whole repository. After one (an instance rename
+renames its `to:` label), delete the cache file or wait for the daily full read. `test_board_listing.py` holds this to the full listing.
 
 `test_board_store.py` builds a GitHub board from a file board through the codec and shows that
 `inbox_core.select` (default, `--all`, `--campaign`, return legs, position order, the `--json`/text

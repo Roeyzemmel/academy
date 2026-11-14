@@ -566,7 +566,67 @@ def report(records, start, now=None):
             "classes": rows}
 
 
-def render_markdown(rep):
+def _state(r):
+    return ("regression" if r.get("regression") else "stale code" if r.get("stale")
+            else "recurring" if r["recurring"]
+            else "new" if not r["reported"] else "carried")
+
+
+def _split(rep):
+    """``(live, quiet)``: the classes to read this week (an error in the window, or a
+    regression) and the open ones with none (carried over; the settle closes those that
+    were reported and stayed quiet)."""
+    live = [r for r in rep["classes"] if r["in_window"] or r.get("regression")]
+    quiet = [r for r in rep["classes"] if not (r["in_window"] or r.get("regression"))]
+    return live, quiet
+
+
+#: classes and families a brief report lists
+BRIEF_ROWS = 25
+
+
+def brief(rep, rows=BRIEF_ROWS):
+    """The report as a session should read it (2026-11-13: the full JSON of a week with 130
+    open classes was 174 000 characters, most of it classes with no error that week).
+
+    ``families``: those with an error in the window or a regression, worst first;
+    ``classes``: the live ones (``_split``), at most ``rows``, each with the fields a
+    reader decides on; ``quiet``: how many open classes had none, how many of those were
+    never reported, and the largest few by name. Nothing is settled or hidden by this:
+    ``report --json`` is the whole picture."""
+    live, quiet = _split(rep)
+    fams = [f for f in rep.get("families", []) if f["in_window"] or f.get("regression")]
+    unreported = [r for r in quiet if not r["reported"]]
+    return {
+        "window": rep["window"],
+        "errors_in_window": rep["errors_in_window"],
+        "benign_in_window": rep["benign_in_window"],
+        "open_classes": rep["open_classes"],
+        "recurring_classes": len(rep["recurring"]),
+        "families": [{"family": f["family"], "in_window": f["in_window"],
+                      "bursts": f["bursts"], "classes": f["classes"],
+                      "sessions": f["sessions"],
+                      "state": ("regression" if f.get("regression")
+                                else "recurring" if f["recurring"] else "-"),
+                      "example": " ".join(str(f["example"] or "").split())[:160]}
+                     for f in fams[:rows]],
+        "families_omitted": max(0, len(fams) - rows),
+        "classes": [{"sig": r["sig"], "in_window": r["in_window"], "bursts": r["bursts"],
+                     "count": r["count"], "sessions": r["sessions"],
+                     "instances": r["instances"], "first": r["first"][:10],
+                     "last": r["last"][:10], "weeks_open": r["weeks_open"],
+                     "state": _state(r)} for r in live[:rows]],
+        "classes_omitted": max(0, len(live) - rows),
+        "quiet": {"classes": len(quiet), "never_reported": len(unreported),
+                  "recurring": sum(1 for r in quiet if r["recurring"]),
+                  "largest": [{"sig": r["sig"], "count": r["count"], "last": r["last"][:10]}
+                              for r in sorted(quiet, key=lambda r: -r["count"])[:5]]},
+    }
+
+
+def render_markdown(rep, every=False):
+    """The report as Markdown. The class table lists the classes with an error in the
+    window (or a regression) and counts the rest; ``every`` lists them all."""
     w = rep["window"]
     out = ["# Errors %s .. %s" % (w["start"], w["end"]), "",
            "%d error(s) in the window; %d open class(es), %d recurring."
@@ -589,15 +649,20 @@ def render_markdown(rep):
     out += ["## Classes", "",
            "| class | in window | bursts | total | sessions | first | last | weeks open | state |",
            "|---|---|---|---|---|---|---|---|---|"]
-    for r in rep["classes"]:
-        state = ("regression" if r.get("regression") else "stale code" if r.get("stale")
-                 else "recurring" if r["recurring"]
-                 else "new" if not r["reported"] else "carried")
+    live, quiet = _split(rep)
+    shown = rep["classes"] if every else live
+    for r in shown:
         out.append("| `%s` | %d | %d | %d | %d | %s | %s | %d | %s |" % (
             r["sig"].replace("|", "\\|"), r["in_window"], r["bursts"], r["count"], r["sessions"],
-            r["first"][:10], r["last"][:10], r["weeks_open"], state))
-    if not rep["classes"]:
+            r["first"][:10], r["last"][:10], r["weeks_open"], _state(r)))
+    if not shown:
         out.append("| none | | | | | | | | |")
+    if quiet and not every:
+        out += ["", "%d more open class(es) had no error in the window (%d recurring, %d never "
+                "reported): carried over, and closed by the settle once reported and quiet. "
+                "`report --all` lists them."
+                % (len(quiet), sum(1 for r in quiet if r["recurring"]),
+                   sum(1 for r in quiet if not r["reported"]))]
     out += ["", "Example messages:", ""]
     for r in rep["classes"][:10]:
         out.append("- `%s`: %s" % (r["sig"].replace("|", "\\|"), r["msg"] or "-"))
@@ -737,6 +802,12 @@ def main(argv=None):
     g.add_argument("--days", type=int, default=None)
     g.add_argument("--since")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--brief", action="store_true",
+                   help="with --json: the families and classes to read this week, and a "
+                        "count of the rest (what a session should read)")
+    p.add_argument("--all", action="store_true",
+                   help="the Markdown class table lists every open class, also those with "
+                        "no error in the window")
     p.add_argument("--workspace")
     p = sub.add_parser("settle")
     p.add_argument("--packet", required=True)
@@ -777,10 +848,12 @@ def main(argv=None):
         else:
             start = now - _dt.timedelta(days=a.days if a.days is not None else 7)
         rep = report(read_all(board), start, now)
-        if a.json:
+        if a.json and a.brief:
+            print(json.dumps(brief(rep), ensure_ascii=False))
+        elif a.json:
             print(json.dumps(rep, indent=2))
         else:
-            sys.stdout.write(render_markdown(rep))
+            sys.stdout.write(render_markdown(rep, every=a.all))
     elif a.cmd == "settle":
         closed = settle(board, instance, a.packet, a.quiet_days)
         print("settled %s: %d class(es) closed" % (a.packet, len(closed)))

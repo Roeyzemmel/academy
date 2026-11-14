@@ -43,7 +43,8 @@ that the human confirms (`/academy:board new`), never implied by the decision.
 
 ## When the packet is invalid
 
-`packets.py list --json` carries each packet's `_problems`. A packet with problems is
+`packets.py list --json --brief` lists the invalid packets under `problems` (the full
+`--json` rows carry `_problems`). A packet with problems is
 shown on the dashboard but not asked; report the problems and the producing
 instance, so it can be fixed.
 

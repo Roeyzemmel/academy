@@ -64,7 +64,7 @@ const out = { instance: A.instance, filed: false, settled: false, dropped: [] }
 // ---- Gather -------------------------------------------------------------------------
 phase('Gather')
 const d = await agent(STAGE('data', [
-  `Run usage_report.py --days ${DAYS} --json and error_ledger.py report --days ${DAYS} --json (your step 1), read them,`,
+  `Run usage_report.py --days ${DAYS} --json and error_ledger.py report --days ${DAYS} --json --brief (your step 1), read them,`,
   'and return the window, a summary of at most three lines, the counts, the regression families,',
   'and your proposals: downgrades (an agent whose runs are short and clerical on a heavier tier), budget changes,',
   'and recurring error families worth deciding on, each with 2-4 options and a recommendation. Write nothing.',

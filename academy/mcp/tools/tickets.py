@@ -19,7 +19,10 @@ ACTING = {"type": "string", "description":
           "homes); default: the ticket's party of your role, the server's home, or the "
           "only instance of your role. A role agent can never act as 'human'."}
 #: statuses ``deliver: true`` may start from
-DELIVER_FROM = ("open", "accepted", "in-progress")
+#: a blocked ticket too, once everything it waited on is back (the return leg's rule,
+#: ac.released_waits): its receiver delivers in one call, walked blocked -> in-progress ->
+#: delivered. One that still waits (on a ticket not back, on the human) is refused.
+DELIVER_FROM = ("open", "accepted", "in-progress", "blocked")
 FROZEN = ("id", "created", "updated")
 #: a status move that is not one transition is walked in one call when every status in
 #: between is one of these (they need nothing of their own: no reason, no waiting_on,
@@ -289,10 +292,18 @@ def update_ticket(ctx, a):
                            ", or the human moves it" if meta.get("to") != ac.HUMAN
                            else "; a ticket to human is moved by the human"))
             raise ToolError(
-                "deliver: true is for the receiver (or the human) of an open, accepted or "
-                "in-progress ticket; %s is %s and %s is %s%s"
+                "deliver: true is for the receiver (or the human) of an open, accepted, "
+                "in-progress or blocked ticket; %s is %s and %s is %s%s"
                 % (meta["id"], meta.get("status"), me,
                    " and ".join(sorted(pset)) or "no party", hint))
+        if meta.get("status") == "blocked" and not human \
+                and not ac.released_waits(meta, ac.status_lookup(ctx.store)):
+            raise ToolError(
+                "deliver: true on a blocked ticket needs everything it waits on to be back; "
+                "%s is blocked and still waits (waiting_on %s%s). When they are delivered "
+                "or closed, deliver: true walks it blocked -> in-progress -> delivered"
+                % (meta["id"], ", ".join(str(w) for w in meta.get("waiting_on") or []) or "nothing",
+                   "; a dead route: blocked_by %s" % meta["blocked_by"] if meta.get("blocked_by") else ""))
         if not (fields.get("result") or meta.get("result")):
             raise ToolError("delivered needs result: pass fields.result (one line, the "
                             "answer) in the same call as deliver: true; detail goes in "
@@ -428,7 +439,8 @@ def _list(ctx, a):
     statuses = a.get("status")
     if isinstance(statuses, str):
         statuses = [statuses]
-    text = " ".join(str(a.get("text") or "").lower().split())
+    text = ac.search_key(a.get("text"))
+    hits = set(ctx.store.search(text)) if text and hasattr(ctx.store, "search") else None
     for p, m in ctx.store.iter_meta():
         if a.get("to") and m.get("to") != a["to"]:
             continue
@@ -446,8 +458,8 @@ def _list(ctx, a):
             continue
         if any(a.get(k) and m.get(k) != a[k] for k in ("campaign", "cowork")):
             continue
-        if text and text not in (" ".join(str(m.get(k) or "") for k in
-                                          ("id", "title", "ask", "agenda"))).lower():
+        if text and (str(m.get("id")) not in hits if hits is not None
+                     else text not in ac.search_key(ac.ticket_text(m, ""))):
             continue
         out.append(_summary(p, m))
     out.sort(key=lambda t: (PRIORITY_ORDER.get(t.get("priority"), 1), t["id"]))
@@ -463,7 +475,8 @@ def _get(ctx, a):
 TOOLS = [
     Tool("tickets_list", "List board tickets, filtered by to / from / instance (either "
          "side) / status / kind / parent (a ticket's children) / campaign / cowork / text "
-         "(words in the id, title, ask or agenda). At most limit rows (default 50, 0 = "
+         "(words in the id, title, ask, agenda or body: the way to ask whether a ticket "
+         "on something exists already). At most limit rows (default 50, 0 = "
          "all) from offset; a cut listing says truncated, with the counts by status.",
          obj({"to": S, "from": S, "instance": S,
               "status": {"type": ["string", "array"], "items": {"type": "string"}},

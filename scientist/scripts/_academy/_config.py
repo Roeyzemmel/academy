@@ -128,8 +128,11 @@ def validate_config(config):
                 probs.append("paths.%s is required for role %s" % (key, role))
     budget = config.get("budget", {})
     n = budget.get("itemsPerRun") if isinstance(budget, dict) else None
-    if not (isinstance(n, int) and 1 <= n <= 3):
-        probs.append("budget.itemsPerRun must be an integer 1..3")
+    # out of range is not an error: the inbox clamps it to 1..3 (inbox_core.clamp). Only a
+    # value that is no number at all is a problem (2026-11-14: a 5 in a home's config
+    # stopped its inbox with exit 2)
+    if n is not None and (isinstance(n, bool) or not isinstance(n, int)):
+        probs.append("budget.itemsPerRun must be an integer (it is clamped to 1..3)")
     for key in ("orchestratorModel", "maxModel"):
         if isinstance(budget, dict) and budget.get(key) not in MODELS:
             probs.append("budget.%s must be one of %s" % (key, ", ".join(MODELS)))

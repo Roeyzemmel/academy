@@ -25,7 +25,9 @@ in the window, and aggregates:
 
 Flags (deterministic, for the usage-analyst to explain): sessions with limit
 failures, sessions with more than ``--max-subagents`` subagents, agents seen on
-a model heavier than the one they declare, and context bloat (a main transcript of at
+a model heavier than the one they declare, agents run on a lighter one (a grading
+agent's verdict is then not at full strength; 2026-11-13: a reviewer whose definition
+the harness could not read ran without its model for two weeks, unseen), and context bloat (a main transcript of at
 least 20 turns averaging more than ``--max-read-per-turn`` cache-read tokens per turn). Model-downgrade suggestions are the
 analyst's judgement, not this script's.
 
@@ -445,15 +447,7 @@ def aggregate(sessions, roster=None, declared=None, max_subagents=12,
                 flags.append({"kind": "context-bloat", "session": s["session"],
                               "instance": inst, "turns": mt, "mean_read": int(mean)})
     for a in by_agent.values():
-        dec = a["declared"]
-        if dec in MODEL_RANK:
-            heavier = sorted(m for m in a["models"]
-                             if m in MODEL_RANK and MODEL_RANK[m] > MODEL_RANK[dec])
-            if heavier:
-                flags.append({"kind": "heavier-than-declared", "agent": a["agent"],
-                              "declared": dec, "seen": heavier,
-                              "tier": (getattr(declared, "tiers", None) or {}).get(
-                                  a["agent"].rpartition(":")[2])})
+        flags += model_flags(a["agent"], a["models"], declared)
         a["models"] = dict(a["models"])
         a["mean_turns"] = round(a["turns"] / a["runs"], 1) if a["runs"] else 0
     return {
@@ -465,6 +459,31 @@ def aggregate(sessions, roster=None, declared=None, max_subagents=12,
         "by_agent": sorted(by_agent.values(), key=lambda a: -a["read"]),
         "flags": flags,
     }
+
+
+def model_flags(agent, models, declared, session=None):
+    """The flags for one agent's turns by model family against the model it declares:
+    ``heavier-than-declared`` (it cost more than planned) and ``lighter-than-declared``
+    (its work was done by a weaker model than its definition asks for, which matters most
+    for the agents that grade: a review counts at full strength only on a primary model).
+    ``session`` is set for a board summary, where the turns are one session's."""
+    bare = str(agent).rpartition(":")[2]
+    dec = (declared or {}).get(bare)
+    if dec not in MODEL_RANK:
+        return []
+    out = []
+    for kind, test in (("heavier-than-declared", lambda m: MODEL_RANK[m] > MODEL_RANK[dec]),
+                       ("lighter-than-declared", lambda m: MODEL_RANK[m] < MODEL_RANK[dec])):
+        seen = sorted(m for m in models if m in MODEL_RANK and test(m))
+        if seen:
+            f = {"kind": kind, "agent": agent, "declared": dec, "seen": seen,
+                 "tier": (getattr(declared, "tiers", None) or {}).get(bare)}
+            if kind == "lighter-than-declared":
+                f["turns"] = {m: models[m] for m in seen}
+            if session:
+                f["session"] = session
+            out.append(f)
+    return out
 
 
 def load_ledger(workspace):
@@ -744,11 +763,22 @@ def render_markdown(report, start, end):
         elif f["kind"] == "fan-out":
             out.append("- fan-out: session %s (%s): %d subagents"
                        % (f["session"], f["instance"], f["count"]))
-        else:
-            out.append("- heavier-than-declared: %s declares %s%s, seen on %s"
+        elif f["kind"] == "lighter-than-declared":
+            out.append("- lighter-than-declared: %s declares %s%s, ran on %s%s -- a grading "
+                       "agent's verdict from these runs is not at full strength; check that "
+                       "its definition is read (the agent list of a session)"
                        % (f["agent"], f["declared"],
                           " (tier %s)" % f["tier"] if f.get("tier") else "",
-                          ", ".join(f["seen"])))
+                          ", ".join("%s (%d turns)" % (m, n)
+                                    for m, n in sorted(f.get("turns", {}).items()))
+                          or ", ".join(f["seen"]),
+                          " in session %s" % str(f["session"])[:8] if f.get("session") else ""))
+        else:
+            out.append("- heavier-than-declared: %s declares %s%s, seen on %s%s"
+                       % (f["agent"], f["declared"],
+                          " (tier %s)" % f["tier"] if f.get("tier") else "",
+                          ", ".join(f["seen"]),
+                          " in session %s" % str(f["session"])[:8] if f.get("session") else ""))
     return "\n".join(out) + "\n"
 
 
@@ -783,10 +813,16 @@ def board_sessions(ws, projects, start, end=None):
     return out
 
 
-def merge_board(report, records):
-    """Add board summaries to the totals and "By instance" (nothing else is derivable)."""
+def merge_board(report, records, declared=None):
+    """Add board summaries to the totals and "By instance", and, for a summary that carries
+    ``agent_models`` (usage_ledger, since 2026-11-13), the model flags of its agents."""
     n = nsub = 0
     for rec in records:
+        for agent, models in sorted((rec.get("agent_models") or {}).items()):
+            if isinstance(models, dict):
+                report["flags"] += model_flags(agent, {m: v for m, v in models.items()
+                                                       if isinstance(v, int)},
+                                               declared, session=rec.get("session"))
         inst = rec.get("instance") or "other"
         row = report["by_instance"].setdefault(inst, {})
         subs = sum(v for v in (rec.get("subagents") or {}).values() if isinstance(v, int))
@@ -834,7 +870,8 @@ def build(days=None, since=None, projects=None, workspace_path=None, max_subagen
     if tc:
         report["tickets"] = tc
     if not no_board:
-        merge_board(report, board_sessions(ws, projects, start, end if now is not None else None))
+        merge_board(report, board_sessions(ws, projects, start, end if now is not None else None),
+                    declared_models(repo, ws))
     report["window"] = {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")}
     return report, start, end
 

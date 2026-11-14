@@ -40,6 +40,10 @@ TRANSITIONS = {
     ("accepted", "cancelled"): ("sender",),
     ("in-progress", "delivered"): ("receiver",),
     ("in-progress", "blocked"): ("receiver",),
+    # started, and it turns out it cannot be done as asked: rejected with a reason, as from
+    # open or accepted (the human's decision, 2026-11-14; before, the route offered was
+    # in-progress -> blocked -> accepted -> rejected)
+    ("in-progress", "rejected"): ("receiver",),
     ("in-progress", "cancelled"): ("sender",),
     ("blocked", "accepted"): ("receiver",),
     ("blocked", "in-progress"): ("receiver",),
@@ -186,8 +190,10 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
     who = agent or MAIN_AGENT
     if who in names:
         return True, "liaison"
-    return False, ("%s is not a liaison for %s->%s (liaisons: %s)"
-                   % (who, rf, rt, ", ".join(names) or "none"))
+    return False, ("%s is not a liaison for %s->%s (liaisons: %s); file it to your own "
+                   "%s instance instead, with the ask: its inbox routes it and a liaison "
+                   "files it with the %s"
+                   % (who, rf, rt, ", ".join(names) or "none", rf, rt))
 
 
 def parties(meta, instance):

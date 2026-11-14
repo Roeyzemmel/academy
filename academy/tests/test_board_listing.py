@@ -2,6 +2,7 @@
 ``since`` reads the whole board once and afterwards only what changed, in the process and
 between processes (the cache file), and always returns what a full listing would."""
 
+import datetime as dt
 import json
 import os
 import shutil
@@ -31,11 +32,13 @@ def meta(n, **kw):
 
 
 class Clock(object):
-    def __init__(self):
-        self.t = 1000.0
+    """This machine's clock, in step with the fake server's (``transport.now``)."""
+
+    def __init__(self, transport):
+        self.transport = transport
 
     def __call__(self):
-        return self.t
+        return (self.transport.now - dt.datetime(1970, 1, 1)).total_seconds()
 
 
 class Case(unittest.TestCase):
@@ -47,7 +50,8 @@ class Case(unittest.TestCase):
         for n in range(1, 6):
             self.t.add_encoded(bc.encode(meta(n), "body %d" % n))
         self.t.add_pull_request()
-        self.clock = Clock()
+        self.clock = Clock(self.t)
+        self.t.now += dt.timedelta(seconds=2 * bs.READ_SKEW)     # the seed is not "just now"
 
     def store(self, **kw):
         kw.setdefault("cache_dir", self.dir)
@@ -65,7 +69,7 @@ class Case(unittest.TestCase):
         return [c for c in self.t.calls if c[0] == "list_issues"]
 
     def later(self, seconds=60):
-        self.clock.t += seconds
+        self.t.now += dt.timedelta(seconds=seconds)
         del self.t.calls[:]
 
 
@@ -132,6 +136,44 @@ def _plain(t):
     return View()
 
 
+class DuringARead(Case):
+    """A listing is several requests. What changes on a page already read, while a later
+    page is fetched, must not be lost (review, 2026-11-14: the next read started from the
+    newest stamp held, which was past that change)."""
+
+    def test_a_change_made_while_the_pages_are_read_is_seen_by_the_next_listing(self):
+        t, real, done = self.t, self.t.list_issues, []
+
+        def list_issues(labels=None, state="all", page=1, per_page=100, since=None):
+            if page == 2 and not done:               # page 1 (T-0001, T-0002) is already read
+                done.append(1)
+                other = bs.GithubBoardStore(_plain(t), "o/r")
+                _ref, m, body = other.get("T-0001")
+                other.save(dict(m, status="accepted"), body)
+                t.now += dt.timedelta(seconds=3)
+                _ref, m, body = other.get("T-0005")   # a later page, a later stamp
+                other.save(dict(m, priority="high"), body)
+            return real(labels=labels, state=state, page=page, per_page=per_page, since=since)
+        t.list_issues = list_issues
+        s = self.store()
+        first = dict((m["id"], m["status"]) for _r, m in s.iter_meta())
+        self.assertEqual("open", first["T-0001"])            # read before the change: fine
+        for wait in (10, 100, 3600):
+            self.later(wait)
+            got = dict((m["id"], m["status"]) for _r, m in s.iter_meta())
+            self.assertEqual("accepted", got["T-0001"], wait)
+        del t.list_issues
+        self.assertEqual(self.plain(), list(self.store().iter_meta()))   # and so is the file
+
+    def test_the_next_read_starts_no_later_than_the_previous_one_began(self):
+        f = bs._since
+        self.assertEqual("2026-11-13T20:38:33Z", f("2026-11-13T20:38:35Z"))
+        began = (dt.datetime(2026, 11, 13, 20, 30) - dt.datetime(1970, 1, 1)).total_seconds()
+        self.assertEqual("2026-11-13T20:25:00Z", f("2026-11-13T20:38:35Z", began))
+        self.assertEqual("2026-11-13T20:00:58Z", f("2026-11-13T20:01:00Z", began))   # the older wins
+        self.assertIsNone(f("not a stamp", began))
+
+
 class BetweenProcesses(Case):
     def test_a_second_store_starts_from_the_file(self):
         list(self.store().iter_meta())
@@ -167,6 +209,28 @@ class BetweenProcesses(Case):
         self.later(bs.FULL_REFRESH)
         self.assertEqual(4, len(list(s.iter_meta())))
         self.assertEqual(self.plain(), list(self.store().iter_meta()))
+
+    def test_the_file_is_private_and_a_failed_write_leaves_nothing_behind(self):
+        list(self.store().iter_meta())
+        path = os.path.join(self.dir, "o__r.json")
+        if os.name != "nt":
+            self.assertEqual(0o600, os.stat(path).st_mode & 0o777)
+        # the replace fails (on Windows: another process is reading the file)
+        real, calls = os.replace, []
+
+        def refuse(a, b):
+            calls.append(a)
+            raise PermissionError("in use")
+        self.t.add_encoded(bc.encode(meta(9), "later"))
+        self.later()
+        os.replace = refuse
+        try:
+            got = list(self.store().iter_meta())
+        finally:
+            os.replace = real
+        self.assertEqual(1, len(calls))
+        self.assertEqual(self.plain(), got)                      # the listing is still right
+        self.assertEqual(["o__r.json"], os.listdir(self.dir))    # and no temp file is left
 
     def test_no_directory_means_no_file(self):
         list(self.store(cache_dir=None).iter_meta())

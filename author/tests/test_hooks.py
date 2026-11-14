@@ -538,6 +538,64 @@ class TexEditCheckTests(unittest.TestCase):
         self.assertIn("lem:x", ctx)
         self.assertTrue(os.path.exists(self.dirty))
 
+    def test_later_checks_hand_back_only_what_changed(self):
+        # 2026-11-13: every edit was sent the whole list again, other people's findings included
+        tex = os.path.join(self.sb.home, "sections", "a.tex")
+        old = "VIOLATIONS (1)\n" + FINDING + "WARNINGS (1)\n  sections/b.tex:3: thm:y: [W2] no proof\n"
+        self.sb.set_checker(old, 1)
+        first = self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("lem:x", first)
+        self.assertIn("thm:y", first)
+        self.assertIn("pre-existing findings are not yours", first)
+        # the same findings on other lines: nothing new, one line
+        self.sb.set_checker(old.replace(":12:", ":40:").replace(":3:", ":9:"), 1)
+        same = self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("violations, nothing new (2 finding line(s) as at the previous check)", same)
+        self.assertNotIn("lem:x", same)
+        # one new, one gone: the new one is listed, the old one is counted
+        self.sb.set_checker("VIOLATIONS (1)\n" + FINDING + "WARNINGS (1)\n"
+                            "  sections/a.tex:7: cor:z: [W2] no proof\n", 1)
+        third = self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("cor:z", third)
+        self.assertNotIn("lem:x", third)
+        self.assertNotIn("thm:y", third)
+        self.assertIn("VIOLATIONS (1)", third)                   # the counts stay
+        self.assertIn("1 new (listed above), 1 gone, 1 as before", third)
+        # an unreadable state is a first check again
+        with open(os.path.join(self.sb.home, ".build", ".last-check.json"), "w") as fh:
+            fh.write("{not json")
+        again = self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("lem:x", again)
+        # clean after findings says what went away
+        self.sb.set_checker("VIOLATIONS (0)\n  none\n", 0)
+        clean = self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("a.tex: clean", clean)
+        self.assertIn("2 gone", clean)
+
+    def test_a_second_finding_of_the_same_kind_is_new(self):
+        # review, 2026-11-14: two findings can share file, label and rule
+        tex = os.path.join(self.sb.home, "sections", "a.tex")
+        one = "WARNINGS (1)\n  sections/a.tex:9: (unlabelled): [W3] unlabelled quest\n"
+        self.sb.set_checker("VIOLATIONS (0)\n  none\n" + one, 1)
+        self.edit(tex)
+        two = ("VIOLATIONS (0)\n  none\nWARNINGS (2)\n"
+               "  sections/a.tex:9: (unlabelled): [W3] unlabelled quest\n"
+               "  sections/a.tex:31: (unlabelled): [W3] unlabelled quest\n")
+        self.sb.set_checker(two, 1)
+        ctx = self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("nothing new", ctx)
+        self.assertIn("WARNINGS (2)", ctx)
+        self.assertIn("a.tex:31", ctx)
+        self.assertIn("1 new (listed above), 0 gone, 1 as before", ctx)
+        self.assertNotIn("\n  none", ctx)                       # 'none' is not a finding
+        self.sb.set_checker("VIOLATIONS (0)\n  none\n" + one, 1)
+        back = self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("0 new (listed above), 1 gone, 1 as before", back)
+        # a state file written by the first form (a list of keys) is still read
+        with open(os.path.join(self.sb.home, ".build", ".last-check.json"), "w") as fh:
+            json.dump(["sections/a.tex|(unlabelled)|W3"], fh)
+        self.assertIn("nothing new", self.edit(tex)[1]["hookSpecificOutput"]["additionalContext"])
+
     def test_bib_edit_only_marks_dirty(self):
         code, out, _e = self.edit(os.path.join(self.sb.home, "references.bib"))
         self.assertEqual((code, out), (0, None))

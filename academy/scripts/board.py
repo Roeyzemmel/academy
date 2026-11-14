@@ -26,6 +26,7 @@ Nothing here commits: board commits are made by session_start / board sync.
 """
 
 import argparse
+import collections
 import json
 import os
 import sys
@@ -104,13 +105,16 @@ def iter_tickets(board):
     return ac.as_store(board).iter_tickets()
 
 
-def list_tickets(board, to=None, frm=None, status=None, include_terminal=False):
+def list_tickets(board, to=None, frm=None, status=None, include_terminal=False, kind=None,
+                 text=None):
     """Tickets matching the filters, ordered by priority then id.
 
     Without ``status`` and ``include_terminal`` the terminal tickets (closed,
-    rejected, cancelled) are left out.
+    rejected, cancelled) are left out. ``text``: words in the id, title, ask, agenda or
+    body (the store's ``search``).
     """
     out = []
+    hits = set(ac.as_store(board).search(text)) if ac.search_key(text) else None
     # metas only: on the GitHub backend that is the issue list, without every issue's comments
     for path, meta in ac.as_store(board).iter_meta():
         if meta is None:
@@ -123,6 +127,10 @@ def list_tickets(board, to=None, frm=None, status=None, include_terminal=False):
             if meta.get("status") != status:
                 continue
         elif not include_terminal and meta.get("status") in ac.TERMINAL:
+            continue
+        if kind and meta.get("kind") != kind:
+            continue
+        if hits is not None and str(meta.get("id")) not in hits:
             continue
         m = dict(meta)
         m["_path"] = path
@@ -309,6 +317,10 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
 # CLI
 # ----------------------------------------------------------------------------
 
+#: rows of the text listing when no --limit is given
+LIST_ROWS = 50
+
+
 def _fmt_row(m):
     return "%-8s %-11s %-6s %-18s -> %-18s %s" % (
         m.get("id"), m.get("status"), m.get("priority"), m.get("from"), m.get("to"),
@@ -333,7 +345,11 @@ def main(argv=None):
     p = sub.add_parser("list", help="list tickets")
     p.add_argument("--to"); p.add_argument("--from", dest="frm"); p.add_argument("--status")
     p.add_argument("--all", action="store_true", help="include closed/rejected/cancelled")
+    p.add_argument("--kind")
+    p.add_argument("--text", help="words in the id, title, ask, agenda or body")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--limit", type=int, default=LIST_ROWS,
+                   help="rows of the text listing (default %d, 0 = all)" % LIST_ROWS)
 
     p = sub.add_parser("new", help="file a new ticket")
     p.add_argument("--to", required=True); p.add_argument("--title", required=True)
@@ -387,13 +403,19 @@ def main(argv=None):
         ws = _workspace_or_none(a.workspace)
         board = resolve_store(a.board, a.workspace)
         if a.cmd == "list":
-            rows = list_tickets(board, a.to, a.frm, a.status, a.all)
+            rows = list_tickets(board, a.to, a.frm, a.status, a.all, a.kind, a.text)
             if a.json:
                 print(json.dumps(rows, indent=2, ensure_ascii=False))
             else:
-                for m in rows:
+                shown = rows[:a.limit] if a.limit > 0 else rows
+                for m in shown:
                     print(_fmt_row(m))
                 print("%d ticket(s)" % len(rows))
+                if len(shown) < len(rows):
+                    counts = collections.Counter(str(m.get("status")) for m in rows)
+                    print("(the first %d; %s; narrow with --to / --from / --status / --kind / "
+                          "--text, or --limit 0 for all)" % (len(shown), ", ".join(
+                              "%s %d" % kv for kv in sorted(counts.items()))))
         elif a.cmd == "new":
             budget = _default_budget()
             if a.runs:

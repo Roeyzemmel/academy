@@ -150,25 +150,34 @@ def _classify_ticket(t):
     return "substantive" if t.get("kind") in SUBSTANTIVE_TICKET_KINDS else "mechanical"
 
 
-def _packet_unblocks(board, tid):
+def _ticket_metas(board):
+    """``{id: meta}`` of every ticket, from one listing (on the GitHub board a ticket read
+    one at a time is two requests; 2026-11-13: the pending decisions of fourteen packets
+    took 27 s, 32 single reads among them)."""
+    return {str(m.get("id")): m for _ref, m in ac.as_store(board).iter_meta() if m}
+
+
+def _packet_unblocks(board, tid, metas=None):
     if not tid:
         return []
-    store = ac.as_store(board)
-    if not store.find(tid):
+    if metas is None:
+        metas = _ticket_metas(board)
+    meta = metas.get(str(tid))
+    if meta is None:
         return [tid]
-    meta = store.get(tid)[1]
     out = [tid]
     out.extend(str(b) for b in (meta.get("blocks") or []) if str(b) not in out)
     return out
 
 
-def _staleness(board, meta, created):
-    """A later, already-decided packet sharing a subject: worth a second look."""
+def _staleness(board, meta, created, packets=None):
+    """A later, already-decided packet sharing a subject: worth a second look.
+    ``packets`` is the board's packet listing when the caller already holds it."""
     subj = set(str(s) for s in (meta.get("subject") or []))
     if not subj:
         return None
     hints = []
-    for other in packetlib.list_packets(board):
+    for other in (packetlib.list_packets(board) if packets is None else packets):
         if other.get("packet") == meta.get("packet") or other.get("state") != "decided":
             continue
         oshare = subj & set(str(s) for s in (other.get("subject") or []))
@@ -181,7 +190,11 @@ def _staleness(board, meta, created):
 
 def _packet_items(board, instance=None):
     items = []
-    for m in packetlib.list_packets(board, only_open=True, instance=instance):
+    every = packetlib.list_packets(board)                 # read once, for _staleness
+    metas = None                                          # the tickets, listed on first need
+    for m in every:
+        if m.get("state") != "open" or (instance and m.get("instance") != instance):
+            continue
         with open(m["_path"], "r", encoding="utf-8") as fh:
             _meta2, body = ac.read_frontmatter(fh.read())
         asked, answers = ac.packet_decisions(body), ac.packet_answers(body)
@@ -192,6 +205,8 @@ def _packet_items(board, instance=None):
             rec = d.get("recommendation") or ""
             mrec = re.match(r"^\(([a-d])\)", rec)
             kept, note = select_options(d["options"], mrec.group(1) if mrec else None)
+            if metas is None and m.get("ticket"):
+                metas = _ticket_metas(board)
             items.append({
                 "id": "%s/D%d" % (m["packet"], k),
                 "instance": m.get("instance"),
@@ -200,8 +215,13 @@ def _packet_items(board, instance=None):
                 "options": _opt_dicts(kept, note),
                 "recommendation": rec or None,
                 "kind": _classify_packet(m),
-                "unblocks": _packet_unblocks(board, m.get("ticket")),
-                "stale": _staleness(board, m, m.get("created")),
+                # the packet proposes a status that publishes a result: never worked on
+                # provisionally (proceed), the human decides first
+                "publishing": (m.get("status_proposed") in PUBLISHING_STATUSES
+                               and m.get("status_proposed") != m.get("status_before")),
+                "provisional": packetlib.provisional_choices(body).get(k),
+                "unblocks": _packet_unblocks(board, m.get("ticket"), metas),
+                "stale": _staleness(board, m, m.get("created"), every),
                 "source": "packet",
                 "ref": m["packet"],
             })
@@ -363,12 +383,68 @@ def accept_recommended(board, mechanical_only=False, dry_run=False, workspace=No
     return out
 
 
+def proceed(board, instance=None, dry_run=False, date=None):
+    """Let the work go on under each pending packet decision's own recommendation, without
+    deciding it (the human's rule, 2026-11-14: a decision is collected when the human
+    comes to it; it does not hold the work that depends on it).
+
+    For every pending packet decision that has a recommended option and whose packet does
+    not propose a publishing status: the packet gets a provisional note (it stays open, the
+    decision stays pending and is still asked), and the tickets the decision unblocks get
+    one thread line naming the option. What is done under it is provisional: it raises no
+    status, and if the human then chooses another option the decision's echo says so and a
+    delivered ticket is returned to its receiver. Returns ``[{"id", "choice", "tickets"}]``
+    (with ``dry_run``, what would be done)."""
+    date = date or ac.today()
+    out = []
+    for item in pending_decisions(board, instance):
+        if item["source"] != "packet" or item.get("publishing") or item.get("provisional"):
+            continue
+        m = re.match(r"^\(([a-d])\)", item.get("recommendation") or "")
+        if not m:
+            continue
+        letter, pid, k = m.group(1), item["ref"], int(item["id"].rsplit("/D", 1)[1])
+        option = next((o["description"] for o in item["options"]
+                       if o["label"].startswith("(%s)" % letter)), "")
+        tickets = []
+        if not dry_run:
+            if not packetlib.note_provisional(board, pid, k, letter, date):
+                continue
+            store = ac.as_store(board)
+            for tid in item.get("unblocks") or []:
+                if not store.find(tid):
+                    continue
+                boardlib.append_to_ticket(
+                    board, tid, "proceeding on %s D%d (%s) %s -- the recommendation, not yet "
+                    "decided: what is done on it is provisional and raises no status"
+                    % (pid, k, letter, " ".join(option.split())[:160]),
+                    as_instance=item.get("instance") or ac.HUMAN, agent="decisions", date=date)
+                tickets.append(tid)
+        else:
+            tickets = list(item.get("unblocks") or [])
+        out.append({"id": item["id"], "choice": letter, "tickets": tickets})
+    return out
+
+
 # ----------------------------------------------------------------------------
 # CLI
 # ----------------------------------------------------------------------------
 
 def _fmt_item(i):
     return "%-14s %-20s [%-11s] %s" % (i["id"], i.get("instance") or "-", i["kind"], i["question"])
+
+
+def _wire(obj):
+    """``obj`` as the JSON a session reads: one line, and no key whose value is null or
+    empty (a decision without a staleness hint or a recommendation simply has no such
+    key). 21 pending decisions were 24 800 characters indented."""
+    def lean(x):
+        if isinstance(x, dict):
+            return {k: lean(v) for k, v in x.items() if v not in (None, "", [], {})}
+        if isinstance(x, list):
+            return [lean(v) for v in x]
+        return x
+    return json.dumps(lean(obj), ensure_ascii=False, separators=(",", ":"))
 
 
 def main(argv=None):
@@ -392,6 +468,12 @@ def main(argv=None):
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("proceed", help="let the work go on under each pending decision's "
+                                       "recommendation, provisionally; nothing is decided")
+    p.add_argument("--instance")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--json", action="store_true")
+
     a = ap.parse_args(argv)
     boardlib._utf8_stdout()
     try:
@@ -400,7 +482,7 @@ def main(argv=None):
         if a.cmd == "list":
             items = pending_decisions(board, a.instance)
             if a.json:
-                print(json.dumps(items, indent=2, ensure_ascii=False))
+                print(_wire(items))
             else:
                 for i in items:
                     print(_fmt_item(i))
@@ -408,7 +490,7 @@ def main(argv=None):
         elif a.cmd == "batches":
             bs = batches(pending_decisions(board, a.instance), a.size)
             if a.json:
-                print(json.dumps(bs, indent=2, ensure_ascii=False))
+                print(_wire(bs))
             else:
                 for n, b in enumerate(bs, 1):
                     print("Batch %d (%d item(s))" % (n, len(b)))
@@ -417,6 +499,16 @@ def main(argv=None):
         elif a.cmd == "record":
             print(json.dumps(record(board, a.id, a.choice, a.comment, ws),
                              ensure_ascii=False))
+        elif a.cmd == "proceed":
+            done = proceed(board, a.instance, a.dry_run)
+            if a.json:
+                print(_wire(done))
+            else:
+                for d in done:
+                    print("%s (%s) provisional%s" % (d["id"], d["choice"], (
+                        ": " + ", ".join(d["tickets"])) if d["tickets"] else ""))
+                print("%d decision(s) %s on their recommendation; none is decided" % (
+                    len(done), "would proceed" if a.dry_run else "proceed"))
         elif a.cmd == "accept-recommended":
             out = accept_recommended(board, a.mechanical_only, a.dry_run, ws)
             if a.json:

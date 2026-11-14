@@ -47,6 +47,17 @@ class BoardStore(object):
         """The metas (with ``_path`` = ref) of the tickets addressed to ``instance``."""
         raise NotImplementedError
 
+    def search(self, text):
+        """The ids of the tickets whose id, title, ask, agenda or body holds ``text``
+        (words in that order, any case, any spacing). The body is the ticket's text as
+        this store can read it in one pass: with its thread on the file board, without
+        it on a board where the thread is a request per ticket."""
+        want = search_key(text)
+        if not want:
+            return []
+        return [str(meta.get("id")) for _ref, meta, body in self.iter_tickets()
+                if meta is not None and want in search_key(ticket_text(meta, body))]
+
     def find(self, tid):
         """The ref of ticket ``tid``, or None."""
         raise NotImplementedError
@@ -178,6 +189,17 @@ STORE_METHODS = ("iter_tickets", "iter_meta", "read_all", "find", "get", "save",
                  "status_of")
 
 
+def search_key(text):
+    """``text`` lower-cased with every run of whitespace one space."""
+    return " ".join(str(text or "").lower().split())
+
+
+def ticket_text(meta, body):
+    """What a text search of a ticket reads: its id, title, ask, agenda and body."""
+    return "\n".join([str(meta.get(k) or "") for k in ("id", "title", "ask", "agenda")]
+                     + [body or ""])
+
+
 def is_store(obj):
     """Whether ``obj`` speaks the BoardStore protocol. Duck-typed on purpose: the library is
     vendored into every plugin as its own module object, so ``isinstance`` against one
@@ -208,6 +230,32 @@ def board_dir(board):
     if not path:
         raise AcademyError("this board store has no directory for packets (board.path)")
     return str(path)
+
+
+def status_lookup(store):
+    """``status_of`` for many tickets: a function from a ticket id to its status (None
+    when it is not on the board).
+
+    On the file board that is the store's own ``status_of``. On a board where one ticket
+    is one request (``backend`` ``github``) it answers from one listing, made on the
+    first question: an inbox that asks about each ticket a blocked one waits on made a
+    request per ticket (2026-11-13: 23 of them, 9 of the Expert inbox's 10 seconds)."""
+    if getattr(store, "backend", "files") == "files":
+        return store.status_of
+    held = {}
+
+    def number(tid):
+        # by number, as the store's own status_of finds an issue: T-00012 is T-0012
+        m = RE_TICKET_ID.match(str(tid))
+        digits = re.search(r"\d+", str(tid)) if m else None
+        return int(digits.group()) if digits else str(tid)
+
+    def status_of(tid):
+        if not held:
+            held["by_id"] = {number(m.get("id")): m.get("status")
+                             for _ref, m in store.iter_meta() if m}
+        return held["by_id"].get(number(tid))
+    return status_of
 
 
 def board_cache_dir(cfg=None, environ=None):

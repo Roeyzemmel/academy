@@ -89,7 +89,7 @@
     "transitions": {
       "open": {"accepted": ["receiver"], "rejected": ["receiver"], "blocked": ["receiver"], "cancelled": ["sender"]},
       "accepted": {"in-progress": ["receiver"], "blocked": ["receiver"], "rejected": ["receiver"], "cancelled": ["sender"]},
-      "in-progress": {"delivered": ["receiver"], "blocked": ["receiver"], "cancelled": ["sender"]},
+      "in-progress": {"delivered": ["receiver"], "blocked": ["receiver"], "rejected": ["receiver"], "cancelled": ["sender"]},
       "blocked": {"accepted": ["receiver"], "in-progress": ["receiver"], "cancelled": ["sender"]},
       "delivered": {"closed": ["sender"], "in-progress": ["sender"]},
       "closed": {},

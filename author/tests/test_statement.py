@@ -55,6 +55,17 @@ class Statement(unittest.TestCase):
             rc = st.main(list(args) + ["--home", self.home])
         return rc, out.getvalue(), err.getvalue()
 
+    def test_where_is_one_line_per_label(self):
+        rc, out, _err = self.run_cli("paper:lem:lift", "--where")
+        self.assertEqual(0, rc)
+        rec = st.find(self.home, {}, "lem:lift", proof=True)
+        self.assertEqual("lem:lift: sections/flat.tex lines 4-9, proof lines %d-%d\n"
+                         % tuple(rec["proof"]["lines"]), out)
+        self.assertEqual("x: f.tex lines 1-2, no proof environment follows",
+                         st.where_line({"label": "x", "file": "f.tex", "lines": [1, 2]}))
+        rc, out, err = self.run_cli("lem:nowhere", "--where")
+        self.assertEqual((1, ""), (rc, out))
+
     def test_a_statement_with_its_lines_and_proof(self):
         rec = st.find(self.home, {}, "lem:lift", proof=True, context=1)
         self.assertEqual(("sections/flat.tex", "lem", [4, 9]),
