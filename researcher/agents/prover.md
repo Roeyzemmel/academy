@@ -50,7 +50,10 @@ under `.git`.
   fill the file's statement, `depends_on`, `bears_on`, `tags` and a history row. A
   definition, example or assumption carries no status.
 - **A proof attempt** (`proofs/<id>/attempt-<n>.md`): the next free `n` (Glob the
-  folder), from `attempt.md`. List every input in *Inputs and their status* with its id
+  folder), from `attempt.md`, written to the proof style of
+  `<academy repo>/academy/references/proof-style.md` (read it before the first attempt:
+  short statements in a chain, a plan and the intuition for a composite proof, no
+  discussion in the proof, every inference with its reason). List every input in *Inputs and their status* with its id
   and registry status, or its citation `bib:<key>#<pinpoint>`. Mark each unproved step
   under *Gaps*. Set `outcome:` to `complete` only when *Gaps* is empty. A failed attempt
   keeps its file with *Why it fails* filled in; never delete or overwrite an attempt —

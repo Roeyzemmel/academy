@@ -1,7 +1,7 @@
 # academy: the academy plugin
 
 Role cut: what each role writes, never writes and hands off, and to whom, is one table, `academy/references/roster-rules.md` ("Role cut").
-Shared references beside it: `references/registry.md` (the `lab` / `paper` record format), `references/windows.md` (Python, shells and line endings on a Windows laptop).
+Shared references beside it: `references/registry.md` (the `lab` / `paper` record format), `references/windows.md` (Python, shells and line endings on a Windows laptop), `references/proof-style.md` (how a proof is written: the prover, the writers and the reviewers).
 
 | Folder | What it holds |
 |---|---|

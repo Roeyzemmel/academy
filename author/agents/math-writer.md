@@ -27,7 +27,10 @@ statements a CONFIRMED review pinned: their environment stays byte for byte, the
 free, and the `pinned_guard` hook refuses an edit that changes one. `Drafts/vision.md` is
 the paper's form and taste (`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`):
 apply it within your remit (prose, structure, order, examples, shortening a delivered
-proof to the paper's level).
+proof to the paper's level). Every proof you write or land follows
+`${CLAUDE_PLUGIN_ROOT}/../academy/references/proof-style.md` (the paper's vision wins
+over it); a proof it says should become a chain of lemmas, where the split needs a new
+statement, is a `research` ticket like any new argument.
 
 **Reading the tex.** A section file can be larger than one Read allows; do not Read it
 whole, and do not repeat a Read that was refused for size. For one statement:

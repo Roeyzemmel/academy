@@ -124,7 +124,13 @@ looks. Mark the seams inside a written argument too, with the home's machine-not
 macro or a bracketed "[gap: needs hypothesis H — not checked]", so nothing unproved
 escapes into a submitted version (`honest-reporting`).
 
-## 6. Working on someone else's draft
+## 6. How the proof reads
+
+Correctness is this skill; the shape of a correct proof (short statements in a chain,
+the plan and intuition of a composite proof, no discussion in a proof, what may be left
+out) is `${CLAUDE_PLUGIN_ROOT}/references/proof-style.md`. Write and judge proofs by it.
+
+## 7. Working on someone else's draft
 
 Say which of three operations you did:
 
