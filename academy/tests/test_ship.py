@@ -66,6 +66,49 @@ class TestWorktreePlace(Base):
                          sorted(listed))
 
 
+class TestWorktreePlaceInARealSubmodule(unittest.TestCase):
+    """A submodule made by git itself keeps its git directory in the superproject
+    (``sub/.git`` is a file). The fixture's ``sub`` has a ``.git`` directory, which hid
+    this (review, 2026-11-14)."""
+
+    def test_the_main_checkout_of_an_absorbed_submodule_and_of_its_worktrees(self):
+        tmp = tempfile.mkdtemp(prefix="ship-absorbed-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        src, sup = os.path.join(tmp, "src"), os.path.join(tmp, "sup")
+        for d in (src, sup):
+            os.makedirs(d)
+            run(d, "init", "-q", "-b", "main")
+            run(d, "config", "user.name", "T")
+            run(d, "config", "user.email", "t@example.com")
+        with open(os.path.join(src, "a.txt"), "w", encoding="utf-8") as fh:
+            fh.write("a\n")
+        run(src, "add", "a.txt")
+        run(src, "commit", "-q", "-m", "init")
+        run(sup, "-c", "protocol.file.allow=always", "submodule", "add", "-q", src, "sub")
+        sub = os.path.join(sup, "sub")
+        self.assertTrue(os.path.isfile(os.path.join(sub, ".git")))          # absorbed
+        real = os.path.realpath
+        self.assertEqual(real(sub), real(ship.main_checkout(sub)))
+        wt = os.path.join(sub, ".claude", "worktrees", "x")
+        run(sub, "worktree", "add", "-q", "-b", "x", wt)
+        self.assertEqual(real(sub), real(ship.main_checkout(wt)))
+        self.assertNotIn(os.sep + ".git" + os.sep, real(ship.main_checkout(wt)) + os.sep)
+
+    def test_a_plain_repository_and_its_worktree(self):
+        tmp = tempfile.mkdtemp(prefix="ship-plain-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        run(tmp, "init", "-q", "-b", "main")
+        run(tmp, "config", "user.name", "T")
+        run(tmp, "config", "user.email", "t@example.com")
+        run(tmp, "commit", "-q", "--allow-empty", "-m", "init")
+        wt = os.path.join(tmp, "wt")
+        run(tmp, "worktree", "add", "-q", "-b", "x", wt)
+        real = os.path.realpath
+        self.assertEqual(real(tmp), real(ship.main_checkout(tmp)))
+        self.assertEqual(real(tmp), real(ship.main_checkout(wt)))
+        self.assertEqual(real(tmp), real(ship.main_checkout(os.path.relpath(wt))))
+
+
 class TestFixtureCleanup(unittest.TestCase):
     def test_a_tree_with_read_only_entries_is_removed(self):
         import ship_fixture

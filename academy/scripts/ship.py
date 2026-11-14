@@ -301,13 +301,29 @@ def common_dir(path):
 
 def main_checkout(repo):
     """The main working tree of ``repo``'s repository (``repo`` itself unless it is a linked
-    worktree), as an absolute path."""
+    worktree), as an absolute path.
+
+    Not the first line of ``git worktree list``: for a submodule whose git directory lives
+    in the superproject (``.git`` is a ``gitdir:`` file, what ``git submodule update``
+    makes) that line is the git directory, and a worktree "under the main checkout" landed
+    inside the superproject's ``.git`` (review, 2026-11-14)."""
     repo = os.path.abspath(repo)
-    out = git(repo, "worktree", "list", "--porcelain", check=False) or ""
-    for ln in out.splitlines():
-        if ln.startswith("worktree "):
-            return os.path.abspath(ln[len("worktree "):])
-    return repo
+    top = git(repo, "rev-parse", "--show-toplevel", check=False) or repo
+    gd = git(repo, "rev-parse", "--absolute-git-dir", check=False)
+    try:
+        common = common_dir(repo)
+    except Refuse:
+        return os.path.abspath(top)
+    if not gd or os.path.normcase(os.path.realpath(gd)) == common:
+        return os.path.abspath(top)             # not a linked worktree: this is the main one
+    # a linked worktree: the main tree is where the common git dir says it is
+    wt = git(common, "config", "--file", os.path.join(common, "config"), "--get",
+             "core.worktree", check=False)
+    if wt:
+        return os.path.abspath(wt if os.path.isabs(wt) else os.path.join(common, wt))
+    if os.path.basename(common) == ".git":
+        return os.path.dirname(common)
+    return os.path.abspath(top)
 
 
 def repo_of(sub, explicit=None):
