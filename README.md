@@ -6,7 +6,6 @@ Role-based Claude Code plugins for research mathematics, as one local marketplac
 |---|---|
 | `academy/` | The base plugin: generic best-practice skills, the board and packet plumbing, the MCP server, hooks, and the front desk |
 | `author/`, `researcher/`, `expert/`, `scientist/` | The four role plugins. Each can run as several instances, and each has a `README.md` covering its agents, skills, scripts, hooks and place in the ticket chain |
-| `maintainer/` | Opt-in, for work on these plugins themselves: `/maintainer:round` (a maintenance round: survey by measurement, each fix on its own branch, reviewed by another agent, gated). Not installed for research work |
 | `domains/<name>/` | Domain packs: knowledge only, no plugin logic |
 | `academy/docs/` | The contracts and the guides (start with `academy/docs/README.md`; branches and shipping: `academy/docs/branching.md`) |
 

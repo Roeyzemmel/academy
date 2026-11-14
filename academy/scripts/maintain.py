@@ -3,7 +3,7 @@
     py maintain.py survey [--days 7] [--json] [--workspace W] [--no-probes]
     py maintain.py union --base BRANCH --branches B1 B2 ... [--repo DIR] [--json]
 
-A maintenance round (``/maintainer:round``, ``maintainer/workflows/round.js``) finds what
+A maintenance round (``/academy:maintain``, ``academy/workflows/maintain.js``) finds what
 is worth doing in the plugins, does each thing on its own branch, and proves the branches
 work together. The judgement is the agents'; what can be measured is here, so that a round
 starts from numbers and ends on a tested tree (the round of 2026-11-13 was done by hand:
@@ -31,9 +31,8 @@ gated alone; the union is what will be on ``main`` once all are merged. It creat
 branch, pushes nothing and leaves the checkout untouched. Exit 0 when every merge was
 clean and the gate passed, 1 otherwise, 2 on an error.
 
-This plugin is opt-in and stands alone: it imports nothing from the other plugins. The
-base plugin's ``error_ledger.py`` and ``ci_local.py`` are run as commands, from the
-``academy/scripts`` folder beside this plugin (the academy repo's checkout).
+It stands alone: it imports no other script, reads ``workspace.json`` itself, and runs
+``error_ledger.py`` and ``ci_local.py`` (beside it) as commands.
 
 Standard library only.
 """
@@ -52,7 +51,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(HERE)
 REPO = os.path.dirname(PLUGIN)
-BASE_SCRIPTS = os.path.join(REPO, "academy", "scripts")
+BASE_SCRIPTS = HERE
 
 
 class MaintainError(Exception):

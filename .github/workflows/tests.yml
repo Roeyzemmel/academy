@@ -69,9 +69,6 @@ jobs:
       - name: researcher
         if: ${{ !cancelled() }}
         run: python -m unittest discover -s researcher/tests -t researcher/tests
-      - name: maintainer
-        if: ${{ !cancelled() }}
-        run: python -m unittest discover -s maintainer/tests -t maintainer/tests
       - name: translation-surfaces domain pack
         if: ${{ !cancelled() }}
         run: python -m unittest discover -s domains/translation-surfaces/tests -t domains/translation-surfaces/tests

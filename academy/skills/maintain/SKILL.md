@@ -1,17 +1,17 @@
 ---
-name: round
-description: 'A maintenance round on the academy plugins: survey by measurement, then each fix on its own branch, reviewed by another agent and gated. Use for "a round on the academy", "fix the ledger errors", "optimise the plugins". --workflow fans the tasks out.'
+name: maintain
+description: 'Measured maintenance round on the academy plugins: survey, fix, gate.'
 ---
 
 # A maintenance round
 
-Work on the academy's own code, for the human or a session that works for them. This
-plugin is opt-in: it is installed only where that work is done, so its text costs no
-other session anything. `$ARGUMENTS`: empty (survey, then work the best candidates
+Work on the academy's own code, for the human or a session that works for them. It is
+run on purpose only ("a round on the academy", "fix the ledger errors", "optimise the
+plugins"). `$ARGUMENTS`: empty (survey, then work the best candidates
 yourself), `--survey` (show the candidates and stop), `--workflow` (fan the tasks out to
 agents), or a description of the tasks. `$M` is `${CLAUDE_PLUGIN_ROOT}/scripts`; the
-academy repo is `${CLAUDE_PLUGIN_ROOT}/..`. The branch and ship rules are the base
-plugin's `docs/branching.md`.
+academy repo is `${CLAUDE_PLUGIN_ROOT}/..`. The branch and ship rules are
+`docs/branching.md`.
 
 ## 1. Survey (always)
 
@@ -54,7 +54,7 @@ merged in a throwaway worktree and gated together.
 
 ## 3. The round, fanned out (`--workflow`)
 
-Call the **Workflow** tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/round.js` and
+Call the **Workflow** tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/maintain.js` and
 `args: {root: "<the academy repo, absolute>", workspace: "<the workspace root>", base:
 "<the base branch>", cap: 4}`; add `tasks: [{slug, title, kind, files, measure, why}]`
 when they are already chosen (the survey and plan stages are then skipped). The script

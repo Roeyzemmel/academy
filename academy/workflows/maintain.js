@@ -1,7 +1,7 @@
 export const meta = {
-  name: 'maintainer-round',
+  name: 'academy-maintain',
   description: 'A maintenance round on the academy\'s own code: survey by measurement, plan disjoint tasks, each task developed, reviewed and gated on its own branch (independent tasks side by side), then the branches gated together',
-  whenToUse: '/maintainer:round --workflow (the human asked for a round on the plugins: errors from the ledger, slow or large commands, defects). args: {root: "<academy repo>", workspace: "<workspace root>", base: "<branch the round starts from>", cap?: 4, days?: 7, role?: "human", tasks?: [{slug, title, kind, files: [paths], measure, why}]}',
+  whenToUse: '/academy:maintain --workflow (the human asked for a round on the plugins: errors from the ledger, slow or large commands, defects). args: {root: "<academy repo>", workspace: "<workspace root>", base: "<branch the round starts from>", cap?: 4, days?: 7, role?: "human", tasks?: [{slug, title, kind, files: [paths], measure, why}]}',
   phases: [
     { title: 'Survey', detail: 'maintain.py survey: ledger families, commands over budget, unreadable definitions' },
     { title: 'Plan', detail: 'at most cap tasks; tasks that touch the same files share a lane' },
@@ -31,8 +31,8 @@ const SUB = A.sub || 'academy'
 const DEV = 'scientist:developer'
 const REVIEWER = 'scientist:test-engineer'
 const RE_SLUG = /^[a-z0-9][a-z0-9-]{2,40}$/
-const SCRIPTS = `Scripts: maintain.py is \`py ${AR}/maintainer/scripts/maintain.py\`; ship.py is \`py scripts/ship.py\` run from the workspace root ${WS} (the shim of ${AR}/academy/scripts/ship.py); the suites are \`py -m unittest discover -s <plugin>/tests -t <plugin>/tests\` from the checkout you work in (python3 where there is no py).\n`
-const STAGE = (name, lines) => `WORKFLOW STAGE ${name} of the maintainer-round workflow. Repo: ${SUB} (${AR}). Base branch: ${A.base}.\n` + SCRIPTS + lines.filter(Boolean).join('\n')
+const SCRIPTS = `Scripts: maintain.py is \`py ${AR}/academy/scripts/maintain.py\`; ship.py is \`py scripts/ship.py\` run from the workspace root ${WS} (the shim of ${AR}/academy/scripts/ship.py); the suites are \`py -m unittest discover -s <plugin>/tests -t <plugin>/tests\` from the checkout you work in (python3 where there is no py).\n`
+const STAGE = (name, lines) => `WORKFLOW STAGE ${name} of the academy-maintain workflow. Repo: ${SUB} (${AR}). Base branch: ${A.base}.\n` + SCRIPTS + lines.filter(Boolean).join('\n')
 
 const CANDIDATE = { type: 'object', properties: { kind: { type: 'string' }, id: { type: 'string' }, title: { type: 'string' }, evidence: { type: 'string' } }, required: ['kind', 'id', 'title', 'evidence'] }
 const SURVEY = { type: 'object', properties: { ok: { type: 'boolean' }, error: { type: 'string' }, candidates: { type: 'array', items: CANDIDATE }, notes: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'error', 'candidates', 'notes'] }
@@ -213,7 +213,7 @@ const tips = lanes.map(l => [...l].reverse().map(t => pushed.find(p => p.slug ==
 if (tips.length > 1) {
   phase('Union')
   const u = await agent(STAGE('union', [
-    `From ${AR}: \`py ${AR}/maintainer/scripts/maintain.py union --base ${A.base} --branches ${tips.join(' ')} --json\`. Return what it printed: ok, the merged branches, the conflict (branch and detail as one string, or empty) and the gate lines. Change nothing; it creates no branch and pushes nothing.`,
+    `From ${AR}: \`py ${AR}/academy/scripts/maintain.py union --base ${A.base} --branches ${tips.join(' ')} --json\`. Return what it printed: ok, the merged branches, the conflict (branch and detail as one string, or empty) and the gate lines. Change nothing; it creates no branch and pushes nothing.`,
   ]), { label: 'union', phase: 'Union', agentType: DEV, schema: UNION, effort: 'low' })
   out.union = u ? { ok: u.ok, merged: u.merged, conflict: u.conflict, gate: u.gate } : { ok: false, merged: [], conflict: 'the union stage returned nothing', gate: [] }
 } else {
