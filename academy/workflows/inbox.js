@@ -170,7 +170,8 @@ async function listAll(pass) {
   // A row listed under an instance it is not addressed to is a transcription slip (live run 2026-10-31: a researcher
   // ticket listed under the Scientist): it is dropped, never run with the wrong role
   for (const i of xs) i.rows = i.rows.filter(r => {
-    if (!r.to || r.to === i.name) return true
+    // a return leg is addressed to the receiver and landed by its sender (2026-11-13: T-0369 and T-1153 were dropped)
+    if (!r.to || r.to === i.name || (r.return && r.from === i.name)) return true
     notes.push(`ANOMALY: ${r.id} was listed under ${i.name} but is addressed to ${r.to}: dropped from this pass`)
     return false
   })

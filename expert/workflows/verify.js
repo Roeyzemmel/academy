@@ -150,7 +150,7 @@ const table = (run) => agent(STAGE('table', [
 
 async function review(run) {
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const out = await agent(brief(run), { label: `run ${run}${attempt > 1 ? ' (relaunch)' : ''}`, phase: 'Review', agentType: REVIEWER })
+    const out = await agent(brief(run), { label: `run ${run}${attempt > 1 ? ' (relaunch)' : ''}`, phase: 'Review', agentType: REVIEWER, model: 'opus' })
     if (out === null) {           // a terminal API error (a limit): launch nothing further
       notes.push(`run ${run} lost (no result: a limit or an API error); nothing further launched`)
       return { lost: true }

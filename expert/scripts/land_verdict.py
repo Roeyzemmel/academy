@@ -3,8 +3,9 @@
 The rigor-reviewer is read-only (no Write, no shell; roster-rules.md rule 2), so its
 verdict reaches the files here. Fires for ``expert:rigor-reviewer`` (or a bare
 ``rigor-reviewer``) only; silent for every other agent. It reads the agent's final
-message, parses its closing ``VERDICT`` block (decision_table.parse_verdict_block)
-and writes::
+message (``_expert.final_message``: the message of a closing ``SubagentHandback`` call
+when the reviewer ended with one, T-1194), parses its closing ``VERDICT`` block
+(decision_table.parse_verdict_block) and writes::
 
     <expert home>/reviews/<ns>/<id-slug>/<pass>/<run>.md
 

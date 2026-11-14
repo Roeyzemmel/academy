@@ -72,6 +72,11 @@ $\mathrm{SL}(2,\mathbb{R})$. Fix one term and use it throughout ⚑.
 | Blocking set for $(x,y)$ | $B$; blocking cardinality $\mathrm{bc}(x,y)$ |
 | Unilluminated set from $x$ | $\mathcal{U}(x) = \{y : x \text{ does not illuminate } y\}$ ⚑ (clashes with $\mathcal{U}(P)$ above — pick one) |
 | Periodic point | a point with finite orbit under $\mathrm{Aff}(X,\omega)$ |
+| Slope of an irreducible 2-point marking $\mathcal{N}$ over $\mathcal{M}$ | $\lambda \in \mathbb{R}\cup\{\infty\}$, defined by $d\,\mathrm{hol}(\beta) = \lambda\, d\,\mathrm{hol}(\alpha)$ for the two marked points' relative periods $\alpha,\beta$ along $\mathcal{N}$ (LMW16 §6.4: the quotient of the derivatives of the two translation maps; AW21 Def. 2.3 normalises differently, see below). Rational slope in signed form $\lambda = a/b$, $a\in\mathbb{Z}\setminus\{0\}$, $b\ge 1$, $\gcd(\lvert a\rvert,b)=1$; the sign is carried by $a$ (no separate $\varepsilon$). "Slope $\pm1$" means $\lvert a\rvert=b=1$. Slope locus in $T\times T$ ($T$ a torus, $s,t$ the coordinates of the points carrying $\alpha,\beta$): $\{\,b\,t - a\,s = \kappa\,\}$, a translate of a subtorus |
+
+Slope conventions: LMW16 §6.4 defines $\lambda=\lambda_1/\lambda_2$ with no normalisation. AW21 Def. 2.3 takes
+$a$ or $1/a$, "whichever is larger in absolute value", so $\lvert\lambda_{\mathrm{AW}}\rvert\ge1$; the two agree
+only at $\lambda=\pm1$ (and $\lambda_{\mathrm{AW}}$ forgets which point is $\alpha$). State which one is used.
 
 **Standing conventions to state once in the paper and then rely on:**
 
