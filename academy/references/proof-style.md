@@ -58,6 +58,8 @@ half-proved statements."
   nonsingular.", "**Well-defined.**"). No nested lists of reasoning.
 - A **diagram or figure** is added where it carries the idea: a commutative diagram for the
   maps, a picture of the surface or the cylinders for the geometry.
+- The closing deduction needs **no "Conclusion" label** (the human, 2026-11-14): it is
+  written as plain text after the last step.
 - Discussion that **clarifies a main idea** of a step is welcome here, and only here (rule 4).
 
 ## 4. Discussion and intuition live outside the proof
