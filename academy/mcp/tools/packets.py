@@ -207,6 +207,12 @@ def iter_packets(board):
                 yield p, meta, body
 
 
+def _packet_number(row):
+    """The packet's number (P-10000 after P-9999, which a string sort would misplace)."""
+    m = re.search(r"\d+", str(row.get("packet") or ""))
+    return int(m.group()) if m else 0
+
+
 def _list(ctx, a):
     out = []
     for p, m, body in iter_packets(ctx.board):
@@ -227,7 +233,7 @@ def _list(ctx, a):
             continue
         row["path"] = os.path.relpath(p, ctx.board).replace("\\", "/")   # under "board"
         out.append(row)
-    out.sort(key=lambda r: str(r.get("packet") or ""), reverse=True)     # the newest first
+    out.sort(key=_packet_number, reverse=True)                           # the newest first
     return {"board": ctx.board.replace("\\", "/")} | page(out, a, "packets", by="state")
 
 

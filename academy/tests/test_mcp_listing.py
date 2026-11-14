@@ -64,6 +64,16 @@ class TicketsList(unittest.TestCase):
         self.assertEqual("T-0051", nxt["tickets"][0]["id"])
         last = self.call(offset=220)
         self.assertEqual(30, last["shown"])
+        # the last page says it is the last: nothing after it, so not truncated, no hint
+        # (review, 2026-11-14: every page after the first said "read on")
+        self.assertNotIn("truncated", last)
+        self.assertNotIn("hint", last)
+        self.assertEqual(220, last["offset"])
+        past = self.call(offset=250)
+        self.assertEqual((0, []), (past["shown"], past["tickets"]))
+        self.assertNotIn("truncated", past)
+        self.assertIn("rows 51-100 of 250", self.call(offset=50)["hint"])
+        self.assertIn("offset=100", self.call(offset=50)["hint"])
         self.assertEqual(250, len(self.call(limit=0)["tickets"]))
         self.assertNotIn("truncated", self.call(limit=0))
         self.assertNotIn("truncated", self.call(n=50))
@@ -120,6 +130,13 @@ class PacketsList(unittest.TestCase):
         self.assertEqual(13, pend["count"])
         self.assertTrue(all(p["pending_decisions"] for p in pend["packets"]))
         self.assertEqual([], r["packets"][1]["pending_decisions"])     # the key stays
+
+
+class PacketOrder(unittest.TestCase):
+    def test_newest_first_is_by_number(self):
+        rows = [{"packet": "P-9999"}, {"packet": "P-10000"}, {"packet": "P-0002"}, {"packet": None}]
+        rows.sort(key=packets._packet_number, reverse=True)
+        self.assertEqual(["P-10000", "P-9999", "P-0002", None], [r["packet"] for r in rows])
 
 
 class Wire(unittest.TestCase):

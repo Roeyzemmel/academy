@@ -412,7 +412,7 @@ def main(argv=None):
                     print(_fmt_row(m))
                 print("%d ticket(s)" % len(rows))
                 if len(shown) < len(rows):
-                    counts = collections.Counter(m.get("status") for m in rows)
+                    counts = collections.Counter(str(m.get("status")) for m in rows)
                     print("(the first %d; %s; narrow with --to / --from / --status / --kind / "
                           "--text, or --limit 0 for all)" % (len(shown), ", ".join(
                               "%s %d" % kv for kv in sorted(counts.items()))))
