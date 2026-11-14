@@ -103,6 +103,13 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 - **Definitions and notation come before the statement** that uses them, not inside a
   proof, when they are used again. An explicit construction (a map, an atlas, a
   decomposition) is a definition of its own, given before the claims about it.
+- **Statements come in constructive order** (the human, 2026-11-14): supporting statements
+  before what uses them. Main theorems are the exception: they may appear in the
+  introduction of the section or of the whole paper.
+- **No two statements state the same thing** (the human, 2026-11-14), for instance a lemma
+  that another statement merely quotes. A lemma is extracted when a more general
+  phenomenon occurs, or when a special case is treated and then reduced into; a list
+  inside one statement is for narrative reasons, to consolidate several statements.
 - **A statement with several conclusions lists them** ((i)–(iii) or bullets), and its proof
   follows the same list.
 - **A short name in brackets** for a statement referred to by content: "Lemma 6 [Lower
