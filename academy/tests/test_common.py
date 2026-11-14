@@ -1031,6 +1031,13 @@ class TicketEdgeTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertIn("%s relays it" % relay, why, (frm, to))
 
+    def test_a_non_liaison_is_told_where_to_file_instead(self):
+        # the ledger, 2026-11-13: math-editor tried eight times to file to the Expert
+        ok, why = ac.ticket_edge_allowed("author@main", "expert@main", "math-editor", EDGE_PERMS)
+        self.assertFalse(ok)
+        self.assertIn("math-editor is not a liaison for author->expert", why)
+        self.assertIn("file it to your own author instance instead", why)
+
     def test_exempt_and_clerical(self):
         self.assertTrue(self.ok("author@main", "researcher@s1", "claim-keeper"))
         self.assertTrue(self.ok("author@main", "researcher@s1", "math-editor", clerical=True))

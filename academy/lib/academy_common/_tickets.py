@@ -186,8 +186,10 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
     who = agent or MAIN_AGENT
     if who in names:
         return True, "liaison"
-    return False, ("%s is not a liaison for %s->%s (liaisons: %s)"
-                   % (who, rf, rt, ", ".join(names) or "none"))
+    return False, ("%s is not a liaison for %s->%s (liaisons: %s); file it to your own "
+                   "%s instance instead, with the ask: its inbox routes it and a liaison "
+                   "files it with the %s"
+                   % (who, rf, rt, ", ".join(names) or "none", rf, rt))
 
 
 def parties(meta, instance):

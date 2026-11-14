@@ -58,10 +58,15 @@ verdicts and the packet's `## Decision`:
   way; quote R's line and the base pass's two.
 - If the claim's registry status is not yet `proved`, propose it:
   `claims_propose_status` (the claim-keeper sets it; you never set a status).
-- Anything short of that: no recolour. Record what the verdicts found as tickets
-  (`tickets_create`, `agenda` the label's claim), e.g. a GAP becomes a `research` ticket
-  to the Expert with `final_to: researcher`. A hypothesis, statement or proof-step
-  finding is always the Researcher's; never apply one yourself.
+- Anything short of that: no recolour. Record what the verdicts found as tickets **to
+  this Author instance** (`tickets_create` with `to:` your own instance, kind `write`,
+  `agenda` the label's claim). For a GAP say so in the title or ask in the words the
+  inbox reads ("a missing step in the proof of ...", "repair the proof of ...", "add the
+  hypothesis ..."): the inbox then routes it as research, and the writer files it with
+  the Expert, `final_to: researcher`. You are not a liaison to the Expert: a ticket from
+  you to the Expert is refused (the ledger, 2026-11-13: eight refusals in one landing).
+  A hypothesis, statement or proof-step finding is always the Researcher's; never apply
+  one yourself.
 - A `cite` ticket: insert the `\cite` with the key and pinpoint the ticket's result
   gives.
 - Close the ticket when the landing is done: `tickets_update` status `closed` (you
