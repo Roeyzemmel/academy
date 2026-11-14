@@ -7,14 +7,12 @@ without the old one's memory.
 
 ## Where things stand
 
-- **The academy repo**: one chain of pull requests, #23 to the one that adds this note,
-  none merged. Each branch holds all the ones before it, and `main` had not moved under
-  the chain when this was written (check: `git merge-base --is-ancestor origin/main
-  HEAD`). The tip is the branch this file is on. **Work from the tip, not from `main`**: a
-  fresh checkout of the workspace puts the academy submodule at an old commit. First
-  thing: `git -C academy fetch origin` and `git -C academy switch <tip branch>` (it is
-  the last row of `py scripts/ship.py stack academy`, or the newest
-  `2026-11-14/.../human` branch on the remote).
+- **The academy repo**: the chain of pull requests #23 to #81 was merged into `main` by
+  the human on 2026-11-14 (one merge of its tip), together with a campaign branch of the
+  ticket sessions. **Work from `main`**: `git -C academy fetch origin main`, then a new
+  branch with `py scripts/ship.py start academy <topic> --role human`. A fresh checkout
+  of the workspace may still put the academy submodule at an older commit until the
+  human bumps the pointer; the session's first line says when the checkout is behind.
 - **The workspace repo**: branch `2026-11-13/ship-docs/human` (its docs, the cloud TeX
   script, the session's error ledger under `board/.errors`).
 - **The lab, the notebook, the paper**: one branch each from 2026-11-13
@@ -33,8 +31,9 @@ without the old one's memory.
    the first real `/academy:inbox` after the merge is the test. Read its `budget`,
    `notes` and `taken` against `skills/inbox/SKILL.md`.
 3. **`/academy:maintain` has not run for real**, in either mode.
-4. **The human's own list** is at the end of the record. The three that block others:
-   merge the chain; allow `mcp__plugin_academy_academy__tickets_update` (a session cannot
+4. **The human's own list** is at the end of the record. The chain is merged; what
+   still blocks others: bump the workspace's academy pointer and run `scripts/bootstrap.py`
+   on each machine; allow `mcp__plugin_academy_academy__tickets_update` (a session cannot
    write its own permission rules; about a hundred open tickets cannot start without
    it); look at `expert:rigor-reviewer` in a new session's agent list and decide about the
    proof reviews run since 2026-10-31.
@@ -77,6 +76,9 @@ without the old one's memory.
 - **Count what a split or a filter drops.** Splitting a suite by file name silently lost
   two test files until the counts were compared.
 - **A checkout being gated must not change under the gate.** Use another worktree.
+- **Look at `main` before a push, not only at the start.** It moved by nine commits
+  during this session (the human merged the chain), and six tests that read how far the
+  checkout was behind failed until they were made independent of it.
 - **A session does not write permission rules**, its own or the workspace's. Propose
   the line to the human.
 - **After every change, the repos are left clean**: the board's error ledger grows while

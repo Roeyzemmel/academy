@@ -607,7 +607,7 @@ class TicketOwnershipTests(TicketEditCheckTests):
 
 class SessionStartTests(Fixture):
     def start(self, cwd, env=None):
-        e = dict(self.env)
+        e = dict(self.env, ACADEMY_STALENESS="off")   # the clause has its own tests
         e.update(env or {})
         event = {"hook_event_name": "SessionStart", "source": "startup", "cwd": cwd}
         rc, out, err = run_hook("session_start.py", event, e)
