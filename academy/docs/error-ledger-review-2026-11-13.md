@@ -194,7 +194,8 @@ continues in the same order:
 | 56 | #78 | a receiver may reject a ticket it has started, with a reason | |
 | 57 | #79 | maintenance stays in the base plugin (`/academy:maintain`, both modes); the `maintainer` plugin of row 50 is removed | |
 | 58 | #80 | **decisions hold nothing back**: `decisions.py proceed` lets work go on under a packet's recommendation, provisionally; another choice returns the ticket | 11 decisions on the live board (dry run) |
-| 59 | this one | the map, rows 55 to 59 | |
+| 59 | #81 | the map, rows 55 to 59 | |
+| 60 | this one | the handoff note for another session (`error-ledger-review-2026-11-13-handoff.md`) | |
 
 **Found by measuring, not by the suites.**
 
