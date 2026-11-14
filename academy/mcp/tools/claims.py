@@ -35,7 +35,7 @@ import sys
 
 import academy_common as ac
 
-from . import Tool, ToolError, obj, S, I, B, L
+from . import Tool, ToolError, obj, S, B, L
 from . import tickets as _tickets
 
 _PLUGIN = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -417,10 +417,50 @@ class RegistryBackend(ClaimsBackend):
             bits.append("grader %s" % str(row["grader_role"]).strip())
         if row.get("note"):
             bits.append(str(row["note"]).strip())
-        cells = [kind, ref, verdict, run, "; ".join(bits)]
+        # the row is cells joined by '|': a bar in the free text (|x|, a table cell
+        # pasted into a note) is written as the divides sign, which reads the same
+        # (9 refusals in the ledger, five weeks); a bar in an id or a ref stays an error
+        cells = [kind, ref, verdict.replace("|", "\u2223"), run,
+                 "; ".join(bits).replace("|", "\u2223")]
         if any("|" in c for c in cells):
-            raise ToolError("an evidence cell may not contain '|'")
+            raise ToolError("an evidence type, ref or run_id may not contain '|'")
         return " | ".join(cells)
+
+    def _canon_ref(self, home, ref):
+        """``ref`` in the protocol's form when it names one existing file of the
+        workspace (``workspace.canonical_ref``); otherwise as given."""
+        from pathlib import Path
+        if not isinstance(ref, str) or not ref.strip():
+            return ref
+        try:
+            return self.workspace.canonical_ref(ref, Path(home))
+        except (OSError, ValueError):
+            return ref
+
+    def _canon_grounds(self, home, grounds):
+        """The grounds with every verdict's ``ref`` and ``verdict_file`` canonical."""
+        if not isinstance(grounds, dict):
+            return grounds
+        g = dict(grounds)
+        if isinstance(g.get("verdicts"), list):
+            g["verdicts"] = [dict(v, ref=self._canon_ref(home, v.get("ref")))
+                             if isinstance(v, dict) and v.get("ref") else v
+                             for v in g["verdicts"]]
+        if g.get("verdict_file"):
+            g["verdict_file"] = self._canon_ref(home, g["verdict_file"])
+        return g
+
+    @staticmethod
+    def _pass_verdict(vfile, refs):
+        """The verdict ref a ``verdict_file`` means when it names the pass instead of a
+        verdict: the pass folder, or its ``decision.md`` (the chair's table, which is
+        not a verdict; 4 refusals 2026-10-31..11-03). The first ref in that folder."""
+        folder = vfile.rstrip("/")
+        if folder.endswith(".md"):
+            if os.path.basename(folder) != "decision.md":
+                return None
+            folder = os.path.dirname(folder)
+        return next((r for r in refs if os.path.dirname(r) == folder), None)
 
     def _s1_is_v2(self, home, rest):
         kb = self.s1kb.load_kb(home)
@@ -432,6 +472,8 @@ class RegistryBackend(ClaimsBackend):
             raise ToolError("row must be an object: {type, ref, verdict, run_id, note}")
         ns, rest = split_id(cid)
         home = self._home(ns)
+        if row.get("ref"):
+            row = dict(row, ref=self._canon_ref(home, row["ref"]))
         if self._profile(ns) == "s1-kb":
             kind = str(row.get("type") or row.get("kind") or "")
             if kind != "verdict" and self._s1_is_v2(home, rest):
@@ -485,6 +527,7 @@ class RegistryBackend(ClaimsBackend):
     def set_status(self, cid, status, grounds, note=None):
         ns, rest = split_id(cid)
         home = self._home(ns)
+        grounds = self._canon_grounds(home, grounds)
         if self._profile(ns) == "s1-kb":
             # a schema-v2 record takes the one vocabulary as is (R5); a v1 one its label
             label = status if self._s1_is_v2(home, rest) else S1_WORDS.get(status)
@@ -533,6 +576,8 @@ class RegistryBackend(ClaimsBackend):
         refs = self._s1_verdict_refs(home, g)
         vfile = str(g.get("verdict_file") or "").replace("\\", "/") or \
             (refs[0] if refs else "")
+        if vfile and refs and vfile not in refs:
+            vfile = self._pass_verdict(vfile, refs) or vfile
         if vfile and refs and vfile not in refs:
             raise ToolError("refused: grounds.verdict_file %s is none of the verdicts' "
                             "refs (%s); pass grounds.verdict_file=%s, or leave it out "
@@ -782,6 +827,95 @@ def _set_status(ctx, a):
     return be.set_status(cid, status, a.get("grounds"), a.get("note"))
 
 
+# -- the touch ledger (docs/branching.md, "After each inbox ticket") --------------
+# A claims write lands in the home that owns the claim's namespace, often not the
+# caller's (a review chair's evidence row on a paper: claim, the claim-keeper's status on
+# a lab: claim). The checkpoint after the caller's ticket is scoped to the caller's
+# repos, so the files such a call changed are recorded (ac.record_touch) and shipped by
+# that ticket's --check. What changed is measured, not guessed: the home's dirty files
+# (git status) with their size and mtime before and after the call.
+
+def _cross_home(ctx, ns):
+    """``(root, home, role, instance)`` when a write in ``ns`` by this caller lands in a
+    home of another role; None otherwise (the human, a base-plugin agent, the caller's
+    own role's home, or ``"shipCheckpoint": false``)."""
+    if ctx.is_human:
+        return None
+    role = ctx.agent_plugin()
+    if role not in ac.ROLES:
+        return None
+    ws = ctx.workspace
+    if ws.get("shipCheckpoint") is False:
+        return None
+    owner = ctx.instance_by_ns(ns)
+    inst = ctx.instances().get(owner or "") or {}
+    if not owner or not inst.get("home") or inst.get("role") == role:
+        return None
+    try:
+        acting = ctx.instance
+    except Exception:            # noqa: BLE001 -- several instances of the role: unknown
+        acting = None
+    if acting == ac.HUMAN:
+        acting = None
+    return os.path.dirname(ws["_path"]), inst["home"], role, acting
+
+
+def _dirty_files(home):
+    """``{absolute path: (size, mtime_ns) or None}`` of the uncommitted files of the
+    repository holding ``home`` (None: deleted). {} when git cannot say."""
+    def git(*args):
+        p = subprocess.run(["git", "-C", home] + list(args), capture_output=True,
+                           stdin=subprocess.DEVNULL, timeout=30)
+        return p.stdout.decode("utf-8", "replace") if p.returncode == 0 else None
+    top = (git("rev-parse", "--show-toplevel") or "").strip()
+    raw = git("status", "--porcelain", "-z", "--untracked-files=all") if top else None
+    if not raw:
+        return {}
+    out, fields, i = {}, raw.split("\0"), 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        if entry[0] in "RC":
+            i += 1
+        path = os.path.join(top, entry[3:])
+        try:
+            st = os.stat(path)
+            out[path] = (st.st_size, st.st_mtime_ns)
+        except OSError:
+            out[path] = None
+    return out
+
+
+def _recorded(handler, via):
+    """``handler`` with its cross-home writes recorded in the touch ledger. Recording is
+    best effort: it never fails or changes the call."""
+    def run(ctx, a):
+        target = None
+        try:
+            ns, _ = split_id(a["id"])
+            target = _cross_home(ctx, ns)
+            before = _dirty_files(target[1]) if target else None
+        except Exception:        # noqa: BLE001
+            target = None
+        res = handler(ctx, a)
+        if target:
+            try:
+                after = _dirty_files(target[1])
+                changed = [p for p, sig in after.items() if before.get(p, False) != sig]
+                if changed:
+                    root, _home, role, acting = target
+                    ac.record_touch(root, sorted(changed), role, acting,
+                                    agent="%s:%s" % (ctx.agent_ns, ctx.agent)
+                                    if ctx.agent_ns else ctx.agent, via=via)
+            except Exception:    # noqa: BLE001
+                pass
+        return res
+    run.__name__ = getattr(handler, "__name__", via)
+    return run
+
+
 ID = {"type": "string", "description": "Claim id '<ns>:<id>', e.g. lab:ew-check, "
                                        "paper:lem:strip-bound, nb:BOUND-1"}
 NS = {"type": "string", "description": "A claim namespace: the 'ns' of an instance in "
@@ -823,13 +957,13 @@ TOOLS = [
                          "A live ticket addressed to the namespace's instance: lets an "
                          "agent of that role create there from another home (the "
                          "ticket's thread records it)"}}, ["id", "title"]),
-         _new, write=True),
+         _recorded(_new, "claims_new"), write=True),
     Tool("claims_attach_evidence", "Append one evidence row {type, ref, verdict, run_id, "
          "note} to a claim (append-only); type is experiment, audit, verdict (a proof "
          "review; 'proof-review' is accepted for it), hand, citation or note. A v1 "
          "notebook record: a verdict file, appended to cleared_by.",
          obj({"instance": _tickets.ACTING, "id": ID, "row": {"type": "object"}},
-             ["id", "row"]), _attach, write=True),
+             ["id", "row"]), _recorded(_attach, "claims_attach_evidence"), write=True),
     Tool("claims_propose_status", "Propose a status change: files a decision ticket to "
          "the claim-keeper's instance; changes nothing itself.",
          obj({"instance": _tickets.ACTING, "id": ID, "status": S, "reason": S, "grounds": GROUNDS, "refs": L},
@@ -839,5 +973,5 @@ TOOLS = [
          "grounds (plan section 8) and the review records they cite, and refuses without "
          "them.",
          obj({"instance": _tickets.ACTING, "id": ID, "status": S, "grounds": GROUNDS, "note": S}, ["id", "status"]),
-         _set_status, write=True),
+         _recorded(_set_status, "claims_set_status"), write=True),
 ]

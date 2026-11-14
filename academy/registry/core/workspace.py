@@ -310,6 +310,67 @@ def instance_home(instance, repo=None):
     return next((c for c in cands if c.exists()), None)
 
 
+_RE_REF_FORM = re.compile(r"^(?:https?://|file:[a-z]+@|[A-Za-z0-9_\-]{2,}:(?![\\/]))")
+
+
+def canonical_ref(ref, repo):
+    """The protocol form of a file reference given from home ``repo``.
+
+    A reference is recorded home-relative (``audits/x/A.md``) or, for a file of another
+    instance, as ``file:<instance>/<path>``. Callers also give an absolute path, a path
+    from the workspace root (``library/reviews/...``) or a path relative to another
+    instance's home (``reviews/s1/...`` from a notebook): the error ledger of
+    2026-10-31..11-08 has nine refusals "not found on disk" / "none of the verdicts'
+    refs" for files that existed. Such a reference is rewritten when it names exactly
+    one existing file inside an instance home; anything else (a URL, a reference
+    already in a protocol form, a home-relative path that exists, a path that matches
+    nothing or several files) is returned unchanged, for the caller's own check to
+    judge."""
+    text = str(ref or "").strip().replace("\\", "/")
+    if not text or (_RE_REF_FORM.match(text) and not re.match(r"^[A-Za-z]:/", text)):
+        return ref
+    path, _, anchor = text.partition("#")
+    repo = Path(repo)
+    ws = load_workspace() or {}
+    homes = {}
+    for name, info in (ws.get("instances") or {}).items():
+        if info.get("home"):
+            homes[name] = instance_home(name, repo) or Path(info["home"])
+    p = Path(path)
+    if p.is_absolute():
+        cands = [p]
+    else:
+        if (repo / p).is_file():
+            return ref
+        wp = workspace_path()
+        cands = ([wp.parent / p] if wp else []) + [h / p for h in homes.values()]
+    found = {}
+    for c in cands:
+        try:
+            if c.is_file():
+                found[c.resolve()] = c
+        except OSError:
+            continue
+    if len(found) != 1:
+        return ref
+    full = next(iter(found))
+    best = None
+    for name, h in list(homes.items()) + [(None, repo)]:
+        try:
+            rel = full.relative_to(Path(h).resolve())
+        except (ValueError, OSError):
+            continue
+        if best is None or len(rel.parts) < len(best[1].parts) or name is None and \
+                len(rel.parts) == len(best[1].parts):
+            best = (name, rel)
+    if best is None:
+        return ref
+    name, rel = best
+    out = rel.as_posix() if name is None or Path(homes[name]).resolve() == repo.resolve() \
+        else "file:%s/%s" % (name, rel.as_posix())
+    return out + ("#" + anchor if anchor else "")
+
+
 def instances_of_role(role):
     """The workspace instance names whose role is ``role``."""
     ws = load_workspace()

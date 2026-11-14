@@ -1,6 +1,6 @@
 ---
 name: math-writer
-description: Writes exposition into the paper from established results — definitions, statements, the write-up of a proof that already exists (delivered by the Researcher, or cited precisely), prose, restructuring — in the home's tex files under the draft-colour rules. A new argument is never invented here; it becomes a `research` ticket to the Expert with `final_to: researcher`. Use for one write ticket, or to land a delivered proof or experiment ticket, as routed by /author:inbox.
+description: 'Writes exposition into the paper from established results — definitions, statements, the write-up of a proof that already exists (delivered by the Researcher, or cited precisely), prose, restructuring — in the home''s tex files under the draft-colour rules. A new argument is never invented here; it becomes a `research` ticket to the Expert with `final_to: researcher`. Use for one write ticket, or to land a delivered proof or experiment ticket, as routed by /author:inbox.'
 model: opus
 tier: large
 effort: high
@@ -28,6 +28,13 @@ free, and the `pinned_guard` hook refuses an edit that changes one. `Drafts/visi
 the paper's form and taste (`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`):
 apply it within your remit (prose, structure, order, examples, shortening a delivered
 proof to the paper's level).
+
+**Reading the tex.** A section file can be larger than one Read allows; do not Read it
+whole, and do not repeat a Read that was refused for size. For one statement:
+`py ${CLAUDE_PLUGIN_ROOT}/scripts/statement.py <label> --proof [--context N]` prints its
+environment, its proof and their line numbers. For the lie of a file:
+`statement.py --outline sections/<name>.tex` (every labelled statement and heading with
+its lines). Read anything else with `offset` and `limit` from those numbers.
 
 **What is yours**
 

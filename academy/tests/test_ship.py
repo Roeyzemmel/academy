@@ -40,6 +40,103 @@ class Base(unittest.TestCase):
         return ship.current(self.sub)
 
 
+class TestWorktreePlace(Base):
+    """A worktree started from a worktree lands beside it, under the main checkout
+    (2026-11-13: ``--repo`` a worktree nested the new one inside it, and a relative
+    ``--repo`` joined the path twice)."""
+
+    def test_a_worktree_started_from_a_worktree_is_not_nested(self):
+        rc, out, err = self.ship("start", "sub", "one", "--role", "human", "--worktree")
+        self.assertEqual(0, rc, err)
+        home = os.path.join(os.path.realpath(self.sub), ".claude", "worktrees")
+        (first,) = os.listdir(home)
+        for repo in (os.path.join(home, first),
+                     os.path.relpath(os.path.join(home, first), os.getcwd())):
+            topic = "two" if os.path.isabs(repo) else "three"
+            rc, out, err = self.ship("start", "sub", topic, "--role", "human", "--worktree",
+                                     "--repo", repo)
+            self.assertEqual(0, rc, err)
+        self.assertEqual(3, len(os.listdir(home)), os.listdir(home))
+        self.assertFalse(os.path.exists(os.path.join(home, first, ".claude")))
+        listed = [os.path.realpath(ln.split()[1]) for ln in
+                  run(self.sub, "worktree", "list", "--porcelain").splitlines()
+                  if ln.startswith("worktree ")]
+        self.assertEqual(sorted([os.path.realpath(self.sub)]
+                                + [os.path.join(home, d) for d in os.listdir(home)]),
+                         sorted(listed))
+
+
+class TestWorktreePlaceInARealSubmodule(unittest.TestCase):
+    """A submodule made by git itself keeps its git directory in the superproject
+    (``sub/.git`` is a file). The fixture's ``sub`` has a ``.git`` directory, which hid
+    this (review, 2026-11-14)."""
+
+    def test_the_main_checkout_of_an_absorbed_submodule_and_of_its_worktrees(self):
+        tmp = tempfile.mkdtemp(prefix="ship-absorbed-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        src, sup = os.path.join(tmp, "src"), os.path.join(tmp, "sup")
+        for d in (src, sup):
+            os.makedirs(d)
+            run(d, "init", "-q", "-b", "main")
+            run(d, "config", "user.name", "T")
+            run(d, "config", "user.email", "t@example.com")
+        with open(os.path.join(src, "a.txt"), "w", encoding="utf-8") as fh:
+            fh.write("a\n")
+        run(src, "add", "a.txt")
+        run(src, "commit", "-q", "-m", "init")
+        run(sup, "-c", "protocol.file.allow=always", "submodule", "add", "-q", src, "sub")
+        sub = os.path.join(sup, "sub")
+        self.assertTrue(os.path.isfile(os.path.join(sub, ".git")))          # absorbed
+        real = os.path.realpath
+        self.assertEqual(real(sub), real(ship.main_checkout(sub)))
+        wt = os.path.join(sub, ".claude", "worktrees", "x")
+        run(sub, "worktree", "add", "-q", "-b", "x", wt)
+        self.assertEqual(real(sub), real(ship.main_checkout(wt)))
+        self.assertNotIn(os.sep + ".git" + os.sep, real(ship.main_checkout(wt)) + os.sep)
+
+    def test_a_plain_repository_and_its_worktree(self):
+        tmp = tempfile.mkdtemp(prefix="ship-plain-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        run(tmp, "init", "-q", "-b", "main")
+        run(tmp, "config", "user.name", "T")
+        run(tmp, "config", "user.email", "t@example.com")
+        run(tmp, "commit", "-q", "--allow-empty", "-m", "init")
+        wt = os.path.join(tmp, "wt")
+        run(tmp, "worktree", "add", "-q", "-b", "x", wt)
+        real = os.path.realpath
+        self.assertEqual(real(tmp), real(ship.main_checkout(tmp)))
+        self.assertEqual(real(tmp), real(ship.main_checkout(wt)))
+        self.assertEqual(real(tmp), real(ship.main_checkout(os.path.relpath(wt))))
+
+
+class TestFixtureCleanup(unittest.TestCase):
+    def test_a_tree_with_read_only_entries_is_removed(self):
+        import ship_fixture
+        import stat
+        d = tempfile.mkdtemp(prefix="ship-fixture-ro-")
+        os.makedirs(os.path.join(d, "objects", "ab"))
+        f = os.path.join(d, "objects", "ab", "cd")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write("x")
+        os.chmod(f, stat.S_IREAD)
+        calls = []
+        real = os.unlink
+
+        def refuse_read_only(p, *a, **k):          # as Windows does
+            if not os.access(p, os.W_OK):
+                calls.append(p)
+                raise PermissionError(13, "Access is denied", p)
+            return real(p, *a, **k)
+        os.unlink = refuse_read_only
+        try:
+            ship_fixture.remove_tree(d)
+        finally:
+            os.unlink = real
+        self.assertFalse(os.path.exists(d))
+        self.assertTrue(calls)                         # the refusal happened and was retried
+        ship_fixture.remove_tree(d + "-never-there")   # a missing tree is not an error
+
+
 class TestNames(unittest.TestCase):
     def test_branch_name_slugs_topic(self):
         self.assertEqual(ship.branch_name("Coimage Proof!", "human", today="2026-09-30"),

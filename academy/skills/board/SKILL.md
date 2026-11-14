@@ -12,7 +12,7 @@ transition.
 
 | Request | Run |
 |---|---|
-| `list [filters]` | `py $S/board.py list [--to X] [--from X] [--status S] [--all]` |
+| `list [filters]` | `py $S/board.py list [--to X] [--from X] [--status S] [--kind K] [--text "words"] [--all] [--limit N]` (50 rows unless `--limit`; `--text` searches titles, asks and bodies) |
 | `show T-NNNN` | `py $S/board.py show T-NNNN` |
 | `new ...` | Draft it, show the draft, confirm with `AskUserQuestion`, then `py $S/board.py new --as human ...` |
 | `close` / `cancel` / `reopen` / any status | `py $S/board.py transition T-NNNN <status> [--reason R] [--result R] [--waiting-on a,b]` |

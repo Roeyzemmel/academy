@@ -150,6 +150,12 @@ class UsageReportTest(Sandbox):
         self.assertEqual(usage_report.role_of_agent("general-purpose", roster), "builtin")
         self.assertEqual(usage_report.model_family("claude-fable-5-1"), "fable")
 
+    def flag_lines(self, flags):
+        rep = {"sessions": 0, "subagents": 0, "total": {k: 0 for k in usage_report.COUNTED},
+               "by_instance": {}, "by_role": {}, "by_agent": [], "flags": flags}
+        now = _dt.datetime(2026, 11, 8)
+        return usage_report.render_markdown(rep, now - _dt.timedelta(days=7), now)
+
     def test_report(self):
         root = self.make_projects()
         agents = os.path.join(self.tmp, "repo", "academy", "agents")
@@ -286,6 +292,28 @@ class UsageReportTest(Sandbox):
         flags = usage_report.aggregate(sess, {}, dec)["flags"]
         self.assertEqual([f["kind"] for f in flags], ["heavier-than-declared"])
         self.assertEqual(flags[0]["tier"], "medium")
+        # the other way round: an agent that declares opus and ran on sonnet
+        light = [dict(sess[0], subagents=[dict(sess[0]["subagents"][0],
+                                               models={"claude-sonnet-5-5": 7,
+                                                       "claude-opus-5-5": 2})])]
+        lf = usage_report.aggregate(light, {}, {"concierge": "opus"})["flags"]
+        self.assertEqual([("lighter-than-declared", {"sonnet": 7})],
+                         [(f["kind"], f["turns"]) for f in lf])
+        self.assertEqual([], usage_report.model_flags("x:concierge", {"opus": 3},
+                                                      {"concierge": "opus"}))
+        self.assertEqual([], usage_report.model_flags("x:unknown", {"haiku": 3}, {}))
+        # a board summary's agent_models are checked the same way, with its session
+        rep = {"by_instance": {}, "total": {k: 0 for k in usage_report.COUNTED},
+               "sessions": 0, "subagents": 0, "flags": []}
+        usage_report.merge_board(rep, [
+            {"session": "abcdef123456", "instance": "expert@e", "turns": 5,
+             "subagents": {"expert:concierge": 1},
+             "agent_models": {"expert:concierge": {"sonnet": 4}}},
+            {"session": "old", "instance": "expert@e", "turns": 1, "subagents": {}}],
+            {"concierge": "opus"})
+        self.assertEqual([("lighter-than-declared", "abcdef123456")],
+                         [(f["kind"], f["session"]) for f in rep["flags"]])
+        self.assertIn("ran on sonnet (4 turns) in session abcdef12", self.flag_lines(rep["flags"]))
         ws = {"models": {"tiers": {"medium": "opus"}}}
         dec = usage_report.declared_models(repo, ws)
         self.assertEqual(dec["concierge"], "opus")
@@ -762,9 +790,67 @@ class AcademyStatusTest(Sandbox):
         self.assertIn("IN FLIGHT", text)
         self.assertIn("usage 7d", text)
 
+    def test_overdue_names_a_weekly_review_gone_quiet(self):
+        # 2026-11-13: the weekly job "succeeded" for five weeks without filing a packet
+        today = _dt.date(2026, 11, 13)
+        self.assertEqual([], academy_status.overdue(self.board, today))     # nothing to review
+        os.makedirs(os.path.join(self.board, ".errors"))
+        with open(os.path.join(self.board, ".errors", "i.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write('{"t": "error", "ts": "2026-11-10T10:00:00", "sig": "A", "tool": "Bash"}\n')
+        lines = academy_status.overdue(self.board, today)
+        self.assertIn("no usage packet on the board", lines[0])
+        self.assertIn("never settled; 1 error(s) in the last 7 days", lines[1])
+        academy_status.packetlib.create_packet(self.board, "expert@d", "Usage", kind="usage", date="2026-09-28")
+        lines = academy_status.overdue(self.board, today)
+        self.assertIn("last usage packet is of 2026-09-28 (46 days ago)", lines[0])
+        ws = ac.load_workspace(self.ws_path)
+        text = academy_status.render(academy_status.summary(self.board, ws, "2026-09-01"))
+        self.assertNotIn("OVERDUE", text.split("NEEDS YOU")[1])
+        academy_status.packetlib.create_packet(self.board, "expert@d", "Usage", kind="usage", date="2026-11-09")
+        self.assertEqual([], academy_status.overdue(self.board, today))
+        self.assertNotIn("OVERDUE", academy_status.render(
+            dict(academy_status.summary(self.board, ws, "2026-09-01"), overdue=[])))
+
     def test_last_visit_default(self):
         d = academy_status.last_visit(default_days=7, today=_dt.date(2026, 9, 27))
         self.assertTrue(ac.RE_DATE.match(d))
+
+
+class AcademyStatusScreenTest(unittest.TestCase):
+    """The screen stays a screen (2026-11-13: 286 waiting items were 48 000 characters)."""
+
+    def summary(self, n):
+        tickets = [{"id": "T-%04d" % i, "title": "t%d" % i, "from": "author@a" if i % 3 else "expert@e",
+                    "to": "human", "status": "open", "priority": "high" if i == 5 else "normal"}
+                   for i in range(1, n + 1)]
+        packets = [{"packet": "P-%04d" % i, "title": "p%d" % i, "instance": "expert@e",
+                    "kind": "citation", "_pending": [1] if i == 2 else []}
+                   for i in range(1, n + 1)]
+        return {"needs_you": {"tickets_to_human": tickets, "blocked_on_human": [],
+                              "packets": packets},
+                "in_flight": {}, "since": "2026-11-01",
+                "came_back": {"tickets": [dict(t, result="word " * 100) for t in tickets],
+                              "packets": []}}
+
+    def test_long_lists_are_cut_urgent_first_and_the_rest_is_counted(self):
+        text = academy_status.render(self.summary(40))
+        lines = text.splitlines()
+        self.assertEqual("NEEDS YOU (80)", lines[0])
+        self.assertTrue(lines[1].startswith("  ticket  T-0005"), lines[1])       # high priority
+        self.assertTrue(lines[2].startswith("  ticket  T-0040"), lines[2])       # then newest
+        self.assertIn("  ... and 28 more tickets to you (author@a 19, expert@e 9); --all lists them",
+                      lines)
+        packets = [ln for ln in lines if ln.startswith("  packet  ")]
+        self.assertEqual(academy_status.SCREEN_ROWS, len(packets))
+        self.assertIn("P-0002", packets[0])                                      # a decision waits
+        self.assertTrue(all(len(ln) < 260 for ln in lines), max(map(len, lines)))
+        self.assertLess(len(text), 6000)
+
+    def test_all_lists_every_row_and_a_short_list_is_untouched(self):
+        self.assertEqual(40, academy_status.render(self.summary(40), cap=0).count("  ticket  "))
+        short = academy_status.render(self.summary(3))
+        self.assertNotIn("more", short)
+        self.assertEqual(3, short.count("  ticket  "))
 
 
 class AsHumanLintTests(unittest.TestCase):
@@ -779,8 +865,9 @@ class AsHumanLintTests(unittest.TestCase):
             for sub in ("skills", "agents", "scripts", "hooks"):
                 root = os.path.join(repo, plugin, sub)
                 for dp, _dn, fns in os.walk(root):
+                    _dn[:] = [d for d in _dn if d != "_academy"]     # the vendored lib
                     for fn in fns:
-                        if not fn.endswith((".md", ".py", ".json")) or fn == "_academy.py":
+                        if not fn.endswith((".md", ".py", ".json")):
                             continue
                         rel = os.path.relpath(os.path.join(dp, fn), repo)
                         with open(os.path.join(dp, fn), encoding="utf-8") as fh:
@@ -887,7 +974,7 @@ class ChainDocsTests(unittest.TestCase):
 
     def test_protocol_research_flow_names_the_research_kind(self):
         """M4: research-intake forwards a `research` child; /author:inbox files as main."""
-        flow = self.section(self.read("docs", "protocol.md"),
+        flow = self.section(self.read("academy", "docs", "protocol.md"),
                             "### 6.4", "### 6.5")
         self.assertNotIn("`lead`", flow)
         self.assertIn("child `research` ticket", flow)
@@ -895,7 +982,7 @@ class ChainDocsTests(unittest.TestCase):
 
     def test_protocol_chain_section_warns_about_nesting_and_the_cli(self):
         """M6, M7: relay-within-relay and the self-declared CLI identity."""
-        chain = self.section(self.read("docs", "protocol.md"), "### 5.1", "## 6.")
+        chain = self.section(self.read("academy", "docs", "protocol.md"), "### 5.1", "## 6.")
         self.assertIn("fresh chain", chain)
         self.assertIn("self-declared", chain)
         self.assertIn("advisory", chain)

@@ -24,8 +24,12 @@ const REFEREE = A.referee || (A.referee_ticket ? `the referee packet in the pack
 const CLERK = 'academy:inbox-clerk'
 const FILER = 'general-purpose'
 const SELF_KINDS = ['apply', 'write', 'copy', 'figure', 'build', 'notation', 'sweep']
-const ROUTES = A.root ? `${A.root.replace(/[\\/]+$/, '')}/author/scripts/routes.py` : '<author plugin>/scripts/routes.py'
-const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-notes workflow. Author home: ${A.home}. Instance: ${A.instance}.\n` + lines.filter(Boolean).join('\n'),
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const ROUTES = `${AR}/author/scripts/routes.py`
+const SCRIPTS = `Scripts: board.py is \`py ${AR}/academy/scripts/board.py\`, routes.py is \`py ${AR}/author/scripts/routes.py\` (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.<plugin> is each scripts folder).\n')
+const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-notes workflow. Author home: ${A.home}. Instance: ${A.instance}.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const NOTE = { type: 'object', properties: { id: { type: 'string', description: 'file:line, or P-NNNN point k' }, file: { type: 'string' }, line: { type: 'number' },
@@ -59,7 +63,7 @@ const inv = await clerk('collect', REFEREE
   : ['Read the home\'s .claude/academy.json: author.noteMacros.human and .coauthors, paths.tex, and workspace.json human.noteMacro.',
      A.files && A.uncarried
        // a section's standing notes that were never filed (2026-10-31): the inventory of those files minus what a ticket carries
-       ? `New notes: every note-macro occurrence (human and coauthor macros only, never the machine macro) in ${A.files.join(', ')} that NO ticket carries yet: a ticket carries a note when its detail or ask names its file:line, or quotes its distinctive words (search tickets_list / board.py list for a phrase of each note). Take the whole brace group from the file, with the label of the statement it sits on.`
+       ? `New notes: every note-macro occurrence (human and coauthor macros only, never the machine macro) in ${A.files.join(', ')} that NO ticket carries yet: a ticket carries a note when its detail or ask names its file:line, or quotes its distinctive words (for each note, tickets_list with text: "<a distinctive phrase of the note>", which searches titles, asks and bodies; or board.py list --all --text "<phrase>". An unfiltered listing is cut to 50 rows and proves nothing). Take the whole brace group from the file, with the label of the statement it sits on.`
        : `New notes: lines adding a note macro in git diff --cached -U0 and git diff -U0${A.base ? ' against ' + A.base : ''} over the tex paths; take the whole brace group from the file, with the label of the statement it sits on.`,
      'Inventory: git grep -n for each macro over the tex paths (count, and every note with file, line, macro, label, text). Return the claim namespace too. Write nothing.'],
   INV, 'collect', 'Collect')
@@ -71,8 +75,8 @@ if (!inv.new.length) return Object.assign(out, { outcome: 'nothing-new' })
 
 // ---- Classify ----------------------------------------------------------------------------
 phase('Classify')
-const brief = (extra) => `You decide, for each new ${REFEREE ? 'point of ' + REFEREE : 'margin note'} of the paper in ${A.home} (instance ${A.instance}), what it is; you FILE NOTHING here. ` +
-  'Read the agenda format in the Author plugin\'s references/formats.md. For each note: covered (an active ticket carries the same question: tickets_list / board.py list, a distinctive phrase; give the ticket and the new words if it is weaker); ' +
+const brief = (extra) => SCRIPTS + `You decide, for each new ${REFEREE ? 'point of ' + REFEREE : 'margin note'} of the paper in ${A.home} (instance ${A.instance}), what it is; you FILE NOTHING here. ` +
+  'Read the agenda format in the Author plugin\'s references/formats.md. For each note: covered (an active ticket carries the same question: tickets_list with text: "<a distinctive phrase>", or board.py list --text "<phrase>", never an unfiltered listing; give the ticket and the new words if it is weaker); ' +
   'answers (it answers a machine note: give the ticket whose thread records which question is now answered); discrepancy (it says something was changed, "I removed", "renamed to", but the file shows only the note: give the claim and the actual text, and propose an apply ticket if plainly an instruction, else a ticket to this instance parked on human); ' +
   `new (propose the ticket: work that stays in the Author goes to ${A.instance} as apply, write, copy, figure, build or notation; a verification to the Expert as verify; a citation as cite; a note asking for a proof is research to the Expert with final_to researcher, an experiment final_to scientist, never write: the Author invents no argument; ` +
   `agenda <ns>:<label> of the statement it sits on (ns ${inv.ns}); refs the same; detail "<macro> note <file>:<line>: <the note quoted, lightly>"${REFEREE ? ' with "<P-NNNN> point <k>" and refs <P-NNNN>; judgement points parked on human, objective ones as apply / write' : ''}). ` +
@@ -125,7 +129,7 @@ out.discrepancies = cls.decisions.filter(d => d.decision === 'discrepancy').map(
 // ---- File: exactly the checked tickets, then read back ---------------------------------------------
 phase('File')
 if (fileable.length || appends.length) {
-  const f = await agent(`File exactly these tickets for ${A.instance} (Author home ${A.home}), and nothing else: py <academy plugin>/scripts/board.py new --as ${A.instance} ` +
+  const f = await agent(SCRIPTS + `File exactly these tickets for ${A.instance} (Author home ${A.home}), and nothing else: board.py new --as ${A.instance} ` +
     '--to <to> --kind <kind> --title ... --ask ... --deliverable ... [--agenda ...] --refs ... [--final-to ...] --detail ...; then, for a ticket with park_on, ' +
     'board.py transition <id> blocked --waiting-on <human | the ticket filed for that note> --reason "<why>" --as ' + A.instance + '.\n' +
     `Tickets: ${JSON.stringify(fileable.map(d => Object.assign({ note: d.note }, d.proposed)))}\n` +
@@ -151,4 +155,9 @@ if (fileable.length || appends.length) {
 const carried = new Set([].concat(out.filed.map(x => x.note), appends.map(d => d.note)))
 out.not_carried = inv.new.filter(n => !carried.has(n.id)).map(n => n.id)
 out.outcome = out.anomalies.length || out.unfiled.length ? 'filed (with problems)' : 'filed'
+// Ship (docs/workflows.md, "Shipping is a step of the workflow"): its writes are tickets (board files on a file board), under no ticket, so the stage is
+// not-run and names the command for the session; a nested run leaves it to its parent.
+if (!A.nested && (out.filed.length || out.covered.length))
+  out.ship = { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: 'py scripts/ship.py checkpoint --ticket author-notes --role author --only board' }
 return out

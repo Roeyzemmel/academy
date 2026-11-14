@@ -9,6 +9,16 @@ import unittest
 from _fixtures import PLUGIN, REPO, SCRIPTS
 import _academy as ac  # noqa: E402
 
+
+def _package_files(directory):
+    """{name: bytes} of the ``*.py`` files of the library package in ``directory``."""
+    out = {}
+    for name in sorted(os.listdir(directory)):
+        if name.endswith(".py"):
+            with open(os.path.join(directory, name), "rb") as fh:
+                out[name] = fh.read()
+    return out
+
 AGENTS = {
     # name: (model, fallback, readonly)
     "lead-researcher": ("sonnet", "opus", False),
@@ -190,17 +200,16 @@ class PluginTests(unittest.TestCase):
                     self.assertTrue(os.path.isfile(os.path.join(SCRIPTS, m.group(1))))
 
     def test_vendored_lib_is_in_sync(self):
-        with open(os.path.join(REPO, "academy", "lib", "academy_common.py"), "rb") as fh:
-            lib = fh.read()
-        with open(os.path.join(SCRIPTS, "_academy.py"), "rb") as fh:
-            self.assertEqual(fh.read(), lib)
+        lib = _package_files(os.path.join(REPO, "academy", "lib", "academy_common"))
+        self.assertIn("__init__.py", lib)
+        self.assertEqual(_package_files(os.path.join(SCRIPTS, "_academy")), lib)
 
     def test_no_domain_mathematics(self):
         hits = []
         for dirpath, dirs, files in os.walk(PLUGIN):
-            dirs[:] = [d for d in dirs if d not in ("tests", "__pycache__")]
+            dirs[:] = [d for d in dirs if d not in ("tests", "__pycache__", "_academy")]
             for f in files:
-                if not f.endswith((".md", ".py", ".json")) or f == "_academy.py":
+                if not f.endswith((".md", ".py", ".json")):
                     continue
                 path = os.path.join(dirpath, f)
                 with open(path, encoding="utf-8") as fh:

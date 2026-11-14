@@ -7,7 +7,7 @@ Shared references beside it: `references/registry.md` (the `lab` / `paper` recor
 |---|---|
 | `skills/`, `agents/` | The cross-role skills (below) and their agents (concierge, explainer, secretary, usage-analyst) |
 | `scripts/` | The board, packets, decisions, deep-dives, usage, the registry CLI (`registry.py`), the workspace tools (`ship.py`, `workspace_bootstrap.py`; `docs/branching.md`), and the hooks' scripts; `references/scripts.md` lists them |
-| `lib/` | `academy_common.py`, the shared library vendored into every plugin as `scripts/_academy.py`, and the GitHub board's store and transport |
+| `lib/` | `academy_common/`, the shared library (a package) vendored into every plugin as `scripts/_academy/`, and the GitHub board's store and transport |
 | `registry/` | The claim-registry engine and its rule sets (`paper`, `notebook`, `lab`) |
 | `mcp/`, `hooks/`, `permissions.json` | The MCP server, the hook wiring, and the write permissions it enforces |
 | `templates/` | `academy.json` per role, packets, deep-dives, the cowork plan, the GitHub board's files, the workspace's setup files |
@@ -29,6 +29,7 @@ Shared references beside it: `references/registry.md` (the `lab` / `paper` recor
 | /academy:honest-reporting | How to report finished work so nothing unverified passes as established: status first, checked versus assumed kept apart, machine notes on judgement calls, failures stated plainly. Use at the end of any task that produces a report, packet or summary. |
 | /academy:inbox | Work every instance's board inbox in one run, in a fixed order (Author, Expert, Researcher, Scientist), one ticket at a time under the 3-item cap; --campaign T or --cowork S takes only that workplan's tickets. Use for "work all the inboxes". |
 | /academy:init | Create a new academy instance: scaffold the home's .claude/academy.json, register it in workspace.json, add .gitattributes and a board folder, and for a Researcher the notebook layout. Use for "/academy:init researcher@<domain>", "add a research domain". |
+| /academy:maintain | Measured maintenance round on the academy plugins: survey, fix, gate. |
 | /academy:notation-discipline | Which notation wins (domain pack < project decisions < the draft) and how to introduce symbols: one symbol per object, introduced before use, changes routed to their owner. Use whenever a symbol is written or changed, or documents disagree on notation. |
 | /academy:review | Review open packets across all instances: render one private HTML dashboard, put each pending decision to the human, and write each answer back to the packet and its ticket. Use for "review", "show me the packets", "let's go through the decisions". |
 | /academy:rigor | Discipline for honest research mathematics: pin the statement down, test before proving, hunt for gaps, report established versus assumed. Use whenever asked to prove, disprove, verify or repair a claim or review a proof ("is this proof correct"). |

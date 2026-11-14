@@ -24,8 +24,12 @@ const MODE = A.mode === 'deliver' ? 'deliver' : 'propose'
 const CLERK = 'researcher:review-clerk'
 const PROVER = 'researcher:prover'
 const T = A.ticket || ''
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: generalize.py is \`py ${AR}/researcher/scripts/generalize.py --home ${A.home}\`, packets.py is \`py ${AR}/academy/scripts/packets.py\` (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.<plugin> is each scripts folder).\n')
 const clerk = (stage, lines, schema, label, phase) => agent(
-  `WORKFLOW STAGE ${stage} of the academy-generalize workflow. Home: ${A.home}.` + (A.instance ? ` Instance: ${A.instance}.` : '') + (T ? ` Ticket: ${T}.` : '') + '\n' + lines.filter(Boolean).join('\n'),
+  `WORKFLOW STAGE ${stage} of the academy-generalize workflow. Home: ${A.home}.` + (A.instance ? ` Instance: ${A.instance}.` : '') + (T ? ` Ticket: ${T}.` : '') + '\n' + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const SOURCE = { type: 'object', properties: { ok: { type: 'boolean' }, refusal: { type: 'string', description: 'the exit-2 message when the review has not cleared' },
@@ -38,19 +42,58 @@ const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error
 const CHILDREN = { type: 'object', properties: { tests: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } }, required: ['id', 'refs'] } } }, required: ['tests'] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
 
+// ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
+// workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
+// finished ticket gets the inbox's own scoped checkpoint (inbox.py --check, which honours
+// "shipCheckpoint": false); anything else is not-run, with the command for the session.
+const SHIP = { type: 'object', properties: { status: { type: 'string', enum: ['pushed', 'nothing', 'refused', 'not-run'] }, detail: { type: 'string' },
+  branches: { type: 'array', items: { type: 'string' } }, output: { type: 'string', description: 'the whole output, stdout and stderr, verbatim' } },
+  required: ['status', 'detail', 'branches', 'output'] }
+async function ship(s) {   // {role, ticket, done, instance, topic, only, agentType, phase, notes}
+  if (!s.ticket) return { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
+  const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
+  if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
+  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+    '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
+  const lines = String(r ? r.output : '').split(/\r?\n/)
+  const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
+  const rows = lines.map(l => /^(\S+) (\S+) @ \S+ \(\d+ files\) (.*)$/.exec(l)).filter(Boolean)
+  const bad = lines.find(l => /REFUSED|PUSH FAILED|checkpoint incomplete|checkpoint for \S+ (exited [1-9]|timed out|could not start|failed)/.test(l))
+  const skipped = lines.find(l => /checkpoint not run/.test(l))
+  const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
+  const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
+    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : bad ? { status: 'refused', detail: bad.trim() }
+    : skipped ? { status: 'not-run', detail: skipped.trim() }
+    : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
+    : rows.length ? { status: 'nothing', detail: 'nothing to commit or push' }
+    : m ? { status: 'not-run', detail: 'no checkpoint ran ("shipCheckpoint": false, another board, or no ship script)' }
+    : { status: r.status, detail: r.detail }
+  if (!/^(pushed|nothing)$/.test(res.status)) res.command = check
+  if (res.status === 'refused' && s.notes) s.notes.push(`the ship stage was refused (${res.detail}); fix the cause, then run \`${check}\` once by hand`)
+  return res
+}
+
 const out = { ref: A.ref, ticket: T || null, mode: MODE, notes: [] }
+const end = async (delivered) => {
+  if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: delivered, instance: A.instance, topic: 'generalize-' + A.ref,
+    only: '<home submodule> board', agentType: CLERK, phase: 'Record', notes: out.notes })
+  return out
+}
 
 // ---- deliver: after the main session filed the tests ---------------------------------------
 if (MODE === 'deliver') {
   if (!T) throw new Error('mode deliver needs args.ticket')
   if (!A.conjectures || !A.conjectures.length) throw new Error('mode deliver needs args.conjectures (the ids propose returned)')
-  const ch = await clerk('children', [`List the tickets whose parent is ${T} (tickets_list / tickets_get), kind test, with their refs. Write nothing.`], CHILDREN, 'children', 'Record')
+  const ch = await clerk('children', [`List the tickets whose parent is ${T} (tickets_list with parent: "${T}" and kind: "test"; tickets_get for one), with their refs. Write nothing.`], CHILDREN, 'children', 'Record')
   const tests = ch ? ch.tests : []
   const missing = A.conjectures.filter(cid => !tests.some(t => (t.refs || []).some(r => r === cid || r.endsWith(':' + cid.split(':').pop()))))
   if (missing.length) return Object.assign(out, { outcome: 'tests-missing', missing, reason: 'no test ticket names ' + missing.join(', ') + ': file them first' })
   const result = `${A.conjectures.length} conjectures filed: ${A.conjectures.join(', ')}; lemmas ${(A.lemmas || []).join(', ') || 'none'}; tests ${tests.map(t => t.id).join(', ')}`
   const m = await clerk('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result.slice(0, 240)}"` + (A.packet ? ` and fields.packets [${A.packet}]` : '') + '.'], MOVE, 'close', 'Record')
-  return Object.assign(out, { outcome: m && m.ok ? 'delivered' : 'unfinished', tests: tests.map(t => t.id) })
+  Object.assign(out, { outcome: m && m.ok ? 'delivered' : 'unfinished', tests: tests.map(t => t.id) })
+  return await end(!!(m && m.ok))
 }
 
 // ---- Source -----------------------------------------------------------------------------
@@ -67,7 +110,7 @@ const FILE = A.file || `${A.home}/.academy/generalize-${LAB.replace(/[^A-Za-z0-9
 
 // ---- Propose: the file, validated by script ---------------------------------------------------
 phase('Propose')
-const brief = `Generalize the reviewed experiment ${s.report || A.ref} (lab claim ${LAB}; home ${A.home}). Read its ## Conclusion, and the domain's examples.md and ` +
+const brief = SCRIPTS + `Generalize the reviewed experiment ${s.report || A.ref} (lab claim ${LAB}; home ${A.home}). Read its ## Conclusion, and the domain's examples.md and ` +
   `theorems/INDEX.md (domain_get) for what is known; scout prior art. Write at most ${MAX} proposals to ${FILE} (create the folder), in the shape generalize.py's docstring gives: ` +
   `id in this instance's namespace, title, statement, kind conjecture, status conjectured, bears_on including ${LAB}, the falsifier, the pattern (wider class / ` +
   `relaxed hypothesis / pattern / invariant) and a one-line rationale; optional lemmas (at most three per proposal, status open or sketch, saying what is known and ` +
@@ -109,18 +152,18 @@ const filed = await agent(`File exactly these falsifier test tickets to the Scie
   `${JSON.stringify(sp ? sp.specs : [])}. Return the ticket ids, or the refusals verbatim.`,
   { label: 'file tests', phase: 'Record', agentType: 'researcher:lead-researcher', schema: { type: 'object', properties: { tickets: { type: 'array', items: { type: 'string' } }, refusals: { type: 'array', items: { type: 'string' } } }, required: ['tickets', 'refusals'] } })
 if (filed && filed.refusals.length) out.notes.push('test tickets refused: ' + filed.refusals.join('; '))
-const ch = await clerk('children', [`List the tickets whose parent is ${T} (tickets_list / tickets_get), kind test, with their refs. Write nothing.`], CHILDREN, 'children', 'Record')
+const ch = await clerk('children', [`List the tickets whose parent is ${T} (tickets_list with parent: "${T}" and kind: "test"; tickets_get for one), with their refs. Write nothing.`], CHILDREN, 'children', 'Record')
 const tests = ch ? ch.tests : []
 const missing = c.conjectures.filter(cid => !tests.some(t => (t.refs || []).some(r => r === cid || r.endsWith(':' + cid.split(':').pop()))))
 if (missing.length || !filed) {
   out.to_file = [{ why: 'the falsifier tests the lead did not file', missing,
-    command: `py <researcher plugin>/scripts/generalize.py tickets ${FILE} --lab-claim ${LAB} --parent ${T} --apply`,
+    command: `py ${AR}/researcher/scripts/generalize.py tickets ${FILE} --lab-claim ${LAB} --parent ${T} --apply`,
     then: { mode: 'deliver', ticket: T, conjectures: c.conjectures, lemmas: c.lemmas, packet: out.packet } }]
   out.outcome = 'proposed (tests missing)'
-  return out
+  return await end(false)
 }
 const result = `${c.conjectures.length} conjectures filed: ${c.conjectures.join(', ')}; lemmas ${c.lemmas.join(', ') || 'none'}; tests ${tests.map(t => t.id).join(', ')}`
 const m = await clerk('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result.slice(0, 240)}"` + (out.packet ? ` and fields.packets [${out.packet}]` : '') + '.'], MOVE, 'close', 'Record')
 out.tests = tests.map(t => t.id)
 out.outcome = m && m.ok ? 'delivered' : 'proposed (not delivered)'
-return out
+return await end(!!(m && m.ok))

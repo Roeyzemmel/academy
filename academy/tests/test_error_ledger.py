@@ -4,7 +4,6 @@ Run from the repo root:  py -m unittest discover academy/tests
 """
 
 import datetime as dt
-import io
 import json
 import os
 import shutil
@@ -121,6 +120,49 @@ class FamilyTests(unittest.TestCase):
         self.assertEqual(el.family(sig), sig)
 
 
+class BriefReportTests(unittest.TestCase):
+    """What a session reads of the report stays small (2026-11-13: 174 000 characters of
+    JSON for a week with 130 open classes, 84 of them with no error that week)."""
+
+    def rep(self):
+        recs = [err(1, "Bash: this week %d" % i, session="s%d" % i) for i in range(30)]
+        recs += [err(20, "Read: long ago %d" % i, session="q%d" % i) for i in range(40)]
+        recs += [err(d, "Grep: every week", session="w%d" % d) for d in (30, 20, 10)]
+        return el.report(recs, NOW - dt.timedelta(days=7), now=NOW)
+
+    def test_the_brief_lists_this_weeks_classes_and_counts_the_rest(self):
+        rep = self.rep()
+        b = el.brief(rep)
+        self.assertEqual(71, b["open_classes"])
+        self.assertEqual((el.BRIEF_ROWS, 30 - el.BRIEF_ROWS), (len(b["classes"]), b["classes_omitted"]))
+        self.assertTrue(all(c["in_window"] for c in b["classes"]))
+        self.assertEqual({"sig", "in_window", "bursts", "count", "sessions", "instances",
+                          "first", "last", "weeks_open", "state"}, set(b["classes"][0]))
+        self.assertEqual((41, 41, 1), (b["quiet"]["classes"], b["quiet"]["never_reported"],
+                                       b["quiet"]["recurring"]))
+        self.assertEqual("Grep: every week", b["quiet"]["largest"][0]["sig"])
+        self.assertTrue(all(f["in_window"] for f in b["families"]))
+        self.assertLess(len(json.dumps(b)), len(json.dumps(rep)) / 3)
+        self.assertEqual([], el.brief(el.report([], NOW - dt.timedelta(days=7), now=NOW))["classes"])
+
+    def test_the_markdown_table_counts_the_quiet_classes_unless_asked_for_all(self):
+        rep = self.rep()
+        md = el.render_markdown(rep)
+        table = md.split("## Classes")[1].split("Example messages:")[0]
+        self.assertEqual(30, table.count("| `Bash: this week"))
+        self.assertNotIn("| `Read: long ago", table)
+        self.assertIn("41 more open class(es) had no error in the window (1 recurring, "
+                      "41 never reported)", md)
+        every = el.render_markdown(rep, every=True)
+        self.assertEqual(40, every.split("## Classes")[1].count("| `Read: long ago"))
+        self.assertNotIn("more open class(es)", every)
+
+    def test_a_regression_is_listed_even_when_quiet(self):
+        rows = [{"in_window": 0, "regression": True}, {"in_window": 0}, {"in_window": 2}]
+        live, quiet = el._split({"classes": rows})
+        self.assertEqual((2, 1), (len(live), len(quiet)))
+
+
 class TopFamiliesTests(unittest.TestCase):
     def test_section_precedes_class_table_and_folds(self):
         t = "mcp__plugin_academy_academy__claims_set_status"
@@ -133,13 +175,50 @@ class TopFamiliesTests(unittest.TestCase):
         rep = el.report(recs, NOW - dt.timedelta(days=7), now=NOW)
         top = rep["families"][0]
         self.assertEqual((top["family"], top["in_window"], top["classes"], top["sessions"]),
-                         ("claims_set_status: grounds do not support", 3, 3, 3))
+                         ("claims_set_status: grounds do not support", 3, 1, 3))
+        # one class, whatever the claim, the instance or the host (2026-11-13)
+        self.assertEqual(el.signature("WebFetch", "getaddrinfo ENOTFOUND arxiv.org. In"),
+                         el.signature("WebFetch", "getaddrinfo ENOTFOUND ems.press. In"))
+        self.assertEqual(
+            el.signature(t, "agent researcher:prover could act for researcher@flat or x"),
+            el.signature(t, "agent researcher:lead could act for researcher@u or x"))
         md = el.render_markdown(rep)
         self.assertIn("## Top families", md)
         self.assertLess(md.index("## Top families"), md.index("| class |"))
         self.assertIn("Example messages:", md)
 
-    def test_bash_exit_code_splits_by_command_word(self):
+    def test_bash_exit_code_splits_by_cause(self):
+        cases = [
+            ("python3: can't open file '/w/academy/scripts/cowork.py': [Errno 2] No such "
+             "file or directory", "script not found"),
+            ("Python was not found; run without arguments to install from the Microsoft "
+             "Store", "python launcher missing"),
+            ("/usr/bin/bash: -c: line 81: unexpected EOF while looking for matching `''",
+             "shell quoting"),
+            ("File \"<stdin>\", line 4 | SyntaxError: (unicode error) 'unicodeescape'",
+             "python syntax error"),
+            ("reviews: refused: the old statement hashes to 6a77", "script refused"),
+            ("Traceback (most recent call last): | File \"<stdin>\", line 4",
+             "python traceback"),
+            ("ls: cannot access 'scratch/x.log': No such file or directory", "path not found"),
+            ("T-0068 delivered high researcher@n -> author@t thm", "no error text"),
+            ("something failed oddly", "other"),
+        ]
+        recs = []
+        for i, (detail, _c) in enumerate(cases):
+            r = err(1, "Bash: exit code <n>", session="s%d" % i)
+            r["detail"], r["cmd"] = detail, "cd /w && x"
+            recs.append(r)
+        k = err(1, "Bash: exit code <n>", session="k")
+        k["detail"], k["msg"] = "0 | 0", "Exit code 144"
+        recs.append(k)
+        fams = {f["family"]: f["in_window"] for f in
+                el.report(recs, NOW - dt.timedelta(days=7), now=NOW)["families"]}
+        want = {"Bash: %s" % c: 1 for _d, c in cases}
+        want["Bash: killed or timed out"] = 1
+        self.assertEqual(want, fams)
+
+    def test_bash_exit_code_without_detail_splits_by_command_word(self):
         recs = []
         for i, cmd in enumerate(["git status", "git push", "py x.py", "python3 -c 1",
                                  "ls -l", None]):
@@ -392,6 +471,104 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn("commit", recs[0])
 
 
+    # -- stale code: the error came from a copy older than the fix (2026-11-13) ----
+    def test_an_error_from_a_plugin_older_than_the_fix_is_stale_not_a_regression(self):
+        fix = {"t": "resolve", "ts": at(5), "sig": "A", "commit": "abc1234", "version": "0.2.1"}
+        old = dict(err(1, "A", "s2"), ver="0.2.0")
+        row = self.rep([err(10, "A"), fix, old])["classes"][0]
+        self.assertEqual((row["regression"], row["stale"]), (False, True))
+        self.assertIn("| stale code |", el.render_markdown(self.rep([err(10, "A"), fix, old])))
+        # one error from a copy that has the fix: the fix did not hold
+        new = dict(err(1, "A", "s3"), ver="0.2.1")
+        row = self.rep([err(10, "A"), fix, old, new])["classes"][0]
+        self.assertEqual((row["regression"], row["stale"]), (True, False))
+        # a record that does not say where it came from keeps the old reading
+        row = self.rep([err(10, "A"), fix, err(1, "A", "s2")])["classes"][0]
+        self.assertEqual((row["regression"], row["stale"]), (True, False))
+
+    def test_has_fix_by_commit_ancestry(self):
+        repo = os.path.dirname(PLUGIN)
+        head = el.code_rev()
+        if not head:
+            self.skipTest("not a git checkout")
+        self.assertEqual(head, subprocess.run(
+            ["git", "-C", repo, "rev-parse", "--short=12", "HEAD"],
+            capture_output=True, text=True).stdout.strip())
+        parent = subprocess.run(["git", "-C", repo, "rev-parse", "--short=12", "HEAD~1"],
+                                capture_output=True, text=True).stdout.strip()
+        if not parent:
+            self.skipTest("a shallow checkout")
+        self.assertIs(True, el.has_fix({"rev": head}, parent, ""))
+        self.assertIs(False, el.has_fix({"rev": parent}, head, ""))
+        self.assertIsNone(el.has_fix({}, head, ""))
+
+    def test_the_hook_record_says_which_code_ran(self):
+        rec = el.hook_record({"tool_name": "Read", "error": "File does not exist."}, "i@x")
+        self.assertEqual(el.code_version(), rec["ver"])
+        self.assertRegex(rec["ver"], r"^\d+\.\d+\.\d+$")
+
+    def test_resolve_by_family(self):
+        board = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, board, True)
+        ws = os.path.join(board, "workspace.json")
+        with open(ws, "w") as fh:
+            json.dump({"board": board, "instances": {}}, fh)
+        t = "mcp__plugin_academy_academy__tickets_update"
+        sigs = [el.signature(t, "refused: open -> %s is not a transition" % x)
+                for x in ("in-progress", "closed")]
+        for sig in sigs + ["Other: thing"]:
+            el.append(board, "i@x", {**err(3, sig), "instance": "i@x"})
+        old = el.ac.load_workspace
+        el.ac.load_workspace = lambda path=None: {"board": board, "_path": ws}
+        self.addCleanup(setattr, el.ac, "load_workspace", old)
+        main = lambda *a: el.main(list(a) + ["--workspace", ws, "--instance", "i@x"])
+        self.assertEqual(0, main("resolve", "--family", "tickets_update: not a transition",
+                                 "--commit", "deadbee", "--note", "walked"))
+        res = [r for r in el.read_all(board) if r["t"] == "resolve"]
+        self.assertEqual(sorted(sigs), sorted(r["sig"] for r in res))
+        self.assertTrue(all(r["version"] == el.code_version() for r in res))
+        self.assertEqual(["Other: thing"], sorted(el.classes(el.read_all(board))))
+        self.assertEqual(1, main("resolve", "--family", "no such family"))
+
+
+class BenignExitTests(unittest.TestCase):
+    """A shell command that exits 1 with ordinary output is recorded but not counted."""
+
+    def rec(self, msg, detail, tool="Bash", days=1, **kw):
+        r = dict(err(days, "Bash: exit code <n>"), tool=tool, msg=msg, **kw)
+        if detail is not None:
+            r["detail"] = detail
+        return r
+
+    def test_which_records_are_benign(self):
+        self.assertTrue(el.is_benign(self.rec("Exit code 1", "T-0068 delivered | T-0364 open")))
+        self.assertTrue(el.is_benign(self.rec("Exit code 1", "0 | 0", cause="no error text")))
+        for r in (self.rec("Exit code 1", "ls: cannot access 'x': No such file or directory"),
+                  self.rec("Exit code 2", "T-0068 delivered"),             # not exit 1
+                  self.rec("Exit code 1", None),                           # nothing to judge
+                  self.rec("Exit code 1", "FAILED (failures=1)"),
+                  self.rec("Exit code 1", "fine", tool="Read")):
+            self.assertFalse(el.is_benign(r), r)
+
+    def test_the_report_counts_them_apart(self):
+        recs = [self.rec("Exit code 1", "T-0068 delivered | T-0364 open"),
+                self.rec("Exit code 1", "Traceback (most recent call last): | boom")]
+        rep = el.report(recs, NOW - dt.timedelta(days=7), now=NOW)
+        self.assertEqual((1, 1), (rep["errors_in_window"], rep["benign_in_window"]))
+        self.assertEqual(["Bash: python traceback"], [f["family"] for f in rep["families"]])
+        md = el.render_markdown(rep)
+        self.assertIn("1 more shell command(s) exited 1 with ordinary output", md)
+        self.assertLess(md.index("1 error(s) in the window"), md.index("1 more shell command"))
+        only = el.report(recs[:1], NOW - dt.timedelta(days=7), now=NOW)
+        self.assertEqual((0, 0), (only["errors_in_window"], only["open_classes"]))
+
+    def test_the_hook_records_the_cause(self):
+        rec = el.hook_record({"tool_name": "Bash", "error": "Exit code 1\nall quiet",
+                              "tool_input": {"command": "ls x"}}, "i@x")
+        self.assertEqual("no error text", rec["cause"])
+        self.assertTrue(el.is_benign(rec))
+
+
 class HookProcessTests(unittest.TestCase):
     def test_hook_end_to_end_and_never_fails(self):
         d = tempfile.mkdtemp()
@@ -409,7 +586,7 @@ class HookProcessTests(unittest.TestCase):
                                                   "domains": ["x"]}}, "board": board}, fh)
         env = dict(os.environ, ACADEMY_WORKSPACE=ws)
         env.pop("ACADEMY_ENV_WORKSPACE", None)
-        ev = {"tool_name": "Bash", "error": "Exit code 1\nboom", "cwd": home, "session_id": "S1"}
+        ev = {"tool_name": "Bash", "error": "Exit code 1\nboom: cannot open the file", "cwd": home, "session_id": "S1"}
         run = lambda data: subprocess.run(
             [sys.executable, os.path.join(SCRIPTS, "error_ledger.py"), "hook"],
             input=data, capture_output=True, env=env, cwd=home, timeout=60)

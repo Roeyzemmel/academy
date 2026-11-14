@@ -1,7 +1,7 @@
 {
   "name": "author",
   "description": "Author role: writes and maintains one research paper in LaTeX from established results, driven by a precedence-ordered agenda.",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "author": {
     "name": "Roey Zemmel"
   }

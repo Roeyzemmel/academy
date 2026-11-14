@@ -1,5 +1,10 @@
 # Runs every plugin's unittest suite on each push (any branch) and on demand.
 # Standard library only: no install step. Each suite runs even when an earlier one failed.
+# Jobs of similar length, so that they run side by side (on GitHub, and in the local
+# push gate, ci_local.py); the suites are hermetic and write nothing into the checkout.
+# The base plugin's suite is two jobs, split by file name: test_s*.py (the ship tests,
+# half its time) and the rest. test_ci_local.py checks that the two patterns together
+# take every test file of academy/tests exactly once.
 name: tests
 on:
   push:
@@ -10,7 +15,7 @@ concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  unittest:
+  base:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -23,13 +28,40 @@ jobs:
           git config --global user.name "academy-ci"
           git config --global user.email "academy-ci@users.noreply.github.com"
           git config --global init.defaultBranch main
-      - name: academy
-        run: python -m unittest discover -s academy/tests -t academy/tests
+      - name: academy (all but test_s*)
+        run: python -m unittest discover -s academy/tests -t academy/tests -p "test_[!s]*.py"
       - name: registry
         if: ${{ !cancelled() }}
         run: python -m unittest discover -s academy/registry/tests -t academy/registry/tests
+  ship:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: git identity (tests make commits in temp repos)
+        run: |
+          git config --global user.name "academy-ci"
+          git config --global user.email "academy-ci@users.noreply.github.com"
+          git config --global init.defaultBranch main
+      - name: academy (test_s*)
+        run: python -m unittest discover -s academy/tests -t academy/tests -p "test_s*.py"
+  roles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: git identity (tests make commits in temp repos)
+        run: |
+          git config --global user.name "academy-ci"
+          git config --global user.email "academy-ci@users.noreply.github.com"
+          git config --global init.defaultBranch main
       - name: author
-        if: ${{ !cancelled() }}
         run: python -m unittest discover -s author/tests -t author/tests
       - name: expert
         if: ${{ !cancelled() }}
@@ -37,9 +69,32 @@ jobs:
       - name: researcher
         if: ${{ !cancelled() }}
         run: python -m unittest discover -s researcher/tests -t researcher/tests
-      - name: scientist
-        if: ${{ !cancelled() }}
-        run: python -m unittest discover -s scientist/tests -t scientist/tests
       - name: translation-surfaces domain pack
         if: ${{ !cancelled() }}
         run: python -m unittest discover -s domains/translation-surfaces/tests -t domains/translation-surfaces/tests
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: git identity (tests make commits in temp repos)
+        run: |
+          git config --global user.name "academy-ci"
+          git config --global user.email "academy-ci@users.noreply.github.com"
+          git config --global init.defaultBranch main
+      - name: scientist
+        run: python -m unittest discover -s scientist/tests -t scientist/tests
+  lint:
+    # Correctness-only ruff rules (ruff.toml); not a style check.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install ruff==0.16.9
+      - run: ruff check .

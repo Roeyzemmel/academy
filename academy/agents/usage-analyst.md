@@ -25,15 +25,25 @@ plugin).
 
 1. Run `py ${CLAUDE_PLUGIN_ROOT}/scripts/usage_report.py --days 7 --json` (or the
    window in your brief), and once more without `--json` for the tables. Then run
-   `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py report --days 7 --json` (and
-   without `--json`): the errors the PostToolUseFailure hook accumulated during the
-   week, as classes (`sig`), open until closed. `recurring` classes (three or more
-   sessions, or two calendar weeks) and any with `weeks_open` of 2 or more are the
-   ones to act on. The Markdown report leads with `## Top families` (classes folded
-   by verb and reason, e.g. every `grounds do not support <id>`), then the full
-   class table; read the families first, since the long tail of classes differing
+   `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py report --days 7 --json --brief` (and
+   without `--json --brief` for the tables): the errors the PostToolUseFailure hook
+   accumulated during the week, as classes (`sig`), open until closed. The brief form
+   holds the families and classes with an error this week (or a regression) and counts
+   the open classes that had none (`quiet`); never read the full `--json`, which lists
+   every open class. Classes whose `state` is `regression` or `recurring` (three or more
+   sessions, or two calendar weeks) and any with `weeks_open` of 2 or more are the ones
+   to act on. The Markdown report leads with `## Top families` (classes folded
+   by verb and reason, e.g. every `grounds do not support <id>`), then the table of
+   this week's classes; read the families first, since the long tail of classes differing
    only by an id or status is noise. The JSON has the same `families`. Regressions
-   (state `regression`) are escalated first.
+   (state `regression`) are escalated first. A class in state `stale code` is not one:
+   every error since its fix came from a checkout or an installed plugin older than
+   the fix (the records' `rev` / `ver`); the proposal for it is to update that copy
+   (`scripts/bootstrap.py`, or the submodule pointer), never a new fix. The shell
+   families (`Bash: script not found`, `Bash: shell quoting`, `Bash: python
+   traceback`, ...) are the `Bash: exit code` class read by cause; `Bash: no error
+   text` is a last stage that exited non-zero with ordinary output and is noise
+   unless it dominates one script.
 2. Write the packet body to `<board>/.render/usage-body.md` (the only file you
    write), with the eight sections:
    - `## Summary`: at most three lines: sessions, subagents, cache read, limit
@@ -43,8 +53,9 @@ plugin).
      **Assumed:** that project directories map to instances as the script decides;
      that cache reads track cost. **Not established:** output-token cost.
    - `## Evidence`: the Markdown tables from step 1, as they are, then the top
-     families table from `error_ledger.py report` under `### Errors`; the full class
-     table goes last under `### Appendix: error classes`.
+     families table from `error_ledger.py report` under `### Errors`; its class
+     table, with the line that counts the quiet classes, goes last under
+     `### Appendix: error classes`.
    - `## Errors`: lead with the top families, then the recurring or carried-over
      ones; one line per family (or class, when it is not folded), at most five, worst
      first: what fails, how often, on which instances, and your reading of the
@@ -64,7 +75,11 @@ plugin).
      `experiment-reviewer`, `referee`). A downgrade is a lower `tier:` for the agent
      (or a different `models.tiers` map for the workspace), never a model name: an
      agent's "declared" model is the workspace's model for its tier, and a
-     heavier-than-declared flag names the tier. If there is nothing to decide, `None.`.
+     heavier-than-declared flag names the tier. A lighter-than-declared flag on a grader
+     is never a saving: report it first under `## Summary` (which grader, which model,
+     which sessions), because its verdicts from those runs are not at full strength, and
+     ask as a decision whether the passes are to be re-run. If there is nothing to
+     decide, `None.`.
    - `## Machine notes`: each judgement call you made, one bullet each, naming
      `usage-analyst`.
    - `## Decision`: empty.

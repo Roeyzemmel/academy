@@ -5,16 +5,16 @@ Usage:
     py error_ledger.py [hook]                    # PostToolUseFailure hook, event on stdin
     py error_ledger.py report [--days 7 | --since YYYY-MM-DD] [--json] [--workspace PATH]
     py error_ledger.py settle --packet P-NNNN [--quiet-days 7] [--workspace PATH]
-    py error_ledger.py resolve SIG [SIG ...] [--note TEXT] [--by WHO] [--commit SHA] [--workspace PATH]
+    py error_ledger.py resolve [SIG ...] [--family NAME] [--note TEXT] [--by WHO] [--commit SHA] [--version V] [--workspace PATH]
 
 The ledger is ``<board>/.errors/<instance>.jsonl`` (one file per instance, so two
 machines never merge-conflict; the board's SessionStart commit carries it). It is
 append-only; each line is one JSON record:
 
     {"t": "error",   "ts", "session", "instance", "tool", "sig", "msg",
-                     ["detail"], ["cmd"], ["cwd"], ["path"]}
+                     ["detail"], ["cmd"], ["cause"], ["cwd"], ["path"], ["rev"], ["ver"]}
     {"t": "settle",  "ts", "packet", "upto"}      # a weekly review took the errors up to ``upto``
-    {"t": "resolve", "ts", "sig", "note", "by", ["commit"]}   # the class is closed
+    {"t": "resolve", "ts", "sig", "note", "by", ["commit"], ["version"]}   # the class is closed
 
 An *error class* is a signature: the tool plus the first line of the message with
 paths, ids, numbers and hex normalised away. A class is **open** from its first
@@ -35,11 +35,20 @@ error record after its last ``resolve`` record. The weekly cycle:
    recurred for ``--quiet-days`` days (solved by silence). A class that recurs
    carries over and its weeks-open count grows, which is what the analyst escalates.
 
-``resolve`` closes classes by hand (the human's word: a fix landed, or accepted noise).
+``resolve`` closes classes by hand (the human's word: a fix landed, or accepted noise);
+``--family NAME`` closes every open class of a family of the report's first table.
 ``--commit SHA`` records the fixing commit in the resolve record; a class whose last
 resolve carries a commit and that then records a new error is a **regression** (state
 ``regression`` in the report, ahead of ``new`` and ``recurring``). A resolve without a
-commit, and ``settle``'s resolve by silence, behave as before.
+commit, and ``settle``'s resolve by silence, behave as before. Each error record
+carries the code it came from (``rev``, the checkout's commit, and ``ver``, the plugin
+version); when every error after a resolve came from code older than the fix (its
+``commit``, or the plugin ``version`` it shipped in, ``--version``) the class is
+``stale code``: update that checkout or installed plugin, the fix is not in doubt.
+
+The ``Bash: exit code`` class is one signature for every failed command; the report's
+families split it by cause (``bash_cause``: script not found, shell quoting, python
+traceback, ..., ``no error text`` for a last stage that merely exited non-zero).
 """
 
 import argparse
@@ -64,6 +73,11 @@ SECRET_PATTERNS = (r"gh[pousr]_[A-Za-z0-9]{20,}", r"sk-[A-Za-z0-9_-]{16,}",
 RE_PATH = re.compile(r"(?:[A-Za-z]:)?[\\/](?:[\w.@ -]+[\\/])+[\w.@-]*|~[\\/][\w./\\-]*")
 RE_ID = re.compile(r"\b(?:[TP]-\d{4,}|session_[A-Za-z0-9]+|[0-9a-f]{7,}|[0-9a-f-]{32,})\b")
 RE_NUM = re.compile(r"\d+")
+#: targets that made one class per claim, host or instance (the 2026-11-13 review: 129
+#: open classes, 60 of them a single message with a different target)
+RE_CLAIM = re.compile(r"(?<![\w@/.:])[a-z][a-z0-9]*:[A-Za-z][\w.-]*(?::[\w.-]+)*")
+RE_INSTANCE = re.compile(r"\b(?:author|researcher|expert|scientist)@[a-z0-9][a-z0-9-]*")
+RE_HOST = re.compile(r"(?i)(\b(?:enotfound|eai_again|econnrefused|host)\s+)[a-z0-9.-]+\.[a-z]{2,}\b")
 RE_WS = re.compile(r"\s+")
 
 
@@ -105,7 +119,10 @@ def signature(tool, message):
     """Tool plus the message with paths, ids, numbers and quoted strings normalised."""
     s = first_line(message)
     s = RE_PATH.sub("<path>", s)
-    s = re.sub(r"(['\"]).*?\1", "<q>", s)
+    s = re.sub(r"(['\"`]).*?\1", "<q>", s)
+    s = RE_HOST.sub(r"\1<host>", s)
+    s = RE_INSTANCE.sub("<instance>", s)
+    s = RE_CLAIM.sub("<claim>", s)
     s = RE_ID.sub("<id>", s)
     s = RE_NUM.sub("<n>", s)
     return "%s: %s" % (tool or "?", RE_WS.sub(" ", s).lower()[:100])
@@ -196,22 +213,126 @@ def read_all(board):
     return out
 
 
+_PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def code_version(root=None):
+    """The plugin version of the running code (``plugin.json``), or ''."""
+    try:
+        with open(os.path.join(root or _PLUGIN_ROOT, ".claude-plugin", "plugin.json"),
+                  encoding="utf-8") as fh:
+            return str(json.load(fh).get("version") or "")
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def code_rev(root=None):
+    """The commit of the checkout the running code is in (12 hex digits), read from
+    ``.git`` without a subprocess; '' for an installed plugin copy, which has none."""
+    try:
+        d = root or _PLUGIN_ROOT
+        for _ in range(4):
+            g = os.path.join(d, ".git")
+            if os.path.exists(g):
+                break
+            d = os.path.dirname(d)
+        else:
+            return ""
+        if os.path.isfile(g):               # a submodule or a worktree: "gitdir: <path>"
+            with open(g, encoding="utf-8") as fh:
+                g = os.path.normpath(os.path.join(d, fh.read().split(":", 1)[1].strip()))
+        with open(os.path.join(g, "HEAD"), encoding="utf-8") as fh:
+            head = fh.read().strip()
+        if not head.startswith("ref:"):
+            return head[:12]
+        ref = head.split(":", 1)[1].strip()
+        common = g
+        if os.path.isfile(os.path.join(g, "commondir")):
+            with open(os.path.join(g, "commondir"), encoding="utf-8") as fh:
+                common = os.path.normpath(os.path.join(g, fh.read().strip()))
+        for base in (g, common):
+            p = os.path.join(base, *ref.split("/"))
+            if os.path.isfile(p):
+                with open(p, encoding="utf-8") as fh:
+                    return fh.read().strip()[:12]
+        with open(os.path.join(common, "packed-refs"), encoding="utf-8") as fh:
+            for ln in fh:
+                if ln.rstrip().endswith(" " + ref):
+                    return ln.split()[0][:12]
+    except (OSError, IndexError, ValueError):
+        pass
+    return ""
+
+
+def _vtuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", str(v or ""))[:3])
+
+
+_ANCESTOR = {}
+
+
+def has_fix(rec, commit, version, root=None):
+    """Whether the code that produced error record ``rec`` contained the fix of a resolve
+    (its ``commit`` and/or the plugin ``version`` it shipped in): True, False, or None
+    when it cannot be told (a record written before the hook kept ``rev`` / ``ver``, or
+    no git here). A session on a checkout or an installed plugin older than the fix
+    repeats the old error; that is a stale copy, not a fix that did not hold (the
+    2026-11-13 review: every "regression" of 2026-10-31..11-03 was one)."""
+    if version and rec.get("ver") and _vtuple(rec["ver"]) < _vtuple(version):
+        return False
+    rev = rec.get("rev")
+    if commit and rev:
+        key = (commit, rev)
+        if key not in _ANCESTOR:
+            import subprocess
+            try:
+                rc = subprocess.run(["git", "-C", root or _PLUGIN_ROOT, "merge-base",
+                                     "--is-ancestor", commit, rev],
+                                    capture_output=True, timeout=10).returncode
+                _ANCESTOR[key] = True if rc == 0 else False if rc == 1 else None
+            except (OSError, subprocess.SubprocessError):
+                _ANCESTOR[key] = None
+        if _ANCESTOR[key] is not None:
+            return _ANCESTOR[key]
+    if version and rec.get("ver"):
+        return True
+    return None
+
+
+BENIGN_CAUSE = "no error text"
+
+
+def is_benign(rec):
+    """A shell command whose last stage exited 1 with ordinary output and nothing that
+    reads as an error (a probe that found nothing, ``ls`` of a file not there yet behind
+    ``2>/dev/null``, a ``diff`` with differences): recorded, but not counted as an error.
+    68 of the 655 records of the 2026-11-13 review were these. Only exit code 1, and only
+    a record that kept its ``detail`` (one without cannot be judged and counts)."""
+    if rec.get("t") != "error" or rec.get("tool") not in SHELL_TOOLS or not rec.get("detail"):
+        return False
+    if not re.fullmatch(r"(?i)\s*exit code 1\s*", rec.get("msg") or ""):
+        return False
+    return (rec.get("cause") or bash_cause(rec)) == BENIGN_CAUSE
+
+
 def classes(records):
     """Open error classes: sig -> {sig, tool, msg, count, sessions, instances, first,
     last, reported} over the errors after each class's last ``resolve``. ``reported``
     is true when a settle happened at or after the class's first error."""
     last_resolve = {}
     last_commit = {}
+    last_version = {}
     settles = []
     for r in records:
         if r["t"] == "resolve" and r.get("sig"):
             last_resolve[r["sig"]] = r["ts"]
             last_commit[r["sig"]] = r.get("commit") or ""
+            last_version[r["sig"]] = r.get("version") or ""
         elif r["t"] == "settle":
             settles.append(r.get("upto") or r["ts"])
     out = {}
     for r in records:
-        if r["t"] != "error" or not r.get("sig"):
+        if r["t"] != "error" or not r.get("sig") or is_benign(r):
             continue
         if r["ts"] <= last_resolve.get(r["sig"], ""):
             continue
@@ -230,6 +351,9 @@ def classes(records):
         c["reported"] = any(u >= c["first"] for u in settles)
         # an error after a resolve that named its fixing commit: the fix did not hold
         c["regression_commit"] = last_commit.get(c["sig"], "")
+        # ... unless every error since came from code older than the fix
+        fix = (last_commit.get(c["sig"], ""), last_version.get(c["sig"], ""))
+        c["stale"] = bool(any(fix)) and all(has_fix(r, *fix) is False for r in c["recs"])
     return out
 
 
@@ -271,6 +395,56 @@ def family(sig):
 
 
 BASH_EXIT_SIG = "Bash: exit code <n>"
+SHELL_EXIT_SIGS = (BASH_EXIT_SIG, "PowerShell: exit code <n>")
+
+
+#: (pattern on a shell record's ``detail``, cause); first match wins. The ``Bash: exit
+#: code`` class is one signature for every failed command (238 of 655 errors in the
+#: 2026-11-13 review); its records are read by cause, which says what to fix.
+BASH_CAUSES = [
+    (re.compile(r"can't open file .*\.py|\.py: No such file|\.(py|sh|js)['\"]?: \[Errno 2\]"),
+     "script not found"),
+    (re.compile(r"Python was not found|python3?: command not found|py: command not found"),
+     "python launcher missing"),
+    (re.compile(r"unexpected EOF while looking for matching|syntax error near unexpected "
+                r"token|unterminated quoted string|here-document .* delimited by end-of-file"),
+     "shell quoting"),
+    (re.compile(r"SyntaxError|IndentationError|unicodeescape"), "python syntax error"),
+    (re.compile(r"ModuleNotFoundError|ImportError"), "python module missing"),
+    (re.compile(r"^\w[\w.-]*: refused:| \| \w[\w.-]*: refused:"), "script refused"),
+    (re.compile(r"(?m)^usage: \S+|: error: (unrecognized|the following|argument|invalid)"),
+     "script usage"),
+    (re.compile(r"Traceback \(most recent call last\)"), "python traceback"),
+    (re.compile(r"^! |Fatal error occurred|LaTeX Error|Emergency stop|^exit 1[012] \|"),
+     "latex build"),
+    (re.compile(r"^fatal: |^error: .*(pathspec|commit|branch|merge|rebase|checkout)"),
+     "git"),
+    (re.compile(r"(?i)could not resolve host|connection (refused|timed out|reset)|"
+                r"error connecting to|\b40[37] forbidden|proxy"), "network"),
+    (re.compile(r"(?i)permission denied|operation not permitted"), "permission denied"),
+    (re.compile(r"(ls|cat|wc|head|tail|sed|grep|cd|stat): .*No such file or directory|"
+                r"cannot access "), "path not found"),
+]
+#: exit codes of a command that was killed or timed out (``timeout``, a signal)
+KILLED_CODES = ("124", "137", "143", "144")
+
+
+def bash_cause(rec):
+    """The cause of a failed shell command, from its recorded ``detail`` and message:
+    one of the BASH_CAUSES, ``killed or timed out``, ``no error text`` (the output is
+    the command's ordinary output: its last stage exited non-zero, e.g. a probe that
+    found nothing), or ``other``."""
+    detail = rec.get("detail") or ""
+    for pat, cause in BASH_CAUSES:
+        if pat.search(detail):
+            return cause
+    m = re.search(r"(?i)exit code (\d+)", rec.get("msg") or "")
+    if (m and m.group(1) in KILLED_CODES) or re.search(r"(?i)\b(timed out|killed)\b", detail):
+        return "killed or timed out"
+    if not re.search(r"(?i)\b(error|errno|failed|cannot|can't|not found|denied|invalid|"
+                     r"refused|no such)\b", detail):
+        return "no error text"
+    return "other"
 
 
 def cmd_word(cmd):
@@ -284,10 +458,15 @@ def cmd_word(cmd):
 
 
 def family_of(sig, rec=None):
-    """``family(sig)``, except that the ``Bash: exit code`` class is split by the first
-    word of the record's ``cmd`` (it needs the record, which the signature lacks)."""
-    if sig == BASH_EXIT_SIG and rec is not None:
-        return "Bash: exit code (%s)" % cmd_word(rec.get("cmd"))
+    """``family(sig)``, except that the shell classes (``Bash: exit code <n>``,
+    ``PowerShell: ...``) are split by the cause read from the record (``bash_cause``; it
+    needs the record, which the signature lacks). A record without ``detail`` (written
+    before the hook kept it) falls back to the first word of its command."""
+    if sig in SHELL_EXIT_SIGS and rec is not None:
+        tool = sig.split(":", 1)[0]
+        if not rec.get("detail"):
+            return "%s: exit code (%s)" % (tool, cmd_word(rec.get("cmd")))
+        return "%s: %s" % (tool, bash_cause(rec))
     return family(sig)
 
 
@@ -318,8 +497,11 @@ def report(records, start, now=None):
     lo = _stamp(start)
     cls = classes(records)
     in_window = collections.Counter()
+    benign = 0
     for r in records:
-        if r["t"] == "error" and r["ts"] >= lo and r.get("sig") in cls:
+        if r["t"] == "error" and r["ts"] >= lo and is_benign(r):
+            benign += 1
+        elif r["t"] == "error" and r["ts"] >= lo and r.get("sig") in cls:
             in_window[r["sig"]] += 1
     rows = []
     starts = {}
@@ -335,7 +517,8 @@ def report(records, start, now=None):
                      "instances": sorted(c["instances"]), "first": c["first"],
                      "last": c["last"], "weeks_open": weeks_open,
                      "distinct_weeks": len(c["weeks"]), "reported": c["reported"],
-                     "regression": bool(c["regression_commit"]),
+                     "regression": bool(c["regression_commit"]) and not c["stale"],
+                     "stale": c["stale"],
                      "regression_commit": c["regression_commit"],
                      # recurring: seen on three or more sessions, or in two calendar weeks
                      "recurring": len(c["sessions"]) >= 3 or len(c["weeks"]) >= 2})
@@ -350,9 +533,11 @@ def report(records, start, now=None):
                                       "example": r["msg"]})
 
     for r in rows:
-        if r["sig"] == BASH_EXIT_SIG:  # split by command word, per record
+        if r["sig"] in SHELL_EXIT_SIGS:  # split by cause, per record
             for rec in cls[r["sig"]]["recs"]:
                 f = fam_entry(family_of(r["sig"], rec), r)
+                if f["example"] == r["msg"] and rec.get("detail"):
+                    f["example"] = rec["detail"]       # "Exit code 1" says nothing
                 f["count"] += 1
                 f["in_window"] += 1 if rec["ts"] >= lo else 0
                 f["bursts"] += 1 if id(rec) in starts[r["sig"]] and rec["ts"] >= lo else 0
@@ -374,17 +559,81 @@ def report(records, start, now=None):
                       key=lambda f: (-f["bursts"], -f["count"], f["family"]))
     return {"window": {"start": start.strftime("%Y-%m-%d"), "end": now.strftime("%Y-%m-%d")},
             "errors_in_window": sum(in_window.values()),
+            "benign_in_window": benign,
             "families": families,
             "open_classes": len(rows),
             "recurring": [r for r in rows if r["recurring"]],
             "classes": rows}
 
 
-def render_markdown(rep):
+def _state(r):
+    return ("regression" if r.get("regression") else "stale code" if r.get("stale")
+            else "recurring" if r["recurring"]
+            else "new" if not r["reported"] else "carried")
+
+
+def _split(rep):
+    """``(live, quiet)``: the classes to read this week (an error in the window, or a
+    regression) and the open ones with none (carried over; the settle closes those that
+    were reported and stayed quiet)."""
+    live = [r for r in rep["classes"] if r["in_window"] or r.get("regression")]
+    quiet = [r for r in rep["classes"] if not (r["in_window"] or r.get("regression"))]
+    return live, quiet
+
+
+#: classes and families a brief report lists
+BRIEF_ROWS = 25
+
+
+def brief(rep, rows=BRIEF_ROWS):
+    """The report as a session should read it (2026-11-13: the full JSON of a week with 130
+    open classes was 174 000 characters, most of it classes with no error that week).
+
+    ``families``: those with an error in the window or a regression, worst first;
+    ``classes``: the live ones (``_split``), at most ``rows``, each with the fields a
+    reader decides on; ``quiet``: how many open classes had none, how many of those were
+    never reported, and the largest few by name. Nothing is settled or hidden by this:
+    ``report --json`` is the whole picture."""
+    live, quiet = _split(rep)
+    fams = [f for f in rep.get("families", []) if f["in_window"] or f.get("regression")]
+    unreported = [r for r in quiet if not r["reported"]]
+    return {
+        "window": rep["window"],
+        "errors_in_window": rep["errors_in_window"],
+        "benign_in_window": rep["benign_in_window"],
+        "open_classes": rep["open_classes"],
+        "recurring_classes": len(rep["recurring"]),
+        "families": [{"family": f["family"], "in_window": f["in_window"],
+                      "bursts": f["bursts"], "classes": f["classes"],
+                      "sessions": f["sessions"],
+                      "state": ("regression" if f.get("regression")
+                                else "recurring" if f["recurring"] else "-"),
+                      "example": " ".join(str(f["example"] or "").split())[:160]}
+                     for f in fams[:rows]],
+        "families_omitted": max(0, len(fams) - rows),
+        "classes": [{"sig": r["sig"], "in_window": r["in_window"], "bursts": r["bursts"],
+                     "count": r["count"], "sessions": r["sessions"],
+                     "instances": r["instances"], "first": r["first"][:10],
+                     "last": r["last"][:10], "weeks_open": r["weeks_open"],
+                     "state": _state(r)} for r in live[:rows]],
+        "classes_omitted": max(0, len(live) - rows),
+        "quiet": {"classes": len(quiet), "never_reported": len(unreported),
+                  "recurring": sum(1 for r in quiet if r["recurring"]),
+                  "largest": [{"sig": r["sig"], "count": r["count"], "last": r["last"][:10]}
+                              for r in sorted(quiet, key=lambda r: -r["count"])[:5]]},
+    }
+
+
+def render_markdown(rep, every=False):
+    """The report as Markdown. The class table lists the classes with an error in the
+    window (or a regression) and counts the rest; ``every`` lists them all."""
     w = rep["window"]
     out = ["# Errors %s .. %s" % (w["start"], w["end"]), "",
            "%d error(s) in the window; %d open class(es), %d recurring."
            % (rep["errors_in_window"], rep["open_classes"], len(rep["recurring"])), ""]
+    if rep.get("benign_in_window"):
+        out += ["%d more shell command(s) exited 1 with ordinary output and no error text "
+                "(a probe that found nothing); not counted." % rep["benign_in_window"], ""]
     fams = [f for f in rep.get("families", []) if f["in_window"]][:10]
     if fams:
         out += ["## Top families", "",
@@ -400,14 +649,20 @@ def render_markdown(rep):
     out += ["## Classes", "",
            "| class | in window | bursts | total | sessions | first | last | weeks open | state |",
            "|---|---|---|---|---|---|---|---|---|"]
-    for r in rep["classes"]:
-        state = ("regression" if r.get("regression") else "recurring" if r["recurring"]
-                 else "new" if not r["reported"] else "carried")
+    live, quiet = _split(rep)
+    shown = rep["classes"] if every else live
+    for r in shown:
         out.append("| `%s` | %d | %d | %d | %d | %s | %s | %d | %s |" % (
             r["sig"].replace("|", "\\|"), r["in_window"], r["bursts"], r["count"], r["sessions"],
-            r["first"][:10], r["last"][:10], r["weeks_open"], state))
-    if not rep["classes"]:
+            r["first"][:10], r["last"][:10], r["weeks_open"], _state(r)))
+    if not shown:
         out.append("| none | | | | | | | | |")
+    if quiet and not every:
+        out += ["", "%d more open class(es) had no error in the window (%d recurring, %d never "
+                "reported): carried over, and closed by the settle once reported and quiet. "
+                "`report --all` lists them."
+                % (len(quiet), sum(1 for r in quiet if r["recurring"]),
+                   sum(1 for r in quiet if not r["reported"]))]
     out += ["", "Example messages:", ""]
     for r in rep["classes"][:10]:
         out.append("- `%s`: %s" % (r["sig"].replace("|", "\\|"), r["msg"] or "-"))
@@ -453,6 +708,13 @@ def hook_record(event, instance, now=None):
     ns, bare = ac.agent_identity(event)
     rec["agent"] = redact(("%s:%s" % (ns, bare)) if ns else bare)[:80] if bare else "MAIN"
     rec.update(context(event, tool, err))
+    if tool in SHELL_TOOLS and rec.get("detail"):
+        rec["cause"] = bash_cause(rec)          # what the report's families read
+    # the code the session ran: a session on an old checkout or an old installed plugin
+    # repeats errors already fixed (``has_fix``)
+    for k, v in (("rev", code_rev()), ("ver", code_version())):
+        if v:
+            rec[k] = v
     return rec
 
 
@@ -540,6 +802,12 @@ def main(argv=None):
     g.add_argument("--days", type=int, default=None)
     g.add_argument("--since")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--brief", action="store_true",
+                   help="with --json: the families and classes to read this week, and a "
+                        "count of the rest (what a session should read)")
+    p.add_argument("--all", action="store_true",
+                   help="the Markdown class table lists every open class, also those with "
+                        "no error in the window")
     p.add_argument("--workspace")
     p = sub.add_parser("settle")
     p.add_argument("--packet", required=True)
@@ -547,7 +815,14 @@ def main(argv=None):
     p.add_argument("--instance", help="ledger file to note the settle in (default: cwd's home)")
     p.add_argument("--workspace")
     p = sub.add_parser("resolve")
-    p.add_argument("sig", nargs="+")
+    p.add_argument("sig", nargs="*")
+    p.add_argument("--family", action="append", default=[],
+                   help="resolve every open class of this family (the report's first "
+                        "table), e.g. 'tickets_update: not a transition'; repeatable")
+    p.add_argument("--version", default="",
+                   help="the plugin version the fix ships in (default with --commit: the "
+                        "version of this checkout); an error from an older copy is then "
+                        "'stale code', not a regression")
     p.add_argument("--note", default="")
     p.add_argument("--by", default="human")
     p.add_argument("--commit", default="", help="the fixing commit; a later error is a regression")
@@ -573,10 +848,12 @@ def main(argv=None):
         else:
             start = now - _dt.timedelta(days=a.days if a.days is not None else 7)
         rep = report(read_all(board), start, now)
-        if a.json:
+        if a.json and a.brief:
+            print(json.dumps(brief(rep), ensure_ascii=False))
+        elif a.json:
             print(json.dumps(rep, indent=2))
         else:
-            sys.stdout.write(render_markdown(rep))
+            sys.stdout.write(render_markdown(rep, every=a.all))
     elif a.cmd == "settle":
         closed = settle(board, instance, a.packet, a.quiet_days)
         print("settled %s: %d class(es) closed" % (a.packet, len(closed)))
@@ -584,12 +861,30 @@ def main(argv=None):
             print("  closed: " + sig)
     elif a.cmd == "resolve":
         now = _stamp(_now())
-        for sig in a.sig:
+        sigs = list(a.sig)
+        if a.family:
+            for sig, c in sorted(classes(read_all(board)).items()):
+                if sig in sigs:
+                    continue
+                if sig in SHELL_EXIT_SIGS:
+                    # a shell class is many causes; it closes only when all are named
+                    if {family_of(sig, r) for r in c["recs"]} <= set(a.family):
+                        sigs.append(sig)
+                elif family(sig) in a.family:
+                    sigs.append(sig)
+        if not sigs:
+            print("error_ledger: nothing to resolve (no signature given, no open class "
+                  "in the family)", file=sys.stderr)
+            return 1
+        version = a.version or (code_version() if a.commit else "")
+        for sig in sigs:
             rec = {"t": "resolve", "ts": now, "sig": sig, "by": a.by, "note": a.note}
             if a.commit:
                 rec["commit"] = a.commit
+            if version:
+                rec["version"] = version
             append(board, instance, rec)
-        print("resolved %d class(es)" % len(a.sig))
+        print("resolved %d class(es)" % len(sigs))
     return 0
 
 

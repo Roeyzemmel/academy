@@ -20,7 +20,11 @@ if (!MODES.includes(A.mode)) throw new Error('args.mode must be one of ' + MODES
 const CLERK = 'academy:inbox-clerk'
 const EXP = 'scientist:experimenter'
 const T = A.ticket || ''
-const clerk = (stage, lines, schema, label) => agent(`WORKFLOW STAGE ${stage} of the academy-experiment workflow (mode ${A.mode}). Run from the lab home (lab.py home names it).\n` + lines.filter(Boolean).join('\n'),
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: lab.py is \`py ${AR}/scientist/scripts/lab.py\`, report.py is \`py ${AR}/scientist/scripts/report.py\`, from the lab home (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.scientist is the scripts folder).\n')
+const clerk = (stage, lines, schema, label) => agent(`WORKFLOW STAGE ${stage} of the academy-experiment workflow (mode ${A.mode}). Run from the lab home (lab.py home names it).\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase: 'Leg', agentType: CLERK, schema, effort: 'low' })
 
 const HOME = { type: 'object', properties: { ok: { type: 'boolean' }, instance: { type: 'string' }, home: { type: 'string' }, run_profile: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'instance', 'home', 'run_profile', 'detail'] }
@@ -40,6 +44,39 @@ const DRAFT = { type: 'object', properties: { report: { type: 'string' }, result
 const RENDER = { type: 'object', properties: { ok: { type: 'boolean' }, rendered: { type: 'string', description: 'the rendered packet text' }, errors: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'rendered', 'errors'] }
 const FILED = { type: 'object', properties: { packet: { type: 'string' }, review_ticket: { type: 'string' }, researcher: { type: 'string' }, why: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'review_ticket', 'researcher', 'why', 'error'] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
+
+// ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
+// workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
+// finished ticket gets the inbox's own scoped checkpoint (inbox.py --check, which honours
+// "shipCheckpoint": false); anything else is not-run, with the command for the session.
+const SHIP = { type: 'object', properties: { status: { type: 'string', enum: ['pushed', 'nothing', 'refused', 'not-run'] }, detail: { type: 'string' },
+  branches: { type: 'array', items: { type: 'string' } }, output: { type: 'string', description: 'the whole output, stdout and stderr, verbatim' } },
+  required: ['status', 'detail', 'branches', 'output'] }
+async function ship(s) {   // {role, ticket, done, instance, topic, only, agentType, phase, notes}
+  if (!s.ticket) return { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
+  const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
+  if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
+  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+    '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
+  const lines = String(r ? r.output : '').split(/\r?\n/)
+  const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
+  const rows = lines.map(l => /^(\S+) (\S+) @ \S+ \(\d+ files\) (.*)$/.exec(l)).filter(Boolean)
+  const bad = lines.find(l => /REFUSED|PUSH FAILED|checkpoint incomplete|checkpoint for \S+ (exited [1-9]|timed out|could not start|failed)/.test(l))
+  const skipped = lines.find(l => /checkpoint not run/.test(l))
+  const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
+  const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
+    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : bad ? { status: 'refused', detail: bad.trim() }
+    : skipped ? { status: 'not-run', detail: skipped.trim() }
+    : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
+    : rows.length ? { status: 'nothing', detail: 'nothing to commit or push' }
+    : m ? { status: 'not-run', detail: 'no checkpoint ran ("shipCheckpoint": false, another board, or no ship script)' }
+    : { status: r.status, detail: r.detail }
+  if (!/^(pushed|nothing)$/.test(res.status)) res.command = check
+  if (res.status === 'refused' && s.notes) s.notes.push(`the ship stage was refused (${res.detail}); fix the cause, then run \`${check}\` once by hand`)
+  return res
+}
 
 const out = { mode: A.mode, ticket: T || null, notes: [] }
 const gate = (why, extra) => Object.assign(out, { for_main: Object.assign({ gate: true, why, ticket: T || null }, extra || {}) })
@@ -101,7 +138,7 @@ if (A.mode === 'report') {
   let c = await clerk('report-check', [`Run report.py check experiments/${A.stem}.py${opts}; return ok and every refusal line.`], CHECK, 'report check')
   if (c && !c.ok) {
     out.notes.push('report.py check refused; one fix round: ' + c.errors.join('; '))
-    dr = await agent(`report.py check refuses experiments/${A.stem}.py:\n- ${c.errors.join('\n- ')}\nFix the header or the draft (never a hand-written packet).`, { label: 'report draft (fix)', phase: 'Leg', agentType: EXP, schema: DRAFT }) || dr
+    dr = await agent(SCRIPTS + `report.py check refuses experiments/${A.stem}.py:\n- ${c.errors.join('\n- ')}\nFix the header or the draft (never a hand-written packet).`, { label: 'report draft (fix)', phase: 'Leg', agentType: EXP, schema: DRAFT }) || dr
     c = await clerk('report-check', [`Run report.py check experiments/${A.stem}.py${opts} again; return ok and the refusal lines.`], CHECK, 'report check again')
   }
   if (!c || !c.ok) return Object.assign(out, { outcome: 'check-failed', reason: (c ? c.errors : []).join('; ') })
@@ -119,4 +156,8 @@ if (T) {
   const m = await clerk('close', [`Deliver ${T} (tickets_update deliver: true, acting as its receiver) with result "report ${f.packet}; review ticket ${f.review_ticket} to ${f.researcher}" and fields.packets [${f.packet}].`], MOVE, 'deliver')
   out.ticket_delivered = !!(m && m.ok)
 }
-return Object.assign(out, { outcome: 'filed', packet: f.packet, review_ticket: f.review_ticket, researcher: f.researcher, why: f.why })
+Object.assign(out, { outcome: 'filed', packet: f.packet, review_ticket: f.review_ticket, researcher: f.researcher, why: f.why })
+// only the file leg ships: the other legs end at a human gate (build's commit is the human's)
+if (!A.nested) out.ship = await ship({ role: 'scientist', ticket: T, done: !!out.ticket_delivered, topic: 'report-' + A.stem,
+  only: '<home submodule> board', agentType: CLERK, phase: 'Leg', notes: out.notes })
+return out

@@ -23,7 +23,7 @@ project's decision is not a reason to change the pack unless the ticket says the
 usage is the project's.
 
 **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/domain.js` and
-`args: {ticket: "T-NNNN"}`. The inbox runs it for a `notation` ticket to the Expert. The
+`args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", ticket: "T-NNNN"}`. The inbox runs it for a `notation` ticket to the Expert. The
 order is code (2026-10-31; docs/workflows.md):
 1. the ticket is taken. A ticket that asks for two unrelated changes is split: the first
    is taken, and the thread says so;
@@ -37,6 +37,7 @@ order is code (2026-10-31; docs/workflows.md):
 4. a `notation` packet when the change alters a symbol or a statement other instances
    rely on (with a decision when it could clash with a project's), then the ticket.
 
-Nothing is committed: the human commits the academy repo. Report the file and line
-changed, the changelog line, the card written if any, the packet id and every `anomalies`
-entry. Never ask questions.
+The pack is not committed: the human commits the academy repo. The ticket's own work (the
+packet, a card) ships by the `ship` stage once the ticket is delivered. Report the file
+and line changed, the changelog line, the card written if any, the packet id, every
+`anomalies` entry and `ship` (a refusal is reported, never retried). Never ask questions.

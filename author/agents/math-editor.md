@@ -25,6 +25,13 @@ hook refuses the edit) and `Drafts/vision.md`, the paper's form and taste
 (`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`), which you apply within your
 remit.
 
+**Reading the tex.** A section file can be larger than one Read allows; do not Read it
+whole, and do not repeat a Read that was refused for size. For one statement:
+`py ${CLAUDE_PLUGIN_ROOT}/scripts/statement.py <label> --proof [--context N]` prints its
+environment, its proof and their line numbers. For the lie of a file:
+`statement.py --outline sections/<name>.tex` (every labelled statement and heading with
+its lines). Read anything else with `offset` and `limit` from those numbers.
+
 ## apply and mechanical write
 
 - **`apply`**: the edit the ticket states, exactly, nothing more.
@@ -51,10 +58,15 @@ verdicts and the packet's `## Decision`:
   way; quote R's line and the base pass's two.
 - If the claim's registry status is not yet `proved`, propose it:
   `claims_propose_status` (the claim-keeper sets it; you never set a status).
-- Anything short of that: no recolour. Record what the verdicts found as tickets
-  (`tickets_create`, `agenda` the label's claim), e.g. a GAP becomes a `research` ticket
-  to the Expert with `final_to: researcher`. A hypothesis, statement or proof-step
-  finding is always the Researcher's; never apply one yourself.
+- Anything short of that: no recolour. Record what the verdicts found as tickets **to
+  this Author instance** (`tickets_create` with `to:` your own instance, kind `write`,
+  `agenda` the label's claim). For a GAP say so in the title or ask in the words the
+  inbox reads ("a missing step in the proof of ...", "repair the proof of ...", "add the
+  hypothesis ..."): the inbox then routes it as research, and the writer files it with
+  the Expert, `final_to: researcher`. You are not a liaison to the Expert: a ticket from
+  you to the Expert is refused (the ledger, 2026-11-13: eight refusals in one landing).
+  A hypothesis, statement or proof-step finding is always the Researcher's; never apply
+  one yourself.
 - A `cite` ticket: insert the `\cite` with the key and pinpoint the ticket's result
   gives.
 - Close the ticket when the landing is done: `tickets_update` status `closed` (you

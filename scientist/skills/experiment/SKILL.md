@@ -11,7 +11,7 @@ description: 'Take a mathematical claim from words to a queued, provenance-stamp
 
 One leg per call of the Workflow tool, `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/experiment.js`
 (2026-10-31; docs/workflows.md). The human gates are the human's, and the script makes them
-unskippable; between the legs this session asks with `AskUserQuestion`:
+unskippable (every call also takes `root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"`, the academy repo, so the stage prompts name the scripts' paths); between the legs this session asks with `AskUserQuestion`:
 
 1. **`design`** (`{mode: "design", claim | ticket, kind}`): the lab is located
    (`lab.py home`), and the experimenter classifies the path:
@@ -39,7 +39,10 @@ unskippable; between the legs this session asks with `AskUserQuestion`:
    `report.py render`. **Gate:** the human sees the rendered packet.
 5. **`file`** (`{mode: "file", stem, job, env, ticket}`): `report.py file` writes the
    `experiment-report` packet and the `review-experiment` ticket to the Researcher that
-   owns the claim's namespace (say which and why), and the ticket is delivered.
+   owns the claim's namespace (say which and why), and the ticket is delivered. The leg
+   ends with `ship`: the ticket's checkpoint, run once (no ticket: `not-run` with the
+   command); a refusal is reported, never retried. The other legs end at a human gate and
+   ship nothing.
 
 **A surprising result is a bug until shown otherwise** (`superpowers:systematic-debugging`).
 A status change on the lab claim is proposed only. Script and result JSON are committed

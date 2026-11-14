@@ -16,7 +16,7 @@ paper. A plausible entry with a nonexistent lemma number survives every check bu
 one.
 
 **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/cite.js` and
-`args: {ticket: "T-NNNN"}` or `{ref, pinpoint, relying, bib: "<author instance>:references.bib"}`.
+`args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", ticket: "T-NNNN"}` or `{root, ref, pinpoint, relying, bib: "<author instance>:references.bib"}`.
 The inbox runs the same script for a `cite` ticket. The order is code (2026-10-31;
 docs/workflows.md):
 1. the ticket is taken and its ask read;
@@ -40,6 +40,11 @@ The librarian's fetches stay on the allowlist of sources (`scripts/source_guard.
 - **Unreachable** (paywalled, image-only, no text): the entry may still be added, but the
   card records how it was read. Anything resting on it stays an unverified input until a
   human reads it. Say that plainly.
+- **`ship`** (a standalone run; docs/workflows.md): with a ticket, its checkpoint ran once
+  (`inbox.py --check`); without one it is `not-run` with the `checkpoint` command to run
+  from the workspace root. With a ticket the Author home's `references.bib` ships with it
+  (the touch ledger passes it as `--touched`, on the Expert's branch there); without one the
+  notes say to add `--touched` for it. A refusal is reported, never retried.
 
 Never write the entry yourself, never invent a pinpoint, never let a card stand in for a
 statement nobody read. Never ask questions.

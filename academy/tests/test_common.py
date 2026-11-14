@@ -1,4 +1,4 @@
-"""Unit tests for academy/lib/academy_common.py and the contracts it implements.
+"""Unit tests for academy/lib/academy_common/ and the contracts it implements.
 
 Run from the repo root:  py -m unittest discover academy/tests
 """
@@ -61,21 +61,6 @@ class TempDir(unittest.TestCase):
             {"instances": inst, "board": os.path.join(self.tmp, "board"),
              "human": {"name": "Ada"}}))
 
-    def fixture_workspace(self):
-        """A workspace.json for the five standard instances, homes under the temp dir."""
-        spec = {"expert@main": ("library", None), "scientist@main": ("lab", "lab"),
-                "researcher@alpha": ("notebook", "nb"), "researcher@beta": ("flat", "flat"),
-                "author@main": ("paper", "paper")}
-        inst = {}
-        for name, (home, ns) in spec.items():
-            inst[name] = {"role": name.split("@")[0], "home": os.path.join(self.tmp, home),
-                          "domains": ["translation-surfaces"]}
-            if ns:
-                inst[name]["ns"] = ns
-        return self.write("fixture/workspace.json", json.dumps(
-            {"instances": inst, "board": os.path.join(self.tmp, "board"),
-             "human": {"name": "Ada"}}))
-
 
 # ---------------------------------------------------------------------------
 # Config
@@ -83,7 +68,7 @@ class TempDir(unittest.TestCase):
 
 def config_examples():
     """{instance: config} for every '### Example: <instance>' block in docs/config.md."""
-    text = read(os.path.join(REPO, "docs", "config.md"))
+    text = read(os.path.join(REPO, "academy", "docs", "config.md"))
     out = {}
     for m in re.finditer(r"^### Example: (\S+)\n\n```json\n(.*?)^```", text, re.M | re.S):
         out[m.group(1)] = json.loads(m.group(2))
@@ -152,7 +137,7 @@ class ConfigTests(TempDir):
             ({"instance": "Author@BI"}, "instance must look like"),
             ({"domains": []}, "domains"),
             ({"ns": None}, "ns is required"),
-            ({"budget": dict(base["budget"], itemsPerRun=5)}, "itemsPerRun"),
+            ({"budget": dict(base["budget"], itemsPerRun="many")}, "itemsPerRun"),
             ({"budget": dict(base["budget"], maxModel="gpt")}, "maxModel"),
             ({"gate": dict(base["gate"], commit="sometimes")}, "gate.commit"),
             ({"paths": {"tex": "main.tex"}}, "paths.bib"),
@@ -164,6 +149,11 @@ class ConfigTests(TempDir):
             cfg.update(patch)
             probs = ac.validate_config(cfg)
             self.assertTrue(any(needle in p for p in probs), (patch, probs))
+        # out of range is clamped by the inbox, not refused (2026-11-14)
+        for n in (0, 5, 99):
+            cfg = dict(base, budget=dict(base["budget"], itemsPerRun=n))
+            self.assertFalse(any("itemsPerRun" in p for p in ac.validate_config(cfg)), n)
+            self.assertIn(ac.inbox_core.clamp(n), (1, 2, 3))
 
     def test_scientist_env_kinds(self):
         base = ac._deep_merge(ac.CONFIG_DEFAULTS, config_examples()["scientist@main"])
@@ -624,7 +614,7 @@ class FileTests(TempDir):
 # ---------------------------------------------------------------------------
 
 def protocol_example():
-    text = read(os.path.join(REPO, "docs", "protocol.md"))
+    text = read(os.path.join(REPO, "academy", "docs", "protocol.md"))
     blocks = [b for b in fenced(text, "markdown") if b.startswith("---\nid: T-0007")]
     assert len(blocks) == 1
     return blocks[0]
@@ -794,7 +784,7 @@ class TicketTests(TempDir):
 # ---------------------------------------------------------------------------
 
 def packet_doc_example():
-    text = read(os.path.join(REPO, "docs", "packet-template.md"))
+    text = read(os.path.join(REPO, "academy", "docs", "packet-template.md"))
     blocks = [b for b in fenced(text, "markdown") if b.startswith("---\npacket: P-0012")]
     assert len(blocks) == 1
     return blocks[0]
@@ -874,6 +864,18 @@ class PacketTests(unittest.TestCase):
         extra = body.replace("## Decisions needed", "## Conclusion\n\nsupports\n\n"
                              "## Decisions needed")
         self.assertEqual(ac.validate_packet(meta, extra), [])
+
+    def test_a_note_line_in_the_decision_section_is_not_a_problem(self):
+        meta, body = ac.read_frontmatter(packet_doc_example())
+        self.assertEqual([], ac.validate_packet(meta, body))
+        note = "\n_Renumbered 2026-11-13 from P-0308 (ID collision with a packet on main)._\n"
+        noted = body.rstrip("\n") + "\n" + note
+        self.assertEqual([], ac.validate_packet(meta, noted))
+        self.assertEqual(ac.packet_answers(body), ac.packet_answers(noted))     # answers nothing
+        self.assertEqual(ac.packet_decisions(body), ac.packet_decisions(noted))
+        for bad in ("Renumbered from P-0308.", "_half a note", "- _a list item_", "__"):
+            probs = ac.validate_packet(meta, body.rstrip("\n") + "\n\n" + bad + "\n")
+            self.assertTrue(any("malformed decision line" in p for p in probs), bad)
 
 
 # ---------------------------------------------------------------------------
@@ -1028,6 +1030,13 @@ class TicketEdgeTests(unittest.TestCase):
             ok, why = ac.ticket_edge_allowed(frm, to, "main", EDGE_PERMS)
             self.assertFalse(ok)
             self.assertIn("%s relays it" % relay, why, (frm, to))
+
+    def test_a_non_liaison_is_told_where_to_file_instead(self):
+        # the ledger, 2026-11-13: math-editor tried eight times to file to the Expert
+        ok, why = ac.ticket_edge_allowed("author@main", "expert@main", "math-editor", EDGE_PERMS)
+        self.assertFalse(ok)
+        self.assertIn("math-editor is not a liaison for author->expert", why)
+        self.assertIn("file it to your own author instance instead", why)
 
     def test_exempt_and_clerical(self):
         self.assertTrue(self.ok("author@main", "researcher@s1", "claim-keeper"))

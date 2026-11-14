@@ -378,6 +378,66 @@ class TestAcceptRecommended(DecisionsCase):
         self.assertEqual(ac.packet_answers(body)[1][0], "(a)")
 
 
+class TestProceed(DecisionsCase):
+    """Work goes on under a recommendation the human has not decided (2026-11-14)."""
+
+    def setUp(self):
+        super().setUp()
+        tpath = self.ticket()
+        self.tid = bd.read_ticket(tpath)[0]["id"]
+        self.packet(kind="citation", title="cite", ticket=self.tid, status_before=None,
+                    status_proposed=None, subject=[])
+
+    def thread(self):
+        return [x[2] for x in ac.thread_lines(bd.get_ticket(self.board, self.tid)[2])]
+
+    def body(self, pid="P-0001"):
+        return pk.read_packet(pk.get_packet(self.board, pid)[0])[1]
+
+    def test_the_packet_is_noted_the_ticket_told_and_nothing_is_decided(self):
+        self.assertEqual([{"id": "P-0001/D1", "choice": "a", "tickets": [self.tid]}],
+                         dc.proceed(self.board, dry_run=True, date=DATE))
+        self.assertEqual({}, pk.provisional_choices(self.body()))            # a dry run writes nothing
+        done = dc.proceed(self.board, date=DATE)
+        self.assertEqual([("P-0001/D1", "a", [self.tid])],
+                         [(d["id"], d["choice"], d["tickets"]) for d in done])
+        self.assertEqual({1: "a"}, pk.provisional_choices(self.body()))
+        self.assertEqual({}, ac.packet_answers(self.body()))                 # still pending
+        meta, body = pk.read_packet(pk.get_packet(self.board, "P-0001")[0])
+        self.assertEqual(("open", []), (meta["state"], ac.validate_packet(meta, body)))
+        self.assertIn("proceeding on P-0001 D1 (a)", self.thread()[-1])
+        self.assertIn("provisional and raises no status", self.thread()[-1])
+        item = [i for i in dc.pending_decisions(self.board) if i["id"] == "P-0001/D1"][0]
+        self.assertEqual("a", item["provisional"])                           # still asked, and marked
+        self.assertEqual([], dc.proceed(self.board, date=DATE))              # once
+
+    def test_a_publishing_packet_and_one_without_a_recommendation_wait_for_the_human(self):
+        self.packet(title="proved proposed")                                 # sketch -> proved
+        self.packet(kind="citation", title="no rec", status_before=None, status_proposed=None,
+                    subject=[], body=ONE_DECISION_BODY.replace("- Recommendation: (a), both runs agree.\n", "- Recommendation: decide.\n"))
+        self.assertEqual(["P-0001/D1"], [d["id"] for d in dc.proceed(self.board, date=DATE)])
+
+    def test_the_same_choice_confirms_and_another_returns_the_ticket(self):
+        dc.proceed(self.board, date=DATE)
+        bd.transition_ticket(self.board, self.tid, "accepted", as_instance="expert@main", date=DATE)
+        bd.transition_ticket(self.board, self.tid, "in-progress", as_instance="expert@main", date=DATE)
+        bd.transition_ticket(self.board, self.tid, "delivered", result="done on (a)",
+                             as_instance="expert@main", date=DATE)
+        pk.decide_packet(self.board, "P-0001", "b", date=DATE)
+        meta = bd.get_ticket(self.board, self.tid)[1]
+        self.assertEqual("in-progress", meta["status"])                      # back to its receiver
+        text = "\n".join(self.thread())
+        self.assertIn("this overturns the provisional (a)", text)
+        self.assertIn("returned: the decision on P-0001 D1 overturns the provisional (a)", text)
+
+    def test_deciding_as_recommended_changes_nothing_else(self):
+        dc.proceed(self.board, date=DATE)
+        pk.decide_packet(self.board, "P-0001", "a", date=DATE)
+        self.assertNotIn("overturns", "\n".join(self.thread()))
+        self.assertEqual("open", bd.get_ticket(self.board, self.tid)[1]["status"])
+        self.assertEqual("decided", pk.read_packet(pk.get_packet(self.board, "P-0001")[0])[0]["state"])
+
+
 class TestCLI(DecisionsCase):
     def _base(self):
         return ["--board", self.board, "--workspace", self.ws_path]
@@ -416,6 +476,17 @@ class TestCLI(DecisionsCase):
             rc = dc.main(self._base() + ["record", "X-0001", "--choice", "a"])
         self.assertEqual(rc, 1)
         self.assertIn("error:", err.getvalue())
+
+
+class WireTests(unittest.TestCase):
+    def test_the_json_a_session_reads_is_one_line_without_empty_keys(self):
+        items = [{"id": "P-0001/D1", "stale": None, "recommendation": "", "unblocks": [],
+                  "options": [{"label": "(a) Yes", "description": "Yes."}], "kind": "mechanical"}]
+        text = dc._wire([items])
+        self.assertNotIn("\n", text)
+        self.assertEqual([[{"id": "P-0001/D1", "kind": "mechanical",
+                            "options": [{"label": "(a) Yes", "description": "Yes."}]}]],
+                         json.loads(text))
 
 
 if __name__ == "__main__":

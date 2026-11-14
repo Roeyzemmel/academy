@@ -10,7 +10,7 @@ ticket whose `refs` name them. The flow is docs/protocol.md section 6.2. Run fro
 Researcher home.
 
 **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/generalize.js`
-and `args: {ref: "<P-NNNN | lab:id>", ticket: "<the generalize ticket>", home: "<this home>", instance: "<this instance>"}`.
+and `args: {ref: "<P-NNNN | lab:id>", ticket: "<the generalize ticket>", home: "<this home>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"}`.
 The inbox runs it for a `generalize` ticket. The order is code (2026-10-31;
 docs/workflows.md):
 1. `generalize.py source` refuses unless the experiment review has cleared
@@ -32,6 +32,8 @@ What comes back for this session:
   ticket to the Scientist. Then call the workflow again with `mode: "deliver"` and the
   `then` values. It checks that a test names each conjecture before it delivers the
   ticket.
+- **`ship`**: the generalize ticket's checkpoint, run once when the ticket is delivered
+  (until then `not-run`); a refusal is reported, never retried.
 
 A generalization that survives its test is proved through `/researcher:prove`; one that
 fails is refuted through claim-keeper on the test's reviewed result. Nothing here goes

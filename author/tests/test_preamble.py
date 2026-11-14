@@ -90,9 +90,11 @@ class PreambleGuard(unittest.TestCase):
         self.sb.write(sec, "\\usepackage{amsthm}\n")
         self.assertIsNone(self.reason(self.edit("\\usepackage{amsthm}", "", path=sec)))
 
-    def test_the_hook_is_registered(self):
+    def test_the_hook_is_registered_through_the_dispatcher(self):
         with open(os.path.join(au.PLUGIN_ROOT, "hooks", "hooks.json")) as fh:
-            self.assertIn("preamble_guard.py", fh.read())
+            self.assertIn("pre_tool_use.py", fh.read())
+        import pre_tool_use
+        self.assertIn("preamble_guard", pre_tool_use.guards_for("Edit"))
 
 
 if __name__ == "__main__":

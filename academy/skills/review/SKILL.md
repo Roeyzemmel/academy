@@ -11,8 +11,10 @@ rules are `docs/packet-template.md`; the procedure detail is
 `${CLAUDE_PLUGIN_ROOT}/skills/review/references/procedure.md`. Only the main session
 runs this skill: only the human decides.
 
-1. **List.** `py $S/packets.py list --open [--instance X] --json`. If none, say so and
-   stop.
+1. **List.** `py $S/packets.py list --open [--instance X] --json --brief`: `decide` (a
+   row per packet with a decision to make), `problems` (the invalid ones, shown but not
+   asked), `acknowledge` (the ids of those with nothing to decide) and `count`. If the
+   count is 0, say so and stop. `packets.py show P-NNNN` prints one packet in full.
 2. **Take what was recorded on the page** (since 2026-10-31). The dashboard records
    decisions in its shared store. When `review-dashboard` has a URL
    (`py $S/deep_dive_index.py get review-dashboard`), read it with `ArtifactData`

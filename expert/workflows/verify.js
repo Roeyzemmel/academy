@@ -25,18 +25,22 @@ const MODE = A.mode === 'reword' ? 'reword' : 'blind'
 const QUESTION = A.question || 'may it be raised to proved?'
 const CHAIR = 'expert:review-chair'
 const REVIEWER = 'expert:rigor-reviewer'
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: reviews.py is \`py ${AR}/expert/scripts/reviews.py\`, decision_table.py is \`py ${AR}/expert/scripts/decision_table.py\`, statement.py (the Author plugin's) is \`py ${AR}/author/scripts/statement.py\` (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.expert is the scripts folder).\n')
 const RE_PASS = /^\d{4}-\d{2}-\d{2}(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?$/
 const RE_HASH = /^[0-9a-f]{6,}$/
 
 const PREP = {
   type: 'object',
   properties: {
-    ok: { type: 'boolean', description: 'false when the pass must not start (budget, an open pass, a refused reword base)' },
+    ok: { type: 'boolean', description: 'false when the pass must not start (an open pass, a refused reword base)' },
     stop_reason: { type: 'string' },
     pass: { type: 'string' },
     pass_dir: { type: 'string', description: 'absolute path of the pass folder' },
     statement_hash: { type: 'string' },
-    location: { type: 'string', description: 'where the statement and proof live: file:label, or the object and its proofs/ attempt' },
+    location: { type: 'string', description: 'where the statement and proof live: for a statement of a tex file, the line of `statement.py <label> --where` (file, the statement\'s lines, the proof\'s lines); else the object and its proofs/ attempt' },
     bundle: { type: 'string', description: 'reword mode: absolute path of the bundle file; else empty' },
     ticket: { type: 'string', description: 'the ticket id, or none' },
   },
@@ -71,7 +75,40 @@ const DONE = {
 const STAGE = (name, body) =>
   `WORKFLOW STAGE ${name} of the academy-verify workflow (review-chair, workflow mode). ` +
   `Do this stage only, as conclude.md describes it, and return the structured result. ` +
-  `Launch no agent: the workflow launches the reviewers.\n\n${body}`
+  `Launch no agent: the workflow launches the reviewers.\n${SCRIPTS}\n${body}`
+
+// ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
+// workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
+// finished ticket gets the inbox's own scoped checkpoint (inbox.py --check, which honours
+// "shipCheckpoint": false); anything else is not-run, with the command for the session.
+const SHIP = { type: 'object', properties: { status: { type: 'string', enum: ['pushed', 'nothing', 'refused', 'not-run'] }, detail: { type: 'string' },
+  branches: { type: 'array', items: { type: 'string' } }, output: { type: 'string', description: 'the whole output, stdout and stderr, verbatim' } },
+  required: ['status', 'detail', 'branches', 'output'] }
+async function ship(s) {   // {role, ticket, done, instance, topic, only, agentType, phase, notes}
+  if (!s.ticket) return { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+    command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
+  const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
+  if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
+  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+    '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
+  const lines = String(r ? r.output : '').split(/\r?\n/)
+  const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
+  const rows = lines.map(l => /^(\S+) (\S+) @ \S+ \(\d+ files\) (.*)$/.exec(l)).filter(Boolean)
+  const bad = lines.find(l => /REFUSED|PUSH FAILED|checkpoint incomplete|checkpoint for \S+ (exited [1-9]|timed out|could not start|failed)/.test(l))
+  const skipped = lines.find(l => /checkpoint not run/.test(l))
+  const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
+  const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
+    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : bad ? { status: 'refused', detail: bad.trim() }
+    : skipped ? { status: 'not-run', detail: skipped.trim() }
+    : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
+    : rows.length ? { status: 'nothing', detail: 'nothing to commit or push' }
+    : m ? { status: 'not-run', detail: 'no checkpoint ran ("shipCheckpoint": false, another board, or no ship script)' }
+    : { status: r.status, detail: r.detail }
+  if (!/^(pushed|nothing)$/.test(res.status)) res.command = check
+  if (res.status === 'refused' && s.notes) s.notes.push(`the ship stage was refused (${res.detail}); fix the cause, then run \`${check}\` once by hand`)
+  return res
+}
 
 // ---- 1. Prepare -------------------------------------------------------------
 phase('Prepare')
@@ -82,8 +119,8 @@ const prep = await agent(STAGE('prepare', [
   A.findings ? `findings for the bundle: ${A.findings}` : '',
   '',
   MODE === 'reword'
-    ? 'conclude.md section 7 steps 1-4: take the ticket (budget: one reviewer run plus you), recover old.txt / new.txt, check the old hash, `reviews.py new-pass <id> --reword-of <base pass>` (with --base-subject when given), write the bundle with `reviews.py reword-brief`. statement_hash is the NEW statement\'s hash.'
-    : 'conclude.md section 0: take the ticket (budget: two reviewer runs plus you; else block it and return ok=false), pin and hash the statement (`reviews.py hash --file`), open the pass (`reviews.py new-pass`, `reviews.py dir`). Write nothing in the pass folder.',
+    ? 'conclude.md section 7 steps 1-4: take the ticket, recover old.txt / new.txt, check the old hash, `reviews.py new-pass <id> --reword-of <base pass>` (with --base-subject when given), write the bundle with `reviews.py reword-brief`. statement_hash is the NEW statement\'s hash.'
+    : 'conclude.md section 0: take the ticket (its budget field gates nothing: never block it for budget), pin and hash the statement (`reviews.py hash --file`), open the pass (`reviews.py new-pass`, `reviews.py dir`). For a statement that lives in a tex file, location is the output line of `statement.py <label> --where --home <that Author home>` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder.',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {
@@ -172,6 +209,10 @@ const allowed = new Set(runs.filter(r => !r.lost).map(r => r.run + '.md'))
 const extra = (done.run_files || []).map(f => f.split(/[\\/]/).pop())
   .filter(f => /^[ABR](-\d+)?(-noverdict)?\.md$/.test(f) && !allowed.has(f))
 if (extra.length) notes.push('ANOMALY: run files the workflow did not launch: ' + extra.join(', '))
-return { claim: A.claim, pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
+const res = { claim: A.claim, pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
          outcome: done.outcome, proposed_status: done.proposed_status, record: done.record,
          packet: done.packet, tickets: done.tickets, report: done.report, anomalies: extra }
+// the ticket's state is read by inbox.py --check itself (the concluder delivers it)
+if (!A.nested) res.ship = await ship({ role: 'expert', ticket: ticket === 'none' ? '' : ticket, done: true, topic: 'verify-' + A.claim,
+  only: 'library board', agentType: CHAIR, phase: 'Conclude', notes })
+return res

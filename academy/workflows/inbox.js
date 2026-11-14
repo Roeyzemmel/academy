@@ -13,8 +13,14 @@ export const meta = {
 // The inbox rules of /academy:inbox and the four role inboxes, and the relays' legs, in
 // code (the human's decision, 2026-10-31; docs/workflows.md):
 //  * the instance order, the cap over the whole run (budget.md rule 1), one ticket at a
-//    time with its --check checkpoint (rule 2), an unfinished ticket closes its
-//    instance for the run, a lost agent stops the run (rule 4);
+//    time with its --check checkpoint (rule 2), a lost agent stops the run (rule 4).
+//    A ticket the run leaves unfinished skips only itself (2026-11-14: one ticket waiting
+//    on a decision, listed first in every run, closed its whole instance in every run):
+//    it is not taken again this run; a ticket that ends blocked is parked, not unfinished;
+//    one that was already in-progress before the run and is still unfinished after it is
+//    handed to the human (blocked, waiting_on human), so it reaches /academy:decide and
+//    stops heading the list; a second unfinished ticket of one instance closes that
+//    instance for the run (something there is failing, and the cap is not to be spent on it);
 //  * the route is the role's routes.py (in the inbox.py row); this script dispatches it:
 //    reject / human / over-budget are clerk moves; a relay's forward leg is the relay's
 //    decision and its child ticket only, and the script then checks the child (parent,
@@ -35,6 +41,30 @@ const ROOT = A.root.replace(/[\\/]+$/, '')
 const LOOP = !!A.loop
 const CAP = LOOP ? Math.max(1, Math.min(A.cap || 12, 30)) : Math.max(0, Math.min(A.cap || A.n || 3, (A.campaign || A.cowork) ? 99 : 3))
 const MAX_PASSES = LOOP ? Math.max(1, Math.min(A.passes || 6, 12)) : 1
+// ---- The run's budget (references/budget.md rule 7, as of 2026-11-14) ---------------------
+// A budget is the run's, counted here as the run goes; it is no longer a number guessed on
+// each ticket when it was filed (916 of 1201 tickets carried the default of 1, and a route
+// that needed more blocked its ticket on the human "asking for the budget"). Each route's
+// cost in agent runs is declared below, by the code that launches them. A ticket whose cost
+// does not fit what is left WAITS for the next run (deferred, reported, first in line then);
+// it is never blocked for budget. One threshold stays: a ticket costing more than BIG runs
+// needs the human's word (args.approve names it). The session's token target, when the human
+// set one, ends the taking as well.
+const RUN_BUDGET = Math.max(1, Math.min(A.runs || (LOOP ? 36 : 12), 200))
+const BIG = Math.max(1, A.big || 8)
+const APPROVED = new Set(A.approve || [])
+const NESTED_COST = { 'expert:verify': 3, 'researcher:review-experiment': 3, 'researcher:settle': 4, 'researcher:explore': 3,
+  'researcher:prove': 2, 'researcher:generalize': 2, 'expert:cite': 1, 'expert:domain': 1, 'expert:referee': 1, 'author:notes': 1 }
+function costOf(row, i) {
+  const rt = row.route || {}
+  if (row.return || row.released || rt.how === 'reject' || rt.how === 'human') return 0   // clerk moves only
+  if (i.role === 'expert' && rt.target === 'clerk') return 2            // the clerk, and the librarian if it escalates
+  if (i.role === 'scientist' && rt.target === 'developer') return 4     // developer and test-engineer, two rounds
+  if (rt.how === 'skill') return NESTED_COST[rt.target] || 1
+  return 1
+}
+let spent = 0
+const deferred = []
 const ORDER = ['author', 'expert', 'researcher', 'scientist']
 const CLERK = 'academy:inbox-clerk'
 // a relay: the role its child goes to, the kinds the child may have, the final_to default
@@ -56,6 +86,8 @@ const NESTED = {
   'author:notes': ROOT + '/author/workflows/notes.js',
   'scientist:experiment': ROOT + '/scientist/workflows/experiment.js',
 }
+// every child above is called with nested: true, so it ships nothing itself: this run's --check
+// checkpoint ships the ticket's work (docs/workflows.md)
 // nested: this run is itself a sub-workflow (of workplan.js); nesting is one level only, so
 // the routes that run their own workflow are handed back as for_main instead
 const NESTED_OK = !A.nested
@@ -117,7 +149,7 @@ const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `ac
 
 const notes = []
 const taken = []
-const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0 }
+const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0, budget: null }
 const followed = new Set(A.ids || [])
 const children = new Set()           // follow: the child ids this run's relays and research asks filed
 
@@ -217,26 +249,24 @@ async function expertClerk(row, inst) {
   let ans = await agent(`Answer ticket ${row.id} (tickets_get it): its ask, from the library and the registry. ` +
     `Begin your answer with ESCALATE if the library cannot answer it.`, { label: `clerk ${row.id}`, phase: 'Tickets', agentType: 'expert:clerk' })
   if (ans === null) return { lost: true }
+  let used = 1
   if (/^\s*ESCALATE/.test(ans)) {
-    if ((row.budget_runs || 1) < 2) {
-      await move(row, inst, `block-human: append the clerk's escalation to the thread, then blocked, waiting_on [human], reason "the escalation to the librarian needs budget.runs 2"`)
-      return { outcome: 'blocked on human (budget)', detail: 'escalated' }
-    }
+    used = 2
     ans = await agent(`Ticket ${row.id} escalated by the clerk: ${ans}\nAnswer it as the librarian (look-ups the clerk escalated).`,
       { label: `librarian ${row.id}`, phase: 'Tickets', agentType: 'expert:librarian' })
     if (ans === null) return { lost: true }
   }
   const first = String(ans).trim().split('\n')[0].slice(0, 200).replace(/"/g, "'")
   const m = await move(row, inst, `deliver: deliver: true with result "${first}" and result_detail = the full answer:\n${ans}`)
-  return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: first }
+  return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: first, runs_used: used }
 }
 
 async function developerReviewed(row, i) {
   // the producer of code never grades it: developer, then test-engineer on the diff, the
-  // findings back through the thread, at most budget.runs agent runs in all
+  // findings back through the thread, two rounds at most (the route's declared cost, costOf)
   const st = await move(row, i.name, 'start: move it to in-progress')
   if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start' }
-  const runs = Math.max(2, row.budget_runs || 2)
+  const runs = 4
   let used = 0, verdict = ''
   while (used + 2 <= runs) {
     const d = await agent(`WORKFLOW INBOX: code ticket ${row.id} for ${i.name} (home ${i.home}); it is in-progress, make no status move. ` +
@@ -253,21 +283,17 @@ async function developerReviewed(row, i) {
     await move(row, i.name, `note: append to the thread "test-engineer: ${verdict.split('\n')[0].slice(0, 200).replace(/"/g, "'")}"`, `${row.id} review note`)
     if (/^\s*APPROVED/.test(verdict)) {
       const m = await move(row, i.name, `deliver: deliver: true with result "code delivered, test-engineer APPROVED: ${String(d).split('\n')[0].slice(0, 120).replace(/"/g, "'")}"`)
-      return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: 'approved' }
+      return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: 'approved', runs_used: used }
     }
   }
-  await move(row, i.name, 'block-human: blocked, waiting_on [human], reason "the review still has findings and budget.runs is spent: asking for more runs"')
-  return { outcome: 'blocked on human (budget)', detail: verdict.split('\n')[0] }
+  await move(row, i.name, 'block-human: blocked, waiting_on [human], reason "two rounds of review still leave findings: decide how it goes on"')
+  return { outcome: 'blocked on human (review)', detail: verdict.split('\n')[0], runs_used: used }
 }
 
 const firstRef = (row, re) => (row.refs || []).find(x => re.test(x)) || ''
 
 async function handle(row, i) {
   const inst = i.name, rt = row.route || {}
-  if (row.over_budget) {
-    await move(row, inst, `block-human: blocked, waiting_on [human], reason "over budget: ${row.over_budget}; asking for the budget"`)
-    return { outcome: 'blocked on human (budget)', detail: row.over_budget }
-  }
   if (row.released) {
     const r = await move(row, inst, 'release: blocked -> accepted (everything it waited on is back)')
     if (!r || !r.ok) return { outcome: 'unfinished', detail: 'release failed' }
@@ -316,7 +342,7 @@ async function handle(row, i) {
   if (i.role === 'scientist' && rt.target === 'experimenter') {
     // the experiment's design leg runs here; its header gate goes to the human (no body before approval)
     if (!NESTED_OK) return { for_main: { why: 'an experiment ticket: /scientist:experiment (design, then the header gate)', ticket: row.id, instance: inst, skill: 'scientist:experiment' } }
-    const r = await workflow({ scriptPath: NESTED['scientist:experiment'] }, { mode: 'design', ticket: row.id, kind: row.kind })
+    const r = await workflow({ scriptPath: NESTED['scientist:experiment'] }, { nested: true, root: ROOT, mode: 'design', ticket: row.id, kind: row.kind })
     if (r && r.for_main) return { for_main: Object.assign({ skill: 'scientist:experiment', instance: inst }, r.for_main, { ticket: row.id }) }
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.argument || r.reason || '') : 'lost', nested: r }
   }
@@ -326,30 +352,30 @@ async function handle(row, i) {
   if (rt.how === 'skill' && NESTED[rt.target]) {
     if (rt.target === 'author:notes') {
       // a returned referee ticket: its packet (the ticket's packets field) is landed as tickets, then the ticket is closed by its sender
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { home: i.home, instance: inst, root: ROOT, referee_ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, home: i.home, instance: inst, root: ROOT, referee_ticket: row.id })
       if (r && r.outcome !== 'lost' && r.outcome !== 'not-started')
         await move(row, inst, `close: move it delivered -> closed (you are its sender), with a thread note "${(r.filed || []).length} ticket(s) filed from ${r.packet || 'the packet'}; ${(r.unfiled || []).length} unfiled"`, `${row.id} close`)
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.unfiled || []).join('; ') : 'lost', nested: r }
     }
     if (rt.target === 'expert:referee' || rt.target === 'expert:domain') {
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.packet || r.reason || (r.anomalies || []).join('; ') || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:cite') {
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? [r.key, r.pinpoint, r.verdict].filter(Boolean).join(', ') || (r.reason || '') : 'lost', nested: r,
         parked: !!(r && r.gate), gate: r && r.gate ? Object.assign({ skill: 'expert:cite' }, r.gate) : null }
     }
     if (rt.target === 'researcher:explore') {
       const direction = firstRef(row, /^([a-z][a-z0-9]*:)?DIR-\d+$/)
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ ticket: row.id, home: i.home, instance: inst, n: 1 },
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ nested: true, root: ROOT, ticket: row.id, home: i.home, instance: inst, n: 1 },
         direction ? { direction: direction.split(':').pop() } : {}))
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.reason ? [r.reason] : []).join('; ') : 'lost', nested: r }
     }
     if (rt.target === 'researcher:generalize') {
       const ref = firstRef(row, /^P-\d{4,}$/) || firstRef(row, /^lab:\S+$/)
       if (!ref) return { for_main: { why: 'a generalize ticket whose refs name no report or lab claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { ref, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ref, ticket: row.id, home: i.home, instance: inst })
       if (r && r.to_file && r.to_file.length)
         return { for_main: { why: 'generalize: the falsifier tests are left to file (the lead could not file them)', ticket: row.id, instance: inst, to_file: r.to_file } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.reason || '') : 'lost', nested: r }
@@ -357,23 +383,23 @@ async function handle(row, i) {
     if (rt.target === 'researcher:prove') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { claim, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
       if (r && r.needs_explore) return { for_main: { why: 'the claim has no falsifier yet: run /researcher:explore first', ticket: row.id, instance: inst, skill: 'researcher:explore' } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:verify') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/)
       if (!claim) return { for_main: { why: 'a verify ticket whose refs name no claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { claim, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, claim, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
     const subject = firstRef(row, /^lab:\S+$/)
     if (!subject) return { for_main: { why: 'a review-experiment ticket whose refs name no lab claim', ticket: row.id, instance: inst } }
-    const r = await workflow({ scriptPath: NESTED[rt.target] }, { subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
+    const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
     if (r && r.outcome === 'needs-settle') {
       // settle in the same handle (sequential, still one nesting level): the audit, then the candidates' re-derivations
       const slug = subject.replace(/[^A-Za-z0-9._-]+/g, '-')
-      const st = await workflow({ scriptPath: NESTED[rt.target] }, { subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
+      const st = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
         candidates: `${i.home}/.academy/settle-${slug}.json` })
       return { outcome: st ? st.outcome : 'unfinished', detail: st ? (st.notes || []).join('; ') : 'lost', nested: st }
     }
@@ -387,7 +413,7 @@ async function handle(row, i) {
         { label: `${rt.target} ${row.id} (land)`, phase: 'Tickets', agentType: type })
       return r === null ? { lost: true } : { outcome: 'landed', detail: String(r).split('\n')[0] }
     }
-    const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (the statements to leave byte for byte)' : ''))
+    const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py`; the statements to leave byte for byte)' : ''))
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
     const r = await agent(
       `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
@@ -405,6 +431,8 @@ async function handle(row, i) {
 phase('Tickets')
 let count = 0
 const closed = new Set()
+const stuck = new Set()              // tickets this run left unfinished: not taken again this run
+const unfinishedBy = new Map()       // instance -> how many it left unfinished
 const gated = new Set()              // loop: tickets set aside for the human, never retried this run
 const touched = new Set()            // instances whose tickets ran (the Author's close-out)
 outer:
@@ -419,8 +447,25 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
     for (const row of i.rows) {
       if (count >= CAP) break outer
       if (closed.has(i.name)) break
-      if (gated.has(row.id) || taken.some(t => t.id === row.id && t.outcome !== 'unfinished')) continue
+      if (gated.has(row.id) || stuck.has(row.id) || taken.some(t => t.id === row.id)) continue
+      if (deferred.some(d => d.ticket === row.id)) continue
+      const need = costOf(row, i)
+      if (need > BIG && !APPROVED.has(row.id)) {
+        // an expensive ticket is the human's to start, once; it holds nothing else back
+        gated.add(row.id)
+        out.gates.push({ ticket: row.id, instance: i.name, why: `it costs about ${need} agent runs (more than ${BIG}): start it with approve: ["${row.id}"]` })
+        if (!LOOP && !out.for_main) out.for_main = { why: `${row.id} costs about ${need} agent runs: approve it or leave it`, ticket: row.id, instance: i.name }
+        continue
+      }
+      if (typeof budget !== 'undefined' && budget.total && budget.remaining() < 30000) { out.stopped = 'the token budget is spent: nothing further launched'; break outer }
+      if (spent + need > RUN_BUDGET) {
+        deferred.push({ ticket: row.id, instance: i.name, needs: need, left: RUN_BUDGET - spent })
+        notes.push(`${row.id} waits for the next run: its route costs ${need} agent run(s), ${RUN_BUDGET - spent} left of ${RUN_BUDGET}`)
+        continue
+      }
+      spent += need
       const res = await handle(row, i)
+      if (typeof res.runs_used === 'number') spent += res.runs_used - need      // what it really took
       if (res.for_main) {
         if (!LOOP) { out.for_main = res.for_main; notes.push(`stopped for the main session at ${row.id}: ${res.for_main.why}`); break outer }
         gated.add(row.id)
@@ -442,18 +487,34 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
       const chk = readCheck(await clerk('check', [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`,
         'Run it once. Return the exit code the shell printed (echo $?), the ticket status, and the whole output verbatim in output.'], CHECK, `check ${row.id}`), row.id)
       if (chk && !chk.shipped) notes.push(`${row.id}: the checkpoint did not ship everything (see its output); commit by hand`)
-      // a ticket the route parked on its child (a relay's forward, a research ask) is blocked by design: --check's
-      // exit 3 is then its expected end, not unfinished work (live run 2026-10-31 closed the Expert on it)
-      const parkedOk = res.parked && chk && chk.exit === 3 && chk.status === 'blocked'
+      // a ticket that ends blocked is parked (on its child, on the human, on a dead route): --check's exit 3 is
+      // then its expected end, not unfinished work (live run 2026-10-31 closed the Expert on it)
+      const parkedOk = chk && chk.exit === 3 && chk.status === 'blocked'
       const unfinished = !chk || (chk.exit === 3 && !parkedOk)
-      if (unfinished) { closed.add(i.name); notes.push(`${row.id} is unfinished: nothing more from ${i.name} this run`) }
-      taken.push({ instance: i.name, id: row.id, route: row.route, outcome: unfinished ? 'unfinished' : res.outcome, status: chk ? chk.status : '', detail: res.detail || '' })
+      let outcome = unfinished ? 'unfinished' : res.outcome
+      if (unfinished) {
+        stuck.add(row.id)
+        const n = (unfinishedBy.get(i.name) || 0) + 1
+        unfinishedBy.set(i.name, n)
+        if (row.status === 'in-progress' && chk && chk.status === 'in-progress') {
+          // it was in progress before this run and still is: a second run will not finish it either
+          const why = String(res.detail || 'no result recorded').replace(/\s+/g, ' ').slice(0, 200)
+          const m = await move(row, i.name, `block: it was in-progress before this run and is still unfinished after it. Move it to blocked with waiting_on ["human"] and the thread line "unfinished after two inbox runs (${why}): decide how it goes on"`, `${row.id} park`)
+          if (m && m.ok) { outcome = 'parked on the human'; notes.push(`${row.id} was in-progress before the run and is still unfinished: parked on the human (/academy:decide)`) }
+          else notes.push(`${row.id} is unfinished for the second run and could not be parked: ${m ? m.detail : 'the move returned nothing'}`)
+        } else {
+          notes.push(`${row.id} is unfinished: it is left as it is and not taken again this run`)
+        }
+        if (n >= 2) { closed.add(i.name); notes.push(`${i.name} left ${n} tickets unfinished: nothing more from it this run`) }
+      }
+      taken.push({ instance: i.name, id: row.id, route: row.route, outcome, status: chk ? chk.status : '', detail: res.detail || '' })
       if (res.gate) out.gates.push(Object.assign({ ticket: row.id, instance: i.name }, res.gate))   // done, but it waits on the human
     }
   }
   if (!moved) break                  // quiet: nothing in this pass could move without the human
   if (count >= CAP) break            // the cap is spent: no further listing
 }
+out.budget = { runs: RUN_BUDGET, spent, deferred }
 if (LOOP && out.gates.length && !out.for_main)
   out.for_main = { why: `${out.gates.length} ticket(s) wait on the human: ask them in one batch, then run the loop again`, gates: out.gates }
 
@@ -465,5 +526,5 @@ for (const i of (insts || []).filter(i => i.role === 'author' && touched.has(i.n
 out.count = count
 out.cap = CAP
 if (insts.some(i => i.role === 'author') && taken.some(t => roleOf(t.instance) === 'author'))
-  notes.push('Author: run check_paper.py from the home and relay its summary; launch tex-engineer once if an agent reported the build not clean')
+  notes.push('Author: run check_paper.py (`py ' + ROOT + '/author/scripts/check_paper.py --root <home>`) from the home and relay its summary; launch tex-engineer once if an agent reported the build not clean')
 return out

@@ -1,7 +1,7 @@
 """_researcher -- helpers shared by the Researcher plugin's scripts and hooks.
 
-Stdlib only; imports the vendored academy lib ``_academy.py`` next to it (never edit
-that copy: it is synced from ``academy/lib/academy_common.py``).
+Stdlib only; imports the vendored academy lib ``_academy/`` next to it (never edit
+that copy: it is synced from ``academy/lib/academy_common/``).
 
 Contents
 --------

@@ -52,7 +52,11 @@ it:
    hypotheses, conclusion, numbering) / partial / unreachable, into the card's
    `verdict` and `## Notes`.
 6. **A new bibliography entry** only from a Crossref, arXiv, MathSciNet or journal
-   record fetched in this run: copy its fields, never fill one from memory, never
+   record fetched in this run. For an arXiv id or a DOI take the record from the APIs,
+   not from a page: `py $E/sources.py lookup <id | DOI> [--json]` (one call; an arXiv
+   record that names a DOI comes back with the published journal, volume, pages and
+   year from Crossref beside the preprint's own, and says if the two titles differ).
+   It does not count against the two fetch attempts, which are for the text. Copy its fields, never fill one from memory, never
    guess pages or an arXiv id; include both the arXiv id and the published data when
    both exist. Keep the file's line endings and its key style.
 7. **Evidence.** If a registry claim relies on the pinpoint,

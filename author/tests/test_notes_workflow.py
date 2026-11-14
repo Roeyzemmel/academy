@@ -84,6 +84,9 @@ class NotesTests(unittest.TestCase):
         f = next(c for c in calls if c["label"] == "file")["prompt"]
         self.assertIn('"kind":"research"', f)
         self.assertNotIn('"kind":"write"', f)
+        # tickets only, no ticket of its own: not-run with the command, no agent (docs/workflows.md)
+        self.assertNotIn("ship", labels)
+        self.assertEqual(res["ship"]["command"], "py scripts/ship.py checkpoint --ticket author-notes --role author --only board")
 
     def test_a_judgement_point_must_be_parked_and_a_readback_mismatch_is_caught(self):
         d1 = dec(N1["id"], "new", prop("author@t", "apply"), judgement=True)          # not parked on human
@@ -112,9 +115,20 @@ class NotesTests(unittest.TestCase):
                                       "check-filed": [{"problems": [[]]}, {"problems": [[]]}], "classify again": [{"decisions": [bad]}]})
         self.assertIn("final_to belongs only to a research ticket", " ".join(res["unfiled"]))
 
+    def test_a_nested_run_has_no_ship_field(self):
+        d2 = dec(N2["id"], "new", prop("author@t", "apply"))
+        res, labels, _ = self.run_wf({
+            "collect": [dict(INV, new=[N2])], "classify": [{"decisions": [d2]}], "check-filed": [{"problems": [[]]}],
+            "file": [{"filed": [{"note": N2["id"], "ticket": "T-2"}], "appended": [], "refused": []}],
+            "read back": [{"tickets": [{"id": "T-2", "to": "author@t", "kind": "apply", "final_to": "", "status": "open", "waiting_on": []}]}]},
+            nested=True, referee_ticket="T-0700")
+        self.assertEqual(res["outcome"], "filed")
+        self.assertNotIn("ship", res)             # the inbox's --check of the referee ticket ships it
+
     def test_nothing_new_and_a_referee_packet(self):
         res, labels, _ = self.run_wf({"collect": [dict(INV, new=[])]})
         self.assertEqual(res["outcome"], "nothing-new")
+        self.assertNotIn("ship", res)             # nothing written
         res, labels, calls = self.run_wf({"collect": [dict(INV, new=[])]}, referee_ticket="T-0700")
         self.assertIn("packets field of T-0700", next(c for c in calls if c["label"] == "collect")["prompt"])
 

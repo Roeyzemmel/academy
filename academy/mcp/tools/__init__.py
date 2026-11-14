@@ -51,6 +51,41 @@ def obj(props, required=()):
     return out
 
 
+#: rows a listing tool returns when the caller names no ``limit``
+LIST_LIMIT = 50
+
+
+def page(rows, a, key, by=None):
+    """The listing result for ``rows``: ``{"count", key: rows}``, cut to ``limit`` rows
+    (default LIST_LIMIT, 0 for all) from ``offset``. A listing with rows after this page
+    says so: ``shown``, ``truncated``, how the matches split (``by`` -> counts) and how to narrow, so that a
+    caller never takes a part for the whole and a board of a thousand tickets does not
+    fill its context."""
+    try:
+        limit = int(a.get("limit", LIST_LIMIT))
+        offset = max(0, int(a.get("offset", 0)))
+    except (TypeError, ValueError):
+        raise ToolError("limit and offset are integers (limit 0 = every row)")
+    shown = rows[offset:] if limit <= 0 else rows[offset:offset + limit]
+    out = {"count": len(rows), key: [{k: v for k, v in r.items() if v not in (None, "")}
+                                     for r in shown]}
+    more = offset + len(shown) < len(rows)      # rows after this page (not: rows before it)
+    if more or offset:
+        out["shown"] = len(shown)
+        out["offset"] = offset
+    if more:
+        out["truncated"] = True
+        if by:
+            counts = {}
+            for r in rows:
+                counts[r.get(by)] = counts.get(r.get(by), 0) + 1
+            out["by_" + by] = counts
+        out["hint"] = ("rows %d-%d of %d: narrow the filters, or read on with offset=%d "
+                       "(limit=0 returns every row)"
+                       % (offset + 1, offset + len(shown), len(rows), offset + len(shown)))
+    return out
+
+
 S = {"type": "string"}
 I = {"type": "integer"}
 B = {"type": "boolean"}
@@ -98,6 +133,10 @@ class Context(object):
         one injected (tests, a session with a github transport)."""
         if self._store is None:
             self._store = ac.open_store(self.workspace)
+            # the server outlives the scripts that write between two of its calls: every
+            # listing asks GitHub what changed (one request), none is reused blind
+            if hasattr(self._store, "list_ttl"):
+                self._store.list_ttl = 0
         return self._store
 
     @property
@@ -162,9 +201,13 @@ class Context(object):
     def _check_role(self, name, plugin):
         role = self.instances().get(name, {}).get("role")
         if plugin in ac.ROLES and role and plugin != role:
+            own = sorted(self.instances_by_role(plugin))
             raise ToolError("agent %s:%s belongs to the %s role but %s is a %s instance; "
-                            "it cannot act for that instance"
-                            % (plugin, self.agent, plugin, name, role))
+                            "it cannot act for that instance%s"
+                            % (plugin, self.agent, plugin, name, role,
+                               "; instance names the instance you act for, not a party "
+                               "of the ticket: pass instance=%s" % " or ".join(own)
+                               if own else ""))
 
     def _requested(self):
         """The ``instance`` argument, validated against workspace.json; None if absent."""
@@ -179,6 +222,17 @@ class Context(object):
             raise ToolError("instance must be a workspace instance, got %r (have: %s)"
                             % (name, ", ".join(sorted(self.instances())) or "none"))
         return name
+
+    def _ticket_ns(self, meta):
+        """The claim namespaces a ticket names (``s1:GEO-70``, ``paper:lem:x``) in its
+        title, ask, deliverable, refs and agenda."""
+        import re
+        known = set(i.get("ns") for i in self.instances().values() if i.get("ns"))
+        text = " ".join(str(x) for x in [meta.get("title"), meta.get("ask"),
+                                         meta.get("deliverable"), meta.get("agenda")]
+                        + list(meta.get("refs") or []) if x)
+        return set(m for m in re.findall(r"(?<![\w@/.])([a-z][a-z0-9]*):(?=[A-Za-z])", text)
+                   if m in known)
 
     @property
     def instance(self):
@@ -229,11 +283,19 @@ class Context(object):
                           if self.claim_ns and insts[c].get("ns") == self.claim_ns]
                 if len(owners) == 1:
                     return owners[0]
+                # or names the ticket, when the ticket is about one candidate's claims
+                # (a verify ticket between Author and Expert on s1:GEO-70 is noted by
+                # the keeper of s1; 15 "could act for" refusals in the ledger)
+                owners = [c for c in cands if insts[c].get("ns") in self._ticket_ns(t)]
+                if len(owners) == 1:
+                    return owners[0]
                 detail = ""
                 if t.get("id"):
                     detail = " (ticket %s is between %s and %s)" % (
                         t["id"], t.get("from") or "?", t.get("to") or "?")
-                raise ToolError("agent %s:%s could act for %s; pass instance=<one of them>%s"
+                raise ToolError("agent %s:%s could act for %s; pass instance=<one of them>"
+                                " (the instance you act for, whose claims or notebook "
+                                "this is; not a party of the ticket)%s"
                                 % (plugin, self.agent, " or ".join(cands), detail))
             return None
         if t.get("to") in insts:

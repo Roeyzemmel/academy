@@ -2,14 +2,16 @@
 """Branch, commit and push in one repo of an academy workspace, one plain command per step.
 
     py scripts/ship.py [--workspace DIR] status
-    py scripts/ship.py start  <sub> <topic> [--role R] [--worktree]
+    py scripts/ship.py start  <sub> <topic> [--role R] [--worktree] [--on BRANCH]
     py scripts/ship.py commit <sub> -m MSG (--paths P... | --all)
-    py scripts/ship.py push   <sub>
+    py scripts/ship.py push   <sub> [--no-gate]
+    py scripts/ship.py stack  <sub> [--json]                         # the branch's stack and the PRs to open
     py scripts/ship.py accept-baseline <sub>                         # Author homes: rewrite the gate baseline
     py scripts/ship.py ship   <sub> -m MSG (--paths P... | --all)    # commit + push
     py scripts/ship.py merge  <sub> <branch> --sha TIP [-m MSG] [--bump]   # reviewed branch -> local main
     py scripts/ship.py publish <sub> --sha MAIN_TIP                  # local main -> origin main
     py scripts/ship.py checkpoint --ticket T-NNNN [--role R] [--title T] [--remote NAME] [--only SUB...]
+                                  [--touched SUB:PATH...]
 
 This is the academy plugin's ``academy/scripts/ship.py``; a workspace keeps a one-line shim
 at ``scripts/ship.py`` that runs it with ``--workspace <its root>`` and the same arguments,
@@ -24,6 +26,11 @@ when the workspace's board (workspace.json ``board``, default ``board/``) is a p
 directory of the superproject: then the repo is the workspace itself and every staging,
 status and commit is limited to the pathspec ``board/`` (``--paths`` are relative to
 ``board/``), so nothing outside it is committed, and never a submodule pointer.
+``workspace`` is the workspace repo's own files: everything of the superproject except
+the board's directory and the submodules (its CLAUDE.md, ``scripts/``, ``docs/``, the
+template). ``start`` / ``commit`` / ``push`` / ``ship`` / ``stack`` take it; a path inside
+the board or a submodule is refused (that is the other target), a submodule pointer is
+never staged, and ``checkpoint`` does not include it (a ticket's work is not there).
 
 Works from the workspace root in an ordinary CLI session (git is run with ``-C <sub>``
 from here; nothing needs a worktree), and equally from a session isolated in a
@@ -69,7 +76,46 @@ as a plain directory of the superproject only ``board/`` paths are staged and co
 (``add -A -- board/``, ``commit -- board/``), whatever else is dirty or staged there.
 The academy plugin's ``inbox.py --check`` runs ``checkpoint --only <the ticket's repos>``
 itself after a finished ticket: with ``--only`` the other submodules are not touched and
-a dirty repo of the set that is on main/master is refused instead of moved.
+a dirty repo of the set that is on main/master is refused instead of moved. With
+``--touched SUB:PATH...`` (from the inbox's touch ledger: files the ticket's role wrote in
+another role's home, such as an Expert's entry in an Author home's references.bib or an
+evidence row in another home's registry) each such submodule outside ``--only`` is
+checkpointed too, for those paths only: they alone are staged and committed, on the same
+``<date>/<ticket-id>/<role>`` branch (the acting role's, given by ``--role``), through that
+home's commit gate and push gate; the repo is refused, and nothing is shipped there, when
+it is on main/master, or when it would have to switch branches while anything else in it
+is uncommitted (that work is not the ticket's).
+
+**Stacks.** ``start`` branches from where the checkout is, so a second ``start`` on a
+template branch stacks on it; ``--on BRANCH`` names the base explicitly (a local branch,
+or ``origin/<branch>``). The base is recorded (``git config branch.<name>.ship-base``) and
+``stack`` prints the chain from the current branch down to ``main``: each branch, its tip,
+whether it is pushed, and the pull request it wants (``head`` and ``base``; a stacked
+branch's base is the branch under it, never ``main``). ``stack`` opens nothing: the
+session opens each PR with its GitHub tool (or ``gh pr create --head H --base B``),
+bottom first.
+
+**The push gate.** Nothing runs on GitHub for these repos, so what CI would run is run
+here, before a push. The description of the checks stays where CI keeps it: the repo's
+``.github/workflows/*.yml``. ``push`` / ``ship`` / ``checkpoint`` run the ``run:`` steps of
+every workflow triggered by ``push`` (``ci_local.py``, whose docstring says how a step is
+read locally: setup and install steps skipped, ``python`` mapped to this interpreter,
+``CI=true``), and refuse the push when a step fails, with the tail of its output; the
+commit stays. ``py ci_local.py list --repo <dir>`` shows the plan, ``run`` runs it by hand.
+
+A repo's ``ship.json`` (at its top level) is optional: ``{"pushGate": false}`` gives the
+repo no push gate, and a list adds steps that are local only, run before the workflows,
+
+    {"pushGate": [{"name": "build", "run": ["{python}", "tools/build.py"], "optional": true,
+                   "timeout": 900, "env": {"X": "1"}}]}
+
+from the repo's top level (``{python}`` is the interpreter running ship.py; a step whose
+executable is not installed is a failure unless it is ``optional``). A tree that passed is remembered (``<git dir>/ship-gate/<tree sha>``, clean
+trees only), so pushing the same tree again, or the next branch of a stack before it
+changed, does not rerun the steps. ``--no-gate`` on ``push`` / ``ship`` skips it with a
+warning, as for the commit gate: only on the human's word. ``"pushGate": false`` in
+workspace.json switches it off for the workspace. A repo with neither a push-triggered
+workflow nor a ``ship.json`` has no push gate.
 
 Usage on the board: when the ``board`` target is part of a checkpoint, ``usage_ledger``
 first appends one content-free summary per recently active session of this machine
@@ -212,11 +258,18 @@ def targets():
     return subs + [n for n in root_dirs() if n not in subs]
 
 
+#: the target of the workspace repo's own files (not the board, not a submodule)
+WORKSPACE = "workspace"
+
+
 def prefix_of(sub):
     """The pathspec (a directory relative to the workspace root) a superproject target is
-    limited to, or None for a submodule."""
+    limited to, or None for a submodule. ``workspace`` is ``.``: the whole superproject,
+    less what ``scope_specs`` excludes."""
     if sub in submodule_names():
         return None
+    if sub == WORKSPACE and os.path.exists(os.path.join(ROOT, ".git")):
+        return "."
     return root_dirs().get(sub)
 
 
@@ -225,11 +278,52 @@ def scope_spec(prefix):
     return ":(top,literal)%s" % prefix.rstrip("/")
 
 
+def foreign_dirs():
+    """The directories of the superproject that are other targets' (the board's, each
+    submodule's), relative to the workspace root."""
+    return sorted(set(root_dirs().values()) | set(submodule_names()))
+
+
+def scope_specs(prefix):
+    """The pathspecs of a superproject target: its directory, or for ``workspace`` the
+    whole tree without the other targets' directories."""
+    if prefix != ".":
+        return [scope_spec(prefix)]
+    return [":(top)"] + [":(top,exclude,literal)%s" % d for d in foreign_dirs()]
+
+
 def common_dir(path):
     """The real, case-normalised ``git rev-parse --git-common-dir`` of the checkout ``path``."""
     out = git(path, "rev-parse", "--git-common-dir")
     full = out if os.path.isabs(out) else os.path.join(path, out)
     return os.path.normcase(os.path.realpath(full))
+
+
+def main_checkout(repo):
+    """The main working tree of ``repo``'s repository (``repo`` itself unless it is a linked
+    worktree), as an absolute path.
+
+    Not the first line of ``git worktree list``: for a submodule whose git directory lives
+    in the superproject (``.git`` is a ``gitdir:`` file, what ``git submodule update``
+    makes) that line is the git directory, and a worktree "under the main checkout" landed
+    inside the superproject's ``.git`` (review, 2026-11-14)."""
+    repo = os.path.abspath(repo)
+    top = git(repo, "rev-parse", "--show-toplevel", check=False) or repo
+    gd = git(repo, "rev-parse", "--absolute-git-dir", check=False)
+    try:
+        common = common_dir(repo)
+    except Refuse:
+        return os.path.abspath(top)
+    if not gd or os.path.normcase(os.path.realpath(gd)) == common:
+        return os.path.abspath(top)             # not a linked worktree: this is the main one
+    # a linked worktree: the main tree is where the common git dir says it is
+    wt = git(common, "config", "--file", os.path.join(common, "config"), "--get",
+             "core.worktree", check=False)
+    if wt:
+        return os.path.abspath(wt if os.path.isabs(wt) else os.path.join(common, wt))
+    if os.path.basename(common) == ".git":
+        return os.path.dirname(common)
+    return os.path.abspath(top)
 
 
 def repo_of(sub, explicit=None):
@@ -290,18 +384,215 @@ def require_template(repo):
     return b
 
 
+def main_branch(repo):
+    for b in PROTECTED:
+        if git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + b, check=False) \
+                or git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + b, check=False):
+            return b
+    return PROTECTED[0]
+
+
+def base_of(repo, branch):
+    """The branch ``branch`` was started on (``start`` records it), else the main branch."""
+    b = git(repo, "config", "--get", "branch.%s.ship-base" % branch, check=False)
+    return b or main_branch(repo)
+
+
 def cmd_start(a):
     repo = repo_of(a.sub, a.repo)
     name = branch_name(a.topic, a.role or default_role(repo))
     exists = git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + name, check=False)
+    on = getattr(a, "on", None)
+    if on:
+        if exists:
+            raise Refuse("%s exists already; --on names the base of a new branch" % name)
+        if not git(repo, "rev-parse", "--verify", "--quiet", on + "^{commit}", check=False):
+            raise Refuse("--on %r is not a branch or commit of %s" % (on, repo))
+    # the base of the new branch: --on, else the branch the checkout is on (a stack)
+    base = (on[len("origin/"):] if on and on.startswith("origin/") else on) or current(repo)
     if a.worktree:
-        wt = os.path.join(repo, ".claude", "worktrees", name.replace("/", "-"))
-        args = ["worktree", "add", wt] + ([name] if exists else ["-b", name])
+        # always beside the other worktrees, under the main checkout: started from a
+        # worktree (--repo), the new one must not be nested inside it, and a relative
+        # --repo must not be joined twice (git runs in ``repo``)
+        wt = os.path.join(main_checkout(repo), ".claude", "worktrees", name.replace("/", "-"))
+        args = ["worktree", "add", wt] + ([name] if exists else ["-b", name] + ([on] if on else []))
         git(repo, *args)
         print("worktree %s on %s" % (wt, name))
     else:
-        git(repo, "switch", name) if exists else git(repo, "switch", "-c", name)
+        git(repo, "switch", name) if exists else git(repo, "switch", "-c", name, *([on] if on else []))
         print("%s on %s (uncommitted changes carried along)" % (repo, name))
+    main = main_branch(repo)
+    if not exists and base and base not in PROTECTED:
+        # a session's clone can hold an old origin/main, against which a fresh session
+        # branch looks like work of its own; ask the remote once, and go on without it
+        try:
+            subprocess.run(["git", "-C", repo, "fetch", "-q", "origin", main], capture_output=True,
+                           env=git_env(), stdin=subprocess.DEVNULL, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    main_ref = next((r for r in ("refs/remotes/origin/" + main, "refs/heads/" + main)
+                     if git(repo, "rev-parse", "--verify", "--quiet", r, check=False)), None)
+    own = git(repo, "rev-list", "--count", "%s..%s" % (main_ref, on or base), check=False) \
+        if (main_ref and base) else "1"
+    # a base with no commit of its own over main (a fresh session branch) is not a stack
+    if not exists and base and base != name and base not in PROTECTED and own != "0":
+        git(repo, "config", "branch.%s.ship-base" % name, base)
+        print("stacked on %s (its pull request's base; 'stack %s' shows the chain)" % (base, a.sub))
+
+
+def stack_of(repo, branch=None):
+    """The chain from ``branch`` (default: the current one) down to the main branch:
+    ``[{branch, base, sha, pushed, ahead}]``, top first. ``ahead`` counts the commits the
+    branch has over its base; ``pushed`` says the remote branch is at the local tip."""
+    out, seen = [], set()
+    b = branch or current(repo)
+    main = main_branch(repo)
+    while b and b not in PROTECTED and b not in seen:
+        seen.add(b)
+        tip = git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + b, check=False)
+        if not tip:
+            break
+        base = base_of(repo, b)
+        # main is counted from the remote's (a local main is often behind in a session)
+        order = ("refs/remotes/origin/" + base, "refs/heads/" + base) if base in PROTECTED \
+            else ("refs/heads/" + base, "refs/remotes/origin/" + base)
+        base_ref = next((r for r in order
+                         if git(repo, "rev-parse", "--verify", "--quiet", r, check=False)), None)
+        ahead = git(repo, "rev-list", "--count", "%s..%s" % (base_ref, tip), check=False) if base_ref else ""
+        remote = git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + b, check=False)
+        out.append({"branch": b, "base": base, "sha": tip[:12], "pushed": remote == tip,
+                    "ahead": int(ahead) if ahead.isdigit() else None})
+        b = base
+    if not out:
+        raise Refuse("%s is on %r: no stack (run 'start' first)" % (repo, current(repo) or "(detached)"))
+    out[-1].setdefault("root", main)
+    return out
+
+
+def cmd_stack(a):
+    repo = repo_of(a.sub, a.repo)
+    chain = stack_of(repo)
+    if a.json:
+        print(json.dumps(chain, indent=1))
+        return
+    n = len(chain)
+    print("%s: a stack of %d branch(es), bottom first; open the pull requests in this order" % (a.sub, n))
+    for k, row in enumerate(reversed(chain), 1):
+        print("%d/%d  %s @ %s  %s commit(s) over %s  [%s]" % (
+            k, n, row["branch"], row["sha"][:7], "?" if row["ahead"] is None else row["ahead"],
+            row["base"], "pushed" if row["pushed"] else "NOT pushed: 'push' first"))
+        print("     pull request: head %s -> base %s" % (row["branch"], row["base"]))
+
+
+# ----------------------------------------------------------------------------
+# The push gate: what CI would run, run here before a push (module docstring)
+# ----------------------------------------------------------------------------
+
+GATE_FILE = "ship.json"
+GATE_TAIL = 25
+
+
+def push_gate_steps(repo):
+    """The steps of ``repo``'s push gate (``ship.json`` at its top level), or []."""
+    top = git(repo, "rev-parse", "--show-toplevel", check=False) or repo
+    try:
+        with open(os.path.join(top, GATE_FILE), encoding="utf-8") as f:
+            steps = json.load(f).get("pushGate")
+    except (OSError, ValueError, AttributeError):
+        return top, []
+    if steps is False:
+        return top, None                    # the repo declares it has no push gate
+    out = []
+    for s in steps if isinstance(steps, list) else []:
+        if isinstance(s, dict) and isinstance(s.get("run"), list) and s["run"]:
+            out.append(s)
+    return top, out
+
+
+def run_push_gate(repo):
+    """Run the push gate of ``repo``. Returns ``(ok, lines)``: ``lines`` say what ran, was
+    skipped or failed (a failure with the tail of the step's output)."""
+    if workspace_json().get("pushGate") is False:
+        return True, []
+    top, steps = push_gate_steps(repo)
+    if steps is None:
+        return True, []
+    ci_steps, ci_problems = ci_plan(top)
+    if not steps and not ci_steps and not ci_problems:
+        return True, []
+    tree = git(repo, "rev-parse", "HEAD^{tree}", check=False)
+    clean = not git(repo, "status", "--porcelain", "--untracked-files=no", check=False)
+    gdir = git(repo, "rev-parse", "--absolute-git-dir", check=False)
+    marker = os.path.join(gdir, "ship-gate", tree) if (gdir and tree and clean) else None
+    if marker and os.path.isfile(marker):
+        return True, ["push gate: this tree passed before (%s)" % tree[:12]]
+    lines = []
+    if not clean:
+        lines.append("push gate: note: uncommitted changes in tracked files; the gate runs "
+                     "on the working tree, not on what is pushed")
+    for s in steps:
+        name = str(s.get("name") or s["run"][0])
+        argv = [sys.executable if str(x) == "{python}" else str(x) for x in s["run"]]
+        env = dict(os.environ, **{str(k): str(v) for k, v in (s.get("env") or {}).items()})
+        try:
+            p = subprocess.run(argv, cwd=top, capture_output=True, text=True, env=env,
+                               stdin=subprocess.DEVNULL, timeout=int(s.get("timeout") or 900))
+        except FileNotFoundError:
+            if s.get("optional"):
+                lines.append("push gate: %s skipped (%s is not installed)" % (name, argv[0]))
+                continue
+            return False, lines + ["push gate: %s: %s is not installed" % (name, argv[0])]
+        except subprocess.TimeoutExpired:
+            return False, lines + ["push gate: %s timed out" % name]
+        if p.returncode:
+            tail = ((p.stdout or "") + (p.stderr or "")).strip().splitlines()[-GATE_TAIL:]
+            return False, lines + ["push gate: %s failed (exit %d):" % (name, p.returncode)] \
+                + ["    " + t for t in tail]
+        lines.append("push gate: %s ok" % name)
+    if ci_steps or ci_problems:
+        ok, ci_lines = _ci().run(top)
+        lines += ["push gate: " + ln if not ln.startswith("    ") else ln for ln in ci_lines]
+        if not ok:
+            return False, lines
+    if marker:
+        try:
+            os.makedirs(os.path.dirname(marker), exist_ok=True)
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(datetime.datetime.now(datetime.timezone.utc).isoformat() + "\n")
+        except OSError:
+            pass
+    return True, lines
+
+
+def _ci():
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import ci_local
+    return ci_local
+
+
+def ci_plan(top):
+    """The workflow steps the push gate runs for the repo at ``top`` (``ci_local.plan``)."""
+    try:
+        return _ci().plan(top)
+    except Exception as exc:        # a broken runner must fail the gate, not pass it
+        return [], ["the workflow files could not be planned (%s)" % exc]
+
+
+def require_push_gate(repo, no_gate=False):
+    if no_gate:
+        top, steps = push_gate_steps(repo)
+        if steps or (steps is not None and any(ci_plan(top))):
+            print("ship: warning: --no-gate given, the push gate is skipped", file=sys.stderr)
+        return
+    ok, lines = run_push_gate(repo)
+    for ln in lines if ok else []:
+        print("ship: " + ln, file=sys.stderr)
+    if not ok:
+        raise Refuse("the push gate refused the push (the commit is kept):\n  %s\n"
+                     "(fix it and push again; --no-gate only on the human's word)"
+                     % "\n  ".join(lines))
 
 
 def academy_cfg(repo):
@@ -459,7 +750,7 @@ def cmd_commit(a):
     paths = list(a.paths or [])
     if paths:
         top = os.path.realpath(repo)
-        base = os.path.join(top, prefix) if prefix else top
+        base = os.path.realpath(os.path.join(top, prefix)) if prefix else top
         rels = []
         for p in paths:
             pp = p.replace("\\", "/")
@@ -478,6 +769,13 @@ def cmd_commit(a):
             if not inside:
                 raise Refuse("path %r is outside the %s %s" % (p, "directory" if prefix else "repo", base))
             rels.append(os.path.relpath(full, top).replace(os.sep, "/"))
+            if prefix == ".":
+                other = next((d for d in foreign_dirs()
+                              if rels[-1] == d or rels[-1].startswith(d + "/")), None)
+                if other:
+                    raise Refuse("path %r is in %s/, which is the target %s, not %s"
+                                 % (p, other, next((n for n, r in root_dirs().items() if r == other),
+                                                   other), WORKSPACE))
         if prefix:  # superproject target: top-anchored, so the cwd of git does not matter
             paths = [":(top)%s" % r for r in rels]
     if a.no_gate:
@@ -495,7 +793,7 @@ def cmd_commit(a):
                 print("ship: gate warning: %s" % line, file=sys.stderr)
     if prefix:
         # a superproject target: stage and commit its directory only, never a pointer
-        scope = ["--"] + (paths or [scope_spec(prefix)])
+        scope = ["--"] + (paths or scope_specs(prefix))
         git(repo, "add", *(["-A"] if a.all else []), *scope)
         unstage_gitlinks(repo, scope)
     else:
@@ -523,8 +821,12 @@ def unstage_gitlinks(repo, scope=()):
 def cmd_push(a):
     repo = repo_of(a.sub, a.repo)
     b = require_template(repo)
+    require_push_gate(repo, getattr(a, "no_gate", False))
     git(repo, "push", "-q", "-u", "origin", "HEAD:refs/heads/" + b)
     print("%s -> origin/%s @ %s" % (a.sub, b, git(repo, "rev-parse", "--short", "HEAD")))
+    base = base_of(repo, b)
+    if base not in PROTECTED:
+        print("stacked on %s: its pull request's base is %s ('stack %s')" % (base, base, a.sub))
 
 
 def cmd_ship(a):
@@ -745,7 +1047,7 @@ def cmd_status(a):
     if drift:
         print("superproject pointers behind their checkouts (moved only by 'merge --bump'): %s"
               % ", ".join(drift))
-    for sub in targets():
+    for sub in targets() + ([WORKSPACE] if prefix_of(WORKSPACE) == "." else []):
         try:
             repo = repo_of(sub)
         except Refuse:
@@ -754,13 +1056,15 @@ def cmd_status(a):
         prefix = prefix_of(sub)
         b = current(repo)
         # a superproject target counts its own directory only (submodule pointers aside)
-        spec = ["--", scope_spec(prefix)] if prefix else []
+        spec = ["--"] + scope_specs(prefix) if prefix else []
         dirty = len([l for l in git(repo, "status", "--porcelain", *spec).splitlines()
                      if not l.startswith("??")])
         up = git(repo, "rev-list", "--count", "@{u}..HEAD", check=False) if b else ""
         flag = "ok" if BRANCH.match(b) else ("PROTECTED" if b in PROTECTED else "off-template")
         print("%-28s %-44s dirty=%s unpushed=%s [%s]%s" % (sub, b or "(detached)", dirty, up or "-", flag,
-                                                       " (superproject, %s/ only)" % prefix if prefix else ""))
+                                                       (" (superproject, without the board and the submodules)"
+                                                        if prefix == "." else
+                                                        " (superproject, %s/ only)" % prefix) if prefix else ""))
 
 
 TICKET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")
@@ -820,13 +1124,19 @@ def operation_in_progress(repo):
     return ""
 
 
-def worktree_state(repo, pathspec=None):
+def path_specs(paths):
+    """Literal, top-anchored git pathspecs for repo-relative file paths (``--touched``)."""
+    return [":(top,literal)%s" % p for p in paths]
+
+
+def worktree_state(repo, pathspec=None, specs=None):
     """(dirty, skipped) from ``git status --porcelain -z --untracked-files=all``: dirty is
     True when any entry is left once untracked nested repositories and worktrees (an
     untracked directory with a ``.git`` of its own) are set aside; skipped lists those,
     '/'-terminated. Ignored files are not entries at all. With ``pathspec`` (a directory
-    of a superproject target) only entries under it count."""
-    spec = ["--", scope_spec(pathspec)] if pathspec else []
+    of a superproject target) only entries under it count; with ``specs`` (git pathspecs)
+    only entries they match."""
+    spec = ["--", scope_spec(pathspec)] if pathspec else (["--"] + list(specs) if specs else [])
     # unstripped: a first entry ' M x' would otherwise lose its leading space
     raw = git(repo, "status", "--porcelain", "-z", "--untracked-files=all", *spec, strip=False)
     # tracked submodule pointers (gitlinks): never committed by a checkpoint; pins move
@@ -855,16 +1165,26 @@ def worktree_state(repo, pathspec=None):
 NAMES_SHOWN = 20
 
 
-def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=None):
+def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=None, paths=None):
     """One repo of a checkpoint; returns its result dict (see ``run_checkpoint``).
 
     ``pathspec`` (a superproject target such as ``board``: the directory, relative to the
     workspace root): only changes under it are looked at, staged (``add -A -- <dir>/``,
     not ``:/``) and committed (``commit -- <dir>/``), so whatever else is dirty or staged
     in the superproject -- another directory, a moved submodule pointer -- is left
-    exactly as it was."""
+    exactly as it was.
+
+    ``paths`` (``--touched``: the files the ticket's role wrote in another role's home,
+    repo-relative): only these are looked at, staged and committed, and the repo is never
+    moved to the ticket's branch while anything else in it is uncommitted -- that work is
+    not the ticket's, and a switch would carry it onto the ticket's branch: the repo is
+    then refused and nothing is shipped there. Already on the ticket's branch, only the
+    paths are committed. Always scoped (a dirty repo on main/master is refused)."""
     res = {"sub": sub, "branch": name, "sha": "", "files": 0, "status": "unchanged", "detail": "",
            "names": [], "skipped": []}
+    specs = path_specs(paths) if paths else None
+    if paths:
+        scoped = True
 
     def sha():
         return git(repo, "rev-parse", "--short", "HEAD", check=False)
@@ -874,7 +1194,7 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
         return res
 
     tip = git(repo, "rev-parse", "-q", "--verify", "refs/heads/" + name, check=False)
-    dirty, res["skipped"] = worktree_state(repo, pathspec)
+    dirty, res["skipped"] = worktree_state(repo, pathspec, specs)
     if dirty:  # untracked included, ignored files and nested repos/worktrees not
         cur = current(repo)
         if not cur:
@@ -889,6 +1209,14 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
             return refused("on %r, which is neither main/master nor a <date>/<topic>/<role> branch; "
                            "its changes are not this ticket's to sweep up -- commit or move them by hand"
                            % cur)
+        if specs and cur != name:
+            others, _ = worktree_state(repo, specs=[":/"] + [
+                ":(top,literal,exclude)%s" % p for p in paths])
+            if others:
+                return refused("%s has other uncommitted changes besides %s, which are not "
+                               "this ticket's; nothing is shipped there (commit or stash them, "
+                               "then re-run the ticket's --check)"
+                               % (cur, ", ".join(paths)))
         if cur != name and BRANCH.match(cur):
             print("ship: note: %s is on %s (another ticket's branch); its leftover changes are "
                   "committed under %s" % (sub, cur, message.split(":", 1)[0]), file=sys.stderr)
@@ -914,8 +1242,8 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
             # everything but the nested repositories/worktrees, which 'add -A' would record
             # as gitlinks
             excl = [":(top,literal,exclude)%s" % p.rstrip("/") for p in res["skipped"]]
-            scope = ["--", scope_spec(pathspec)] if pathspec else []
-            git(repo, "add", "-A", "--", scope_spec(pathspec) if pathspec else ":/", *excl)
+            scope = ["--", scope_spec(pathspec)] if pathspec else (["--"] + specs if specs else [])
+            git(repo, "add", "-A", "--", *(scope[1:] if scope else [":/"]), *excl)
             # a pointer staged beforehand (moved or new) would ride along with the index:
             # unstage every staged gitlink (of the scope), so pins move only through
             # 'merge --bump'
@@ -945,6 +1273,11 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
             return res
     assert BRANCH.match(name) and name not in PROTECTED, name
     res["sha"] = git(repo, "rev-parse", "--short", tip)
+    ok, gate_lines = run_push_gate(repo)
+    if not ok:
+        res.update(status="push-failed", detail="not pushed, the commit is kept: "
+                   + " / ".join(l.strip() for l in gate_lines[-6:]))
+        return res
     p = subprocess.run(["git", "-C", repo, "push", "-q", "--no-follow-tags", "--recurse-submodules=no",
                         remote, "refs/heads/%s:refs/heads/%s" % (name, name)],
                        capture_output=True, text=True, env=git_env(), stdin=subprocess.DEVNULL)
@@ -985,7 +1318,29 @@ def usage_summaries(only):
         print("ship: warning: usage summary skipped: %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
 
 
-def run_checkpoint(ticket, role, title, remote, only=None):
+def parse_touched(items):
+    """``{sub: [repo-relative paths]}`` from ``--touched SUB:PATH`` items; Refuse on a
+    malformed one (absolute, '..', empty, or a sub that is no submodule)."""
+    out = {}
+    subs = submodule_names()
+    for item in items or []:
+        sub, sep, path = str(item).partition(":")
+        path = path.replace("\\", "/").strip()
+        parts = path.split("/")
+        if (not sep or not sub or not path or path.startswith("/") or os.path.isabs(path)
+                or ".." in parts or re.match(r"^[A-Za-z]:", path)):
+            raise Refuse("--touched %r: expected SUB:PATH, PATH relative to the submodule"
+                         % item)
+        if sub not in subs:
+            raise Refuse("--touched %r: %s is not a submodule in .gitmodules (known: %s)"
+                         % (item, sub, " ".join(subs)))
+        lst = out.setdefault(sub, [])
+        if path not in lst:
+            lst.append(path)
+    return out
+
+
+def run_checkpoint(ticket, role, title, remote, only=None, touched=None):
     """Commit and push, on ``<date>/<ticket-id>/<role>``, every checked-out submodule that
     has uncommitted changes (tracked or untracked, .gitignore honoured) or commits on that
     branch the remote does not have. One dict per submodule: sub, branch, sha, files,
@@ -1000,7 +1355,12 @@ def run_checkpoint(ticket, role, title, remote, only=None):
     .gitmodules path or a superproject target such as ``board``, else Refuse before
     anything is touched); the others are not looked at, and a dirty repo of the set that
     is on main/master is refused instead of moved. A superproject target is committed in
-    the workspace's own repository, limited to its directory (``checkpoint_repo``)."""
+    the workspace's own repository, limited to its directory (``checkpoint_repo``).
+
+    ``touched`` (``{sub: [paths]}``, with ``only``): files the ticket's role wrote in
+    another role's home (the inbox reads them from the touch ledger). Each such submodule
+    not already in ``only`` is checkpointed for those paths only (``checkpoint_repo``'s
+    ``paths``), on the same branch name, after the ``only`` targets."""
     t = (ticket or "").strip()
     if not TICKET.match(t):
         raise Refuse("ticket id %r is not a ticket id like T-0059 (letters, digits, '-')" % ticket)
@@ -1019,12 +1379,16 @@ def run_checkpoint(ticket, role, title, remote, only=None):
     results = []
     subs = targets()
     dirs = root_dirs()
+    extra = parse_touched(touched) if not isinstance(touched, dict) else dict(touched or {})
+    if extra and only is None:
+        raise Refuse("--touched needs --only (an unscoped run commits every dirty repo anyway)")
     if only is not None:
         unknown = [s for s in only if s not in subs]
         if unknown or not only:
             raise Refuse("--only %s: not a submodule in .gitmodules nor a superproject "
                          "directory (known: %s)" % (" ".join(unknown) or "(nothing)", " ".join(subs)))
         subs = [s for s in subs if s in only]
+    extra = {s: p for s, p in extra.items() if s not in subs and p}
     if BOARD in subs:
         usage_summaries(only)  # before the board is staged and committed
     for sub in subs:
@@ -1043,11 +1407,26 @@ def run_checkpoint(ticket, role, title, remote, only=None):
             results.append({"sub": sub, "branch": name, "sha": git(repo, "rev-parse", "--short", "HEAD", check=False),
                             "files": 0, "status": "skipped", "detail": "refused: %s" % e,
                             "names": [], "skipped": []})
+    for sub, paths in extra.items():
+        try:
+            repo = repo_of(sub)
+        except Refuse:
+            results.append({"sub": sub, "branch": "", "sha": "", "files": 0, "status": "skipped",
+                            "detail": "not checked out"})
+            continue
+        name = branch_name(t, role or default_role(repo))
+        try:
+            results.append(checkpoint_repo(sub, repo, name, message, remote, scoped=True,
+                                           paths=paths))
+        except Refuse as e:
+            results.append({"sub": sub, "branch": name, "sha": git(repo, "rev-parse", "--short", "HEAD", check=False),
+                            "files": 0, "status": "skipped", "detail": "refused: %s" % e,
+                            "names": [], "skipped": []})
     return results
 
 
 def cmd_checkpoint(a):
-    results = run_checkpoint(a.ticket, a.role, a.title, a.remote, a.only)
+    results = run_checkpoint(a.ticket, a.role, a.title, a.remote, a.only, a.touched)
     bad = False
     for r in results:
         if r["status"] == "pushed" or r["status"] == "unchanged":
@@ -1080,15 +1459,25 @@ def parser():
     s = sp.add_parser("start")
     s.add_argument("sub"); s.add_argument("topic")
     s.add_argument("--role"); s.add_argument("--worktree", action="store_true")
+    s.add_argument("--on", metavar="BRANCH",
+                   help="the base of the new branch (default: where the checkout is); the "
+                        "new branch is stacked on it")
     s.set_defaults(fn=cmd_start)
     for name, fn in (("commit", cmd_commit), ("ship", cmd_ship)):
         c = sp.add_parser(name)
         c.add_argument("sub"); c.add_argument("-m", required=True)
         c.add_argument("--paths", nargs="+"); c.add_argument("--all", action="store_true")
-        c.add_argument("--no-gate", action="store_true", help="skip the Author commit gate (warns)")
+        c.add_argument("--no-gate", action="store_true",
+                       help="skip the Author commit gate%s (warns)"
+                            % (" and the push gate" if name == "ship" else ""))
         c.set_defaults(fn=fn)
     c = sp.add_parser("accept-baseline"); c.add_argument("sub"); c.set_defaults(fn=cmd_accept_baseline)
-    c = sp.add_parser("push"); c.add_argument("sub"); c.set_defaults(fn=cmd_push)
+    c = sp.add_parser("push"); c.add_argument("sub")
+    c.add_argument("--no-gate", action="store_true", help="skip the push gate (warns)")
+    c.set_defaults(fn=cmd_push)
+    c = sp.add_parser("stack", help="the current branch's stack and the pull requests to open")
+    c.add_argument("sub"); c.add_argument("--json", action="store_true")
+    c.set_defaults(fn=cmd_stack)
     c = sp.add_parser("merge", help="merge a reviewed branch into local main (no push)")
     c.add_argument("sub"); c.add_argument("branch")
     c.add_argument("--sha", required=True, help="the reviewed tip of origin/<branch> (>= 7 hex chars)")
@@ -1108,6 +1497,11 @@ def parser():
                    help="only these submodules or superproject directories (board) -- the inbox "
                         "hook's automatic run: the others are not touched, and a dirty one on "
                         "main/master is refused, not moved")
+    c.add_argument("--touched", nargs="+", metavar="SUB:PATH",
+                   help="with --only: files the ticket's role wrote in another role's home "
+                        "(the inbox reads them from the touch ledger); each such submodule is "
+                        "checkpointed for these paths only, and refused, not moved, while "
+                        "anything else in it is uncommitted")
     c.set_defaults(fn=cmd_checkpoint)
     for x in sp.choices.values():
         if x.prog.split()[-1] not in ("status", "checkpoint"):

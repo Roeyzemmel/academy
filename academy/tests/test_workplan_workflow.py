@@ -127,6 +127,10 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(inbox["args"]["campaign"], "flat:T-1")
         self.assertTrue(inbox["args"]["nested"])
         self.assertIn("--rounds (2) reached", res["stopped"])
+        # the campaign's own writes belong to no ticket: not-run, with the command (docs/workflows.md)
+        self.assertEqual(res["ship"]["status"], "not-run")
+        self.assertEqual(res["ship"]["command"],
+                         "py scripts/ship.py checkpoint --ticket campaign-flat-t-1 --role researcher --only <home submodule> board")
 
     def test_cross_pollination_after_every_survivor_had_two_rounds(self):
         aps = [ap("AP-1"), ap("AP-2")]
@@ -160,6 +164,7 @@ class CampaignTests(unittest.TestCase):
         res, labels, _, err = run(WORKPLAN, plan, CAMPAIGN)
         self.assertIn("target is proved", res["stopped"])
         self.assertFalse(any(l.startswith("prover") for l in labels))
+        self.assertNotIn("ship", res)            # a cowork writes only through the nested inbox, whose --check ships
 
 
 @unittest.skipUnless(NODE, "node is not installed")
@@ -217,7 +222,7 @@ class InboxNestedTests(unittest.TestCase):
                                               "workflow cite.js": [{"outcome": "cited", "key": "SW10"}],
                                               "check T-3": [{"exit": 0, "status": "delivered", "detail": ""}]}, {"root": "/a"})
         self.assertIsNone(err, err)
-        self.assertEqual(next(c for c in calls if c["label"] == "workflow cite.js")["args"], {"ticket": "T-3"})
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow cite.js")["args"], {"nested": True, "root": "/a", "ticket": "T-3"})
         res, labels, calls, err = run(INBOX, {"list": [self._one("researcher:explore", "question", ["flat:DIR-2"])],
                                               "workflow explore.js": [{"outcome": "moved", "anomalies": []}],
                                               "check T-3": [{"exit": 0, "status": "delivered", "detail": ""}]}, {"root": "/a"})
@@ -233,7 +238,7 @@ class InboxNestedTests(unittest.TestCase):
                                                   "workflow " + wf: [{"outcome": "done", "packet": "P-1"}],
                                                   "check T-3": [{"exit": 0, "status": "delivered", "detail": ""}]}, {"root": "/a"})
             self.assertIsNone(err, err)
-            self.assertEqual(next(c for c in calls if c["label"] == "workflow " + wf)["args"], {"ticket": "T-3"})
+            self.assertEqual(next(c for c in calls if c["label"] == "workflow " + wf)["args"], {"nested": True, "root": "/a", "ticket": "T-3"})
             self.assertIsNone(res["for_main"])
 
 if __name__ == "__main__":

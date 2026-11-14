@@ -8,6 +8,12 @@ attempts per source.
 
 ## Reliable
 
+- **The APIs before the pages.** A bibliographic record (authors, title, year, journal,
+  volume, pages, arXiv id and version, DOI) comes from `export.arxiv.org/api/query` and
+  `api.crossref.org/works/<doi>` as data: `py scripts/sources.py lookup <id | DOI>` and
+  `sources.py search "<query>" [--cat C] [--since D]` (tried 2026-11-13 from a cloud
+  session with those two hosts allowed). Crossref answers `429` when hurried: the
+  script waits once and then says so. The text of a source is still fetched as below.
 - **arXiv** (`/abs/`, `/pdf/`, `/e-print/`). The e-print is a tarball, sometimes a bare
   gzipped `.tex` (then `gunzip` instead of `tar`); some submissions ship only a PDF.
 - **Crossref** (`api.crossref.org/works/<doi>`): a good record, but often only the first

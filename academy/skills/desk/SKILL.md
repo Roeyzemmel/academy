@@ -13,7 +13,12 @@ description: 'The human''s front desk: classifies a plain-language request and r
 1. Run `py $S/academy_status.py --since last --usage --mark-visit`.
    Then `py $S/cowork.py list`: the active workplans (each cowork and campaign with its
    state, `WAITING` / `PAUSE` / `ACTIVE`, and its open tickets).
-2. Show both outputs as they are, in one block each. The status `NEEDS YOU (N)` line is the
+2. Show both outputs as they are, in one block each. The status lists at most twelve
+   rows of each kind (urgent first, a packet with a decision before one to acknowledge,
+   then newest) and counts the rest by sender; `--all` lists every row, only when the
+   human asks for the full list. An `OVERDUE` block at the top (a
+   routine job gone quiet: the weekly usage review with no packet for ten days) comes
+   first in what you say: name it and the check it asks for. The status `NEEDS YOU (N)` line is the
    pending-decision count — every ticket to human, every ticket blocked on human, and
    every open packet, the same three sources `/academy:decide` works from. Below the
    block, at most three lines: the most urgent thing that needs the human and the command

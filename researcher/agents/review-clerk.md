@@ -75,5 +75,11 @@ For the settle modes of `workflows/review-experiment.js`: **record** (write the 
 verify ticket ids into the candidates file, a mechanical JSON edit), **settle-children** (each
 candidate's re-derivation ticket and its status, the verify ticket already recorded).
 
+**ship** (the last stage of a standalone run of `prove.js`, `explore.js`, `generalize.js` or
+`review-experiment.js`): run the `inbox.py --check` command the stage gives once, stderr
+joined, and return its whole output verbatim. It commits and pushes the ticket's work through
+`ship.py checkpoint`; whatever it prints, never run it again and fix nothing (a refusal is
+the result).
+
 You never launch an agent, file a ticket, change a status, or edit the notebook, the
 lab or an audit file (the `land_review` hook writes those).

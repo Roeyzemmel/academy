@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), os.pardir, "scripts")
 import workspace_bootstrap as bootstrap  # noqa: E402
 
 REAL_ROOT = bootstrap.ROOT
-SAFE = ["status", "start", "commit", "push", "ship", "checkpoint"]
+SAFE = ["status", "start", "commit", "push", "ship", "checkpoint", "stack"]
 # accept-baseline rewrites what the gate accepts, so it prompts like merge and publish
 DANGEROUS = ["merge", "publish", "accept-baseline"]
 

@@ -265,14 +265,47 @@ def statement_envs(cfg=None):
     return set(th) | set(DEFAULT_STATEMENT_ENVS)
 
 
+RE_VERBATIM = re.compile(r"\\begin\{(verbatim\*?|lstlisting|minted|comment)\}.*?\\end\{\1\}", re.S)
+
+
+def live_text(text):
+    """``text`` with every ``%`` comment and every verbatim-like body replaced by spaces,
+    offsets and line breaks kept: what LaTeX actually reads. A statement that is
+    commented out, or shown as an example inside ``verbatim``, is not a statement of the
+    paper (2026-11-13: ten of them were listed as if they were; a commented-out copy
+    standing before a live label would also have been taken for it)."""
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch == "%":
+            j = text.find("\n", i)
+            j = n if j == -1 else j
+            for k in range(i, j):
+                out[k] = " "
+            i = j
+            continue
+        i += 1
+    live = "".join(out)
+    for m in RE_VERBATIM.finditer(live):
+        body = "".join(c if c == "\n" else " " for c in live[m.start():m.end()])
+        live = live[:m.start()] + body + live[m.end():]
+    return live
+
+
 def statement_env(text, label, envs=None):
     """``(start, end)`` of the statement environment that holds ``\\label{label}`` in
-    ``text`` (from its ``\\begin`` to the end of its ``\\end``), or None.
+    ``text`` (from its ``\\begin`` to the end of its ``\\end``), or None. Comments and
+    verbatim bodies are not read (``live_text``); the offsets are those of ``text``.
 
     The innermost enclosing environment that is a statement (``envs``, or anything not
     in ``NON_STATEMENT`` when ``envs`` is None) is taken, so a label inside an
     ``enumerate`` of a lemma pins the lemma."""
     key = "\\label{%s}" % label
+    text = live_text(text)
     pos = text.find(key)
     if pos < 0:
         return None

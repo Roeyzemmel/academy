@@ -89,6 +89,9 @@ class WeeklyTests(unittest.TestCase):
         self.assertNotIn("rigor-reviewer lighter?", write)
         self.assertIn("Usage 2026-10-24..2026-10-31", write)
         self.assertIn("packets.py show P-0200", calls[2]["prompt"])
+        # board files, no ticket: not-run with the command, no agent (docs/workflows.md)
+        self.assertEqual(res["ship"]["status"], "not-run")
+        self.assertEqual(res["ship"]["command"], "py scripts/ship.py checkpoint --ticket p-0200 --role expert --only board")
 
     def test_no_settle_without_a_filed_packet(self):
         for filed in ({"ok": False, "packet": "", "error": "packets.py: invalid"},

@@ -87,6 +87,18 @@ class TestCheck(Tree):
         self.assertEqual(code, 1)
         self.assertIn("13000", out)
 
+    def test_an_opt_in_plugin_is_held_to_the_form_but_not_counted_in_the_total(self):
+        for i in range(51):
+            self.skill("author", "s%02d" % i, self.q("y" * 250))      # 12 750: under the total
+        for i in range(10):
+            self.skill("maintainer", "m%02d" % i, self.q("z" * 250))  # installed on request
+        code, out = run("--root", self.root, "--check")
+        self.assertEqual(code, 0, out)
+        self.skill("maintainer", "long", self.q("z" * 300))
+        code, out = run("--root", self.root, "--check")
+        self.assertEqual(code, 1)
+        self.assertIn("max 280", out)
+
     def test_apostrophe_unquoted_counts_once(self):
         self.skill("author", "one", self.q("a'b"))
         code, out = run("--root", self.root, "--check")

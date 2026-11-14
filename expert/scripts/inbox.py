@@ -4,7 +4,7 @@
                 [--campaign TARGET | --cowork SLUG]
     py inbox.py --check T-NNNN          the serial checkpoint of a ticket just handled
 
-A thin wrapper over the academy's ``inbox_core`` (``_academy.py``): the tickets addressed
+A thin wrapper over the academy's ``inbox_core`` (``_academy``): the tickets addressed
 to the Expert instance, in-progress ones first (resume), then blocked relay parents ready
 for their return leg (``final_to`` routes them to a relay, ``waiting_on`` holds only
 ticket ids, and every child is ``delivered`` or terminal; the row carries

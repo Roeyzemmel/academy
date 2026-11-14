@@ -779,6 +779,23 @@ def _pack_snippets(workspace, term, limit=5):
     return out
 
 
+def citations_needing_status(bundle):
+    """The ``bib:`` ids the page will show (in the cards, the reviews, a ``modulo`` list)
+    that have no status in the bundle: the renderer refuses the page until each has one,
+    and the explainer supplies them (``render_packets.merge_sections``). Listed here so
+    the explainer does not have to find them by a refused render."""
+    try:
+        import render_packets as rp
+    except ImportError:
+        return []
+    out = []
+    for p in rp.check_deep_dive(bundle):
+        m = re.match(r"^\[\[(bib:[^\]]+)\]\] is shown without a status", p)
+        if m:
+            out.append(m.group(1))
+    return sorted(set(out))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="gather_deep_dive.py",
                                  description=__doc__.split("\n")[0])
@@ -799,6 +816,7 @@ def main(argv=None):
         print("error: %s" % e, file=sys.stderr)
         return 1
     bundle = gather(a.subject, ws, a.board, a.kind, a.depth, a.cli)
+    bundle["citations_needing_status"] = citations_needing_status(bundle)
     text = json.dumps(bundle, indent=2, ensure_ascii=False, default=str) + "\n"
     if a.out:
         ac.atomic_write(a.out, text)

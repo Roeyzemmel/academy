@@ -24,7 +24,8 @@ async function agent(prompt, opts) {
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}).then(
+// the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
+body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -143,6 +144,54 @@ class GeneralizeTests(unittest.TestCase):
                                                                             {"id": "T-9", "refs": ["flat:CONJ-3"]}]}],
                                                     "close": [{"ok": True, "detail": ""}]}, args)
         self.assertEqual(res["outcome"], "delivered")
+
+
+def shipped(t, line):
+    return {"status": "nothing", "detail": "", "branches": [], "output": "%s: delivered (delivered)\n%s\n" % (t, line)}
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class ShipTests(unittest.TestCase):
+    """docs/workflows.md, "Shipping is a step of the workflow": standalone ships once; nested never."""
+    Q = {"start": [{"ok": True, "detail": ""}], "journal": [dict(JOURNAL, mentions=["Q"])], "close": [{"ok": True, "detail": ""}],
+         "lead": [{"items": [{"item": "Q", "step": "prior-art", "tickets": ["T-1"], "objects": [], "note": ""}], "report": "r", "next_picks": []}]}
+    LINE = "Slope 2026-11-13/t-0600/researcher @ a (1 files) pushed"
+
+    def test_explore_standalone_ships_once_nested_never_refusal_once(self):
+        res, labels, _, err = run("explore.js", dict(self.Q, ship=[shipped("T-0600", self.LINE)]), dict(H, ticket="T-0600", nested=False))
+        self.assertIsNone(err, err)
+        self.assertEqual(labels, ["start", "lead", "journal", "close", "ship"])
+        self.assertEqual(res["ship"]["branches"], ["Slope 2026-11-13/t-0600/researcher"])
+        res, labels, _, err = run("explore.js", dict(self.Q), dict(H, ticket="T-0600", nested=True))
+        self.assertNotIn("ship", labels)
+        bad = shipped("T-0600", "Slope x @ a (1 files) REFUSED: off-template")
+        res, labels, _, err = run("explore.js", dict(self.Q, ship=[bad, bad]), dict(H, ticket="T-0600", nested=False))
+        self.assertEqual((labels.count("ship"), res["ship"]["status"]), (1, "refused"))
+
+    def test_explore_by_direction_is_not_run_with_the_command(self):
+        res, labels, _, err = run("explore.js", {"direction": [DIR], "next": [NEXT], "journal": [JOURNAL],
+                                                 "lead": [{"items": [], "report": "r", "next_picks": []}]}, dict(H, direction="DIR-1", nested=False))
+        self.assertIsNone(err, err)
+        self.assertNotIn("ship", labels)
+        self.assertIn("--ticket explore-dir-1 --role researcher", res["ship"]["command"])
+
+    def test_generalize_ships_on_delivery_only(self):
+        args = dict(H, ref="P-0009", ticket="T-7", mode="deliver", conjectures=["flat:CONJ-1"], nested=False)
+        res, labels, _, err = run("generalize.js", {"children": [{"tests": [{"id": "T-8", "refs": ["flat:CONJ-1"]}]}],
+                                                    "close": [{"ok": True, "detail": ""}], "ship": [shipped("T-7", self.LINE)]}, args)
+        self.assertIsNone(err, err)
+        self.assertEqual(labels, ["children", "close", "ship"])
+        self.assertEqual(res["ship"]["status"], "pushed")
+        res, labels, _, err = run("generalize.js", {
+            "source": [SRC], "prover": ["wrote"], "validate": [GOOD],
+            "create": [{"conjectures": ["flat:CONJ-1", "flat:CONJ-3"], "lemmas": [], "error": ""}],
+            "packet": [{"packet": "P-0400", "error": ""}], "test specs": [{"specs": []}],
+            "file tests": [{"tickets": ["T-8"], "refusals": []}],
+            "children": [{"tests": [{"id": "T-8", "refs": ["flat:CONJ-1"]}]}]}, dict(H, ref="P-0009", ticket="T-7", nested=False))
+        self.assertIsNone(err, err)
+        self.assertNotIn("ship", labels)                       # tests missing: the ticket is not delivered yet
+        self.assertEqual(res["ship"]["status"], "not-run")
+        self.assertIn("--check T-7", res["ship"]["command"])
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import re
 
 import academy_common as ac
 
-from . import Tool, ToolError, obj, S, I, L
+from . import Tool, ToolError, obj, page, S, B, I, L
 from .tickets import load_ticket
 
 SECTION_ARGS = (("summary", "## Summary"), ("produced", "## Produced"),
@@ -45,7 +45,10 @@ def compose_body(sections):
 
 def load_packet(ctx, pid):
     if not ac.RE_PACKET_ID.match(str(pid or "")):
-        raise ToolError("a packet id looks like P-0012, got %r" % pid)
+        hint = ""
+        if ac.RE_TICKET_ID.match(str(pid or "")):
+            hint = "; %s is a ticket: read it with tickets_get" % pid
+        raise ToolError("a packet id looks like P-0012, got %r%s" % (pid, hint))
     path = ac.find_packet(ctx.board, pid)
     if not path:
         raise ToolError("no packet %s on the board" % pid)
@@ -204,6 +207,12 @@ def iter_packets(board):
                 yield p, meta, body
 
 
+def _packet_number(row):
+    """The packet's number (P-10000 after P-9999, which a string sort would misplace)."""
+    m = re.search(r"\d+", str(row.get("packet") or ""))
+    return int(m.group()) if m else 0
+
+
 def _list(ctx, a):
     out = []
     for p, m, body in iter_packets(ctx.board):
@@ -213,14 +222,19 @@ def _list(ctx, a):
             continue
         if a.get("ticket") and m.get("ticket") != a["ticket"]:
             continue
+        if a.get("kind") and m.get("kind") != a["kind"]:
+            continue
         row = {k: m.get(k) for k in ("packet", "title", "instance", "kind", "ticket",
                                      "state", "status_before", "status_proposed",
                                      "created")}
         row["pending_decisions"] = sorted(set(ac.packet_decisions(body))
                                           - set(ac.packet_answers(body)))
-        row["path"] = p.replace("\\", "/")
+        if a.get("pending") and not row["pending_decisions"]:
+            continue
+        row["path"] = os.path.relpath(p, ctx.board).replace("\\", "/")   # under "board"
         out.append(row)
-    return {"count": len(out), "packets": out}
+    out.sort(key=_packet_number, reverse=True)                           # the newest first
+    return {"board": ctx.board.replace("\\", "/")} | page(out, a, "packets", by="state")
 
 
 def _get(ctx, a):
@@ -237,10 +251,12 @@ SECTIONS = {"type": "object", "description":
             "decisions_needed ('None.' or ### D1. blocks), machine_notes"}
 
 TOOLS = [
-    Tool("packets_list", "List review packets, filtered by instance / state / ticket, "
-         "with their pending decisions.",
+    Tool("packets_list", "List review packets, newest first, filtered by instance / state "
+         "/ ticket / kind / pending (only those with a decision still to make), with their "
+         "pending decisions; path is relative to board. At most limit rows (default 50, 0 = "
+         "all) from offset; a cut listing says truncated, with the counts by state.",
          obj({"instance": S, "state": {"type": "string", "enum": list(ac.PACKET_STATES)},
-              "ticket": S}), _list),
+              "ticket": S, "kind": S, "pending": B, "limit": I, "offset": I}), _list),
     Tool("packets_get", "Read one packet with its parsed decisions and answers.",
          obj({"id": S}, ["id"]), _get),
     Tool("packets_create", "Create a review packet from the caller's instance, from a "

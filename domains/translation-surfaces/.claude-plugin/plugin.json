@@ -1,7 +1,7 @@
 {
   "name": "ts-domain",
   "description": "Domain pack for translation surfaces, rational billiards, illumination and finite blocking: notation, a theorem sheet with real hypotheses and sources, standard examples with ids, traps, TikZ figure conventions, and verified sage-flatsurf / surface_dynamics / libgap recipes with two pure-Python scripts. One entry skill (translation-surfaces); no agents, hooks or plugin logic. Role plugins read the files by name through the academy MCP tool domain_get.",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "author": {
     "name": "Roey Zemmel"
   }

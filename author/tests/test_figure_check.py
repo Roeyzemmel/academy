@@ -51,7 +51,7 @@ class Captions(unittest.TestCase):
             os.remove(path)
 
     def test_short_passes(self):
-        self.assertEqual(self.check("The double of $P$ (\cref{lem:a}). (a) The triangle."), [])
+        self.assertEqual(self.check(r"The double of $P$ (\cref{lem:a}). (a) The triangle."), [])
 
     def test_long_fails(self):
         self.assertTrue(self.check(" ".join(["Word."] * 6)))

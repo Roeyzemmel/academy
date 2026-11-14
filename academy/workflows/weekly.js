@@ -1,7 +1,7 @@
 export const meta = {
   name: 'academy-weekly',
   description: 'The weekly usage packet and error-ledger settle: gather the numbers, keep the allowed proposals, write and file one usage packet, settle only once it is filed',
-  whenToUse: '/academy:usage --weekly (also unattended, from a scheduled task). args: {instance: "<the cwd home\'s instance>", days?: 7, start?: "YYYY-MM-DD", end?: "YYYY-MM-DD"}',
+  whenToUse: '/academy:usage --weekly (also unattended, from a scheduled task). args: {instance: "<the cwd home\'s instance>", root?: "<academy repo>", days?: 7, start?: "YYYY-MM-DD", end?: "YYYY-MM-DD"}',
   phases: [
     { title: 'Gather', detail: 'usage_report.py and error_ledger.py report, as JSON' },
     { title: 'Write', detail: 'the packet body from the kept proposals, filed with packets.py' },
@@ -22,10 +22,14 @@ if (!A.instance || !/^[a-z]+@[a-z0-9][a-z0-9-]*$/.test(A.instance)) {
   return { filed: false, reason: 'no instance: from outside any home, print the report (usage_report.py) and file no packet' }
 }
 const DAYS = A.days || 7
+const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
+const AR = ROOT || '<academy repo>'
+const SCRIPTS = `Scripts: usage_report.py is \`py ${AR}/academy/scripts/usage_report.py\`, error_ledger.py is \`py ${AR}/academy/scripts/error_ledger.py\`, packets.py is \`py ${AR}/academy/scripts/packets.py\` (python3 where there is no py)` +
+  (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.academy is the scripts folder).\n')
 const ANALYST = 'academy:usage-analyst'
 const GRADERS = ['rigor-reviewer', 'experiment-reviewer', 'referee']
 const TIERS = ['base', 'medium', 'large', 'max']
-const STAGE = (name, lines) => `WORKFLOW STAGE ${name} of the academy-weekly workflow. Instance: ${A.instance}. Window: --days ${DAYS}.\n` + lines.filter(Boolean).join('\n')
+const STAGE = (name, lines) => `WORKFLOW STAGE ${name} of the academy-weekly workflow. Instance: ${A.instance}. Window: --days ${DAYS}.\n` + SCRIPTS + lines.filter(Boolean).join('\n')
 
 const PROPOSAL = {
   type: 'object',
@@ -60,7 +64,7 @@ const out = { instance: A.instance, filed: false, settled: false, dropped: [] }
 // ---- Gather -------------------------------------------------------------------------
 phase('Gather')
 const d = await agent(STAGE('data', [
-  `Run usage_report.py --days ${DAYS} --json and error_ledger.py report --days ${DAYS} --json (your step 1), read them,`,
+  `Run usage_report.py --days ${DAYS} --json and error_ledger.py report --days ${DAYS} --json --brief (your step 1), read them,`,
   'and return the window, a summary of at most three lines, the counts, the regression families,',
   'and your proposals: downgrades (an agent whose runs are short and clerical on a heavier tier), budget changes,',
   'and recurring error families worth deciding on, each with 2-4 options and a recommendation. Write nothing.',
@@ -112,6 +116,10 @@ const s = await agent(STAGE('settle', [
 ]), { label: 'settle', phase: 'Settle', agentType: ANALYST, schema: SETTLED, effort: 'low' })
 out.settled = !!(s && s.ok)
 out.closed = s ? s.closed : 0
-if (!out.settled) out.reason = 'the packet is filed but the settle did not run: ' + (s ? s.detail : 'the stage returned nothing') + ' (run error_ledger.py settle --packet ' + f.packet + ' by hand)'
+if (!out.settled) out.reason = 'the packet is filed but the settle did not run: ' + (s ? s.detail : 'the stage returned nothing') + ' (run `py ' + AR + '/academy/scripts/error_ledger.py settle --packet ' + f.packet + '` by hand)'
 out.summary = d.summary
+// Ship (docs/workflows.md, "Shipping is a step of the workflow"): the packet, its body and the settled ledger are board files, under no ticket, so the stage is
+// not-run and names the command for the session; a nested run leaves it to its parent.
+out.ship = { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
+  command: `py scripts/ship.py checkpoint --ticket ${f.packet.toLowerCase()} --role ${A.instance.split('@')[0]} --only board` }
 return out

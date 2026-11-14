@@ -33,7 +33,9 @@ draft is noticed in a week rather than by a referee. The per-statement search an
      gets its file).
 
    A search that was lost is named in the file. A file that appeared outside the
-   writing stage comes back under `anomalies`: report it.
+   writing stage comes back under `anomalies`: report it. The watch has no ticket, so
+   `ship` is `not-run` with the `checkpoint` command for the library and the board: run
+   it once from the workspace root.
 3. **Hits worth citing** come back as `cite` requests: relay them; each becomes
    `/expert:cite` or a `cite` ticket when the human says so. A hit that overlaps a statement
    of the paper is reported first, with the statement's id.
