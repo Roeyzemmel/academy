@@ -77,6 +77,7 @@ reviewers blind.
 | experiment (`/scientist:experiment`; its design leg nested for an experiment ticket) | `scientist/workflows/experiment.js` | done 2026-10-31: modes design, build, queue, report, file, with the human gates unskippable: no body before the header is approved, nothing queued before the human commits, nothing filed before the human saw the rendered packet; `lab.py check --strict` and `report.py check` each with one fix round |
 | literature watch (`/expert:litwatch`) | `expert/workflows/litwatch.js` | done 2026-10-31: return-only scouts in parallel (`parallel()`), hits deduplicated in code, one writer, a file written elsewhere is an anomaly. The first fan-out of read-only work |
 | weekly usage and error settle (`/academy:usage --weekly`) | `academy/workflows/weekly.js` | done 2026-10-31: usage-analyst stages data / write / settle; the script drops a grader's downgrade and a downgrade that is not a lower tier, keeps at most three decisions (regressions first), and settles only after `packets.py show` finds the filed packet |
+| maintenance round on the plugins (`/academy:maintain`) | `academy/workflows/maintain.js` | done 2026-11-14: `maintain.py survey` gives the candidates (ledger families, commands over budget, unreadable definitions); the script applies the plan's rules (a usable topic, a file, a measure, the cap), puts tasks that share a file in one stacked lane and runs the lanes side by side, each task developed in its own worktree, reviewed by another agent, one fix round, pushed through the gate; `maintain.py union` gates the lanes together. Returns the pull requests for the session to open |
 
 ## What the first live loop taught (2026-10-31)
 
@@ -136,6 +137,7 @@ detail, branches?, command?}`:
 | `notes` | tickets (board files on a file board) | `not-run` (no ticket) |
 | `litwatch` | library ledger | `not-run` (no ticket) |
 | `weekly` | board (packet, error ledger) | `not-run` (no ticket) |
+| `maintain` | the academy repo (one branch per task) | its own: `ship.py commit` by the developer, `ship.py push` after the review; no checkpoint (no ticket) |
 | `workplan` campaign | the notebook (approaches, artifacts) | `not-run`; its tickets ship by the nested inbox's `--check` |
 | `workplan` cowork, `inbox` | only through the inbox | no stage: the `--check` ships each ticket |
 

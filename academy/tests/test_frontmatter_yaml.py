@@ -9,58 +9,21 @@ Two agents were found mis-read by the harness, with no error anywhere:
 * ``experimenter``: a plain description holding `` ## Conclusion``. `` #`` starts a
   comment, so the description ended there and lost its last two sentences.
 
-The suites are standard-library only, so this is not a YAML parser: it checks the ways a
-one-line scalar goes wrong. A plain scalar holding ``: `` is refused too (strict YAML
+The check itself is ``maintain.py``'s (``scalar_problem``, ``frontmatter_problems``), which
+the survey of a maintenance round runs too. The suites are standard-library only, so this
+is not a YAML parser: it checks the ways a one-line scalar goes wrong. A plain scalar holding ``: `` is refused too (strict YAML
 reads a mapping there), although the harness has tolerated it.
 """
 
-import glob
 import os
-import re
+import sys
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
 
-
-def scalar_problem(value):
-    """Why YAML would not read ``value`` (the text after ``key:``) whole, or None."""
-    v = value.strip()
-    if not v or v[0] in "[{|>":
-        return None
-    if v[0] == "'":
-        i, inner = 0, v[1:]
-        while i < len(inner):
-            if inner[i] == "'":
-                if inner[i + 1:i + 2] == "'":
-                    i += 2
-                    continue
-                rest = inner[i + 1:].strip()
-                if not rest or rest.startswith("#"):
-                    return None
-                return ("the single-quoted text ends at an apostrophe that is not doubled: "
-                        "...%s" % inner[max(0, i - 25):i + 12])
-            i += 1
-        return "the single-quoted text never closes"
-    if v[0] == '"':
-        if re.match(r'"(?:[^"\\]|\\.)*"\s*(#.*)?$', v):
-            return None
-        return "the double-quoted text is not closed exactly once"
-    if " #" in v:
-        return "a plain value holds ' #', where a comment starts: quote the value"
-    if ": " in v or v.endswith(":"):
-        return "a plain value holds ': ', where a mapping starts: quote the value"
-    if v[0] in "&*!%@`":
-        return "a plain value starts with %r: quote the value" % v[0]
-    return None
-
-
-def frontmatter_files():
-    out = []
-    for pat in ("*/agents/*.md", "*/skills/*/SKILL.md", "domains/*/skills/*/SKILL.md",
-                "*/commands/*.md"):
-        out += glob.glob(os.path.join(REPO, pat))
-    return sorted(out)
+from maintain import frontmatter_files, frontmatter_problems, scalar_problem  # noqa: E402
 
 
 class Scalars(unittest.TestCase):
@@ -73,27 +36,8 @@ class Scalars(unittest.TestCase):
         self.assertEqual([], [v for v in bad if not scalar_problem(v)])
 
     def test_every_agent_and_skill_frontmatter_is_read_whole(self):
-        files = frontmatter_files()
-        self.assertGreater(len(files), 60)
-        problems = []
-        for path in files:
-            with open(path, encoding="utf-8") as fh:
-                text = fh.read()
-            m = re.match(r"---\n(.*?)\n---\n", text, re.S)
-            rel = os.path.relpath(path, REPO).replace(os.sep, "/")
-            if not m:
-                problems.append("%s: no frontmatter" % rel)
-                continue
-            for ln in m.group(1).splitlines():
-                km = re.match(r"^([A-Za-z_-]+):(.*)$", ln)
-                if not km:
-                    if ln.strip() and not ln.startswith((" ", "-", "#")):
-                        problems.append("%s: not a 'key: value' line: %s" % (rel, ln[:60]))
-                    continue
-                why = scalar_problem(km.group(2))
-                if why:
-                    problems.append("%s: %s: %s" % (rel, km.group(1), why))
-        self.assertEqual([], problems)
+        self.assertGreater(len(frontmatter_files(REPO)), 60)
+        self.assertEqual([], frontmatter_problems(REPO))
 
 
 if __name__ == "__main__":
