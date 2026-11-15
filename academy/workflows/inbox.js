@@ -414,7 +414,7 @@ async function handle(row, i) {
         { label: `${rt.target} ${row.id} (land)`, phase: 'Tickets', agentType: type })
       return r === null ? { lost: true } : { outcome: 'landed', detail: String(r).split('\n')[0] }
     }
-    const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py`; the statements to leave byte for byte)' : ''))
+    const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py --home ' + i.home + '`; the statements to leave byte for byte)' : ''))
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
     const r = await agent(
       `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
