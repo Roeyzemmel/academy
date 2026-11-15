@@ -17,13 +17,37 @@ export const meta = {
 // Nothing is committed: the human commits the academy repo.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 if (!A.ticket) throw new Error('args.ticket is required: a pack change is always a ticket (confirm a one-line change with the human as a ticket first)')
 const CLERK = 'academy:inbox-clerk'
 const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
 const LIB = 'expert:librarian'
 const T = A.ticket
-const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-domain workflow.\n` + lines.filter(Boolean).join('\n'),
+const clerk = (stage, lines, schema, label, phase) => launch(`WORKFLOW STAGE ${stage} of the academy-domain workflow.\n` + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const START = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' }, pack: { type: 'string' },
@@ -53,7 +77,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
     command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
   const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
   if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
-  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+  const r = await launch(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
     '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
   const lines = String(r ? r.output : '').split(/\r?\n/)
   const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
@@ -93,7 +117,7 @@ if ((s.diff_before || []).length) out.notes.push('the pack already had uncommitt
 
 // ---- Edit ---------------------------------------------------------------------------------
 phase('Edit')
-const e = await agent(`Edit the ${pack} domain pack for ${T}: ${s.changes[0]}. Read the current file with domain_get first. A theorem entry carries its real ` +
+const e = await launch(`Edit the ${pack} domain pack for ${T}: ${s.changes[0]}. Read the current file with domain_get first. A theorem entry carries its real ` +
   'hypotheses and a pinpoint that has a card (write the card first if it has none; an entry you cannot pin goes to theorems/unverified.md). Change one thing, ' +
   `keep the file's structure, and append "- <date> ${T}: <one line naming the file(s) changed>" to CHANGELOG.md. Say whether the change alters a symbol or a ` +
   'statement other instances rely on, and any project decision it could clash with. Commit nothing.',
@@ -122,7 +146,7 @@ out.changed = changed
 // ---- Land -----------------------------------------------------------------------------------
 phase('Land')
 if (e.shared) {
-  const p = await agent(`File a notation packet for ${T} (packets_create kind notation, ticket ${T}): the ${pack} pack changed (${e.changelog}); it alters a symbol or a ` +
+  const p = await launch(`File a notation packet for ${T} (packets_create kind notation, ticket ${T}): the ${pack} pack changed (${e.changelog}); it alters a symbol or a ` +
     'statement other instances rely on.' + (e.clash ? ` It could clash with a project decision (${e.clash}): put that to the human as one decision with a recommendation.` : ' ## Decisions needed: None.') +
     ' Return the packet id.', { label: 'packet', phase: 'Land', agentType: LIB, schema: PACKET, effort: 'low' })
   out.packet = p && p.packet ? p.packet : null

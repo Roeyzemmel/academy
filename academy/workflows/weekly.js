@@ -18,6 +18,30 @@ export const meta = {
 // the job may run unattended.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 if (!A.instance || !/^[a-z]+@[a-z0-9][a-z0-9-]*$/.test(A.instance)) {
   return { filed: false, reason: 'no instance: from outside any home, print the report (usage_report.py) and file no packet' }
 }
@@ -63,7 +87,7 @@ const out = { instance: A.instance, filed: false, settled: false, dropped: [] }
 
 // ---- Gather -------------------------------------------------------------------------
 phase('Gather')
-const d = await agent(STAGE('data', [
+const d = await launch(STAGE('data', [
   `Run usage_report.py --days ${DAYS} --json and error_ledger.py report --days ${DAYS} --json --brief (your step 1), read them,`,
   'and return the window, a summary of at most three lines, the counts, the regression families,',
   'and your proposals: downgrades (an agent whose runs are short and clerical on a heavier tier), budget changes,',
@@ -94,7 +118,7 @@ out.decisions = decisions
 // ---- Write and file -------------------------------------------------------------------
 phase('Write')
 const start = A.start || d.start, end = A.end || d.end
-const f = await agent(STAGE('write', [
+const f = await launch(STAGE('write', [
   `Write the packet body (your step 2) to <board>/.render/usage-body.md and file it (your step 3) with --title "Usage ${start}..${end}".`,
   `## Summary: ${d.summary}`,
   `## Decisions needed: exactly these ${decisions.length} decision(s), in this order, as ### D1.., each with its options and the Recommendation line; ` +
@@ -110,7 +134,7 @@ log(`filed ${f.packet}`)
 
 // ---- Settle, only after the packet is shown to exist ------------------------------------
 phase('Settle')
-const s = await agent(STAGE('settle', [
+const s = await launch(STAGE('settle', [
   `First run packets.py show ${f.packet}: if it does not show the packet, return ok false and run nothing else.`,
   `Then error_ledger.py settle --packet ${f.packet} (your step 4) and return how many classes it closed. Resolve nothing by hand.`,
 ]), { label: 'settle', phase: 'Settle', agentType: ANALYST, schema: SETTLED, effort: 'low' })

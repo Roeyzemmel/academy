@@ -20,6 +20,30 @@ export const meta = {
 // session's to open, bottom of each lane first, and merging stays the human's.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 const bad = (reason) => ({ ok: false, reason, tasks: [], pull_requests: [] })
 if (!A.root || !A.workspace || !A.base) return bad('args.root (the academy repo), args.workspace (the workspace root) and args.base (the branch the round starts from) are required')
 const AR = A.root.replace(/[\\/]+$/, '')
@@ -71,7 +95,7 @@ const out = { ok: false, base: A.base, tasks: [], lanes: [], skipped: [], droppe
 let tasks = Array.isArray(A.tasks) ? A.tasks : null
 if (!tasks) {
   phase('Survey')
-  const s = await agent(STAGE('survey', [
+  const s = await launch(STAGE('survey', [
     `Run maintain.py survey --days ${DAYS} --json from ${WS} and return its candidates and notes exactly as printed (ok false with the error line if it fails). Change nothing.`,
   ]), { label: 'survey', phase: 'Survey', agentType: DEV, schema: SURVEY, effort: 'low' })
   if (!s || !s.ok) return Object.assign(out, { reason: 'the survey did not run: ' + (s ? s.error : 'the stage returned nothing') })
@@ -81,7 +105,7 @@ if (!tasks) {
 
   // ---- Plan -----------------------------------------------------------------------------
   phase('Plan')
-  const p = await agent(STAGE('plan', [
+  const p = await launch(STAGE('plan', [
     `Turn these survey candidates into at most ${CAP} tasks for this repo, the most valuable first. One task is one concern: one cause, one fix, one branch.`,
     'Read the code before you name a task: a task says which files it will change (files) and how the problem is shown now and shown gone (measure: a command with a number, or a failing case).',
     'Skip, with the reason, every candidate whose cause is not in this repo (a home\'s own text, the network, the harness, a decision that is the human\'s) or that is already fixed on the base branch (an error recorded by an older checkout). Several candidates with one cause are one task.',
@@ -132,7 +156,7 @@ const RULES = [
 ]
 async function one(t, base) {
   const rec = { slug: t.slug, title: t.title, kind: t.kind, base, pushed: false, review: 'none', findings: [] }
-  const d = await agent(STAGE(`develop ${t.slug}`, [
+  const d = await launch(STAGE(`develop ${t.slug}`, [
     `Task: ${t.title}. Why: ${t.why}`,
     `It is expected to touch: ${t.files.join(', ')}. The measure: ${t.measure}`,
     `1. From ${WS}: \`py scripts/ship.py start ${SUB} ${t.slug} --role ${ROLE} --worktree --on ${base}\`. It prints the worktree; everything below happens there.`,
@@ -148,7 +172,7 @@ async function one(t, base) {
   if (d.worktree) out.cleanup.push(d.worktree)
   if (!d.ok || !d.branch || !d.sha) return Object.assign(rec, { reason: d.reason || 'no commit was made' })
 
-  const look = (label) => agent(STAGE(label, [
+  const look = (label) => launch(STAGE(label, [
     `Review one change you did not write: \`git -C ${d.worktree} diff ${base}..${d.branch}\` (read whole files where the diff is not enough). The task was: ${t.title}.`,
     'Look for what is wrong, not for style: a result that differs from before where it should not, an input that occurs in practice and crashes, a caller in this repo that relied on what changed (grep for it), a test that would pass without the change. Reproduce a finding when that is cheap.',
     'blocking: it gives a wrong result or breaks a caller. minor: worth a line, not a fix round. For each: the file and line, what happens, and the input or sequence that triggers it. Say what you examined, so that no finding means something.',
@@ -159,7 +183,7 @@ async function one(t, base) {
   rec.findings = r.findings
   let blocking = r.findings.filter(f => f.severity === 'blocking')
   if (blocking.length) {
-    const f = await agent(STAGE(`fix ${t.slug}`, [
+    const f = await launch(STAGE(`fix ${t.slug}`, [
       `Your change on ${d.branch} (worktree ${d.worktree}) was reviewed. Fix exactly these blocking findings, each with a test that fails without the fix; a finding you can show to be wrong is answered in your summary instead, with the evidence.`,
       JSON.stringify(blocking),
       `Run the touched suites again, then from ${WS}: \`py scripts/ship.py commit ${SUB} --repo ${d.worktree} --all -m "<what the review found and what changed>"\`. Commit only.`,
@@ -177,7 +201,7 @@ async function one(t, base) {
     rec.review = 'clean'
   }
 
-  const p = await agent(STAGE(`push ${t.slug}`, [
+  const p = await launch(STAGE(`push ${t.slug}`, [
     `From ${WS}: \`py scripts/ship.py push ${SUB} --repo ${d.worktree}\`. It runs the push gate (the repo's workflows) and then pushes; wait for it and read its own exit status, not a pipe's.`,
     'Return ok true and the pushed sha only when it printed the push line; else ok false with the refusal as printed. A refusal is returned, never retried, and never passed with --no-gate.',
   ]), { label: `push ${t.slug}`, phase: 'Work', agentType: DEV, schema: PUSHED, effort: 'low' })
@@ -212,7 +236,7 @@ for (const t of out.tasks) log(`${t.slug}: ${t.pushed ? 'pushed ' + t.sha : 'NOT
 const tips = lanes.map(l => [...l].reverse().map(t => pushed.find(p => p.slug === t.slug)).find(Boolean)).filter(Boolean).map(t => t.branch)
 if (tips.length > 1) {
   phase('Union')
-  const u = await agent(STAGE('union', [
+  const u = await launch(STAGE('union', [
     `From ${AR}: \`py ${AR}/academy/scripts/maintain.py union --base ${A.base} --branches ${tips.join(' ')} --json\`. Return what it printed: ok, the merged branches, the conflict (branch and detail as one string, or empty) and the gate lines. Change nothing; it creates no branch and pushes nothing.`,
   ]), { label: 'union', phase: 'Union', agentType: DEV, schema: UNION, effort: 'low' })
   out.union = u ? { ok: u.ok, merged: u.merged, conflict: u.conflict, gate: u.gate } : { ok: false, merged: [], conflict: 'the union stage returned nothing', gate: [] }

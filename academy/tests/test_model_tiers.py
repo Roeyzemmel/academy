@@ -229,6 +229,32 @@ class TestResolver(Tmp):
         self.assertIn("claude-opus-6-0", out.getvalue())
         self.assertIn("names no version", out.getvalue())
 
+    def test_launches_is_the_workflow_models_argument(self):
+        """``launches`` prints the JSON object a skill passes as a workflow's
+        ``args.models``: only the agents this workspace maps away from their file."""
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(models.main(["launches", "--workspace", self.ws_file()]), 0)
+        self.assertEqual(json.loads(out.getvalue()), {})        # the default map
+        path = self.ws_file(models={"tiers": {"max": "claude-fable-5-2"}})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(models.main(["launches", "--workspace", path]), 0)
+        got = json.loads(out.getvalue())
+        # the agents whose file the map overrides, and the tier itself, for an agent with
+        # no academy file that a workflow launches by tier (docs/workflows.md, "Models")
+        self.assertEqual(sorted(got), sorted(FORMER_FABLE + ("tier:max",)))
+        self.assertEqual(set(got.values()), {"fable"})
+        self.assertEqual({k: v for k, v in got.items() if not k.startswith("tier:")},
+                         {r["agent"]: r["launch"]
+                          for r in models.rows(ac.load_workspace(path))[0] if r["override"]})
+        # a tier named by a full id of its default family launches as the same alias: no key
+        path = self.ws_file(models={"tiers": {"medium": "claude-sonnet-4-5"}})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(models.main(["launches", "--workspace", path]), 0)
+        self.assertEqual(json.loads(out.getvalue()), {})
+
     def test_cli_as_a_process(self):
         path = self.ws_file()
         proc = subprocess.run([sys.executable, os.path.join(SCRIPTS, "models.py"), "agent",

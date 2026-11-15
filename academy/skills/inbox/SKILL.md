@@ -31,7 +31,7 @@ under a line "proceeding on P-NNNN Dk (x)" says so in its result and raises no s
 Call the **Workflow** tool:
 
     scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/inbox.js
-    args: {root: "${CLAUDE_PLUGIN_ROOT}/..", n: <N>, cap: <the workplan's cap, campaign/cowork only>,
+    args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/scripts/models.py" launches prints>, root: "${CLAUDE_PLUGIN_ROOT}/..", n: <N>, cap: <the workplan's cap, campaign/cowork only>,
            campaign: "<T>", cowork: "<S>", ids: ["T-NNNN", ...],
            runs: <agent runs for this run, only when the human gave a number>,
            approve: ["T-NNNN", ...]   (expensive tickets the human said to start)}

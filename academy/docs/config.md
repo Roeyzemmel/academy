@@ -131,9 +131,15 @@ per-workspace map, and the choice:
   `models.agents`). The per-call parameter takes an alias, so a tier named by a full id
   launches as its family's alias (`claude-opus-5-5` -> `opus`); the id still decides the
   grading floor.
+- **In a workflow** (the Workflow tool's scripts, which cannot read workspace.json) the
+  calling skill passes `args.models`, the JSON object
+  `py academy/scripts/models.py launches` prints (the agents the map overrides, and those
+  tiers as `tier:<tier>`), and the script's `launch()` sets each such agent's `model`; an agent with no academy file is
+  launched by tier, and no script names a model (docs/workflows.md, "Models").
 
 The resolver, `academy/scripts/models.py` (read-only): `tiers` (the map), `agent <name>
-[--launch]` (tier, model, launch value, whether an override is needed), `list`, and
+[--launch]` (tier, model, launch value, whether an override is needed), `list`,
+`launches` (a workflow's `args.models`, above), and
 `check` (exit 1 when an agent file has no valid tier or its `model:` is not its tier's
 default alias; it names the agents that need the override in this workspace and warns
 about floor tiers that give no grading authority). The MCP `config_get` returns `models`:

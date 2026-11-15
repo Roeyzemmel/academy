@@ -5,6 +5,7 @@ Usage:
     py models.py tiers [--workspace PATH] [--json]
     py models.py agent <plugin:name | name> [--launch] [--workspace PATH] [--json]
     py models.py list [--plugin P] [--workspace PATH] [--json]
+    py models.py launches [--workspace PATH]
     py models.py check [--workspace PATH]
 
 Every academy agent file declares ``tier:`` (base, medium, large, max) and keeps a
@@ -18,6 +19,12 @@ tiers to models for this workspace, over that default.
   ``--launch`` prints the launch value alone: the value a skill passes as the Agent
   tool's ``model`` when launching the agent (roster-rules.md, "Models").
 - ``list``: every agent (or one plugin's) as a table.
+- ``launches``: the JSON object ``{"plugin:name": launch, "tier:<tier>": launch}`` of the
+  agents whose tier this workspace maps away from their file's ``model:``, and of those
+  tiers themselves (``{}`` with the default map). A skill passes it as a workflow's
+  ``args.models``; the workflow's ``launch()`` sets each such agent's ``model``, and the
+  model of an agent with no academy file that the script launches by ``tier``
+  (docs/workflows.md, "Models").
 - ``check``: exit 1 when an agent file declares no valid tier or its ``model:`` is not
   its tier's default alias; otherwise exit 0, naming the agents that need the override
   in this workspace and the floor tiers whose model grants no grading authority.
@@ -82,6 +89,20 @@ def file_problems(repo=REPO):
     return out
 
 
+def launches(ws):
+    """A workflow's ``args.models``: the launch value of every agent the workspace maps away
+    from its file's ``model:``, and as ``tier:<tier>`` of every tier whose launch value is
+    not its default's (the tiers of the agents a workflow launches with no academy file)."""
+    found, _bad = rows(ws)
+    out = {r["agent"]: r["launch"] for r in found if r["override"]}
+    tiers = ac.model_tiers(ws or {})
+    for tier in ac.TIERS:
+        launch = ac.launch_model(tiers[tier])
+        if launch != ac.launch_model(ac.DEFAULT_MODEL_TIERS[tier]):
+            out["tier:" + tier] = launch
+    return out
+
+
 def grading_warnings(ws):
     """``ac.model_warnings``: floor tiers that give no grading authority."""
     return ac.model_warnings(ws)
@@ -90,7 +111,7 @@ def grading_warnings(ws):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("tiers", "agent", "list", "check"):
+    for name in ("tiers", "agent", "list", "launches", "check"):
         p = sub.add_parser(name)
         p.add_argument("--workspace")
         p.add_argument("--json", action="store_true")
@@ -147,6 +168,9 @@ def main(argv=None):
                          "yes" if r["override"] else ""))
             for b in bad:
                 print("PROBLEM: %s" % b)
+        return 0
+    if a.cmd == "launches":
+        print(json.dumps(launches(ws), sort_keys=True))
         return 0
     # check
     problems = file_problems()

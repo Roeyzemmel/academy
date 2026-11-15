@@ -22,7 +22,7 @@ draft is noticed in a week rather than by a referee. The per-statement search an
    watch has nothing to search with.
 2. **Run the workflow**: the Workflow tool with
    `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/litwatch.js` and
-   `args: {instance: "<instance>"}` (add `statement: "<id>"` for a one-statement
+   `args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, instance: "<instance>"}` (add `statement: "<id>"` for a one-statement
    search, which stays one scout). Since 2026-10-31 the watch fans out (docs/workflows.md):
    - one return-only scout reads the header and the vocabulary;
    - the script splits the sources into at most four groups: the categories, the

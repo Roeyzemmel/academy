@@ -10,7 +10,7 @@ become tickets. `$ARGUMENTS` may name a base commit, or `referee P-NNNN`. Run fr
 Author home.
 
 **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/notes.js` and
-`args: {home: "<this home>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", base: "<commit>", referee: "P-NNNN"}`.
+`args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, home: "<this home>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", base: "<commit>", referee: "P-NNNN"}`.
 The inbox runs it for a returned referee ticket. The order is code (2026-10-31;
 docs/workflows.md):
 1. the clerk collects the new notes and the full inventory from git: `git diff -U0` (or

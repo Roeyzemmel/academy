@@ -20,7 +20,7 @@ cloud scheduled task (since 2026-10-31: Sundays 20:40 Asia/Jerusalem, a fresh se
 that attaches the workspace, runs this from the Expert home, checkpoints `board/` and
 sends a push notification; it needs no connector and no local machine). The Windows
 Task Scheduler (`claude -p "/academy:usage --weekly"` from a home) stays an option. Call the **Workflow** tool with
-`scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/weekly.js` and `args: {instance: "<the cwd's
+`scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/weekly.js` and `args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/scripts/models.py" launches prints>, instance: "<the cwd's
 instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", days: 7}`. The script holds the cycle (docs/workflows.md): the
 `usage-analyst` gathers and proposes; the script drops a grader's downgrade, a downgrade
 that is not a lower tier, and anything past three decisions (regressions first); the

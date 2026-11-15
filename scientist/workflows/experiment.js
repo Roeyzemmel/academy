@@ -15,6 +15,30 @@ export const meta = {
 // packet (report stops). Each mode is one call; the skill asks between them.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 const MODES = ['design', 'build', 'queue', 'report', 'file']
 if (!MODES.includes(A.mode)) throw new Error('args.mode must be one of ' + MODES.join(', '))
 const CLERK = 'academy:inbox-clerk'
@@ -24,7 +48,7 @@ const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
 const SCRIPTS = `Scripts: lab.py is \`py ${AR}/scientist/scripts/lab.py\`, report.py is \`py ${AR}/scientist/scripts/report.py\`, from the lab home (python3 where there is no py)` +
   (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.scientist is the scripts folder).\n')
-const clerk = (stage, lines, schema, label) => agent(`WORKFLOW STAGE ${stage} of the academy-experiment workflow (mode ${A.mode}). Run from the lab home (lab.py home names it).\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
+const clerk = (stage, lines, schema, label) => launch(`WORKFLOW STAGE ${stage} of the academy-experiment workflow (mode ${A.mode}). Run from the lab home (lab.py home names it).\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase: 'Leg', agentType: CLERK, schema, effort: 'low' })
 
 const HOME = { type: 'object', properties: { ok: { type: 'boolean' }, instance: { type: 'string' }, home: { type: 'string' }, run_profile: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'instance', 'home', 'run_profile', 'detail'] }
@@ -57,7 +81,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
     command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
   const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
   if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
-  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+  const r = await launch(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
     '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
   const lines = String(r ? r.output : '').split(/\r?\n/)
   const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
@@ -85,7 +109,7 @@ phase('Leg')
 if (A.mode === 'design') {
   const h = await clerk('lab-home', [T ? `First take ${T} (open -> accepted -> in-progress, acting as its receiver).` : '', 'Run lab.py home and return the lab instance, its home and the policy.run profile.'], HOME, 'lab home')
   if (!h || !h.ok) return Object.assign(out, { outcome: 'not-started', reason: h ? h.detail : 'lab.py home returned nothing' })
-  const d = await agent(`Design one experiment in the lab ${h.home} for ${A.claim || 'the ticket ' + T}${A.kind ? ' (kind ' + A.kind + ')' : ''}. Read the statement from its owner, the pack's examples.md, traps.md and ` +
+  const d = await launch(`Design one experiment in the lab ${h.home} for ${A.claim || 'the ticket ' + T}${A.kind ? ' (kind ' + A.kind + ')' : ''}. Read the statement from its owner, the pack's examples.md, traps.md and ` +
     'computation/ through domain_get, the nearest existing script and the lab\'s package. First classify the path: a two-line argument that settles it more cheaply than code (give it, ' +
     'and stop), a probe (feasibility, not evidence: header Kind: probe, Goal:, Decides:), or an experiment. For a probe or an experiment return the HEADER ONLY (no body, no code), ' +
     'the answer to "if the claim were false, what would this experiment still report?", and the library calls not yet confirmed in the pack.',
@@ -100,14 +124,14 @@ if (A.mode === 'design') {
 
 if (A.mode === 'build') {
   if (!A.header || !A.stem) throw new Error('build needs args.header (the approved text) and args.stem')
-  let b = await agent(`Build the experiment ${A.stem} from this APPROVED header (do not change it):\n${A.header}\n` +
+  let b = await launch(`Build the experiment ${A.stem} from this APPROVED header (do not change it):\n${A.header}\n` +
     'Package code test-first, the script from the lab\'s template with validate() before run(), the lab claim created (claims_new, status open). Queue nothing, commit nothing.',
     { label: 'build', phase: 'Leg', agentType: EXP, schema: BUILT })
   if (b === null) return Object.assign(out, { outcome: 'lost', reason: 'the experimenter returned nothing' })
   let c = await clerk('check', [`Run lab.py cmd check experiments/${A.stem}.py --strict (run the command it prints) and return ok and the error lines.`], CHECK, 'check')
   if (c && !c.ok) {
     out.notes.push('the strict check failed; one fix round: ' + c.errors.join('; '))
-    b = await agent(`The strict check of experiments/${A.stem}.py fails:\n- ${c.errors.join('\n- ')}\nFix the script (the header stays as approved).`, { label: 'build (fix)', phase: 'Leg', agentType: EXP, schema: BUILT }) || b
+    b = await launch(`The strict check of experiments/${A.stem}.py fails:\n- ${c.errors.join('\n- ')}\nFix the script (the header stays as approved).`, { label: 'build (fix)', phase: 'Leg', agentType: EXP, schema: BUILT }) || b
     c = await clerk('check', [`Run lab.py cmd check experiments/${A.stem}.py --strict again; return ok and the error lines.`], CHECK, 'check again')
   }
   Object.assign(out, { script: b.script, lab_claim: b.lab_claim, checked: !!(c && c.ok) })
@@ -131,14 +155,14 @@ if (A.mode === 'queue') {
 if (A.mode === 'report') {
   if (!A.stem) throw new Error('report needs args.stem')
   const opts = (A.env ? ` --env ${A.env}` : '') + (A.job ? ` --job ${A.job}` : '')
-  let dr = await agent(`The result of experiments/${A.stem}.py is back${A.job ? ' (job ' + A.job + ')' : ''}. Fill the header's Result: ("no counterexample below bound B over class C", never "true"), ` +
+  let dr = await launch(`The result of experiments/${A.stem}.py is back${A.job ? ' (job ' + A.job + ')' : ''}. Fill the header's Result: ("no counterexample below bound B over class C", never "true"), ` +
     `and write the report draft reports/${A.stem}.md with ## Conclusion (Establishes: supports / refutes / inconclusive, Does not establish:, Proposed status:, Next step:) and ## Validation ` +
     '(Reproduced: yes|no). A surprising result is a bug until shown otherwise: say what you checked.', { label: 'report draft', phase: 'Leg', agentType: EXP, schema: DRAFT })
   if (dr === null) return Object.assign(out, { outcome: 'lost', reason: 'the experimenter returned nothing' })
   let c = await clerk('report-check', [`Run report.py check experiments/${A.stem}.py${opts}; return ok and every refusal line.`], CHECK, 'report check')
   if (c && !c.ok) {
     out.notes.push('report.py check refused; one fix round: ' + c.errors.join('; '))
-    dr = await agent(SCRIPTS + `report.py check refuses experiments/${A.stem}.py:\n- ${c.errors.join('\n- ')}\nFix the header or the draft (never a hand-written packet).`, { label: 'report draft (fix)', phase: 'Leg', agentType: EXP, schema: DRAFT }) || dr
+    dr = await launch(SCRIPTS + `report.py check refuses experiments/${A.stem}.py:\n- ${c.errors.join('\n- ')}\nFix the header or the draft (never a hand-written packet).`, { label: 'report draft (fix)', phase: 'Leg', agentType: EXP, schema: DRAFT }) || dr
     c = await clerk('report-check', [`Run report.py check experiments/${A.stem}.py${opts} again; return ok and the refusal lines.`], CHECK, 'report check again')
   }
   if (!c || !c.ok) return Object.assign(out, { outcome: 'check-failed', reason: (c ? c.errors : []).join('; ') })

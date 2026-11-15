@@ -16,7 +16,7 @@ an "Upstream: ..." one runs `upstream-contributor`. Run from the lab home.
 and stop), or ticket ids.
 
 1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
-   and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
+   and `args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
 2. **Finish what it hands back**, as `/academy:inbox` section 2 says. An `experiment` or
    `test` ticket runs `experiment.js`'s `design` leg in the workflow and comes back as a
    **header gate**: show the header and ask (approve / change / drop), then run the

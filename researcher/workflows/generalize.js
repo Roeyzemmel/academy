@@ -18,6 +18,30 @@ export const meta = {
 // not), and mode deliver checks they exist before the generalize ticket is delivered.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 if (!A.ref || !/^(P-\d{4,}|[a-z][a-z0-9]*:\S+)$/.test(A.ref)) throw new Error('args.ref must be a report packet (P-NNNN) or a lab claim id')
 if (!A.home) throw new Error('args.home must be the Researcher home')
 const MODE = A.mode === 'deliver' ? 'deliver' : 'propose'
@@ -28,7 +52,7 @@ const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
 const SCRIPTS = `Scripts: generalize.py is \`py ${AR}/researcher/scripts/generalize.py --home ${A.home}\`, packets.py is \`py ${AR}/academy/scripts/packets.py\` (python3 where there is no py)` +
   (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.<plugin> is each scripts folder).\n')
-const clerk = (stage, lines, schema, label, phase) => agent(
+const clerk = (stage, lines, schema, label, phase) => launch(
   `WORKFLOW STAGE ${stage} of the academy-generalize workflow. Home: ${A.home}.` + (A.instance ? ` Instance: ${A.instance}.` : '') + (T ? ` Ticket: ${T}.` : '') + '\n' + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
@@ -54,7 +78,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
     command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
   const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
   if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
-  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+  const r = await launch(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
     '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
   const lines = String(r ? r.output : '').split(/\r?\n/)
   const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
@@ -115,13 +139,13 @@ const brief = SCRIPTS + `Generalize the reviewed experiment ${s.report || A.ref}
   `id in this instance's namespace, title, statement, kind conjecture, status conjectured, bears_on including ${LAB}, the falsifier, the pattern (wider class / ` +
   `relaxed hypothesis / pattern / invariant) and a one-line rationale; optional lemmas (at most three per proposal, status open or sketch, saying what is known and ` +
   `what is missing). Write ONLY that file: create no object and file no ticket.`
-const p1 = await agent(brief, { label: 'prover', phase: 'Propose', agentType: PROVER })
+const p1 = await launch(brief, { label: 'prover', phase: 'Propose', agentType: PROVER })
 if (p1 === null) return Object.assign(out, { outcome: 'lost', reason: 'the prover returned nothing (a limit?)' })
 const validate = (label) => clerk('validate', [`Run generalize.py validate ${FILE} --lab-claim ${LAB} --json and return ok, the problems, the proposal ids they name, and the number of proposals.`], CHECKED, label, 'Propose')
 let v = await validate('validate')
 if (v && !v.ok) {
   out.notes.push('the proposals failed validation; sent back to the prover once: ' + v.problems.join('; '))
-  const p2 = await agent(brief + `\n\nThe file ${FILE} fails generalize.py validate:\n- ${v.problems.join('\n- ')}\nFix those proposals in the file.`,
+  const p2 = await launch(brief + `\n\nThe file ${FILE} fails generalize.py validate:\n- ${v.problems.join('\n- ')}\nFix those proposals in the file.`,
     { label: 'prover (fix)', phase: 'Propose', agentType: PROVER })
   if (p2 === null) return Object.assign(out, { outcome: 'lost', reason: 'the prover fix returned nothing' })
   v = await validate('validate again')
@@ -148,7 +172,7 @@ if (!out.packet) out.notes.push('the packet was not filed: ' + (pk ? pk.error : 
 const SPECS = { type: 'object', properties: { specs: { type: 'array', items: { type: 'object' } } }, required: ['specs'] }
 const sp = await clerk('test-specs', [`Run generalize.py tickets ${FILE} --lab-claim ${LAB} --parent ${T} (WITHOUT --apply) and return the ticket specs it prints, one object each (to, kind, title, ask, deliverable, refs, parent, detail). File nothing.`],
   SPECS, 'test specs', 'Record')
-const filed = await agent(`File exactly these falsifier test tickets to the Scientist instance (tickets_create, one each, as given; you are the researcher -> scientist liaison): ` +
+const filed = await launch(`File exactly these falsifier test tickets to the Scientist instance (tickets_create, one each, as given; you are the researcher -> scientist liaison): ` +
   `${JSON.stringify(sp ? sp.specs : [])}. Return the ticket ids, or the refusals verbatim.`,
   { label: 'file tests', phase: 'Record', agentType: 'researcher:lead-researcher', schema: { type: 'object', properties: { tickets: { type: 'array', items: { type: 'string' } }, refusals: { type: 'array', items: { type: 'string' } } }, required: ['tickets', 'refusals'] } })
 if (filed && filed.refusals.length) out.notes.push('test tickets refused: ' + filed.refusals.join('; '))

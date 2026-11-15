@@ -17,6 +17,30 @@ export const meta = {
 // the script checks the ticket) and proposes sketch. Nothing is set above sketch.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 if (!A.claim || !/^([a-z][a-z0-9]*:)?[A-Za-z][\w.:-]*$/.test(A.claim)) throw new Error('args.claim must be a registry id, got ' + JSON.stringify(A.claim))
 if (!A.home) throw new Error('args.home must be the Researcher home')
 const CLERK = 'researcher:review-clerk'
@@ -59,7 +83,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
     command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
   const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
   if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
-  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+  const r = await launch(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
     '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
   const lines = String(r ? r.output : '').split(/\r?\n/)
   const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
@@ -88,14 +112,14 @@ const end = async () => {
 }
 const deliver = async (result) => {
   if (!T) return
-  const m = await agent(STAGE('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result.replace(/"/g, "'")}".`]),
+  const m = await launch(STAGE('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result.replace(/"/g, "'")}".`]),
     { label: 'close', phase: 'File', agentType: CLERK, schema: MOVE, effort: 'low' })
   out.ticket_delivered = !!(m && m.ok)
 }
 
 // ---- State ---------------------------------------------------------------------------
 phase('State')
-const st = await agent(STAGE('prove-state', [
+const st = await launch(STAGE('prove-state', [
   T ? `First take ${T}: open -> accepted -> in-progress (leave it if it is in progress already).` : '',
   `Then return: the claim's status (claims_show), its unsettled inputs (depends_on and modulo that are not proved), earlier attempts ` +
   `(notebook.py ls / the object's proof: field), whether a falsifier ran (a report or direction item that attacked it, or the ticket says so: give the evidence), ` +
@@ -110,17 +134,17 @@ const modulo = (st.unsettled_inputs || []).length ? `It rests on unsettled input
 // ---- Attempt ---------------------------------------------------------------------------
 phase('Attempt')
 if (!st.attack_exists) {
-  const atk = await agent(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
+  const atk = await launch(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
     `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why.`,
     { label: 'attack', phase: 'Attempt', agentType: PROVER })
   if (atk === null) return Object.assign(out, { outcome: 'lost', reason: 'the attack run returned nothing (a limit?): nothing further launched' })
   out.notes.push('one attack-only run first (proofs/<id>/attack.md)')
 }
-const p = await agent(STAGE('attempt-path', ['Run notebook.py attempt <id> --create and return the attempt path it prints.']),
+const p = await launch(STAGE('attempt-path', ['Run notebook.py attempt <id> --create and return the attempt path it prints.']),
   { label: 'attempt path', phase: 'Attempt', agentType: CLERK, schema: PATH, effort: 'low' })
 if (!p || !p.path) return Object.assign(out, { outcome: 'not-started', reason: 'no attempt path' })
 out.attempt = p.path
-const proved = await agent(`Prove ${A.claim} (home ${A.home}) in the attempt file ${p.path}, per your agent definition: scout prior art first (cite before reproving), ` +
+const proved = await launch(`Prove ${A.claim} (home ${A.home}) in the attempt file ${p.path}, per your agent definition: scout prior art first (cite before reproving), ` +
   `then the statement as attempted, the strategy, the proof, the inputs with their statuses, and the gaps; set outcome: in its frontmatter. ` +
   (st.attempts.length ? `Earlier attempts: ${st.attempts.join(', ')} (a repair is this new attempt; the old ones stay). ` : '') +
   (st.attack_exists || !out.notes.length ? '' : 'Read proofs/<id>/attack.md first. ') + modulo + ' Set no status.',
@@ -129,7 +153,7 @@ if (proved === null) return Object.assign(out, { outcome: 'lost', reason: 'the p
 
 // ---- File: by the file, not by the summary ------------------------------------------------
 phase('File')
-const o = await agent(STAGE('attempt-outcome', [`Read the frontmatter of ${p.path}: return its outcome: field verbatim, its gaps, and the claims it names. Write nothing.`]),
+const o = await launch(STAGE('attempt-outcome', [`Read the frontmatter of ${p.path}: return its outcome: field verbatim, its gaps, and the claims it names. Write nothing.`]),
   { label: 'outcome', phase: 'File', agentType: CLERK, schema: OUTCOME, effort: 'low' })
 if (!o || !o.exists) return Object.assign(out, { outcome: 'unfinished', reason: 'the attempt file is missing or unreadable' })
 out.gaps = o.gaps
@@ -138,7 +162,7 @@ if (o.outcome !== 'complete' || (o.gaps || []).length) {
   await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}; gaps: ${(o.gaps || []).join('; ') || 'none listed'}; nothing filed for review`)
   return await end()
 }
-const f = await agent(`Your attempt ${p.path} on ${A.claim} is complete. File exactly one verify ticket to the Expert instance (tickets_create: kind verify, ` +
+const f = await launch(`Your attempt ${p.path} on ${A.claim} is complete. File exactly one verify ticket to the Expert instance (tickets_create: kind verify, ` +
   `title "Verify ${A.claim}", ask "Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?", deliverable "A verification packet with two verdicts, or one negative verdict.", ` +
   `refs [${A.claim}, file:<instance>/${p.path}]${T ? ', parent ' + T : ''}). ` +
   (/^open$/.test(st.status) ? `Then propose sketch (claims_propose_status, grounds note "complete attempt ${p.path}"). ` : '') +
@@ -149,7 +173,7 @@ if (!f || !f.ticket) {
   out.reason = 'the verify ticket was not filed: ' + (f ? f.refusal : 'the stage returned nothing')
   return await end()
 }
-const chk = await agent(STAGE('get', [`tickets_get ${f.ticket} and return its to, kind and refs.`]), { label: 'check verify', phase: 'File', agentType: CLERK, schema: TICKET, effort: 'low' })
+const chk = await launch(STAGE('get', [`tickets_get ${f.ticket} and return its to, kind and refs.`]), { label: 'check verify', phase: 'File', agentType: CLERK, schema: TICKET, effort: 'low' })
 const bad = !chk || !chk.found || !/^expert@/.test(chk.to) || chk.kind !== 'verify' || !(chk.refs || []).includes(A.claim)
 if (bad) out.notes.push(`ANOMALY: the verify ticket ${f.ticket} is not a verify ticket to the Expert naming ${A.claim}`)
 out.verify_ticket = f.ticket
