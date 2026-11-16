@@ -22,13 +22,17 @@ academy checkout when it has a ``workspace.template.json``.
    ``--strict`` then exits 1);
 3. exports where everything is, from workspace.json: ACADEMY_ROOT, ACADEMY_WORKSPACE,
    ACADEMY_BOARD, ACADEMY_LIBRARY and ACADEMY_HOME_<INSTANCE> (e.g. ACADEMY_HOME_AUTHOR_P),
-   plus PYTHONUTF8, into ``.claude/settings.local.json`` (git-ignored) here and in every
+   plus PYTHONUTF8, and on a machine without the ``py`` launcher ACADEMY_PYTHON (the
+   ``python3`` on PATH, which the academy's MCP server, started as
+   ``${ACADEMY_PYTHON:-py}`` without a shell, then runs with), into
+   ``.claude/settings.local.json`` (git-ignored) here and in every
    home, and into ``workspace.env`` for plain shells. The machine-wide places (user
    settings, /etc/environment, shell rc files, the Windows registry) get them tagged
    ``ACADEMY_WS__<TAG>__<NAME>``, TAG being this directory's name, so that several
-   workspaces coexist; the academy picks one from the session's directory;
+   workspaces coexist; the academy picks one from the session's directory
+   (ACADEMY_PYTHON, a property of the machine, stays unprefixed there);
 4. on a machine without the Windows ``py`` launcher, installs a ``py`` shim on
-   PATH, because the academy's MCP server is started as ``py server.py``;
+   PATH as well, for the hooks and the commands that call ``py`` by name;
 5. with the ``claude`` CLI, installs the plugins that are not already available
    (registering the local ``academy`` marketplace) and reports each one as available
    or MISSING (skipped with --no-plugins), and updates the ones already installed
@@ -367,7 +371,42 @@ def home_env(ws_path):
         env[env_name(name)] = inst["home"]
         if inst["role"] == "expert":
             env.setdefault("ACADEMY_LIBRARY", inst["home"])
+    env.update(python_env())
     return env, ws
+
+
+#: variables that describe the machine, not a workspace: never tagged, never legacy
+MACHINE_VARS = ("ACADEMY_PYTHON",)
+
+
+def shim_path():
+    """Where ``py_shim`` puts its ``py``."""
+    return os.path.join(os.path.expanduser("~"), ".local", "bin", "py")
+
+
+def python_target(which=None):
+    """The interpreter to stand in for ``py``: ``python3``, else ``python``, else None."""
+    which = which or shutil.which
+    return which("python3") or which("python")
+
+
+def python_env(which=None):
+    """``{"ACADEMY_PYTHON": <interpreter>}`` when this machine has no ``py`` launcher,
+    else ``{}``. The academy MCP server is spawned without a shell as
+    ``${ACADEMY_PYTHON:-py}`` (``.mcp.json``), so without ``py`` it cannot start unless
+    the variable names the interpreter; the hooks fall back to python3 on their own.
+    The ``py`` this bootstrap installs (``py_shim``) does not count as a launcher, so a
+    rerun renders the same thing, and a spawn whose PATH lacks ~/.local/bin still works.
+    An ``ACADEMY_PYTHON`` already set that resolves to an executable is kept."""
+    which = which or shutil.which
+    py = which("py")
+    if py and os.path.abspath(py) != os.path.abspath(shim_path()):
+        return {}
+    have = os.environ.get("ACADEMY_PYTHON")
+    if have and which(have):
+        return {"ACADEMY_PYTHON": have}
+    target = python_target(which)
+    return {"ACADEMY_PYTHON": target} if target else {}
 
 
 def tag():
@@ -380,16 +419,19 @@ def tag():
 def tagged(env):
     """The machine-wide form of ``env``: ``ACADEMY_<NAME>`` becomes
     ``ACADEMY_WS__<TAG>__<NAME>``; the academy picks one workspace's set from these
-    (``resolve_workspace_env``). ``PYTHONUTF8`` is workspace-independent and stays."""
+    (``resolve_workspace_env``). ``PYTHONUTF8`` and the ``MACHINE_VARS`` are
+    workspace-independent and stay."""
     t = tag()
-    return {("ACADEMY_WS__%s__%s" % (t, k[len("ACADEMY_"):]) if k.startswith("ACADEMY_") else k): v
+    return {("ACADEMY_WS__%s__%s" % (t, k[len("ACADEMY_"):])
+             if k.startswith("ACADEMY_") and k not in MACHINE_VARS else k): v
             for k, v in env.items()}
 
 
 def is_legacy(key):
     """An unprefixed ``ACADEMY_*`` variable in a machine-wide place: what an earlier
     bootstrap wrote there, and what would make two workspaces overwrite each other."""
-    return key.startswith("ACADEMY_") and not key.startswith("ACADEMY_WS__")
+    return (key.startswith("ACADEMY_") and not key.startswith("ACADEMY_WS__")
+            and key not in MACHINE_VARS)
 
 
 def slash2(path):
@@ -675,7 +717,7 @@ def settings_local(ws_path):
 def py_shim():
     if shutil.which("py"):
         return
-    target = shutil.which("python3") or shutil.which("python")
+    target = python_target()
     if not target:
         say("WARNING: no python found; the academy MCP server cannot start")
         return

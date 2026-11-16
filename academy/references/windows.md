@@ -9,7 +9,7 @@ which Python version `py` is); everything below is the general rule.
 - **`py` is the interpreter** (the Python launcher). Bare `python` (and `python3`) is
   usually the Microsoft Store stub, which opens the Store instead of running anything.
   The plugins' hooks and MCP server use `py` unless `ACADEMY_PYTHON` names another
-  (`docs/config.md`); on Linux and macOS set it to `python3`.
+  (`docs/config.md`); on Linux and macOS the workspace bootstrap sets it to `python3`.
 - Assume the **standard library only** on the Windows side: `pytest` and the heavy
   libraries live in the lab's environment profiles (WSL, a remote worker), not here.
   Tests use `unittest` (`py tests/run_all.py`, `py -m unittest discover`).
