@@ -1,15 +1,34 @@
 """report.py: the refusals, a rendered example from real SciLab results, and
 filing the packet plus the review ticket on a temporary board."""
 
+import json
 import os
 import re
+import sys
 import unittest
 
-from helpers import Sandbox, EW, TORUS, FIXTURES
+from helpers import Sandbox, EW, TORUS, FIXTURES, PLUGIN
 
 import _common as c
 import report
 from _academy import read_frontmatter, validate_packet, validate_ticket
+
+#: academy/lib, where the GitHub store and its in-memory transport live
+ACADEMY_LIB = os.path.join(os.path.dirname(PLUGIN), "academy", "lib")
+
+#: a ``board.transport`` factory for the CLI test: a MemoryTransport seeded from the file
+#: board at ``cfg['seed']``, written back to ``cfg['dump']`` when the process exits
+FAKE_GH = """import atexit, json, board_store as bs
+def transport(cfg):
+    t = bs.from_file_board(cfg['seed'])
+    def dump():
+        rows = [dict(i, comments=list(t.comments.get(n, [])))
+                for n, i in sorted(t.issues.items())]
+        with open(cfg['dump'], 'w', encoding='utf-8') as fh:
+            json.dump(rows, fh)
+    atexit.register(dump)
+    return t
+"""
 
 EXPECTED = os.path.join(FIXTURES, "expected", "report-%s.md" % EW)
 CONCLUSION = """## Conclusion
@@ -269,6 +288,147 @@ class ReportTest(unittest.TestCase):
         self.assertTrue(rm["ask"].startswith("dry-run: migration test -- Review experiment"),
                         rm["ask"])
         self.assertEqual(validate_ticket(rm, rb), [])
+
+
+    # -- filing on the GitHub backend (T-1156) --------------------------------
+
+    def github_workspace(self, **extra):
+        """Switch the sandbox workspace to ``board.backend`` github; the file board stays
+        the directory of packets and ids (and, after a migration, the frozen snapshot)."""
+        with open(self.sb.workspace, encoding="utf-8") as fh:
+            ws = json.load(fh)
+        ws["board"] = dict({"path": self.sb.board, "backend": "github", "repo": "o/r"},
+                           **extra)
+        self.sb.write_json(self.sb.workspace, ws)
+
+    def memory_store(self):
+        if ACADEMY_LIB not in sys.path:
+            sys.path.insert(0, ACADEMY_LIB)
+        import board_store as bs
+        transport = bs.MemoryTransport()
+        boardlib = report._academy_module("board")
+        return transport, boardlib.resolve_store(None, self.sb.workspace, transport=transport)
+
+    def snapshot_tickets(self):
+        return sorted(f for d in ("scientist@main", "researcher@alpha")
+                      for f in os.listdir(os.path.join(self.sb.board, d)))
+
+    def test_file_on_github_backend_uses_the_issues(self):
+        self.github_workspace()
+        transport, store = self.memory_store()
+        boardlib = report._academy_module("board")
+        cref = boardlib.create_ticket(store, "scientist@main", "Run the EW record",
+                                      "Record (Q2) on the EW", "A report packet",
+                                      kind="experiment", as_instance="researcher@alpha")
+        self.assertEqual(cref, "github#1")
+        cid = "T-0001"
+        ctx = self.gather()
+        meta, body = report.render(ctx)
+        res = report.file_report(ctx, meta, body, workspace=self.sb.workspace, ticket=cid,
+                                 transport=transport)
+        self.assertEqual(res["backend"], "github")
+        self.assertEqual(res["ticket"], "T-0002")
+        self.assertEqual(res["ticket_path"], "github#2")
+        _ref, tm, tb = store.get(res["ticket"])
+        self.assertEqual(validate_ticket(tm, tb), [])
+        self.assertEqual(tm["kind"], "review-experiment")
+        self.assertEqual(tm["to"], "researcher@alpha")
+        self.assertEqual(tm["parent"], cid)
+        self.assertIn(res["packet"], tm["refs"])
+        _ref, cm, cb = store.get(cid)
+        self.assertEqual(cm["packets"], [res["packet"]])
+        self.assertIn("packet %s filed" % res["packet"], cb)
+        with open(res["packet_path"], encoding="utf-8") as fh:
+            pm, pb = read_frontmatter(fh.read())
+        self.assertEqual(pm["ticket"], cid)
+        self.assertEqual(validate_packet(pm, pb), [])
+        self.assertEqual(self.snapshot_tickets(), [])      # nothing on the file board
+
+    def test_file_dry_run_names_the_backend_without_opening_it(self):
+        self.github_workspace()                 # no transport: opening the store would fail
+        ctx = self.gather()
+        meta, body = report.render(ctx)
+        res = report.file_report(ctx, meta, body, workspace=self.sb.workspace, dry_run=True)
+        self.assertTrue(res["dry_run"])
+        self.assertEqual(res["backend"], "github")
+
+    def test_file_on_github_backend_without_transport_is_an_error(self):
+        self.github_workspace()
+        ctx = self.gather()
+        meta, body = report.render(ctx)
+        with self.assertRaises(report.ac.AcademyError):
+            report.file_report(ctx, meta, body, workspace=self.sb.workspace)
+        self.assertEqual(self.snapshot_tickets(), [])
+        self.assertEqual(os.listdir(os.path.join(self.sb.board, "packets")), [])
+
+    def test_cli_file_on_github_backend_without_transport_is_an_error_not_a_traceback(self):
+        self.github_workspace()
+        code, out, err = self.sb.run("report.py", [
+            "file", "experiments/%s.py" % EW, "--home", self.sb.lab])
+        self.assertEqual(code, 2, err)
+        self.assertTrue(err.startswith("error: "), err)
+        self.assertIn("no transport", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_library_error_from_create_ticket_names_the_orphan_packet(self):
+        """An error of the academy library (not the vendored copy) from create_ticket,
+        e.g. a refused edge, still becomes the 'packet written, ticket not' error."""
+        self.github_workspace()
+        transport, _store = self.memory_store()
+        boardlib = report._academy_module("board")
+
+        def refuse(*a, **k):
+            raise boardlib.ac.ConfigError("edge refused")
+
+        orig = boardlib.create_ticket
+        boardlib.create_ticket = refuse
+        try:
+            ctx = self.gather()
+            meta, body = report.render(ctx)
+            with self.assertRaises(report.ac.AcademyError) as cm:
+                report.file_report(ctx, meta, body, workspace=self.sb.workspace,
+                                   transport=transport)
+        finally:
+            boardlib.create_ticket = orig
+        msg = str(cm.exception)
+        self.assertIn("but the review ticket was not: edge refused", msg)
+        self.assertRegex(msg, r"packet P-\d+ was written")
+
+    def test_cli_file_on_github_backend(self):
+        """The case of T-1117: the commissioning ticket is an issue only, the file board
+        is the frozen snapshot; ``report.py file`` (no --board) files on the issues."""
+        seed = os.path.join(self.sb.root, "seed")
+        for d in ("scientist@main", "researcher@alpha", "packets"):
+            os.makedirs(os.path.join(seed, d))
+        boardlib = report._academy_module("board")
+        boardlib.create_ticket(seed, "scientist@main", "Run the EW record",
+                               "Record (Q2) on the EW", "A report packet",
+                               kind="experiment", as_instance="researcher@alpha")
+        mods = os.path.join(self.sb.root, "mods")
+        self.sb.write(os.path.join(mods, "fake_gh_report.py"), FAKE_GH)
+        dump = os.path.join(self.sb.root, "issues.json")
+        self.github_workspace(transport="fake_gh_report:transport", seed=seed, dump=dump)
+        self.sb.env = dict(self.sb.env, ACADEMY_BOARD_CACHE="0", PYTHONPATH=os.pathsep.join(
+            [mods, ACADEMY_LIB]))
+        code, out, err = self.sb.run("report.py", [
+            "file", "experiments/%s.py" % EW, "--home", self.sb.lab, "--ticket", "T-0001"])
+        self.assertEqual(code, 0, err)
+        res = json.loads(out)
+        self.assertEqual((res["ticket"], res["ticket_path"]), ("T-0002", "github#2"))
+        self.assertEqual(self.snapshot_tickets(), [])
+        if ACADEMY_LIB not in sys.path:
+            sys.path.insert(0, ACADEMY_LIB)
+        import board_store as bs
+        transport = bs.MemoryTransport()
+        with open(dump, encoding="utf-8") as fh:
+            for e in json.load(fh):
+                transport.add_encoded(e)
+        _t, store = (transport, report._academy_module("board").resolve_store(
+            None, self.sb.workspace, transport=transport))
+        _r, rm, _b = store.get("T-0002")
+        self.assertEqual((rm["kind"], rm["to"], rm["parent"]),
+                         ("review-experiment", "researcher@alpha", "T-0001"))
+        self.assertEqual(store.get("T-0001")[1]["packets"], [res["packet"]])
 
 
 if __name__ == "__main__":
