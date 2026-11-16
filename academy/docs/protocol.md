@@ -40,7 +40,11 @@ tables. Where this text and the code disagree, fix one of them in the same commi
      `tickets_get`, `claims_new`, `claims_attach_evidence`, `claims_propose_status`,
      `claims_set_status`; `packets_create` and `config_get` already took one), checked
      against `workspace.json` and the agent's role: an `expert:` agent naming an author
-     instance is refused;
+     instance is refused. A base `academy:` agent has no role, so its `instance` is
+     checked against the call (T-0182): it may name the home the server runs in or a
+     party (`to` / `from`) of the call's ticket (the ticket updated, or a new ticket's
+     `parent`), which is what `inbox-clerk` does when it moves a ticket for its party;
+     any other instance is refused;
   2. for a role agent, the party of the call's ticket (`to`, then `from`; for
      `tickets_create` the `parent`) whose role is the agent's;
   3. the home containing the server's `cwd`, when its role is the agent's (a base
