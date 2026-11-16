@@ -293,6 +293,103 @@ async function developerReviewed(row, i) {
 
 const firstRef = (row, re) => (row.refs || []).find(x => re.test(x)) || ''
 
+// ---- the lead-researcher's proof work goes back to the main session (T-1271) -------------
+// Inside this run an agent has no Agent or Workflow tool, so the lead cannot launch prover
+// or /researcher:prove (live 2026-11-14/15: T-1257 blocked on the human, T-1264 left
+// in-progress twice, nothing proved). It does what it can here (falsifier and prior-art
+// tickets, the prover brief in the journal; for a ticket that names no registry claim it
+// registers the statement with claims_new first) and returns decision prove. The script
+// then checks, in this order:
+//  * a falsifier on record: prove.js delivers nothing without one (needs-explore). None yet
+//    and one pending (filed by the lead): the ticket waits on it (blocked, released when it is
+//    back, and the lead runs again); none at all: /researcher:explore goes to the session;
+//  * the falsifier goes on the ticket's thread (prove.js's state stage reads "the ticket says
+//    so"; a claim the lead just registered is named by no report);
+//  * the claim resolves (registry.py statement), then /researcher:prove goes to the main
+//    session as for_main, with its args. The ticket stays in-progress: prove.js takes it and
+//    delivers it. Every hand-back carries handback: 'lead-researcher' (workplan.js ends a
+//    campaign's rounds on it: every later round would re-run the lead on the same ticket).
+const CLAIM_ID = /^([a-z][a-z0-9]*:)?[A-Za-z][\w.:-]*$/             // prove.js's own check of args.claim
+const TICKET_ID = /^T-\d+$/
+const LEAD_OUT = { type: 'object', properties: {
+  decision: { type: 'string', enum: ['delivered', 'blocked', 'prove'], description: 'what you did with the ticket: delivered it, blocked it (for a reason other than the missing prover), or left it in-progress for a proof attempt' },
+  claim: { type: 'string', description: 'decision prove: the registry id (<ns>:<id>) prover is to attempt; else empty' },
+  created: { type: 'boolean', description: 'decision prove: true when you registered the claim with claims_new in this run' },
+  brief: { type: 'string', description: 'decision prove: where the prover brief is (journal file and heading); else empty' },
+  falsifier: { type: 'string', description: 'decision prove: the falsifier on record for this statement (a delivered experiment or test ticket and its outcome, a report, a direction item; or that the pack has no computational handle on it); empty when none has run yet' },
+  pending: { type: 'array', items: { type: 'string' }, description: 'decision prove: the ids of the falsifier tickets still open (filed in this run or an earlier one) that the proof attempt must wait for; else empty' },
+  report: { type: 'string', description: 'your report, status first' } },
+  required: ['decision', 'claim', 'created', 'brief', 'falsifier', 'pending', 'report'] }
+const REG = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code as printed by the shell' },
+  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit', 'output'] }
+const oneLine = (x, n) => String(x || '').replace(/\s+/g, ' ').trim().replace(/"/g, "'").slice(0, n || 200)
+
+async function leadResearcher(row, i) {
+  const inst = i.name
+  const st = await move(row, inst, 'start: move it to in-progress')
+  if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
+  const r = await agent(
+    `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
+    'Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ' +
+    `An earlier run may have worked this ticket already: first read the ticket's thread (tickets_get ${row.id}), the tickets filed for it (tickets_list parent ${row.id}) ` +
+    'and the journal, and go on from there; never file a falsifier, lookup or cite ticket a second time. ' +
+    'You run inside a workflow: the Agent and Workflow tools are not available here, so you cannot launch prover or run /researcher:prove, ' +
+    'and you never block the ticket for that. When the item needs a proof attempt: ' +
+    'make sure the statement to prove is a registry claim of this instance (if the ticket names none, register it first with claims_new, status open, ' +
+    'the statement as the ticket asks it); a proof attempt needs a falsifier on record (prove.js attempts nothing without one): ' +
+    `if none has run, file it (experiment or test ticket to the Scientist, parent ${row.id}) unless it is filed already, and name the open ones in pending; ` +
+    `write the prover brief in today's journal (\`py ${ROOT}/researcher/scripts/notebook.py --home ${i.home} journal --create\`), make no status move on the ticket, ` +
+    `and return decision prove with the claim id (<ns>:<id>), where the brief is, the falsifier on record (empty if none yet) and pending: ` +
+    `with a falsifier the workflow hands /researcher:prove <claim> with ticket ${row.id} to the main session; with none it parks the ticket on pending. ` +
+    'Otherwise finish by delivering it (tickets_update deliver: true, result one line; decision delivered) or, if you cannot, ' +
+    'blocked with waiting_on and the reason (decision blocked).',
+    { label: `lead-researcher ${row.id}`, phase: 'Tickets', agentType: 'researcher:lead-researcher', schema: LEAD_OUT })
+  if (r === null) return { lost: true }
+  const report = String(r.report || '').split('\n')[0]
+  if (r.decision !== 'prove') return { outcome: 'worked', detail: report }
+  const claim = String(r.claim || '').trim()
+  const falsifier = oneLine(r.falsifier)
+  const pending = [...new Set((r.pending || []).map(x => String(x).trim()).filter(x => TICKET_ID.test(x)))]
+  const base = { ticket: row.id, instance: inst, handback: 'lead-researcher', brief: r.brief || '', created: !!r.created }
+  if (!falsifier) {
+    // prove.js would answer needs-explore and deliver nothing; handing it back would bring the lead here again
+    if (pending.length) {
+      const m = await move(row, inst, `block-on: blocked, waiting_on [${pending.join(', ')}], reason "a proof attempt on ${claim || 'its statement'} waits for its falsifier (${pending.join(', ')})"`)
+      if (!m) return { lost: true }
+      return { outcome: m.ok ? `waits on ${pending.join(', ')} (its falsifier)` : 'unfinished', detail: report, parked: !!m.ok }
+    }
+    notes.push(`ANOMALY: ${row.id}: the lead asked for a proof attempt with no falsifier on record and none pending`)
+    return { for_main: Object.assign(base, { skill: 'researcher:explore' }, CLAIM_ID.test(claim) ? { claim } : {}, {
+      why: `${row.id} needs a proof attempt${claim ? ' on ' + claim : ''}, but no falsifier is on record and none is pending (prove.js would attempt nothing): ` +
+        `run /researcher:explore with ticket ${row.id} (its falsifier) from the main session, then the inbox again` }) }
+  }
+  const nt = await move(row, inst, `note: append to the thread "falsifier on record for ${claim || 'the statement'} (lead-researcher): ${falsifier}"`, `${row.id} falsifier note`)
+  if (!nt) return { lost: true }
+  Object.assign(base, { skill: 'researcher:prove', falsifier })
+  const register = `register the statement first (claims_new in ${inst}), then run /researcher:prove <claim> with ticket ${row.id} from the main session`
+  if (!CLAIM_ID.test(claim)) {
+    notes.push(`ANOMALY: ${row.id}: the lead asked for a proof attempt but named no registry claim${claim ? ' (' + claim + ')' : ''}`)
+    return { for_main: Object.assign(base, { why: `${row.id} needs a proof attempt and names no registry claim: ${register}` }) }
+  }
+  const reg = await clerk('claim', [`From ${i.home} run \`py ${ROOT}/academy/scripts/registry.py statement ${claim}\` once (python3 where there is no py). ` +
+    'Return the exit code the shell printed and the output verbatim. Write nothing.'], REG, `claim ${claim}`)
+  if (!reg) return { lost: true }                                     // budget.md rule 4: lost, not "missing"
+  const output = String(reg.output || '')
+  if (/does not resolve/.test(output)) {
+    notes.push(`ANOMALY: ${row.id}: the lead's claim ${claim} does not resolve in the registry`)
+    return { for_main: Object.assign(base, { claim, why: `${row.id} needs a proof attempt, but its claim ${claim} does not resolve in the registry: ${register}` }) }
+  }
+  if (reg.exit !== 0) {
+    notes.push(`${row.id}: the registry check of ${claim} failed (exit ${reg.exit}): ${oneLine(output, 160)}`)
+    return { for_main: Object.assign(base, { claim, why: `${row.id} needs a proof attempt on ${claim}, but the registry check failed (exit ${reg.exit}: ${oneLine(output, 120)}): ` +
+      `run \`registry.py statement ${claim}\` from the main session; when it resolves, run /researcher:prove ${claim} with ticket ${row.id}; register it (claims_new) only if that reports it missing` }) }
+  }
+  return { for_main: Object.assign(base, { claim,
+    why: `${row.id} needs a proof attempt on ${claim}${r.created ? ' (registered by the lead in this run)' : ''}, and prover cannot be launched inside the inbox run: ` +
+      `run /researcher:prove ${claim} with ticket ${row.id} from the main session (the Workflow prove.js with args)`,
+    args: { claim, ticket: row.id, home: i.home, instance: inst, root: ROOT } }) }
+}
+
 async function handle(row, i) {
   const inst = i.name, rt = row.route || {}
   if (row.released) {
@@ -407,6 +504,7 @@ async function handle(row, i) {
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.notes || []).join('; ') : 'lost', nested: r }
   }
   if (rt.how === 'skill') return { for_main: { why: `the skill ${rt.target} runs in the main session`, ticket: row.id, instance: inst, skill: rt.target } }
+  if (rt.how === 'agent' && i.role === 'researcher' && rt.target === 'lead-researcher' && !row.return) return leadResearcher(row, i)
   if (rt.how === 'agent') {
     const type = `${i.role}:${rt.target}`
     if (row.return) {

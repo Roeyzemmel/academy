@@ -7,7 +7,8 @@ and outside the cap, a relay's forward leg concluded by the script after it chec
 child (and refused when the child breaks the chain), a fail-fast delivered, a return leg
 made without the relay, a for_main stop, an unfinished ticket skipping only itself (two close the instance), a
 lost agent stopping the run, verify and review-experiment run nested, the developer's
-diff reviewed by test-engineer, the run's budget (a route's declared cost; a ticket that does not fit waits). Skipped
+diff reviewed by test-engineer, the run's budget (a route's declared cost; a ticket that does not fit waits), the
+lead-researcher's proof work handed back to the main session as /researcher:prove (T-1271). Skipped
 where node is not installed.
 """
 
@@ -49,6 +50,9 @@ body(plan.__args, agent, () => {}, () => {}, workflow).then(
 
 OK = {"ok": True, "status": "x", "detail": ""}
 DONE = {"exit": 0, "status": "delivered", "detail": ""}
+LEAD_DONE = {"decision": "delivered", "claim": "", "created": False, "brief": "", "falsifier": "",
+             "pending": [], "report": "worked"}
+FALSIFIED = "T-9 delivered: no counterexample up to 12 squares"
 
 
 def row(tid, how="agent", target="math-writer", kind="write", ret=False, frm="author@t",
@@ -287,7 +291,7 @@ class InboxWorkflowTests(unittest.TestCase):
                 "get T-8": [child("T-8", "T-7", "expert@t", "researcher@u", "research", "researcher")],
                 "T-7 block-on": [OK], "check T-7": [DONE],
                 "list 2": [{"instances": [inst("expert@t", []), inst("researcher@u", [kid, other])]}],
-                "T-8 start": [OK], "lead-researcher T-8": ["worked"], "check T-8": [DONE],
+                "T-8 start": [OK], "lead-researcher T-8": [LEAD_DONE], "check T-8": [DONE],
                 "list 3": [{"instances": [inst("researcher@u", [other])]}]}
         res, labels, _ = self.run_wf(plan, loop=True, cap=3, ids=["T-7"], follow=True)
         self.assertEqual([t["id"] for t in res["taken"]], ["T-7", "T-8"])     # T-9 is outside the scope
@@ -307,7 +311,7 @@ class InboxWorkflowTests(unittest.TestCase):
                 "T-7 block-on": [OK], "check T-7": [{"exit": 3, "status": "blocked", "detail": ""}],
                 "T-5 reject": [OK], "check T-5": [DONE],
                 "list 2": [{"instances": [inst("researcher@u", [kid]), inst("scientist@t", [stray])]}],
-                "T-8 start": [OK], "lead-researcher T-8": ["worked"], "check T-8": [DONE]}
+                "T-8 start": [OK], "lead-researcher T-8": [LEAD_DONE], "check T-8": [DONE]}
         res, labels, _ = self.run_wf(plan, loop=True, cap=3, ids=["T-7", "T-5"], follow=True)
         self.assertEqual([t["id"] for t in res["taken"]], ["T-7", "T-5", "T-8"])
         self.assertEqual(res["taken"][0]["outcome"], "relayed as T-8")
@@ -400,6 +404,156 @@ class InboxWorkflowTests(unittest.TestCase):
         res, labels, _ = self.run_wf(plan)
         self.assertEqual("rejected", res["taken"][0]["outcome"])
         self.assertNotIn("T-1 block-human", labels)
+
+    # ---- T-1271: the lead-researcher cannot launch prover inside the inbox run ----------------
+    # (live 2026-11-14/15: T-1257 blocked on the human, T-1264 left in-progress twice, nothing proved)
+
+    def _lead(self, answer, registry=None, rows=None, **args):
+        rows = rows or [row("T-1", target="lead-researcher", kind="research", frm="expert@t",
+                            to="researcher@u", final_to="researcher", refs=["paper:lem:x"]),
+                        row("T-2", how="reject", target=None, kind="prove", to="researcher@u")]
+        plan = {"list": [{"instances": [inst("researcher@u", rows)]}],
+                "T-1 start": [OK], "lead-researcher T-1": [answer]}
+        if answer.get("decision") == "prove" and answer.get("falsifier"):
+            plan["T-1 falsifier note"] = [OK]
+        if registry is not None:
+            plan["claim " + answer["claim"]] = [registry]
+        plan.update(args.pop("plan", {}))
+        return self.run_wf(plan, **args)
+
+    @staticmethod
+    def _ask(**kw):
+        a = {"decision": "prove", "claim": "flat:FND-2", "created": False, "brief": "b",
+             "falsifier": FALSIFIED, "pending": [], "report": "r"}
+        a.update(kw)
+        return a
+
+    def test_a_lead_that_needs_prover_hands_prove_to_the_main_session(self):
+        ask = self._ask(brief="journal/2026-11-16.md (T-1 brief)", report="needs a proof attempt")
+        res, labels, calls = self._lead(ask, {"exit": 0, "output": "hash: ab\n## Statement\n..."})
+        fm = res["for_main"]
+        self.assertEqual("researcher:prove", fm["skill"])
+        self.assertEqual("lead-researcher", fm["handback"])
+        self.assertEqual(("T-1", "researcher@u", "flat:FND-2"), (fm["ticket"], fm["instance"], fm["claim"]))
+        self.assertEqual({"claim": "flat:FND-2", "ticket": "T-1", "home": "/h/researcher@u",
+                          "instance": "researcher@u", "root": "/academy"}, fm["args"])
+        self.assertIn("/researcher:prove flat:FND-2", fm["why"])
+        self.assertEqual("journal/2026-11-16.md (T-1 brief)", fm["brief"])
+        self.assertEqual(FALSIFIED, fm["falsifier"])
+        # never blocked, never checked as unfinished, and nothing overtakes it
+        self.assertFalse(any(l.startswith(("T-1 block", "T-1 park", "check T-1")) for l in labels))
+        self.assertNotIn("T-2 reject", labels)
+        self.assertEqual(0, res["count"])
+        lead = next(c for c in calls if c["label"] == "lead-researcher T-1")
+        self.assertEqual("researcher:lead-researcher", lead["agentType"])
+        for words in ("cannot launch prover", "claims_new", "decision prove", "never block",
+                      "falsifier on record", "read the ticket's thread", "a second time"):
+            self.assertIn(words, lead["prompt"])
+        reg = next(c for c in calls if c["label"] == "claim flat:FND-2")
+        self.assertIn("registry.py statement flat:FND-2", reg["prompt"])
+        # the falsifier goes on the ticket's thread, where prove.js's state stage reads it
+        note = next(c for c in calls if c["label"] == "T-1 falsifier note")
+        self.assertIn(FALSIFIED, note["prompt"])
+        self.assertIn("flat:FND-2", note["prompt"])
+        self.assertLess(labels.index("T-1 falsifier note"), labels.index("claim flat:FND-2"))
+
+    def test_a_claim_the_lead_registered_is_handed_back_too(self):
+        ask = self._ask(claim="flat:GEO-40", created=True, brief="journal/x.md", report="registered the statement")
+        res, _, _ = self._lead(ask, {"exit": 0, "output": "hash: cd"})
+        self.assertEqual("flat:GEO-40", res["for_main"]["args"]["claim"])
+        self.assertTrue(res["for_main"]["created"])
+        self.assertIn("registered by the lead in this run", res["for_main"]["why"])
+
+    def test_a_prove_handback_without_a_registry_claim_still_does_not_block(self):
+        # no claim named: the session registers it first (claims_new), then proves
+        ask = self._ask(claim="", brief="journal/x.md")
+        res, labels, _ = self._lead(ask)
+        self.assertEqual("researcher:prove", res["for_main"]["skill"])
+        self.assertNotIn("args", res["for_main"])
+        self.assertIn("claims_new", res["for_main"]["why"])
+        self.assertIn("ANOMALY", " ".join(res["notes"]))
+        self.assertFalse(any(l.startswith(("T-1 block", "claim ")) for l in labels))
+        # a claim the registry does not resolve: the same, after the check
+        ask = dict(ask, claim="flat:NOPE-9")
+        res, labels, _ = self._lead(ask, {"exit": 1, "output": "statement: `flat:NOPE-9` does not resolve (missing)"})
+        self.assertNotIn("args", res["for_main"])
+        self.assertIn("does not resolve", res["for_main"]["why"])
+        self.assertIn("claims_new", res["for_main"]["why"])
+        self.assertFalse(any(l.startswith("T-1 block") for l in labels))
+
+    def test_a_registry_check_that_fails_otherwise_is_not_reported_as_missing(self):
+        # a crash of registry.py statement (exit 2, a traceback) says nothing about the claim
+        res, labels, _ = self._lead(self._ask(), {"exit": 2, "output": "Traceback (most recent call last):\n  ImportError: x"})
+        fm = res["for_main"]
+        self.assertNotIn("args", fm)
+        self.assertNotIn("does not resolve", fm["why"])
+        self.assertIn("registry check", fm["why"])
+        self.assertIn("exit 2", fm["why"])
+        self.assertNotIn("claims_new in", fm["why"])          # registering it again could duplicate it
+        self.assertNotIn("does not resolve", " ".join(res["notes"]))
+        self.assertFalse(any(l.startswith("T-1 block") for l in labels))
+
+    def test_a_lost_claim_check_or_note_stops_the_run(self):
+        # budget.md rule 4: a stage that returns nothing (a limit, an API error) is lost, not "missing"
+        for plan in ({"claim flat:FND-2": [None]}, {"T-1 falsifier note": [None]}):
+            res, labels, _ = self._lead(self._ask(), plan=dict(plan, **{"T-1 interrupted": [OK]}))
+            self.assertIsNone(res["for_main"])
+            self.assertEqual("lost", res["taken"][0]["outcome"])
+            self.assertIn("returned nothing", res["stopped"])
+            self.assertIn("T-1 interrupted", labels)
+            self.assertNotIn("T-2 reject", labels)
+            self.assertNotIn("does not resolve", " ".join(res["notes"]))
+
+    def test_no_falsifier_on_record_parks_the_ticket_on_the_pending_falsifier(self):
+        # prove.js would answer needs-explore and deliver nothing: the ticket waits for its falsifier
+        ask = self._ask(claim="flat:GEO-40", created=True, falsifier="", pending=["T-9"])
+        res, labels, calls = self._lead(ask, plan={"T-1 block-on": [OK], "check T-1": [{"exit": 3, "status": "blocked",
+                                                                                       "output": "", "detail": ""}],
+                                                   "T-2 reject": [OK], "check T-2": [DONE]})
+        self.assertIsNone(res["for_main"])
+        block = next(c for c in calls if c["label"] == "T-1 block-on")
+        self.assertIn("waiting_on [T-9]", block["prompt"])
+        self.assertIn("falsifier", block["prompt"])
+        self.assertTrue(res["taken"][0]["outcome"].startswith("waits on T-9"))
+        self.assertNotIn("T-1 park", labels)                   # parked on its child, not on the human
+        self.assertFalse(any(l.startswith(("claim ", "T-1 falsifier note")) for l in labels))
+        self.assertIn("T-2 reject", labels)                    # nothing was handed back: the run goes on
+
+    def test_no_falsifier_and_nothing_pending_hands_back_explore_not_prove(self):
+        ask = self._ask(falsifier="", pending=[])
+        res, labels, _ = self._lead(ask)
+        fm = res["for_main"]
+        self.assertEqual("researcher:explore", fm["skill"])
+        self.assertEqual("lead-researcher", fm["handback"])
+        self.assertEqual("flat:FND-2", fm["claim"])
+        self.assertNotIn("args", fm)
+        self.assertIn("falsifier", fm["why"])
+        self.assertIn("ANOMALY", " ".join(res["notes"]))
+        self.assertFalse(any(l.startswith(("claim ", "T-1 block", "T-1 falsifier note")) for l in labels))
+
+    def test_a_lead_that_delivers_or_blocks_is_checked_as_before(self):
+        res, labels, _ = self._lead(dict(LEAD_DONE, report="delivered: falsifier T-9 filed\nmore"),
+                                    plan={"check T-1": [DONE], "T-2 reject": [OK], "check T-2": [DONE]})
+        self.assertIsNone(res["for_main"])
+        self.assertEqual(("worked", "delivered: falsifier T-9 filed"), (res["taken"][0]["outcome"], res["taken"][0]["detail"]))
+        self.assertIn("T-2 reject", labels)
+
+    def test_in_a_loop_the_prove_handback_is_a_gate_and_the_rest_goes_on(self):
+        ask = self._ask()
+        res, labels, _ = self._lead(ask, {"exit": 0, "output": "hash: ab"}, loop=True,
+                                    plan={"T-2 reject": [OK], "check T-2": [DONE],
+                                          "list 2": [{"instances": [inst("researcher@u", [])]}]})
+        self.assertIn("T-2 reject", labels)
+        gate = res["gates"][0]
+        self.assertEqual(("T-1", "researcher:prove", "flat:FND-2"), (gate["ticket"], gate["skill"], gate["args"]["claim"]))
+
+    def test_another_roles_agent_route_is_unchanged(self):
+        rows = [row("T-1", target="math-writer", kind="write")]
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
+                                          "T-1 start": [OK], "math-writer T-1": ["done"], "check T-1": [DONE],
+                                          "close author@t": [OK]})
+        self.assertNotIn("cannot launch prover", next(c for c in calls if c["label"] == "math-writer T-1")["prompt"])
+        self.assertEqual("worked", res["taken"][0]["outcome"])
 
     def test_root_is_required(self):
         plan = {"__args": {}}

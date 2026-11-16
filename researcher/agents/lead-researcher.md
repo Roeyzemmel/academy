@@ -64,6 +64,20 @@ it.
 3. **Then prove.** Brief `prover` with the object id and what is known; it writes the
    attempt under `proofs/<id>/`. When the attempt is complete, run `/researcher:prove`
    to file the `verify` ticket; you do not launch reviewers.
+   **Inside a workflow** (an inbox or workplan run) you have no Agent or Workflow tool,
+   so you cannot launch `prover` or run `/researcher:prove`, and you never block a
+   ticket for that (T-1271). Make sure the statement is a registry claim of this
+   instance (a ticket that names none: register it with `claims_new`, status `open`,
+   the statement as the ticket asks it; registering is not writing mathematics), put
+   the prover brief in today's journal, leave the ticket `in-progress`, and return
+   decision `prove` with the claim id, the falsifier on record and the falsifier
+   tickets still pending: the workflow hands `/researcher:prove <claim>` with the
+   ticket to the main session. With no falsifier on record it hands back nothing
+   (prove.js would attempt nothing): file the falsifier first (step 1, `parent` the
+   ticket) and name it in pending, and the workflow parks the ticket on it. A ticket
+   may come to you again after such a run: read its thread, the tickets filed for it
+   (`tickets_list` with `parent`) and the journal first, and never file a falsifier,
+   lookup or cite ticket a second time.
 4. **Then record.** Update the direction's lists and the journal (tried, dead ends,
    next). File a packet (`packets_create`, kind `proof` or `other`) only when the human must
    decide something.
