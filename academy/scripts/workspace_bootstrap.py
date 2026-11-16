@@ -390,6 +390,41 @@ def python_target(which=None):
     return which("python3") or which("python")
 
 
+def is_store_stub(path):
+    """The Microsoft Store's ``python``/``python3`` alias (``...\\Microsoft\\WindowsApps\\``),
+    which runs nothing until a Python is installed from the Store
+    (``academy/references/windows.md``)."""
+    return "/microsoft/windowsapps/" in path.replace("\\", "/").lower()
+
+
+def user_settings_path():
+    """The user-level Claude Code settings, ``~/.claude/settings.json``."""
+    return os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
+
+
+def settings_env(path):
+    """The ``env`` block of a settings file, or ``{}`` (missing, unreadable, not JSON)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            env = json.load(fh).get("env")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return env if isinstance(env, dict) else {}
+
+
+def python_set_by_user():
+    """The ``ACADEMY_PYTHON`` values already set, most specific first: this process's
+    environment, the user settings (``~/.claude/settings.json``), the workspace root's
+    ``settings.local.json``. The files are read because the bootstrap overwrites them
+    with what it renders, and a shell running it need not have their values."""
+    places = [os.environ.get("ACADEMY_PYTHON"),
+              settings_env(user_settings_path()).get("ACADEMY_PYTHON")]
+    if ROOT:
+        places.append(settings_env(os.path.join(ROOT, ".claude", "settings.local.json"))
+                      .get("ACADEMY_PYTHON"))
+    return [v for v in places if isinstance(v, str) and v]
+
+
 def python_env(which=None):
     """``{"ACADEMY_PYTHON": <interpreter>}`` when this machine has no ``py`` launcher,
     else ``{}``. The academy MCP server is spawned without a shell as
@@ -397,16 +432,23 @@ def python_env(which=None):
     the variable names the interpreter; the hooks fall back to python3 on their own.
     The ``py`` this bootstrap installs (``py_shim``) does not count as a launcher, so a
     rerun renders the same thing, and a spawn whose PATH lacks ~/.local/bin still works.
-    An ``ACADEMY_PYTHON`` already set that resolves to an executable is kept."""
+    A value already set (``python_set_by_user``) that resolves to an executable is kept;
+    else the ``python3`` (or ``python``) on PATH, with forward slashes like every other
+    rendered path, unless it is the Windows Store alias. With ``py`` present nothing is
+    rendered and nothing removed: a value set earlier is left where it is."""
     which = which or shutil.which
     py = which("py")
     if py and os.path.abspath(py) != os.path.abspath(shim_path()):
         return {}
-    have = os.environ.get("ACADEMY_PYTHON")
-    if have and which(have):
-        return {"ACADEMY_PYTHON": have}
+    for have in python_set_by_user():
+        if which(have):
+            return {"ACADEMY_PYTHON": have}
     target = python_target(which)
-    return {"ACADEMY_PYTHON": target} if target else {}
+    if target and is_store_stub(target):
+        say("WARNING: no py launcher, and %s is the Microsoft Store alias; ACADEMY_PYTHON "
+            "NOT rendered (set it to a real interpreter)" % target)
+        return {}
+    return {"ACADEMY_PYTHON": posix(target)} if target else {}
 
 
 def tag():
@@ -552,7 +594,7 @@ def write_user_env(env):
     directory, but a cloud session may be opened elsewhere (the repos attached beside
     it) and a plugin's MCP server then starts without ACADEMY_WORKSPACE. Nothing else
     in the file is touched."""
-    path = os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
+    path = user_settings_path()
     cur = {}
     if os.path.isfile(path):
         try:
@@ -637,6 +679,10 @@ def strip_block(text, start, end):
     return "".join(out)
 
 
+#: read at login by pam_env, for launchers that read no shell rc file
+ETC_ENVIRONMENT = "/etc/environment"
+
+
 def persist_env(env):
     """Make this workspace's variables visible to every process, not only Claude's tools
     (the academy MCP server reads them), in the tagged form so that several workspaces
@@ -683,11 +729,11 @@ def persist_env(env):
     if root:  # launchers that read no shell rc file (the cloud container runs as root)
         mine = tagged(env)
         lines = []
-        if os.path.exists("/etc/environment"):
-            with open("/etc/environment", encoding="utf-8") as fh:
+        if os.path.exists(ETC_ENVIRONMENT):
+            with open(ETC_ENVIRONMENT, encoding="utf-8") as fh:
                 lines = [l for l in fh.read().splitlines()
                          if l.split("=")[0] not in mine and not is_legacy(l.split("=")[0])]
-        with open("/etc/environment", "w", encoding="utf-8", newline="\n") as fh:
+        with open(ETC_ENVIRONMENT, "w", encoding="utf-8", newline="\n") as fh:
             fh.write("\n".join(lines + ['%s="%s"' % kv for kv in sorted(mine.items())]) + "\n")
     say("persisted the %s variables, tagged (shell rc files%s)"
         % (tag(), ", /etc/environment" if root else ""))

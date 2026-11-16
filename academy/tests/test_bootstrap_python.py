@@ -64,6 +64,67 @@ class PythonEnvTests(unittest.TestCase):
         env = bootstrap.python_env(which_of({"python3": "/usr/bin/python3"}))
         self.assertEqual({"ACADEMY_PYTHON": "/usr/bin/python3"}, env)
 
+    def _settings(self, path, env):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            json.dump({"env": env}, fh)
+
+    def test_a_working_value_in_the_user_settings_wins(self):
+        # finding 1: a value set only in ~/.claude/settings.json (not in this process's
+        # environment) is what write_user_env would otherwise overwrite
+        self._settings(os.path.join(self.home, ".claude", "settings.json"),
+                       {"ACADEMY_PYTHON": "/opt/py311/bin/python"})
+        env = bootstrap.python_env(which_of({"python3": "/usr/bin/python3",
+                                             "/opt/py311/bin/python": "/opt/py311/bin/python"}))
+        self.assertEqual({"ACADEMY_PYTHON": "/opt/py311/bin/python"}, env)
+
+    def test_a_working_value_in_the_workspace_settings_local_wins(self):
+        root = tempfile.mkdtemp(prefix="ws-py-root-")
+        self.addCleanup(shutil.rmtree, root, True)
+        old, bootstrap.ROOT = bootstrap.ROOT, root
+        self.addCleanup(setattr, bootstrap, "ROOT", old)
+        self._settings(os.path.join(root, ".claude", "settings.local.json"),
+                       {"ACADEMY_PYTHON": "python3.12"})
+        env = bootstrap.python_env(which_of({"python3": "/usr/bin/python3",
+                                             "python3.12": "/opt/py/bin/python3.12"}))
+        self.assertEqual({"ACADEMY_PYTHON": "python3.12"}, env)
+
+    def test_the_environment_beats_the_settings_files(self):
+        os.environ["ACADEMY_PYTHON"] = "python3.12"
+        self._settings(os.path.join(self.home, ".claude", "settings.json"),
+                       {"ACADEMY_PYTHON": "/opt/py311/bin/python"})
+        env = bootstrap.python_env(which_of({"python3.12": "/opt/py/bin/python3.12",
+                                             "/opt/py311/bin/python": "/opt/py311/bin/python"}))
+        self.assertEqual({"ACADEMY_PYTHON": "python3.12"}, env)
+
+    def test_a_broken_value_in_the_user_settings_is_replaced(self):
+        self._settings(os.path.join(self.home, ".claude", "settings.json"),
+                       {"ACADEMY_PYTHON": "/gone/python"})
+        env = bootstrap.python_env(which_of({"python3": "/usr/bin/python3"}))
+        self.assertEqual({"ACADEMY_PYTHON": "/usr/bin/python3"}, env)
+
+    def test_an_unreadable_user_settings_is_ignored(self):
+        path = os.path.join(self.home, ".claude", "settings.json")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w") as fh:
+            fh.write("{not json")
+        env = bootstrap.python_env(which_of({"python3": "/usr/bin/python3"}))
+        self.assertEqual({"ACADEMY_PYTHON": "/usr/bin/python3"}, env)
+
+    def test_the_windows_store_stub_is_not_rendered(self):
+        # finding 3: without py, python3 on Windows is usually the Store alias, which
+        # runs nothing (academy/references/windows.md)
+        stub = "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe"
+        with mock.patch.object(bootstrap, "say"):
+            env = bootstrap.python_env(which_of({"python3": stub, "python": stub}))
+        self.assertEqual({}, env)
+
+    def test_the_rendered_path_has_forward_slashes(self):
+        # finding 3: like every other rendered path (posix)
+        with mock.patch.object(bootstrap.os.path, "abspath", lambda p: p):
+            env = bootstrap.python_env(which_of({"python3": "C:\\Python312\\python3.exe"}))
+        self.assertEqual({"ACADEMY_PYTHON": "C:/Python312/python3.exe"}, env)
+
     def test_it_is_machine_wide_not_tagged_and_not_legacy(self):
         old, bootstrap.ROOT = bootstrap.ROOT, "/w/My Work"
         self.addCleanup(setattr, bootstrap, "ROOT", old)
@@ -122,6 +183,84 @@ class RenderedEnvTests(unittest.TestCase):
             self.assertEqual("/usr/bin/python3", json.load(fh)["env"]["ACADEMY_PYTHON"])
         with open(os.path.join(self.root, "workspace.env")) as fh:
             self.assertIn('ACADEMY_PYTHON="/usr/bin/python3"\n', fh.read())
+
+
+class MachineWideTests(unittest.TestCase):
+    """finding 2: the machine-wide writers, unmocked, with HOME, the workspace and
+    /etc/environment in temp directories."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="ws-py-mw-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        old, bootstrap.ROOT = bootstrap.ROOT, os.path.join(self.root, "My Work")
+        os.makedirs(bootstrap.ROOT)
+        self.addCleanup(setattr, bootstrap, "ROOT", old)
+        self.home = os.path.join(self.root, "home")
+        os.makedirs(self.home)
+        patcher = mock.patch.dict(os.environ, {"HOME": self.home, "USERPROFILE": self.home})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.etc = os.path.join(self.root, "environment")
+        for p in (mock.patch.object(bootstrap, "ETC_ENVIRONMENT", self.etc),
+                  mock.patch.object(bootstrap, "say")):
+            p.start()
+            self.addCleanup(p.stop)
+        self.user = os.path.join(self.home, ".claude", "settings.json")
+
+    def user_env(self):
+        with open(self.user) as fh:
+            return json.load(fh)["env"]
+
+    def test_user_settings_get_it_unprefixed(self):
+        bootstrap.write_user_env({"ACADEMY_PYTHON": "/usr/bin/python3", "ACADEMY_ROOT": "/a"})
+        self.assertEqual({"ACADEMY_PYTHON": "/usr/bin/python3",
+                          "ACADEMY_WS__MY_WORK__ROOT": "/a"}, self.user_env())
+
+    def test_a_users_value_survives_the_legacy_purge(self):
+        os.makedirs(os.path.dirname(self.user))
+        with open(self.user, "w") as fh:
+            json.dump({"env": {"ACADEMY_PYTHON": "/opt/py311/bin/python",
+                               "ACADEMY_ROOT": "/old"}, "model": "x"}, fh)
+        bootstrap.write_user_env({"ACADEMY_ROOT": "/a"})      # py present: no ACADEMY_PYTHON
+        with open(self.user) as fh:
+            cur = json.load(fh)
+        self.assertEqual({"ACADEMY_PYTHON": "/opt/py311/bin/python",
+                          "ACADEMY_WS__MY_WORK__ROOT": "/a"}, cur["env"])
+        self.assertEqual("x", cur["model"])
+
+    def test_the_whole_render_keeps_a_users_value_in_the_user_settings(self):
+        # finding 1 end to end: py absent, the value only in ~/.claude/settings.json
+        os.makedirs(os.path.dirname(self.user))
+        with open(self.user, "w") as fh:
+            json.dump({"env": {"ACADEMY_PYTHON": "/opt/py311/bin/python"}}, fh)
+        table = {"python3": "/usr/bin/python3", "/opt/py311/bin/python": "/opt/py311/bin/python"}
+        with mock.patch.object(bootstrap.shutil, "which", which_of(table)):
+            env = bootstrap.python_env()
+        bootstrap.write_user_env(env)
+        self.assertEqual("/opt/py311/bin/python", self.user_env()["ACADEMY_PYTHON"])
+
+    def test_etc_environment_and_global_env_get_it_unprefixed(self):
+        with open(self.etc, "w") as fh:
+            fh.write('PATH="/usr/bin"\nACADEMY_ROOT="/old"\nACADEMY_PYTHON="/old/python"\n')
+        with mock.patch.object(bootstrap.os, "geteuid", lambda: 0, create=True), \
+                mock.patch.object(bootstrap.os, "name", "posix"):
+            bootstrap.persist_env({"ACADEMY_PYTHON": "/usr/bin/python3", "ACADEMY_ROOT": "/a"})
+        with open(self.etc) as fh:
+            lines = fh.read().splitlines()
+        self.assertEqual(['PATH="/usr/bin"', 'ACADEMY_PYTHON="/usr/bin/python3"',
+                          'ACADEMY_WS__MY_WORK__ROOT="/a"'], lines)
+        with open(os.path.join(bootstrap.ROOT, "workspace.global.env")) as fh:
+            self.assertIn('ACADEMY_PYTHON="/usr/bin/python3"\n', fh.read())
+
+    def test_a_users_value_in_etc_environment_survives_when_py_is_there(self):
+        with open(self.etc, "w") as fh:
+            fh.write('ACADEMY_PYTHON="/opt/py311/bin/python"\n')
+        with mock.patch.object(bootstrap.os, "geteuid", lambda: 0, create=True), \
+                mock.patch.object(bootstrap.os, "name", "posix"):
+            bootstrap.persist_env({"ACADEMY_ROOT": "/a"})
+        with open(self.etc) as fh:
+            self.assertEqual(['ACADEMY_PYTHON="/opt/py311/bin/python"',
+                              'ACADEMY_WS__MY_WORK__ROOT="/a"'], fh.read().splitlines())
 
 
 if __name__ == "__main__":
