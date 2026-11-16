@@ -2,7 +2,7 @@
 import unittest
 from pathlib import Path
 
-from _util import Homes, write, LAB_GOOD  # noqa: F401
+from _util import Homes, write, LAB_GOOD, S1_Q  # noqa: F401
 
 from registry.core import fm, projection, workspace, federation, graph, grounds
 from registry.profiles import fsl
@@ -106,6 +106,21 @@ class TestHomes(Homes):
                          [("bears_on", "paper:prop:foo"), ("depends_on", "s1:CEX-1")])
         back = graph.walk("s1:CEX-1", self.s1, reverse=True, transitive=True)
         self.assertEqual([(e["from"], e["class"]) for e in back], [("lab:foo", "unsettled")])
+
+    def test_s1_statement_text_keeps_its_heading(self):
+        # T-0464/T-1179: the s1 rule is the '## Statement' section heading included.
+        # Counted 2026-11-16 over library/reviews/{s1,flat}: 172 run records (93 passes)
+        # carry this hash of their statement as it stands, 57 runs (31 passes) the
+        # body-only hash of a hand-copied extract, 54 runs (34 passes) neither (the
+        # statement changed since). The verify workflow now takes this hash from the
+        # engine (reviews.py hash --claim), so a change here would orphan those passes
+        from registry.core.model import statement_hash_of
+        write(self.s1 / "claims" / "CEX-1.md", S1_Q + "\n## Proof\nBy example.\n")
+        federation.CACHE.clear()
+        st = federation.store("s1", self.s1)
+        self.assertEqual(st.statement_text("CEX-1"), "## Statement\nIt fails.\n")
+        self.assertEqual(st.statement_hash("CEX-1"), statement_hash_of("## Statement\nIt fails."))
+        self.assertNotEqual(st.statement_hash("CEX-1"), statement_hash_of("It fails."))
 
     def test_paper_statement_hash_is_the_tex_environment(self):
         write(self.bi / "claims" / "paper" / "prop__foo.md",

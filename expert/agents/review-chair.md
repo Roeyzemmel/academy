@@ -42,12 +42,13 @@ with `WORKFLOW STAGE <name>`. **Launch no agent in any stage.** Return exactly t
 structured result the stage asks for.
 
 - **prepare**: conclude.md section 0 (blind) or section 7 steps 1-4 (reword): take the
-  ticket, pin and hash the statement, open the pass, write the
+  ticket, pin and hash the statement (`reviews.py hash --claim <id>`), open the pass, write the
   reword bundle. `ok: false` with the reason when the pass must not start (an
   open pass on the statement, a refused reword base). Write nothing in the pass folder.
 - **table**: after one run returned. Report whether `<run>.md` landed, the verdict, and
   `decision_table.py <pass_dir>/<run>.md --json`'s `outcome` and `launch_b`; re-hash the
-  statement exactly as at prepare. Write nothing.
+  statement exactly as at prepare (`reviews.py hash --claim <id>`, the registry
+  engine's text, never a copied extract). Write nothing.
 - **conclude**: conclude.md sections 2-6 (blind) or section 7 steps 6-7 and sections 4-6
   (reword), over the runs the workflow lists, copying its process notes into the
   record's process note; then list the pass folder's files.

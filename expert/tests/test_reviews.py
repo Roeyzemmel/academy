@@ -1,6 +1,8 @@
 """reviews.py new-pass: one open pass per statement (workflow fix 8, 2026-10-09)."""
 
+import json
 import os
+import sys
 import unittest
 
 import fixtures
@@ -198,13 +200,30 @@ class RewordRenamedTests(unittest.TestCase):
         self.assertIn("base_subject: %s" % SUBJ, text)
         self.assertIn("reword_of: %s" % self.base, text)
         self.assertIn("base_hash: %s" % self.old_hash, text)
-        code, out, err = self.run_cli("reword-brief", NEW_SUBJ, name, "--old-text", OLD,
-                                      "--new-text", NEW)
+        # no new text given: the registry's statement of NEW_SUBJ, the one a status
+        # change checks the reword verdict's hash against (T-0464)
+        code, out, err = self.run_cli("reword-brief", NEW_SUBJ, name, "--old-text", OLD)
         self.assertEqual(code, 0, err)
+        import reviews
+        _t, now = reviews.registry_statement(NEW_SUBJ)
+        self.assertIsNotNone(now)
+        self.assertIn("statement_hash: %s" % now, out)
         for want in ("subject: %s" % NEW_SUBJ, "base_subject: %s" % SUBJ,
                      "base_pass: %s" % self.base, "base_hash: %s" % self.old_hash,
                      "lem-strip-bound/%s/A.md" % self.base, "uses compactness in step 2"):
             self.assertIn(want, out)
+
+    def test_a_new_text_the_registry_does_not_hash_alike_is_refused(self):
+        # T-0464: a hand-copied new statement (here not the record's statement text)
+        # would pin the reword verdict on a hash claims_set_status then rejects
+        self.record()
+        code, name, err = self.run_cli("new-pass", NEW_SUBJ, "--reword-of", self.base,
+                                       "--base-subject", SUBJ)
+        self.assertEqual(code, 0, err)
+        code, out, err = self.run_cli("reword-brief", NEW_SUBJ, name, "--old-text", OLD,
+                                      "--new-text", NEW)
+        self.assertEqual(code, 1, out)
+        self.assertIn("hash --claim %s" % NEW_SUBJ, err)
 
     def test_refused_unless_the_record_supersedes_the_base_subject(self):
         # no record at all: supersedes cannot be read
@@ -279,6 +298,129 @@ class CheckBaseSubjectTests(unittest.TestCase):
 
     def test_a_base_subject_equal_to_the_subject_needs_no_supersedes(self):
         self.check([], base="paper:cor:x")
+
+
+S1_GEO = """---
+id: GEO-1
+kind: claim
+form: claim
+title: saturation
+status: open
+lifecycle: active
+summary: the saturation lemma
+evidence: []
+history:
+  - 2026-11-07 | open | created
+---
+## Statement
+
+Let $Q$ be a group and $G \\le Q \\times Q$ a subgroup with both
+projections onto $Q$. Then every element of $Q$ is $g h^{-1}$.
+
+## Proof
+
+See `proofs/GEO-1/attempt-1.md`.
+"""
+
+#: the '## Statement' section's body without its heading: what the verify chair hashed
+#: by hand for s1:GEO-70/71/72 (T-1179), which the registry engine never hashes
+S1_GEO_BODY_ONLY = ("Let $Q$ be a group and $G \\le Q \\times Q$ a subgroup with both\n"
+                    "projections onto $Q$. Then every element of $Q$ is $g h^{-1}$.\n")
+
+
+class HashFromRegistryTests(unittest.TestCase):
+    """T-1179: ``reviews.py hash --claim <ns:id>`` hashes the registry engine's own
+    statement text (``py -m registry statement``), so the verify pass's statement_hash
+    and the hash ``claims_set_status`` checks the grounds against are one computation.
+    The s1 case: the engine's text is the '## Statement' section, heading included."""
+
+    def setUp(self):
+        self.sb = fixtures.Sandbox()
+        self.addCleanup(self.sb.close)
+        ws = json.loads(self.sb.read("workspace.json"))
+        ws["instances"]["researcher@main"] = {
+            "role": "researcher", "home": self.sb.path("nbhome").replace("\\", "/"),
+            "domains": ["translation-surfaces"], "ns": "s1"}
+        self.sb.write("workspace.json", json.dumps(ws))
+        self.sb.write("nbhome/.claude/academy.json",
+                      json.dumps({"ns": "s1", "registry": {"profile": "notebook",
+                                                           "root": "objects"}}))
+        self.sb.write("nbhome/objects/claim/GEO-1.md", S1_GEO)
+        # a second notebook as FlatStructuresResearch is configured (its academy.json:
+        # registry profile "s1", root "objects"; namespace flat, kebab-case ids): the
+        # T-0464 case, flat:cornered-torus-arithmetic. On the real home `reviews.py hash
+        # --claim flat:cornered-torus-arithmetic` gave b64557717a0e40a6 (2026-11-16), the
+        # ticket's heading-included hash
+        ws["instances"]["researcher@flat"] = {
+            "role": "researcher", "home": self.sb.path("flathome").replace("\\", "/"),
+            "domains": ["translation-surfaces"], "ns": "flat"}
+        self.sb.write("workspace.json", json.dumps(ws))
+        self.sb.write("flathome/.claude/academy.json",
+                      json.dumps({"ns": "flat", "registry": {"profile": "s1",
+                                                             "root": "objects"}}))
+        self.sb.write("flathome/objects/claim/cornered-torus-arithmetic.md",
+                      S1_GEO.replace("id: GEO-1", "id: cornered-torus-arithmetic"))
+
+    def run_cli(self, *args):
+        # `hash` reads the registry through the workspace, not the expert home
+        return fixtures.run_script("reviews.py", args=list(args))
+
+    def test_hash_claim_is_the_engine_hash_on_an_s1_record(self):
+        import decision_table as dt
+        code, out, err = self.run_cli("hash", "--claim", "s1:GEO-1")
+        self.assertEqual(code, 0, err)
+        # the engine's own computation, independently: the s1 store's statement_hash
+        engine = os.path.join(os.path.dirname(fixtures.PLUGIN), "academy")
+        if engine not in sys.path:
+            sys.path.insert(0, engine)
+        from registry.core import federation
+        federation.CACHE.clear()
+        st = federation.store("s1", self.sb.path("nbhome"))
+        self.assertEqual(str(out), st.statement_hash("GEO-1"))
+        # the rule: the section with its heading, up to the next section
+        self.assertTrue(st.statement_text("GEO-1").lstrip().startswith("## Statement"))
+        self.assertEqual(str(out), dt.statement_hash(
+            "## Statement\n\n" + S1_GEO_BODY_ONLY))
+        # the hand extraction that broke GEO-70/71/72 is a different hash
+        self.assertNotEqual(str(out), dt.statement_hash(S1_GEO_BODY_ONLY))
+
+    def test_hash_claim_on_a_flat_notebook_object(self):
+        import decision_table as dt
+        code, out, err = self.run_cli("hash", "--claim", "flat:cornered-torus-arithmetic")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(str(out), dt.statement_hash("## Statement\n\n" + S1_GEO_BODY_ONLY))
+        self.assertNotEqual(str(out), dt.statement_hash(S1_GEO_BODY_ONLY))
+        # the engine's own CLI prints the same hash (`py -m registry statement`)
+        import subprocess
+        engine = os.path.join(os.path.dirname(fixtures.PLUGIN), "academy")
+        res = subprocess.run([sys.executable, "-m", "registry", "--repo",
+                              self.sb.path("flathome"), "statement",
+                              "flat:cornered-torus-arithmetic"],
+                             cwd=engine, capture_output=True, text=True, timeout=60,
+                             env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("hash: %s" % out, res.stdout)
+
+    def test_hash_claim_refuses_a_record_the_engine_cannot_read(self):
+        code, out, err = self.run_cli("hash", "--claim", "s1:GEO-99")
+        self.assertEqual(code, 1, out)
+        self.assertIn("s1:GEO-99", err)
+        code, out, err = self.run_cli("hash", "--claim", "GEO-1")
+        self.assertEqual(code, 1, out)
+        self.assertIn("ns:id", err)
+
+    def test_hash_claim_and_file_are_exclusive(self):
+        code, out, err = self.run_cli("hash", "--claim", "s1:GEO-1", "--text", "x")
+        self.assertNotEqual(code, 0, out)
+
+    def test_registry_statement_gives_the_text_and_its_hash(self):
+        import decision_table as dt
+        import reviews
+        text, h = reviews.registry_statement("s1:GEO-1")
+        self.assertTrue(text.lstrip().startswith("## Statement"), text)
+        self.assertNotIn("## Proof", text)
+        self.assertEqual(h, dt.statement_hash(text))
+        self.assertEqual(reviews.registry_statement("s1:GEO-99"), (None, None))
 
 
 class RewordStatusTests(unittest.TestCase):

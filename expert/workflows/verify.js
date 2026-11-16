@@ -119,8 +119,8 @@ const prep = await agent(STAGE('prepare', [
   A.findings ? `findings for the bundle: ${A.findings}` : '',
   '',
   MODE === 'reword'
-    ? 'conclude.md section 7 steps 1-4: take the ticket, recover old.txt / new.txt, check the old hash, `reviews.py new-pass <id> --reword-of <base pass>` (with --base-subject when given), write the bundle with `reviews.py reword-brief`. statement_hash is the NEW statement\'s hash.'
-    : 'conclude.md section 0: take the ticket (its budget field gates nothing: never block it for budget), pin and hash the statement (`reviews.py hash --file`), open the pass (`reviews.py new-pass`, `reviews.py dir`). For a statement that lives in a tex file, location is the output line of `statement.py <label> --where --home <that Author home>` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder.',
+    ? `conclude.md section 7 steps 1-4: take the ticket, recover old.txt, check the old hash, \`reviews.py new-pass <id> --reword-of <base pass>\` (with --base-subject when given), write the bundle with \`reviews.py reword-brief\` (no --new-file: it takes the registry's statement). statement_hash is the NEW statement's hash, the registry engine's: \`reviews.py hash --claim ${A.claim}\` (T-0464).`
+    : `conclude.md section 0: take the ticket (its budget field gates nothing: never block it for budget), pin and hash the statement with \`reviews.py hash --claim ${A.claim}\` (the registry engine's statement text, the hash claims_set_status checks; never a hand-copied extract, T-0464), open the pass (\`reviews.py new-pass\`, \`reviews.py dir\`). For a statement that lives in a tex file, location is the output line of \`statement.py <label> --where --home <that Author home>\` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder.`,
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {
@@ -145,7 +145,7 @@ const table = (run) => agent(STAGE('table', [
   `pass_dir: ${prep.pass_dir}`, `run: ${run}`, `claim: ${A.claim}`,
   `Check that ${run}.md landed in the pass folder; run \`decision_table.py "<pass_dir>/${run}.md" --json\` ` +
   `(no B argument) and report its outcome and launch_b; re-hash the statement as it stands now ` +
-  `exactly as the prepare stage hashed it (\`reviews.py hash --file\`). Write nothing.`,
+  `exactly as the prepare stage hashed it, through the registry engine (\`reviews.py hash --claim ${A.claim}\`; never \`hash\` on a copied extract). Write nothing.`,
 ].join('\n')), { label: `table ${run}`, phase: 'Review', agentType: CHAIR, schema: TABLE, effort: 'low' })
 
 async function review(run) {

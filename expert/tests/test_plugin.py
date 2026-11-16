@@ -135,6 +135,22 @@ class SkillTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "skills", "verify",
                                                     "references", "conclude.md")))
 
+    def test_the_statement_is_pinned_through_the_engine(self):
+        # T-0464: a by-hand chair pins and re-hashes through the registry engine
+        # (`hash --claim`), never on a hand-copied extract (`hash --file <scratch>`)
+        with open(os.path.join(PLUGIN, "skills", "verify", "references", "conclude.md"),
+                  encoding="utf-8") as fh:
+            text = fh.read()
+        sec0 = text.split("## 0.", 1)[1].split("## 1.", 1)[0]
+        sec1 = text.split("## 1.", 1)[1].split("## 2.", 1)[0]
+        self.assertIn("reviews.py hash --claim <id>", sec0)
+        self.assertNotIn("hash --file <scratch>", sec0)
+        self.assertIn("reviews.py hash --claim <id>", sec1)
+        self.assertNotIn("--new-file new.txt", text.split("## 7.", 1)[1])
+        with open(os.path.join(PLUGIN, "agents", "review-chair.md"), encoding="utf-8") as fh:
+            chair = fh.read()
+        self.assertEqual(chair.count("reviews.py hash --claim <id>"), 2)
+
     def test_no_domain_mathematics(self):
         """Role plugins name the pack only through its contract file names."""
         banned = re.compile(r"translation surface|Veech|saddle connection|billiard|"
