@@ -133,6 +133,43 @@ class ConfigTests(unittest.TestCase):
 
 
 
+class LabelPrefixTests(unittest.TestCase):
+    """W4: opt-in prefix rule (author.labels.enforcePrefixes)."""
+    MAIN = "\\documentclass{amsart}\n\\begin{document}\n\\section{A}\\label{sec:a}\n" \
+           "\\input{sections/a}\n\\end{document}\n"
+    A = ("\\begin{thm}\\label{thm:x}\nA.\n\\end{thm}\n\\begin{proof}\nOk.\\end{proof}\n"
+         "\\begin{lem}\\label{foo:y}\nB.\n\\end{lem}\n\\begin{proof}\nOk.\\end{proof}\n"
+         "\\begin{lem}\\label{bare}\nC.\n\\end{lem}\n\\begin{proof}\nOk.\\end{proof}\n")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="cp-prefix-")
+        os.makedirs(os.path.join(self.tmp, "sections"))
+        os.makedirs(os.path.join(self.tmp, ".claude"))
+        for rel, text in (("main.tex", self.MAIN), ("sections/a.tex", self.A)):
+            with open(os.path.join(self.tmp, rel), "w", newline="\n") as fh:
+                fh.write(text)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        cp.configure(None)
+
+    def run_with(self, labels):
+        with open(os.path.join(self.tmp, ".claude", "academy.json"), "w") as fh:
+            json.dump({"role": "author", "author": {"labels": labels}}, fh)
+        return run("--root", self.tmp, "--no-log", "--no-registry")[1]
+
+    def test_off_by_default(self):
+        out = self.run_with({"prefixes": ["thm", "lem", "sec"]})
+        self.assertNotIn("[W4]", out)
+
+    def test_enforced_flags_unlisted_and_bare_labels(self):
+        out = self.run_with({"prefixes": ["thm", "lem", "sec"], "enforcePrefixes": True})
+        self.assertIn("foo:y: [W4]", out)
+        self.assertIn("bare: [W4]", out)
+        self.assertNotIn("thm:x: [W4]", out)
+        self.assertNotIn("sec:a: [W4]", out)
+
+
 class StatusLevelTests(unittest.TestCase):
     """``author.statusLevels`` drives R1, the sketched proof and the registry; without it
     the levels are derived from ``envs`` / ``colourCommands`` / ``colours``."""

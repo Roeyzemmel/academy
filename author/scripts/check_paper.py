@@ -136,6 +136,9 @@ SKETCH_LEVELS: Set[str] = set()
 LEVEL_ORDER: List[str] = []
 ACCEPTED_BIB_WARNINGS: Tuple[str, ...] = ()
 MAIN_RESULTS: Dict[str, object] = dict(DEFAULT_MAIN_RESULTS)
+#: W4 (opt-in, ``author.labels.enforcePrefixes``): the typed prefixes a label may carry
+LABEL_PREFIXES: Tuple[str, ...] = ()
+ENFORCE_LABEL_PREFIXES = False
 NOTE_MAX_LINES = 3
 RE_CLAUDE = re.compile(r"(?!)")
 MAIN_TEX = DEFAULT_MAIN
@@ -167,7 +170,7 @@ def configure(author: Optional[dict] = None) -> None:
     global REGISTRY_DEFAULT, DEFINITION_ENVS, LEVEL_KIND, LEVEL_COLOUR, SKETCH_LEVELS
     global LEVEL_ORDER, ESTABLISHED, ACCEPTED_BIB_WARNINGS, MAIN_RESULTS, RE_REF
     global QUESTION_ENVS
-    global NOTE_MAX_LINES
+    global NOTE_MAX_LINES, LABEL_PREFIXES, ENFORCE_LABEL_PREFIXES
     a = author if isinstance(author, dict) else {}
     th = a.get("theorems") if isinstance(a.get("theorems"), dict) else {}
     THEOREM_ENVS = set(th.get("all") or DEFAULT_THEOREM_ENVS)
@@ -188,6 +191,8 @@ def configure(author: Optional[dict] = None) -> None:
     COLOUR_COMMANDS = {_macro_command(str(lv["command"])): str(lv["name"])
                        for lv in levels if lv.get("command")}
     labels = _ac.author_tex(a, "labels")
+    LABEL_PREFIXES = tuple(str(p) for p in labels.get("prefixes") or ())
+    ENFORCE_LABEL_PREFIXES = labels.get("enforcePrefixes") is True
     ref_cmds = ["cref", "Cref", "ref", "eqref"]
     extra = str(labels.get("refCommand") or "cref").lstrip("\\")
     for cmd in (extra, extra[:1].upper() + extra[1:]):
@@ -471,7 +476,7 @@ class RefUse:
 
 @dataclass
 class Finding:
-    kind: str             # "R1" ... "R6", "W1" ... "W3", "BUILD"
+    kind: str             # "R1" ... "R6", "W1" ... "W4", "BUILD"
     severity: str         # "V" (violation) or "W" (warning)
     file: str
     line: int
@@ -846,6 +851,25 @@ def rule_duplicate_labels(paper: Paper) -> List[Finding]:
     return out
 
 
+def rule_label_prefixes(paper: Paper) -> List[Finding]:
+    """W4 (warning, opt-in): a label whose prefix is not in ``author.labels.prefixes``.
+
+    Off unless ``author.labels.enforcePrefixes`` is true. The prefix is the text before
+    the first colon; a label with no colon has the empty prefix and is flagged.
+    """
+    if not ENFORCE_LABEL_PREFIXES or not LABEL_PREFIXES:
+        return []
+    out: List[Finding] = []
+    for label, places in sorted(paper.all_labels.items()):
+        prefix = label.split(":", 1)[0] if ":" in label else ""
+        if prefix in LABEL_PREFIXES:
+            continue
+        out.append(Finding("W4", "W", places[0][0], places[0][1], label,
+                           "label prefix %r is not in author.labels.prefixes (%s)"
+                           % (prefix, " ".join(LABEL_PREFIXES))))
+    return out
+
+
 def rule_cycles(paper: Paper) -> List[Finding]:
     """R5: a cycle in the dependency graph."""
     graph = {s.label: [d for d in s.uses if d in paper.by_label]
@@ -1118,6 +1142,7 @@ def run_rules(paper: Paper, root: Optional[str] = None) -> List[Finding]:
     findings.extend(rule_no_proof(paper))
     findings.extend(rule_unlabelled(paper))
     findings.extend(rule_duplicate_labels(paper))
+    findings.extend(rule_label_prefixes(paper))
     findings.extend(rule_cycles(paper))
     findings.extend(rule_undefined_refs(paper))
     if root is not None:
