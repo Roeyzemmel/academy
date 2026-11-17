@@ -154,6 +154,7 @@ const followed = new Set(A.ids || [])
 const children = new Set()           // follow: the child ids this run's relays and research asks filed
 
 // ---- List ---------------------------------------------------------------------------
+const knownHome = {}                 // instance -> the last non-empty home a listing gave
 async function listAll(pass) {
   const listed = await clerk('list', [
     `For each instance of workspace.json${A.only ? ' among ' + JSON.stringify(A.only) : ''}, run its role's inbox script:`,
@@ -164,6 +165,9 @@ async function listAll(pass) {
   ], LIST, pass > 1 ? `list ${pass}` : 'list')
   if (!listed) return null
   const xs = listed.instances.filter(i => !A.only || A.only.includes(i.name))
+  // a later listing can come back with home '' (live run 2026-11-17: the second pass lost every home and the
+  // nested prove threw 'args.home must be the Researcher home', ending the run): keep the last home seen
+  for (const i of xs) { if (i.home) knownHome[i.name] = i.home; else if (knownHome[i.name]) i.home = knownHome[i.name] }
   xs.sort((a, b) => ORDER.indexOf(a.role) - ORDER.indexOf(b.role) || (a.name < b.name ? -1 : 1))
   // ids: only these tickets; with follow (a loop), also the children of a ticket this run handled,
   // so a relay's child and its return leg move within the same cap
@@ -414,7 +418,7 @@ async function handle(row, i) {
         { label: `${rt.target} ${row.id} (land)`, phase: 'Tickets', agentType: type })
       return r === null ? { lost: true } : { outcome: 'landed', detail: String(r).split('\n')[0] }
     }
-    const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py`; the statements to leave byte for byte)' : ''))
+    const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py --home ' + i.home + '`; the statements to leave byte for byte)' : ''))
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
     const r = await agent(
       `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
