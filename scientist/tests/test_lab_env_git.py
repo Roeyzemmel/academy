@@ -111,6 +111,39 @@ class GitState(unittest.TestCase):
 
     # -- clean and tracked changes --------------------------------------------------
 
+    # -- diff_sha256: what the uncommitted code is, not only which files (T-0735) --
+
+    def test_diff_sha256_is_none_on_a_clean_tree(self):
+        self.assertIsNone(self.state(self.repo / "experiments/2026-01-01_old.py")
+                          ["diff_sha256"])
+
+    def test_diff_sha256_follows_the_content_of_a_modified_file(self):
+        self.write(PACKAGE + "/__init__.py", "A = 2\n")
+        h2 = self.state()["diff_sha256"]
+        self.write(PACKAGE + "/__init__.py", "A = 3\n")
+        h3 = self.state()["diff_sha256"]
+        self.write(PACKAGE + "/__init__.py", "A = 2\n")
+        self.assertRegex(h2, r"^[0-9a-f]{64}$")
+        self.assertNotEqual(h2, h3)
+        self.assertEqual(self.state()["diff_sha256"], h2)
+
+    def test_diff_sha256_follows_the_content_of_an_untracked_script(self):
+        s = self.write("scratch/probe.py", "print(1)\n")
+        h1 = self.state(s)["diff_sha256"]
+        self.write("scratch/probe.py", "print(2)\n")
+        self.assertNotEqual(self.state(s)["diff_sha256"], h1)
+
+    def test_diff_sha256_leaves_out_results_and_sessions(self):
+        for rel in ("results/a.json", "sessions/s.json"):
+            self.write(rel, "{}\n")
+        _git(self.repo, "add", "-f", "results/a.json", "sessions/s.json")
+        _git(self.repo, "commit", "-q", "-m", "outputs")
+        self.write("results/a.json", '{"x": 1}\n')
+        self.write("sessions/s.json", '{"x": 1}\n')
+        g = self.state()
+        self.assertEqual(g["modified"], ["results/a.json", "sessions/s.json"])
+        self.assertIsNone(g["diff_sha256"])
+
     def test_clean_tree(self):
         g = self.state(self.repo / "experiments/2026-01-01_old.py")
         self.assertRegex(g["commit"], r"^[0-9a-f]{4,}$")
@@ -230,6 +263,16 @@ class GitState(unittest.TestCase):
         self.assertEqual(g["modified"], ["README.md"])
         self.assertEqual(g["untracked"], ["sub/experiments/2026-10-10_new.py",
                                           "sub/tools/run_me.py"])
+
+    def test_diff_sha256_leaves_out_the_outputs_of_a_lab_below_the_top_level(self):
+        for rel in ("sub/results/a.json", "results/b.json"):
+            self.write(rel, "{}\n")
+        _git(self.repo, "add", "-f", "sub/results/a.json", "results/b.json")
+        _git(self.repo, "commit", "-q", "-m", "outputs")
+        self.write("sub/results/a.json", '{"x": 1}\n')
+        self.assertIsNone(self.env.git_state(root=self.repo / "sub")["diff_sha256"])
+        self.write("results/b.json", '{"x": 1}\n')
+        self.assertIsNotNone(self.env.git_state(root=self.repo / "sub")["diff_sha256"])
 
     def test_outside_git_returns_none(self):
         plain = Path(self._tmp.name) / "plain"
@@ -370,9 +413,10 @@ class RunProvenance(unittest.TestCase):
             return self.env.banner(self.script if script is None else script)
 
     def save(self, script=None, name="r"):
+        # script=None: this test's script; script=False: save_result(script=None)
+        script = self.script if script is None else (script or None)
         with contextlib.redirect_stdout(self.out):
-            p = self.env.save_result(name, {"ok": True},
-                                     script=self.script if script is None else script)
+            p = self.env.save_result(name, {"ok": True}, script=script)
         return json.loads(p.read_text(encoding="utf-8"))["provenance"]
 
     def commit_unrelated(self):
@@ -438,12 +482,81 @@ class RunProvenance(unittest.TestCase):
         self.assertNotIn("git_at_save", prov)
         self.assertIn("saved", prov)
 
-    def test_banner_of_another_script_is_not_used(self):
+    def test_banner_of_another_script_is_not_used_and_says_so(self):
         self.banner(self.repo / "experiments/other.py")
         self.commit_unrelated()
         prov = self.save()
         self.assertEqual(prov["script"], self.SCRIPT)
         self.assertEqual(prov["git"]["commit"], self.head())
+        self.assertNotIn("git_at_save", prov)
+        self.assertIn("no banner for this script", self.out.getvalue())
+
+    def test_a_later_banner_of_another_script_does_not_evict_this_one(self):
+        start = self.head()
+        b = self.banner()
+        self.banner(self.repo / PACKAGE / "tool.py")
+        self.commit_unrelated()
+        prov = self.save()
+        self.assertEqual(prov["git"]["commit"], start)
+        self.assertEqual(prov["date"], b["date"])
+        self.assertEqual(prov["git_at_save"]["commit"], self.head())
+
+    def test_save_without_script_after_a_banner_warns(self):
+        self.banner()
+        self.commit_unrelated()
+        prov = self.save(script=False)
+        self.assertIsNone(prov["script"])
+        self.assertEqual(prov["git"]["commit"], self.head())
+        self.assertIn("no banner for this script", self.out.getvalue())
+
+    def test_without_any_banner_there_is_no_warning(self):
+        self.save()
+        self.assertNotIn("WARNING", self.out.getvalue())
+
+    def test_content_change_of_an_already_modified_file_is_a_change(self):
+        self.write(PACKAGE + "/__init__.py", "A = 2\n")
+        b = self.banner()
+        self.assertEqual(b["git"]["modified"], [PACKAGE + "/__init__.py"])
+        self.write(PACKAGE + "/__init__.py", "A = 3\n")
+        prov = self.save()
+        self.assertEqual(prov["git"]["modified"], prov["git_at_save"]["modified"])
+        self.assertNotEqual(prov["git"]["diff_sha256"],
+                            prov["git_at_save"]["diff_sha256"])
+        self.assertIn("changed during the run", self.out.getvalue())
+
+    def test_content_change_of_an_untracked_script_is_a_change(self):
+        s = self.write("experiments/2026-10-10_new.py", "print(1)\n")
+        self.banner(s)
+        self.write("experiments/2026-10-10_new.py", "print(2)\n")
+        prov = self.save(s)
+        self.assertEqual(prov["git"]["untracked"], ["experiments/2026-10-10_new.py"])
+        self.assertIn("git_at_save", prov)
+
+    def test_results_written_during_the_run_are_not_a_change(self):
+        self.write("results/a.json", "{}\n")
+        self.write("results/b.json", "{}\n")
+        _git(self.repo, "add", "-f", "results/a.json", "results/b.json")
+        _git(self.repo, "commit", "-q", "-m", "an earlier run's results")
+        self.banner()
+        self.save(name="a")
+        prov = self.save(name="b")
+        self.assertNotIn("git_at_save", prov)
+        self.assertNotIn("WARNING", self.out.getvalue())
+
+    def test_outside_git_at_start_and_in_git_at_save_is_a_change(self):
+        state = {"commit": "abc1234", "dirty": False, "modified": [],
+                 "untracked": [], "diff_sha256": None}
+        with mock.patch.object(self.env, "git_state", side_effect=[None, state]):
+            self.banner()
+            prov = self.save()
+        self.assertIsNone(prov["git"])
+        self.assertEqual(prov["git_at_save"], state)
+
+    def test_outside_git_throughout_is_no_change(self):
+        with mock.patch.object(self.env, "git_state", return_value=None):
+            self.banner()
+            prov = self.save()
+        self.assertIsNone(prov["git"])
         self.assertNotIn("git_at_save", prov)
 
 

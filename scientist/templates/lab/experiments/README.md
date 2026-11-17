@@ -97,10 +97,13 @@ recommendation for a report, not evidence.
 - `outcome` is built by `env.search_outcome(examples, constraints)`,
   `env.measure_outcome(values, cls)` or `env.verify_outcome(obj, {prop: bool}, routes)`,
   and comes first in the file, so the answer can be read without the raw data.
-- `provenance` is the one `env.banner` took at the start of the run (date, commit,
-  versions, argv), plus `saved` (the save time). If HEAD or the tree changed during
-  the run, the save-time state is added as `git_at_save` and a warning is printed.
-  Without a banner for the same script it is taken at save time.
+- `provenance` is the one `env.banner` took for the same script at the start of the
+  run (date, commit, versions, argv), plus `saved` (the save time). If the commit or
+  the uncommitted code changed during the run (which files, or their content:
+  `git.diff_sha256`; the outputs under `results/` and `sessions/` aside), the
+  save-time state is added as `git_at_save` and a warning is printed. Without a
+  banner for the same script it is taken at save time, with a warning when a banner
+  was taken for another one.
 - The checker requires `outcome=` in every script with a `Kind:` header (E10), a call to
   `env.banner` (E6) and to `env.save_result` (E5).
 - A result JSON is evidence stamped with its commit: never edit one; rerun instead.
