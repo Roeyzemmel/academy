@@ -327,6 +327,126 @@ class GitState(unittest.TestCase):
 
 
 
+@unittest.skipUnless(HAVE_GIT, "git is not on PATH")
+class RunProvenance(unittest.TestCase):
+    """T-0735: save_result records the provenance banner() took at the start of the
+    run, not HEAD at save time (a lab's run started at one commit was stamped with
+    another, an unrelated commit having landed while it ran). When HEAD or the tree
+    changed during the run, the save-time state is kept under "git_at_save" and a
+    warning is printed. Ported with the lab's fix of its own copy."""
+
+    SCRIPT = "experiments/2026-01-01_old.py"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name).resolve() / "lab"
+        self.repo.mkdir()
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "config", "user.name", "test")
+        _git(self.repo, "config", "user.email", "test@example.invalid")
+        _git(self.repo, "config", "commit.gpgsign", "false")
+        self.env = scaffold(self.repo)
+        with open(self.repo / ".gitignore", "a", encoding="utf-8") as fh:
+            fh.write("results/\n")
+        self.write(self.SCRIPT, "print(1)\n")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+        self.script = self.repo / self.SCRIPT
+        self.out = io.StringIO()
+
+    def write(self, rel, text="x = 1\n"):
+        p = self.repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def head(self):
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                       cwd=self.repo, text=True).strip()
+
+    def banner(self, script=None):
+        with contextlib.redirect_stdout(self.out):
+            return self.env.banner(self.script if script is None else script)
+
+    def save(self, script=None, name="r"):
+        with contextlib.redirect_stdout(self.out):
+            p = self.env.save_result(name, {"ok": True},
+                                     script=self.script if script is None else script)
+        return json.loads(p.read_text(encoding="utf-8"))["provenance"]
+
+    def commit_unrelated(self):
+        self.write("claims/new-claim.md", "header\n")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "claims: unrelated")
+
+    def test_head_moved_during_run_records_the_start_commit(self):
+        start = self.head()
+        b = self.banner()
+        self.commit_unrelated()
+        prov = self.save()
+        self.assertNotEqual(start, self.head())
+        self.assertEqual(prov["git"]["commit"], start)
+        self.assertEqual(prov["git"], b["git"])
+        self.assertEqual(prov["git_at_save"]["commit"], self.head())
+        self.assertIn("changed during the run", self.out.getvalue())
+
+    def test_tree_changed_during_run_keeps_start_state_and_save_state(self):
+        self.banner()
+        self.write(PACKAGE + "/__init__.py", "X = 2\n")
+        prov = self.save()
+        self.assertIs(prov["git"]["dirty"], False)
+        self.assertEqual(prov["git_at_save"]["modified"], [PACKAGE + "/__init__.py"])
+
+    def test_untracked_code_added_during_run_is_a_change(self):
+        self.banner()
+        self.write(PACKAGE + "/late_module.py")
+        prov = self.save()
+        self.assertEqual(prov["git"]["untracked"], [])
+        self.assertEqual(prov["git_at_save"]["untracked"], [PACKAGE + "/late_module.py"])
+
+    def test_unchanged_run_records_the_banner_provenance_without_git_at_save(self):
+        b = self.banner()
+        prov = self.save()
+        self.assertNotIn("git_at_save", prov)
+        for k in ("date", "script", "git", "argv", "python"):
+            self.assertEqual(prov[k], b[k], k)
+        self.assertRegex(prov["saved"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$")
+        self.assertNotIn("changed during the run", self.out.getvalue())
+
+    def test_dirty_at_start_and_committed_during_run_stays_dirty(self):
+        s = self.write("experiments/2026-10-10_new.py")
+        start = self.head()
+        self.banner(s)
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "the script")
+        prov = self.save(s)
+        self.assertEqual(prov["git"]["commit"], start)
+        self.assertIs(prov["git"]["dirty"], True)
+        self.assertIs(prov["git_at_save"]["dirty"], False)
+
+    def test_banner_returns_a_copy_the_caller_cannot_spoil(self):
+        b = self.banner()
+        b["git"]["commit"] = "spoiled"
+        prov = self.save()
+        self.assertNotEqual(prov["git"]["commit"], "spoiled")
+
+    def test_without_banner_save_result_stamps_at_save_time(self):
+        self.commit_unrelated()
+        prov = self.save()
+        self.assertEqual(prov["git"]["commit"], self.head())
+        self.assertNotIn("git_at_save", prov)
+        self.assertIn("saved", prov)
+
+    def test_banner_of_another_script_is_not_used(self):
+        self.banner(self.repo / "experiments/other.py")
+        self.commit_unrelated()
+        prov = self.save()
+        self.assertEqual(prov["script"], self.SCRIPT)
+        self.assertEqual(prov["git"]["commit"], self.head())
+        self.assertNotIn("git_at_save", prov)
+
+
 class ScaffoldGitignore(unittest.TestCase):
     """Added by the test-engineer's review of T-0219: the scaffold writes the
     bytecode .gitignore into a fresh lab, and leaves a lab's own .gitignore alone

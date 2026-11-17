@@ -11,6 +11,10 @@ written by `save_result`) carries the date, the git commit, the interpreter and 
 library versions. That is what makes a result citable later. The commit is stamped
 `dirty`, with the files named, when the code that ran is not all in it: a tracked file
 changed, the running script not tracked, or an untracked file under `CODE_DIRS`.
+`save_result` records the provenance the banner took at the start of the run, not the
+state at save time: HEAD may move while a long run computes. If HEAD or the tree
+changed during the run, the save-time state is kept beside it under `git_at_save` and
+a warning is printed.
 
     from <package> import env
     env.banner(__file__)                 # provenance header
@@ -23,6 +27,7 @@ Pure standard library: importable on any interpreter, with or without the lab's
 heavy libraries.
 """
 
+import copy
 import datetime
 import importlib
 import json
@@ -149,6 +154,10 @@ def git_state(script=None, root=None):
         return None
 
 
+def _now():
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
 def provenance(script=None):
     """Date, script, commit, arguments and versions, as one dict."""
     if script:
@@ -158,15 +167,58 @@ def provenance(script=None):
             shown = Path(script).as_posix()
     else:
         shown = None
-    p = {"date": datetime.datetime.now().isoformat(timespec="seconds"),
+    p = {"date": _now(),
          "script": shown, "git": git_state(script), "argv": sys.argv[1:]}
     p.update(versions())
     return p
 
 
+#: (script key, provenance) taken by the last banner(): the start of this run.
+_RUN = None
+
+
+def _script_key(script):
+    return Path(script).resolve().as_posix() if script else None
+
+
+def _git_changed(start, now):
+    """True if the commit or the uncommitted files differ between two git_state()s."""
+    if start is None or now is None:
+        return (start is None) != (now is None)
+    return any(start[k] != now[k] for k in ("commit", "modified", "untracked"))
+
+
+def run_provenance(script=None):
+    """The provenance a result of this run records.
+
+    The banner's, when banner() was called for the same script in this process: the
+    code that ran is the code at the start, whatever HEAD is by the time the result
+    is saved. A fresh provenance() otherwise (interactive snapshots, a script that
+    never called banner). "saved" is the save time; when HEAD or the uncommitted
+    files changed since the banner, the save-time git_state is added as
+    "git_at_save" and a warning is printed.
+    """
+    if _RUN is not None and _RUN[0] == _script_key(script):
+        p = copy.deepcopy(_RUN[1])
+        now = git_state(script)
+        if _git_changed(p["git"], now):
+            p["git_at_save"] = now
+            print("WARNING: the git state changed during the run (start commit "
+                  f"{(p['git'] or {}).get('commit')}, now {(now or {}).get('commit')}); "
+                  "the result records the start state, the save-time state under "
+                  "git_at_save")
+    else:
+        p = provenance(script)
+    p["saved"] = _now()
+    return p
+
+
 def banner(script=None):
-    """Print the provenance header. Returns the dict for reuse."""
+    """Print the provenance header and remember it as this run's provenance
+    (save_result records it). Returns a copy of the dict for reuse."""
+    global _RUN
     p = provenance(script)
+    _RUN = (_script_key(script), copy.deepcopy(p))
     g = p["git"]
     gs = "no git" if g is None else g["commit"] + (" (dirty)" if g["dirty"] else "")
     libs = ", ".join("%s %s" % (k, p[k]) for k in LIBRARIES if p.get(k)) \
@@ -222,7 +274,9 @@ def save_result(name, data, script=None, subdir=None, base=None, claims=None,
     by search_outcome / measure_outcome / verify_outcome, written first so a reader
     gets the answer without the raw `result`. `data` must be JSON-serialisable:
     convert exact numbers (fractions, library integers) explicitly first. `base`
-    overrides the root directory (SESSIONS for interactive snapshots).
+    overrides the root directory (SESSIONS for interactive snapshots). The provenance
+    is run_provenance(script): the banner's, taken at the start of the run, with
+    "git_at_save" added if HEAD or the tree changed since.
     """
     root = Path(base) if base else RESULTS
     d = root / subdir if subdir else root
@@ -236,7 +290,7 @@ def save_result(name, data, script=None, subdir=None, base=None, claims=None,
             raise ValueError("outcome must come from search_outcome / measure_outcome / "
                              "verify_outcome")
         head["outcome"] = outcome
-    payload = {**head, "provenance": provenance(script), "result": data}
+    payload = {**head, "provenance": run_provenance(script), "result": data}
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     try:
         shown = path.relative_to(ROOT)
