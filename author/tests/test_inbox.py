@@ -260,7 +260,7 @@ class RoutesTests(unittest.TestCase):
                 unittest.mock.patch.object(routes, "_own_ns", return_value="paper"):
             self.assertEqual("math-editor", routes.route(dict(meta, kind="copy"))["target"])
         # a negated phrase is not a missing argument (T-0424: "no new argument is asked")
-        self.assertFalse(routes.needs_argument({"ask": "the edit is Roey's; no new argument is asked"}))
+        self.assertFalse(routes.needs_argument({"ask": "the edit is the human's; no new argument is asked"}))
         with unittest.mock.patch.object(routes, "_registry_status", side_effect=OSError("no home")), \
                 unittest.mock.patch.object(routes, "_own_ns", return_value="paper"):
             self.assertEqual("research", routes.route(meta)["how"])
