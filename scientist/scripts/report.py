@@ -709,6 +709,27 @@ def _academy_module(name):
     return mod
 
 
+def _academy_errors(*mods):
+    """The error classes to catch around calls into the academy's own scripts.
+
+    ``board.py`` and ``packets.py`` raise the academy library's ``AcademyError``
+    (``academy_common``), a different class from this script's vendored one
+    (``_academy``); both are caught, and a foreign one is re-raised as ours."""
+    errs = [ac.AcademyError]
+    for mod in mods:
+        cls = getattr(getattr(mod, "ac", None), "AcademyError", None)
+        if isinstance(cls, type) and cls not in errs:
+            errs.append(cls)
+    return tuple(errs)
+
+
+def _as_ours(exc, prefix=""):
+    """``exc`` (any academy error) as this script's ``ac.AcademyError``."""
+    if isinstance(exc, ac.AcademyError) and not prefix:
+        return exc
+    return ac.AcademyError(prefix + str(exc))
+
+
 def _home_config(home):
     try:
         return ac.load_config(home)
@@ -749,9 +770,27 @@ def route_reviewer(ws, instance, claims, to=None):
                    "namespaces, names this lab, or shares its domains; pass --to"])
 
 
+def _ticket_id_of(ref):
+    """The ticket id behind the ref ``board.create_ticket`` returns: a file
+    ``T-NNNN-<slug>.md`` on the file board, ``github#N`` on the GitHub one."""
+    m = re.match(r"^(T-\d+)", os.path.basename(str(ref)))
+    if m:
+        return m.group(1)
+    m = re.match(r"^github#(\d+)$", str(ref))
+    if m:
+        return ac.format_id("T", int(m.group(1)))
+    raise ac.AcademyError("cannot tell the ticket id of %r" % (ref,))
+
+
 def file_report(ctx, meta, body, board=None, workspace=None, ticket=None, to=None,
-                by=None, dry_run=False, ask_prefix=None):
+                by=None, dry_run=False, ask_prefix=None, transport=None):
     """Write the packet and the review ticket. Returns a dict describing both.
+
+    The tickets go to the workspace's board store (``board.backend``: the file board, or
+    the GitHub issues, whose file board is a frozen snapshot); ``board`` (a path) forces
+    the file board there. Packets are files in the board directory on either backend.
+    ``transport`` is handed to the GitHub store (a test double); a dry run never opens
+    the store.
 
     ``ask_prefix`` is put in front of the ticket's one-line ask (``<prefix> -- ...``),
     for a mark every reader must see first, such as ``dry-run: migration test``."""
@@ -762,16 +801,22 @@ def file_report(ctx, meta, body, board=None, workspace=None, ticket=None, to=Non
     reviewer, why = route_reviewer(ws, inst, ctx["claims"], to)
     boardlib = _academy_module("board")
     packets = _academy_module("packets")
+    backend = "files" if board else (ws.get("board_config") or {}).get("backend", "files")
     bdir = boardlib.resolve_board(board, workspace)
     by = by or "%s/experimenter" % inst
     plan = {"packet_title": meta["title"], "instance": inst, "reviewer": reviewer,
-            "reviewer_because": why, "board": bdir.replace("\\", "/"), "by": by,
-            "commissioned_by": ticket}
+            "reviewer_because": why, "board": bdir.replace("\\", "/"), "backend": backend,
+            "by": by, "commissioned_by": ticket}
     if dry_run:
         return dict(plan, dry_run=True)
-    ppath = packets.create_packet(bdir, inst, meta["title"], meta["kind"], by, ticket,
-                                  None, meta["subject"], None, meta["status_proposed"],
-                                  body, workspace=ws)
+    errors = _academy_errors(boardlib, packets)
+    try:
+        store = boardlib.resolve_store(board, workspace, transport)
+        ppath = packets.create_packet(store, inst, meta["title"], meta["kind"], by, ticket,
+                                      None, meta["subject"], None, meta["status_proposed"],
+                                      body, workspace=ws)
+    except errors as exc:
+        raise _as_ours(exc) from exc
     pid = re.match(r"^(P-\d+)", os.path.basename(ppath)).group(1)
     refs = list(ctx["claims"]) + [pid, "file:%s/%s" % (inst, _rel(ctx["home"], ctx["script"]))]
     if ctx["result_path"]:
@@ -785,17 +830,17 @@ def file_report(ctx, meta, body, board=None, workspace=None, ticket=None, to=Non
                  clip(ctx["establishes"], 400)))
     try:
         tpath = boardlib.create_ticket(
-            bdir, reviewer, "Review experiment %s" % ctx["stem"], ask,
+            store, reviewer, "Review experiment %s" % ctx["stem"], ask,
             "An experiment-review packet with two verdicts (SOUND / SOUND MODULO / GAP / "
             "BROKEN); the ticket result names them.",
             kind="review-experiment", priority="normal", refs=refs, parent=ticket,
             budget={"runs": 2, "max_model": "fable"}, detail=detail, as_instance=inst,
             agent=(by.split("/", 1)[1] if "/" in by else ac.MAIN_AGENT),
             workspace=ws)
-    except ac.AcademyError as exc:
-        raise ac.AcademyError("packet %s was written (%s) but the review ticket was not: %s"
-                              % (pid, ppath, exc))
-    tid = re.match(r"^(T-\d+)", os.path.basename(tpath)).group(1)
+    except errors as exc:
+        raise _as_ours(exc, "packet %s was written (%s) but the review ticket was not: "
+                       % (pid, ppath)) from exc
+    tid = _ticket_id_of(tpath)
     return dict(plan, packet=pid, packet_path=ppath.replace("\\", "/"), ticket=tid,
                 ticket_path=tpath.replace("\\", "/"))
 
