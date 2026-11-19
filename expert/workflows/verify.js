@@ -86,8 +86,9 @@ const TABLE = {
     outcome: { type: 'string', description: 'decision_table.py outcome' },
     launch_b: { type: 'boolean', description: 'decision_table.py launch_b (false when absent)' },
     hash_now: { type: 'string', description: 'reviews.py hash of the statement as it stands now' },
+    run_hash: { type: 'string', description: 'the statement_hash in the landed run file\'s own frontmatter (empty when not landed)' },
   },
-  required: ['landed', 'run_file', 'verdict', 'outcome', 'launch_b', 'hash_now'],
+  required: ['landed', 'run_file', 'verdict', 'outcome', 'launch_b', 'hash_now', 'run_hash'],
 }
 const DONE = {
   type: 'object',
@@ -210,10 +211,11 @@ const ticket = prep.ticket || 'none'
 const landed = new Map((prep.landed || []).filter(l => /^[ABR]$/.test(String(l.run || '').replace(/\.md$/, '')))
   .map(l => [String(l.run).replace(/\.md$/, ''), l.statement_hash]))
 const stale = [...landed].filter(([, h]) => h !== prep.statement_hash).map(([r]) => r)
+if (!stale.length && landed.has('B') && !landed.has('A')) stale.push('B (without A)')
 if (stale.length) {
   log(`resumed pass ${prep.pass} holds runs on another statement (${stale.join(', ')})`)
   return { claim: A.claim, outcome: 'not-started', pass: prep.pass,
-    reason: `the open pass ${prep.pass} of this ticket holds run(s) ${stale.join(', ')} on an older statement hash: abandon it (reviews.py abandon ${A.claim} ${prep.pass} --reason "statement changed") and run again` }
+    reason: `the open pass ${prep.pass} of this ticket holds run(s) ${stale.join(', ')} that cannot be resumed (another statement hash, or B without A): abandon it (reviews.py abandon ${A.claim} ${prep.pass} --reason "statement changed") and run again` }
 }
 const ids = `subject: ${A.claim} · pass: ${prep.pass} · run: RUN · statement_hash: ${prep.statement_hash} · ticket: ${ticket}`
 const brief = (run) => MODE === 'reword'
@@ -228,13 +230,17 @@ const notes = []
 const table = (run) => launch(STAGE('table', [
   `pass_dir: ${prep.pass_dir}`, `run: ${run}`, `claim: ${A.claim}`,
   `Check that ${run}.md landed in the pass folder; run \`decision_table.py "<pass_dir>/${run}.md" --json\` ` +
-  `(no B argument) and report its outcome and launch_b; re-hash the statement as it stands now ` +
+  `(no B argument) and report its outcome and launch_b, and the statement_hash of the run file's own frontmatter (run_hash); re-hash the statement as it stands now ` +
   `exactly as the prepare stage hashed it, through the registry engine (\`reviews.py hash --claim ${A.claim}\`; never \`hash\` on a copied extract). Write nothing.`,
 ].join('\n')), { label: `table ${run}`, phase: 'Review', agentType: CHAIR, schema: TABLE, effort: 'low' })
 
 async function review(run) {
   if (landed.has(run)) {          // a resumed pass (#89): conclude what landed, never relaunch it
     const t = await table(run)
+    if (t && t.landed && t.run_hash && t.run_hash !== prep.statement_hash) {
+      notes.push(`run ${run}: the landed ${t.run_file} is on statement ${t.run_hash}, not ${prep.statement_hash}: not used`)
+      return { lost: true, stale: true }
+    }
     if (t && t.landed) { notes.push(`run ${run} had landed in the resumed pass ${prep.pass}: kept, not relaunched`); return t }
   }
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -245,6 +251,12 @@ async function review(run) {
       return { lost: true }
     }
     const t = await table(run)
+    if (t && t.landed && t.run_hash && t.run_hash !== prep.statement_hash) {
+      // the file the table read is not this run's (an older run of a resumed pass the
+      // prepare stage did not list): never concluded on (#89 review)
+      notes.push(`run ${run}: the landed ${t.run_file} is on statement ${t.run_hash}, not ${prep.statement_hash}: not used`)
+      return { lost: true, stale: true }
+    }
     if (t && t.landed) {
       if (attempt > 1) notes.push(`run ${run}: the kept run is the relaunch`)
       return t
@@ -275,6 +287,11 @@ if (MODE === 'reword') {
   }
 }
 log(runs.map(r => `${r.run}: ${r.lost ? 'lost' : r.verdict + ' -> ' + r.outcome}`).join('; '))
+if (runs.some(r => r.stale)) {     // #89 review: a run file on another statement is never concluded on
+  return { claim: A.claim, outcome: 'stale-pass', pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
+    reason: `the pass ${prep.pass} holds a run on another statement: abandon it (reviews.py abandon ${A.claim} ${prep.pass} --reason "statement changed") and run again`,
+    launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
+}
 
 // ---- 3. Conclude --------------------------------------------------------------
 phase('Conclude')
@@ -296,8 +313,10 @@ if (!done) {
 }
 // the concluder launches nothing: only the runs this workflow made may be in the folder
 const allowed = new Set(runs.filter(r => !r.lost).map(r => r.run + '.md'))
+// a resumed pass (#89) also holds what the earlier launch left: its relaunches and no-verdict files
+const earlier = f => landed.size > 0 && /^[AB](-\d+|-noverdict)\.md$/.test(f)
 const extra = (done.run_files || []).map(f => f.split(/[\\/]/).pop())
-  .filter(f => /^[ABR](-\d+)?(-noverdict)?\.md$/.test(f) && !allowed.has(f))
+  .filter(f => /^[ABR](-\d+)?(-noverdict)?\.md$/.test(f) && !allowed.has(f) && !earlier(f))
 if (extra.length) notes.push('ANOMALY: run files the workflow did not launch: ' + extra.join(', '))
 const res = { claim: A.claim, pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
          outcome: done.outcome, proposed_status: done.proposed_status, record: done.record,

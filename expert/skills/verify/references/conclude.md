@@ -47,7 +47,10 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
 - **Open the pass.** `py $E/reviews.py new-pass <id> --ticket T-NNNN` gives the pass
   name; `py $E/reviews.py dir <id> <pass>` the folder the hook will land into. Never
   two concurrent passes on one statement: `new-pass` refuses while another pass on
-  `<id>` is open (no `decision.md`). Conclude that one first, or, if it is dead (a
+  `<id>` is open (no `decision.md`), except the one open pass of this same ticket, which
+  it returns (a rerun on another day resumes it, #89: list the runs already landed there
+  with their statement_hash, so the workflow tables them instead of relaunching). Conclude
+  another ticket's pass first, or, if it is dead (a
   stalled run, a changed statement), close it with
   `py $E/reviews.py abandon <id> <pass> --reason "..."` and say so in the thread.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
