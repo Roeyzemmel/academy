@@ -22,13 +22,17 @@ academy checkout when it has a ``workspace.template.json``.
    ``--strict`` then exits 1);
 3. exports where everything is, from workspace.json: ACADEMY_ROOT, ACADEMY_WORKSPACE,
    ACADEMY_BOARD, ACADEMY_LIBRARY and ACADEMY_HOME_<INSTANCE> (e.g. ACADEMY_HOME_AUTHOR_P),
-   plus PYTHONUTF8, into ``.claude/settings.local.json`` (git-ignored) here and in every
+   plus PYTHONUTF8, and on a machine without the ``py`` launcher ACADEMY_PYTHON (the
+   ``python3`` on PATH, which the academy's MCP server, started as
+   ``${ACADEMY_PYTHON:-py}`` without a shell, then runs with), into
+   ``.claude/settings.local.json`` (git-ignored) here and in every
    home, and into ``workspace.env`` for plain shells. The machine-wide places (user
    settings, /etc/environment, shell rc files, the Windows registry) get them tagged
    ``ACADEMY_WS__<TAG>__<NAME>``, TAG being this directory's name, so that several
-   workspaces coexist; the academy picks one from the session's directory;
+   workspaces coexist; the academy picks one from the session's directory
+   (ACADEMY_PYTHON, a property of the machine, stays unprefixed there);
 4. on a machine without the Windows ``py`` launcher, installs a ``py`` shim on
-   PATH, because the academy's MCP server is started as ``py server.py``;
+   PATH as well, for the hooks and the commands that call ``py`` by name;
 5. with the ``claude`` CLI, installs the plugins that are not already available
    (registering the local ``academy`` marketplace) and reports each one as available
    or MISSING (skipped with --no-plugins), and updates the ones already installed
@@ -367,7 +371,98 @@ def home_env(ws_path):
         env[env_name(name)] = inst["home"]
         if inst["role"] == "expert":
             env.setdefault("ACADEMY_LIBRARY", inst["home"])
+    env.update(python_env())
     return env, ws
+
+
+#: variables that describe the machine, not a workspace: never tagged, never legacy
+MACHINE_VARS = ("ACADEMY_PYTHON",)
+
+
+def shim_path():
+    """Where ``py_shim`` puts its ``py``."""
+    return os.path.join(os.path.expanduser("~"), ".local", "bin", "py")
+
+
+def python_target(which=None):
+    """The interpreter to stand in for ``py``: ``python3``, else ``python``, else None;
+    a Windows Store alias (``is_store_stub``) is skipped, so a real ``python`` behind a
+    Store ``python3`` is found."""
+    which = which or shutil.which
+    for name in ("python3", "python"):
+        path = which(name)
+        if path and not is_store_stub(path):
+            return path
+    return None
+
+
+def python_stubs(which=None):
+    """The ``python3``/``python`` on PATH that are Windows Store aliases."""
+    which = which or shutil.which
+    return [p for p in (which("python3"), which("python")) if p and is_store_stub(p)]
+
+
+def is_store_stub(path):
+    """The Microsoft Store's ``python``/``python3`` alias (``...\\Microsoft\\WindowsApps\\``),
+    which runs nothing until a Python is installed from the Store
+    (``academy/references/windows.md``)."""
+    return "/microsoft/windowsapps/" in path.replace("\\", "/").lower()
+
+
+def user_settings_path():
+    """The user-level Claude Code settings, ``~/.claude/settings.json``."""
+    return os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
+
+
+def settings_env(path):
+    """The ``env`` block of a settings file, or ``{}`` (missing, unreadable, not JSON)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            env = json.load(fh).get("env")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return env if isinstance(env, dict) else {}
+
+
+def python_set_by_user():
+    """The ``ACADEMY_PYTHON`` values already set, most specific first: this process's
+    environment, the user settings (``~/.claude/settings.json``), the workspace root's
+    ``settings.local.json``. The files are read because the bootstrap overwrites them
+    with what it renders, and a shell running it need not have their values."""
+    places = [os.environ.get("ACADEMY_PYTHON"),
+              settings_env(user_settings_path()).get("ACADEMY_PYTHON")]
+    if ROOT:
+        places.append(settings_env(os.path.join(ROOT, ".claude", "settings.local.json"))
+                      .get("ACADEMY_PYTHON"))
+    return [v for v in places if isinstance(v, str) and v]
+
+
+def python_env(which=None):
+    """``{"ACADEMY_PYTHON": <interpreter>}`` when this machine has no ``py`` launcher,
+    else ``{}``. The academy MCP server is spawned without a shell as
+    ``${ACADEMY_PYTHON:-py}`` (``.mcp.json``), so without ``py`` it cannot start unless
+    the variable names the interpreter; the hooks fall back to python3 on their own.
+    The ``py`` this bootstrap installs (``py_shim``) does not count as a launcher, so a
+    rerun renders the same thing, and a spawn whose PATH lacks ~/.local/bin still works.
+    A value already set (``python_set_by_user``) that resolves to an executable is kept;
+    else the ``python3`` (or ``python``) on PATH, with forward slashes like every other
+    rendered path; a Windows Store alias is skipped (``python_target``). With ``py``
+    present nothing is rendered and nothing removed: a value set earlier is left."""
+    which = which or shutil.which
+    py = which("py")
+    if py and os.path.abspath(py) != os.path.abspath(shim_path()):
+        return {}
+    for have in python_set_by_user():
+        if which(have):
+            return {"ACADEMY_PYTHON": have}
+    target = python_target(which)
+    if target:
+        return {"ACADEMY_PYTHON": posix(target)}
+    stubs = python_stubs(which)
+    if stubs:
+        say("WARNING: no py launcher, and %s is the Microsoft Store alias; ACADEMY_PYTHON "
+            "NOT rendered (set it to a real interpreter)" % stubs[0])
+    return {}
 
 
 def tag():
@@ -380,16 +475,19 @@ def tag():
 def tagged(env):
     """The machine-wide form of ``env``: ``ACADEMY_<NAME>`` becomes
     ``ACADEMY_WS__<TAG>__<NAME>``; the academy picks one workspace's set from these
-    (``resolve_workspace_env``). ``PYTHONUTF8`` is workspace-independent and stays."""
+    (``resolve_workspace_env``). ``PYTHONUTF8`` and the ``MACHINE_VARS`` are
+    workspace-independent and stay."""
     t = tag()
-    return {("ACADEMY_WS__%s__%s" % (t, k[len("ACADEMY_"):]) if k.startswith("ACADEMY_") else k): v
+    return {("ACADEMY_WS__%s__%s" % (t, k[len("ACADEMY_"):])
+             if k.startswith("ACADEMY_") and k not in MACHINE_VARS else k): v
             for k, v in env.items()}
 
 
 def is_legacy(key):
     """An unprefixed ``ACADEMY_*`` variable in a machine-wide place: what an earlier
     bootstrap wrote there, and what would make two workspaces overwrite each other."""
-    return key.startswith("ACADEMY_") and not key.startswith("ACADEMY_WS__")
+    return (key.startswith("ACADEMY_") and not key.startswith("ACADEMY_WS__")
+            and key not in MACHINE_VARS)
 
 
 def slash2(path):
@@ -510,7 +608,7 @@ def write_user_env(env):
     directory, but a cloud session may be opened elsewhere (the repos attached beside
     it) and a plugin's MCP server then starts without ACADEMY_WORKSPACE. Nothing else
     in the file is touched."""
-    path = os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
+    path = user_settings_path()
     cur = {}
     if os.path.isfile(path):
         try:
@@ -595,6 +693,10 @@ def strip_block(text, start, end):
     return "".join(out)
 
 
+#: read at login by pam_env, for launchers that read no shell rc file
+ETC_ENVIRONMENT = "/etc/environment"
+
+
 def persist_env(env):
     """Make this workspace's variables visible to every process, not only Claude's tools
     (the academy MCP server reads them), in the tagged form so that several workspaces
@@ -641,11 +743,11 @@ def persist_env(env):
     if root:  # launchers that read no shell rc file (the cloud container runs as root)
         mine = tagged(env)
         lines = []
-        if os.path.exists("/etc/environment"):
-            with open("/etc/environment", encoding="utf-8") as fh:
+        if os.path.exists(ETC_ENVIRONMENT):
+            with open(ETC_ENVIRONMENT, encoding="utf-8") as fh:
                 lines = [l for l in fh.read().splitlines()
                          if l.split("=")[0] not in mine and not is_legacy(l.split("=")[0])]
-        with open("/etc/environment", "w", encoding="utf-8", newline="\n") as fh:
+        with open(ETC_ENVIRONMENT, "w", encoding="utf-8", newline="\n") as fh:
             fh.write("\n".join(lines + ['%s="%s"' % kv for kv in sorted(mine.items())]) + "\n")
     say("persisted the %s variables, tagged (shell rc files%s)"
         % (tag(), ", /etc/environment" if root else ""))
@@ -675,9 +777,11 @@ def settings_local(ws_path):
 def py_shim():
     if shutil.which("py"):
         return
-    target = shutil.which("python3") or shutil.which("python")
+    target = python_target()
     if not target:
-        say("WARNING: no python found; the academy MCP server cannot start")
+        stubs = python_stubs()
+        say("WARNING: no python found%s; the academy MCP server cannot start"
+            % (" (only the Microsoft Store alias %s)" % stubs[0] if stubs else ""))
         return
     bindir = os.path.join(os.path.expanduser("~"), ".local", "bin")
     os.makedirs(bindir, exist_ok=True)
