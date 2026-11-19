@@ -385,9 +385,21 @@ def shim_path():
 
 
 def python_target(which=None):
-    """The interpreter to stand in for ``py``: ``python3``, else ``python``, else None."""
+    """The interpreter to stand in for ``py``: ``python3``, else ``python``, else None;
+    a Windows Store alias (``is_store_stub``) is skipped, so a real ``python`` behind a
+    Store ``python3`` is found."""
     which = which or shutil.which
-    return which("python3") or which("python")
+    for name in ("python3", "python"):
+        path = which(name)
+        if path and not is_store_stub(path):
+            return path
+    return None
+
+
+def python_stubs(which=None):
+    """The ``python3``/``python`` on PATH that are Windows Store aliases."""
+    which = which or shutil.which
+    return [p for p in (which("python3"), which("python")) if p and is_store_stub(p)]
 
 
 def is_store_stub(path):
@@ -434,8 +446,8 @@ def python_env(which=None):
     rerun renders the same thing, and a spawn whose PATH lacks ~/.local/bin still works.
     A value already set (``python_set_by_user``) that resolves to an executable is kept;
     else the ``python3`` (or ``python``) on PATH, with forward slashes like every other
-    rendered path, unless it is the Windows Store alias. With ``py`` present nothing is
-    rendered and nothing removed: a value set earlier is left where it is."""
+    rendered path; a Windows Store alias is skipped (``python_target``). With ``py``
+    present nothing is rendered and nothing removed: a value set earlier is left."""
     which = which or shutil.which
     py = which("py")
     if py and os.path.abspath(py) != os.path.abspath(shim_path()):
@@ -444,11 +456,13 @@ def python_env(which=None):
         if which(have):
             return {"ACADEMY_PYTHON": have}
     target = python_target(which)
-    if target and is_store_stub(target):
+    if target:
+        return {"ACADEMY_PYTHON": posix(target)}
+    stubs = python_stubs(which)
+    if stubs:
         say("WARNING: no py launcher, and %s is the Microsoft Store alias; ACADEMY_PYTHON "
-            "NOT rendered (set it to a real interpreter)" % target)
-        return {}
-    return {"ACADEMY_PYTHON": posix(target)} if target else {}
+            "NOT rendered (set it to a real interpreter)" % stubs[0])
+    return {}
 
 
 def tag():
@@ -765,7 +779,9 @@ def py_shim():
         return
     target = python_target()
     if not target:
-        say("WARNING: no python found; the academy MCP server cannot start")
+        stubs = python_stubs()
+        say("WARNING: no python found%s; the academy MCP server cannot start"
+            % (" (only the Microsoft Store alias %s)" % stubs[0] if stubs else ""))
         return
     bindir = os.path.join(os.path.expanduser("~"), ".local", "bin")
     os.makedirs(bindir, exist_ok=True)

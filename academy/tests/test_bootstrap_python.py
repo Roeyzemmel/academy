@@ -119,6 +119,37 @@ class PythonEnvTests(unittest.TestCase):
             env = bootstrap.python_env(which_of({"python3": stub, "python": stub}))
         self.assertEqual({}, env)
 
+    def test_a_real_python_behind_a_store_python3_is_rendered(self):
+        # review 2, finding 1: python3 is the Store alias but python is a real install
+        stub = "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe"
+        with mock.patch.object(bootstrap.os.path, "abspath", lambda p: p), \
+                mock.patch.object(bootstrap, "say"):
+            env = bootstrap.python_env(which_of({"python3": stub,
+                                                 "python": "C:\\Python312\\python.exe"}))
+        self.assertEqual({"ACADEMY_PYTHON": "C:/Python312/python.exe"}, env)
+
+    def test_python_target_skips_the_store_alias(self):
+        stub = "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe"
+        self.assertEqual("C:\\Python312\\python.exe",
+                         bootstrap.python_target(which_of({"python3": stub,
+                                                           "python": "C:\\Python312\\python.exe"})))
+        self.assertIsNone(bootstrap.python_target(which_of({"python3": stub, "python": stub})))
+
+    def test_only_store_aliases_warn(self):
+        stub = "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe"
+        with mock.patch.object(bootstrap, "say") as say:
+            bootstrap.python_env(which_of({"python3": stub, "python": stub}))
+        self.assertTrue(any("Store alias" in c.args[0] for c in say.call_args_list))
+
+    def test_the_py_shim_never_links_the_store_alias(self):
+        stub = "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe"
+        with mock.patch.object(bootstrap.shutil, "which",
+                               which_of({"python3": stub, "python": stub})), \
+                mock.patch.object(bootstrap, "say") as say:
+            bootstrap.py_shim()
+        self.assertFalse(os.path.lexists(self.shim))
+        self.assertIn("Store alias", say.call_args_list[0].args[0])
+
     def test_the_rendered_path_has_forward_slashes(self):
         # finding 3: like every other rendered path (posix)
         with mock.patch.object(bootstrap.os.path, "abspath", lambda p: p):
@@ -239,11 +270,11 @@ class MachineWideTests(unittest.TestCase):
         bootstrap.write_user_env(env)
         self.assertEqual("/opt/py311/bin/python", self.user_env()["ACADEMY_PYTHON"])
 
+    @unittest.skipIf(os.name == "nt", "persist_env writes the registry on Windows")
     def test_etc_environment_and_global_env_get_it_unprefixed(self):
         with open(self.etc, "w") as fh:
             fh.write('PATH="/usr/bin"\nACADEMY_ROOT="/old"\nACADEMY_PYTHON="/old/python"\n')
-        with mock.patch.object(bootstrap.os, "geteuid", lambda: 0, create=True), \
-                mock.patch.object(bootstrap.os, "name", "posix"):
+        with mock.patch.object(bootstrap.os, "geteuid", lambda: 0):
             bootstrap.persist_env({"ACADEMY_PYTHON": "/usr/bin/python3", "ACADEMY_ROOT": "/a"})
         with open(self.etc) as fh:
             lines = fh.read().splitlines()
@@ -252,11 +283,11 @@ class MachineWideTests(unittest.TestCase):
         with open(os.path.join(bootstrap.ROOT, "workspace.global.env")) as fh:
             self.assertIn('ACADEMY_PYTHON="/usr/bin/python3"\n', fh.read())
 
+    @unittest.skipIf(os.name == "nt", "persist_env writes the registry on Windows")
     def test_a_users_value_in_etc_environment_survives_when_py_is_there(self):
         with open(self.etc, "w") as fh:
             fh.write('ACADEMY_PYTHON="/opt/py311/bin/python"\n')
-        with mock.patch.object(bootstrap.os, "geteuid", lambda: 0, create=True), \
-                mock.patch.object(bootstrap.os, "name", "posix"):
+        with mock.patch.object(bootstrap.os, "geteuid", lambda: 0):
             bootstrap.persist_env({"ACADEMY_ROOT": "/a"})
         with open(self.etc) as fh:
             self.assertEqual(['ACADEMY_PYTHON="/opt/py311/bin/python"',
