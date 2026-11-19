@@ -90,6 +90,58 @@ def needs_argument(meta):
     return bool(RE_NEEDS_ARGUMENT.search(text))
 
 
+#: registry statuses that say the argument exists (a write ticket then only lands it)
+LANDABLE_STATUSES = ("proved", "proved-modulo")
+
+
+def proved_source(meta, status_of=None):
+    """The first ref naming a claim of another namespace (a notebook, the lab) whose
+    registry status is proved or proved-modulo: the argument exists, so a write ticket
+    lands it, whatever its wording (#92, T-0426 sent to research three times for
+    flat:FND-14). ``status_of`` (qid -> status or None) replaces the registry lookup;
+    '' when no ref qualifies or the registry cannot be read."""
+    own = ""
+    if status_of is None:
+        status_of, own = _registry_status, _own_ns(meta.get("to"))
+    for ref in meta.get("refs") or ():
+        ns, _, name = str(ref).partition(":")
+        if not name or not re.match(r"^[a-z][a-z0-9]*$", ns) or ns in ("file", "bib", own):
+            continue
+        try:
+            st = status_of(str(ref))
+        except Exception:    # a routing table answers even when the registry cannot
+            st = None
+        if str(st or "").strip().lower() in LANDABLE_STATUSES:
+            return str(ref)
+    return ""
+
+
+def _own_ns(instance):
+    try:
+        import _academy as ac
+        return str(((ac.load_workspace() or {}).get("instances") or {})
+                   .get(str(instance or ""), {}).get("ns") or "")
+    except Exception:
+        return ""
+
+
+def _registry_status(qid):
+    import os
+    import sys
+    import _academy as ac
+    plugin = os.path.join(ac.repo_root(), "academy")
+    if plugin not in sys.path:
+        sys.path.insert(0, plugin)
+    from registry.core import federation, workspace as rws
+    ns, _, name = qid.partition(":")
+    info = rws.namespaces().get(ns)
+    home = info and info.get("home")
+    if not home or not os.path.isdir(str(home)):
+        return None
+    rec = federation.store(ns, home).get(name)
+    return rec.status if rec is not None else None
+
+
 def research_route(why):
     return {"how": "research", "target": "expert",
             "why": "%s: the Researcher proves, the Author only lands. File a `research` "
@@ -143,6 +195,11 @@ def route(meta):
                        "reject it, and ask through a `research` ticket to the Expert with "
                        "final_to %s" % (kind, role, role)}
     if kind in WRITER_KINDS and needs_argument(meta):
+        src = proved_source(meta)
+        if src:
+            return {"how": "agent", "target": "math-writer",
+                    "why": "land %s: it is proved in the registry, so the argument exists "
+                           "(the ask's wording is not a missing argument)" % src}
         return research_route("the ask needs an argument nobody has delivered")
     if kind in KIND_ROUTES:
         how, target, why = KIND_ROUTES[kind]

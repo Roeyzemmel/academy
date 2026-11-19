@@ -25,7 +25,10 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
   `take` with exactly the fields asked, plus `waiting`. Nothing is moved.
 - **move**: one of
   - `start`: to `in-progress`, one step at a time (`open -> accepted -> in-progress`);
-    an `in-progress` ticket is left as it is;
+    an `in-progress` ticket is left as it is. Read the ticket first (`tickets_get`): if
+    its status is now anything else (`blocked`, `delivered`, `closed`, `cancelled`,
+    `rejected`: it moved since the listing), make no move and return `ok: false` with
+    `detail` "status <s>: not started" (#92);
   - `deliver`: `deliver: true` with the `result` (one line) and `result_detail` given;
   - `block-human` / `block-on`: `blocked` with the `waiting_on` and reason given;
   - `reject`: `rejected` with the reason given;
