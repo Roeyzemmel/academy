@@ -19,7 +19,8 @@ The inbox runs the same script for a `prove` ticket. The script:
    answer a negative review) rather than a first proof (`mode: "repair"` forces it). A
    `proved` claim with no repair asked is handed back (`already_proved`; the inbox returns
    it to the main session with `mode: "repair"` to rerun), never delivered with nothing
-   done (#85). A repair of a `proved` or `proved-modulo` claim needs no new falsifier: it
+   done (#85); called directly with a ticket, read it and rerun with `mode: "repair"`, or
+   deliver or cancel the ticket (it is left `in-progress`). A repair of a `proved` or `proved-modulo` claim needs no new falsifier: it
    survived a review once. A claim resting on an unsettled input can be proved at
    most `proved-modulo` it; the brief says so.
 2. **Falsified first.** A claim nobody tried to break returns `needs_explore`: run
