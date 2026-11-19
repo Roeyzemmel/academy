@@ -72,8 +72,10 @@ const PREP = {
     location: { type: 'string', description: 'where the statement and proof live: for a statement of a tex file, the line of `statement.py <label> --where` (file, the statement\'s lines, the proof\'s lines); else the object and its proofs/ attempt' },
     bundle: { type: 'string', description: 'reword mode: absolute path of the bundle file; else empty' },
     ticket: { type: 'string', description: 'the ticket id, or none' },
+    landed: { type: 'array', description: 'a resumed pass (#89): the run files already in the pass folder, each with the statement_hash of its frontmatter; else empty',
+      items: { type: 'object', properties: { run: { type: 'string', description: 'A, B or R' }, statement_hash: { type: 'string' } }, required: ['run', 'statement_hash'] } },
   },
-  required: ['ok', 'stop_reason', 'pass', 'pass_dir', 'statement_hash', 'location', 'bundle', 'ticket'],
+  required: ['ok', 'stop_reason', 'pass', 'pass_dir', 'statement_hash', 'location', 'bundle', 'ticket', 'landed'],
 }
 const TABLE = {
   type: 'object',
@@ -191,7 +193,8 @@ const prep = await launch(STAGE('prepare', [
   '',
   MODE === 'reword'
     ? `conclude.md section 7 steps 1-4: take the ticket, recover old.txt, check the old hash, \`reviews.py new-pass <id> --reword-of <base pass>\` (with --base-subject when given), write the bundle with \`reviews.py reword-brief\` (no --new-file: it takes the registry's statement). statement_hash is the NEW statement's hash, the registry engine's: \`reviews.py hash --claim ${A.claim}\` (T-0464).`
-    : `conclude.md section 0: take the ticket (its budget field gates nothing: never block it for budget), pin and hash the statement with \`reviews.py hash --claim ${A.claim}\` (the registry engine's statement text, the hash claims_set_status checks; never a hand-copied extract, T-0464), open the pass (\`reviews.py new-pass\`, \`reviews.py dir\`). For a statement that lives in a tex file, location is the output line of \`statement.py <label> --where --home <that Author home>\` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder.`,
+    : `conclude.md section 0: take the ticket (its budget field gates nothing: never block it for budget), pin and hash the statement with \`reviews.py hash --claim ${A.claim}\` (the registry engine's statement text, the hash claims_set_status checks; never a hand-copied extract, T-0464), open the pass (\`reviews.py new-pass\`, \`reviews.py dir\`). For a statement that lives in a tex file, location is the output line of \`statement.py <label> --where --home <that Author home>\` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder. ` +
+      'new-pass returns the open pass of this same ticket when one is open (a rerun, #89): then list in landed the run files already in its folder (A.md, B.md) with the statement_hash of each one\'s frontmatter.',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {
@@ -202,6 +205,16 @@ if (!RE_PASS.test(prep.pass) || !RE_HASH.test(prep.statement_hash)) {
   throw new Error(`prepare returned a malformed pass ${JSON.stringify(prep.pass)} or hash ${JSON.stringify(prep.statement_hash)}`)
 }
 const ticket = prep.ticket || 'none'
+// #89: a resumed pass keeps the runs that landed on this statement; runs on another wording
+// are not mixed with new ones
+const landed = new Map((prep.landed || []).filter(l => /^[ABR]$/.test(String(l.run || '').replace(/\.md$/, '')))
+  .map(l => [String(l.run).replace(/\.md$/, ''), l.statement_hash]))
+const stale = [...landed].filter(([, h]) => h !== prep.statement_hash).map(([r]) => r)
+if (stale.length) {
+  log(`resumed pass ${prep.pass} holds runs on another statement (${stale.join(', ')})`)
+  return { claim: A.claim, outcome: 'not-started', pass: prep.pass,
+    reason: `the open pass ${prep.pass} of this ticket holds run(s) ${stale.join(', ')} on an older statement hash: abandon it (reviews.py abandon ${A.claim} ${prep.pass} --reason "statement changed") and run again` }
+}
 const ids = `subject: ${A.claim} · pass: ${prep.pass} · run: RUN · statement_hash: ${prep.statement_hash} · ticket: ${ticket}`
 const brief = (run) => MODE === 'reword'
   ? `Reword review of ${A.claim} (reword mode, run R): read the bundle ${prep.bundle} first; ` +
@@ -220,6 +233,10 @@ const table = (run) => launch(STAGE('table', [
 ].join('\n')), { label: `table ${run}`, phase: 'Review', agentType: CHAIR, schema: TABLE, effort: 'low' })
 
 async function review(run) {
+  if (landed.has(run)) {          // a resumed pass (#89): conclude what landed, never relaunch it
+    const t = await table(run)
+    if (t && t.landed) { notes.push(`run ${run} had landed in the resumed pass ${prep.pass}: kept, not relaunched`); return t }
+  }
   for (let attempt = 1; attempt <= 2; attempt++) {
     const out = await launchMax(brief(run), { label: `run ${run}${attempt > 1 ? ' (relaunch)' : ''}`, phase: 'Review', agentType: REVIEWER },
       { agentType: CHAIR, phase: 'Review', notes })

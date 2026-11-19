@@ -327,6 +327,27 @@ async function developerReviewed(row, i) {
 
 const firstRef = (row, re) => (row.refs || []).find(x => re.test(x)) || ''
 
+// #89: a verify ticket reviews the claim its title names, never the first namespaced ref
+// (often the parent). Of the refs naming a registry claim (not file:, bib:, lab-free text):
+// the one the title names (with or without its namespace); else the only one; else a
+// namespaced id in the title itself (refs set by hand were missing it). Several and none
+// in the title: '' (ambiguous: back to the main session, never a guess).
+const RE_QID = /^[a-z][a-z0-9]*:[A-Za-z][\w.:\-′']*$/
+const escRe = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const namesId = (text, id) => new RegExp(`(^|[\\s(\`'"])${escRe(id)}($|[\\s).,;\`'"])`).test(text || '')
+function verifyClaim(row) {
+  const ids = (row.refs || []).filter(x => RE_QID.test(x) && !/^(file|bib|check):/.test(x))
+  const title = row.title || ''
+  const inTitle = ids.filter(x => namesId(title, x) || namesId(title, x.slice(x.indexOf(':') + 1)))
+  if (inTitle.length === 1) return { claim: inTitle[0] }
+  if (inTitle.length > 1) return { claim: '', why: `the title names several refs (${inTitle.join(', ')})` }
+  if (ids.length === 1) return { claim: ids[0] }
+  if (ids.length > 1) return { claim: '', why: `several claim refs (${ids.join(', ')}) and the title names none of them` }
+  const m = title.match(/(?:^|[\s(`'"])([a-z][a-z0-9]*:[A-Za-z][\w.:\-′']*[\w′'])/)
+  if (m && !/^(file|bib|check):/.test(m[1])) return { claim: m[1], from_title: true }
+  return { claim: '', why: 'neither its refs nor its title name a claim' }
+}
+
 // ---- the lead-researcher's proof work goes back to the main session (T-1271) -------------
 // Inside this run an agent has no Agent or Workflow tool, so the lead cannot launch prover
 // or /researcher:prove (live 2026-11-14/15: T-1257 blocked on the human, T-1264 left
@@ -521,8 +542,10 @@ async function handle(row, i) {
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:verify') {
-      const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/)
-      if (!claim) return { for_main: { why: 'a verify ticket whose refs name no claim', ticket: row.id, instance: inst } }
+      const vc = verifyClaim(row)
+      if (!vc.claim) return { for_main: { why: `a verify ticket naming no single claim (#89): ${vc.why}; ask its sender (${row.from || 'the sender'}) to put the claim in refs`, ticket: row.id, instance: inst } }
+      const claim = vc.claim
+      if (vc.from_title) notes.push(`${row.id}: the claim ${claim} was read from the title (no claim in refs)`)
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
