@@ -21,8 +21,9 @@ tiers to models for this workspace, over that default.
   tool's ``model`` when launching the agent (roster-rules.md, "Models").
 - ``launch``: the launch values of the named agents, or of every agent of ``--tier``
   (both may be given), as one JSON object ``{"<plugin:name>": "<launch>"}``: what a
-  workflow passes down as ``args.models`` (the inbox resolves the max tier once per run,
-  T-1682). Exit 2 on an unknown agent or tier, or when nothing is named.
+  workflow could pass down as ``args.models`` (a diagnostic; the workflows take
+  ``launches`` from their skill, and a max-tier block resolves an agent with ``agent
+  --launch`` only when no map was passed). Exit 2 on an unknown agent or tier, or when nothing is named.
 - ``list``: every agent (or one plugin's) as a table.
 - ``launches``: the JSON object ``{"plugin:name": launch, "tier:<tier>": launch}`` of the
   agents whose tier this workspace maps away from their file's ``model:``, and of those

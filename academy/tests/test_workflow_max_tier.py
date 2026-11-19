@@ -38,10 +38,10 @@ async function agent(prompt, opts) {
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
 }
-// the Models block's launch(): the fallback run's fallbackModel becomes its model
+// the Models block's launch(): an exactModel (resolved, or the fallback) becomes the model
 async function launch(prompt, opts) {
   const o = Object.assign({}, opts)
-  if (o.fallbackModel) { o.model = o.fallbackModel; delete o.fallbackModel }
+  if (o.exactModel) { o.model = o.exactModel; delete o.exactModel }
   return agent(prompt, o)
 }
 const body = new Function('agent', 'launch', 'A', 'AR', 'ROOT', 'plan', 'return (async () => {' + block + `
@@ -199,6 +199,50 @@ class TheBlock(unittest.TestCase):
                                     {"expert:referee": "opus"})
         self.assertEqual([(c["label"], c["model"]) for c in calls], [("referee", "opus")])
         self.assertEqual((res["results"], res["fallbacks"], res["line"]), ([None], [], ""))
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class WithTheModelsBlock(unittest.TestCase):
+    """The max-tier block run on the real Models block's launch() (T-1682 on T-0350):
+    the review of 338addd found a resolved value lost to a raw map entry, and a clerk
+    stage spent on a map the skill passed as {}."""
+
+    def run_both(self, launches, answers, models):
+        d = tempfile.mkdtemp(prefix="acad-max2-")
+        self.addCleanup(shutil.rmtree, d, True)
+        h, b = os.path.join(d, "h.js"), os.path.join(d, "b.js")
+        src = (REPO / LAUNCHING[0]).read_text(encoding="utf-8")
+        both = MODELS_BLOCK.search(src).group(0) + block_of(LAUNCHING[0])
+        harness = HARNESS.replace("const body = new Function('agent', 'launch', ",
+                                  "const body = new Function('agent', 'launch_unused', ")
+        with open(h, "w", encoding="utf-8") as fh:
+            fh.write(harness)
+        with open(b, "w", encoding="utf-8") as fh:
+            fh.write(both)
+        plan = {"A": {"models": models} if models is not None else {},
+                "launches": [{"label": l, "agentType": t} for l, t in launches], "answers": answers}
+        p = subprocess.run([NODE, h, b, json.dumps(plan)], capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        out = json.loads(p.stdout.strip().splitlines()[-1])
+        self.assertNotIn("error", out, out.get("error"))
+        return out["result"], out["calls"]
+
+    def test_a_resolved_value_wins_over_a_raw_map_entry(self):
+        res, calls = self.run_both([("run A", "expert:rigor-reviewer")],
+                                   {"model expert:rigor-reviewer": [{"output": "sonnet"}], "run A": ["v"]},
+                                   {"expert:rigor-reviewer": "claude-sonnet-4"})
+        self.assertEqual(calls[-1]["model"], "sonnet")
+
+    def test_an_empty_map_passed_runs_no_stage(self):
+        res, calls = self.run_both([("run A", "expert:rigor-reviewer")], {"run A": ["v"]}, {})
+        self.assertEqual([c["label"] for c in calls], ["run A"])
+        self.assertIsNone(calls[0].get("model"))
+
+    def test_the_fallback_beats_the_map(self):
+        res, calls = self.run_both([("run A", "expert:rigor-reviewer")], {"run A": [None], "run A (opus fallback)": ["v"]},
+                                   {"expert:rigor-reviewer": "fable"})
+        self.assertEqual([c["model"] for c in calls], ["fable", "opus"])
+        self.assertEqual(res["results"], ["v"])
 
 
 if __name__ == "__main__":

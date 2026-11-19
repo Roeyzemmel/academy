@@ -141,9 +141,10 @@ per-workspace map, and the choice:
   graders) goes through one block shared by the workflows that make them (`launchMax`;
   a test pins it identical): the value is `args.models["<plugin:agent>"]`, else one clerk
   stage runs `models.py agent <name> --launch` (only when no map was passed at all; an
-  agent a passed map leaves out runs on its file's model). It launches through `launch()`,
-  which leaves an explicit `model` alone (the fallback below), so nested workflows get the
-  same `args.models` as every other agent.
+  agent a passed map, even `{}`, leaves out runs on its file's model). It launches through
+  `launch()` with `exactModel`, which wins over the map (so a value resolved here, or the
+  fallback below, is the model the run gets), and nested workflows get the same
+  `args.models` as every other agent.
   A max-tier run that returns nothing (a usage limit) is relaunched **once** on `opus`,
   the next tier down (`FALLBACK_MODEL`, a fixed alias in the block, not read from the tier
   map; its prompt starts by telling the agent to check what the lost run already did); the fallback is noted in the run's notes, the pass record and the

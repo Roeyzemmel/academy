@@ -40,9 +40,9 @@ const launch = (prompt, opts) => {
     delete o.tier
     return agent(prompt, o)
   }
-  if (opts && opts.fallbackModel) {   // the max-tier block's one fallback run: its model stands
-    const o = Object.assign({}, opts, { model: opts.fallbackModel })
-    delete o.fallbackModel
+  if (opts && opts.exactModel) {   // the max-tier block's resolved model (or its fallback): it stands
+    const o = Object.assign({}, opts, { model: opts.exactModel })
+    delete o.exactModel
     return agent(prompt, o)
   }
   return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
@@ -104,7 +104,7 @@ async function launchModel(name, s) {   // s: {agentType (a clerk with a shell),
   if (Object.prototype.hasOwnProperty.call(LAUNCH_MODELS, name)) return LAUNCH_MODELS[name]
   const given = (A.models && typeof A.models === 'object') ? A.models[name] : undefined
   let m = null
-  const passed = A.models && typeof A.models === 'object' && Object.keys(A.models).length
+  const passed = A.models && typeof A.models === 'object' && !Array.isArray(A.models)   // even {}: the skill passed the map
   if (MODEL_ALIAS.test(String(given || ''))) m = given
   else if (passed && !given) m = null   // the passed map leaves it out: its file's model is the workspace's
   else {
@@ -121,13 +121,13 @@ async function launchModel(name, s) {   // s: {agentType (a clerk with a shell),
 }
 async function launchMax(prompt, opts, s) {   // launch(prompt, opts) on the launch model of opts.agentType
   const model = await launchModel(opts.agentType, s)
-  const r = await launch(prompt, model ? Object.assign({}, opts, { model }) : opts)
+  const r = await launch(prompt, model ? Object.assign({}, opts, { exactModel: model }) : opts)
   if (r !== null || !model || model === FALLBACK_MODEL) return r
   MODEL_FALLBACKS.push(`${opts.label}: ${model} -> ${FALLBACK_MODEL}`)
   s.notes.push(`${opts.label}: the ${model} run returned nothing (a usage limit?); relaunched once on ${FALLBACK_MODEL} (a fallback-model run)`)
   // the lost run may have done part of its work: a stage that files or writes is not idempotent
   return launch('A previous run of this stage was cut off: check what it already did (files written, tickets filed) before doing it again.\n' + prompt,
-    Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, fallbackModel: FALLBACK_MODEL }))
+    Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, exactModel: FALLBACK_MODEL }))
 }
 const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_FALLBACKS.join(', ')}` : ''
 
