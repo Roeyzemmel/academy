@@ -810,5 +810,75 @@ class MissingVerdictTests(unittest.TestCase):
             self.assertIn("Nothing to decide yet.", err)
 
 
+class ModuloNormalisationTests(unittest.TestCase):
+    """#103: two CONFIRMED runs that name one input two ways agree."""
+
+    ALIASES = {"paper:lem:lifting": "paper:lem:lift-covers",
+               "paper:lem:lift-covers": "paper:lem:lift-covers"}
+
+    def canon(self, qid):
+        return self.ALIASES.get(qid)
+
+    def decide(self, ma, mb):
+        return dt.decide(rec("CONFIRMED", "A", modulo=ma), rec("CONFIRMED", "B", modulo=mb),
+                         kind_of=lambda q: None, canon=self.canon)
+
+    def test_namespace_prefix_is_not_a_difference(self):
+        res = self.decide("paper:lem:y", "lem:y")
+        self.assertEqual(res["outcome"], "confirmed-modulo")
+        self.assertEqual(res["modulo"], ["paper:lem:y"])
+
+    def test_an_alias_resolves_to_its_record(self):
+        res = self.decide("paper:lem:lifting", "lem:lift-covers")
+        self.assertEqual(res["outcome"], "confirmed-modulo")
+        self.assertEqual(res["modulo"], ["paper:lem:lift-covers"])
+
+    def test_a_pointer_text_with_commas_is_one_input(self):
+        r = rec("CONFIRMED", "A", modulo="lem:y (the lifting lemma, for covers), bib:LMW16")
+        self.assertEqual(r["modulo"], ["lem:y (the lifting lemma, for covers)", "bib:LMW16"])
+        res = self.decide("lem:y (the lifting lemma, for covers), bib:LMW16",
+                          "bib:LMW16; paper:lem:y")
+        self.assertEqual(res["outcome"], "confirmed-modulo")
+        self.assertEqual(res["modulo"], ["bib:LMW16", "paper:lem:y"])
+
+    def test_other_namespaces_and_free_text_are_kept(self):
+        none = lambda q: None  # noqa: E731
+        self.assertEqual(dt.canon_input("s1:OBS-3", "paper:lem:x", none), "s1:OBS-3")
+        self.assertEqual(dt.canon_input("check:T-1033#a", "paper:lem:x", none),
+                         "check:T-1033#a")
+        self.assertEqual(dt.canon_input("the  standard setting", "paper:lem:x", none),
+                         "the standard setting")
+        self.assertEqual(dt.canon_input("`bib:LMW16`", "paper:lem:x", none), "bib:LMW16")
+
+    def test_a_bare_notebook_id_is_qualified_only_when_the_registry_knows_it(self):
+        known = {"s1:OBS-3": "s1:OBS-3"}.get
+        self.assertEqual(dt.canon_input("OBS-3", "s1:GEO-1", known), "s1:OBS-3")
+        self.assertEqual(dt.canon_input("LMW16", "s1:GEO-1", known), "LMW16")
+
+    def test_a_real_difference_offers_union_and_intersection(self):
+        res = self.decide("lem:y, lem:z", "paper:lem:y")
+        self.assertEqual(res["outcome"], "disagreement")
+        opts = {o["label"]: o["modulo"] for o in res["modulo_options"]}
+        self.assertEqual(opts["union"], ["paper:lem:y", "paper:lem:z"])
+        self.assertEqual(opts["intersection"], ["paper:lem:y"])
+        self.assertIn("option union", dt._text(res))
+
+    def test_a_list_landed_split_inside_brackets_is_rejoined(self):
+        self.assertEqual(dt._split_list(["lem:y (uncited", "T-0508)", "bib:X"]),
+                         ["lem:y (uncited, T-0508)", "bib:X"])
+
+    def test_pinpoint_punctuation_is_not_a_difference(self):
+        res = self.decide("bib:Mo06#Thm2.6, lem:z#item4", "bib:Mo06#Thm-2.6; paper:lem:z#item-4")
+        self.assertEqual(res["outcome"], "confirmed-modulo")
+        self.assertEqual(res["modulo"], ["bib:Mo06#Thm2.6", "paper:lem:z#item4"])
+
+    def test_established_is_normalised_too(self):
+        res = dt.decide(rec("CONFIRMED", "A", modulo="lem:y"),
+                        rec("CONFIRMED", "B", modulo="paper:lem:y"),
+                        established=["lem:y"], kind_of=lambda q: None, canon=self.canon)
+        self.assertEqual(res["pending_inputs"], [])
+        self.assertTrue(res["recolour"])
+
+
 if __name__ == "__main__":
     unittest.main()
