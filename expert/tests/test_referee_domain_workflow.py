@@ -24,14 +24,15 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
 // the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
-body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
+// the max-tier launch models as the inbox passes them (T-1682); a test passes models: null to resolve them
+body(Object.assign({ nested: true, models: { 'expert:rigor-reviewer': 'fable', 'expert:referee': 'fable', 'researcher:experiment-reviewer': 'fable', 'researcher:prover': 'fable' } }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -92,6 +93,30 @@ class RefereeTests(unittest.TestCase):
         self.assertIn("There is no earlier report", p)
         self.assertIn("vision, there is none", p)
         self.assertEqual(res["outcome"], "unlanded")
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class RefereeMaxTierTests(unittest.TestCase):
+    """T-1682: the referee launches on the workspace's max tier; a lost run falls back to opus once."""
+    BASE = {"start": [{"ok": True, "detail": "", "instance": "author@t", "acted_as": "expert@t"}], "pdf": [PDF],
+            "find packet": [{"packet": "P-0500", "blocking": 2, "copy": "c"}], "deliver": [MOVE]}
+
+    def test_the_model_from_the_args_or_one_clerk_stage(self):
+        res, labels, calls, err = run("referee.js", dict(self.BASE, referee=["r"]), {"ticket": "T-0700"})
+        self.assertIsNone(err, err)
+        self.assertEqual(next(c for c in calls if c["label"] == "referee")["model"], "fable")
+        res, labels, calls, err = run("referee.js", dict(self.BASE, referee=["r"], **{"model expert:referee": [{"output": "opus"}]}),
+                                      {"ticket": "T-0700", "models": None})
+        self.assertIsNone(err, err)
+        self.assertEqual(labels, ["start", "pdf", "model expert:referee", "referee", "find packet", "deliver"])
+        self.assertEqual(next(c for c in calls if c["label"] == "referee")["model"], "opus")
+
+    def test_a_lost_run_falls_back_and_the_ticket_says_so(self):
+        res, labels, calls, err = run("referee.js", dict(self.BASE, referee=[None], **{"referee (opus fallback)": ["r"]}),
+                                      {"ticket": "T-0700"})
+        self.assertIsNone(err, err)
+        self.assertEqual(res["outcome"], "refereed")
+        self.assertIn("model fallback: referee: fable -> opus", next(c for c in calls if c["label"] == "deliver")["prompt"])
 
 
 START = {"ok": True, "detail": "", "pack": "translation-surfaces", "changes": ["add the Veech dichotomy entry"],

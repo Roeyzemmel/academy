@@ -26,7 +26,9 @@ happen again.
    or session-limit error, or an empty result: do not relaunch it, launch nothing
    further, record what was and was not done (the ticket thread, or
    `board/human/RESUME.md` in an unattended run), and report. No retry loops, no sleep
-   and retry.
+   and retry. One exception (T-1682): a workflow relaunches a max-tier run that returned
+   nothing once on `opus`, the next tier down, and names the fallback (roster-rules.md,
+   "Model fallback").
 5. **Never ask questions from a subagent.** A subagent makes the routine call, states
    the assumption in its report, and returns. Only the main session asks the human, with
    `AskUserQuestion`, at a decision point.

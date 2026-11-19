@@ -54,6 +54,11 @@ const launch = (prompt, opts) => {
     delete o.tier
     return agent(prompt, o)
   }
+  if (opts && opts.exactModel) {   // the max-tier block's resolved model (or its fallback): it stands
+    const o = Object.assign({}, opts, { model: opts.exactModel })
+    delete o.exactModel
+    return agent(prompt, o)
+  }
   return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
 }
 // ---- end Models
@@ -173,6 +178,7 @@ const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `ac
 
 const notes = []
 const taken = []
+
 const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0, budget: null }
 const followed = new Set(A.ids || [])
 const children = new Set()           // follow: the child ids this run's relays and research asks filed

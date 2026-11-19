@@ -20,14 +20,15 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
 // the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
-body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
+// the max-tier launch models as the inbox passes them (T-1682); a test passes models: null to resolve them
+body(Object.assign({ nested: true, models: { 'expert:rigor-reviewer': 'fable', 'expert:referee': 'fable', 'researcher:experiment-reviewer': 'fable', 'researcher:prover': 'fable' } }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -80,6 +81,39 @@ class ProveTests(unittest.TestCase):
         self.assertEqual(f["agentType"], "researcher:prover")
         self.assertIn("propose sketch", f["prompt"])          # the claim was open
         self.assertIn("T-0020", next(c for c in calls if c["label"] == "close")["prompt"])
+
+    COMPLETE = {"state": [state(attack_exists=False)], "attack": ["none"],
+                "attempt path": [{"path": "proofs/GEO-3/attempt-2.md"}], "attempt": ["done"],
+                "outcome": [{"exists": True, "outcome": "complete", "gaps": [], "objects": []}],
+                "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
+                "check verify": [{"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3"]}],
+                "close": [MOVE]}
+
+    def test_every_prover_launch_is_on_the_max_model(self):
+        """T-1682: attack, attempt and filing launch on the args' model, or one clerk stage resolves it."""
+        res, labels, calls = self.run_wf(dict(self.COMPLETE))
+        self.assertEqual([(c["label"], c.get("model")) for c in calls if c["agentType"] == "researcher:prover"],
+                         [("attack", "fable"), ("attempt", "fable"), ("file verify", "fable")])
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, **{"model researcher:prover": [{"output": "fable"}]}), models=None)
+        self.assertEqual(labels.count("model researcher:prover"), 1)          # resolved once per run
+        self.assertEqual(calls[labels.index("model researcher:prover")]["agentType"], "researcher:review-clerk")
+        self.assertEqual({c.get("model") for c in calls if c["agentType"] == "researcher:prover"}, {"fable"})
+
+    def test_the_attack_line_follows_the_attack_run_not_the_notes(self):
+        """The attempt is told to read attack.md only when this run made it, whatever notes the
+        model block added (an unresolved model adds one)."""
+        bad = {"model researcher:prover": [{"output": "models: workspace.json not found"}]}
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists=True)], **bad), models=None)
+        self.assertIn("was not resolved", " ".join(res["notes"]))
+        self.assertNotIn("attack.md first", next(c for c in calls if c["label"] == "attempt")["prompt"])
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, **bad), models=None)
+        self.assertIn("Read proofs/<id>/attack.md first.", next(c for c in calls if c["label"] == "attempt")["prompt"])
+
+    def test_a_lost_attempt_falls_back_to_opus_and_the_ticket_says_so(self):
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, attempt=[None], **{"attempt (opus fallback)": ["done"]}))
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertEqual(res["model_fallbacks"], ["attempt: fable -> opus"])
+        self.assertIn("model fallback: attempt: fable -> opus", calls[-1]["prompt"])
 
     def test_the_outcome_comes_from_the_file_not_the_summary(self):
         res, labels, _ = self.run_wf({

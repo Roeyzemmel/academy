@@ -37,6 +37,11 @@ const launch = (prompt, opts) => {
     delete o.tier
     return agent(prompt, o)
   }
+  if (opts && opts.exactModel) {   // the max-tier block's resolved model (or its fallback): it stands
+    const o = Object.assign({}, opts, { model: opts.exactModel })
+    delete o.exactModel
+    return agent(prompt, o)
+  }
   return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
 }
 // ---- end Models

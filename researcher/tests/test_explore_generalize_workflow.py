@@ -18,14 +18,15 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
 // the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
-body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
+// the max-tier launch models as the inbox passes them (T-1682); a test passes models: null to resolve them
+body(Object.assign({ nested: true, models: { 'expert:rigor-reviewer': 'fable', 'expert:referee': 'fable', 'researcher:experiment-reviewer': 'fable', 'researcher:prover': 'fable' } }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -117,6 +118,7 @@ class GeneralizeTests(unittest.TestCase):
             dict(H, ref="P-0009", ticket="T-7"))
         self.assertIsNone(err, err)
         self.assertEqual(labels.count("prover (fix)"), 1)
+        self.assertEqual([c.get("model") for c in calls if c["agentType"] == "researcher:prover"], ["fable", "fable"])  # T-1682
         self.assertIn("dropped after a second failure: flat:CONJ-2", " ".join(res["notes"]))
         self.assertEqual(next(c for c in calls if c["label"] == "file tests")["agentType"], "researcher:lead-researcher")
         self.assertIn("WITHOUT --apply", next(c for c in calls if c["label"] == "test specs")["prompt"])

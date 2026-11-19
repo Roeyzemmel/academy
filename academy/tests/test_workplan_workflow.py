@@ -21,7 +21,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -35,7 +35,8 @@ async function workflow(ref, a) {
 }
 const budget = { total: null, spent: () => 0, remaining: () => Infinity }
 const body = new Function('args', 'agent', 'phase', 'log', 'workflow', 'budget', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}, workflow, budget).then(
+// the max-tier launch models as the inbox passes them (T-1682); a test passes models: null to resolve them
+body(Object.assign({ models: { 'expert:rigor-reviewer': 'fable', 'expert:referee': 'fable', 'researcher:experiment-reviewer': 'fable', 'researcher:prover': 'fable' } }, plan.__args), agent, () => {}, () => {}, workflow, budget).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -68,6 +69,8 @@ def ap(name, state="ACTIVE", life="active", dirs=("D-1",)):
             "waiting_tickets": [], "decision_tickets": []}
 
 
+MAXMAP = {"expert:rigor-reviewer": "fable", "expert:referee": "fable", "researcher:experiment-reviewer": "fable",
+          "researcher:prover": "fable"}
 CAPS = {"ok": True, "error": "", "rounds": 2, "agents": 2, "runs": 0, "profile": None}
 INB = {"taken": [], "notes": [], "count": 0}
 LEAD = {"updates": ["AP-1 continue"], "tickets_filed": [], "notes": ""}
@@ -120,6 +123,7 @@ class CampaignTests(unittest.TestCase):
         self.assertIn("wasted slot", " ".join(res["notes"]))
         p = next(c for c in calls if c["label"] == "prover AP-1 r1")
         self.assertNotIn("AP-2", p["prompt"])                    # blind to the other approaches
+        self.assertEqual({c.get("model") for c in calls if c["label"].startswith("prover")}, {"fable"})   # T-1682
         # AP-3 (waiting) and AP-4 (over the cap) never had a prover: no survivor-wide two rounds
         for r in ("lead r1", "lead r2"):
             self.assertIn("No cross-pollination", next(c for c in calls if c["label"] == r)["prompt"])
@@ -296,7 +300,7 @@ class InboxNestedTests(unittest.TestCase):
                                               "check T-3": [{"exit": 0, "status": "delivered", "detail": ""}]}, {"root": "/a"})
         self.assertIsNone(err, err)
         self.assertEqual(next(c for c in calls if c["label"] == "workflow cite.js")["args"],
-                         {"nested": True, "root": "/a", "ticket": "T-3", "models": {}})   # no map given: an empty one
+                         {"nested": True, "root": "/a", "ticket": "T-3", "models": MAXMAP})   # the harness's map, passed on
         res, labels, calls, err = run(INBOX, {"list": [self._one("researcher:explore", "question", ["flat:DIR-2"])],
                                               "workflow explore.js": [{"outcome": "moved", "anomalies": []}],
                                               "check T-3": [{"exit": 0, "status": "delivered", "detail": ""}]}, {"root": "/a"})

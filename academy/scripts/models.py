@@ -4,6 +4,7 @@ Usage:
 
     py models.py tiers [--workspace PATH] [--json]
     py models.py agent <plugin:name | name> [--launch] [--workspace PATH] [--json]
+    py models.py launch [<plugin:name | name> ...] [--tier TIER] [--workspace PATH]
     py models.py list [--plugin P] [--workspace PATH] [--json]
     py models.py launches [--workspace PATH]
     py models.py check [--workspace PATH]
@@ -18,6 +19,11 @@ tiers to models for this workspace, over that default.
   value (``launch``) and whether it differs from the file's ``model:`` (``override``).
   ``--launch`` prints the launch value alone: the value a skill passes as the Agent
   tool's ``model`` when launching the agent (roster-rules.md, "Models").
+- ``launch``: the launch values of the named agents, or of every agent of ``--tier``
+  (both may be given), as one JSON object ``{"<plugin:name>": "<launch>"}``: what a
+  workflow could pass down as ``args.models`` (a diagnostic; the workflows take
+  ``launches`` from their skill, and a max-tier block resolves an agent with ``agent
+  --launch`` only when no map was passed). Exit 2 on an unknown agent or tier, or when nothing is named.
 - ``list``: every agent (or one plugin's) as a table.
 - ``launches``: the JSON object ``{"plugin:name": launch, "tier:<tier>": launch}`` of the
   agents whose tier this workspace maps away from their file's ``model:``, and of those
@@ -111,7 +117,7 @@ def grading_warnings(ws):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("tiers", "agent", "list", "launches", "check"):
+    for name in ("tiers", "agent", "launch", "list", "launches", "check"):
         p = sub.add_parser(name)
         p.add_argument("--workspace")
         p.add_argument("--json", action="store_true")
@@ -120,6 +126,9 @@ def main(argv=None):
             p.add_argument("--launch", action="store_true")
         if name == "list":
             p.add_argument("--plugin")
+        if name == "launch":
+            p.add_argument("agents", nargs="*")
+            p.add_argument("--tier")
     a = ap.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -153,6 +162,27 @@ def main(argv=None):
                   % (r["agent"], r["tier"], r["model"], r["launch"],
                      "  (override: the file says %s)" % r["frontmatter"]
                      if r["override"] else ""))
+        return 0
+    if a.cmd == "launch":
+        if not a.agents and not a.tier:
+            print("models: launch needs agent names or --tier", file=sys.stderr)
+            return 2
+        if a.tier and a.tier not in ac.TIERS:
+            print("models: tier %r is not one of %s" % (a.tier, ", ".join(ac.TIERS)),
+                  file=sys.stderr)
+            return 2
+        out = {}
+        try:
+            for name in a.agents:
+                r = ac.resolve_agent(name, ws or {}, REPO)
+                out[r["agent"]] = r["launch"]
+        except ac.ConfigError as exc:
+            print("models: %s" % exc, file=sys.stderr)
+            return 2
+        if a.tier:
+            found, _bad = rows(ws)
+            out.update((r["agent"], r["launch"]) for r in found if r["tier"] == a.tier)
+        print(json.dumps(out, sort_keys=True))
         return 0
     if a.cmd == "list":
         found, bad = rows(ws, a.plugin)
