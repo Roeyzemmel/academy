@@ -1,6 +1,9 @@
 """reviews.py -- where proof-review records live, and the statement hash.
 
-    py reviews.py hash (--file F | --text T)          statement hash (decision_table.statement_hash)
+    py reviews.py hash --claim NS:ID                  the registry engine's statement hash of
+                                                      a record: the one to pin a pass on (T-0464)
+    py reviews.py hash (--file F | --text T)          the hash of a given text (a statement no
+                                                      longer in the registry: a reword old.txt)
     py reviews.py dir SUBJECT PASS [--home H]         the pass folder for a subject
     py reviews.py new-pass SUBJECT [--ticket T-NNNN]  open a pass: its name (date + ticket or time);
                                                       refused while another pass on SUBJECT is open
@@ -13,7 +16,7 @@
                                                       base pass is filed under OLD_ID, an
                                                       id SUBJECT's record supersedes (T-0476)
     py reviews.py reword-brief SUBJECT PASS (--old-file F | --old-text T)
-                  (--new-file F | --new-text T) [--findings F_OR_TEXT ...]
+                  [--new-file F | --new-text T] [--findings F_OR_TEXT ...]
                   [--ticket T] [--out FILE]           the reword run's brief bundle
     py reviews.py abandon SUBJECT PASS --reason R     close an open pass with no decision
     py reviews.py list SUBJECT [--home H] [--json]    passes and their records
@@ -152,13 +155,9 @@ def base_decision(home, subject, base):
     return a, b, res
 
 
-def registry_supersedes(subject):
-    """The ids ``subject``'s current registry record lists in ``supersedes`` (a list),
-    read through the registry engine; None when the engine, the namespace's home or the
-    record cannot be found."""
-    ns, name = split_subject(subject)
-    if not ns:
-        return None
+def _registry_store(ns):
+    """The registry engine's store of namespace ``ns`` (its home from the workspace), or
+    None when the engine or the home cannot be found. Raises nothing."""
     try:
         plugin = os.path.join(ex.ac.repo_root(), "academy")
         if plugin not in sys.path:
@@ -168,8 +167,22 @@ def registry_supersedes(subject):
         home = info and info.get("home")
         if not home or not os.path.isdir(str(home)):
             return None
-        rec = federation.store(ns, home).get(name)
+        return federation.store(ns, home)
     except Exception:        # an unreadable registry: the caller refuses
+        return None
+
+
+def registry_supersedes(subject):
+    """The ids ``subject``'s current registry record lists in ``supersedes`` (a list),
+    read through the registry engine; None when the engine, the namespace's home or the
+    record cannot be found."""
+    ns, name = split_subject(subject)
+    if not ns:
+        return None
+    st = _registry_store(ns)
+    try:
+        rec = st.get(name) if st is not None else None
+    except Exception:
         return None
     if rec is None:
         return None
@@ -177,6 +190,33 @@ def registry_supersedes(subject):
     if isinstance(sup, (list, tuple)):
         return [str(x).strip() for x in sup if str(x or "").strip()]
     return [str(sup).strip()] if sup else []
+
+
+def registry_statement(subject):
+    """``(text, hash)`` of ``subject``'s statement as the registry engine gives it -- the
+    text ``py -m registry statement <ns:id>`` prints and ``claims_set_status`` checks a
+    verdict's ``statement_hash`` against (T-0464, T-1179) -- or ``(None, None)`` when
+    ``subject`` is not ``ns:id`` or the engine, its home or the record (by its exact id,
+    not an alias) cannot be found. For a notebook record (``s1``, ``flat``) the text is
+    the ``## Statement`` section *with* its heading line; for a paper label the whole
+    LaTeX environment, ``\\begin``/``\\label``/``\\end`` included."""
+    ns, name = split_subject(subject)
+    if not ns:
+        return None, None
+    st = _registry_store(ns)
+    if st is None:
+        return None, None
+    try:
+        rid, exact = st.lookup(name)
+        if rid is None or not exact:
+            return None, None
+        text = st.statement_text(rid)
+        h = st.statement_hash(rid)
+    except Exception:
+        return None, None
+    if text is None or not h:
+        return None, None
+    return text, h
 
 
 def check_base_subject(subject, base_subject, supersedes_of=None):
@@ -275,10 +315,18 @@ def _read(path):
         return fh.read()
 
 
-def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), ticket=None):
+def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), ticket=None,
+                 current=None):
     """The reword run's brief bundle (Markdown). Raises Refused when ``pass_name`` is not
     a reword pass, its base is not CONFIRMED x2, the old statement's hash is not the base
-    pass's, or the statement did not change."""
+    pass's, or the statement did not change.
+
+    ``current`` (subject -> ``(text, hash)`` or ``(None, None)``, the CLI's is
+    :func:`registry_statement`) is the registry's statement now (T-0464): ``new_text``
+    None takes its text, and a given ``new_text`` must hash like it, since the reword
+    verdict's ``statement_hash`` is checked against that hash when a status is set.
+    Without ``current``, or when it cannot read ``subject``, a given text is taken as
+    is."""
     note = pass_note(home, subject, pass_name)
     base = note.get("reword_of")
     if not base:
@@ -287,6 +335,21 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
     base_subject = note.get("base_subject") or ""
     a, b, res = base_decision(home, base_subject or subject, base)
     base_hash = a.get("statement_hash") or ""
+    if current is not None:
+        cur_text, cur_h = current(subject)
+        if new_text is None:
+            if cur_h is None:
+                raise Refused("the registry engine cannot read the statement of %s: give "
+                              "the new statement with --new-file" % subject)
+            new_text = cur_text
+        elif cur_h is not None and statement_hash(new_text) != cur_h:
+            raise Refused("the new statement hashes to %s, but the registry's statement "
+                          "of %s hashes to %s (`reviews.py hash --claim %s`): a reword "
+                          "verdict on that text could not ground a status change; omit "
+                          "--new-file/--new-text to take the registry's text"
+                          % (statement_hash(new_text), subject, cur_h, subject))
+    elif new_text is None:
+        raise Refused("no new statement given")
     old_h, new_h = statement_hash(old_text), statement_hash(new_text)
     if old_h != base_hash:
         raise Refused("the old statement hashes to %s, not the base pass's base_hash %s: "
@@ -370,7 +433,11 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     h = sub.add_parser("hash")
     g = h.add_mutually_exclusive_group(required=True)
-    g.add_argument("--file")
+    g.add_argument("--claim", help="ns:id: hash the registry engine's statement text of "
+                                   "this record (the hash claims_set_status checks); "
+                                   "the way to hash a statement that stands now")
+    g.add_argument("--file", help="hash this text as given (a statement no longer in "
+                                  "the registry, e.g. a reword pass's old.txt)")
     g.add_argument("--text")
     d = sub.add_parser("dir")
     d.add_argument("subject")
@@ -392,8 +459,9 @@ def main(argv=None):
     go = rb.add_mutually_exclusive_group(required=True)
     go.add_argument("--old-file")
     go.add_argument("--old-text")
-    gn = rb.add_mutually_exclusive_group(required=True)
-    gn.add_argument("--new-file")
+    gn = rb.add_mutually_exclusive_group()
+    gn.add_argument("--new-file", help="default: the registry's statement of SUBJECT, "
+                                       "which a given text must hash like")
     gn.add_argument("--new-text")
     rb.add_argument("--findings", action="append", default=[],
                     help="a file (inlined) or a line of text; repeatable")
@@ -412,6 +480,20 @@ def main(argv=None):
     ls.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     if args.cmd == "hash":
+        if args.claim:
+            if not split_subject(args.claim)[0]:
+                sys.stderr.write("reviews: refused: --claim %r is not a namespaced id "
+                                 "(ns:id)\n" % args.claim)
+                return 1
+            _text, h = registry_statement(args.claim)
+            if h is None:
+                sys.stderr.write("reviews: refused: the registry engine cannot read the "
+                                 "statement of %s (no record by that exact id, or its "
+                                 "home is not found); `py -m registry statement %s` "
+                                 "says why\n" % (args.claim, args.claim))
+                return 1
+            print(h)
+            return 0
         if args.file:
             with open(args.file, "r", encoding="utf-8") as fh:
                 text = fh.read()
@@ -436,7 +518,7 @@ def main(argv=None):
         new = _read(args.new_file) if args.new_file else args.new_text
         try:
             text = reword_brief(home, args.subject, args.pass_name, old, new,
-                                args.findings, args.ticket)
+                                args.findings, args.ticket, current=registry_statement)
         except Refused as exc:
             sys.stderr.write("reviews: refused: %s\n" % exc)
             return 1

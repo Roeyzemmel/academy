@@ -27,9 +27,23 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   and its proof; that line is the brief's location (2026-11-13: a brief that named only
   the file sent the reviewer, who has no shell, to a 160 000-character section it
   cannot read whole).
-  Copy the statement text exactly as it stands (the registry's `statement`, or the
-  environment's text in the file) into a scratch file and hash it:
-  `py $E/reviews.py hash --file <scratch>`.
+  Hash it through the registry engine: `py $E/reviews.py hash --claim <id>`. That is
+  the hash `claims_set_status` checks the verdicts against: for a notebook record the
+  `## Statement` section *with* its heading line, for a paper label the whole
+  environment, `\begin`/`\label`/`\end` included. Never hash a hand-copied extract
+  (`hash --file`): the section body without its heading, or an environment's body,
+  hashes differently, and a pass pinned on it cannot ground a status (T-0464, T-1179;
+  T-0463 and T-0568 were refused on exactly that).
+- **Passes pinned on a hand-copied extract** (before 2026-11-16, T-0464). Older run
+  records may carry the hash of the section body without its heading, or of an
+  environment's body. To tell: the run's `statement_hash` differs from
+  `reviews.py hash --claim <id>` but equals `reviews.py hash --file` of the current
+  statement with the heading line (or `\begin`/`\label`/`\end`) removed. Then the text
+  did not change, but `claims_set_status` refuses those verdicts. A landed run record is
+  never rewritten or re-pinned. A pass of that kind needs nothing until a status
+  rests on it; then either a fresh blind pass (as for T-0568), or the human sets the
+  status on his word citing the pass (as for T-1179). A hash that matches neither
+  means the statement changed: section 7 or a fresh pass, as always.
 - **Open the pass.** `py $E/reviews.py new-pass <id> --ticket T-NNNN` gives the pass
   name; `py $E/reviews.py dir <id> <pass>` the folder the hook will land into. Never
   two concurrent passes on one statement: `new-pass` refuses while another pass on
@@ -58,7 +72,7 @@ returns, the `land_verdict` hook has written `<pass dir>/A.md`. Then
     py $E/decision_table.py "<pass dir>/A.md" --json
 
 - `launch_b: true` (A CONFIRMED on one of the grading primaries (`grading.primaryModels`)): re-hash the
-  statement; if the hash changed, stop — the statement moved under the review; record
+  statement (`py $E/reviews.py hash --claim <id>`, as in section 0); if the hash changed, stop — the statement moved under the review; record
   that and conclude nothing. Otherwise launch run B with the identical brief and `run: B`, telling it
   nothing of A.
 - Otherwise conclude on A alone (`single-negative`, `degraded`, `disproved`,
@@ -197,15 +211,21 @@ answers a hypothesis / statement / proof finding: those take a full blind pass
 1. Take the ticket as in section 0. The cost is one reviewer run plus you.
 2. Recover the statement **as the base pass reviewed it** (its `decision.md` names
    which file and label; `git show <commit>:<file>` from the commit before the
-   rewording) into `old.txt`, and the current statement into `new.txt`.
-   `py $E/reviews.py hash --file old.txt` must equal the base runs' `statement_hash`.
+   rewording) into `old.txt`, in the form the base pass hashed (the engine's text: a
+   notebook record's `## Statement` section with its heading line, a paper label's
+   whole environment; a base pass pinned before T-0464 may have hashed the body alone,
+   see "Passes pinned on a hand-copied extract" in section 0). `py $E/reviews.py hash --file old.txt` must equal the base runs'
+   `statement_hash`. The current statement needs no file: `reword-brief` takes it from
+   the registry, and its hash is `py $E/reviews.py hash --claim <id>`.
 3. Open the pass: `py $E/reviews.py new-pass <id> --reword-of <base pass> --ticket
    T-NNNN`. It refuses unless the base pass is CONFIRMED x2 (by its own table) and not
    abandoned; the name ends in `-reword`.
 4. Write the bundle: `py $E/reviews.py reword-brief <id> <pass> --old-file old.txt
-   --new-file new.txt --findings <file or "T-NNNN: one line"> ... --out
+   --findings <file or "T-NNNN: one line"> ... --out
    <scratch>/bundle.md`. It refuses when `old.txt` is not the reviewed statement or the
-   statement did not change.
+   statement did not change. A `--new-file`/`--new-text` is still accepted (when the
+   registry cannot read the record), but refused when it does not hash like the
+   registry's statement.
 5. Launch `rigor-reviewer` once, with the brief:
 
    > Reword review of `<id>` (reword mode, run R): read the bundle `<scratch>/bundle.md`
