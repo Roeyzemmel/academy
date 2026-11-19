@@ -33,6 +33,30 @@ export const meta = {
 // (instance=...). Each agent runs under its own definition and the plugin hooks.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 if (!A.root) throw new Error('args.root must be the academy repo (the folder holding the plugins)')
 const ROOT = A.root.replace(/[\\/]+$/, '')
 // loop (2026-10-31): pass after pass over every inbox until nothing moves; a ticket that needs
@@ -142,7 +166,7 @@ const RELAY_OUT = { type: 'object', properties: {
   notes: { type: 'array', items: { type: 'string' }, description: 'note tickets filed to the Author, if any' } },
   required: ['decision', 'result', 'result_detail', 'child', 'notes'] }
 
-const clerk = (stage, lines, schema, label) => agent(
+const clerk = (stage, lines, schema, label) => launch(
   `WORKFLOW STAGE ${stage} of the academy-inbox workflow.\n` + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase: stage === 'list' ? 'List' : (stage === 'close-self' ? 'Close' : 'Tickets'), agentType: CLERK, schema, effort: 'low' })
 const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `act as: ${inst}`, what], MOVE, label || `${row.id} ${what.split(':')[0]}`)
@@ -192,7 +216,7 @@ if (!insts) return Object.assign(out, { stopped: 'the list stage returned nothin
 // ---- Sweep (the Author's, before any ticket; counts against no cap) -------------------
 phase('Sweep')
 for (const i of insts.filter(i => i.role === 'author')) {
-  const s = await agent(`Run the machine-note sweep of ${i.name} (home ${i.home}) as /author:sweep does, and report the counts per section.`,
+  const s = await launch(`Run the machine-note sweep of ${i.name} (home ${i.home}) as /author:sweep does, and report the counts per section.`,
     { label: `sweep ${i.name}`, phase: 'Sweep', agentType: 'author:note-sweeper' })
   if (s === null) return Object.assign(out, { stopped: `the sweep of ${i.name} was lost (a limit?): nothing further launched` })
   out.sweep = (out.sweep || []).concat([{ instance: i.name, report: s }])
@@ -203,7 +227,7 @@ async function relayForward(row, inst, r) {
   const final = row.final_to || r.final_default || ''
   const st = await move(row, inst, 'start: move it to in-progress (open -> accepted -> in-progress, or accepted -> in-progress); leave an in-progress ticket as it is')
   if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
-  const rel = await agent(
+  const rel = await launch(
     `WORKFLOW RELAY forward leg. Ticket ${row.id}, which you relay for ${inst}; it is in-progress. ` +
     `Decide per your agent definition: fail fast (return decision fail-fast with the reason and the ## Result text), ` +
     `or sharpen and forward: file ONE child with tickets_create to the ${r.to} instance only, kind ${r.kinds.join(' or ')}, ` +
@@ -251,13 +275,13 @@ async function relayReturn(row, inst) {
 async function expertClerk(row, inst) {
   const st = await move(row, inst, 'start: move it to in-progress')
   if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start' }
-  let ans = await agent(`Answer ticket ${row.id} (tickets_get it): its ask, from the library and the registry. ` +
+  let ans = await launch(`Answer ticket ${row.id} (tickets_get it): its ask, from the library and the registry. ` +
     `Begin your answer with ESCALATE if the library cannot answer it.`, { label: `clerk ${row.id}`, phase: 'Tickets', agentType: 'expert:clerk' })
   if (ans === null) return { lost: true }
   let used = 1
   if (/^\s*ESCALATE/.test(ans)) {
     used = 2
-    ans = await agent(`Ticket ${row.id} escalated by the clerk: ${ans}\nAnswer it as the librarian (look-ups the clerk escalated).`,
+    ans = await launch(`Ticket ${row.id} escalated by the clerk: ${ans}\nAnswer it as the librarian (look-ups the clerk escalated).`,
       { label: `librarian ${row.id}`, phase: 'Tickets', agentType: 'expert:librarian' })
     if (ans === null) return { lost: true }
   }
@@ -274,12 +298,12 @@ async function developerReviewed(row, i) {
   const runs = 4
   let used = 0, verdict = ''
   while (used + 2 <= runs) {
-    const d = await agent(`WORKFLOW INBOX: code ticket ${row.id} for ${i.name} (home ${i.home}); it is in-progress, make no status move. ` +
+    const d = await launch(`WORKFLOW INBOX: code ticket ${row.id} for ${i.name} (home ${i.home}); it is in-progress, make no status move. ` +
       (verdict ? `The test-engineer's findings on your last diff (also in the thread): ${verdict}\n` : '') +
       'Do it per your agent definition (test-first, in a worktree) and end with the diff\'s branch and commit.',
       { label: `developer ${row.id}${used ? ' (round ' + (used / 2 + 1) + ')' : ''}`, phase: 'Tickets', agentType: 'scientist:developer' })
     if (d === null) return { lost: true }
-    const t = await agent(`WORKFLOW INBOX: review the developer's diff for code ticket ${row.id} (${i.name}, home ${i.home}): ${String(d).slice(-600)}\n` +
+    const t = await launch(`WORKFLOW INBOX: review the developer's diff for code ticket ${row.id} (${i.name}, home ${i.home}): ${String(d).slice(-600)}\n` +
       'Review it per your agent definition and begin your answer with APPROVED or FINDINGS.',
       { label: `test-engineer ${row.id}`, phase: 'Tickets', agentType: 'scientist:test-engineer' })
     if (t === null) return { lost: true }
@@ -318,7 +342,7 @@ async function handle(row, i) {
     // the script checks it (the Expert, kind research, final_to researcher, parent this ticket), and the clerk parks this one on it
     const st = await move(row, inst, 'start: move it to in-progress')
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start' }
-    const f = await agent(`WORKFLOW INBOX: the self-ticket ${row.id} of ${inst} (home ${i.home}) asks for an argument nobody has delivered. Write no argument. ` +
+    const f = await launch(`WORKFLOW INBOX: the self-ticket ${row.id} of ${inst} (home ${i.home}) asks for an argument nobody has delivered. Write no argument. ` +
       `File exactly one research ticket to the Expert instance (tickets_create: kind research, final_to researcher, parent ${row.id}, the ask restated with its statement and claim id, ` +
       `deliverable "A proof (or a refutation) of the statement, as a proof object with its status proposed; the ticket result names it.", agenda and refs as ${row.id}'s). Return its id, or the refusal.`,
       { label: `math-writer ${row.id} (research)`, phase: 'Tickets', agentType: 'author:math-writer', schema: { type: 'object', properties: { ticket: { type: 'string' }, refusal: { type: 'string' } }, required: ['ticket', 'refusal'] } })
@@ -340,14 +364,14 @@ async function handle(row, i) {
     // answered from the lab's records and results: no new compute, no header
     const st = await move(row, inst, 'start: move it to in-progress')
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start' }
-    const r = await agent(`WORKFLOW INBOX: question ticket ${row.id} for ${inst} (home ${i.home}); it is in-progress. Answer it from the lab's records and results only ` +
+    const r = await launch(`WORKFLOW INBOX: question ticket ${row.id} for ${inst} (home ${i.home}); it is in-progress. Answer it from the lab's records and results only ` +
       '(no new compute, no script), then deliver it (tickets_update deliver: true, result one line).', { label: `experimenter ${row.id}`, phase: 'Tickets', agentType: 'scientist:experimenter' })
     return r === null ? { lost: true } : { outcome: 'answered', detail: String(r).split('\n')[0] }
   }
   if (i.role === 'scientist' && rt.target === 'experimenter') {
     // the experiment's design leg runs here; its header gate goes to the human (no body before approval)
     if (!NESTED_OK) return { for_main: { why: 'an experiment ticket: /scientist:experiment (design, then the header gate)', ticket: row.id, instance: inst, skill: 'scientist:experiment' } }
-    const r = await workflow({ scriptPath: NESTED['scientist:experiment'] }, { nested: true, root: ROOT, mode: 'design', ticket: row.id, kind: row.kind })
+    const r = await workflow({ scriptPath: NESTED['scientist:experiment'] }, { models: TIER_MODELS, nested: true, root: ROOT, mode: 'design', ticket: row.id, kind: row.kind })
     if (r && r.for_main) return { for_main: Object.assign({ skill: 'scientist:experiment', instance: inst }, r.for_main, { ticket: row.id }) }
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.argument || r.reason || '') : 'lost', nested: r }
   }
@@ -357,30 +381,30 @@ async function handle(row, i) {
   if (rt.how === 'skill' && NESTED[rt.target]) {
     if (rt.target === 'author:notes') {
       // a returned referee ticket: its packet (the ticket's packets field) is landed as tickets, then the ticket is closed by its sender
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, home: i.home, instance: inst, root: ROOT, referee_ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, home: i.home, instance: inst, root: ROOT, referee_ticket: row.id })
       if (r && r.outcome !== 'lost' && r.outcome !== 'not-started')
         await move(row, inst, `close: move it delivered -> closed (you are its sender), with a thread note "${(r.filed || []).length} ticket(s) filed from ${r.packet || 'the packet'}; ${(r.unfiled || []).length} unfiled"`, `${row.id} close`)
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.unfiled || []).join('; ') : 'lost', nested: r }
     }
     if (rt.target === 'expert:referee' || rt.target === 'expert:domain') {
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.packet || r.reason || (r.anomalies || []).join('; ') || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:cite') {
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? [r.key, r.pinpoint, r.verdict].filter(Boolean).join(', ') || (r.reason || '') : 'lost', nested: r,
         parked: !!(r && r.gate), gate: r && r.gate ? Object.assign({ skill: 'expert:cite' }, r.gate) : null }
     }
     if (rt.target === 'researcher:explore') {
       const direction = firstRef(row, /^([a-z][a-z0-9]*:)?DIR-\d+$/)
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ nested: true, root: ROOT, ticket: row.id, home: i.home, instance: inst, n: 1 },
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ models: TIER_MODELS, nested: true, root: ROOT, ticket: row.id, home: i.home, instance: inst, n: 1 },
         direction ? { direction: direction.split(':').pop() } : {}))
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.reason ? [r.reason] : []).join('; ') : 'lost', nested: r }
     }
     if (rt.target === 'researcher:generalize') {
       const ref = firstRef(row, /^P-\d{4,}$/) || firstRef(row, /^lab:\S+$/)
       if (!ref) return { for_main: { why: 'a generalize ticket whose refs name no report or lab claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ref, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, ref, ticket: row.id, home: i.home, instance: inst })
       if (r && r.to_file && r.to_file.length)
         return { for_main: { why: 'generalize: the falsifier tests are left to file (the lead could not file them)', ticket: row.id, instance: inst, to_file: r.to_file } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.reason || '') : 'lost', nested: r }
@@ -388,23 +412,23 @@ async function handle(row, i) {
     if (rt.target === 'researcher:prove') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
       if (r && r.needs_explore) return { for_main: { why: 'the claim has no falsifier yet: run /researcher:explore first', ticket: row.id, instance: inst, skill: 'researcher:explore' } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:verify') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/)
       if (!claim) return { for_main: { why: 'a verify ticket whose refs name no claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, claim, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
     const subject = firstRef(row, /^lab:\S+$/)
     if (!subject) return { for_main: { why: 'a review-experiment ticket whose refs name no lab claim', ticket: row.id, instance: inst } }
-    const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
+    const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
     if (r && r.outcome === 'needs-settle') {
       // settle in the same handle (sequential, still one nesting level): the audit, then the candidates' re-derivations
       const slug = subject.replace(/[^A-Za-z0-9._-]+/g, '-')
-      const st = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
+      const st = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
         candidates: `${i.home}/.academy/settle-${slug}.json` })
       return { outcome: st ? st.outcome : 'unfinished', detail: st ? (st.notes || []).join('; ') : 'lost', nested: st }
     }
@@ -414,13 +438,13 @@ async function handle(row, i) {
   if (rt.how === 'agent') {
     const type = `${i.role}:${rt.target}`
     if (row.return) {
-      const r = await agent(`WORKFLOW INBOX: the ticket ${row.id} came back delivered to ${inst} (home ${i.home}). Land its result as your agent definition says, then close it (tickets_update status closed).`,
+      const r = await launch(`WORKFLOW INBOX: the ticket ${row.id} came back delivered to ${inst} (home ${i.home}). Land its result as your agent definition says, then close it (tickets_update status closed).`,
         { label: `${rt.target} ${row.id} (land)`, phase: 'Tickets', agentType: type })
       return r === null ? { lost: true } : { outcome: 'landed', detail: String(r).split('\n')[0] }
     }
     const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py --home ' + i.home + '`; the statements to leave byte for byte)' : ''))
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
-    const r = await agent(
+    const r = await launch(
       `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
       `Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ` +
       (i.role === 'author' ? `Pinned statements, to leave byte for byte: ${st.detail}\n` +

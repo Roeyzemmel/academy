@@ -18,6 +18,30 @@ export const meta = {
 // on human, and what was filed is read back from the board. Notes on the tex are never edited.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 if (!A.home || !A.instance) throw new Error('args.home and args.instance are required')
 // a returned referee ticket names its packet in its packets field (the inbox passes the ticket)
 const REFEREE = A.referee || (A.referee_ticket ? `the referee packet in the packets field of ${A.referee_ticket}` : '')
@@ -29,7 +53,7 @@ const AR = ROOT || '<academy repo>'
 const ROUTES = `${AR}/author/scripts/routes.py`
 const SCRIPTS = `Scripts: board.py is \`py ${AR}/academy/scripts/board.py\`, routes.py is \`py ${AR}/author/scripts/routes.py\` (python3 where there is no py)` +
   (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.<plugin> is each scripts folder).\n')
-const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-notes workflow. Author home: ${A.home}. Instance: ${A.instance}.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
+const clerk = (stage, lines, schema, label, phase) => launch(`WORKFLOW STAGE ${stage} of the academy-notes workflow. Author home: ${A.home}. Instance: ${A.instance}.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const NOTE = { type: 'object', properties: { id: { type: 'string', description: 'file:line, or P-NNNN point k' }, file: { type: 'string' }, line: { type: 'number' },
@@ -82,7 +106,7 @@ const brief = (extra) => SCRIPTS + `You decide, for each new ${REFEREE ? 'point 
   `agenda <ns>:<label> of the statement it sits on (ns ${inv.ns}); refs the same; detail "<macro> note <file>:<line>: <the note quoted, lightly>"${REFEREE ? ' with "<P-NNNN> point <k>" and refs <P-NNNN>; judgement points parked on human, objective ones as apply / write' : ''}). ` +
   'Mark judgement: true for a judgement point or a decision only the human can make (it is filed to this instance and parked on human). park_on: another note\'s id when this one builds on it.\n' +
   `The notes:\n${JSON.stringify(inv.new)}` + (extra || '')
-let cls = await agent(brief(), { label: 'classify', phase: 'Classify', agentType: FILER, model: 'sonnet', schema: CLASSIFIED })
+let cls = await launch(brief(), { label: 'classify', phase: 'Classify', agentType: FILER, tier: 'medium', schema: CLASSIFIED })
 if (cls === null) return Object.assign(out, { outcome: 'lost', reason: 'the classification returned nothing (a limit?)' })
 
 // ---- Check: the role cut and the kind rules, one retry --------------------------------------
@@ -114,8 +138,8 @@ async function check(decisions) {
 let bad = await check(cls.decisions)
 if (Object.keys(bad).length) {
   out.notes.push('proposals sent back once: ' + Object.entries(bad).map(([n, p]) => `${n}: ${p.join('; ')}`).join(' | '))
-  const again = await agent(brief(`\n\nThese proposals break the rules; correct them (return every decision again):\n${JSON.stringify(bad)}`),
-    { label: 'classify again', phase: 'Check', agentType: FILER, model: 'sonnet', schema: CLASSIFIED })
+  const again = await launch(brief(`\n\nThese proposals break the rules; correct them (return every decision again):\n${JSON.stringify(bad)}`),
+    { label: 'classify again', phase: 'Check', agentType: FILER, tier: 'medium', schema: CLASSIFIED })
   if (again === null) return Object.assign(out, { outcome: 'lost', reason: 'the second classification returned nothing' })
   cls = again
   bad = await check(cls.decisions)
@@ -129,13 +153,13 @@ out.discrepancies = cls.decisions.filter(d => d.decision === 'discrepancy').map(
 // ---- File: exactly the checked tickets, then read back ---------------------------------------------
 phase('File')
 if (fileable.length || appends.length) {
-  const f = await agent(SCRIPTS + `File exactly these tickets for ${A.instance} (Author home ${A.home}), and nothing else: board.py new --as ${A.instance} ` +
+  const f = await launch(SCRIPTS + `File exactly these tickets for ${A.instance} (Author home ${A.home}), and nothing else: board.py new --as ${A.instance} ` +
     '--to <to> --kind <kind> --title ... --ask ... --deliverable ... [--agenda ...] --refs ... [--final-to ...] --detail ...; then, for a ticket with park_on, ' +
     'board.py transition <id> blocked --waiting-on <human | the ticket filed for that note> --reason "<why>" --as ' + A.instance + '.\n' +
     `Tickets: ${JSON.stringify(fileable.map(d => Object.assign({ note: d.note }, d.proposed)))}\n` +
     `Then add these thread lines (board.py append <ticket> --text "<words>" --as ${A.instance}): ${JSON.stringify(appends.map(d => ({ ticket: d.ticket, words: d.words, note: d.note })))}\n` +
     'Edit no file and run no git write. Return the ticket filed per note, with note EXACTLY the note id given above (e.g. sections/a.tex:10), the tickets appended to, and any refusal verbatim.',
-    { label: 'file', phase: 'File', agentType: FILER, model: 'sonnet', schema: FILED })
+    { label: 'file', phase: 'File', agentType: FILER, tier: 'medium', schema: FILED })
   if (f === null) return Object.assign(out, { outcome: 'lost', reason: 'the filing run returned nothing; check the board for what was filed' })
   out.filed = f.filed
   if (f.refused.length) out.anomalies.push('refused: ' + f.refused.join('; '))

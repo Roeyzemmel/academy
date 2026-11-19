@@ -55,7 +55,7 @@ merged in a throwaway worktree and gated together.
 ## 3. The round, fanned out (`--workflow`)
 
 Call the **Workflow** tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/maintain.js` and
-`args: {root: "<the academy repo, absolute>", workspace: "<the workspace root>", base:
+`args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/scripts/models.py" launches prints>, root: "<the academy repo, absolute>", workspace: "<the workspace root>", base:
 "<the base branch>", cap: 4}`; add `tasks: [{slug, title, kind, files, measure, why}]`
 when they are already chosen (the survey and plan stages are then skipped). The script
 applies the plan's rules, puts tasks that share a file in one stacked lane and runs the

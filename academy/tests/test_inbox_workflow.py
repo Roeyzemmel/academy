@@ -210,9 +210,10 @@ class InboxWorkflowTests(unittest.TestCase):
         res, labels, calls = self.run_wf({
             "list": [{"instances": [inst("expert@t", rows)]}],
             "workflow verify.js": [{"outcome": "confirmed", "proposed_status": "proved"}],
-            "check T-1": [DONE]})
+            "check T-1": [DONE]}, models={"expert:rigor-reviewer": "fable"})
         wf = next(c for c in calls if c["label"] == "workflow verify.js")
-        self.assertEqual(wf["args"], {"nested": True, "root": "/academy", "claim": "paper:lem:x", "ticket": "T-1"})
+        self.assertEqual(wf["args"], {"nested": True, "root": "/academy", "claim": "paper:lem:x", "ticket": "T-1",
+                                      "models": {"expert:rigor-reviewer": "fable"}})   # the map passed on
         rows = [row("T-2", how="skill", target="researcher:review-experiment",
                     kind="review-experiment", to="researcher@u", refs=["lab:x", "P-0009"])]
         res, labels, calls = self.run_wf({

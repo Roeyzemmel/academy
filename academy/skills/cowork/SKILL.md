@@ -60,7 +60,7 @@ Record each in the plan file's `## Seeding`.
   `tickets_create` with `as_human`). Write each ticket id into the task table.
 - **One pass at a time, in code** (2026-10-31; docs/workflows.md). Call the **Workflow** tool
   with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/workplan.js` and
-  `args: {kind: "cowork", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", slug: "<slug>", agents: <A>}`.
+  `args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/scripts/models.py" launches prints>, kind: "cowork", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", slug: "<slug>", agents: <A>}`.
   The pass runs the same components a campaign uses:
   - the state from the tickets (`cowork.py status`);
   - the next actor of each released ticket: its role's inbox, scoped to the cowork, at

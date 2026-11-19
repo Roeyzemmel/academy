@@ -23,7 +23,7 @@ project's decision is not a reason to change the pack unless the ticket says the
 usage is the project's.
 
 **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/domain.js` and
-`args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", ticket: "T-NNNN"}`. The inbox runs it for a `notation` ticket to the Expert. The
+`args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", ticket: "T-NNNN"}`. The inbox runs it for a `notation` ticket to the Expert. The
 order is code (2026-10-31; docs/workflows.md):
 1. the ticket is taken. A ticket that asks for two unrelated changes is split: the first
    is taken, and the thread says so;

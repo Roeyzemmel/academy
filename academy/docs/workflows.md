@@ -87,6 +87,38 @@ reviewers blind.
 - A `cite` whose source cannot be read is parked on the human with the exact ask (project rule "inaccessible sources") and comes back as a gate, not delivered; there is no card to validate.
 - `ship.py checkpoint` refuses a repo on a branch that is neither `main` nor `<date>/<topic>/<role>` (a cloud session's own branch): it reports, and the session commits by hand.
 
+## Models
+
+A workflow launches every agent on the workspace's model for its tier (T-0350; the tiers
+and the map are docs/config.md, "`models`: agent tiers"). An agent file's `model:` line is
+its tier's default alias, so under the academy default map nothing needs passing; where the
+workspace maps a tier elsewhere, the launch must carry the Agent tool's `model`. A workflow
+script cannot read workspace.json, so the map comes in its arguments:
+
+- **`args.models`.** The skill that calls the Workflow tool passes, as the first key of its
+  `args`, the JSON object `py <academy repo>/academy/scripts/models.py launches` prints:
+  `{"<plugin:name>": <launch>}` for every agent whose tier the workspace maps away from its
+  file's `model:`, and `{"tier:<tier>": <launch>}` for every such tier (`{}` with the
+  default map). A missing or malformed `args.models` is read as `{}`: every agent then runs
+  on its file's model, as before.
+- **`launch()`.** Every workflow carries the same block, between `// ---- Models` and
+  `// ---- end Models` (pinned identical by `academy/tests/test_workflow_models.py`), and
+  launches every agent through its `launch(prompt, opts)`, never `agent()` directly. An
+  agent the map names gets `model: <launch>`; any other agent's options are passed
+  unchanged.
+- **Scripts name no model.** An academy agent's model is its tier's, so a script never
+  passes `model:`. An agent with no academy file (`general-purpose`, the notes filer) is
+  given a tier instead: `launch(p, {agentType: 'general-purpose', tier: 'medium'})` runs it
+  on the map's `tier:medium`, else on the default alias of that tier (the block's
+  `TIER_DEFAULTS`, pinned to `DEFAULT_MODEL_TIERS`); an unknown tier throws before anything
+  is launched. Both rules are tests.
+- **Nested workflows** get the same map: every `workflow(...)` call passes
+  `models: TIER_MODELS` (the inbox to its routes, the workplan to the inbox).
+
+The launch value is an alias (`claude-opus-5-5` launches as `opus`): the per-call `model`
+takes no full id. The id still decides the grading floor, read by the graders' own report
+of the model they ran on (roster-rules.md, "Model fallback").
+
 ## Shipping is a step of the workflow, not a habit of the session
 
 A workflow that changes files ends by shipping them, in code: the inbox's `--check` runs

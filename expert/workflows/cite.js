@@ -16,6 +16,30 @@ export const meta = {
 // \cite into a paper: that is the Author's edit.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 if (!A.ticket && !A.ref) throw new Error('give args.ticket or args.ref')
 const CLERK = 'academy:inbox-clerk'
 const LIB = 'expert:librarian'
@@ -24,7 +48,7 @@ const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
 const SCRIPTS = `Scripts: cards.py is \`py ${AR}/expert/scripts/cards.py\`, from the library home (python3 where there is no py)` +
   (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.expert is the scripts folder).\n')
-const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-cite workflow.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
+const clerk = (stage, lines, schema, label, phase) => launch(`WORKFLOW STAGE ${stage} of the academy-cite workflow.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const ASK = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' },
@@ -52,7 +76,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
     command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
   const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
   if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
-  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+  const r = await launch(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
     '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
   const lines = String(r ? r.output : '').split(/\r?\n/)
   const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
@@ -96,14 +120,14 @@ const brief = SCRIPTS + `${ask.ref}. ` + (ask.pinpoint ? `The pinpoint intended:
   'If it is new, fetch the record and add the entry in the file\'s key style. Then locate the statement, write its card with a verbatim quote ' +
   'from the version named, validate the card, and add the index row if the source is newly cached. Never write an entry from memory and never ' +
   'invent a pinpoint; a source you cannot read is said so on the card.'
-let c = await agent(brief, { label: 'librarian', phase: 'Cite', agentType: LIB, schema: CARD })
+let c = await launch(brief, { label: 'librarian', phase: 'Cite', agentType: LIB, schema: CARD })
 if (c === null) return Object.assign(out, { outcome: 'lost', reason: 'the librarian run returned nothing (a limit?): nothing further launched' })
 // an unreachable source has no card to validate (live run 2026-10-31 validated the words "none written"): skip the check
 const noCard = !c.reachable && !/\.(md|ya?ml)$/i.test(String(c.card || '').trim())
 let v = noCard ? null : await clerk('validate', [`Run cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
 if (v && !v.ok) {
   out.notes.push('the card failed validation; sent back to the librarian once: ' + v.errors.join('; '))
-  const c2 = await agent(brief + `\n\nYour card ${c.card} fails cards.py validate:\n- ${v.errors.join('\n- ')}\n` +
+  const c2 = await launch(brief + `\n\nYour card ${c.card} fails cards.py validate:\n- ${v.errors.join('\n- ')}\n` +
     'Fix the card. A quote you cannot find in the cached text is corrected from the source, or the card says why it cannot be.',
     { label: 'librarian (fix)', phase: 'Cite', agentType: LIB, schema: CARD })
   if (c2 === null) return Object.assign(out, { outcome: 'lost', reason: 'the librarian fix returned nothing', card: c })
@@ -125,7 +149,7 @@ const end = async () => {
 
 // ---- Land --------------------------------------------------------------------------------
 phase('Land')
-const p = await agent(`File the citation packet for ${c.key}: packets_create kind citation, subject [bib:${c.key}#${c.pinpoint || '?'}], ` +
+const p = await launch(`File the citation packet for ${c.key}: packets_create kind citation, subject [bib:${c.key}#${c.pinpoint || '?'}], ` +
   `the card ${c.card} under ## Produced, the verdict (${c.verdict})${c.reachable ? '' : ' and how the unreadable source was read'} under ## Established vs assumed` +
   (T ? `, ticket ${T}` : '') + `; ## Decisions needed: None. unless the verdict is a mismatch, then one decision on what the relying statement should do. Return the packet id.`,
   { label: 'packet', phase: 'Land', agentType: LIB, schema: PACKET, effort: 'low' })

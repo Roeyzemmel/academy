@@ -32,19 +32,28 @@ const block = require('fs').readFileSync(process.argv[2], 'utf8')
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
   const q = plan.answers
   if (!q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
 }
-const body = new Function('agent', 'AR', 'ROOT', 's', block + '\nreturn ship(s)')
-body(agent, '/acad', '/acad', plan.s).then(r => console.log(JSON.stringify({ result: r, calls, notes: plan.s.notes })),
+// the workflow's Models block (launch()) comes first, as in the file: ship() launches through it
+const body = new Function('agent', 'A', 'AR', 'ROOT', 's', block + '\nreturn ship(s)')
+body(agent, plan.args || {}, '/acad', '/acad', plan.s).then(r => console.log(JSON.stringify({ result: r, calls, notes: plan.s.notes })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
 
 
+MODELS = re.compile(r"^// ---- Models \(docs/workflows\.md.*?^// ---- end Models\n", re.M | re.S)
+
+
 def block_of(rel):
     m = BLOCK.search((REPO / rel).read_text(encoding="utf-8"))
+    return m.group(0) if m else None
+
+
+def models_of(rel):
+    m = MODELS.search((REPO / rel).read_text(encoding="utf-8"))
     return m.group(0) if m else None
 
 
@@ -74,17 +83,17 @@ FIRST = T + ": delivered (delivered)\n"
 
 @unittest.skipUnless(NODE, "node is not installed")
 class ReadTheCheck(unittest.TestCase):
-    def ship(self, s, answers=()):
+    def ship(self, s, answers=(), args=None):
         d = tempfile.mkdtemp(prefix="acad-ship-")
         self.addCleanup(shutil.rmtree, d, True)
         h, b = os.path.join(d, "h.js"), os.path.join(d, "b.js")
         with open(h, "w", encoding="utf-8") as fh:
             fh.write(HARNESS)
         with open(b, "w", encoding="utf-8") as fh:
-            fh.write(block_of(SHIPPING[0]))
+            fh.write(models_of(SHIPPING[0]) + block_of(SHIPPING[0]))
         s = dict({"role": "expert", "ticket": T, "done": True, "topic": "cite-SW10", "only": "library board",
                   "agentType": "academy:inbox-clerk", "phase": "Land", "notes": []}, **s)
-        p = subprocess.run([NODE, h, b, json.dumps({"s": s, "answers": list(answers)})],
+        p = subprocess.run([NODE, h, b, json.dumps({"s": s, "answers": list(answers), "args": args or {}})],
                            capture_output=True, text=True, timeout=60)
         out = json.loads(p.stdout.strip().splitlines()[-1])
         self.assertNotIn("error", out, out.get("error"))
@@ -105,6 +114,13 @@ class ReadTheCheck(unittest.TestCase):
         self.assertEqual(res["status"], "pushed")                   # read from the output, not the clerk's word
         self.assertEqual(res["branches"], ["library 2026-11-13/t-0904/expert"])
         self.assertNotIn("command", res)
+
+    def test_the_ship_clerk_is_launched_on_the_workspace_model_of_its_tier(self):
+        text = FIRST + "library 2026-11-13/t-0904/expert @ abc (0 files) unchanged\n"
+        _, calls = self.ship({}, [self.out(text)])
+        self.assertIsNone(calls[0].get("model"))                    # the default map: its file decides
+        _, calls = self.ship({}, [self.out(text)], args={"models": {"academy:inbox-clerk": "sonnet"}})
+        self.assertEqual(calls[0]["model"], "sonnet")
 
     def test_unchanged_everywhere_is_nothing(self):
         res, _ = self.ship({}, [self.out(FIRST + "library 2026-11-13/t-0904/expert @ abc (0 files) unchanged\n")])

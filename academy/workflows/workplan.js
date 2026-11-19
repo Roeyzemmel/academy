@@ -19,6 +19,30 @@ export const meta = {
 // the skill (for_main), which asks and calls again.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 if (!['campaign', 'cowork'].includes(A.kind)) throw new Error('args.kind must be campaign or cowork')
 if (!A.root) throw new Error('args.root must be the academy repo')
 const ROOT = A.root.replace(/[\\/]+$/, '')
@@ -67,13 +91,13 @@ async function caps() {
     const agents = A.agents == null ? 1 : A.agents
     return agents >= 1 ? { ok: true, error: '', rounds: null, agents, runs: 0, profile: null } : { ok: false, error: '--agents must be at least 1' }
   }
-  return agent(STAGE('campaign-check', [`Run notebook.py campaign-check --rounds ${A.rounds} --agents ${A.agents}` +
+  return launch(STAGE('campaign-check', [`Run notebook.py campaign-check --rounds ${A.rounds} --agents ${A.agents}` +
     (A.runs != null ? ` --runs ${A.runs}` : '') + (A.profile ? ` --profile ${A.profile}` : '') + (A.cloud ? ' --cloud' : '') +
     ' --json and return its caps, or ok false with its error line.']), { label: 'caps', phase: 'Caps', agentType: CLERK, schema: CAPS, effort: 'low' })
 }
 
 function state(label) {
-  return agent(STAGE('workplan-state', KIND === 'campaign'
+  return launch(STAGE('workplan-state', KIND === 'campaign'
     ? [`Return notebook.py approach status --campaign ${TAG} --json (its state, decision and waiting tickets, and every approach), whether notebook.py approach check --campaign ${TAG} passes,`,
        `the target ${TAG}'s status and statement (claims_show), and the receivers of the open tickets tagged campaign ${TAG}. Write nothing.`]
     : [`Return cowork.py status ${TAG} --json (state, decision, out, own) and the receivers (the "to" instances) of its open tickets. Write nothing.`]),
@@ -86,7 +110,7 @@ async function nextActor(receivers, cap) {
   const only = (receivers || []).filter(r => r && r !== 'human')
   if (!only.length) return { count: 0 }
   const r = await workflow({ scriptPath: ROOT + '/academy/workflows/inbox.js' },
-    Object.assign({ root: ROOT, only, cap, nested: true }, KIND === 'campaign' ? { campaign: TAG } : { cowork: TAG }))
+    Object.assign({ models: TIER_MODELS, root: ROOT, only, cap, nested: true }, KIND === 'campaign' ? { campaign: TAG } : { cowork: TAG }))
   if (!r) return { lost: true }
   out.taken.push(...(r.taken || []))
   if (r.for_main) out.for_main.push(r.for_main)
@@ -137,7 +161,7 @@ phase('Seed')
 let st = await state('state')
 if (!st) return report(null, 'the state stage returned nothing')
 if (!st.approach_count_ok) {
-  const seed = await agent(SCRIPTS + `Round 0 of the campaign on ${TAG} (home ${A.home}): seed at least four approach objects with notebook.py new approach ` +
+  const seed = await launch(SCRIPTS + `Round 0 of the campaign on ${TAG} (home ${A.home}): seed at least four approach objects with notebook.py new approach ` +
     `(substantially different mechanisms, grouped by idea, duplicates merged), each with at least one concrete direction; file the one target-level ` +
     `prior-art check to the Expert as a lookup or cite ticket tagged campaign ${TAG}. Return the updates and the tickets filed.`,
     { label: 'seed', phase: 'Seed', agentType: LEAD_TYPE, schema: LEAD })
@@ -158,7 +182,7 @@ for (let round = 1; round <= cp.rounds; round++) {
   why = stopRule(st)
   if (why) break
   if (reseed) {
-    const s = await agent(SCRIPTS + `The last round of the campaign on ${TAG} was a failed wave (no artifact, or every approach blocked). Reseed: fresh formulations, ` +
+    const s = await launch(SCRIPTS + `The last round of the campaign on ${TAG} was a failed wave (no artifact, or every approach blocked). Reseed: fresh formulations, ` +
       `and reopen any approach whose reopen_if now holds (notebook.py approach set ... --note naming the new mechanism). Return the updates.`,
       { label: `reseed ${round}`, phase: 'Rounds', agentType: LEAD_TYPE, schema: LEAD })
     if (s === null) { why = 'the reseeding run was lost'; break }
@@ -172,13 +196,13 @@ for (let round = 1; round <= cp.rounds; round++) {
     if (used >= cp.agents) { out.notes.push(`round ${round}: --agents (${cp.agents}) reached; the round ends`); break }
     const items = []
     for (const d of ap.directions || []) {
-      const n = await agent(STAGE('next', [`Return the items of notebook.py next ${d} --json (nothing for a blocked, dropped or delivered approach).`]),
+      const n = await launch(STAGE('next', [`Return the items of notebook.py next ${d} --json (nothing for a blocked, dropped or delivered approach).`]),
         { label: `next ${d}`, phase: 'Rounds', agentType: CLERK, schema: NEXT, effort: 'low' })
       if (n) items.push(...n.items.map(x => `${d}: ${x}`))
     }
     if (!items.length) continue
     // blind: the approach, its next items and the target statement, nothing of the other approaches
-    const a = await agent(`Campaign prover on approach ${ap.approach} (home ${A.home}). Target: ${TAG}: ${st.target_statement || '(claims_show it)'}\n` +
+    const a = await launch(`Campaign prover on approach ${ap.approach} (home ${A.home}). Target: ${TAG}: ${st.target_statement || '(claims_show it)'}\n` +
       `Your directions' next items:\n- ${items.join('\n- ')}\nProduce ONE concrete artifact (a lemma with a proof attempt, a construction, an equation, or a counterexample to a sublemma) ` +
       `as a file in the notebook, and return its path. Search background and standard theorems for your approach only; never whether the target is solved.`,
       { label: `prover ${ap.approach} r${round}`, phase: 'Rounds', agentType: PROVER, schema: ARTIFACT })
@@ -186,7 +210,7 @@ for (let round = 1; round <= cp.rounds; round++) {
     used++
     if (a === null) { why = `the prover on ${ap.approach} was lost (a limit?)`; break }
     rounds[ap.approach] = (rounds[ap.approach] || 0) + 1
-    const e = a.artifact && a.kind !== 'none' ? await agent(STAGE('exists', [`Does ${a.artifact} exist in the home? Return exists.`]),
+    const e = a.artifact && a.kind !== 'none' ? await launch(STAGE('exists', [`Does ${a.artifact} exist in the home? Return exists.`]),
       { label: `exists ${ap.approach} r${round}`, phase: 'Rounds', agentType: CLERK, schema: EXISTS, effort: 'low' }) : null
     if (e && e.exists) artifacts.push({ approach: ap.approach, artifact: a.artifact, kind: a.kind, summary: a.summary })
     else out.notes.push(`round ${round}: ${ap.approach} produced no artifact (a wasted slot)`)
@@ -196,7 +220,7 @@ for (let round = 1; round <= cp.rounds; round++) {
   // 4-7. the lead: reduction audit, approach updates, diversity check, hand-off tickets
   const survivors = (st.approaches || []).filter(a => a.lifecycle === 'active')
   const cross = survivors.length > 0 && survivors.every(a => (rounds[a.approach] || 0) >= 2)
-  const l = await agent(SCRIPTS + `Round ${round} of the campaign on ${TAG} (home ${A.home}) is done. The artifacts: ${JSON.stringify(artifacts)}.\n` +
+  const l = await launch(SCRIPTS + `Round ${round} of the campaign on ${TAG} (home ${A.home}) is done. The artifacts: ${JSON.stringify(artifacts)}.\n` +
     `Audit them with the rigor reduction audit (anything claimed proved goes to /researcher:prove's verify route as a ticket; nothing is graded here); ` +
     `update the approaches (notebook.py approach set AP-n <lifecycle> ...; blocked needs --blocked-by and --reopen-if); run the diversity check ` +
     `(more than half the active directions in one family: redirect the extras); file every ask for another role as a ticket tagged campaign ${TAG}. ` +

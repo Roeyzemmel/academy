@@ -15,6 +15,30 @@ export const meta = {
 // before and after, so a file written outside Record is reported as an anomaly.
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 if (!A.instance || !/^[a-z]+@[a-z0-9][a-z0-9-]*$/.test(A.instance)) throw new Error('args.instance must be a workspace instance (author@<name>)')
 const SCOUT = 'expert:related-work-scout'
 const GROUPS = Math.max(1, Math.min(A.groups || 4, 6))
@@ -49,14 +73,14 @@ const WROTE = { type: 'object', properties: {
 
 // ---- a one-statement prior-art search: one scout, as before -------------------------
 if (A.statement) {
-  const r = await agent(`Search for prior work on ${A.statement} for ${A.instance}, as your agent definition says, and write ` +
+  const r = await launch(`Search for prior work on ${A.statement} for ${A.instance}, as your agent definition says, and write ` +
     `${LEDGER}<today>-<id-slug>.md. Report the queries run and the hits ranked by overlap.`, { label: `prior art ${A.statement}`, agentType: SCOUT })
   return { instance: A.instance, statement: A.statement, report: r, ship: shipNotRun('prior-art-' + A.statement) }
 }
 
 // ---- Plan ---------------------------------------------------------------------------
 phase('Plan')
-const plan = await agent(`RETURN-ONLY stage of the literature watch for ${A.instance}: write nothing. ` +
+const plan = await launch(`RETURN-ONLY stage of the literature watch for ${A.instance}: write nothing. ` +
   `Read ${LEDGER}_header.md in the library home and the search vocabulary (its ## Search vocabulary block, or the one under the watched home's .claude/rules/). ` +
   `If neither exists, return ok false with that reason. Otherwise return the window start (the newest watch-*.md, or 30 days ago), today, ` +
   `the file names now in ${LEDGER}, and every source: each arXiv category, keyword, author and anchor key, one entry each.`,
@@ -79,7 +103,7 @@ if (!groups.length) return { instance: A.instance, reason: 'the vocabulary lists
 
 // ---- Search: return-only, in parallel ---------------------------------------------------
 phase('Search')
-const found = await parallel(groups.map(g => () => agent(
+const found = await parallel(groups.map(g => () => launch(
   `RETURN-ONLY search for the literature watch of ${A.instance}: WRITE NOTHING (another stage writes the ledger). ` +
   `New listings only, since ${plan.window_start}. Run exactly these sources and say which pages and queries you read and how deep:\n- ` +
   g.items.join('\n- ') + `\nFor each candidate, give its arXiv id or DOI, the statement of ${A.instance} it overlaps (if any) and a verdict.`,
@@ -105,7 +129,7 @@ log(`${hits.length} distinct hit(s) from ${found.filter(Boolean).length}/${group
 // ---- Record: exactly one writer ----------------------------------------------------------
 phase('Record')
 const file = `${LEDGER}watch-${plan.today}.md`
-const w = await agent(
+const w = await launch(
   `Write the literature watch file ${file} in the library home, in your ledger format, from exactly these results ` +
   `(window ${plan.window_start}..${plan.today}; a watch with no hits still gets its file):\n` +
   `Pages and queries run: ${JSON.stringify(ran)}\n` + (lost.length ? `Searches lost (say so in the file): ${lost.join(', ')}\n` : '') +

@@ -16,7 +16,7 @@ is closed by the script without the relay. Run from the Researcher home.
 and stop), or ticket ids.
 
 1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
-   and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
+   and `args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
 2. **Finish what it hands back**, as `/academy:inbox` section 2 says: a `for_main` ticket
    (prove, explore, generalize, review-experiment and settle's first leg run nested in the
    workflow. What can come back here: `/researcher:explore` for a claim with no falsifier

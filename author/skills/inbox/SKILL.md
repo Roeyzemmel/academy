@@ -24,7 +24,7 @@ human). If the agenda's status column may be stale, run `py $S/agenda.py status`
 ticket ids (at most three).
 
 1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
-   and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
+   and `args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
    The workflow starts each agent ticket (`math-writer`, `math-editor`, `figure-maker`,
    `tex-engineer`, `notation-auditor`, `note-sweeper`) in-progress and briefs the agent
    with the pinned statements (`pinned.py`); a returned ticket goes to `math-editor`

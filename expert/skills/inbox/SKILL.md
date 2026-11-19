@@ -16,7 +16,7 @@ is closed by the script without the relay. Run from the library home.
 and stop), or ticket ids.
 
 1. **Run** the Workflow tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/inbox.js`
-   and `args: {root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
+   and `args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", only: ["<this instance>"], n: <N>, ids: [...]}`.
 2. **Finish what it hands back**, as `/academy:inbox` section 2 says: a `for_main` ticket
    (every Expert route runs in the workflow, cite, verify, referee and domain nested; what comes back is a question for the human or a limit), then its
    `inbox.py --check T-NNNN`, then the workflow again with the cap lowered; `stopped` ends

@@ -17,11 +17,35 @@ export const meta = {
 // expert plugin's land_referee hook (it fires for workflow agents).
 
 const A = args || {}
+
+// ---- Models (docs/workflows.md, "Models"): the same block in every workflow. The skill
+// that runs the workflow passes args.models, the JSON object `models.py launches` prints:
+// the agents whose tier this workspace maps away from their file's model: line, and each
+// such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
+// names gets its workspace model; an agent with no academy file (general-purpose) is
+// given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
+// model. Nested workflows get the same map.
+const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
+const launch = (prompt, opts) => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
+  const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
+  const t = opts && opts.agentType
+  const m = t ? mapped(t) : null
+  if (opts && has(opts, 'tier')) {
+    if (!has(TIER_DEFAULTS, opts.tier)) throw new Error('launch: unknown tier ' + JSON.stringify(opts.tier))
+    const o = Object.assign({}, opts, { model: m || mapped('tier:' + opts.tier) || TIER_DEFAULTS[opts.tier] })
+    delete o.tier
+    return agent(prompt, o)
+  }
+  return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
+}
+// ---- end Models
 const CLERK = 'academy:inbox-clerk'
 const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
 const T = A.ticket || ''
-const clerk = (stage, lines, schema, label, phase) => agent(`WORKFLOW STAGE ${stage} of the academy-referee workflow.\n` + lines.filter(Boolean).join('\n'),
+const clerk = (stage, lines, schema, label, phase) => launch(`WORKFLOW STAGE ${stage} of the academy-referee workflow.\n` + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const START = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' }, instance: { type: 'string', description: 'the Author instance to referee' }, acted_as: { type: 'string' } }, required: ['ok', 'detail', 'instance', 'acted_as'] }
@@ -47,7 +71,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
     command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
   const check = `py ${AR}/${s.role}/scripts/inbox.py${s.instance ? ' --instance ' + s.instance : ''} --check ${s.ticket}`
   if (!s.done) return { status: 'not-run', detail: `${s.ticket} is not finished: its checkpoint runs once it is (as in the inbox)`, command: check }
-  const r = await agent(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+  const r = await launch(`WORKFLOW STAGE ship. Run \`${check} 2>&1\` once, from the home` + (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
     '. Never run it again and fix nothing, whatever it prints: return its whole output verbatim.', { label: 'ship', phase: s.phase, agentType: s.agentType, schema: SHIP, effort: 'low' })
   const lines = String(r ? r.output : '').split(/\r?\n/)
   const m = lines.map(l => new RegExp('^' + s.ticket + ': (\\S+) \\(').exec(l)).find(Boolean)
@@ -106,7 +130,7 @@ const brief = `Referee ${instance} cold. The PDF is ${pdf.pdf}, built ${pdf.buil
   (A.focus ? `The human asks you to look hardest at: ${A.focus}. ` : '') +
   `Do not read the agenda or tickets before your cold reading. After it, check the paper against its vision, ` +
   (pdf.vision ? pdf.vision : 'there is none') + `. Ticket: ${T || 'none'}.`
-const r = await agent(brief, { label: 'referee', phase: 'Referee', agentType: 'expert:referee' })
+const r = await launch(brief, { label: 'referee', phase: 'Referee', agentType: 'expert:referee' })
 if (r === null) return Object.assign(out, { outcome: 'lost', reason: 'the referee run returned nothing (a limit?): nothing further launched' })
 
 // ---- Land: the hook filed the packet; find it, deliver ------------------------------------------

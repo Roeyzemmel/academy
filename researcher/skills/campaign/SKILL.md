@@ -32,7 +32,7 @@ runs another role's agents and never works another role's ticket.
 The rounds are code (2026-10-31): `academy/workflows/workplan.js`, which a cowork pass
 shares (docs/workflows.md). Call the **Workflow** tool with
 `scriptPath: ${CLAUDE_PLUGIN_ROOT}/../academy/workflows/workplan.js` and
-`args: {kind: "campaign", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", home: "<this home>", instance: "<this instance>", target: "<id>", rounds: N, agents: M, runs: K, profile: "<env>", cloud: <true in a cloud session>}`.
+`args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, kind: "campaign", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", home: "<this home>", instance: "<this instance>", target: "<id>", rounds: N, agents: M, runs: K, profile: "<env>", cloud: <true in a cloud session>}`.
 
 The script holds, in this order:
 - **The caps** (`notebook.py campaign-check`). A missing required cap stops it; ask the
