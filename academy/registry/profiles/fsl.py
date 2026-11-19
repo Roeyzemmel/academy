@@ -998,7 +998,8 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
         raise Refused("the grounds do not support %s -> %s:\n- %s"
                       % (cid, status, "\n- ".join(why)))
     held = [str(r) for r in (claim.fields.get("evidence") or [])]
-    evidence = list(evidence) + _verdict_rows(grounds, list(evidence) + held)
+    evidence = _new_rows([_row_for(claim, r) for r in evidence], held)
+    evidence = evidence + _verdict_rows(grounds, evidence + held)
     evidence = [_row_for(claim, r) for r in evidence]
     for row in evidence:
         _validate_row(row, repo, claim.v2)
@@ -1055,6 +1056,30 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
             _cache.clear()
         raise
     return old
+
+
+def _new_rows(rows, held):
+    """``rows`` less those the record already holds, or that repeat an earlier one: the
+    same row, or for a review record (``verdict``, ``audit``) a row on the same ref. A
+    re-settle on the same review records (proved-modulo, then proved) writes them once
+    (T-0182)."""
+    seen = {r.strip() for r in held}
+    refs = set()
+    for r in held:
+        cells = [c.strip() for c in str(r).split("|")]
+        if len(cells) > 1 and cells[0] in ("verdict", "audit"):
+            refs.add(cells[1])
+    out = []
+    for r in rows:
+        cells = [c.strip() for c in str(r).split("|")]
+        review = len(cells) > 1 and cells[0] in ("verdict", "audit")
+        if str(r).strip() in seen or (review and cells[1] in refs):
+            continue
+        seen.add(str(r).strip())
+        if review:
+            refs.add(cells[1])
+        out.append(r)
+    return out
 
 
 def _verdict_rows(grounds, given=()):

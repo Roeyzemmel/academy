@@ -198,7 +198,32 @@ class Context(object):
         except ac.AcademyError:
             return ""
 
+    def _check_base(self, name, plugin):
+        """A base ``academy:`` agent has no role to check ``name`` against, so it is
+        checked against the call (T-0182): it acts for the home the server runs in, or
+        for a party (``to`` / ``from``) of the call's ticket -- the ticket updated, or a
+        new ticket's parent -- as the inbox clerk does; for no other instance."""
+        t = self.ticket_hint or {}
+        parties = sorted(set(t.get(k) for k in ("to", "from")
+                             if t.get(k) in self.instances()))
+        home = self.home_instance()
+        if name == home or name in parties:
+            return
+        may = parties + ([home] if home and home not in parties else [])
+        where = ("ticket %s is between %s" % (t["id"], " and ".join(parties))
+                 if t.get("id") and parties else "the call names no ticket")
+        raise ToolError("agent %s:%s is a base academy: agent: it acts only for the home "
+                        "the server runs in or a party of the call's ticket, not for %s "
+                        "(%s; %s)%s"
+                        % (plugin or "?", self.agent, name, where,
+                           "the server runs in %s" % home if home
+                           else "the server runs in no home",
+                           "; pass instance=%s" % " or ".join(may) if may else ""))
+
     def _check_role(self, name, plugin):
+        if plugin not in ac.ROLES:
+            self._check_base(name, plugin)
+            return
         role = self.instances().get(name, {}).get("role")
         if plugin in ac.ROLES and role and plugin != role:
             own = sorted(self.instances_by_role(plugin))
@@ -242,7 +267,8 @@ class Context(object):
         the calling agent's (docs/protocol.md section 1, cloud sessions):
 
         1. the call's ``instance`` argument, checked against workspace.json and the
-           agent's role;
+           agent's role -- for a base ``academy:`` agent, which has none, against the
+           call: the server's home or a party of the call's ticket (T-0182);
         2. for a role agent, the party of the call's ticket (``to``, then ``from``)
            whose role is the agent's;
         3. the home containing the server's cwd, when its role is the agent's (a base

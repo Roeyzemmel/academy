@@ -168,6 +168,81 @@ class TestAgentAtTheWorkspaceRoot(TwoResearchers):
         self.assertEqual(res["instance"], "researcher@u")
 
 
+class TestBaseAgentInstance(TwoResearchers):
+    """T-0182 (1): a base ``academy:`` agent has no role, so ``instance=`` is checked
+    against the call instead: it may name the home the server runs in, or a party
+    (``to`` / ``from``) of the call's ticket (the ticket updated, or a new ticket's
+    parent) -- what the inbox clerk does when it acts for a ticket's party. Any other
+    instance is refused."""
+
+    def update(self, tid, instance, home=None, **kw):
+        return self.server(home).call("tickets_update", caller="academy:inbox-clerk",
+                                      id=tid, instance=instance, **kw)
+
+    def test_acts_for_either_party_of_the_ticket_from_the_root(self):
+        tid = self.ticket("researcher@u", frm_home="researcher@t")
+        err, res = self.update(tid, "researcher@u", status="accepted")
+        self.assertFalse(err, res)
+        err, res = self.update(tid, "researcher@t", note="sender's line")
+        self.assertFalse(err, res)
+        err, g = self.server().call("tickets_get", id=tid)
+        self.assertIn("researcher@u/inbox-clerk: status open -> accepted", g["body"])
+        self.assertIn("researcher@t/inbox-clerk: sender's line", g["body"])
+
+    def test_a_party_of_the_ticket_from_another_home(self):
+        # the inbox runs from one home and moves every instance's tickets
+        tid = self.ticket("researcher@u", frm_home="researcher@t")
+        err, res = self.update(tid, "researcher@u", home="author@t", status="accepted")
+        self.assertFalse(err, res)
+
+    def test_refused_for_an_instance_that_is_no_party(self):
+        tid = self.ticket("researcher@u", frm_home="researcher@t")
+        for home in (None, "author@t"):
+            with self.subTest(home=home):
+                err, msg = self.update(tid, "expert@t", home=home, note="x")
+                self.assertTrue(err)
+                self.assertIn("base academy: agent", msg)
+                self.assertIn("researcher@t or researcher@u", msg)
+        err, g = self.server().call("tickets_get", id=tid)
+        self.assertNotIn("inbox-clerk", g["body"])
+
+    def test_names_its_home_without_a_ticket(self):
+        s = self.server("author@t")
+        err, t = s.call("tickets_create", caller="academy:concierge", instance="author@t",
+                        title="t", kind="question", to="expert@t", ask="a",
+                        deliverable="d")
+        self.assertFalse(err, t)
+        self.assertEqual(t["from"], "author@t")
+        err, msg = s.call("tickets_create", caller="academy:concierge",
+                          instance="expert@t", title="t", kind="question",
+                          to="author@t", ask="a", deliverable="d")
+        self.assertTrue(err)
+        self.assertIn("base academy: agent", msg)
+        self.assertIn("author@t", msg)
+
+    def test_outside_every_home_without_a_ticket_refused(self):
+        err, msg = self.server().call("tickets_create", caller="academy:concierge",
+                                      instance="author@t", title="t", kind="question",
+                                      to="expert@t", ask="a", deliverable="d")
+        self.assertTrue(err)
+        self.assertIn("base academy: agent", msg)
+
+    def test_a_child_ticket_as_a_party_of_its_parent(self):
+        parent = self.ticket("researcher@u", frm_home="researcher@t")
+        err, t = self.server().call("tickets_create", caller="academy:concierge",
+                                    instance="researcher@u", parent=parent, title="t",
+                                    kind="question", to="expert@t", ask="a",
+                                    deliverable="d")
+        self.assertFalse(err, t)
+        self.assertEqual(t["from"], "researcher@u")
+        err, msg = self.server().call("tickets_create", caller="academy:concierge",
+                                      instance="author@t", parent=parent, title="t",
+                                      kind="question", to="expert@t", ask="a",
+                                      deliverable="d")
+        self.assertTrue(err)
+        self.assertIn("base academy: agent", msg)
+
+
 class FakeBackend(object):
     created = []
 

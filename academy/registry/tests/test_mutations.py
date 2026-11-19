@@ -106,6 +106,27 @@ class TestSetStatus(Homes):
         self.assertEqual(c.status, "supported")
         self.assertEqual(c.evidence, ["audit | results/x.json | SOUND | runs A, B"])
 
+    def test_a_resettle_on_the_same_review_records_repeats_no_row(self):
+        # T-0182: the MCP backend passes the grounds' verdicts as `evidence` rows (its
+        # five-cell form); a second change on the same records must not write them again
+        given = ["audit | %s | SOUND | %s | grader experiment-reviewer" % (v["ref"],
+                                                                            v["run_id"])
+                 for v in COMP["verdicts"]]
+        fsl.set_status(self.lab, "lab:foo", "supported", COMP, evidence=given,
+                       date="2026-09-28")
+        fsl.set_status(self.lab, "lab:foo", "supported", COMP, evidence=given + given[:1],
+                       date="2026-09-29")
+        c = fsl.parse_text(self.p.read_text(encoding="utf-8"), fallback=False)
+        for v in COMP["verdicts"]:
+            self.assertEqual(sum(v["ref"] in r for r in c.evidence), 1, c.evidence)
+        self.assertEqual([h.split(" | ")[:2] for h in c.history[:2]],
+                         [["2026-09-29", "supported"], ["2026-09-28", "supported"]])
+        # a row the record does not hold yet is still appended
+        fsl.set_status(self.lab, "lab:foo", "supported", COMP,
+                       evidence=["audit | results/x.json | SOUND | runs A, B"])
+        c = fsl.parse_text(self.p.read_text(encoding="utf-8"), fallback=False)
+        self.assertIn("audit | results/x.json | SOUND | runs A, B", c.evidence)
+
     def test_human_quote(self):
         fsl.set_status(self.lab, "lab:foo", "dropped",
                        {"basis": "human", "quote": "stop: out of scope"}, human=True)

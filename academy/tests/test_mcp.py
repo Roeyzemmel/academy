@@ -1729,6 +1729,85 @@ class TestRegistryBackend(McpTestBase):
         self.assertIn("status: proved", text)
         self.assertNotIn("modulo:", text)
 
+    def lab_statement_hash(self, cid):
+        """``cid``'s current statement hash, as the server's grounds check reads it."""
+        from tools import Context
+        from tools.claims import RegistryBackend
+        with open(self.ws_path, encoding="utf-8") as fh:
+            ws = dict(json.load(fh), _path=self.ws_path)
+        ctx = Context(cwd=self.homes["researcher@t"], workspace=ws)
+        h = RegistryBackend(ctx).statement_hash(cid)
+        self.assertTrue(h, "no statement hash for %s" % cid)
+        return h
+
+    def test_proved_modulo_on_two_reviewer_verdicts(self):
+        # T-0182 (2): proved-modulo through claims_set_status on basis proof -- two
+        # agreeing rigor-reviewer verdicts with distinct run ids on the current
+        # statement -- not only on the human's word (test_proved_modulo_end_to_end)
+        lab = self.homes["scientist@t"]
+        path = os.path.join(lab, "claims", "lab", "pm.md")
+        write(path, "---\nid: lab:pm\nkind: claim\ntitle: PM\nstatus: sketch\n"
+                    "lifecycle: active\nevidence: []\nhistory:\n"
+                    "  - 2026-09-28 | sketch | created\n---\nBody.\n")
+        # the lab is the class's shared one; tearDown removes claims/ (pm.md with it) but
+        # not reviews/: remove only this test's reviews/pm, then reviews/ only if this
+        # test created it (cleanups run last-in first-out)
+        reviews = os.path.join(lab, "reviews")
+        if not os.path.isdir(reviews):
+            self.addCleanup(lambda: os.path.isdir(reviews) and not os.listdir(reviews)
+                            and os.rmdir(reviews))
+        self.addCleanup(shutil.rmtree, os.path.join(reviews, "pm"), True)
+        h = self.lab_statement_hash("lab:pm")
+        rows = []
+        for r in "AB":
+            ref = "reviews/pm/%s.md" % r
+            write(os.path.join(lab, *ref.split("/")),
+                  "---\nsubject: lab:pm\nrun: %s\nrun_id: r%s\nverdict: CONFIRMED\n"
+                  "statement_hash: %s\nagent: expert:rigor-reviewer\n---\nreview\n"
+                  % (r, r, h))
+            rows.append({"verdict": "CONFIRMED", "run_id": "r" + r, "statement_hash": h,
+                         "grader_role": "rigor-reviewer", "ref": ref})
+        g = {"basis": "proof", "producer_role": "prover", "verdicts": rows}
+        s = self.server("researcher@t")
+
+        def set_to(status, grounds):
+            return s.call("claims_set_status", caller="researcher:claim-keeper",
+                          id="lab:pm", status=status, grounds=grounds)
+
+        def text():
+            with open(path, encoding="utf-8") as fh:
+                return fh.read()
+
+        before = text()
+        for grounds, why in ((g, "modulo"),                        # no missing inputs
+                             (dict(g, verdicts=rows[:1], modulo=["lab:ew"]), "two"),
+                             (dict(g, verdicts=[rows[0], dict(rows[1], run_id="rA")],
+                                   modulo=["lab:ew"]), "run")):
+            err, msg = set_to("proved-modulo", grounds)
+            self.assertTrue(err, grounds)
+            self.assertIn(why, msg)
+            self.assertEqual(text(), before)
+        err, res = set_to("proved-modulo", dict(g, modulo=["lab:ew"]))
+        self.assertFalse(err, res)
+        self.assertEqual(res["old"], "sketch")
+        self.assertEqual(res["check"]["exit"], 0, res)
+        got = text()
+        self.assertIn("status: proved-modulo", got)
+        self.assertIn("modulo:\n  - lab:ew", got)
+        for r in "AB":
+            self.assertIn("verdict | reviews/pm/%s.md | CONFIRMED | r%s | grader "
+                          "rigor-reviewer" % (r, r), got)        # a v2 record's rows
+        self.assertIn("| proved-modulo | proof review (CONFIRMED rA, CONFIRMED rB)", got)
+        # the same verdicts carry it on to proved once the input is in, and modulo goes
+        err, msg = set_to("proved", dict(g, modulo=["lab:ew"]))
+        self.assertTrue(err)
+        err, res = set_to("proved", g)
+        self.assertFalse(err, res)
+        got = text()
+        self.assertIn("status: proved\n", got)
+        self.assertNotIn("modulo:", got)
+        self.assertEqual(got.count("verdict | reviews/pm/A.md"), 1, got)
+
     def test_s1_set_status(self):
         s = self.server("researcher@t")
         vfile = "computation/verdicts/2026-09-28_GEO-1.md"
