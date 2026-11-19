@@ -833,13 +833,51 @@ class ModuloNormalisationTests(unittest.TestCase):
         self.assertEqual(res["outcome"], "confirmed-modulo")
         self.assertEqual(res["modulo"], ["paper:lem:lift-covers"])
 
-    def test_a_pointer_text_with_commas_is_one_input(self):
+    def test_a_pointer_text_with_commas_is_one_input_and_is_kept(self):
         r = rec("CONFIRMED", "A", modulo="lem:y (the lifting lemma, for covers), bib:LMW16")
         self.assertEqual(r["modulo"], ["lem:y (the lifting lemma, for covers)", "bib:LMW16"])
-        res = self.decide("lem:y (the lifting lemma, for covers), bib:LMW16",
-                          "bib:LMW16; paper:lem:y")
-        self.assertEqual(res["outcome"], "confirmed-modulo")
-        self.assertEqual(res["modulo"], ["bib:LMW16", "paper:lem:y"])
+        res = self.decide("lem:y (first clause only), bib:LMW16", "bib:LMW16; paper:lem:y")
+        self.assertEqual(res["outcome"], "disagreement")     # the pointer may restrict it
+
+    def test_review_of_96a9cab_false_agreements(self):
+        # pointer text and bracketed pinpoints are not dropped
+        self.assertEqual(self.decide("bib:LMW16 [Thm 11]", "bib:LMW16 [Thm 12]")["outcome"],
+                         "disagreement")
+        self.assertEqual(self.decide("flat:MOD-1#(I0) charts", "flat:MOD-1#(I1) charts")["outcome"],
+                         "disagreement")
+        self.assertEqual(dt.canon_input("check:T-1033#Fix(j_Y)", "paper:lem:x", lambda q: None),
+                         "check:T-1033#Fix(j_Y)")
+        # an unclosed bracket does not swallow the inputs after it
+        self.assertEqual(dt._split_list("paper:lem:x2 [1, paper:lem:p, paper:lem:q"),
+                         ["paper:lem:x2 [1", "paper:lem:p", "paper:lem:q"])
+        self.assertEqual(dt._split_list(["paper:lem:a (see", "paper:lem:b"]),
+                         ["paper:lem:a (see", "paper:lem:b"])
+        # free text after a pinpoint keeps its ticket numbers
+        self.assertEqual(dt._norm_pinpoint("Thm 2.6 (T-1144)"), "Thm2.6 (T-1144)")
+        self.assertEqual(dt._norm_pinpoint("§ 2.2, p. 8"), "§2.2, p8")
+
+    def test_a_label_is_qualified_only_for_an_author_subject_or_a_known_record(self):
+        none = lambda q: None  # noqa: E731
+        self.assertEqual(dt.canon_input("lem:y", "s1:GEO-1", none), "lem:y")
+        self.assertEqual(dt.canon_input("lem:y", "s1:GEO-1", {"s1:lem:y": "s1:lem:y"}.get),
+                         "s1:lem:y")
+
+    def test_registry_canonical_takes_exact_ids_and_registered_aliases_only(self):
+        class Store:
+            records = {"CRIT-3": object()}
+            def lookup(self, name):
+                return ("CRIT-3", name == "CRIT-3") if name.upper().startswith("CRIT-3") \
+                    or name in ("R2-4.7",) else (None, False)
+            def aliases(self, rid):
+                return ["R2-4.7"]
+        import unittest.mock as um
+        from registry.core import federation, workspace as rws
+        with um.patch.object(rws, "namespaces", return_value={"s1": {"home": os.getcwd()}}), \
+                um.patch.object(federation, "store", return_value=Store()):
+            self.assertEqual(dt.registry_canonical("s1:CRIT-3"), "s1:CRIT-3")
+            self.assertEqual(dt.registry_canonical("s1:R2-4.7"), "s1:CRIT-3")
+            self.assertIsNone(dt.registry_canonical("s1:CRIT-3a"))
+            self.assertIsNone(dt.registry_canonical("s1:crit-3"))
 
     def test_other_namespaces_and_free_text_are_kept(self):
         none = lambda q: None  # noqa: E731
@@ -868,7 +906,7 @@ class ModuloNormalisationTests(unittest.TestCase):
                          ["lem:y (uncited, T-0508)", "bib:X"])
 
     def test_pinpoint_punctuation_is_not_a_difference(self):
-        res = self.decide("bib:Mo06#Thm2.6, lem:z#item4", "bib:Mo06#Thm-2.6; paper:lem:z#item-4")
+        res = self.decide("bib:Mo06#Thm2.6, lem:z#item4", "bib:Mo06#Thm 2.6; paper:lem:z#item-4")
         self.assertEqual(res["outcome"], "confirmed-modulo")
         self.assertEqual(res["modulo"], ["bib:Mo06#Thm2.6", "paper:lem:z#item4"])
 

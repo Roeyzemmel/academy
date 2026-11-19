@@ -194,6 +194,8 @@ def _split_top(s):
             continue
         cur.append(ch)
     out.append("".join(cur))
+    if depth:            # an unclosed bracket: no nesting to respect, split flat
+        return re.split(r"[,;]", str(s))
     return out
 
 
@@ -208,8 +210,8 @@ def _rejoin(items):
         if depth <= 0:
             out.append(cur)
             cur, depth = None, 0
-    if cur is not None:
-        out.append(cur)
+    if cur is not None:  # an unclosed bracket: leave the list as it was landed
+        return [str(it) for it in items]
     return out
 
 
@@ -415,7 +417,6 @@ def is_definition(qid, kind_of=None):
 # the label prefixes of a paper's statements: ``lem:y`` written without its namespace
 LABEL_PREFIXES = {"lem", "thm", "defn", "def", "cor", "prop", "fact", "rmk", "obs",
                   "ex", "claim", "conj", "eq", "sec", "nota", "assm", "hyp"}
-RE_POINTER = re.compile(r"^\s*([^\s(\[{]+)\s*[(\[{].*$")
 
 
 def registry_canonical(qid):
@@ -433,54 +434,60 @@ def registry_canonical(qid):
         home = info and info.get("home")
         if not home or not os.path.isdir(str(home)):
             return None
-        rid, _exact = federation.store(ns, home).lookup(name)
+        store = federation.store(ns, home)
+        rid, exact = store.lookup(name)
+        # only the id itself or a registered alias: a profile's normalisation (case,
+        # a trailing sub-item letter: CRIT-3a -> CRIT-3) is not the same input
+        if rid and not exact and name not in [str(a) for a in (store.aliases(rid) or ())]:
+            rid = None
     except Exception:        # an unreadable registry leaves the spelling as written
         return None
     return "%s:%s" % (ns, rid) if rid else None
 
 
 def canon_input(item, subject="", canon=None):
-    """One modulo input in its canonical spelling: the pointer text after the id
-    dropped (``lem:y (the lifting lemma)`` -> ``lem:y``), an unqualified registry label
-    qualified with the subject's namespace (``lem:y`` -> ``paper:lem:y``), and an alias
-    resolved to its record id (``canon``, default ``registry_canonical``). Free text
-    that names no id is returned as written, whitespace collapsed."""
+    """One modulo input in its canonical spelling, never merging two different inputs:
+    whitespace collapsed and quotes stripped; a ``#`` pinpoint's punctuation between a
+    theorem-style word and its number removed (``#Thm-2.6`` -> ``#Thm2.6``); and, for a
+    bare id only (no space or bracket before the ``#``), an unqualified paper label
+    qualified (``lem:y`` -> ``paper:lem:y``: with the subject's namespace when that is
+    an Author's, or when the registry knows the qualified id) and an alias resolved to
+    its record id (``canon``, default ``registry_canonical``: exact ids and registered
+    aliases only). Pointer text (``lem:y (first clause)``) is kept as written: it may
+    restrict the input."""
     s = " ".join(str(item or "").split()).strip("`'\"")
     if not s:
         return s
-    m = RE_POINTER.match(s)
-    if m and ":" in m.group(1):
-        s = m.group(1).rstrip(".,;")
-    if "#" in s:
-        head, _, pin = s.partition("#")
-        s = head + "#" + _norm_pinpoint(pin)
-    if " " in s.partition("#")[0]:
-        return s
-    sub_ns = str(subject or "").partition(":")[0]
-    if ":" not in s.partition("#")[0]:
-        # a bare notebook id (OBS-3): qualified only when the registry knows it
-        if not sub_ns:
-            return s
-        head, hash_, pin = s.partition("#")
-        got = (canon or registry_canonical)("%s:%s" % (sub_ns, head))
-        return (got + hash_ + pin) if got else s
-    ns = s.partition(":")[0]
-    if ns.lower() in LABEL_PREFIXES and sub_ns:
-        s = "%s:%s" % (sub_ns, s)
-    if s.startswith("bib:"):
-        return s
     head, hash_, pin = s.partition("#")
-    got = (canon or registry_canonical)(head)
+    if hash_:
+        pin = _norm_pinpoint(pin)
+    if " " in head or any(c in head for c in _OPEN + _CLOSE) or head.startswith("bib:"):
+        return head + hash_ + pin
+    lookup = canon or registry_canonical
+    sub_ns = str(subject or "").partition(":")[0]
+    if ":" not in head:
+        # a bare notebook id (OBS-3): qualified only when the registry knows it
+        got = lookup("%s:%s" % (sub_ns, head)) if sub_ns else None
+        return (got or head) + hash_ + pin
+    if head.partition(":")[0].lower() in LABEL_PREFIXES:
+        q = "%s:%s" % (sub_ns, head) if sub_ns else ""
+        if not q or not (producer_role_for(subject) == "author" or lookup(q)):
+            return head + hash_ + pin
+        head = q
+    got = lookup(head)
     return (got or head) + hash_ + pin
 
 
-RE_PIN_GLUE = re.compile(r"(?<=[A-Za-z])[\s.\-]+(?=\d)")
+RE_PIN_GLUE = re.compile(
+    r"(?i)(\b(?:thm|theorem|lem|lemma|prop|proposition|cor|corollary|defn?|definition|rmk|"
+    r"rem|remark|sect?|section|item|pp?|ex|example|eq|fig|figure|tab|table|claim|step|"
+    r"fact|obs|ch|chapter|app|appendix)|§)[\s.\-]+(?=\d)")
 
 
 def _norm_pinpoint(pin):
     """A pinpoint without the punctuation between a word and its number:
     ``Thm-2.6``, ``Thm 2.6`` -> ``Thm2.6``; ``item-4`` -> ``item4``; ``p. 2`` -> ``p2``."""
-    return RE_PIN_GLUE.sub("", pin.strip())
+    return RE_PIN_GLUE.sub(r"\1", pin.strip())
 
 
 def normalise_modulo(items, subject="", canon=None):
@@ -719,6 +726,8 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
         res["runs"].append({k: r.get(k) for k in ("run", "run_id", "verdict", "model",
                                                    "modulo", "statement_hash", "blocking",
                                                    "file")})
+        if r.get("modulo_as_written"):
+            res["runs"][-1]["modulo_as_written"] = r["modulo_as_written"]
         res["runs"][-1]["effective"] = r["_eff"]
 
     a = rec_a["_eff"]
