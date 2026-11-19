@@ -12,6 +12,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import contextlib
+import io
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(os.path.dirname(HERE), "scripts")
@@ -171,6 +174,105 @@ class FunctionTests(Base):
         reasons, notes = jp.check(self.ws, need=None, repo=None, use_gh=False)
         self.assertEqual(reasons, [])
         self.assertTrue(any("2 submodules" in n for n in notes), notes)
+
+
+class ReviewFindingTests(Base):
+    """T-1673 review: the false-FAILED and crash paths."""
+
+    def test_only_dot_git_is_not_populated(self):
+        write(os.path.join(self.ws, "library", ".git"), "gitdir: x\n")
+        self.assertFalse(jp.populated(os.path.join(self.ws, "library")))
+
+    def test_board_as_a_path_string_is_the_file_board(self):
+        # "board" is a path (the file board) or a dict; a string must not crash
+        self.populate("academy", "library")
+        write(os.path.join(self.ws, "workspace.json"), json.dumps({"board": "board"}))
+        p = self.run_script("--workspace", self.ws, "--job", "j")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("no GitHub board", p.stdout)
+
+    def test_workspace_json_not_an_object_is_a_note(self):
+        self.populate("academy", "library")
+        for text in ("[1, 2]", "42", '{"board": 7}'):
+            with self.subTest(text=text):
+                write(os.path.join(self.ws, "workspace.json"), text)
+                p = self.run_script("--workspace", self.ws, "--job", "j")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertIn("workspace.json", p.stdout)
+                self.assertEqual(p.stderr, "")
+
+    def test_any_crash_is_a_failed_first_line(self):
+        out = io.StringIO()
+        with mock.patch.object(jp, "check", side_effect=RuntimeError("boom")), \
+                contextlib.redirect_stdout(out):
+            rc = jp.main(["--workspace", self.ws, "--job", "j"])
+        self.assertEqual(rc, jp.FAILED_EXIT)
+        first = out.getvalue().splitlines()[0]
+        self.assertTrue(first.startswith("FAILED: j could not start: the preflight itself failed"), first)
+        self.assertIn("RuntimeError: boom", first)
+
+    def test_gh_timeout_is_a_reason(self):
+        write(os.path.join(self.bin, "gh"), "#!/bin/sh\nsleep 5\n")
+        with mock.patch.object(jp, "GH_TIMEOUT", 0.3), \
+                mock.patch.dict(os.environ, {"PATH": self.env["PATH"]}):
+            why = jp.gh_reads("owner/ws")
+        self.assertIsNotNone(why)
+        self.assertIn("owner/ws", why)
+        self.assertIn("timed out", why)
+
+
+class AttachedCheckoutTests(Base):
+    """A cloud session whose clone was refused uses the attached checkout in place
+    (workspace_bootstrap.submodules: RESOLVED[path] = the sibling); that is not a failure."""
+
+    def setUp(self):
+        super().setUp()
+        os.makedirs(os.path.join(self.ws, "academy"))
+        os.makedirs(os.path.join(self.ws, "library"))
+
+    def attach(self, name):
+        d = os.path.join(self.tmp, name)
+        write(os.path.join(d, ".git", "HEAD"), "ref: refs/heads/main\n")
+        write(os.path.join(d, "README.md"), "x\n")
+        return d
+
+    def test_sibling_named_by_the_url_counts(self):
+        self.attach("academy")
+        self.attach("library")
+        p = self.run_script("--workspace", self.ws, "--job", "j", "--no-gh")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("attached checkout", p.stdout)
+
+    def test_home_in_workspace_json_counts(self):
+        self.attach("academy")
+        lib = self.attach("BilliardLib")
+        write(os.path.join(self.ws, "workspace.template.json"),
+              json.dumps({"instances": {"expert@x": {"role": "expert", "home": "library"}}}))
+        write(os.path.join(self.ws, "workspace.json"),
+              json.dumps({"instances": {"expert@x": {"role": "expert", "home": lib}},
+                          "board": {"backend": "github", "repo": "owner/ws"}}))
+        p = self.run_script("--workspace", self.ws, "--job", "j")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("library", p.stdout)
+
+    def test_empty_sibling_does_not_count(self):
+        self.attach("academy")
+        os.makedirs(os.path.join(self.tmp, "library", ".git"))
+        p = self.run_script("--workspace", self.ws, "--job", "j", "--no-gh")
+        self.assertEqual(p.returncode, jp.FAILED_EXIT, p.stdout)
+        self.assertIn("submodule not populated: library", p.stdout.splitlines()[0])
+
+
+class GitmodulesTests(Base):
+    def test_table_pairs_path_and_url(self):
+        self.assertEqual(jp.submodule_table(self.ws),
+                         [("academy", "https://example.invalid/academy.git"),
+                          ("library", "https://example.invalid/library.git")])
+
+    def test_url_with_equals_sign(self):
+        write(os.path.join(self.ws, ".gitmodules"),
+              '[submodule "a"]\n\tpath = a\n\turl = https://h/x?y=z/a.git\n')
+        self.assertEqual(jp.submodule_table(self.ws), [("a", "https://h/x?y=z/a.git")])
 
 
 if __name__ == "__main__":
