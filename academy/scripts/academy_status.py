@@ -101,8 +101,9 @@ def instance_health(name, row):
 OVERDUE_DAYS = 10
 
 
-def overdue(board, today=None):
-    """Lines for the routine jobs that have gone quiet (empty when none has)."""
+def overdue(board, today=None, workspace=None):
+    """Lines for the routine jobs that have gone quiet (empty when none has). The error
+    records are the git ledger's and, with ``errors.repo``, the local spool's."""
     today = today or _dt.date.today()
     out = []
     usage = sorted(str(p.get("created") or "") for p in packetlib.list_packets(board)
@@ -110,7 +111,8 @@ def overdue(board, today=None):
     errors, last_settle = 0, ""
     try:
         import error_ledger
-        recs = error_ledger.read_all(board)
+        recs = (error_ledger.local_records(dict(workspace, board=board)) if workspace
+                else error_ledger.read_all(board))
         week = (today - _dt.timedelta(days=7)).isoformat()
         errors = sum(1 for r in recs if r.get("t") == "error" and r.get("ts", "") >= week)
         settles = [r.get("ts", "")[:10] for r in recs if r.get("t") == "settle"]
@@ -158,7 +160,7 @@ def summary(board, workspace, since, include_instances=True):
         "needs_you": needs,
         "in_flight": {k: dict(v) for k, v in sorted(flight.items())},
         "came_back": {"tickets": back_tickets, "packets": back_packets},
-        "overdue": overdue(board),
+        "overdue": overdue(board, workspace=workspace if isinstance(workspace, dict) else None),
     }
     if include_instances:
         out["instances"] = {}

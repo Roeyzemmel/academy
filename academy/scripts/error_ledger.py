@@ -3,11 +3,25 @@
 Usage:
 
     py error_ledger.py [hook]                    # PostToolUseFailure hook, event on stdin
-    py error_ledger.py report [--days 7 | --since YYYY-MM-DD] [--json] [--workspace PATH]
-    py error_ledger.py settle --packet P-NNNN [--quiet-days 7] [--workspace PATH]
-    py error_ledger.py resolve [SIG ...] [--family NAME] [--note TEXT] [--by WHO] [--commit SHA] [--version V] [--workspace PATH]
+    py error_ledger.py report [--days 7 | --since YYYY-MM-DD] [--json] [--repo O/N] [--workspace PATH]
+    py error_ledger.py settle [--packet P-NNNN] [--quiet-days 7] [--repo O/N] [--workspace PATH]
+    py error_ledger.py resolve [SIG ...] [--family NAME] [--note TEXT] [--by WHO] [--commit SHA] [--version V] [--repo O/N] [--workspace PATH]
+    py error_ledger.py sync [--repo OWNER/NAME] [--dry-run] [--workspace PATH]
+    py error_ledger.py migrate [--repo OWNER/NAME] [--dry-run] [--skip-resolved] [--workspace PATH]
 
-The ledger is ``<board>/.errors/<instance>.jsonl`` (one file per instance, so two
+**Where the errors go (academy#95).** When workspace.json names ``errors.repo``
+(``"errors": {"repo": "OWNER/NAME"}``) the error classes are GitHub issues of that repo,
+labelled ``error-class`` (``error_issues.py``): the hook appends to a local **spool**
+that is never committed (``errors.spool``, else ``$ACADEMY_ERRORS_SPOOL``, else
+``<user cache>/academy/errors/<workspace key>/<instance>.jsonl``), still offline and
+still never failing a tool call; ``sync`` posts the spool's new records (one comment per
+class per sync, a cursor so nothing is posted twice, a closed issue reopened on
+recurrence with ``regression`` or ``stale-code``); ``report``, ``resolve`` and ``settle``
+read and close the issues; ``migrate`` imports the git ledger once. Without
+``errors.repo``, or without ``gh``, everything below holds as before (``report`` then
+reads the git ledger and the spool together).
+
+The git ledger is ``<board>/.errors/<instance>.jsonl`` (one file per instance, so two
 machines never merge-conflict; the board's SessionStart commit carries it). It is
 append-only; each line is one JSON record:
 
@@ -54,6 +68,7 @@ traceback, ..., ``no error text`` for a last stage that merely exited non-zero).
 import argparse
 import collections
 import datetime as _dt
+import hashlib
 import json
 import os
 import re
@@ -63,6 +78,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _academy as ac  # noqa: E402
 
 LEDGER_DIR = ".errors"
+#: overrides the spool directory (tests; a machine without a user cache)
+SPOOL_ENV = "ACADEMY_ERRORS_SPOOL"
 MSG_MAX = 240
 #: an error that is the human declining or interrupting a call is not a fault
 SKIP_PATTERNS = (r"user (doesn't|does not) want to proceed", r"permission (was )?denied by the user",
@@ -168,12 +185,46 @@ def _tail_lines(path):
         return []
 
 
+def errors_repo(ws):
+    """The ``OWNER/NAME`` of workspace.json's ``errors.repo``, or '' (the git ledger)."""
+    cfg = ws.get("errors") if isinstance(ws, dict) and isinstance(ws.get("errors"), dict) else {}
+    repo = str(cfg.get("repo") or "").strip()
+    return repo if repo.count("/") == 1 else ""
+
+
+def spool_dir(ws):
+    """The local, never committed directory the hook appends to when ``errors.repo`` is
+    set: ``errors.spool`` (relative to the workspace file), else ``$ACADEMY_ERRORS_SPOOL``,
+    else the user cache, one directory per workspace file."""
+    cfg = ws.get("errors") if isinstance(ws, dict) and isinstance(ws.get("errors"), dict) else {}
+    where = str(ws.get("_path") or "") if isinstance(ws, dict) else ""
+    if cfg.get("spool"):
+        return os.path.join(os.path.dirname(where), os.path.expanduser(str(cfg["spool"])))
+    if os.environ.get(SPOOL_ENV):
+        return os.environ[SPOOL_ENV]
+    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        base = os.environ["LOCALAPPDATA"]
+    else:
+        base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    key = hashlib.sha1(os.path.normcase(os.path.realpath(where or ".")).encode("utf-8")
+                       ).hexdigest()[:12]
+    return os.path.join(base, "academy", "errors", key)
+
+
+def spool_file(spool, instance):
+    return os.path.join(spool, re.sub(r"[^A-Za-z0-9@._-]", "_", instance) + ".jsonl")
+
+
 def append(board, instance, record):
+    """Append one record to the git ledger (``append_file``)."""
+    return append_file(ledger_file(board, instance), record)
+
+
+def append_file(path, record):
     """Append one record; a single write of one line, so concurrent sessions interleave
-    whole lines. An error record identical to one near the end of the ledger (the same
+    whole lines. An error record identical to one near the end of the file (the same
     failure reported twice, e.g. by a hook registered twice) is not written again.
     Returns True when the line was written."""
-    path = ledger_file(board, instance)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     line = json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
     if record.get("t") == "error" and line.rstrip("\n") in _tail_lines(path):
@@ -184,18 +235,33 @@ def append(board, instance, record):
 
 
 def read_all(board):
-    """Every record of every instance's ledger, oldest first; bad lines are skipped."""
-    root = os.path.join(board, LEDGER_DIR)
+    """Every record of every instance's git ledger, oldest first; bad lines are skipped."""
+    return read_dirs([os.path.join(board, LEDGER_DIR)])
+
+
+def local_records(ws):
+    """The git ledger's records and, when ``errors.repo`` is set, the local spool's: what
+    this machine can read offline, oldest first."""
+    dirs = [os.path.join(ws["board"], LEDGER_DIR)]
+    if errors_repo(ws):
+        dirs.append(spool_dir(ws))
+    return read_dirs(dirs)
+
+
+def read_dirs(roots):
+    """Every record of the ``*.jsonl`` files of ``roots``, oldest first, identical error
+    records once; bad lines are skipped."""
     out = []
     seen = set()
-    try:
-        names = sorted(os.listdir(root))
-    except OSError:
-        return out
-    for name in names:
-        if not name.endswith(".jsonl"):
+    paths = []
+    for root in roots:
+        try:
+            paths += [os.path.join(root, n) for n in sorted(os.listdir(root))
+                      if n.endswith(".jsonl")]
+        except OSError:
             continue
-        with open(os.path.join(root, name), "r", encoding="utf-8", errors="replace") as fh:
+    for path in paths:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
             for ln in fh:
                 try:
                     rec = json.loads(ln)
@@ -460,10 +526,13 @@ def cmd_word(cmd):
 def family_of(sig, rec=None):
     """``family(sig)``, except that the shell classes (``Bash: exit code <n>``,
     ``PowerShell: ...``) are split by the cause read from the record (``bash_cause``; it
-    needs the record, which the signature lacks). A record without ``detail`` (written
-    before the hook kept it) falls back to the first word of its command."""
+    needs the record, which the signature lacks). A record rebuilt from an issue keeps
+    only the ``cause``; a record without ``detail`` or ``cause`` (written before the hook
+    kept them) falls back to the first word of its command."""
     if sig in SHELL_EXIT_SIGS and rec is not None:
         tool = sig.split(":", 1)[0]
+        if not rec.get("detail") and rec.get("cause"):
+            return "%s: %s" % (tool, rec["cause"])     # a record rebuilt from an issue
         if not rec.get("detail"):
             return "%s: exit code (%s)" % (tool, cmd_word(rec.get("cmd")))
         return "%s: %s" % (tool, bash_cause(rec))
@@ -490,12 +559,19 @@ def burst_starts(recs):
     return starts
 
 
-def report(records, start, now=None):
+def report(records, start, now=None, tags=None):
     """The weekly picture: every open class, with its count inside the window
-    (``in_window``; 0 for a class carried over from an earlier week) and its total."""
+    (``in_window``; 0 for a class carried over from an earlier week) and its total.
+    ``tags`` (sig -> ``regression`` | ``stale-code``, the labels of a reopened issue)
+    override the state read from the resolve records."""
     now = now or _now()
     lo = _stamp(start)
     cls = classes(records)
+    for sig, tag in (tags or {}).items():
+        if sig in cls and tag in ("regression", "stale-code"):
+            cls[sig]["stale"] = tag == "stale-code"
+            if tag == "regression" and not cls[sig]["regression_commit"]:
+                cls[sig]["regression_commit"] = "(a fix version)"
     in_window = collections.Counter()
     benign = 0
     for r in records:
@@ -780,17 +856,71 @@ def _instance_for(event):
 
 
 def run_hook(stream=None):
-    """Never raises and never blocks: a ledger problem must not fail a tool call."""
+    """Never raises, never blocks and never calls the network: a ledger problem must not
+    fail a tool call. With ``errors.repo`` set the record goes to the local spool (posted
+    later by ``sync``), else to the git ledger."""
     try:
         event = ac.read_event(stream)
         instance = _instance_for(event)
         rec = hook_record(event, instance)
         if rec is None:
             return 0
-        append(board_path(), instance, rec)
+        ws = ac.load_workspace()
+        if errors_repo(ws):
+            append_file(spool_file(spool_dir(ws), instance), rec)
+        else:
+            append(ws["board"], instance, rec)
     except Exception:
         pass
     return 0
+
+
+#: how the CLI reaches GitHub: ``(repo) -> transport``; the tests replace it
+TRANSPORT = None
+
+
+def _issues():
+    import error_issues     # only the CLI loads it: the hook never reaches the network
+    return error_issues
+
+
+def _transport(repo):
+    if TRANSPORT is not None:
+        return TRANSPORT(repo)
+    return _issues().transport(repo)
+
+
+def issue_repo(a, ws):
+    """``(repo, why_not)``: the repo whose issues hold the error classes, or '' and the
+    reason the git ledger is used (no ``errors.repo``, no ``gh``)."""
+    repo = getattr(a, "repo", None) or errors_repo(ws)
+    if not repo:
+        return "", "no errors.repo in workspace.json"
+    if TRANSPORT is None:
+        import shutil
+        if not shutil.which("gh"):
+            return "", "gh is not installed"
+    return repo, ""
+
+
+def _print_report(rep, a):
+    if a.json and a.brief:
+        b = brief(rep)
+        if rep.get("source"):
+            nums = {r["sig"]: r.get("issue") for r in rep["classes"]}
+            for r in b["classes"]:
+                r["issue"] = nums.get(r["sig"])
+            b["source"] = rep["source"]
+        if rep.get("unsynced") is not None:
+            b["unsynced"] = rep["unsynced"]
+        print(json.dumps(b, ensure_ascii=False))
+    elif a.json:
+        print(json.dumps(rep, indent=2))
+    else:
+        sys.stdout.write(render_markdown(rep, every=a.all))
+        if rep.get("unsynced"):
+            print("\n%d error record(s) in the local spool are not posted yet: run "
+                  "`error_ledger.py sync`." % rep["unsynced"])
 
 
 def main(argv=None):
@@ -808,11 +938,15 @@ def main(argv=None):
     p.add_argument("--all", action="store_true",
                    help="the Markdown class table lists every open class, also those with "
                         "no error in the window")
+    p.add_argument("--repo", help="read the error-class issues of OWNER/NAME (default: "
+                                  "workspace.json errors.repo)")
     p.add_argument("--workspace")
     p = sub.add_parser("settle")
-    p.add_argument("--packet", required=True)
+    p.add_argument("--packet", help="the usage packet of the weekly review (required with "
+                                    "the git ledger)")
     p.add_argument("--quiet-days", type=int, default=7)
     p.add_argument("--instance", help="ledger file to note the settle in (default: cwd's home)")
+    p.add_argument("--repo")
     p.add_argument("--workspace")
     p = sub.add_parser("resolve")
     p.add_argument("sig", nargs="*")
@@ -827,6 +961,21 @@ def main(argv=None):
     p.add_argument("--by", default="human")
     p.add_argument("--commit", default="", help="the fixing commit; a later error is a regression")
     p.add_argument("--instance")
+    p.add_argument("--repo")
+    p.add_argument("--workspace")
+    p = sub.add_parser("sync", help="post the local spool's new errors to the error-class "
+                                    "issues of errors.repo")
+    p.add_argument("--repo")
+    p.add_argument("--dry-run", action="store_true",
+                   help="say what would be posted; contacts no one, moves no cursor")
+    p.add_argument("--workspace")
+    p = sub.add_parser("migrate", help="one-off: import the git ledger's classes as issues")
+    p.add_argument("--repo")
+    p.add_argument("--dry-run", action="store_true",
+                   help="count what would be imported; contacts no one")
+    p.add_argument("--skip-resolved", action="store_true",
+                   help="import only the open classes")
+    p.add_argument("--verbose", action="store_true")
     p.add_argument("--workspace")
     a = ap.parse_args(argv)
     if a.cmd in (None, "hook"):
@@ -836,30 +985,79 @@ def main(argv=None):
     except (AttributeError, ValueError):
         pass
     try:
-        board = board_path(a.workspace)
+        ws = ac.load_workspace(a.workspace)
+        board = ws["board"]
     except ac.AcademyError as e:
         print("error_ledger: %s" % e, file=sys.stderr)
         return 2
     instance = getattr(a, "instance", None) or _instance_for({})
+    repo, why_not = issue_repo(a, ws)
+    if a.cmd in ("sync", "migrate"):
+        return _main_issues(a, ws, board, repo or (getattr(a, "repo", None) or errors_repo(ws)),
+                            why_not)
     if a.cmd == "report":
         now = _now()
         if a.since:
             start = _dt.datetime.strptime(a.since, "%Y-%m-%d")
         else:
             start = now - _dt.timedelta(days=a.days if a.days is not None else 7)
-        rep = report(read_all(board), start, now)
-        if a.json and a.brief:
-            print(json.dumps(brief(rep), ensure_ascii=False))
-        elif a.json:
-            print(json.dumps(rep, indent=2))
-        else:
-            sys.stdout.write(render_markdown(rep, every=a.all))
+        rep = None
+        if repo:
+            try:
+                rep = _issues().report(_transport(repo), start, now)
+                rep["unsynced"] = _issues().pending(spool_dir(ws))
+            except Exception as e:      # offline: the local files, said so
+                print("error_ledger: issues of %s not read (%s); reporting the local "
+                      "ledger and spool" % (repo, str(e).strip()[:200]), file=sys.stderr)
+        if rep is None:
+            rep = report(local_records(ws), start, now)
+        _print_report(rep, a)
     elif a.cmd == "settle":
+        if repo:
+            iss = _issues()
+            t = _transport(repo)
+            res = iss.sync(spool_dir(ws), t)
+            if res["error"]:
+                print("error_ledger: sync before the settle failed (%s); nothing closed"
+                      % res["error"], file=sys.stderr)
+                return 1
+            closed = iss.settle(t, a.quiet_days, a.packet)
+            append_file(spool_file(spool_dir(ws), instance),
+                        {"t": "settle", "ts": _stamp(_now()), "upto": _stamp(_now()),
+                         "packet": a.packet or "", "closed": len(closed)})
+            print("settled%s: %d issue(s) closed by silence"
+                  % ((" " + a.packet) if a.packet else "", len(closed)))
+            for sig, number in closed:
+                print("  closed #%s: %s" % (number, sig))
+            return 0
+        if not a.packet:
+            print("error_ledger: settle --packet P-NNNN is required with the git ledger (%s)"
+                  % why_not, file=sys.stderr)
+            return 2
         closed = settle(board, instance, a.packet, a.quiet_days)
         print("settled %s: %d class(es) closed" % (a.packet, len(closed)))
         for sig in closed:
             print("  closed: " + sig)
     elif a.cmd == "resolve":
+        version = a.version or (code_version() if a.commit else "")
+        if repo:
+            if not (a.sig or a.family):
+                print("error_ledger: nothing to resolve (no signature or family given)",
+                      file=sys.stderr)
+                return 1
+            closed, missing = _issues().resolve(_transport(repo), a.sig, a.family, a.note,
+                                                a.by, a.commit, version)
+            for sig in missing:
+                print("error_ledger: no open issue for %r (run sync first?)" % sig,
+                      file=sys.stderr)
+            if not closed:
+                print("error_ledger: nothing to resolve (no open issue matched)",
+                      file=sys.stderr)
+                return 1
+            print("resolved %d class(es)" % len(closed))
+            for sig, number in closed:
+                print("  closed #%s: %s" % (number, sig))
+            return 0
         now = _stamp(_now())
         sigs = list(a.sig)
         if a.family:
@@ -876,7 +1074,6 @@ def main(argv=None):
             print("error_ledger: nothing to resolve (no signature given, no open class "
                   "in the family)", file=sys.stderr)
             return 1
-        version = a.version or (code_version() if a.commit else "")
         for sig in sigs:
             rec = {"t": "resolve", "ts": now, "sig": sig, "by": a.by, "note": a.note}
             if a.commit:
@@ -885,6 +1082,54 @@ def main(argv=None):
                 rec["version"] = version
             append(board, instance, rec)
         print("resolved %d class(es)" % len(sigs))
+    return 0
+
+
+def _main_issues(a, ws, board, repo, why_not):
+    """``sync`` and ``migrate``."""
+    if not repo:
+        print("error_ledger: %s; the hook writes the git ledger (%s), nothing to %s"
+              % (why_not, os.path.join(board, LEDGER_DIR), a.cmd))
+        return 0
+    if why_not and not a.dry_run:
+        print("error_ledger: %s; nothing posted%s" % (
+            why_not, ", the spool is kept" if a.cmd == "sync" else ""), file=sys.stderr)
+        return 1
+    iss = _issues()
+    t = None if a.dry_run else _transport(repo)
+    if a.cmd == "sync":
+        spool = spool_dir(ws)
+        res = iss.sync(spool, t, dry_run=a.dry_run)
+        verb = "would post" if a.dry_run else "posted"
+        print("sync %s (%s): %d record(s) of %d class(es) %s%s" % (
+            repo, spool, res["records"], res["classes"], verb,
+            " (offline: existing issues not looked up)" if a.dry_run else ""))
+        for row in res["posted"]:
+            print("  %s%s %s x%d: %s" % (row["action"], (" #%s" % row["issue"]) if row["issue"]
+                                         else "", ("[%s]" % row["tag"]) if row["tag"] else "",
+                                         row["count"], row["sig"]))
+        if res["error"]:
+            print("error_ledger: sync stopped (%s); the next sync finishes the batch"
+                  % res["error"], file=sys.stderr)
+            return 1
+        return 0
+    try:
+        res = iss.migrate(read_all(board), t, dry_run=a.dry_run,
+                          skip_resolved=a.skip_resolved, log=print if a.verbose else None)
+    except iss.GhError as e:
+        print("error_ledger: migrate stopped (%s); run it again to finish (an issue already "
+              "there is completed, not duplicated)" % e, file=sys.stderr)
+        return 1
+    print("migrate %s -> %s%s" % (os.path.join(board, LEDGER_DIR), repo,
+                                  " (dry run: contacts no one)" if a.dry_run else ""))
+    print("  classes: %d (open %d, of them regression %d, stale code %d; resolved %d)" % (
+        res["classes"], res["open"], res["regression"], res["stale_code"], res["resolved"]))
+    print("  records: %d error(s), %d resolve(s)" % (res["errors"], res["resolves"]))
+    print("  to import: %d issue(s) (%d resolved skipped), %d comment(s), about %d write(s)"
+          % (res["to_import"], res["skipped_resolved"], res["comments"], res["writes"]))
+    if not a.dry_run:
+        print("  created %d, completed %d, already there %d"
+              % (res["created"], res["completed"], res["existing"]))
     return 0
 
 
