@@ -268,6 +268,14 @@ class InboxNestedTests(unittest.TestCase):
         wf = next(c for c in calls if c["label"] == "workflow prove.js")
         self.assertEqual(wf["args"]["claim"], "flat:GEO-3")
         self.assertEqual(res["taken"][0]["outcome"], "verify-filed")
+        # #85: a proved claim with no repair asked comes back to the main session, undelivered
+        res, labels, calls, err = run(INBOX, {"list": [listed],
+                                              "workflow prove.js": [{"outcome": "already-proved", "already_proved": True}]},
+                                      {"root": "/a"})
+        self.assertIsNone(err, err)
+        self.assertEqual(res["for_main"]["skill"], "researcher:prove")
+        self.assertEqual(res["for_main"]["mode"], "repair")
+        self.assertEqual(res["for_main"]["claim"], "flat:GEO-3")
 
 
     def test_a_nested_lead_hands_prove_back_like_a_top_level_one(self):

@@ -125,9 +125,12 @@ class ProveTests(unittest.TestCase):
         self.assertNotIn("file verify", labels)
 
     def test_already_proved_and_a_bad_verify_ticket(self):
-        res, labels, _ = self.run_wf({"state": [state(status="proved")], "close": [MOVE]})
+        res, labels, _ = self.run_wf({"state": [state(status="proved", repair=False)]})
         self.assertEqual(res["outcome"], "already-proved")
+        self.assertTrue(res["already_proved"])
         self.assertNotIn("attempt", labels)
+        self.assertNotIn("close", labels)                 # #85: never delivered with nothing done
+        self.assertFalse(res.get("ticket_delivered"))
         res, labels, _ = self.run_wf({
             "state": [state(status="sketch")], "attempt path": [{"path": "p.md"}], "attempt": ["x"],
             "outcome": [{"exists": True, "outcome": "complete", "gaps": [], "objects": []}],
@@ -135,6 +138,30 @@ class ProveTests(unittest.TestCase):
             "check verify": [{"found": True, "to": "author@t", "kind": "write", "refs": []}],
             "close": [MOVE]})
         self.assertIn("ANOMALY", " ".join(res["notes"]))
+
+
+    def test_a_repair_of_a_proved_claim_is_attempted(self):
+        """#85: a repair ticket on a proved claim (here proved on the human's word, with an
+        open GAP and no falsifier on record) gets a new attempt and a verify ticket."""
+        plan = dict(self.COMPLETE, state=[state(status="proved", falsified=False, repair=True,
+                                                repair_ask="close the GAP in step 3 (T-1243)")])
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertTrue(res["repair"])
+        prompt = next(c for c in calls if c["label"] == "attempt")["prompt"]
+        self.assertIn("This is a repair of a proved claim", prompt)
+        self.assertIn("close the GAP in step 3", prompt)
+        filed = next(c for c in calls if c["label"] == "file verify")["prompt"]
+        self.assertIn("(a repair of the proved claim)", filed)
+        self.assertNotIn("propose sketch", filed)
+
+    def test_mode_repair_forces_a_repair(self):
+        res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[state(status="proved", repair=False)]), mode="repair")
+        self.assertEqual(res["outcome"], "verify-filed")
+
+    def test_a_repair_of_an_unreviewed_claim_still_needs_a_falsifier(self):
+        res, labels, _ = self.run_wf({"state": [state(status="sketch", falsified=False, repair=True)]})
+        self.assertEqual(res["outcome"], "needs-explore")
 
 
 def shipped(t, line):
