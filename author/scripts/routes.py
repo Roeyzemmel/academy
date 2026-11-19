@@ -68,7 +68,7 @@ BELONGS = {"prove": "researcher", "generalize": "researcher",
            "test": "scientist", "code": "scientist"}
 #: an ask that needs an argument nobody has delivered yet (the Researcher's work)
 RE_NEEDS_ARGUMENT = re.compile(
-    r"(?i)\b(missing|new|own|fresh)\s+(argument|proof|lemma|step)s?\b"
+    r"(?i)(?<!\bno )(?<!\bnot a )\b(missing|new|own|fresh)\s+(argument|proof|lemma|step)s?\b"
     r"|\bfill (in )?the gap\b|\brepair (the|its) (proof|argument)\b"
     r"|\bconstruct (a|the) proof\b|\b(find|give|write) a (new )?proof\b"
     r"|\bprove (that|it|the)\b|\bcleaner formulation\b|\bunifying lemma\b"
@@ -95,15 +95,17 @@ LANDABLE_STATUSES = ("proved", "proved-modulo")
 
 
 def proved_source(meta, status_of=None):
-    """The first ref naming a claim of another namespace (a notebook, the lab) whose
-    registry status is proved or proved-modulo: the argument exists, so a write ticket
-    lands it, whatever its wording (#92, T-0426 sent to research three times for
-    flat:FND-14). ``status_of`` (qid -> status or None) replaces the registry lookup;
-    '' when no ref qualifies or the registry cannot be read."""
+    """The ticket's subject, its first ref, when it names a claim of another namespace (a
+    notebook, the lab) whose registry status is proved or proved-modulo: the argument
+    exists, so the ticket lands it, whatever its wording (#92, T-0426 sent to research
+    three times for flat:FND-14). Only the first ref: a later proved ref is often a lemma
+    the asked argument would use (review of d4ffad3). ``status_of`` (qid -> status or
+    None) replaces the registry lookup; '' when it does not qualify or the registry
+    cannot be read."""
     own = ""
     if status_of is None:
         status_of, own = _registry_status, _own_ns(meta.get("to"))
-    for ref in meta.get("refs") or ():
+    for ref in list(meta.get("refs") or ())[:1]:
         ns, _, name = str(ref).partition(":")
         if not name or not re.match(r"^[a-z][a-z0-9]*$", ns) or ns in ("file", "bib", own):
             continue
@@ -197,7 +199,8 @@ def route(meta):
     if kind in WRITER_KINDS and needs_argument(meta):
         src = proved_source(meta)
         if src:
-            return {"how": "agent", "target": "math-writer",
+            how, target, _why = KIND_ROUTES[kind]
+            return {"how": how, "target": target,
                     "why": "land %s: it is proved in the registry, so the argument exists "
                            "(the ask's wording is not a missing argument)" % src}
         return research_route("the ask needs an argument nobody has delivered")
