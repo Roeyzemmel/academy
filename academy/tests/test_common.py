@@ -741,6 +741,20 @@ class TicketTests(TempDir):
                          os.path.normcase(q))
         self.assertIsNone(ac.find_ticket(self.tmp, "T-0008"))
 
+    def test_a_packet_id_naming_two_files_is_refused_not_guessed(self):
+        """#90: P-0360 and its twin from a parallel branch; record wrote into the first."""
+        p1 = self.write("packets/expert@main/P-0360-verify-lem-x.md", "x")
+        p2 = self.write("packets/author@x/P-0360-ruling-lem-y.md", "y")
+        with self.assertRaises(ac.AcademyError) as cm:
+            ac.find_packet(self.tmp, "P-0360")
+        self.assertIn("expert@main/P-0360-verify-lem-x.md", str(cm.exception))
+        self.assertIn("P-0360@", str(cm.exception))
+        self.assertEqual(os.path.normcase(ac.find_packet(self.tmp, "P-0360@author@x")),
+                         os.path.normcase(p2))
+        self.assertEqual(os.path.normcase(ac.find_packet(self.tmp, "P-0360@verify-lem-x")),
+                         os.path.normcase(p1))
+        self.assertIsNone(ac.find_packet(self.tmp, "P-0360@nowhere"))
+
     def test_new_ticket_and_thread(self):
         meta = {"updated": "2026-09-27", "id": "T-0001", "title": "Test a generalization",
                 "kind": "test", "from": "researcher@alpha", "to": "scientist@main",

@@ -103,6 +103,14 @@ class NotebookTests(Workspace):
         self.assertEqual(rs.frontmatter_field(rs.read_text(p2), "outcome")[1], "in-progress")
         self.assertEqual(rs.frontmatter_field(rs.read_text(p2), "object")[1], "s9:C-1")
 
+    def test_a_foreign_claims_proof_folder_has_no_colon(self):
+        """#94: proofs/paper:cor:x/ broke Windows checkouts."""
+        p, n = self.nb.attempt_path("paper:cor:full-preimage-locus", create=True)
+        folder = os.path.basename(os.path.dirname(p))
+        self.assertEqual(folder, "paper-cor-full-preimage-locus")
+        self.assertNotIn(":", os.path.relpath(p, self.nb.paths["proofs"]))
+        self.assertEqual(self.nb.attempt_path("paper:cor:full-preimage-locus")[1], 2)
+
     def test_journal(self):
         p = self.nb.journal_path("2026-09-28", create=True)
         self.assertIn("# Journal 2026-09-28", rs.read_text(p))

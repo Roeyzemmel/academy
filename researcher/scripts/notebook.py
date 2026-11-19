@@ -596,9 +596,16 @@ class Notebook(object):
         ac.atomic_write(path, text)
         return path
 
+    @staticmethod
+    def proof_folder(oid):
+        """The proofs/ folder name of ``oid``: a foreign id keeps its namespace, but ':'
+        (and any other character Windows refuses) becomes '-' (#94: proofs/paper:lem:x/
+        broke Windows checkouts)."""
+        return re.sub(r'[<>:"/\\|?*]', "-", str(oid))
+
     def attempt_path(self, ref, create=False, by="prover"):
         oid = self.bare(ref)
-        d = os.path.join(self.paths["proofs"], oid)
+        d = os.path.join(self.paths["proofs"], self.proof_folder(oid))
         n = 1
         if os.path.isdir(d):
             nums = [int(m.group(1)) for f in os.listdir(d)
