@@ -606,11 +606,15 @@ class Notebook(object):
     def attempt_path(self, ref, create=False, by="prover"):
         oid = self.bare(ref)
         d = os.path.join(self.paths["proofs"], self.proof_folder(oid))
-        n = 1
-        if os.path.isdir(d):
-            nums = [int(m.group(1)) for f in os.listdir(d)
-                    for m in [re.match(r"^attempt-(\d+)\.md$", f)] if m]
-            n = max(nums) + 1 if nums else 1
+        # a legacy folder named by the raw id (proofs/paper:lem:x/, before #94) keeps the
+        # numbering going until it is renamed: the next attempt never restarts at 1
+        legacy = os.path.join(self.paths["proofs"], str(oid))
+        nums = []
+        for folder in {d, legacy}:
+            if os.path.isdir(folder):
+                nums += [int(m.group(1)) for f in os.listdir(folder)
+                         for m in [re.match(r"^attempt-(\d+)\.md$", f)] if m]
+        n = max(nums) + 1 if nums else 1
         path = os.path.join(d, "attempt-%d.md" % n)
         if create:
             ac.atomic_write(path, self._render("attempt.md", {

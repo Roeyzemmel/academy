@@ -183,6 +183,35 @@ class TestPendingDecisions(DecisionsCase):
         self.assertLessEqual(len(it["options"]), 4)
         self.assertEqual(it["recommendation"], "(a), both runs agree.")
 
+    def twins(self):
+        """Two packet files with one id (#90: allocated on parallel branches)."""
+        p1 = self.packet(title="Verify lem x", kind="mechanical", status_before=None,
+                         status_proposed=None)
+        p2 = self.packet(title="Ruling lem y", instance="author@main", kind="mechanical",
+                         status_before=None, status_proposed=None)
+        p1, p2 = (p if isinstance(p, str) else p[0] for p in (p1, p2))
+        with open(p2, encoding="utf-8") as fh:
+            text = fh.read().replace("P-0002", "P-0001")
+        os.remove(p2)
+        twin = os.path.join(os.path.dirname(p2), os.path.basename(p2).replace("P-0002", "P-0001"))
+        with open(twin, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return p1, twin
+
+    def test_twin_packet_ids_are_qualified_and_each_is_written(self):
+        p1, p2 = self.twins()
+        items = dc.pending_decisions(self.board)
+        ids = sorted(it["id"] for it in items)
+        self.assertEqual(len(ids), 2)
+        self.assertTrue(all(i.startswith("P-0001@") and i.endswith("/D1") for i in ids), ids)
+        with self.assertRaises(ac.AcademyError):
+            dc.record(self.board, "P-0001/D1", "a", date=DATE)            # never a guess
+        out = dc.accept_recommended(self.board, date=DATE)
+        self.assertEqual(sorted(o["id"] for o in out), ids)
+        for p in (p1, p2):
+            with open(p, encoding="utf-8") as fh:
+                self.assertIn("accepted recommendation", fh.read(), p)
+
     def test_already_decided_decision_is_excluded(self):
         self.packet(body=TWO_DECISION_BODY, kind="notation")
         pk.decide_packet(self.board, "P-0001", "a", 1, date=DATE)

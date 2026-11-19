@@ -110,6 +110,16 @@ class NotebookTests(Workspace):
         self.assertEqual(folder, "paper-cor-full-preimage-locus")
         self.assertNotIn(":", os.path.relpath(p, self.nb.paths["proofs"]))
         self.assertEqual(self.nb.attempt_path("paper:cor:full-preimage-locus")[1], 2)
+        # a legacy colon folder (before #94) keeps the numbering going (review of 07f490c);
+        # such a folder cannot exist on Windows
+        if os.name == "nt":
+            return
+        legacy = os.path.join(self.nb.paths["proofs"], "paper:lem:old")
+        os.makedirs(legacy)
+        with open(os.path.join(legacy, "attempt-1.md"), "w", encoding="utf-8") as fh:
+            fh.write("x")
+        p, n = self.nb.attempt_path("paper:lem:old")
+        self.assertEqual((os.path.basename(os.path.dirname(p)), n), ("paper-lem-old", 2))
 
     def test_journal(self):
         p = self.nb.journal_path("2026-09-28", create=True)

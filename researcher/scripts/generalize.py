@@ -83,7 +83,7 @@ def _read_packet(path):
 
 def find_report(board, ref):
     """The experiment-report packet for ``ref`` (a packet id, or a lab claim id)."""
-    if ac.RE_PACKET_ID.match(ref):
+    if ac.RE_PACKET_ID.match(str(ref).split("@", 1)[0]):     # P-0012 or P-0012@<path part> (#90)
         path = ac.find_packet(board, ref)
         if not path:
             raise ac.AcademyError("no packet %s on the board" % ref)
