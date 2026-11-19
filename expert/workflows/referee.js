@@ -68,7 +68,45 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   return res
 }
 
-const out = { ticket: T || null, notes: [] }
+// ---- Max-tier model (docs/config.md, "How the map takes effect"; T-1682): the same block in every
+// workflow that launches a max-tier agent (the prover and the graders). The launch value is
+// args.models["<plugin:agent>"] (the inbox resolves the map once per run and passes it down), else
+// one clerk stage runs models.py; a value that is no Agent-tool alias launches on the agent file's
+// model:. A run that returns nothing (a usage limit) is relaunched once on FALLBACK_MODEL, the next
+// tier down, and the fallback is noted (MODEL_FALLBACKS, for the record and the ticket).
+const MODEL_ALIAS = /^(haiku|sonnet|opus|fable)$/
+const FALLBACK_MODEL = 'opus'
+const MODEL_OUT = { type: 'object', properties: { output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
+const LAUNCH_MODELS = {}
+const MODEL_FALLBACKS = []
+async function launchModel(name, s) {   // s: {agentType (a clerk with a shell), phase, notes}
+  if (Object.prototype.hasOwnProperty.call(LAUNCH_MODELS, name)) return LAUNCH_MODELS[name]
+  const given = (A.models && typeof A.models === 'object') ? A.models[name] : undefined
+  let m = null
+  if (MODEL_ALIAS.test(String(given || ''))) m = given
+  else {
+    if (given) s.notes.push(`args.models gave ${JSON.stringify(given)} for ${name}, which is no launch alias: resolved here`)
+    const r = await agent(`WORKFLOW STAGE model. Run \`py ${AR}/academy/scripts/models.py agent ${name} --launch\` once, from the home` +
+      (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+      '. Fix nothing, whatever it prints: return its whole output verbatim.', { label: 'model ' + name, phase: s.phase, agentType: s.agentType, schema: MODEL_OUT, effort: 'low' })
+    const w = String(r ? r.output : '').trim()
+    if (MODEL_ALIAS.test(w)) m = w
+    else s.notes.push(`the launch model of ${name} was not resolved (${r ? JSON.stringify(w.slice(0, 160)) : 'the model stage returned nothing'}): it runs on its agent file's model`)
+  }
+  LAUNCH_MODELS[name] = m
+  return m
+}
+async function launchMax(prompt, opts, s) {   // agent(prompt, opts) on the launch model of opts.agentType
+  const model = await launchModel(opts.agentType, s)
+  const r = await agent(prompt, model ? Object.assign({}, opts, { model }) : opts)
+  if (r !== null || !model || model === FALLBACK_MODEL) return r
+  MODEL_FALLBACKS.push(`${opts.label}: ${model} -> ${FALLBACK_MODEL}`)
+  s.notes.push(`${opts.label}: the ${model} run returned nothing (a usage limit?); relaunched once on ${FALLBACK_MODEL} (a fallback-model run)`)
+  return agent(prompt, Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, model: FALLBACK_MODEL }))
+}
+const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_FALLBACKS.join(', ')}` : ''
+
+const out = { ticket: T || null, notes: [], launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
 
 // ---- Prepare ---------------------------------------------------------------------------
 phase('Prepare')
@@ -106,7 +144,7 @@ const brief = `Referee ${instance} cold. The PDF is ${pdf.pdf}, built ${pdf.buil
   (A.focus ? `The human asks you to look hardest at: ${A.focus}. ` : '') +
   `Do not read the agenda or tickets before your cold reading. After it, check the paper against its vision, ` +
   (pdf.vision ? pdf.vision : 'there is none') + `. Ticket: ${T || 'none'}.`
-const r = await agent(brief, { label: 'referee', phase: 'Referee', agentType: 'expert:referee' })
+const r = await launchMax(brief, { label: 'referee', phase: 'Referee', agentType: 'expert:referee' }, { agentType: CLERK, phase: 'Referee', notes: out.notes })
 if (r === null) return Object.assign(out, { outcome: 'lost', reason: 'the referee run returned nothing (a limit?): nothing further launched' })
 
 // ---- Land: the hook filed the packet; find it, deliver ------------------------------------------
@@ -121,7 +159,7 @@ if (!f || !f.packet) {
 Object.assign(out, { packet: f.packet, blocking: f.blocking, copy: f.copy })
 if (T) {
   const m = await clerk('move', [`ticket: ${T}`, actedAs ? `act as: ${actedAs}` : '',
-    `deliver: deliver: true with result "referee packet ${f.packet}; ${f.blocking} blocking" and fields.packets [${f.packet}]`], MOVE, 'deliver', 'Land')
+    `deliver: deliver: true with result "referee packet ${f.packet}; ${f.blocking} blocking${fallbackLine()}" and fields.packets [${f.packet}]`], MOVE, 'deliver', 'Land')
   out.ticket_delivered = !!(m && m.ok)
 }
 out.outcome = 'refereed'

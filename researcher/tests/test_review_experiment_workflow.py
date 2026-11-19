@@ -34,14 +34,15 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
 // the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
-body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
+// the max-tier launch models as the inbox passes them (T-1682); a test passes models: null to resolve them
+body(Object.assign({ nested: true, models: { 'expert:rigor-reviewer': 'fable', 'expert:referee': 'fable', 'researcher:experiment-reviewer': 'fable', 'researcher:prover': 'fable' } }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -135,10 +136,27 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.labels(calls)[:5], ["prepare", "run A", "decide",
                                                   "run A (relaunch)", "decide"])
         self.assertIn("the kept run is the relaunch", " ".join(res["notes"]))
-        res, calls = self.run_wf({"prepare": [prep()], "run A": [None]})
-        self.assertEqual(self.labels(calls), ["prepare", "run A"])
+        # lost on the max model: one relaunch on opus (T-1682); lost again: the pass stops
+        res, calls = self.run_wf({"prepare": [prep()], "run A": [None], "run A (opus fallback)": [None]})
+        self.assertEqual(self.labels(calls), ["prepare", "run A", "run A (opus fallback)"])
         self.assertIn("lost", " ".join(res["notes"]))
         self.assertNotIn("ticket_closed", res)            # still waiting on run A
+        res, calls = self.run_wf({"prepare": [prep()], "run A": [None]},
+                                 models={"researcher:experiment-reviewer": "opus"})
+        self.assertEqual(self.labels(calls), ["prepare", "run A"])
+
+    def test_the_reviewer_launches_on_the_max_model(self):
+        """T-1682: the args' model, or one clerk stage; a lost run falls back to opus once, noted in the result."""
+        plan = {"prepare": [prep()], "run A": ["a"], "decide": [dec("not-cleared", ["GAP"])],
+                "claim-keeper evidence": ["rows"], "close": [OK]}
+        res, calls = self.run_wf(dict(plan))
+        self.assertEqual(next(c for c in calls if c["label"] == "run A")["model"], "fable")
+        res, calls = self.run_wf(dict(plan, **{"model researcher:experiment-reviewer": [{"output": "opus"}]}), models=None)
+        self.assertEqual(self.labels(calls)[:3], ["prepare", "model researcher:experiment-reviewer", "run A"])
+        self.assertEqual(next(c for c in calls if c["label"] == "run A")["model"], "opus")
+        res, calls = self.run_wf(dict(plan, **{"run A": [None], "run A (opus fallback)": ["a"]}))
+        self.assertEqual(res["model_fallbacks"], ["run A: fable -> opus"])
+        self.assertIn("model fallback: run A: fable -> opus", next(c for c in calls if c["label"] == "close")["prompt"])
 
     def test_candidates_in_review_mode_send_it_to_settle(self):
         res, calls = self.run_wf({"prepare": [prep(has_candidates=True)]})

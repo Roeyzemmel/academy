@@ -152,8 +152,46 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   return res
 }
 
+// ---- Max-tier model (docs/config.md, "How the map takes effect"; T-1682): the same block in every
+// workflow that launches a max-tier agent (the prover and the graders). The launch value is
+// args.models["<plugin:agent>"] (the inbox resolves the map once per run and passes it down), else
+// one clerk stage runs models.py; a value that is no Agent-tool alias launches on the agent file's
+// model:. A run that returns nothing (a usage limit) is relaunched once on FALLBACK_MODEL, the next
+// tier down, and the fallback is noted (MODEL_FALLBACKS, for the record and the ticket).
+const MODEL_ALIAS = /^(haiku|sonnet|opus|fable)$/
+const FALLBACK_MODEL = 'opus'
+const MODEL_OUT = { type: 'object', properties: { output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
+const LAUNCH_MODELS = {}
+const MODEL_FALLBACKS = []
+async function launchModel(name, s) {   // s: {agentType (a clerk with a shell), phase, notes}
+  if (Object.prototype.hasOwnProperty.call(LAUNCH_MODELS, name)) return LAUNCH_MODELS[name]
+  const given = (A.models && typeof A.models === 'object') ? A.models[name] : undefined
+  let m = null
+  if (MODEL_ALIAS.test(String(given || ''))) m = given
+  else {
+    if (given) s.notes.push(`args.models gave ${JSON.stringify(given)} for ${name}, which is no launch alias: resolved here`)
+    const r = await agent(`WORKFLOW STAGE model. Run \`py ${AR}/academy/scripts/models.py agent ${name} --launch\` once, from the home` +
+      (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+      '. Fix nothing, whatever it prints: return its whole output verbatim.', { label: 'model ' + name, phase: s.phase, agentType: s.agentType, schema: MODEL_OUT, effort: 'low' })
+    const w = String(r ? r.output : '').trim()
+    if (MODEL_ALIAS.test(w)) m = w
+    else s.notes.push(`the launch model of ${name} was not resolved (${r ? JSON.stringify(w.slice(0, 160)) : 'the model stage returned nothing'}): it runs on its agent file's model`)
+  }
+  LAUNCH_MODELS[name] = m
+  return m
+}
+async function launchMax(prompt, opts, s) {   // agent(prompt, opts) on the launch model of opts.agentType
+  const model = await launchModel(opts.agentType, s)
+  const r = await agent(prompt, model ? Object.assign({}, opts, { model }) : opts)
+  if (r !== null || !model || model === FALLBACK_MODEL) return r
+  MODEL_FALLBACKS.push(`${opts.label}: ${model} -> ${FALLBACK_MODEL}`)
+  s.notes.push(`${opts.label}: the ${model} run returned nothing (a usage limit?); relaunched once on ${FALLBACK_MODEL} (a fallback-model run)`)
+  return agent(prompt, Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, model: FALLBACK_MODEL }))
+}
+const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_FALLBACKS.join(', ')}` : ''
+
 const notes = []
-const out = { subject: A.subject, mode: MODE, notes, runs: [], to_file: [] }
+const out = { subject: A.subject, mode: MODE, notes, runs: [], to_file: [], launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
 
 // ---- Prepare -----------------------------------------------------------------
 phase('Prepare')
@@ -185,8 +223,8 @@ if (!LATER) {
     const run = d.state === 'need-A' ? 'A' : 'B'
     tried[run] = (tried[run] || 0) + 1
     if (tried[run] > 2) { notes.push(`run ${run} did not land twice; the pass stops here`); break }
-    const text = await agent(brief(run, result, A.ticket, report), {
-      label: `run ${run}${tried[run] > 1 ? ' (relaunch)' : ''}`, phase: 'Review', agentType: REVIEWER })
+    const text = await launchMax(brief(run, result, A.ticket, report), {
+      label: `run ${run}${tried[run] > 1 ? ' (relaunch)' : ''}`, phase: 'Review', agentType: REVIEWER }, { agentType: CLERK, phase: 'Review', notes })
     if (text === null) { notes.push(`run ${run} lost (no result: a limit or an API error); nothing further launched`); out.runs.push({ run, lost: true }); break }
     const before = d.state
     d = await clerk('decide', ['Return reviews.py decide <subject> --json parsed. Write nothing.'], DECIDE, 'Review')
@@ -304,7 +342,7 @@ const waiting = ['need-A', 'need-B'].includes(out.state) || out.to_file.length |
   MODE === 'settle-audit' || MODE === 'settle-review' || !!out.reproduction_ticket   // tickets are out
 if (A.ticket && !waiting) {
   const v = (d && d.verdicts || []).join(', ') || 'none'
-  const res = await clerk('close', [`ticket: ${A.ticket}`, `Deliver it with result: "${out.state}; verdicts ${v}${out.packet ? '; packet ' + out.packet : ''}".`], DONE, 'Record')
+  const res = await clerk('close', [`ticket: ${A.ticket}`, `Deliver it with result: "${out.state}; verdicts ${v}${out.packet ? '; packet ' + out.packet : ''}${fallbackLine()}".`], DONE, 'Record')
   out.ticket_closed = !!(res && res.ok)
 }
 out.outcome = out.state

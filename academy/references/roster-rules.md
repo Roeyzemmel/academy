@@ -119,7 +119,9 @@ Each agent's frontmatter carries `model:`, `tier:`, `effort:` and `fallback:`.
   this mechanically, reading the effective `grading.primaryModels`: `expert/scripts/decision_table.py`
   (`configured_primaries`), `researcher/scripts/_researcher.py` (`primary_models`, used
   by `land_review.py` and `settle.py`) and `expert/scripts/land_referee.py`.
-- A limit error is not "unavailable": it stops the run (budget.md rule 4).
+- A limit error is not "unavailable": it stops the run (budget.md rule 4), with one
+  exception (T-1682): a workflow's max-tier run (prover, graders) that returns nothing is
+  relaunched once on `opus`, and the fallback is named in the record and the ticket.
 
 ## Standing conduct
 

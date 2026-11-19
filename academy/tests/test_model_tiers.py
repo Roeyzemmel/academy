@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(HERE)
@@ -228,6 +229,43 @@ class TestResolver(Tmp):
             self.assertEqual(models.main(["check", "--workspace", path]), 0)
         self.assertIn("claude-opus-6-0", out.getvalue())
         self.assertIn("names no version", out.getvalue())
+
+    def test_the_max_tier_agents_launch_on_the_workspace_max(self):
+        """T-1682: with tiers.max = Fable the four max-tier agents launch as fable; with the
+        academy default they launch as opus (the files' own model)."""
+        fable = self.ws_file(models={"tiers": {"max": "claude-fable-5-2"}})
+        for agent in FORMER_FABLE:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(models.main(["agent", agent, "--launch", "--workspace", fable]), 0)
+            self.assertEqual(out.getvalue().strip(), "fable", agent)
+        default = self.ws_file()
+        for agent in FORMER_FABLE:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(models.main(["agent", agent, "--launch", "--workspace", default]), 0)
+            self.assertEqual(out.getvalue().strip(), "opus", agent)
+
+    def test_cli_launch_map(self):
+        """``launch``: the launch values as one JSON object, for named agents or a whole tier
+        (the inbox workflow resolves the max tier once and passes it to its children)."""
+        fable = self.ws_file(models={"tiers": {"max": "claude-fable-5-2"}})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(models.main(["launch", "--tier", "max", "--workspace", fable]), 0)
+        self.assertEqual(json.loads(out.getvalue()), {a: "fable" for a in FORMER_FABLE})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(models.main(["launch", "expert:rigor-reviewer", "rigor-reviewer",
+                                          "expert:clerk", "--workspace", self.ws_file()]), 0)
+        self.assertEqual(json.loads(out.getvalue()),
+                         {"expert:rigor-reviewer": "opus", "expert:clerk": "haiku"})
+        err = io.StringIO()
+        with redirect_stdout(io.StringIO()), mock.patch("sys.stderr", err):
+            self.assertEqual(models.main(["launch", "no-such-agent", "--workspace", fable]), 2)
+            self.assertEqual(models.main(["launch", "--workspace", fable]), 2)
+            self.assertEqual(models.main(["launch", "--tier", "huge", "--workspace", fable]), 2)
+        self.assertIn("no-such-agent", err.getvalue())
 
     def test_cli_as_a_process(self):
         path = self.ws_file()

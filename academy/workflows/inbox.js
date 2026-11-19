@@ -149,6 +149,24 @@ const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `ac
 
 const notes = []
 const taken = []
+
+// ---- Max-tier models (T-1682; docs/config.md, "How the map takes effect"): resolved once per run, at the first
+// nested workflow that launches a max-tier agent, and passed down as args.models, so no child spends its own model
+// stage. args.models given to this run is used as it is; an unreadable answer passes null (each child resolves its own).
+const MODEL_MAP = { type: 'object', properties: { output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
+let maxModels
+async function maxTierModels() {
+  if (maxModels !== undefined) return maxModels
+  if (A.models && typeof A.models === 'object') return (maxModels = A.models)
+  const r = await clerk('models', [`Run \`py ${ROOT}/academy/scripts/models.py launch --tier max\` once. Fix nothing, whatever it prints: return its whole output verbatim in output.`], MODEL_MAP, 'models')
+  let map = null
+  try { map = JSON.parse(String(r ? r.output : '').trim()) } catch (e) { map = null }
+  const ok = map && typeof map === 'object' && !Array.isArray(map) && Object.keys(map).length &&
+    Object.entries(map).every(([k, v]) => /^[a-z]+:[a-z0-9-]+$/.test(k) && /^(haiku|sonnet|opus|fable)$/.test(v))
+  if (!ok) notes.push(`the max-tier launch models were not resolved (${r ? JSON.stringify(String(r.output).slice(0, 160)) : 'the models stage returned nothing'}): each nested workflow resolves its own`)
+  return (maxModels = ok ? map : null)
+}
+
 const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0, budget: null }
 const followed = new Set(A.ids || [])
 const children = new Set()           // follow: the child ids this run's relays and research asks filed
@@ -363,7 +381,7 @@ async function handle(row, i) {
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.unfiled || []).join('; ') : 'lost', nested: r }
     }
     if (rt.target === 'expert:referee' || rt.target === 'expert:domain') {
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ticket: row.id, models: rt.target === 'expert:referee' ? await maxTierModels() : undefined })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.packet || r.reason || (r.anomalies || []).join('; ') || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:cite') {
@@ -380,7 +398,7 @@ async function handle(row, i) {
     if (rt.target === 'researcher:generalize') {
       const ref = firstRef(row, /^P-\d{4,}$/) || firstRef(row, /^lab:\S+$/)
       if (!ref) return { for_main: { why: 'a generalize ticket whose refs name no report or lab claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ref, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, ref, ticket: row.id, home: i.home, instance: inst, models: await maxTierModels() })
       if (r && r.to_file && r.to_file.length)
         return { for_main: { why: 'generalize: the falsifier tests are left to file (the lead could not file them)', ticket: row.id, instance: inst, to_file: r.to_file } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.reason || '') : 'lost', nested: r }
@@ -388,24 +406,25 @@ async function handle(row, i) {
     if (rt.target === 'researcher:prove') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst, models: await maxTierModels() })
       if (r && r.needs_explore) return { for_main: { why: 'the claim has no falsifier yet: run /researcher:explore first', ticket: row.id, instance: inst, skill: 'researcher:explore' } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:verify') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/)
       if (!claim) return { for_main: { why: 'a verify ticket whose refs name no claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, claim, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, claim, ticket: row.id, models: await maxTierModels() })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
     const subject = firstRef(row, /^lab:\S+$/)
     if (!subject) return { for_main: { why: 'a review-experiment ticket whose refs name no lab claim', ticket: row.id, instance: inst } }
-    const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
+    const r = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review',
+      models: await maxTierModels() })
     if (r && r.outcome === 'needs-settle') {
       // settle in the same handle (sequential, still one nesting level): the audit, then the candidates' re-derivations
       const slug = subject.replace(/[^A-Za-z0-9._-]+/g, '-')
       const st = await workflow({ scriptPath: NESTED[rt.target] }, { nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
-        candidates: `${i.home}/.academy/settle-${slug}.json` })
+        candidates: `${i.home}/.academy/settle-${slug}.json`, models: await maxTierModels() })
       return { outcome: st ? st.outcome : 'unfinished', detail: st ? (st.notes || []).join('; ') : 'lost', nested: st }
     }
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.notes || []).join('; ') : 'lost', nested: r }

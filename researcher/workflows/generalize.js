@@ -75,7 +75,45 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   return res
 }
 
-const out = { ref: A.ref, ticket: T || null, mode: MODE, notes: [] }
+// ---- Max-tier model (docs/config.md, "How the map takes effect"; T-1682): the same block in every
+// workflow that launches a max-tier agent (the prover and the graders). The launch value is
+// args.models["<plugin:agent>"] (the inbox resolves the map once per run and passes it down), else
+// one clerk stage runs models.py; a value that is no Agent-tool alias launches on the agent file's
+// model:. A run that returns nothing (a usage limit) is relaunched once on FALLBACK_MODEL, the next
+// tier down, and the fallback is noted (MODEL_FALLBACKS, for the record and the ticket).
+const MODEL_ALIAS = /^(haiku|sonnet|opus|fable)$/
+const FALLBACK_MODEL = 'opus'
+const MODEL_OUT = { type: 'object', properties: { output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
+const LAUNCH_MODELS = {}
+const MODEL_FALLBACKS = []
+async function launchModel(name, s) {   // s: {agentType (a clerk with a shell), phase, notes}
+  if (Object.prototype.hasOwnProperty.call(LAUNCH_MODELS, name)) return LAUNCH_MODELS[name]
+  const given = (A.models && typeof A.models === 'object') ? A.models[name] : undefined
+  let m = null
+  if (MODEL_ALIAS.test(String(given || ''))) m = given
+  else {
+    if (given) s.notes.push(`args.models gave ${JSON.stringify(given)} for ${name}, which is no launch alias: resolved here`)
+    const r = await agent(`WORKFLOW STAGE model. Run \`py ${AR}/academy/scripts/models.py agent ${name} --launch\` once, from the home` +
+      (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+      '. Fix nothing, whatever it prints: return its whole output verbatim.', { label: 'model ' + name, phase: s.phase, agentType: s.agentType, schema: MODEL_OUT, effort: 'low' })
+    const w = String(r ? r.output : '').trim()
+    if (MODEL_ALIAS.test(w)) m = w
+    else s.notes.push(`the launch model of ${name} was not resolved (${r ? JSON.stringify(w.slice(0, 160)) : 'the model stage returned nothing'}): it runs on its agent file's model`)
+  }
+  LAUNCH_MODELS[name] = m
+  return m
+}
+async function launchMax(prompt, opts, s) {   // agent(prompt, opts) on the launch model of opts.agentType
+  const model = await launchModel(opts.agentType, s)
+  const r = await agent(prompt, model ? Object.assign({}, opts, { model }) : opts)
+  if (r !== null || !model || model === FALLBACK_MODEL) return r
+  MODEL_FALLBACKS.push(`${opts.label}: ${model} -> ${FALLBACK_MODEL}`)
+  s.notes.push(`${opts.label}: the ${model} run returned nothing (a usage limit?); relaunched once on ${FALLBACK_MODEL} (a fallback-model run)`)
+  return agent(prompt, Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, model: FALLBACK_MODEL }))
+}
+const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_FALLBACKS.join(', ')}` : ''
+
+const out = { ref: A.ref, ticket: T || null, mode: MODE, notes: [], launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
 const end = async (delivered) => {
   if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: delivered, instance: A.instance, topic: 'generalize-' + A.ref,
     only: '<home submodule> board', agentType: CLERK, phase: 'Record', notes: out.notes })
@@ -115,14 +153,15 @@ const brief = SCRIPTS + `Generalize the reviewed experiment ${s.report || A.ref}
   `id in this instance's namespace, title, statement, kind conjecture, status conjectured, bears_on including ${LAB}, the falsifier, the pattern (wider class / ` +
   `relaxed hypothesis / pattern / invariant) and a one-line rationale; optional lemmas (at most three per proposal, status open or sketch, saying what is known and ` +
   `what is missing). Write ONLY that file: create no object and file no ticket.`
-const p1 = await agent(brief, { label: 'prover', phase: 'Propose', agentType: PROVER })
+const MODEL_STAGE = { agentType: CLERK, phase: 'Propose', notes: out.notes }
+const p1 = await launchMax(brief, { label: 'prover', phase: 'Propose', agentType: PROVER }, MODEL_STAGE)
 if (p1 === null) return Object.assign(out, { outcome: 'lost', reason: 'the prover returned nothing (a limit?)' })
 const validate = (label) => clerk('validate', [`Run generalize.py validate ${FILE} --lab-claim ${LAB} --json and return ok, the problems, the proposal ids they name, and the number of proposals.`], CHECKED, label, 'Propose')
 let v = await validate('validate')
 if (v && !v.ok) {
   out.notes.push('the proposals failed validation; sent back to the prover once: ' + v.problems.join('; '))
-  const p2 = await agent(brief + `\n\nThe file ${FILE} fails generalize.py validate:\n- ${v.problems.join('\n- ')}\nFix those proposals in the file.`,
-    { label: 'prover (fix)', phase: 'Propose', agentType: PROVER })
+  const p2 = await launchMax(brief + `\n\nThe file ${FILE} fails generalize.py validate:\n- ${v.problems.join('\n- ')}\nFix those proposals in the file.`,
+    { label: 'prover (fix)', phase: 'Propose', agentType: PROVER }, MODEL_STAGE)
   if (p2 === null) return Object.assign(out, { outcome: 'lost', reason: 'the prover fix returned nothing' })
   v = await validate('validate again')
   if (v && !v.ok) {

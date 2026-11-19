@@ -48,6 +48,7 @@ body(plan.__args, agent, () => {}, () => {}, workflow).then(
 """
 
 OK = {"ok": True, "status": "x", "detail": ""}
+MAXMAP = {"expert:referee": "fable", "expert:rigor-reviewer": "fable", "researcher:experiment-reviewer": "fable", "researcher:prover": "fable"}
 DONE = {"exit": 0, "status": "delivered", "detail": ""}
 
 
@@ -209,20 +210,47 @@ class InboxWorkflowTests(unittest.TestCase):
                     refs=["T-0003", "paper:lem:x"])]
         res, labels, calls = self.run_wf({
             "list": [{"instances": [inst("expert@t", rows)]}],
+            "models": [{"output": json.dumps(MAXMAP)}],
             "workflow verify.js": [{"outcome": "confirmed", "proposed_status": "proved"}],
             "check T-1": [DONE]})
         wf = next(c for c in calls if c["label"] == "workflow verify.js")
-        self.assertEqual(wf["args"], {"nested": True, "root": "/academy", "claim": "paper:lem:x", "ticket": "T-1"})
+        self.assertEqual(wf["args"], {"nested": True, "root": "/academy", "claim": "paper:lem:x", "ticket": "T-1",
+                                      "models": MAXMAP})
         rows = [row("T-2", how="skill", target="researcher:review-experiment",
                     kind="review-experiment", to="researcher@u", refs=["lab:x", "P-0009"])]
         res, labels, calls = self.run_wf({
             "list": [{"instances": [inst("researcher@u", rows)]}],
+            "models": [{"output": json.dumps(MAXMAP)}],
             "workflow review-experiment.js": [{"outcome": "needs-settle"}, {"outcome": "cleared", "notes": []}],
             "check T-2": [DONE]})
         wfs = [c for c in calls if c["label"] == "workflow review-experiment.js"]
         self.assertEqual(wfs[0]["args"]["subject"], "lab:x")
         self.assertEqual(wfs[0]["args"]["report"], "P-0009")
         self.assertEqual(wfs[1]["args"]["mode"], "settle-audit")        # settle chained, no hand-back
+        self.assertEqual([w["args"]["models"] for w in wfs], [MAXMAP, MAXMAP])
+        self.assertEqual(labels.count("models"), 1)
+
+    def test_the_max_tier_models_are_resolved_once_per_run(self):
+        """T-1682: one clerk stage (models.py launch --tier max) for the whole run, passed to every
+        nested max-tier workflow; an unreadable answer passes null, and each child resolves its own."""
+        rows = [row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=["paper:lem:x"]),
+                row("T-2", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=["paper:lem:y"])]
+        res, labels, calls = self.run_wf({
+            "list": [{"instances": [inst("expert@t", rows)]}], "models": [{"output": json.dumps(MAXMAP) + "\n"}],
+            "workflow verify.js": [{"outcome": "x"}, {"outcome": "x"}], "check T-1": [DONE], "check T-2": [DONE]})
+        self.assertEqual(labels.count("models"), 1)
+        self.assertIn("models.py launch --tier max", next(c for c in calls if c["label"] == "models")["prompt"])
+        self.assertEqual([c["args"]["models"] for c in calls if c["label"] == "workflow verify.js"], [MAXMAP, MAXMAP])
+        res, labels, calls = self.run_wf({
+            "list": [{"instances": [inst("expert@t", rows[:1])]}], "models": [{"output": "models: workspace.json not found"}],
+            "workflow verify.js": [{"outcome": "x"}], "check T-1": [DONE]})
+        self.assertIsNone(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["models"])
+        self.assertIn("were not resolved", " ".join(res["notes"]))
+        # given to the run: no stage
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", rows[:1])]}],
+                                          "workflow verify.js": [{"outcome": "x"}], "check T-1": [DONE]}, models=MAXMAP)
+        self.assertNotIn("models", labels)
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["models"], MAXMAP)
         self.assertIsNone(res["for_main"])
 
     def test_developer_is_reviewed_by_test_engineer(self):

@@ -33,14 +33,15 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
   const ans = plan[opts.label]
   if (ans === undefined) throw new Error('unplanned agent ' + opts.label)
   return ans
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
 // the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
-body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
+// the max-tier launch models as the inbox passes them (T-1682); a test passes models: null to resolve them
+body(Object.assign({ nested: true, models: { 'expert:rigor-reviewer': 'fable', 'expert:referee': 'fable', 'researcher:experiment-reviewer': 'fable', 'researcher:prover': 'fable' } }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
@@ -103,7 +104,15 @@ class GateTests(unittest.TestCase):
         self.assertIn("statement moved", " ".join(out["result"]["notes"]))
 
     def test_a_lost_run_is_not_relaunched_and_an_unlanded_one_is(self):
-        _o, labels, _ = self.run_wf({"prepare": PREP, "run A": None, "conclude": DONE})
+        # lost on the max model: one relaunch on opus (T-1682); lost again: nothing further
+        out, labels, calls = self.run_wf({"prepare": PREP, "run A": None, "run A (opus fallback)": None,
+                                          "conclude": DONE})
+        self.assertEqual(labels, ["prepare", "run A", "run A (opus fallback)", "conclude"])
+        self.assertEqual([c.get("model") for c in calls[1:3]], ["fable", "opus"])
+        self.assertIn("run A lost", " ".join(out["result"]["notes"]))
+        # lost on opus itself: never relaunched
+        _o, labels, _ = self.run_wf({"prepare": PREP, "run A": None, "conclude": DONE},
+                                    models={"expert:rigor-reviewer": "opus"})
         self.assertEqual(labels, ["prepare", "run A", "conclude"])
         plan = {"prepare": PREP, "run A": "r", "table A": tab("GAP", "x", landed=False),
                 "run A (relaunch)": "r", "conclude": DONE}
@@ -142,6 +151,41 @@ class GateTests(unittest.TestCase):
         out, labels, _ = self.run_wf({"prepare": dict(PREP, ok=False, stop_reason="budget")})
         self.assertEqual(labels, ["prepare"])
         self.assertEqual(out["result"]["outcome"], "not-started")
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class MaxTierModelTests(unittest.TestCase):
+    """T-1682: the reviewers launch on the workspace's max tier, never a hard-coded opus."""
+    run_wf = GateTests.run_wf
+    PLAN = {"prepare": PREP, "run A": "r", "table A": tab("CONFIRMED", "awaiting-b", True),
+            "run B": "r", "table B": tab("CONFIRMED", "confirmed", run="B"),
+            "conclude": dict(DONE, run_files=["A.md", "B.md"])}
+
+    def test_both_runs_launch_on_the_model_the_args_give(self):
+        _o, _l, calls = self.run_wf(dict(self.PLAN))
+        self.assertEqual([c.get("model") for c in calls if c["label"].startswith("run ")], ["fable", "fable"])
+
+    def test_without_args_one_chair_stage_resolves_it(self):
+        for said, want in (("fable\n", "fable"), ("opus", "opus")):
+            out, labels, calls = self.run_wf(dict(self.PLAN, **{"model expert:rigor-reviewer": {"output": said}}),
+                                             models=None)
+            self.assertEqual(labels, ["prepare", "model expert:rigor-reviewer", "run A", "table A",
+                                      "run B", "table B", "conclude"])
+            stage = calls[1]
+            self.assertEqual(stage["agentType"], "expert:review-chair")
+            self.assertIn("models.py agent expert:rigor-reviewer --launch", stage["prompt"])
+            self.assertEqual([c.get("model") for c in calls if c["label"].startswith("run ")], [want, want])
+            self.assertEqual(out["result"]["launch_models"], {"expert:rigor-reviewer": want})
+
+    def test_a_fallback_reaches_the_record_and_the_ticket(self):
+        out, labels, calls = self.run_wf({"prepare": PREP, "run A": None, "run A (opus fallback)": "r",
+                                          "table A": tab("GAP", "single-negative"), "conclude": DONE})
+        self.assertEqual(labels, ["prepare", "run A", "run A (opus fallback)", "table A", "conclude"])
+        self.assertEqual(out["result"]["model_fallbacks"], ["run A: fable -> opus"])
+        conclude = calls[-1]["prompt"]
+        self.assertIn("relaunched once on opus", conclude)             # the process notes, for the record
+        self.assertIn("say so in the record, the ticket result and its thread", conclude)
+        self.assertEqual(out["result"]["anomalies"], [])
 
 
 class LaunchGuardTests(unittest.TestCase):
