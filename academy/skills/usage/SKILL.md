@@ -30,11 +30,17 @@ is false; do not relaunch. `ship` is `not-run` with the `checkpoint` command for
 (the run has no ticket): run it once from the workspace root.
 
 **Errors.** A `PostToolUseFailure` hook (`scripts/error_ledger.py hook`) appends every
-failed tool call, redacted and without the command line, to
-`<board>/.errors/<instance>.jsonl` as it happens. The weekly packet lists the week's
-error classes and carries the unresolved ones forward; `settle`, run after the packet is
-filed, closes the classes that were reported and stayed quiet for seven days. From the
-main session: `py $S/error_ledger.py report [--days N]` shows the picture, and
+failed tool call, redacted, as it happens: with workspace.json `errors.repo` set, to a
+local spool that is never committed, posted by `py $S/error_ledger.py sync` as GitHub
+issues of that repo (one issue per error class, label `error-class`; one comment per
+class per sync; a closed issue that recurs is reopened, labelled `regression` after a
+fix or `stale-code` when the errors came from code older than the fix); without it, to
+`<board>/.errors/<instance>.jsonl`. The weekly packet lists the week's error classes
+and carries the unresolved ones forward; `settle`, run after the packet is filed, closes
+the classes that stayed quiet for seven days (with issues: it syncs first, and the
+closing comment says "closed by silence"; with the git ledger: only those reported
+before). From the main session: `py $S/error_ledger.py report [--days N]` shows the
+picture (from the issues when `errors.repo` is set; offline, from the local files), and
 `py $S/error_ledger.py resolve "<class>" --note "<why>"` closes a class by hand
 (`--family "<family>"` closes every open class of a family of the report's first table;
 `--commit SHA` names the fix, and an error that then comes from a copy older than the

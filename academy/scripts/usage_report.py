@@ -487,13 +487,20 @@ def model_flags(agent, models, declared, session=None):
 
 
 def load_ledger(workspace):
-    """Error records of the workspace board's ledger, or None when it has none."""
+    """Error records of the workspace board's git ledger and, when workspace.json names
+    ``errors.repo``, of this machine's local spool (``error_ledger.local_records``; read
+    offline, the issues are not), or None when there is neither."""
     board = (workspace or {}).get("board")
-    if not isinstance(board, str) or not os.path.isdir(os.path.join(board, ".errors")):
+    if not isinstance(board, str):
         return None
     try:
         import error_ledger  # noqa: E402
-        return [r for r in error_ledger.read_all(board) if r.get("t") == "error"]
+        dirs = [os.path.join(board, ".errors")]
+        if error_ledger.errors_repo(workspace):
+            dirs.append(error_ledger.spool_dir(workspace))
+        if not any(os.path.isdir(d) for d in dirs):
+            return None
+        return [r for r in error_ledger.read_dirs(dirs) if r.get("t") == "error"]
     except (ImportError, OSError, ac.AcademyError):
         return None
 

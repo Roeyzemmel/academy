@@ -24,7 +24,10 @@ has already dropped a grader's downgrade, a non-tier downgrade and anything over
 plugin).
 
 1. Run `py ${CLAUDE_PLUGIN_ROOT}/scripts/usage_report.py --days 7 --json` (or the
-   window in your brief), and once more without `--json` for the tables. Then run
+   window in your brief), and once more without `--json` for the tables. When the
+   workspace names `errors.repo` (the error classes are GitHub issues), first run
+   `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py sync` so this machine's spool is
+   posted; a sync that fails is reported in `## Machine notes`, not retried. Then run
    `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py report --days 7 --json --brief` (and
    without `--json --brief` for the tables): the errors the PostToolUseFailure hook
    accumulated during the week, as classes (`sig`), open until closed. The brief form
@@ -39,7 +42,11 @@ plugin).
    (state `regression`) are escalated first. A class in state `stale code` is not one:
    every error since its fix came from a checkout or an installed plugin older than
    the fix (the records' `rev` / `ver`); the proposal for it is to update that copy
-   (`scripts/bootstrap.py`, or the submodule pointer), never a new fix. The shell
+   (`scripts/bootstrap.py`, or the submodule pointer), never a new fix. With issues, a
+   class row carries its `issue` number (cite it as `#<n>` of the errors repo), the
+   state comes from the reopened issue's label (`regression`, `stale-code`), and a
+   report read from the local files instead says so on stderr (`issues ... not read`):
+   say that under `## Machine notes`. The shell
    families (`Bash: script not found`, `Bash: shell quoting`, `Bash: python
    traceback`, ...) are the `Bash: exit code` class read by cause; `Bash: no error
    text` is a last stage that exited non-zero with ordinary output and is noise
@@ -90,8 +97,9 @@ plugin).
    was filed): `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py settle
    --packet <the id from step 3>`. It records that the week was reviewed and closes
    the classes reported before that have not recurred for seven days (solved by
-   silence); the others carry over into next week's report with a larger
-   `weeks_open`. Only after step 3 succeeded: if the packet was not filed, do not
+   silence; with issues, every open `error-class` issue quiet for seven days, closed
+   with the comment "closed by silence", after a sync); the others carry over into
+   next week's report with a larger `weeks_open`. Only after step 3 succeeded: if the packet was not filed, do not
    settle. You never resolve a class by hand; that is the human's word
    (`error_ledger.py resolve`).
 5. Return the packet id and the summary line.
