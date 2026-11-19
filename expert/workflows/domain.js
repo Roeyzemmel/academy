@@ -38,6 +38,11 @@ const launch = (prompt, opts) => {
     delete o.tier
     return agent(prompt, o)
   }
+  if (opts && opts.fallbackModel) {   // the max-tier block's one fallback run: its model stands
+    const o = Object.assign({}, opts, { model: opts.fallbackModel })
+    delete o.fallbackModel
+    return agent(prompt, o)
+  }
   return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
 }
 // ---- end Models

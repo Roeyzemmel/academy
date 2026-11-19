@@ -49,6 +49,7 @@ body(plan.__args, agent, () => {}, () => {}, workflow).then(
 """
 
 OK = {"ok": True, "status": "x", "detail": ""}
+MAXMAP = {"expert:referee": "fable", "expert:rigor-reviewer": "fable", "researcher:experiment-reviewer": "fable", "researcher:prover": "fable"}
 DONE = {"exit": 0, "status": "delivered", "detail": ""}
 LEAD_DONE = {"decision": "delivered", "claim": "", "created": False, "brief": "", "falsifier": "",
              "pending": [], "report": "worked"}
@@ -228,7 +229,26 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(wfs[0]["args"]["subject"], "lab:x")
         self.assertEqual(wfs[0]["args"]["report"], "P-0009")
         self.assertEqual(wfs[1]["args"]["mode"], "settle-audit")        # settle chained, no hand-back
+        self.assertEqual([w["args"]["models"] for w in wfs], [{}, {}])   # no map given: an empty one
+        self.assertNotIn("models", labels)
+
+    def test_the_inbox_passes_its_map_and_resolves_no_model_itself(self):
+        """T-0350 with T-1682: the inbox runs no model stage; the map it was given goes to
+        every nested workflow as it is, whose launchMax resolves a max-tier agent the map
+        leaves out (an empty map: one clerk stage there, test_workflow_max_tier.py)."""
+        rows = [row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=["paper:lem:x"]),
+                row("T-2", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=["paper:lem:y"])]
+        res, labels, calls = self.run_wf({
+            "list": [{"instances": [inst("expert@t", rows)]}],
+            "workflow verify.js": [{"outcome": "x"}, {"outcome": "x"}], "check T-1": [DONE], "check T-2": [DONE]},
+            models=MAXMAP)
+        self.assertNotIn("models", labels)
+        self.assertEqual([c["args"]["models"] for c in calls if c["label"] == "workflow verify.js"], [MAXMAP, MAXMAP])
         self.assertIsNone(res["for_main"])
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", rows[:1])]}],
+                                          "workflow verify.js": [{"outcome": "x"}], "check T-1": [DONE]})
+        self.assertNotIn("models", labels)
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["models"], {})
 
     def test_developer_is_reviewed_by_test_engineer(self):
         rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]

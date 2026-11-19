@@ -38,6 +38,11 @@ const launch = (prompt, opts) => {
     delete o.tier
     return agent(prompt, o)
   }
+  if (opts && opts.fallbackModel) {   // the max-tier block's one fallback run: its model stands
+    const o = Object.assign({}, opts, { model: opts.fallbackModel })
+    delete o.fallbackModel
+    return agent(prompt, o)
+  }
   return agent(prompt, m ? Object.assign({}, opts, { model: m }) : opts)
 }
 // ---- end Models
@@ -104,7 +109,50 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   return res
 }
 
-const out = { claim: A.claim, ticket: T || null, notes: [] }
+// ---- Max-tier model (docs/config.md, "How the map takes effect"; T-1682): the same block in every
+// workflow that launches a max-tier agent (the prover and the graders). The launch value is
+// args.models["<plugin:agent>"] (the inbox resolves the map once per run and passes it down), else
+// one clerk stage runs models.py; a value that is no Agent-tool alias launches on the agent file's
+// model:. A run that returns nothing (a usage limit) is relaunched once on FALLBACK_MODEL, the next
+// tier down, and the fallback is noted (MODEL_FALLBACKS, for the record and the ticket).
+const MODEL_ALIAS = /^(haiku|sonnet|opus|fable)$/
+const FALLBACK_MODEL = 'opus'
+const MODEL_OUT = { type: 'object', properties: { output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
+const LAUNCH_MODELS = {}
+const MODEL_FALLBACKS = []
+async function launchModel(name, s) {   // s: {agentType (a clerk with a shell), phase, notes}
+  if (Object.prototype.hasOwnProperty.call(LAUNCH_MODELS, name)) return LAUNCH_MODELS[name]
+  const given = (A.models && typeof A.models === 'object') ? A.models[name] : undefined
+  let m = null
+  const passed = A.models && typeof A.models === 'object' && Object.keys(A.models).length
+  if (MODEL_ALIAS.test(String(given || ''))) m = given
+  else if (passed && !given) m = null   // the passed map leaves it out: its file's model is the workspace's
+  else {
+    if (given) s.notes.push(`args.models gave ${JSON.stringify(given)} for ${name}, which is no launch alias: resolved here`)
+    const r = await launch(`WORKFLOW STAGE model. Run \`py ${AR}/academy/scripts/models.py agent ${name} --launch\` once, from the home` +
+      (ROOT ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+      '. Fix nothing, whatever it prints: return its whole output verbatim.', { label: 'model ' + name, phase: s.phase, agentType: s.agentType, schema: MODEL_OUT, effort: 'low' })
+    const w = String(r ? r.output : '').trim()
+    if (MODEL_ALIAS.test(w)) m = w
+    else s.notes.push(`the launch model of ${name} was not resolved (${r ? JSON.stringify(w.slice(0, 160)) : 'the model stage returned nothing'}): it runs on its agent file's model`)
+  }
+  LAUNCH_MODELS[name] = m
+  return m
+}
+async function launchMax(prompt, opts, s) {   // launch(prompt, opts) on the launch model of opts.agentType
+  const model = await launchModel(opts.agentType, s)
+  const r = await launch(prompt, model ? Object.assign({}, opts, { model }) : opts)
+  if (r !== null || !model || model === FALLBACK_MODEL) return r
+  MODEL_FALLBACKS.push(`${opts.label}: ${model} -> ${FALLBACK_MODEL}`)
+  s.notes.push(`${opts.label}: the ${model} run returned nothing (a usage limit?); relaunched once on ${FALLBACK_MODEL} (a fallback-model run)`)
+  // the lost run may have done part of its work: a stage that files or writes is not idempotent
+  return launch('A previous run of this stage was cut off: check what it already did (files written, tickets filed) before doing it again.\n' + prompt,
+    Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, fallbackModel: FALLBACK_MODEL }))
+}
+const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_FALLBACKS.join(', ')}` : ''
+
+const out = { claim: A.claim, ticket: T || null, notes: [], launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
+const MODEL_STAGE = { agentType: CLERK, phase: 'Attempt', notes: out.notes }
 const end = async () => {
   if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!out.ticket_delivered, instance: A.instance, topic: 'prove-' + A.claim,
     only: '<home submodule> board', agentType: CLERK, phase: 'File', notes: out.notes })
@@ -112,7 +160,7 @@ const end = async () => {
 }
 const deliver = async (result) => {
   if (!T) return
-  const m = await launch(STAGE('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result.replace(/"/g, "'")}".`]),
+  const m = await launch(STAGE('close', [`Deliver ${T} (tickets_update deliver: true) with result "${(result + fallbackLine()).replace(/"/g, "'")}".`]),
     { label: 'close', phase: 'File', agentType: CLERK, schema: MOVE, effort: 'low' })
   out.ticket_delivered = !!(m && m.ok)
 }
@@ -133,22 +181,24 @@ const modulo = (st.unsettled_inputs || []).length ? `It rests on unsettled input
 
 // ---- Attempt ---------------------------------------------------------------------------
 phase('Attempt')
+let attacked = false
 if (!st.attack_exists) {
-  const atk = await launch(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
+  const atk = await launchMax(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
     `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why.`,
-    { label: 'attack', phase: 'Attempt', agentType: PROVER })
+    { label: 'attack', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
   if (atk === null) return Object.assign(out, { outcome: 'lost', reason: 'the attack run returned nothing (a limit?): nothing further launched' })
+  attacked = true
   out.notes.push('one attack-only run first (proofs/<id>/attack.md)')
 }
 const p = await launch(STAGE('attempt-path', ['Run notebook.py attempt <id> --create and return the attempt path it prints.']),
   { label: 'attempt path', phase: 'Attempt', agentType: CLERK, schema: PATH, effort: 'low' })
 if (!p || !p.path) return Object.assign(out, { outcome: 'not-started', reason: 'no attempt path' })
 out.attempt = p.path
-const proved = await launch(`Prove ${A.claim} (home ${A.home}) in the attempt file ${p.path}, per your agent definition: scout prior art first (cite before reproving), ` +
+const proved = await launchMax(`Prove ${A.claim} (home ${A.home}) in the attempt file ${p.path}, per your agent definition: scout prior art first (cite before reproving), ` +
   `then the statement as attempted, the strategy, the proof, the inputs with their statuses, and the gaps; set outcome: in its frontmatter. ` +
   (st.attempts.length ? `Earlier attempts: ${st.attempts.join(', ')} (a repair is this new attempt; the old ones stay). ` : '') +
-  (st.attack_exists || !out.notes.length ? '' : 'Read proofs/<id>/attack.md first. ') + modulo + ' Set no status.',
-  { label: 'attempt', phase: 'Attempt', agentType: PROVER })
+  (attacked ? 'Read proofs/<id>/attack.md first. ' : '') + modulo + ' Set no status.',
+  { label: 'attempt', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
 if (proved === null) return Object.assign(out, { outcome: 'lost', reason: 'the prover returned nothing (a limit?): nothing further launched' })
 
 // ---- File: by the file, not by the summary ------------------------------------------------
@@ -162,12 +212,12 @@ if (o.outcome !== 'complete' || (o.gaps || []).length) {
   await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}; gaps: ${(o.gaps || []).join('; ') || 'none listed'}; nothing filed for review`)
   return await end()
 }
-const f = await launch(`Your attempt ${p.path} on ${A.claim} is complete. File exactly one verify ticket to the Expert instance (tickets_create: kind verify, ` +
+const f = await launchMax(`Your attempt ${p.path} on ${A.claim} is complete. File exactly one verify ticket to the Expert instance (tickets_create: kind verify, ` +
   `title "Verify ${A.claim}", ask "Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?", deliverable "A verification packet with two verdicts, or one negative verdict.", ` +
   `refs [${A.claim}, file:<instance>/${p.path}]${T ? ', parent ' + T : ''}). ` +
   (/^open$/.test(st.status) ? `Then propose sketch (claims_propose_status, grounds note "complete attempt ${p.path}"). ` : '') +
   'Return the ticket id and the proposal ticket; a refusal verbatim.',
-  { label: 'file verify', phase: 'File', agentType: PROVER, schema: FILED, effort: 'low' })
+  { label: 'file verify', phase: 'File', agentType: PROVER, schema: FILED, effort: 'low' }, MODEL_STAGE)
 if (!f || !f.ticket) {
   out.outcome = 'blocked'
   out.reason = 'the verify ticket was not filed: ' + (f ? f.refusal : 'the stage returned nothing')

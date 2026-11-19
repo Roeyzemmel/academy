@@ -137,10 +137,22 @@ per-workspace map, and the choice:
   `py academy/scripts/models.py launches` prints (the agents the map overrides, and those
   tiers as `tier:<tier>`), and the script's `launch()` sets each such agent's `model`; an agent with no academy file is
   launched by tier, and no script names a model (docs/workflows.md, "Models").
+- **Max-tier launches** (T-1682): every launch of a max-tier agent (the prover, the three
+  graders) goes through one block shared by the workflows that make them (`launchMax`;
+  a test pins it identical): the value is `args.models["<plugin:agent>"]`, else one clerk
+  stage runs `models.py agent <name> --launch` (only when no map was passed at all; an
+  agent a passed map leaves out runs on its file's model). It launches through `launch()`,
+  which leaves an explicit `model` alone (the fallback below), so nested workflows get the
+  same `args.models` as every other agent.
+  A max-tier run that returns nothing (a usage limit) is relaunched **once** on `opus`,
+  the next tier down (`FALLBACK_MODEL`, a fixed alias in the block, not read from the tier
+  map; its prompt starts by telling the agent to check what the lost run already did); the fallback is noted in the run's notes, the pass record and the
+  ticket result (`model_fallbacks` in the workflow's result).
 
 The resolver, `academy/scripts/models.py` (read-only): `tiers` (the map), `agent <name>
-[--launch]` (tier, model, launch value, whether an override is needed), `list`,
-`launches` (a workflow's `args.models`, above), and
+[--launch]` (tier, model, launch value, whether an override is needed), `launch [names]
+[--tier T]` (the launch values as one JSON object), `list`, `launches` (a workflow's
+`args.models`, above), and
 `check` (exit 1 when an agent file has no valid tier or its `model:` is not its tier's
 default alias; it names the agents that need the override in this workspace and warns
 about floor tiers that give no grading authority). The MCP `config_get` returns `models`:
