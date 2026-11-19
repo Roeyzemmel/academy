@@ -147,6 +147,13 @@ class inbox_core(object):
         return rows, total
 
     @staticmethod
+    def takeable(row):
+        """True for a row the inbox may take: open, accepted or in-progress, a relay's
+        return leg, or a released or landing row a wrapper built (``extra_row``)."""
+        return (row.get("status") in inbox_core.TAKE + ("in-progress",)
+                or bool(row.get("return")) or bool(row.get("released")))
+
+    @staticmethod
     def outside_campaign(board, instance, campaign, field="campaign"):
         """Ids of the instance's in-progress tickets that do not carry ``campaign`` (in
         ``field``: ``campaign`` or ``cowork``): the workplan listing leaves them out,
@@ -541,6 +548,11 @@ class inbox_core(object):
                                         cowork=cowork)
         if ids:
             rows = [r for r in rows if r.get("id") in ids or (r.get("parent") or "") in ids]
+            if not args.all:
+                # #92: --ids picks among the tickets the inbox may take; it does not widen
+                # them to a blocked ticket still waiting (taken and parked again, T-1613,
+                # T-1216, T-1305). A return leg and a released row are takes.
+                rows = [r for r in rows if inbox_core.takeable(r)]
         header = header or {}
         left = 0 if (args.all or ids) else max(0, total - len(rows))
         unfinished = inbox_core.unfinished(rows)
