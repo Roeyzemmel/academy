@@ -166,6 +166,50 @@ class CampaignTests(unittest.TestCase):
         self.assertFalse(any(l.startswith("prover") for l in labels))
         self.assertNotIn("ship", res)            # a cowork writes only through the nested inbox, whose --check ships
 
+    def test_a_hand_back_from_the_inbox_ends_the_rounds(self):
+        # T-1271: the nested inbox stops at its first for_main, so every later round would stop
+        # at the same ticket (and re-run its lead) until the session has run it
+        prove = {"why": "run /researcher:prove flat:FND-2 with ticket T-5", "ticket": "T-5", "instance": "researcher@u",
+                 "skill": "researcher:prove", "handback": "lead-researcher", "args": {"claim": "flat:FND-2", "ticket": "T-5"}}
+        aps = [ap("AP-1")]
+        plan = {"caps": [CAPS], "state": [st(approaches=aps)],
+                "workflow inbox.js": [dict(INB, for_main=prove)], "state final": [st(approaches=aps)]}
+        res, labels, calls, err = run(WORKPLAN, plan, CAMPAIGN)
+        self.assertIsNone(err, err)
+        self.assertEqual([prove], res["for_main"])
+        self.assertIn("for_main", res["stopped"])
+        self.assertFalse(any(l.startswith(("prover", "lead")) for l in labels))
+        self.assertEqual(0, res["rounds_run"])
+
+    def test_a_for_main_that_does_not_stop_the_inbox_does_not_end_the_rounds(self):
+        # the cost gate (and a nested route's own for_main) cost no lead run when met again:
+        # the campaign goes on past them, as before T-1271
+        for fm in ({"why": "T-5 costs about 9 agent runs: approve it or leave it", "ticket": "T-5", "instance": "researcher@u"},
+                   {"why": "the researcher:prove workflow cannot nest inside this nested run", "ticket": "T-6",
+                    "instance": "researcher@u", "skill": "researcher:prove"}):
+            aps = [ap("AP-1")]
+            plan = {"caps": [dict(CAPS, rounds=1)], "state": [st(approaches=aps)], "workflow inbox.js": [dict(INB, for_main=fm)],
+                    "state round 1": [st(approaches=aps)], "next D-1": [{"items": ["x"]}],
+                    "prover AP-1 r1": [{"artifact": "a.md", "kind": "lemma", "summary": "s"}],
+                    "exists AP-1 r1": [{"exists": True}], "lead r1": [LEAD], "state final": [st(approaches=aps)]}
+            res, labels, calls, err = run(WORKPLAN, plan, dict(CAMPAIGN, rounds=1))
+            self.assertIsNone(err, err)
+            self.assertIn("lead r1", labels)
+            self.assertEqual(1, res["rounds_run"])
+            self.assertEqual([fm], res["for_main"])           # still reported to the session
+
+    def test_the_round_lead_is_told_it_cannot_launch_prover(self):
+        aps = [ap("AP-1")]
+        plan = {"caps": [dict(CAPS, rounds=1)], "state": [st(approaches=aps)], "workflow inbox.js": [INB],
+                "state round 1": [st(approaches=aps)], "next D-1": [{"items": ["x"]}],
+                "prover AP-1 r1": [{"artifact": "a.md", "kind": "lemma", "summary": "s"}],
+                "exists AP-1 r1": [{"exists": True}], "lead r1": [LEAD], "state final": [st(approaches=aps)]}
+        res, labels, calls, err = run(WORKPLAN, plan, dict(CAMPAIGN, rounds=1))
+        self.assertIsNone(err, err)
+        lead = next(c for c in calls if c["label"] == "lead r1")["prompt"]
+        self.assertIn("cannot launch prover", lead)
+        self.assertIn("a prove ticket to this instance tagged campaign flat:T-1", lead)
+
 
 @unittest.skipUnless(NODE, "node is not installed")
 class CoworkTests(unittest.TestCase):
@@ -182,6 +226,17 @@ class CoworkTests(unittest.TestCase):
         self.assertEqual(res["plan_log"], ["T-1 (author@t): worked - d"])
         self.assertIn("/author:sweep", " ".join(res["notes"]))
         self.assertFalse(any(l.startswith("prover") for l in labels))
+
+    def test_a_pass_that_hands_back_says_so(self):
+        prove = {"why": "run /researcher:prove flat:FND-2 with ticket T-5", "ticket": "T-5", "instance": "researcher@u",
+                 "skill": "researcher:prove", "args": {"claim": "flat:FND-2", "ticket": "T-5"}}
+        plan = {"state before": [st(receivers=["researcher@u"], own=["T-5"])],
+                "workflow inbox.js": [dict(INB, for_main=prove)],
+                "state after": [st(receivers=["researcher@u"], own=["T-5"])]}
+        res, labels, calls, err = run(WORKPLAN, plan, {"kind": "cowork", "root": "/a", "slug": "s"})
+        self.assertIsNone(err, err)
+        self.assertEqual([prove], res["for_main"])
+        self.assertIn("run each for_main item", res["stopped"])
 
 
 @unittest.skipUnless(NODE, "node is not installed")
@@ -210,6 +265,24 @@ class InboxNestedTests(unittest.TestCase):
         self.assertEqual(wf["args"]["claim"], "flat:GEO-3")
         self.assertEqual(res["taken"][0]["outcome"], "verify-filed")
 
+
+    def test_a_nested_lead_hands_prove_back_like_a_top_level_one(self):
+        row = {"id": "T-5", "kind": "research", "status": "open", "from": "expert@t", "to": "researcher@u",
+               "final_to": "researcher", "refs": [], "budget_runs": 1,
+               "route": {"how": "agent", "target": "lead-researcher", "why": ""},
+               "return": False, "released": False, "over_budget": None}
+        listed = {"instances": [{"name": "researcher@u", "role": "researcher", "home": "/h/nb", "waiting": 1, "rows": [row]}]}
+        res, labels, calls, err = run(INBOX, {"list": [listed], "T-5 start": [{"ok": True, "status": "in-progress", "detail": ""}],
+                                              "lead-researcher T-5": [{"decision": "prove", "claim": "flat:FND-2", "created": False,
+                                                                       "brief": "b", "falsifier": "T-9 delivered", "pending": [],
+                                                                       "report": "r"}],
+                                              "T-5 falsifier note": [{"ok": True, "status": "in-progress", "detail": ""}],
+                                              "claim flat:FND-2": [{"exit": 0, "output": "hash: ab"}]},
+                                      {"root": "/a", "nested": True, "cowork": "s"})
+        self.assertIsNone(err, err)
+        self.assertEqual("researcher:prove", res["for_main"]["skill"])
+        self.assertEqual("flat:FND-2", res["for_main"]["args"]["claim"])
+        self.assertNotIn("workflow prove.js", labels)
 
     def _one(self, target, kind, refs, to="researcher@u", role="researcher"):
         row = {"id": "T-3", "kind": kind, "status": "open", "from": "a", "to": to, "final_to": "",

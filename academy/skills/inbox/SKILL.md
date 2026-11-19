@@ -59,6 +59,28 @@ the run.
   - a ticket with no route, which an Author or the Scientist puts to the human;
   - decisions that pause a campaign.
 
+  One `for_main` is not a gate but work only this session can launch, marked `handback:
+  lead-researcher`: a Researcher ticket whose lead-researcher needs a proof attempt
+  (inside the run it cannot launch `prover`; T-1271). Ask nothing; the same holds for
+  such an item among a loop's `gates`, whatever the end message says.
+  - `skill: researcher:prove` with `args`: run the Workflow `researcher/workflows/prove.js`
+    with `for_main.args` (it takes the ticket, still `in-progress`, and delivers it). The
+    falsifier the lead reported (`falsifier`) is on the ticket's thread, where prove.js's
+    state stage reads it.
+  - `skill: researcher:prove` without `args`: `why` says what is missing. A claim that is
+    missing or does not resolve: register the statement with `claims_new` in that instance,
+    then run prove.js as above. A registry check that failed (an exit code, not "does not
+    resolve"): run `registry.py statement <claim>` yourself; register only if it reports the
+    claim missing.
+  - `skill: researcher:explore` (no falsifier on record and none pending): run
+    `/researcher:explore` with the ticket; prove.js would attempt nothing.
+  - prove.js answering `needs-explore` anyway: the same, `/researcher:explore` with the
+    ticket, before the inbox again.
+
+  A lead with no falsifier yet but one filed does not come back: the script parks the
+  ticket on that falsifier ticket, and it is released when it is delivered. Then call the
+  inbox again.
+
   Ask with `AskUserQuestion`, carry the answer out (the next mode of the workflow named,
   or the ticket move), then call the workflow again with `cap` lowered by `count`.
 - **`loop: true`** (the whole academy at once): pass after pass over every inbox until

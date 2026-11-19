@@ -117,6 +117,13 @@ async function nextActor(receivers, cap) {
   out.notes.push(...(r.notes || []))
   return r.stopped ? { lost: true, why: r.stopped } : r
 }
+// A lead-researcher hand-back (for_main.handback, T-1271: /researcher:prove or, with no
+// falsifier on record, /researcher:explore) ends the campaign's rounds: its ticket stays
+// in-progress and heads the list, so every later round's nested inbox would run its lead
+// again and stop at it again. The session runs the item, then calls again. Any other
+// for_main (the cost gate, a nested route the inbox cannot run) is reported and the rounds
+// go on, as before.
+const HANDED_BACK = 'the inbox handed work back to the session (for_main): run each for_main item, then call again to resume'
 
 function stopRule(st) {
   if (!st) return 'the state stage returned nothing'
@@ -151,7 +158,8 @@ if (KIND === 'cowork') {
   if (out.taken.some(t => /^author@/.test(t.instance)))
     out.notes.push('an Author ticket ran: run /author:sweep if tex was touched (the inbox swept before it)')
   out.plan_log = out.taken.map(t => `${t.id} (${t.instance}): ${t.outcome}${t.detail ? ' - ' + t.detail : ''}`)
-  return report(after, r.lost ? ('an agent was lost: ' + (r.why || 'no result')) : (stopRule(after) || 'pass done: report to the human, ask what needs asking, then call again'))
+  return report(after, r.lost ? ('an agent was lost: ' + (r.why || 'no result')) : (stopRule(after) ||
+    (r.for_main ? 'pass done; ' + HANDED_BACK : 'pass done: report to the human, ask what needs asking, then call again')))
 }
 
 // ---- Campaign ---------------------------------------------------------------------------
@@ -178,6 +186,7 @@ for (let round = 1; round <= cp.rounds; round++) {
   // 1. take what came back: the Researcher's own inbox, scoped to the campaign
   const r = await nextActor([A.instance || (st.receivers || []).find(x => /^researcher@/.test(x))].filter(Boolean), 3)
   if (r.lost) { why = 'an agent was lost in the inbox run: ' + (r.why || 'no result'); break }
+  if (r.for_main && r.for_main.handback) { why = HANDED_BACK; break }
   st = await state(`state round ${round}`)
   why = stopRule(st)
   if (why) break
@@ -221,7 +230,9 @@ for (let round = 1; round <= cp.rounds; round++) {
   const survivors = (st.approaches || []).filter(a => a.lifecycle === 'active')
   const cross = survivors.length > 0 && survivors.every(a => (rounds[a.approach] || 0) >= 2)
   const l = await launch(SCRIPTS + `Round ${round} of the campaign on ${TAG} (home ${A.home}) is done. The artifacts: ${JSON.stringify(artifacts)}.\n` +
-    `Audit them with the rigor reduction audit (anything claimed proved goes to /researcher:prove's verify route as a ticket; nothing is graded here); ` +
+    `Audit them with the rigor reduction audit (anything claimed proved goes to /researcher:prove's verify route as a ticket; nothing is graded here). ` +
+    `You cannot launch prover or run /researcher:prove here (no Agent or Workflow tool inside a workflow): a proof attempt is a prove ticket to this instance tagged campaign ${TAG}, ` +
+    'which the next round\'s inbox hands to the session. Then ' +
     `update the approaches (notebook.py approach set AP-n <lifecycle> ...; blocked needs --blocked-by and --reopen-if); run the diversity check ` +
     `(more than half the active directions in one family: redirect the extras); file every ask for another role as a ticket tagged campaign ${TAG}. ` +
     (cross ? 'Every surviving approach has had two rounds: you may call cross-pollination. ' : 'No cross-pollination yet. ') +

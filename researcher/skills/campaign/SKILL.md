@@ -49,8 +49,10 @@ The script holds, in this order:
     tagged `campaign: <target>`. Cross-pollination comes only after every survivor has
     had two rounds; a failed wave makes the next round a reseeding round.
 - **The stops**: the target `proved` (two agreeing verify reviews); every active
-  approach waiting on the human (`PAUSE`) or on another role (`WAITING`); `--rounds`
-  reached; a lost agent; the token budget spent.
+  approach waiting on the human (`PAUSE`) or on another role (`WAITING`); the nested
+  inbox's lead-researcher handing work back (`for_main` with `handback`: a
+  `/researcher:prove` or `/researcher:explore` it could not launch); `--rounds` reached;
+  a lost agent; the token budget spent.
 
 What only this session may do comes back in `for_main` (a nested route, a decision for
 the human): run it, then call again to resume, from the approach objects and the board.
