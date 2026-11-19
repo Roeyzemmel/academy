@@ -185,6 +185,44 @@ class ReportTest(unittest.TestCase):
                                  "status_proposed": meta["status_proposed"]}, body)
         self.assertEqual(probs, [])
 
+    # -- provenance written by the lab's env.save_result (T-0735) ------------------
+
+    def provenance(self, **extra):
+        path = os.path.join(self.sb.lab, "results", EW + ".json")
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        data["provenance"].update(extra)
+        self.sb.write_json(path, data)
+
+    @staticmethod
+    def section(body, name):
+        return body.split("## %s\n" % name, 1)[1].split("\n## ", 1)[0]
+
+    def test_saved_is_not_listed_as_a_version(self):
+        self.provenance(saved="2026-11-17T10:00:00")
+        meta, body = report.render(self.gather())
+        envsec = self.section(body, "Environment")
+        self.assertIn("- Versions: python 3.12.14, sage 10.7", envsec)
+        self.assertNotIn("saved", envsec)
+
+    def test_git_at_save_is_shown_and_noted(self):
+        self.provenance(saved="2026-11-17T10:00:00",
+                        git_at_save={"commit": "b2c3d4e", "dirty": True,
+                                     "modified": ["pkg/x.py"], "untracked": [],
+                                     "diff_sha256": "0" * 64})
+        meta, body = report.render(self.gather())
+        envsec = self.section(body, "Environment")
+        self.assertIn("- Commit: `a929eca`\n", envsec)
+        self.assertIn("- Git state at save: commit `b2c3d4e` (dirty tree); the result "
+                      "records the start state", envsec)
+        notes = self.section(body, "Machine notes")
+        self.assertIn("the git state changed during the run (start commit a929eca, at "
+                      "save b2c3d4e)", notes)
+
+    def test_no_git_at_save_no_line(self):
+        meta, body = report.render(self.gather())
+        self.assertNotIn("at save", body)
+
     def test_probe_report(self):
         self.sb.write("scratch/probe_sizes.py", '"""How large do the orbits get?\n\n'
                       'Kind:           probe\nClaims:         lab:q2-ew-ornithorynque\n'

@@ -88,7 +88,18 @@ RE_CLAIM = re.compile(r"^[a-z][a-z0-9-]*:\S+$")
 MAX_ITEM = 300
 #: provenance keys that are not tool versions (every other scalar is listed as one)
 NOT_VERSIONS = ("date", "script", "git", "argv", "platform", "commit", "dirty", "cwd",
-                "host", "job")
+                "host", "job", "saved", "git_at_save")
+
+
+def _at_save(prov):
+    """(commit, dirty) of the git state at save time, when the lab's save_result
+    recorded one because it changed during the run (provenance.git_at_save); else
+    None. A save outside git records git_at_save None: (None, None)."""
+    if "git_at_save" not in prov:
+        return None
+    g = prov["git_at_save"]
+    g = g if isinstance(g, dict) else {}
+    return g.get("commit"), g.get("dirty")
 
 
 class Refused(ac.AcademyError):
@@ -402,6 +413,13 @@ def gather(script, lab, result=None, draft=None, rtype=None, env=None, job=None)
     if dirty:
         notes.append("report.py: the result was produced from a dirty tree (provenance "
                      "git.dirty true); the commit alone does not reproduce it")
+    at_save = _at_save(prov)
+    if at_save is not None:
+        notes.append("report.py: the git state changed during the run (start commit %s, "
+                     "at save %s); the result records the start state, the save-time one "
+                     "is provenance.git_at_save; a module the run imported after the "
+                     "change may have come from the later state"
+                     % (commit or "unknown", at_save[0] or "outside git"))
 
     # validation
     vsec = dsec.get("Validation", "")
@@ -549,6 +567,13 @@ def build_fields(ctx):
         pd.get("kind"), (", host " + pd["host"]) if pd.get("host") else "")) if pd else "")]
     env_lines.append("- Commit: `%s`%s" % (ctx["commit"] or "unknown",
                                            " (dirty tree)" if ctx["dirty"] else ""))
+    at_save = _at_save(prov)
+    if at_save is not None:
+        env_lines.append("- Git state at save: %s; the result records the start state "
+                         "(see Machine notes)"
+                         % ("commit `%s`%s" % (at_save[0], " (dirty tree)"
+                                               if at_save[1] else " (clean tree)")
+                            if at_save[0] else "outside git"))
     vers = ["%s %s" % (k, v) for k, v in prov.items()
             if k not in NOT_VERSIONS and isinstance(v, (str, int, float)) and v != ""]
     if vers:

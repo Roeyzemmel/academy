@@ -11,6 +11,11 @@ written by `save_result`) carries the date, the git commit, the interpreter and 
 library versions. That is what makes a result citable later. The commit is stamped
 `dirty`, with the files named, when the code that ran is not all in it: a tracked file
 changed, the running script not tracked, or an untracked file under `CODE_DIRS`.
+`save_result` records the provenance the banner took for the same script at the start
+of the run, not the state at save time: HEAD may move while a long run computes. If the
+commit or the uncommitted code (which files, or their content; the outputs under
+results/ and sessions/ aside) changed during the run, the save-time state is kept
+beside it under `git_at_save` and a warning is printed.
 
     from <package> import env
     env.banner(__file__)                 # provenance header
@@ -23,7 +28,9 @@ Pure standard library: importable on any interpreter, with or without the lab's
 heavy libraries.
 """
 
+import copy
 import datetime
+import hashlib
 import importlib
 import json
 import platform
@@ -93,6 +100,11 @@ def versions():
 #: is this package's own directory, whatever the lab named it.
 CODE_DIRS = ("experiments", Path(__file__).resolve().parent.name)
 
+#: Where runs write their outputs (RESULTS, SESSIONS). Tracked files there may change
+#: while a run computes (a rerun overwrites its committed result); `diff_sha256`, and
+#: so the during-the-run change check, leaves them out. They still count as `modified`.
+OUTPUT_DIRS = ("results", "sessions")
+
 
 def _git_lines(root, *args):
     """NUL-separated output of a git command as a list of paths."""
@@ -101,17 +113,39 @@ def _git_lines(root, *args):
     return [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
 
 
+def _diff_sha256(top, dirs, untracked):
+    """sha256 of the uncommitted code: the binary diff against HEAD outside `dirs`,
+    then each untracked file's path and bytes. None when there is none."""
+    excl = [":(exclude,top)" + d for d in dirs]
+    diff = subprocess.check_output(
+        ["git", "diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color",
+         "HEAD", "--", ":(top)", *excl], cwd=top, stderr=subprocess.DEVNULL)
+    if not diff and not untracked:
+        return None
+    h = hashlib.sha256(diff)
+    for rel in untracked:
+        h.update(b"\0" + rel.encode("utf-8", "surrogateescape") + b"\0")
+        try:
+            h.update((top / rel).read_bytes())   # an absolute rel replaces top
+        except OSError:
+            h.update(b"<unreadable>")
+    return h.hexdigest()
+
+
 def git_state(script=None, root=None):
     """The commit a result can be reproduced from, or None outside git.
 
-    Returns {"commit", "dirty", "modified", "untracked"}: `modified` lists tracked
-    files that differ from HEAD (staged or not); `untracked` lists the running
-    `script` unless the repo's index tracks it (so also when it is gitignored, e.g.
-    under scratch/, inside a nested checkout such as .worktrees/<w>/, or outside the
-    repo; the last is recorded as an absolute path) and every untracked,
+    Returns {"commit", "dirty", "modified", "untracked", "diff_sha256"}: `modified`
+    lists tracked files that differ from HEAD (staged or not); `untracked` lists the
+    running `script` unless the repo's index tracks it (so also when it is gitignored,
+    e.g. under scratch/, inside a nested checkout such as .worktrees/<w>/, or outside
+    the repo; the last is recorded as an absolute path) and every untracked,
     non-ignored file under CODE_DIRS of `root`. `dirty` is true when either list is
     non-empty. `root` (default: the lab root) may lie below the git top level;
-    paths are relative to the top level, '/'-separated, sorted.
+    paths are relative to the top level, '/'-separated, sorted. `diff_sha256`
+    fingerprints what the uncommitted code is (the diff against HEAD and the
+    untracked files' bytes, OUTPUT_DIRS left out), None when there is none: two
+    states with the same lists can differ in it.
     """
     root = Path(root or ROOT).resolve()
     try:
@@ -143,10 +177,16 @@ def git_state(script=None, root=None):
                 if not tracked:
                     untracked.add(rel)
         modified, untracked = sorted(set(modified)), sorted(untracked)
+        outputs = [d if sub == "." else f"{sub}/{d}" for d in OUTPUT_DIRS]
         return {"commit": h, "dirty": bool(modified or untracked),
-                "modified": modified, "untracked": untracked}
+                "modified": modified, "untracked": untracked,
+                "diff_sha256": _diff_sha256(top, outputs, untracked)}
     except (OSError, subprocess.CalledProcessError):
         return None
+
+
+def _now():
+    return datetime.datetime.now().isoformat(timespec="seconds")
 
 
 def provenance(script=None):
@@ -158,15 +198,69 @@ def provenance(script=None):
             shown = Path(script).as_posix()
     else:
         shown = None
-    p = {"date": datetime.datetime.now().isoformat(timespec="seconds"),
+    p = {"date": _now(),
          "script": shown, "git": git_state(script), "argv": sys.argv[1:]}
     p.update(versions())
     return p
 
 
+#: {script key: provenance} taken by banner() in this process, one per script: the
+#: start of its run. A banner for another script (a library's own main) never evicts it.
+_RUNS = {}
+
+
+def _script_key(script):
+    return Path(script).resolve().as_posix() if script else None
+
+
+def _git_changed(start, now):
+    """True if the commit or the uncommitted code differs between two git_state()s.
+
+    The code is `untracked` and `diff_sha256`, which covers which tracked files differ
+    from HEAD and how; `modified` itself is not compared, since it also lists the
+    outputs a run writes (OUTPUT_DIRS), which diff_sha256 leaves out.
+    """
+    if start is None or now is None:
+        return (start is None) != (now is None)
+    return any(start.get(k) != now.get(k) for k in ("commit", "untracked", "diff_sha256"))
+
+
+def run_provenance(script=None):
+    """The provenance a result of this run records.
+
+    The banner's, when banner() was called for the same script in this process: the
+    code that ran is the code at the start, whatever HEAD is by the time the result
+    is saved. "saved" is the save time; when the commit or the uncommitted code
+    changed since the banner, the save-time git_state is added as "git_at_save" and
+    a warning is printed. Without a banner for this script, a fresh provenance()
+    (interactive snapshots, a script that never called banner), with a warning if
+    banners were taken for other scripts (or for a script when this one is None).
+    """
+    key = _script_key(script)
+    if key in _RUNS:
+        p = copy.deepcopy(_RUNS[key])
+        now = git_state(script)
+        if _git_changed(p["git"], now):
+            p["git_at_save"] = now
+            print("WARNING: the git state changed during the run (start commit "
+                  f"{(p['git'] or {}).get('commit')}, now {(now or {}).get('commit')}); "
+                  "the result records the start state, the save-time state under "
+                  "git_at_save")
+    else:
+        if _RUNS:
+            print(f"WARNING: no banner for this script ({key or 'script=None'}) in this "
+                  f"run (banners: {', '.join(k or 'None' for k in _RUNS)}); the result "
+                  "records the provenance at save time")
+        p = provenance(script)
+    p["saved"] = _now()
+    return p
+
+
 def banner(script=None):
-    """Print the provenance header. Returns the dict for reuse."""
+    """Print the provenance header and remember it as this run's provenance
+    (save_result records it). Returns a copy of the dict for reuse."""
     p = provenance(script)
+    _RUNS[_script_key(script)] = copy.deepcopy(p)
     g = p["git"]
     gs = "no git" if g is None else g["commit"] + (" (dirty)" if g["dirty"] else "")
     libs = ", ".join("%s %s" % (k, p[k]) for k in LIBRARIES if p.get(k)) \
@@ -222,7 +316,9 @@ def save_result(name, data, script=None, subdir=None, base=None, claims=None,
     by search_outcome / measure_outcome / verify_outcome, written first so a reader
     gets the answer without the raw `result`. `data` must be JSON-serialisable:
     convert exact numbers (fractions, library integers) explicitly first. `base`
-    overrides the root directory (SESSIONS for interactive snapshots).
+    overrides the root directory (SESSIONS for interactive snapshots). The provenance
+    is run_provenance(script): the banner's for this script, taken at the start of the
+    run, with "git_at_save" added if the commit or the uncommitted code changed since.
     """
     root = Path(base) if base else RESULTS
     d = root / subdir if subdir else root
@@ -236,7 +332,7 @@ def save_result(name, data, script=None, subdir=None, base=None, claims=None,
             raise ValueError("outcome must come from search_outcome / measure_outcome / "
                              "verify_outcome")
         head["outcome"] = outcome
-    payload = {**head, "provenance": provenance(script), "result": data}
+    payload = {**head, "provenance": run_provenance(script), "result": data}
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     try:
         shown = path.relative_to(ROOT)
