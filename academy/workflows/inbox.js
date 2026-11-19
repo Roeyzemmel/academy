@@ -538,7 +538,9 @@ async function handle(row, i) {
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
       if (r && r.needs_explore) return { for_main: { why: 'the claim has no falsifier yet: run /researcher:explore first', ticket: row.id, instance: inst, skill: 'researcher:explore' } }
-      if (r && r.already_proved) return { for_main: { why: `${claim} is proved and the ticket was not read as a repair (#85): rerun /researcher:prove with mode repair, or deliver or cancel the ticket`, ticket: row.id, instance: inst, skill: 'researcher:prove', claim, mode: 'repair' } }
+      if (r && r.already_proved) return { for_main: { why: `${claim} is proved and the ticket was not read as a repair (#85): if it asks for one, run prove.js with these args (mode repair); else deliver or cancel ${row.id} (still in-progress)`,
+        ticket: row.id, instance: inst, skill: 'researcher:prove', claim, mode: 'repair', handback: 'prove',
+        args: { claim, ticket: row.id, home: i.home, instance: inst, root: ROOT, mode: 'repair' } } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:verify') {

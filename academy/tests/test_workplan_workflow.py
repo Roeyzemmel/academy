@@ -276,6 +276,9 @@ class InboxNestedTests(unittest.TestCase):
         self.assertEqual(res["for_main"]["skill"], "researcher:prove")
         self.assertEqual(res["for_main"]["mode"], "repair")
         self.assertEqual(res["for_main"]["claim"], "flat:GEO-3")
+        self.assertEqual(res["for_main"]["args"], {"claim": "flat:GEO-3", "ticket": "T-2", "home": "/h/nb",
+                                                    "instance": "researcher@u", "root": "/a", "mode": "repair"})
+        self.assertEqual(res["for_main"]["handback"], "prove")
 
 
     def test_a_nested_lead_hands_prove_back_like_a_top_level_one(self):

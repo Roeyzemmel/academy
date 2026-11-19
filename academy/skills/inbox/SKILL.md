@@ -67,6 +67,11 @@ the run.
     with `for_main.args` (it takes the ticket, still `in-progress`, and delivers it). The
     falsifier the lead reported (`falsifier`) is on the ticket's thread, where prove.js's
     state stage reads it.
+  - `skill: researcher:prove` with `mode: repair` and `handback: prove` (#85): prove.js found
+    the claim `proved` and did not read the ticket as a repair, and delivered nothing. Read
+    the ticket: if it asks for a repair, polish or record, run prove.js with `for_main.args`
+    (they carry `mode: "repair"`); otherwise deliver or cancel it yourself (it is still
+    `in-progress`), saying why.
   - `skill: researcher:prove` without `args`: `why` says what is missing. A claim that is
     missing or does not resolve: register the statement with `claims_new` in that instance,
     then run prove.js as above. A registry check that failed (an exit code, not "does not
