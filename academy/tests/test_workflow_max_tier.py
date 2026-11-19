@@ -82,6 +82,36 @@ class SameBlockEverywhere(unittest.TestCase):
         self.assertEqual(sorted(launchers), sorted(LAUNCHING))
 
 
+class LaunchSites(unittest.TestCase):
+    """The launch sites of every workflow, outside the block (test-engineer's review of 1f149b8)."""
+
+    @staticmethod
+    def segments():
+        for path in sorted(REPO.glob("*/workflows/*.js")):
+            rel = path.relative_to(REPO).as_posix()
+            text = path.read_text(encoding="utf-8").replace(block_of(rel) or "", "")
+            consts = dict(re.findall(r"const (\w+) = '([a-z]+:[a-z-]+)'", text))
+            parts = re.split(r"(\blaunchMax\(|(?<![\w.])agent\()", text)
+            for opener, seg in zip(parts[1::2], parts[2::2]):
+                yield rel, opener, seg, consts, text
+
+    def test_every_launch_names_its_agent_type(self):
+        for rel, opener, seg, _c, _t in self.segments():
+            self.assertIn("agentType:", seg, "%s: an %s call without agentType" % (rel, opener))
+
+    def test_a_max_tier_agent_is_only_ever_the_agent_of_a_launch_max(self):
+        for rel, opener, seg, consts, _t in self.segments():
+            types = [consts.get(t, t.strip("'")) for t in re.findall(r"agentType: (\w+|'[^']+')", seg)]
+            for k, name in enumerate(types):
+                if name in MAX_TIER:
+                    self.assertEqual((opener, k), ("launchMax(", 0), "%s: %s launched outside launchMax" % (rel, name))
+
+    def test_no_launching_workflow_sets_a_model_outside_the_block(self):
+        for rel in LAUNCHING:
+            text = (REPO / rel).read_text(encoding="utf-8").replace(block_of(rel), "")
+            self.assertNotRegex(text, r"\bmodel\s*:", rel)
+
+
 @unittest.skipUnless(NODE, "node is not installed")
 class TheBlock(unittest.TestCase):
     def run_block(self, launches, answers, models=None):
@@ -139,6 +169,10 @@ class TheBlock(unittest.TestCase):
         self.assertEqual(res["fallbacks"], ["referee: fable -> opus"])
         self.assertIn("relaunched once on opus", " ".join(res["notes"]))
         self.assertEqual(res["line"], "; model fallback: referee: fable -> opus")
+        # the lost run may have filed or written something: the relaunch is told to check first
+        self.assertEqual(calls[1]["prompt"], "A previous run of this stage was cut off: check what it already did "
+                         "(files written, tickets filed) before doing it again.\nbrief")
+        self.assertEqual(calls[0]["prompt"], "brief")
 
     def test_the_fallback_is_tried_once_and_never_from_opus(self):
         res, calls = self.run_block([("referee", "expert:referee")],

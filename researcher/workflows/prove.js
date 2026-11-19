@@ -114,7 +114,9 @@ async function launchMax(prompt, opts, s) {   // agent(prompt, opts) on the laun
   if (r !== null || !model || model === FALLBACK_MODEL) return r
   MODEL_FALLBACKS.push(`${opts.label}: ${model} -> ${FALLBACK_MODEL}`)
   s.notes.push(`${opts.label}: the ${model} run returned nothing (a usage limit?); relaunched once on ${FALLBACK_MODEL} (a fallback-model run)`)
-  return agent(prompt, Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, model: FALLBACK_MODEL }))
+  // the lost run may have done part of its work: a stage that files or writes is not idempotent
+  return agent('A previous run of this stage was cut off: check what it already did (files written, tickets filed) before doing it again.\n' + prompt,
+    Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, model: FALLBACK_MODEL }))
 }
 const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_FALLBACKS.join(', ')}` : ''
 
@@ -148,11 +150,13 @@ const modulo = (st.unsettled_inputs || []).length ? `It rests on unsettled input
 
 // ---- Attempt ---------------------------------------------------------------------------
 phase('Attempt')
+let attacked = false
 if (!st.attack_exists) {
   const atk = await launchMax(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
     `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why.`,
     { label: 'attack', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
   if (atk === null) return Object.assign(out, { outcome: 'lost', reason: 'the attack run returned nothing (a limit?): nothing further launched' })
+  attacked = true
   out.notes.push('one attack-only run first (proofs/<id>/attack.md)')
 }
 const p = await agent(STAGE('attempt-path', ['Run notebook.py attempt <id> --create and return the attempt path it prints.']),
@@ -162,7 +166,7 @@ out.attempt = p.path
 const proved = await launchMax(`Prove ${A.claim} (home ${A.home}) in the attempt file ${p.path}, per your agent definition: scout prior art first (cite before reproving), ` +
   `then the statement as attempted, the strategy, the proof, the inputs with their statuses, and the gaps; set outcome: in its frontmatter. ` +
   (st.attempts.length ? `Earlier attempts: ${st.attempts.join(', ')} (a repair is this new attempt; the old ones stay). ` : '') +
-  (st.attack_exists || !out.notes.length ? '' : 'Read proofs/<id>/attack.md first. ') + modulo + ' Set no status.',
+  (attacked ? 'Read proofs/<id>/attack.md first. ' : '') + modulo + ' Set no status.',
   { label: 'attempt', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
 if (proved === null) return Object.assign(out, { outcome: 'lost', reason: 'the prover returned nothing (a limit?): nothing further launched' })
 

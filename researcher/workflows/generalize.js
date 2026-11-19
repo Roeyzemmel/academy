@@ -109,7 +109,9 @@ async function launchMax(prompt, opts, s) {   // agent(prompt, opts) on the laun
   if (r !== null || !model || model === FALLBACK_MODEL) return r
   MODEL_FALLBACKS.push(`${opts.label}: ${model} -> ${FALLBACK_MODEL}`)
   s.notes.push(`${opts.label}: the ${model} run returned nothing (a usage limit?); relaunched once on ${FALLBACK_MODEL} (a fallback-model run)`)
-  return agent(prompt, Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, model: FALLBACK_MODEL }))
+  // the lost run may have done part of its work: a stage that files or writes is not idempotent
+  return agent('A previous run of this stage was cut off: check what it already did (files written, tickets filed) before doing it again.\n' + prompt,
+    Object.assign({}, opts, { label: `${opts.label} (${FALLBACK_MODEL} fallback)`, model: FALLBACK_MODEL }))
 }
 const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_FALLBACKS.join(', ')}` : ''
 

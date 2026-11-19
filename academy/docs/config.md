@@ -137,7 +137,8 @@ per-workspace map, and the choice:
   stage runs `models.py agent <name> --launch`. The inbox resolves the whole tier once per
   run (`models.py launch --tier max`, a JSON map) and passes it to its nested workflows.
   A max-tier run that returns nothing (a usage limit) is relaunched **once** on `opus`,
-  the next tier down; the fallback is noted in the run's notes, the pass record and the
+  the next tier down (`FALLBACK_MODEL`, a fixed alias in the block, not read from the tier
+  map; its prompt starts by telling the agent to check what the lost run already did); the fallback is noted in the run's notes, the pass record and the
   ticket result (`model_fallbacks` in the workflow's result).
 
 The resolver, `academy/scripts/models.py` (read-only): `tiers` (the map), `agent <name>
