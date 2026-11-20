@@ -5,7 +5,7 @@ export const meta = {
   phases: [
     { title: 'Pick', detail: 'the direction and its next items' },
     { title: 'Move', detail: 'one lead-researcher run, one step per item' },
-    { title: 'Check', detail: 'falsifier tickets, prove-after-falsify, the journal' },
+    { title: 'Check', detail: 'falsifier tickets, the journal' },
   ],
 }
 
@@ -13,8 +13,10 @@ export const meta = {
 // from notebook.py next (the direction's own order, at most three), the lead is briefed
 // with ids only (nothing pasted in), each item moves one step in the order falsify, prior
 // art, prove, and the script checks what the lead reports: a falsify step must have filed
-// an experiment ticket to the Scientist naming the item, a prove step needs a falsifier
-// that ran, and today's journal records the run. The lead's judgement stays its own.
+// an experiment ticket to the Scientist naming the item, and today's journal records the run.
+// A prove step does not wait for a falsifier (2026-11-20: the attempt goes first and the
+// verify workflow runs the falsifier after review A), so it is not checked for one. The
+// lead's judgement stays its own.
 
 const A = args || {}
 
@@ -82,7 +84,6 @@ const MOVED = { type: 'object', properties: { items: { type: 'array', items: { t
   required: ['item', 'step', 'tickets', 'objects', 'note'] } }, report: { type: 'string' }, next_picks: { type: 'array', items: { type: 'string' } } },
   required: ['items', 'report', 'next_picks'] }
 const TICKET = { type: 'object', properties: { found: { type: 'boolean' }, to: { type: 'string' }, kind: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } }, required: ['found', 'to', 'kind', 'refs'] }
-const FALS = { type: 'object', properties: { falsified: { type: 'boolean' }, evidence: { type: 'string' } }, required: ['falsified', 'evidence'] }
 const JOURNAL = { type: 'object', properties: { exists: { type: 'boolean' }, path: { type: 'string' }, mentions: { type: 'array', items: { type: 'string' }, description: 'the item ids today\'s journal mentions' } }, required: ['exists', 'path', 'mentions'] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
 
@@ -155,8 +156,8 @@ const lead = await launch(
     `Answer the question ticket ${T} (home ${A.home}) as a one-item run; read it with tickets_get.`) +
   ' Move each item ONE step, in this order: falsify (a candidate claim gets its smallest falsifier: you file the experiment ticket to the Scientist, ' +
   'a probe for one named example, a search for a family or a range, with the claim id, what refutes it, a validation case and the unsettled inputs); ' +
-  'prior art (prover\'s scout pass, lookup / cite tickets to the Expert); prove (only an item that survived falsification and has no prior proof: ' +
-  'prover writes an attempt, and /researcher:prove files the review). Update the direction\'s lists and today\'s journal (notebook.py journal --create); ' +
+  'prior art (prover\'s scout pass, lookup / cite tickets to the Expert); prove (an item with no prior proof: prover writes an attempt, and /researcher:prove files the review; ' +
+  'the attempt does not wait for a falsifier, which the verify workflow runs after review A). Update the direction\'s lists and today\'s journal (notebook.py journal --create); ' +
   'new questions or claims become unsettled objects. Return per item the step, the tickets filed and the objects made, your report, and what the next run would pick.',
   { label: 'lead', phase: 'Move', agentType: LEAD, schema: MOVED })
 if (lead === null) return Object.assign(out, { outcome: 'lost', reason: 'the lead run returned nothing (a limit?): nothing further launched' })
@@ -180,11 +181,6 @@ for (const it of lead.items || []) {
       if (!t || !t.found || !/^scientist@/.test(t.to) || t.kind !== 'experiment' || !(t.refs || []).some(r => r === it.item || r.endsWith(':' + short) || r === short))
         out.anomalies.push(`${it.item}: the falsifier ticket ${tid} is not an experiment ticket to the Scientist naming the item`)
     }
-  }
-  if (it.step === 'prove') {
-    const f = await clerk('falsified', [`Did a falsifier run on ${it.item} before this run (a reviewed or reported experiment, a probe report, or a direction item that records it)? Return falsified and the evidence. Write nothing.`],
-      FALS, `falsified ${it.item}`, 'Check')
-    if (!f || !f.falsified) out.anomalies.push(`${it.item}: moved to prove with no falsifier on record`)
   }
 }
 const j = await clerk('journal', ['Return whether today\'s journal file exists (notebook.py journal shows its path), its path, and which of these ids it mentions: ' + (lead.items || []).map(i => i.item).join(', ') + '. Write nothing.'],

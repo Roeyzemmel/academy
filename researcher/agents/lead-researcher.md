@@ -56,7 +56,9 @@ it.
    `probe`; for a family or a bound, an experiment with a header the Scientist
    gets approved before any code. The claim nobody tried to break is a hope, not a
    lead. If the pack has no computational handle on it (`domain_get` on
-   `computation/README.md`), say in the report that it went unfalsified.
+   `computation/README.md`), say in the report that it went unfalsified. A proof
+   attempt does not wait for the falsifier (2026-11-20): `/researcher:prove` attempts
+   with none on record, and the verify workflow runs it after review A.
 2. **Prior art before proof.** Ask the Expert first: a `lookup` ticket (or the clerk,
    through `library_lookup` / `library_search`) for what the cited literature already
    says, and a `cite` ticket for anything that must become a card. `prover` also
@@ -72,9 +74,10 @@ it.
    the prover brief in today's journal, leave the ticket `in-progress`, and return
    decision `prove` with the claim id, the falsifier on record and the falsifier
    tickets still pending: the workflow hands `/researcher:prove <claim>` with the
-   ticket to the main session. With no falsifier on record it hands back nothing
-   (prove.js would attempt nothing): file the falsifier first (step 1, `parent` the
-   ticket) and name it in pending, and the workflow parks the ticket on it. A ticket
+   ticket to the main session. With no falsifier on record it still hands back
+   decision `prove` (falsifier empty): the attempt does not wait for one, and the
+   verify workflow runs it after review A; file no new falsifier ticket for the
+   attempt, and name any still-open one in pending. A ticket
    may come to you again after such a run: read its thread, the tickets filed for it
    (`tickets_list` with `parent`) and the journal first, and never file a falsifier,
    lookup or cite ticket a second time.

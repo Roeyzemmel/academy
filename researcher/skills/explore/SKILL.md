@@ -26,10 +26,10 @@ The inbox runs it for a `question` ticket. The order is code (2026-10-31; docs/w
      bound is a search. The ticket carries the claim id, what would refute it, a
      validation case and the unsettled inputs;
    - **prior art**: the prover's scout pass, and `lookup` or `cite` tickets to the Expert;
-   - **prove**: only an item that survived falsification;
+   - **prove**: an item with no prior proof; the attempt does not wait for a falsifier
+     (the verify workflow runs it after review A);
 4. the script checks:
    - a falsify step names an experiment ticket to the Scientist naming the item;
-   - a prove step has a falsifier on record;
    - one step per item;
    - today's journal records the run.
 
