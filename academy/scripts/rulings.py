@@ -480,6 +480,19 @@ def _deliver(board, tid, result, date):
                                date=date)
 
 
+RE_LETTER = re.compile(r"^human decision: \(([a-d])\)")
+
+
+def _letters(body):
+    """The letters of this code's earlier answer lines on a ruling, in order."""
+    out = []
+    for _d, w, t in ac.thread_lines(body):
+        m = RE_LETTER.match(t) if w == ac.HUMAN else None
+        if m and m.group(1) not in out:
+            out.append(m.group(1))
+    return out
+
+
 def _answered(body, letter):
     """True when the thread already holds this code's answer line for ``letter``."""
     want = "human decision: (%s)" % letter
@@ -508,6 +521,12 @@ def record(board, r, choice, comment="", workspace=None, date=None, ticket=None)
     text = "human decision: (%s) %s" % (letter, which)
     if str(comment).strip():
         text += " -- " + " ".join(str(comment).split())
+    other = [x for x in _letters(body) if x not in (letter, "d")]
+    if have and which != "decline" and other:
+        raise ac.AcademyError(
+            "%s was answered (%s) and its follow-up %s carries that answer: (%s) is not "
+            "recorded over it. If the human changed their mind, cancel %s first, then record "
+            "again." % (tid, other[-1], have[0], letter, have[0]))
     if not _answered(body, letter):
         boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
     if which == "decline":

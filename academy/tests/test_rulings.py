@@ -274,6 +274,35 @@ class TestRecordRuling(RulingCase):
         self.assertTrue(any(t.startswith("human decision: (a) union -- union")
                             for t in self.thread(tid)))
 
+    def test_another_letter_over_an_interrupted_record_is_refused(self):
+        """Second review: (a) was answered and its follow-up filed, then interrupted; (b)
+        must not reuse the union follow-up. The same letter still completes it."""
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
+        self.ticket(to="researcher@r1", as_instance="human", kind="decision", parent=tid,
+                    title="Status of paper:lem:x -> proved-modulo (ruling %s)" % tid,
+                    ask="Set it.")
+        thread = self.thread(tid)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "b")
+        self.assertIn("(a)", str(cm.exception))
+        self.assertIn("T-0003", str(cm.exception))
+        self.assertEqual(thread, self.thread(tid))                     # nothing written
+        self.assertEqual("open", bd.get_ticket(self.board, tid)[1]["status"])
+        out = self.record(tid, "a")
+        self.assertEqual(("T-0003", False), (out["follow_up"], out["filed"]))
+        self.assertEqual("delivered", bd.get_ticket(self.board, tid)[1]["status"])
+
+    def test_another_letter_over_a_keeper_who_acted_is_refused(self):
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date=DATE)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "c")
+        self.assertIn("claim-keeper", str(cm.exception))
+        self.assertEqual("delivered", self.record(tid, "a")["status"])
+
     def test_a_ticket_naming_the_ruling_only_in_its_refs_is_not_its_follow_up(self):
         """Point 2 of the review: an unrelated verify ticket listing the ruling in its refs
         must not swallow the human's answer."""
