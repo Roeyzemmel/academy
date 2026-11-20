@@ -240,8 +240,9 @@ const RELAY_OUT = { type: 'object', properties: {
 // clerk records every home's dirty set as this run's claim (manifest.py snapshot); the ticket's
 // --check then ships exactly what changed since, in every home, as WIP when it is unfinished,
 // and the claim keeps the opt-in stop check (stop_check.py) off the run's files meanwhile.
-// One claim per run (the next snapshot replaces it): run_id names the run, else the instances
-// it works. snapshot: false (args) runs without it, as before: --check then ships the ticket's
+// One claim file per run and ticket (<run>-<id>.json: concurrent runs never overwrite each
+// other's; stale ones are removed at each snapshot and check): run_id names the run, else
+// the instances it works. snapshot: false (args) runs without it, as before: --check then ships the ticket's
 // repos by --only.
 const SNAPSHOT = A.snapshot !== false
 const RUN_ID = ('inbox-' + String(A.run_id || ((A.only && A.only.length) ? A.only.join('+') : 'all')))

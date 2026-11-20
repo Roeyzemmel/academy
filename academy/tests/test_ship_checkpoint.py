@@ -1179,7 +1179,8 @@ class TestCheckpointManifest(CheckpointBase):
         rc, out, err = self.cp("--ticket", "T-0059", "--manifest", m, "--only", "sub")
         self.assertEqual(rc, 1)
         self.assertIn("--manifest", err)
-        for bad in ({"nope": ["x.md"]}, {"sub": ["../x.md"]}, {"sub": ["/x.md"]}):
+        for bad in ({"nope": ["x.md"]}, {"sub": ["../x.md"]}, {"sub": ["/x.md"]},
+                    {"workspace": ["x.md"]}):          # never part of a checkpoint
             rc, out, err = self.cp("--ticket", "T-0059", "--manifest", self.manifest(bad))
             self.assertEqual(rc, 1, bad)
         rc, out, err = self.cp("--ticket", "T-0059", "--manifest", os.path.join(self._tmp.name, "none.json"))

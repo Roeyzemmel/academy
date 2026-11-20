@@ -51,7 +51,11 @@ workspace.json). Under `--only`:
 **The manifest** (#101 part 1, 2026-11-20). Before each ticket that launches an agent, the
 inbox workflow's clerk runs `manifest.py snapshot --ticket <id> --run <run>`: every home's
 dirty set (each submodule, and the board's directory) with a content hash per path, written
-as the run's claim under `<workspace>/.academy/run-claims/` (a self-ignoring directory). The
+as the run's claim `<workspace>/.academy/run-claims/<run>-<id>.json` (a self-ignoring
+directory; one file per run and ticket, so concurrent runs never overwrite each other's
+claim; a home whose `git status` fails is recorded as such and nothing of it is claimed:
+the check says so). Two runs working at once in one checkout can still attribute each
+other's files to their tickets: a snapshot diff cannot tell who changed a path. The
 ticket's `--check` diffs it: the paths that were clean before the ticket, or whose content
 changed during it, plus the ticket's touch-ledger entries, are its manifest
 (`.academy/manifests/<id>.json`), and `ship.py checkpoint --manifest <file>` commits exactly
@@ -65,8 +69,9 @@ snapshot (a standalone skill run, `snapshot: false`) is checkpointed by `--only`
 
 **The stop check** (`stop_check.py`, a `Stop` hook of the academy plugin, opt-in with
 `"stopCheck": true` in workspace.json) lists the dirty paths of every home except those a
-live claim's run changed since its snapshot; a claim older than 12 hours, or whose pid of
-this host is gone, is stale and hides nothing. By hand: `manifest.py unclaimed`. Claude
+live claim's run changed since its snapshot; a claim older than 6 hours, or whose pid of
+this host is gone, is stale, hides nothing and is removed at the next snapshot or `--check`.
+A file above 5 MB is compared by size and mtime, not hashed. By hand: `manifest.py unclaimed`. Claude
 Code's own cloud stop check (`~/.claude/stop-hook-git-check.sh`) is not the academy's and
 does not read the claims.
 

@@ -16,7 +16,8 @@ from ._config import instance_for_home, load_config
 from ._workspace import load_workspace
 from ._touched import claim_touches, drop_touches
 from ._manifest import (ManifestError, find_claim, load_pending, manifest_changed,
-                        manifest_targets, merge_manifest, release_claim, save_pending)
+                        manifest_targets, merge_manifest, prune_claims, release_claim,
+                        save_pending)
 from ._tickets import is_dead_route, relay_return_ready
 from ._store import FileBoardStore, as_store, board_dir, open_store, status_lookup
 
@@ -519,7 +520,12 @@ class inbox_core(object):
             if target:
                 touches.setdefault(target, []).append(rel)
                 by_target.setdefault(target, []).append(f)
+        prune_claims(root)
         changed = manifest_changed(root, claim) if claim else {}
+        for target in (claim or {}).get("failed") or []:
+            msg = ("checkpoint for %s: %s was unreadable at the snapshot (git status failed); "
+                   "nothing of it is claimed: commit its part by hand\n" % (tid, target))
+            (out or sys.stderr).write(msg)
         repos = merge_manifest(changed, (pending or {}).get("repos"), touches)
         path = save_pending(root, tid, repos)
         if claim_file:

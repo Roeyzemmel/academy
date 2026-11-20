@@ -170,6 +170,38 @@ class ManifestEndToEnd(unittest.TestCase):
         self.assertEqual(self.head(self.paper), ("T-1481: checkpoint", ["claims/paper/lem-x.md"]))
         self.assertIsNone(ac.load_pending(self.root, TID))
 
+    def test_a_home_unreadable_at_the_snapshot_is_reported_not_claimed(self):
+        self.ticket("delivered")
+        git_dir = os.path.join(self.paper, ".git")
+        os.rename(git_dir, git_dir + ".away")
+        with open(git_dir, "w") as f:
+            f.write("gitdir: /nowhere\n")
+        self.snapshot()
+        os.remove(git_dir)
+        os.rename(git_dir + ".away", git_dir)
+        self.work()
+        code, out, err = self.check()
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("checkpoint for T-1481: paper was unreadable at the snapshot", out)
+        self.assertEqual(run(self.paper, "branch", "--show-current"), "2026-11-19/notes/author")
+        self.assertIn("claims/paper/lem-x.md", run(self.paper, "status", "--porcelain"))
+        self.assertEqual(self.head(self.lib)[0], "T-1481: checkpoint")
+
+    def test_a_stale_claim_is_removed_at_the_check(self):
+        self.ticket("delivered")
+        ac.manifest_snapshot(self.root, "T-0002", run="inbox-all", board=self.board,
+                             now=__import__("time").time() - 7 * 3600)
+        self.snapshot()
+        ac.manifest_snapshot(self.root, "T-0003", run="dead", board=self.board)
+        f = ac.find_claim(self.root, "T-0003")[0]
+        with open(f) as fh:
+            c = json.load(fh)
+        c["started"] -= 7 * 3600
+        with open(f, "w") as fh:
+            json.dump(c, fh)
+        self.check()
+        self.assertEqual(ac.run_claims(self.root), [])
+
     def test_an_unfinished_ticket_is_committed_as_wip(self):
         self.ticket("in-progress")
         self.snapshot()

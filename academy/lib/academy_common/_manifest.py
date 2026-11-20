@@ -8,11 +8,14 @@ of every home of the workspace -- each checked-out submodule of ``.gitmodules`` 
 board when it is a plain directory of the superproject -- as ``{path: content hash}``
 (``git status --porcelain``, untracked files included, ``.gitignore`` honoured, submodule
 pointers and nested repositories left out), and writes it as the run's *claim*:
-``<workspace>/.academy/run-claims/<run>.json`` = ``{run, ticket, started, pid, host,
-repos: {target: {path: hash}}}``. After the ticket, ``manifest_changed`` gives the paths
+``<workspace>/.academy/run-claims/<run>-<ticket>.json`` = ``{run, ticket, started, pid,
+host, board, repos: {target: {path: hash}}, failed: [targets whose status failed]}``. After the ticket, ``manifest_changed`` gives the paths
 dirty now that were clean at the snapshot or whose content changed since: the ticket's
 manifest ``{target: [paths relative to the target]}``. A path already dirty before the
-ticket and unchanged is not claimed (it is not the ticket's work).
+ticket and unchanged is not claimed (it is not the ticket's work); nothing is claimed in a
+home listed in ``failed``. A file above ``MANIFEST_HASH_CAP`` is compared by size and mtime.
+Concurrent runs in one checkout can still attribute each other's files: a snapshot diff
+cannot tell who changed a path.
 
 The inbox's ``--check`` turns the claim into a *pending manifest*
 (``.academy/manifests/<ticket>.json``), releases the claim, and hands the manifest to
@@ -35,8 +38,13 @@ import socket
 import subprocess
 import time
 
-#: hours after which a claim is stale whatever its pid says (a run that died)
-CLAIM_MAX_HOURS = 12
+#: hours after which a claim is stale whatever its pid says (a run that died); stale
+#: claims are removed at each snapshot and --check
+CLAIM_MAX_HOURS = 6
+
+#: bytes above which a file is compared by size and mtime, not hashed (a large results
+#: directory must not time out the stop check)
+MANIFEST_HASH_CAP = 5 * 1024 * 1024
 
 #: a run id or a ticket id usable as a file name
 _MF_NAME = re.compile(r"^[A-Za-z0-9@+._-]{1,120}$")
@@ -142,6 +150,9 @@ def manifest_hash(path):
             return "link:" + os.readlink(path)
         if os.path.isdir(path):
             return "dir"
+        st = os.stat(path)
+        if st.st_size > MANIFEST_HASH_CAP:
+            return "size:%d:mtime:%d" % (st.st_size, st.st_mtime_ns)
         h = hashlib.sha1()
         with open(path, "rb") as fh:
             for chunk in iter(lambda: fh.read(1 << 16), b""):
@@ -157,14 +168,17 @@ def _mf_full(repo, prefix, rel):
     return os.path.join(repo, *(([prefix] if prefix else []) + rel.split("/")))
 
 
-def manifest_state(root, board="board"):
+def manifest_state(root, board="board", failed=None):
     """``{target: {path: hash}}`` of every dirty path of every home (``manifest_targets``);
-    a target whose status cannot be read is left out."""
+    a target whose status cannot be read is left out, and appended to ``failed`` when a
+    list is given."""
     state = {}
     for target, repo, prefix in manifest_targets(root, board):
         try:
             paths = manifest_dirty(repo, prefix)
         except ManifestError:
+            if failed is not None:
+                failed.append(target)
             continue
         state[target] = {p: manifest_hash(_mf_full(repo, prefix, p)) for p in paths}
     return state
@@ -176,8 +190,11 @@ def _mf_check_name(value, what):
     return value
 
 
-def claim_path(root, run):
-    return os.path.join(manifest_dir(root), "run-claims", _mf_check_name(run, "run id") + ".json")
+def claim_path(root, run, ticket):
+    """``.academy/run-claims/<run>-<ticket>.json``: one claim per run and ticket, so two
+    runs that share a run id never overwrite each other's claim."""
+    return os.path.join(manifest_dir(root), "run-claims", "%s-%s.json" % (
+        _mf_check_name(run, "run id"), _mf_check_name(ticket, "ticket id")))
 
 
 def _mf_write(path, doc):
@@ -199,17 +216,30 @@ def _mf_read(path):
 
 
 def manifest_snapshot(root, ticket, run=None, board="board", pid=None, now=None):
-    """Record the dirty set of every home as run ``run``'s claim for ``ticket`` (replacing
-    the run's previous claim: one ticket at a time). ``run`` defaults to ``inbox-<ticket>``.
-    ``pid``: a process of this host whose death ends the claim (none: only its age does).
-    Returns the claim."""
+    """Record the dirty set of every home as run ``run``'s claim for ``ticket``
+    (``claim_path``; a snapshot of the same run and ticket replaces it). ``run`` defaults
+    to ``inbox``. ``pid``: a process of this host whose death ends the claim (none: only
+    its age does). A home whose status cannot be read is listed in the claim's ``failed``
+    and never claimed from. Stale claims are removed first. Returns the claim."""
     _mf_check_name(ticket, "ticket id")
-    run = run or "inbox-" + ticket
+    run = run or "inbox"
+    prune_claims(root)
+    failed = []
     claim = {"run": run, "ticket": ticket, "started": time.time() if now is None else now,
              "pid": int(pid) if pid else None, "host": socket.gethostname(),
-             "board": board, "repos": manifest_state(root, board)}
-    _mf_write(claim_path(root, run), claim)
+             "board": board, "repos": manifest_state(root, board, failed), "failed": failed}
+    _mf_write(claim_path(root, run, ticket), claim)
     return claim
+
+
+def prune_claims(root, now=None):
+    """Remove the stale claims (``claim_live``); how many were removed."""
+    n = 0
+    for f, c in run_claims(root):
+        if not claim_live(c, now):
+            release_claim(f)
+            n += 1
+    return n
 
 
 def run_claims(root):
@@ -269,8 +299,11 @@ def manifest_changed(root, claim, state=None):
     left out."""
     state = manifest_state(root, claim.get("board", "board")) if state is None else state
     before = claim.get("repos") or {}
+    unread = set(claim.get("failed") or [])
     out = {}
     for target, now_paths in state.items():
+        if target in unread:    # its dirty set before the ticket is unknown: claim nothing
+            continue
         was = before.get(target) or {}
         changed = sorted(p for p, h in now_paths.items() if p not in was or was[p] != h)
         if changed:

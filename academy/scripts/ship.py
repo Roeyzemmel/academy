@@ -1697,6 +1697,9 @@ def read_manifest(path):
     known = targets()
     out = {}
     for target, paths in repos.items():
+        if target == WORKSPACE:
+            raise Refuse("--manifest %s: the workspace target is never part of a checkpoint "
+                         "(a ticket's work is not there)" % path)
         if target not in known:
             raise Refuse("--manifest %s: %r is not a target (known: %s)" % (path, target, " ".join(known)))
         if not isinstance(paths, list):

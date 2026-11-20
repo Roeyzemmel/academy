@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(HERE)
@@ -84,15 +85,45 @@ class SnapshotDiffTests(Base):
     def test_the_claim_file_lives_under_a_self_ignoring_directory(self):
         ac.manifest_snapshot(self.root, "T-0001", run="inbox-all")
         f, c = ac.find_claim(self.root, "T-0001")
-        self.assertEqual(os.path.basename(f), "inbox-all.json")
+        self.assertEqual(os.path.basename(f), "inbox-all-T-0001.json")
         self.assertEqual(c["ticket"], "T-0001")
         self.assertEqual(run(self.root, "status", "--porcelain", "--untracked-files=all"), "")
 
-    def test_one_claim_per_run_the_next_ticket_replaces_it(self):
-        ac.manifest_snapshot(self.root, "T-0001", run="r1")
-        ac.manifest_snapshot(self.root, "T-0002", run="r1")
+    def test_claims_are_per_run_and_ticket_so_concurrent_runs_never_overwrite(self):
+        ac.manifest_snapshot(self.root, "T-0001", run="inbox-all")
+        ac.manifest_snapshot(self.root, "T-0002", run="inbox-all")      # another run, same id
+        self.assertEqual(os.path.basename(ac.find_claim(self.root, "T-0001")[0]),
+                         "inbox-all-T-0001.json")
+        self.assertEqual(ac.find_claim(self.root, "T-0002")[1]["run"], "inbox-all")
+
+    def test_stale_claims_are_removed_at_the_next_snapshot(self):
+        ac.manifest_snapshot(self.root, "T-0001", run="r1", now=time.time() - 7 * 3600)
+        ac.manifest_snapshot(self.root, "T-0002", run="r2")
         self.assertEqual(ac.find_claim(self.root, "T-0001"), (None, None))
-        self.assertEqual(ac.find_claim(self.root, "T-0002")[1]["run"], "r1")
+        self.assertEqual(ac.prune_claims(self.root), 0)
+
+    def test_a_home_unreadable_at_the_snapshot_is_recorded_and_never_claimed(self):
+        self.put(self.other, "pre.txt", "dirty before the ticket\n")
+        git_dir = os.path.join(self.other, ".git")
+        os.rename(git_dir, git_dir + ".away")
+        with open(git_dir, "w") as f:
+            f.write("gitdir: /nowhere\n")
+        claim = ac.manifest_snapshot(self.root, "T-0001")
+        os.remove(git_dir)
+        os.rename(git_dir + ".away", git_dir)
+        self.assertEqual(claim["failed"], ["other"])
+        self.put(self.sub, "new.md")
+        self.assertEqual(ac.manifest_changed(self.root, claim), {"sub": ["new.md"]})
+
+    def test_a_large_file_is_compared_by_size_and_mtime_not_hashed(self):
+        path = self.put(self.sub, "big.bin", "y" * 64)
+        with mock.patch.object(ac, "MANIFEST_HASH_CAP", 16):
+            h = ac.manifest_hash(path)
+            self.assertTrue(h.startswith("size:64:"), h)
+            claim = ac.manifest_snapshot(self.root, "T-0001")
+            self.assertEqual(ac.manifest_changed(self.root, claim), {})
+            self.put(self.sub, "big.bin", "z" * 65)
+            self.assertEqual(ac.manifest_changed(self.root, claim), {"sub": ["big.bin"]})
 
     def test_bad_names_are_refused(self):
         with self.assertRaises(ac.ManifestError):
@@ -119,7 +150,7 @@ class StopCheckTests(Base):
         self.assertEqual(ac.unclaimed_dirty(self.root), {"sub": ["pre.txt"]})
 
     def test_stale_claim_by_age_is_ignored(self):
-        ac.manifest_snapshot(self.root, "T-0001", run="r1", now=time.time() - 13 * 3600)
+        ac.manifest_snapshot(self.root, "T-0001", run="r1", now=time.time() - 7 * 3600)
         self.put(self.sub, "a.txt", "the ticket's\n")
         self.assertEqual(ac.unclaimed_dirty(self.root), {"sub": ["a.txt"]})
 

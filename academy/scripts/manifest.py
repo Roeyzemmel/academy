@@ -9,8 +9,8 @@
 ``snapshot`` records the dirty set (path and content hash) of every home of the workspace
 -- each checked-out submodule and the board when it is a plain directory of the
 superproject -- as run ``RUN``'s claim for the ticket (``<workspace>/.academy/run-claims/
-<RUN>.json``; default run ``inbox-<ticket>``; one claim per run, so the next snapshot of the
-run replaces it). The inbox workflow runs it before each ticket.
+<RUN>-<ticket>.json``; default run ``inbox``; one file per run and ticket, so concurrent runs
+never overwrite each other's claim; stale claims are removed first). The inbox workflow runs it before each ticket.
 
 ``diff`` prints the ticket's manifest: the paths dirty now that were clean at the snapshot
 or whose content changed since, per target (paths relative to it); exit 1 when the ticket
@@ -18,8 +18,9 @@ has no claim. ``release`` removes the ticket's claim. The inbox's ``--check`` do
 the release and ``ship.py checkpoint --manifest`` itself (``academy_common._manifest``).
 
 ``unclaimed`` is the stop check by hand: every dirty path except those a live claim's run
-changed since its snapshot (a claim is stale after ``CLAIM_MAX_HOURS`` hours, or when its
-pid of this host is gone). The ``Stop`` hook ``stop_check.py`` does the same when
+changed since its snapshot (a claim is stale after ``CLAIM_MAX_HOURS`` hours, 6, or when
+its pid of this host is gone). A home whose ``git status`` failed at the snapshot is listed
+in the claim's ``failed`` and nothing of it is claimed. The ``Stop`` hook ``stop_check.py`` does the same when
 workspace.json says ``"stopCheck": true``.
 
 The workspace is ``--workspace`` (a directory or its workspace.json), else the one the
