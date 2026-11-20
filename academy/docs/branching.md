@@ -86,6 +86,14 @@ Those files are shipped with the ticket, and nothing else there:
 - `"shipCheckpoint": false` switches this off with the rest (nothing is recorded or
   shipped).
 
+**Unpushed branches hold delivery back** (#101). A developer works in a worktree on a
+branch named for the ticket and ends with `py scripts/ship.py push <sub> --repo
+<worktree>`. After the checkpoint, the `--check` of a delivered ticket refuses to report
+it delivered (exit 3, `unfinished (delivered, unpushed)`) while any local branch naming
+the ticket, in any submodule or the superproject, has commits on no remote, or its
+worktree has uncommitted changes; each such branch is listed with the command that pushes
+it. Opt out: `"unpushedCheck": false` in workspace.json.
+
 When the hook says it did not run, or failed, run the scoped command it printed (with its
 `--only` and any `--touched`), from your own checkout's root. The unscoped run (no `--only`: every dirty
 submodule and the board) is for the human or the session that owns the checkout.
