@@ -130,7 +130,7 @@ if (A.mode === 'design') {
   // a field line: markup around the key is allowed (`**Kind:** search`, `- Kind : x`, a
   // docstring opener), never a newline between the key and its value (review of 641a695)
   const field = (key) => new RegExp(`^[ \\t#*>\`"'-]*\\**${key}\\**[ \\t]*:[ \\t*\`]*([A-Za-z]+)`, 'mi')
-  // code, not prose: 'class v = ...' in a wrapped sentence is prose (FlatSurfLab cex8)
+  // code, not prose: 'class v = ...' in a wrapped sentence is prose (a real lab header)
   const CODE = /^[ \t]*(def \w+\s*\(|class \w+\s*[(:]|import [\w.]+(\s+as\s+\w+)?[ \t]*$|from [\w.]+ import [\w*])/m
   const problemsOf = (x) => {
     if (x.path === 'argument') return String(x.argument || '').trim() ? [] : ['path argument with no argument']
