@@ -14,7 +14,10 @@ import unittest
 
 from test_explore_generalize_workflow import H, HARNESS, NODE, SRC, WF
 
-RECORDING = HARNESS.replace("model: opts.model, prompt })", "model: opts.model, prompt, schema: opts.schema })", 1)
+# the shared harness records each call's schema itself once the explore-order branch is in;
+# until then it is added here (either way RECORDING records it)
+RECORDING = HARNESS if "schema: opts.schema" in HARNESS else \
+    HARNESS.replace("model: opts.model, prompt })", "model: opts.model, prompt, schema: opts.schema })", 1)
 
 
 def run(plan, args):
@@ -34,7 +37,7 @@ def run(plan, args):
 @unittest.skipUnless(NODE, "node is not installed")
 class GeneralizeFreeText(unittest.TestCase):
     def test_the_recording_harness_records(self):
-        self.assertNotEqual(RECORDING, HARNESS)
+        self.assertIn("schema: opts.schema", RECORDING)
 
     def test_no_free_text_field_is_required_and_answers_without_them_lose_nothing(self):
         src = {k: v for k, v in SRC.items() if k != "refusal"}
