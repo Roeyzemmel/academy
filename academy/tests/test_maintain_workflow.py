@@ -4,7 +4,8 @@ Under node with a fake ``agent()``: tasks that share a file share a lane and are
 the others run in lanes of their own; a blocking finding gets one fix round and a second
 look, and a task that still has one is not pushed, nor is anything stacked on it; the
 lanes' tips are gated together; the plan's rules (a usable topic, a file, a measure, the
-cap) are applied in code. Skipped where node is absent.
+cap as waves) are applied in code; a lost develop stage is salvaged and a stage that throws
+loses no lane; ``after`` and ``on`` stack tasks explicitly. Skipped where node is absent.
 """
 
 import json
@@ -173,16 +174,94 @@ class MaintainWorkflow(unittest.TestCase):
         plan = {"survey": [{"ok": True, "error": "", "candidates": cands, "notes": ["n"]}],
                 "plan": [{"tasks": tasks, "skipped": [{"id": "ledger:net", "reason": "the network"}]}],
                 "union": [{"ok": True, "merged": [], "conflict": "", "gate": []}]}
-        for s in ("ok-one", "ok-two"):
+        for s in ("ok-one", "ok-two", "ok-three"):
             plan.update({"develop " + s: [done(s)], "review " + s: [review()], "push " + s: [pushed()]})
         r, calls = self.run_wf(plan, cap=2)
         self.assertIn("maintain.py survey --days 7 --json", self.prompt(calls, "survey"))
         self.assertIn("slow:x", self.prompt(calls, "plan"))
-        self.assertEqual(["ok-one", "ok-two"], [t["slug"] for t in r["tasks"]])
-        self.assertEqual(5, len(r["dropped"]), r["dropped"])
-        self.assertIn("ok-three: over the cap of 2", " ".join(r["dropped"]))
+        # the cap bounds the lanes at a time: the third task runs in a second wave
+        self.assertEqual(["ok-one", "ok-two", "ok-three"], [t["slug"] for t in r["tasks"]])
+        self.assertEqual(4, len(r["dropped"]), r["dropped"])
+        self.assertNotIn("ok-three", " ".join(r["dropped"]))
         self.assertEqual([{"id": "ledger:net", "reason": "the network"}], r["skipped"])
         self.assertTrue(r["ok"])
+
+    def test_a_lost_develop_stage_is_salvaged_and_a_lost_salvage_loses_no_lane(self):
+        """2026-11-20: a developer that ended without its structured output threw, and the
+        whole lane was lost with its work uncommitted. Now the stage is lost, a salvage run
+        commits what passes, and the lane records what happened."""
+        # 'develop aaa' is unplanned: the fake agent throws, as the runtime did
+        plan = {"salvage aaa": [done("aaa", summary="salvaged: the change and its tests")],
+                "review aaa": [review()], "push aaa": [pushed()],
+                "develop bbb": [None], "salvage bbb": [None]}
+        r, calls = self.run_wf(plan, tasks=[task("aaa", ["x.py"]), task("bbb", ["y.py"])])
+        by = {t["slug"]: t for t in r["tasks"]}
+        self.assertTrue(by["aaa"]["pushed"])
+        self.assertTrue(by["aaa"]["salvaged"])
+        self.assertIn("ended without its result", self.prompt(calls, "salvage aaa"))
+        self.assertIn("--all", self.prompt(calls, "salvage aaa"))
+        self.assertFalse(by["bbb"]["pushed"])
+        self.assertIn("the develop stage and its salvage returned nothing", by["bbb"]["reason"])
+        self.assertNotIn("lane failed", " ".join(t["reason"] for t in r["tasks"] if "reason" in t))
+
+    def test_a_stage_that_throws_after_develop_is_a_lost_stage_not_a_lost_lane(self):
+        plan = {"develop aaa": [done("aaa")]}             # 'review aaa' throws
+        r, calls = self.run_wf(plan, tasks=[task("aaa", ["x.py"])])
+        self.assertIn("not pushed unreviewed", r["tasks"][0]["reason"])
+
+    def test_after_stacks_tasks_that_share_no_file_and_on_stacks_on_a_pushed_branch(self):
+        tasks = [task("ccc", ["c.py"], after="aaa"), task("aaa", ["a.py"]),
+                 task("bbb", ["b.py"], on="2026-11-13/earlier/human"),
+                 task("eee", ["e.py"], after="nope")]
+        plan = {"union": [{"ok": True, "merged": [], "conflict": "", "gate": []}]}
+        for s in ("aaa", "bbb", "ccc"):
+            plan.update({"develop " + s: [done(s)], "review " + s: [review()], "push " + s: [pushed()]})
+        r, calls = self.run_wf(plan, tasks=tasks)
+        self.assertEqual([["aaa", "ccc"], ["bbb"]], r["lanes"])
+        self.assertIn("--on 2026-11-14/aaa/human", self.prompt(calls, "develop ccc"))
+        self.assertIn("--on 2026-11-13/earlier/human", self.prompt(calls, "develop bbb"))
+        self.assertIn("eee: after nope", " ".join(r["dropped"]))
+
+    def test_a_throw_in_a_lanes_second_task_keeps_the_first_tasks_record(self):
+        """Review of eed6eba: a malformed review of the second task threw inside one() and
+        took the pushed first task's record with it."""
+        plan = {"develop aaa": [done("aaa")], "review aaa": [review()], "push aaa": [pushed()],
+                "develop bbb": [done("bbb")], "review bbb": [{"examined": "x"}]}
+        r, calls = self.run_wf(plan, tasks=[task("aaa", ["a.py"]), task("bbb", ["a.py"])])
+        by = {t["slug"]: t for t in r["tasks"]}
+        self.assertTrue(by["aaa"]["pushed"])
+        self.assertIn("no findings list", by["bbb"]["reason"])
+
+    def test_a_lost_union_stage_still_returns_the_round(self):
+        plan = {}
+        for s in ("aaa", "bbb"):
+            plan.update({"develop " + s: [done(s)], "review " + s: [review()], "push " + s: [pushed()]})
+        r, calls = self.run_wf(plan, tasks=[task("aaa", ["a.py"]), task("bbb", ["b.py"])])
+        self.assertFalse(r["ok"])
+        self.assertEqual("the union stage returned nothing", r["union"]["conflict"])
+        self.assertEqual(2, len(r["pull_requests"]))
+
+    def test_after_chains_cycles_and_on_are_validated(self):
+        tasks = [task("aaa", ["a.py"], after="bbb"), task("bbb", ["b.py"], after="nope"),
+                 task("ccc", ["c.py"], after="ddd"), task("ddd", ["d.py"], after="ccc"),
+                 task("eee", ["e.py"], after="fff", on="2026-11-13/x/human"), task("fff", ["f.py"]),
+                 task("ggg", ["f.py"], on="2026-11-13/y/human")]
+        plan = {}
+        for s in ("fff", "ggg"):
+            plan.update({"develop " + s: [done(s)], "review " + s: [review()], "push " + s: [pushed()]})
+        r, calls = self.run_wf(plan, tasks=tasks, cap=8)
+        dropped = " ".join(r["dropped"])
+        self.assertIn("bbb: after nope", dropped)
+        self.assertIn("aaa: after bbb", dropped)            # its target was dropped
+        self.assertIn("a cycle", dropped)
+        self.assertIn("eee: both after fff and on", dropped)
+        self.assertIn("ggg: on 2026-11-13/y/human ignored", dropped)
+        self.assertEqual([["fff", "ggg"]], r["lanes"])
+
+    def test_the_develop_brief_asks_for_early_commits(self):
+        plan = {"develop aaa": [done("aaa")], "review aaa": [review()], "push aaa": [pushed()]}
+        r, calls = self.run_wf(plan, tasks=[task("aaa", ["x.py"])])
+        self.assertIn("after every step whose tests pass", self.prompt(calls, "develop aaa"))
 
     def test_nothing_to_do_and_missing_arguments(self):
         r, calls = self.run_wf({"survey": [{"ok": True, "error": "", "candidates": [], "notes": []}]})
