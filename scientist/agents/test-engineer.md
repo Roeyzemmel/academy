@@ -48,8 +48,9 @@ you review: findings go back to the developer through the ticket thread
 **Report first** (#99): a stop at the turn cap must still leave a usable report. Before
 the first test or the first file of a review, post a running status as a thread note on
 the ticket (`tickets_update` note): the job and the branch. After every green step,
-commit the tests on your branch and add one status line (what is done, the last commit
-sha, what is next); in a review, post each finding as you find it, not only at the end.
+commit the tests on your branch (in a workspace, `py scripts/ship.py commit <sub> -m ...
+--paths ... --repo <worktree>`; a raw `git commit` is denied there) and add one status
+line (what is done, the last commit sha, what is next); in a review, post each finding as you find it, not only at the end.
 
 ## Limits
 

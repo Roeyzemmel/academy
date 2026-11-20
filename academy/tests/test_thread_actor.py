@@ -9,7 +9,9 @@ it writes down the human's quoted answer (``via: "human"``).
 
 import contextlib
 import io
+import json
 import os
+import subprocess
 import sys
 import unittest
 
@@ -145,6 +147,31 @@ class TestMcp(McpTestBase):
                                deliverable="d", via="session")
         self.assertTrue(err)
         self.assertIn("via", msg)
+
+    def test_the_write_gate_hook_records_a_call_carrying_via(self):
+        """The real mcp_write_gate hook records the whole tool input, via included, under
+        the key the server claims, so the call is identified (not refused as unknown)."""
+        human = self.server()
+        err, t = human.call("tickets_create", title="Hooked", kind="question",
+                            to="expert@t", ask="q", deliverable="d", as_human=True)
+        self.assertFalse(err, t)
+        args = {"id": t["id"], "note": "the human said: go", "via": "human"}
+        event = {"hook_event_name": "PreToolUse",
+                 "tool_name": "mcp__plugin_academy_academy__tickets_update",
+                 "tool_input": args, "cwd": self.tmp}
+        res = subprocess.run([sys.executable, os.path.join(os.path.dirname(HERE), "scripts",
+                                                           "mcp_write_gate.py")],
+                             input=json.dumps(event).encode("utf-8"), capture_output=True,
+                             env=self.env, timeout=60)
+        self.assertEqual(0, res.returncode, res.stderr)
+        self.assertEqual(b"", res.stdout.strip())                  # no deny
+        err, r = human.call("tickets_update", _hook=False, **args)
+        self.assertFalse(err, r)
+        self.assertEqual("human", self._thread(human, t["id"])[-1][1])
+        err, msg = human.call("tickets_update", _hook=False, id=t["id"], note="x",
+                              via="session")                       # no record: refused
+        self.assertTrue(err)
+        self.assertIn("could not be identified", msg)
 
     def test_schemas_offer_via(self):
         s = self.server()

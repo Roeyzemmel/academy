@@ -42,8 +42,10 @@ local.
 6. **Report first** (#99): a stop at the turn cap must still leave a usable report.
    Before the first edit, post a running status as a thread note on the ticket
    (`tickets_update` note; without a ticket, the first lines of your reply): the plan
-   and the branch. After every green step, commit on the branch and add one status
-   line: what is done, the last committed (and pushed) sha, what is next.
+   and the branch. After every green step, commit on the branch (in a workspace,
+   `py scripts/ship.py commit <sub> -m ... --paths ... --repo <worktree>`; a raw
+   `git commit` is denied there) and add one status line: what is done, the last
+   committed sha (pushed, where the stage allows: see Limits), what is next.
 
 ## Where things live
 
