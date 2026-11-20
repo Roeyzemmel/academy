@@ -1,7 +1,7 @@
 export const meta = {
   name: 'academy-prove',
   description: 'Take one notebook claim to a reviewable proof: an attack first, the related registry statements in the brief, one prover attempt declaring its dependencies, the outcome read from the attempt file, a verify ticket to the Expert only for a complete attempt (saying whether a falsifier is on record)',
-  whenToUse: '/researcher:prove and every prove ticket (also nested from the inbox). args: {claim: "<ns:id>", ticket?: "T-NNNN", mode?: "repair", for_verify?: "T-NNNN" (a repair a verify pass asked for: no verify ticket), home: "<the Researcher home>", instance?: "researcher@<x>"}',
+  whenToUse: '/researcher:prove and every prove ticket (also nested from the inbox). args: {claim: "<ns:id>", ticket?: "T-NNNN", mode?: "repair", for_verify?: "T-NNNN" (a repair a verify pass asked for: no verify ticket; any other repair that changed the record files a reword or blind verify, #85), home: "<the Researcher home>", instance?: "researcher@<x>"}',
   phases: [
     { title: 'State', detail: 'status, inputs, earlier attempts, falsifier on record, attack, related statements' },
     { title: 'Attempt', detail: 'an attack-only run if none, then one proof attempt' },
