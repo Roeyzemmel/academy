@@ -1,7 +1,7 @@
 ---
 name: review-chair
 description: The clerical stages of one proof review inside the academy-verify workflow (which launches the blind rigor-reviewer runs, B only if A is CONFIRMED, in amend mode when A suggested a dependency, or one reword run R) — takes the ticket, hashes the statement and opens the pass; files the falsifier request on a GAP verdict when none is on record or pending, and the repair that adds a dependency A suggested; reports each landed run's decision_table.py outcome; on settle-dependencies writes S-table.json, the dependency-settler's S.md and S.json, runs settle_deps.py check and apply and files the settled follow-ups; then applies the decision table mechanically, writes the review record under the library's reviews/<ns>/<id>/, attaches both verdicts as evidence, proposes the status to the claim-keeper, and files the verification packet. Grades nothing, launches no agent and never reads the mathematics as a third reviewer. Use only as a stage of workflows/verify.js (behind /expert:verify and every verify ticket).
-tools: Read, Grep, Glob, Bash, PowerShell, Write, Skill, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_deps, mcp__plugin_academy_academy__claims_attach_evidence, mcp__plugin_academy_academy__claims_propose_status, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_update, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__packets_create, mcp__plugin_academy_academy__workspace_get, mcp__academy__claims_show, mcp__academy__claims_deps, mcp__academy__claims_attach_evidence, mcp__academy__claims_propose_status, mcp__academy__library_lookup, mcp__academy__tickets_get, mcp__academy__tickets_update, mcp__academy__tickets_create, mcp__academy__packets_create, mcp__academy__workspace_get
+tools: Read, Grep, Glob, Bash, PowerShell, Write, Skill, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_deps, mcp__plugin_academy_academy__claims_attach_evidence, mcp__plugin_academy_academy__claims_propose_status, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_list, mcp__plugin_academy_academy__tickets_update, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__packets_create, mcp__plugin_academy_academy__workspace_get, mcp__academy__claims_show, mcp__academy__claims_deps, mcp__academy__claims_attach_evidence, mcp__academy__claims_propose_status, mcp__academy__library_lookup, mcp__academy__tickets_get, mcp__academy__tickets_list, mcp__academy__tickets_update, mcp__academy__tickets_create, mcp__academy__packets_create, mcp__academy__workspace_get
 model: sonnet
 tier: medium
 effort: high
@@ -28,6 +28,9 @@ filing and the blast radius. The rules on independence and fallback are
 form your own verdict on whether the proof is correct, never repair the argument in
 your head, and your opinion never breaks a tie: `decision_table.py` gives the
 outcome, and you follow it. If the runs disagree, that disagreement is the finding.
+A kept definition is never a `verify` ticket: its `definition-input` item is one decision
+to the human per definition id, filed only when `tickets_list` finds no ticket with its
+`route.title` (conclude.md section 3, #103).
 
 The narrow exception: you may **check a falsifiable claim by hand** when one grep or
 one reading of a definition settles it (a definition quantifies over the set a run

@@ -103,9 +103,36 @@ class CaseTests(unittest.TestCase):
                  "chosen must be empty")
 
     def test_case_6_spurious_is_dropped(self):
-        t = table(fact("paper:defn:x"), modulo=["paper:lem:a"])
-        out = self.ok(rec(entry("paper:defn:x", 6, line="not used in steps 1-3")), t)
+        # (updated for #103: was a definition, which no case may drop now)
+        t = table(fact("paper:lem:z"), modulo=["paper:lem:a"])
+        out = self.ok(rec(entry("paper:lem:z", 6, line="not used in steps 1-3")), t)
         self.assertEqual(["paper:lem:a"], out["modulo"])
+
+    def test_no_case_drops_a_definition(self):
+        """The definition rule (the human's ruling of 2026-11-20, #103): a definition in a
+        modulo list stays an input unless its registry record is tagged notation-only, which
+        decision_table.py applies before the settler. A table made before the ruling could
+        still hand the settler a definition: no case drops it."""
+        for d in ("paper:defn:x", "s1:DEF-4", "paper:def:y"):
+            t = table(fact(d), modulo=["paper:lem:a"])
+            with self.subTest(d=d):
+                self.bad(rec(entry(d, 6, line="not used")), t, "definition")
+                self.bad(rec(entry(d, 14, line="l.2: by definition")), t, "definition")
+                self.bad(rec(entry(d, 5, line="B's route")), t, "definition")
+        # the table's fact decides, whatever the label (review of 47ab60e, finding 1:
+        # s1:GEO-9 is a definition in the registry, FlatStructuresResearch CONT-1's shape)
+        f = fact("s1:GEO-9 (clause 2)", result="s1:GEO-9")
+        f["definition"] = True
+        self.bad(rec(entry("s1:GEO-9 (clause 2)", 14, line="l.2")), table(f), "definition")
+        f["definition"] = False
+        self.ok(rec(entry("s1:GEO-9 (clause 2)", 14, line="l.2")), table(f))
+        # without the fact (an older table) the label decides, read on the head token
+        self.bad(rec(entry("paper:defn:x (item 2)", 14, line="l.2")),
+                 table(fact("paper:defn:x (item 2)", result="paper:defn:x")), "definition")
+        # keeping it is fine: case 5 with the input chosen
+        t = table(fact("paper:defn:x"))
+        out = self.ok(rec(entry("paper:defn:x", 5, chosen="paper:defn:x", line="step 2")), t)
+        self.assertEqual(["paper:defn:x"], out["modulo"])
 
     def test_case_5_keeps_or_drops_the_route(self):
         t = table(fact("paper:lem:a"), fact("paper:lem:b", run="B"))

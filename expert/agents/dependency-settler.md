@@ -56,9 +56,10 @@ because it looks more natural.
 
 **Stage 1, mechanical: already done by `decision_table.py`, never yours.** 13 (a shared
 input that is itself proved-modulo carries its modulo), 4 (granularity: an input reached
-through another listed input's `depends_on` or `cites`) and the definition rule (a
-definition is an input unless its registry record is tagged `notation-only`). Never use
-case 13 or 4, and never drop a definition because it "is only notation": the tag decides.
+through another listed input's `depends_on` or `cites`) and the definition rule (#103: a
+definition is an input of both runs unless its registry record is tagged `notation-only`,
+so none is a differing input). Never use case 13 or 4, and never drop a definition (case
+6, 14 or 5 without a choice): `settle_deps.py check` refuses it; the tag decides.
 
 **Stage 2, admissibility.**
 - **11, circular.** The table's `cycle` is true: the input reaches the subject. A stop

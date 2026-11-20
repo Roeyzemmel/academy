@@ -50,6 +50,17 @@ class TestSchemaRules(unittest.TestCase):
             with self.subTest(want):
                 self.assertTrue(any(want in m for m in self.errors(f)), self.errors(f))
 
+    def test_a_definition_tagged_notation_only_is_clean(self):
+        # the definition rule's mark (#103): ``tags: [notation-only]`` on a definition is
+        # what the decision table reads; the schema must accept it
+        f = self.rec(kind="definition", status=None, tags=["notation-only"],
+                     history=["2026-11-20 | | tagged notation-only"])
+        self.assertEqual(self.errors(f), [])
+        self.assertEqual(self.errors(self.rec(kind="definition", tags=["notation-only"]),
+                                     status_kinds=schema.KINDS), [])
+        self.assertTrue(any("'tags' must be a list" in m
+                            for m in self.errors(self.rec(tags="notation-only"))))
+
     def test_a_remark_and_a_profile_status_kind(self):
         self.assertEqual(self.errors(self.rec(status=None, form="remark",
                                               history=["2026-09-28 | | x"])), [])
