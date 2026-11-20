@@ -20,7 +20,11 @@ another role that came back ``delivered``): see the landing table.
 The role cut (academy/references/roster-rules.md): the Researcher proves, the Author only
 lands. ``route`` rejects a ticket of another role's kind (``BELONGS``), and sends a
 self-ticket whose ask needs a new argument (``needs_argument``) to ``research``: the
-writer files the argument as a ``research`` ticket and lands what returns.
+writer files the argument as a ``research`` ticket and lands what returns. Not when the
+argument exists: an ``apply`` ticket's edit is decided (math-editor), and a ticket whose
+refs name a delivered ``research`` or ``prove`` ticket (``delivered_argument``) or whose
+first ref is proved in another namespace's registry (``proved_source``) is landed by the agent of its kind
+(#92: T-1441, T-1385).
 ``check_filed(meta)`` is the check on what an Author writer files for a missing
 argument: kind ``research``, to the Expert, ``final_to: researcher``; ``gaps.py`` runs it
 before filing.
@@ -73,8 +77,15 @@ RE_NEEDS_ARGUMENT = re.compile(
     r"|\bconstruct (a|the) proof\b|\b(find|give|write) a (new )?proof\b"
     r"|\bprove (that|it|the)\b|\bcleaner formulation\b|\bunifying lemma\b"
     r"|\b(add|drop|weaken|strengthen) (a |the )?hypothes")
-#: the self kinds whose ask is checked for a missing argument
+#: the self kinds whose ask is checked for a missing argument (``check_filed``)
 WRITER_KINDS = ("write", "apply", "copy", "note")
+#: the self kinds ``route`` sends to research when the ask needs an argument: not
+#: ``apply``, whose edit is already decided (KIND_ROUTES; #92, T-1441 went to research
+#: four times on "add ... the hypothesis", the human's own decided edit)
+ROUTED_WRITER_KINDS = tuple(k for k in WRITER_KINDS if k != "apply")
+#: ticket kinds whose delivery is an argument, and the statuses that say it was delivered
+ARGUMENT_TICKET_KINDS = ("research", "prove")
+DELIVERED_STATUSES = ("delivered", "closed")
 #: the deliverable of a ticket the Author files to itself
 SELF_DELIVERABLE = ("The work done in the paper and recorded; this ticket delivered with "
                     "a one-line result.")
@@ -99,9 +110,12 @@ def proved_source(meta, status_of=None):
     notebook, the lab) whose registry status is proved or proved-modulo: the argument
     exists, so the ticket lands it, whatever its wording (#92, T-0426 sent to research
     three times for flat:FND-14). Only the first ref: a later proved ref is often a lemma
-    the asked argument would use (review of d4ffad3). ``status_of`` (qid -> status or
-    None) replaces the registry lookup; '' when it does not qualify or the registry
-    cannot be read."""
+    the asked argument would use (review of d4ffad3). The paper's own namespace is
+    skipped: a repair asked of a paper claim proved on the human's word, or with a GAP
+    review, needs a new argument although the registry says proved (T-1387, T-1626);
+    a delivered repair is found by ``delivered_argument`` instead (T-1385).
+    ``status_of`` (qid -> status or None) replaces the registry lookup; '' when it does
+    not qualify or the registry cannot be read."""
     own = ""
     if status_of is None:
         status_of, own = _registry_status, _own_ns(meta.get("to"))
@@ -118,6 +132,50 @@ def proved_source(meta, status_of=None):
     return ""
 
 
+def delivered_argument(meta, ticket_of=None):
+    """The first of the ticket's refs that names a ``research`` or ``prove`` ticket now
+    delivered or closed: the argument was delivered, so the ticket lands it, whatever its
+    wording (#92, T-1385 sent to research again after T-1618 delivered the repair). A
+    ``research`` ticket relayed to the Scientist is an experiment, not an argument, and
+    does not count (``check_filed``'s rule). ``ticket_of`` (ticket id -> meta or None,
+    ``ticket_lookup``; the inbox passes its own board's) replaces the workspace board's;
+    '' when none qualifies or the board cannot be read."""
+    tids = [str(r).strip() for r in meta.get("refs") or ()
+            if re.match(r"^T-\d+$", str(r).strip())]
+    if tids and ticket_of is None:
+        ticket_of = _workspace_tickets()
+    for tid in tids:
+        try:
+            t = ticket_of(tid) or {}
+        except Exception:    # a routing table answers even when the board cannot
+            continue
+        if (t.get("kind") in ARGUMENT_TICKET_KINDS
+                and t.get("status") in DELIVERED_STATUSES
+                and str(t.get("final_to") or "").split("@")[0] != "scientist"):
+            return tid
+    return ""
+
+
+def _ticket_num(tid):
+    m = re.search(r"\d+", str(tid or ""))
+    return int(m.group()) if m else None
+
+
+def ticket_lookup(store):
+    """``ticket_of`` for ``delivered_argument`` on a board store: ticket id -> meta (None
+    when it is not on the board), by number as the store finds an issue, from one listing
+    made on the first question (``status_lookup``'s reason: a request per ticket on a
+    github board)."""
+    held = {}
+
+    def ticket_of(tid):
+        if "by_num" not in held:
+            held["by_num"] = {_ticket_num(m.get("id")): m
+                              for _ref, m in store.iter_meta() if m}
+        return held["by_num"].get(_ticket_num(tid))
+    return ticket_of
+
+
 def _own_ns(instance):
     try:
         import _academy as ac
@@ -125,6 +183,16 @@ def _own_ns(instance):
                    .get(str(instance or ""), {}).get("ns") or "")
     except Exception:
         return ""
+
+
+def _workspace_tickets():
+    """``ticket_lookup`` on the workspace's board; one that knows no ticket when the board
+    cannot be opened (a routing table answers even then)."""
+    try:
+        import _academy as ac
+        return ticket_lookup(ac.open_store(ac.load_workspace()))
+    except Exception:
+        return lambda _tid: None
 
 
 def _registry_status(qid):
@@ -188,7 +256,9 @@ def _human():
         return "the human"
 
 
-def route(meta):
+def route(meta, ticket_of=None):
+    """``{how, target, why}`` for a ticket to the Author. ``ticket_of`` (``ticket_lookup``)
+    reads the tickets the refs name; default: the workspace's board."""
     kind = meta.get("kind") or "other"
     if kind in BELONGS:
         role = BELONGS[kind]
@@ -196,13 +266,16 @@ def route(meta):
                 "why": "a %s ticket is %s work, not the Author's (the Author only lands); "
                        "reject it, and ask through a `research` ticket to the Expert with "
                        "final_to %s" % (kind, role, role)}
-    if kind in WRITER_KINDS and needs_argument(meta):
-        src = proved_source(meta)
-        if src:
+    if kind in ROUTED_WRITER_KINDS and needs_argument(meta):
+        tid = delivered_argument(meta, ticket_of)
+        src = "" if tid else proved_source(meta)
+        if tid or src:
             how, target, _why = KIND_ROUTES[kind]
+            said = ("%s delivered it" % tid if tid
+                    else "%s is proved in the registry" % src)
             return {"how": how, "target": target,
-                    "why": "land %s: it is proved in the registry, so the argument exists "
-                           "(the ask's wording is not a missing argument)" % src}
+                    "why": "land the argument: %s, so it exists (the ask's wording is "
+                           "not a missing argument)" % said}
         return research_route("the ask needs an argument nobody has delivered")
     if kind in KIND_ROUTES:
         how, target, why = KIND_ROUTES[kind]

@@ -39,7 +39,7 @@ if HERE not in sys.path:
 import _academy as ac  # noqa: E402
 import agenda_lib as al  # noqa: E402
 import gaps as gp  # noqa: E402
-from routes import land_route, route  # noqa: E402
+from routes import land_route, route, ticket_lookup  # noqa: E402
 
 core = ac.inbox_core
 
@@ -251,15 +251,23 @@ def land_rows(ctx, p, campaign=None, field="campaign"):
     return rows
 
 
+def board_route(board):
+    """``route`` reading the tickets a ticket's refs name on ``board``, the board this
+    inbox reads (``--board`` included), not the workspace's (#92)."""
+    look = ticket_lookup(ac.as_store(board))
+    return lambda meta: route(meta, ticket_of=look)
+
+
 def release_rows(ctx, p, campaign=None, field="campaign"):
     """The released blocked tickets, as inbox rows (status ``blocked``, ``released``); with
     ``campaign`` only those carrying it (in ``field``)."""
     rows = []
+    route_on = board_route(ctx.board)
     for r in p["release"]:
         t = ctx.tickets.get(r["ticket"]) or {}
         if campaign and t.get(field) != campaign:
             continue
-        rt = dict(route(t))
+        rt = dict(route_on(t))
         rt["why"] = ("released: %s all back; move it blocked -> accepted, then work it. "
                      % ", ".join(r["waiting_on"])) + rt["why"]
         rows.append(core.extra_row(t, rt, released=True, status="blocked"))
@@ -295,7 +303,7 @@ def run_inbox(args):
     """The selection: the core with the Author's extras (sweep first, landings, gaps)."""
     if args.check:
         store = core.open_inbox_store(args)
-        return core.run(args, "", store, 3, route, role="author")
+        return core.run(args, "", store, 3, board_route(store), role="author")
     args.items = args.n
     ctx = load_context(args, require_agenda=False)     # the tickets need no agenda
     if not ctx.board:
@@ -331,7 +339,8 @@ def run_inbox(args):
         header_json["notes"] = p["notes"]
         after = ["", "NOTES"] + ["  " + n for n in p["notes"]]
     pos = lambda m: _position(ctx, m.get("agenda"))[0]  # noqa: E731
-    return core.run(args, ctx.instance, ctx.board, ctx.items_per_run, route, position=pos,
+    return core.run(args, ctx.instance, ctx.board, ctx.items_per_run,
+                    board_route(ctx.board), position=pos,
                     return_legs=False, position_first=True, extra=lands + released_rows,
                     header={"json": header_json, "text": header_text, "text_after": after})
 
