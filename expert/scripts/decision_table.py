@@ -495,7 +495,6 @@ def notation_only(item, kind_of=None, tags_of=None):
     else stays an input."""
     s = str(item or "").strip()
     head = RE_NOTATION_MARK.sub("", s)
-    marked = head != s
     if not _bare_id(head):
         return None
     if not is_definition(head, kind_of):
