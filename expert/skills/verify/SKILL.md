@@ -52,8 +52,9 @@ report says the pass ran by hand.
   (`falsifier_request`, a `research` ticket to the Researcher with `final_to: scientist`)
   and blocked the verify ticket on it; the pass stays open. Once the request is back,
   release the ticket and run this skill on it again: the pass resumes (A is tabled, not
-  relaunched) and B launches only if the falsifier found nothing. With no ticket, the
-  pass cannot be resumed (`reviews.py` resumes a ticket's own pass only).
+  relaunched) and B launches only if the falsifier found nothing. A pass with no ticket
+  never waits: it could not be resumed (`reviews.py` resumes a ticket's own pass only),
+  so the falsifier stage is skipped with a note in the record and B runs as before.
 - **`falsifier-counterexample`**: the falsifier broke the claim. No B, no status; the
   counterexample went to the claim's Researcher as a `prove` finding and is in the packet
   for the human.

@@ -406,7 +406,12 @@ if (MODE === 'reword') {
     notes.push(`statement moved under the review (hash ${prep.statement_hash} -> ${a.hash_now}): B not launched, nothing to conclude on the old wording`)
   } else {
     falsifier = falsifierOnRecord(prep.falsifier)
-    if (!falsifier.counts) {
+    if (!falsifier.counts && ticket === 'none') {
+      // review V1 #4: with no verify ticket nothing could resume an open pass (reviews.py
+      // resumes a ticket's own pass only): the falsifier stage is skipped and B runs as before
+      notes.push(`no verify ticket: the falsifier stage is skipped (a pass with no ticket cannot wait and be resumed); ${A.claim} has no falsifier on record, and run B runs as before`)
+    }
+    if (!falsifier.counts && ticket !== 'none') {
       // the order is attempt, A, falsifier, B: B waits for the falsifier, the pass stays open
       const req = await requestFalsifier(falsifier)
       const id = req && /^T-\d{4,}$/.test(String(req.request || '').trim()) ? req.request.trim() : ''
@@ -414,23 +419,23 @@ if (MODE === 'reword') {
       if (!req) notes.push('the falsifier stage returned nothing: no request is known to be filed')
       if (req && req.refusal) notes.push(`the falsifier request was refused (${req.refusal})${onHuman ? ': the ticket is parked on the human' : ''}`)
       else if (onHuman) notes.push('no falsifier came back from the request: the ticket is parked on the human')
-      if (req && ticket !== 'none' && !req.blocked) notes.push(`ANOMALY: ${ticket} was not blocked on the falsifier`)
+      if (req && !req.blocked) notes.push(`ANOMALY: ${ticket} was not blocked on the falsifier`)
       notes.push(`run B not launched: ${A.claim} has no falsifier on record (A ${a.verdict}); ${id ? 'falsifier request ' + id : 'no falsifier request'}`)
       log(`A: ${a.verdict} -> awaiting the falsifier${id ? ' ' + id : ''}`)
       const res = { claim: A.claim, outcome: 'awaiting-falsifier', pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
         falsifier_request: id || null,
         reason: (req && req.refusal ? `the falsifier request was refused (${req.refusal}). ` : '') +
           `${A.claim} has no falsifier on record: B waits for it, and the pass ${prep.pass} stays open; ` +
-          (ticket !== 'none' ? `rerun ${ticket} once ${id || 'the falsifier'} is back (the pass resumes, A is kept)` : 'without a verify ticket the pass cannot be resumed (reviews.py resumes a ticket\'s own pass only)'),
+          `rerun ${ticket} once ${id || 'the falsifier'} is back (the pass resumes, A is kept)`,
         launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
-      if (!A.nested) res.ship = await ship({ role: 'expert', ticket: ticket === 'none' ? '' : ticket, done: false, topic: 'verify-' + A.claim,
+      if (!A.nested) res.ship = await ship({ role: 'expert', ticket, done: false, topic: 'verify-' + A.claim,
         only: 'library board', agentType: CHAIR, phase: 'Review', notes })
       return res
     }
     if (falsifier.found === 'counterexample') {
       notes.push(`run B not launched: the falsifier (${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}) found a counterexample: ${falsifier.evidence}`)
     } else {
-      if (falsifier.source !== 'claim') notes.push(`falsifier accepted: ${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}`)
+      if (falsifier.counts && falsifier.source !== 'claim') notes.push(`falsifier accepted: ${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}`)
       const b = await review('B')     // the identical brief, run B, a fresh agent told nothing of A
       runs.push(Object.assign({ run: 'B' }, b))
     }

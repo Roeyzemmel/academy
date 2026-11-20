@@ -121,6 +121,9 @@ a negative A concludes on A alone, and a reword pass has no falsifier stage.
   `closed`, and only on the statement hash the pass reviews: one recorded on another hash
   never counts, one whose hash is unknown counts only as the human's waiver (with a note).
   The request this stage files names the hash in its ask, so its result carries it.
+- **No verify ticket** (`/expert:verify` by hand with none): the pass cannot wait, since
+  nothing could resume it (`reviews.py` resumes a ticket's own pass only). The falsifier
+  stage is skipped, the record's process notes say so, and B runs as before.
 - **None on record**: launch no B. File one falsifier request: `tickets_create` kind
   `research` to the Researcher that owns the claim's namespace (a `paper:` or `lab:`
   claim: the Researcher of the claim's domain, as in section 4.3), `final_to: scientist`

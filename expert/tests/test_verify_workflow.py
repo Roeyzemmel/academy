@@ -358,6 +358,18 @@ class FalsifierAfterATests(unittest.TestCase):
         self.assertIn("statement hash abcdef12", calls[-1]["prompt"])
         self.assertIn("statement_hash", calls[0]["prompt"])
 
+    def test_without_a_ticket_the_falsifier_stage_is_skipped_and_b_runs(self):
+        """Review V1 #4: a pass with no ticket could not be resumed (reviews.py resumes a
+        ticket's own pass only), so it waits for no falsifier: B runs, with a note."""
+        prep = dict(PREP, ticket="none", falsifier=NO_FALS)
+        done = dict(DONE, run_files=["A.md", "B.md", "decision.md"])
+        out, labels, _c = self.run_wf({"prepare": prep, "run A": "r", "table A": self.A_OK,
+                                       "run B": "r", "table B": tab("CONFIRMED", "confirmed", run="B"),
+                                       "conclude": done}, ticket=None)
+        self.assertEqual(labels, ["prepare", "run A", "table A", "run B", "table B", "conclude"])
+        self.assertNotEqual(out["result"]["outcome"], "awaiting-falsifier")
+        self.assertIn("no verify ticket", " ".join(out["result"]["notes"]))
+
     def test_a_negative_a_or_a_reword_pass_spends_no_falsifier(self):
         out, labels, _ = self.run_wf({"prepare": dict(PREP, falsifier=NO_FALS), "run A": "r",
                                       "table A": tab("GAP", "single-negative"), "conclude": DONE})
