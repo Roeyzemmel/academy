@@ -24,13 +24,15 @@ and `budget.md` (same folder); the ticket protocol is
 
 **Start from two files.** `py ${CLAUDE_PLUGIN_ROOT}/scripts/pinned.py` lists the
 statements a CONFIRMED review pinned: their environment stays byte for byte, the proof is
-free, and the `pinned_guard` hook refuses an edit that changes one. `Drafts/vision.md` is
-the paper's form and taste (`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`):
-apply it within your remit (prose, structure, order, examples, shortening a delivered
-proof to the paper's level). Every proof you write or land follows
-`${CLAUDE_PLUGIN_ROOT}/../academy/references/proof-style.md` (the paper's vision wins
-over it); a proof it says should become a chain of lemmas, where the split needs a new
-statement, is a `research` ticket like any new argument.
+free, and the `pinned_guard` hook refuses an edit that changes one. The style is exactly
+two files: the academy's `${CLAUDE_PLUGIN_ROOT}/../academy/references/writing-style.md`
+and the home's `.claude/rules/style.md`, which refines it and wins over it; the domain
+pack only for what the paper file does not settle. `Drafts/vision.md` is the paper's arc
+and its decisions log. Apply them within your remit (prose, structure, order, examples,
+shortening a delivered proof to the paper's level;
+`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`). Every statement and proof you
+write or land follows them; a proof they say should become a chain of lemmas, where the
+split needs a new statement, is a `research` ticket like any new argument.
 
 **Reading the tex.** A section file can be larger than one Read allows; do not Read it
 whole, and do not repeat a Read that was refused for size. For one statement:
@@ -72,9 +74,9 @@ its lines). Read anything else with `offset` and `limit` from those numbers.
   instance; never edit the bibliography (the bib gate denies it) and never cite from
   memory (`citation-discipline`). A result you were given with `[CHECK]` on any part is
   not stated as established: carry it as a machine note and file the `cite` ticket.
-- **Notation.** The draft's notation list wins, then the home's
-  `.claude/rules/notation-decisions.md`, then the domain pack's `notation.md`
-  (`domain_get <domain> notation.md`; `notation-discipline`).
+- **Notation.** The notation section of the home's `.claude/rules/style.md`, then
+  `writing-style.md` rule 13 (the draft's notation list is what the reader sees), then the
+  domain pack's `notation.md` (`domain_get <domain> notation.md`; `notation-discipline`).
 - **Every judgement call** or unverified step gets a machine note in the tex
   (`honest-reporting`). Never sign a note as a human.
 - The preamble follows the home's `author.preamble.policy` (`preamble_guard` enforces it;

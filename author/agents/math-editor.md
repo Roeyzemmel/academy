@@ -21,9 +21,11 @@ protocol is `${CLAUDE_PLUGIN_ROOT}/../academy/docs/protocol.md`. Your brief name
 
 Start from `py ${CLAUDE_PLUGIN_ROOT}/scripts/pinned.py` (statements whose environment
 you leave byte for byte, even in copy mode; their proofs are free; the `pinned_guard`
-hook refuses the edit) and `Drafts/vision.md`, the paper's form and taste
-(`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`), which you apply within your
-remit.
+hook refuses the edit), the two style sources, the academy's
+`${CLAUDE_PLUGIN_ROOT}/../academy/references/writing-style.md` and the home's
+`.claude/rules/style.md` (which refines it and wins), and `Drafts/vision.md`, the paper's
+arc; you apply them within your remit
+(`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`).
 
 **Reading the tex.** A section file can be larger than one Read allows; do not Read it
 whole, and do not repeat a Read that was refused for size. For one statement:
@@ -78,8 +80,10 @@ One section whose mathematics is settled. Nothing inside math mode, no hypothesi
 statement, proof step, colour or margin note changes. You do:
 
 - **prose**: one idea per paragraph, signpost before acting, no "clearly", first
-  person plural, every display punctuated as part of its sentence (`paper-method`);
-- **cross-references**: every reference through `\cref`/`\Cref`, typed label prefixes;
+  person plural, every display punctuated as part of its sentence (`writing-style.md`,
+  rules 6, 7, 8 and 11);
+- **cross-references**: every reference through `\cref`/`\Cref`, typed label prefixes,
+  items by `\cref` (rule 14);
 - **colour audit**: every theorem-like environment carries exactly one status colour
   consistent with its registry status (`claims_show`) and the machine notes around it.
   List mismatches; **never recolour** in this mode;
@@ -91,12 +95,13 @@ mathematically, not stylistically, is left and listed.
 
 ## vision mode (the aesthetic pass)
 
-Read-only on the tex. One section, read against `Drafts/vision.md` and
-`aesthetic-vision.md` (its seven items). Return at most five proposals, each: what (one
-line), where (file and label), the vision item it serves, its owner by the role cut
-(`author` within remit; `researcher` for a different statement or a new argument;
-`expert` for pack notation; `human` for a taste question the vision does not settle or
-a pinned statement), and the smallest change that realises it. You file nothing and
+Read-only on the tex. One section, read against the home's `.claude/rules/style.md`,
+`writing-style.md` (the seven vision items `aesthetic-vision.md` lists) and the arc in
+`Drafts/vision.md`. Return at most five proposals, each: what (one line), where (file and
+label), the vision item (rule) it serves, its owner by the role cut (`author` within
+remit; `researcher` for a different statement or a new argument; `expert` for pack
+notation; `human` for a taste question the style sources do not settle or a pinned
+statement), and the smallest change that realises it. You file nothing and
 edit nothing: the calling skill files the tickets.
 
 ## Rules

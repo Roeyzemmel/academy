@@ -2,8 +2,9 @@
 
 > **This file is the domain's standard notation**, the default for a new home. It
 > starts from mainstream usage in the translation-surfaces literature. Precedence is
-> `academy:notation-discipline`'s: this pack < the project's decisions file (a
-> home's notation decisions, e.g. `.claude/rules/notation-decisions.md`) < the draft itself. So a
+> `academy:notation-discipline`'s: a paper's own style file (`.claude/rules/style.md`) >
+> the academy's writing guide (`academy/references/writing-style.md`) > this pack, which
+> is read only for what the paper file does not settle. So a
 > project that settles a different symbol keeps it, and this file is not rewritten to
 > match one project; a change to the *domain* standard goes to Expert as a `notation`
 > ticket (the librarian curates the pack). Items marked ⚑ are the ones most worth

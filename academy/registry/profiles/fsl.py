@@ -838,7 +838,7 @@ def render_experiments(repo):
            "in the order of `Drafts/statements.md`. Generated from the lab's claim registry",
            "(`claims/lab/`), its result JSON and its local queue; regenerate with",
            "`registry.py --repo . ledger` (the academy's `scripts/registry.py`). To change a row, change the lab claim",
-           "(`registry.py show lab:<name>`). The standard examples are in `.claude/rules/notation-decisions.md`;",
+           "(`registry.py show lab:<name>`). The standard examples are in `.claude/rules/style.md`;",
            "the hand-kept ledger this replaced is `Drafts/archive/experiments-2026-09.md`.", "",
            "Status is the lab claim's (`supported` is a bounded computation, not a proof). Evidence",
            "shows each result with its audit state; a result is cited only once it is `cleared`.", "",
