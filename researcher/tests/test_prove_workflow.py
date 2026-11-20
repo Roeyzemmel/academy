@@ -52,7 +52,7 @@ RELATED_NONE = {"related": [], "queries": ["registry.py find GEO"]}
 def done(**kw):
     """The outcome stage's answer for a complete attempt that declares its dependencies."""
     o = {"exists": True, "outcome": "complete", "gaps": [], "objects": [],
-         "dependencies_declared": True, "dependencies": [], "inputs_listed": []}
+         "dependencies_declared": True, "dependencies": [], "inputs_listed": [], "inputs_not_used": []}
     o.update(kw)
     return o
 
@@ -155,16 +155,66 @@ class ProveTests(unittest.TestCase):
         self.assertIn("bib:LMW16#Theorem 11", " ".join(res["notes"]))
 
     def test_an_attempt_without_declared_dependencies_is_not_complete(self):
+        """After one fix round that leaves them undeclared (review of fd04646, finding 3)."""
         for o in (done(dependencies_declared=False),                                   # no dependencies: in the frontmatter
-                  done(dependencies=["flat:GEO-2"], inputs_listed=["flat:GEO-2", "bib:K#1"])):   # an input left out of it
-            plan = dict(self.COMPLETE, outcome=[o])
+                  done(dependencies=["flat:GEO-2"], inputs_listed=["flat:GEO-2", "bib:K#1"]),    # an input left out of it
+                  done(dependencies=[], inputs_listed=["flat:GEO-2"])):                # an empty list, an input used
+            plan = dict(self.COMPLETE, outcome=[o], **{"fix dependencies": ["fixed"], "outcome (after fix)": [o]})
             res, labels, calls = self.run_wf(plan)
             self.assertEqual(res["outcome"], "attempt-incomplete", o)
+            self.assertEqual(labels.count("fix dependencies"), 1, o)                  # one fix round, no more
             self.assertNotIn("file verify", labels)
             self.assertIn("dependencies", calls[-1]["prompt"])                         # the delivered result says why
+            self.assertIn("after one fix round", calls[-1]["prompt"])
+        self.assertIn("flat:GEO-2", " ".join(res["dependency_gaps"]))                 # the empty list names what it uses
         # the attempt prompt asks for the list
         prompt = next(c for c in calls if c["label"] == "attempt")["prompt"]
         self.assertIn("dependencies:", prompt)
+
+    def test_undeclared_dependencies_get_one_fix_round_of_the_same_file(self):
+        """Review of fd04646, finding 3: the prover is asked once to fix the frontmatter of
+        the same attempt file, the outcome is read again, and a fixed list is filed."""
+        bad = done(dependencies=[], inputs_listed=["paper:lem:unfold"])
+        good = done(dependencies=["paper:lem:unfold"], inputs_listed=["paper:lem:unfold"])
+        plan = dict(self.COMPLETE, outcome=[bad], **{"fix dependencies": ["fixed"], "outcome (after fix)": [good],
+                    "check verify": [{"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3", "paper:lem:unfold"]}]})
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[labels.index("outcome"):labels.index("file verify")], ["outcome", "fix dependencies", "outcome (after fix)"])
+        fix = calls[labels.index("fix dependencies")]
+        self.assertEqual(fix["agentType"], "researcher:prover")
+        self.assertEqual(fix["model"], "fable")                                        # the prover's max-tier model
+        for s in ("proofs/GEO-3/attempt-2.md", "dependencies:", "same attempt file", "paper:lem:unfold"):
+            self.assertIn(s, fix["prompt"])
+        self.assertIn("proofs/GEO-3/attempt-2.md", calls[labels.index("outcome (after fix)")]["prompt"])
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertEqual(res["dependencies"], ["paper:lem:unfold"])
+        self.assertIn("fix round", " ".join(res["notes"]))
+        # an incomplete attempt (gaps, or not complete) gets no fix round: nothing would be filed anyway
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, outcome=[done(outcome="partial", gaps=["step 2"], dependencies_declared=False)]))
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        self.assertNotIn("fix dependencies", labels)
+
+    def test_an_input_marked_not_used_need_not_be_declared(self):
+        o = done(dependencies=["flat:GEO-2"], inputs_listed=["flat:GEO-2", "flat:GEO-9"], inputs_not_used=["flat:GEO-9"])
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, outcome=[o]))
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertNotIn("fix dependencies", labels)
+        self.assertIn("not used", calls[labels.index("outcome")]["prompt"])           # the clerk is asked for them
+        # an empty list is declared only when the Inputs section names no input it uses
+        o = done(dependencies=[], inputs_listed=["flat:GEO-9"], inputs_not_used=["flat:GEO-9"])
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, outcome=[o]))
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertIn("dependencies: none declared", calls[labels.index("file verify")]["prompt"])
+
+    def test_the_attempt_template_declares_no_dependencies_by_default(self):
+        """An untouched template must not read as declared (review of fd04646, finding 3):
+        its frontmatter carries no dependencies: key; the comment says how to add it."""
+        tpl = os.path.join(os.path.dirname(HERE), "templates", "notebook", "_templates", "attempt.md")
+        with open(tpl, encoding="utf-8") as fh:
+            text = fh.read()
+        front = text.split("---")[1]
+        self.assertNotRegex(front, r"(?m)^dependencies:")
+        self.assertIn("dependencies: []", text.split("---", 2)[2])                    # only for a proof with no input
 
     def test_a_complete_attempt_files_a_checked_verify_ticket(self):
         res, labels, calls = self.run_wf({

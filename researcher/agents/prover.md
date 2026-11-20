@@ -59,7 +59,8 @@ under `.git`.
   and registry status, or its citation `bib:<key>#<pinpoint>`, and **state the same items
   as the frontmatter's `dependencies:` list** (the dependencies are part of the proof: a
   complete attempt without the list, or with an input left out of it, is not complete and
-  goes to no review). When the brief lists **related statements** (the registry's, found
+  goes to no review; add the key, `dependencies: []` only for a proof that uses no input;
+  asked to fix it, fix that frontmatter of the same file and nothing else). When the brief lists **related statements** (the registry's, found
   by the clerk), cite each one that does the work as an input and never reprove a proved
   statement; under *Related statements* say for each listed one "used as input" or why not.
   Mark each unproved step

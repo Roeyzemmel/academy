@@ -44,9 +44,13 @@ The inbox runs the same script for a `prove` ticket. The script:
 5. **The outcome is read from the attempt's frontmatter** by the clerk, never from the
    prover's summary:
    - `complete` with no gaps and its dependencies declared (the list present, every input
-     of *Inputs and their status* in it): the prover files one `verify` ticket to the
+     *Inputs and their status* names as used in it; an empty list only when it names none):
+     the prover files one `verify` ticket to the
      Expert, naming the dependencies in its refs and ask, and whether a falsifier is on
      record (the script checks it). If the claim was `open`, the prover also proposes `sketch`.
+   - `complete` with no gaps but the dependencies not declared: one fix round, the prover
+     fixes the frontmatter of the same attempt file and the clerk reads it again; still
+     undeclared, it is incomplete.
    - otherwise: nothing goes to review. The prover's attempt records the gaps; a gap
      that is a separate lemma becomes its own object with a `prove` ticket.
 

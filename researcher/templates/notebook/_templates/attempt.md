@@ -4,14 +4,15 @@ attempt: {{n}}
 by: {{by}}
 date: {{date}}
 outcome: in-progress
-dependencies: []
 ---
 
 <!-- outcome: in-progress | complete | failed | superseded. A failed attempt is kept:
 why it fails is knowledge. The object's `proof:` field points at the current attempt.
-dependencies: every registry id and bib:<key>#<pinpoint> the proof relies on, the same items
-as "Inputs and their status", e.g. [paper:lem:unfold, flat:GEO-2, bib:LMW16#Theorem 11]
-(required: a complete attempt that leaves an input out of it is not filed for review). -->
+dependencies: add this frontmatter key: every registry id and bib:<key>#<pinpoint> the proof
+relies on, the same items as "Inputs and their status", e.g.
+dependencies: [paper:lem:unfold, flat:GEO-2, bib:LMW16#Theorem 11]; dependencies: [] only for a
+proof that uses no input (required: a complete attempt without the key, or with an input left
+out of it, is not filed for review). -->
 
 ## Statement as attempted
 

@@ -97,10 +97,11 @@ const PATH = { type: 'object', properties: { path: { type: 'string' } }, require
 const OUTCOME = { type: 'object', properties: {
   exists: { type: 'boolean' }, outcome: { type: 'string', description: 'the attempt frontmatter\'s outcome: field, verbatim' },
   gaps: { type: 'array', items: { type: 'string' } }, objects: { type: 'array', items: { type: 'string' }, description: 'claims the attempt names (partial results)' },
-  dependencies_declared: { type: 'boolean', description: 'the frontmatter has a dependencies: key (an empty list counts as declared)' },
+  dependencies_declared: { type: 'boolean', description: 'the frontmatter has a dependencies: key (the code decides whether an empty list declares them)' },
   dependencies: { type: 'array', items: { type: 'string' }, description: 'the frontmatter\'s dependencies: items, verbatim, in order' },
-  inputs_listed: { type: 'array', items: { type: 'string' }, description: 'the registry ids and bib:<key>#<pinpoint> citations named in its "## Inputs and their status" section, verbatim' } },
-  required: ['exists', 'outcome', 'gaps', 'objects', 'dependencies_declared', 'dependencies', 'inputs_listed'] }
+  inputs_listed: { type: 'array', items: { type: 'string' }, description: 'the registry ids and bib:<key>#<pinpoint> citations named in its "## Inputs and their status" section, verbatim' },
+  inputs_not_used: { type: 'array', items: { type: 'string' }, description: 'those of inputs_listed that the section marks as not used by the proof, verbatim (else empty)' } },
+  required: ['exists', 'outcome', 'gaps', 'objects', 'dependencies_declared', 'dependencies', 'inputs_listed', 'inputs_not_used'] }
 const RELATED = { type: 'object', properties: {
   related: { type: 'array', items: { type: 'object', properties: {
     id: { type: 'string', description: 'the registry id with its namespace (paper:lem:x, flat:GEO-2)' },
@@ -319,25 +320,56 @@ if (proved === null) return Object.assign(out, { outcome: 'lost', reason: 'the p
 
 // ---- File: by the file, not by the summary ------------------------------------------------
 phase('File')
-const o = await launch(STAGE('attempt-outcome', [`Read ${p.path}: return its frontmatter's outcome: field verbatim, its gaps, the claims it names, ` +
-  'whether the frontmatter has a dependencies: key and its items verbatim, and the registry ids and bib:<key>#<pinpoint> citations its "## Inputs and their status" section names. Write nothing.']),
-  { label: 'outcome', phase: 'File', agentType: CLERK, schema: OUTCOME, effort: 'low' })
-if (!o || !o.exists) return Object.assign(out, { outcome: 'unfinished', reason: 'the attempt file is missing or unreadable' })
-out.gaps = o.gaps
+const readOutcome = label => launch(STAGE('attempt-outcome', [`Read ${p.path}: return its frontmatter's outcome: field verbatim, its gaps, the claims it names, ` +
+  'whether the frontmatter has a dependencies: key and its items verbatim, the registry ids and bib:<key>#<pinpoint> citations its "## Inputs and their status" section names, ' +
+  'and which of those the section marks as not used by the proof. Write nothing.']),
+  { label, phase: 'File', agentType: CLERK, schema: OUTCOME, effort: 'low' })
 // the declared dependencies: a list in the frontmatter, holding every input the Inputs section
-// names (one ref matches another written with or without its namespace)
+// names as used (one ref matches another written with or without its namespace). An empty
+// list declares them only when that section names no input the proof uses (review of fd04646:
+// an empty list next to used inputs is a list left unwritten).
 const clean = xs => [...new Set((xs || []).map(x => String(x || '').trim()).filter(Boolean))]
-const deps = clean(o.dependencies)
 const sameRef = (a, b) => a === b || a.endsWith(':' + b) || b.endsWith(':' + a)
-const undeclared = o.dependencies_declared ? clean(o.inputs_listed).filter(x => !deps.some(d => sameRef(d, x))) : []
+const depCheck = o => {
+  const deps = clean(o.dependencies)
+  const notUsed = clean(o.inputs_not_used)
+  const used = clean(o.inputs_listed).filter(x => !notUsed.some(n => sameRef(n, x)))
+  const undeclared = used.filter(x => !deps.some(d => sameRef(d, x)))
+  const gaps = !o.dependencies_declared ? ['the frontmatter declares no dependencies: list']
+    : !deps.length && used.length ? [`the dependencies: list is empty but the Inputs section names inputs the proof uses: ${used.join(', ')}`]
+    : undeclared.length ? [`inputs not in its dependencies: ${undeclared.join(', ')}`] : []
+  return { deps, used, gaps }
+}
+let o = await readOutcome('outcome')
+if (!o || !o.exists) return Object.assign(out, { outcome: 'unfinished', reason: 'the attempt file is missing or unreadable' })
+const completeNoGaps = x => x.outcome === 'complete' && !(x.gaps || []).length
+let dc = depCheck(o)
+let fixed = false
+// review of fd04646, finding 3: a complete attempt whose only defect is its dependencies list
+// gets one fix round: the prover fixes the frontmatter of the same file, the clerk reads it again
+if (completeNoGaps(o) && dc.gaps.length) {
+  fixed = true
+  const fx = await launchMax(`Your attempt ${p.path} on ${A.claim} is complete, but its frontmatter's dependencies are not declared: ${dc.gaps.join('; ')}. ` +
+    'Fix the frontmatter of that same attempt file, nothing else: its dependencies: key lists every registry id and bib:<key>#<pinpoint> the proof uses ' +
+    `(the inputs its "## Inputs and their status" section names as used${dc.used.length ? ': ' + dc.used.join(', ') : ''}; dependencies: [] only when the proof uses no input). ` +
+    'Write no new attempt, change no other line, set no status, file nothing.',
+    { label: 'fix dependencies', phase: 'File', agentType: PROVER }, MODEL_STAGE)
+  const o2 = fx === null ? null : await readOutcome('outcome (after fix)')
+  if (o2 && o2.exists) { o = o2; dc = depCheck(o) }
+  out.notes.push(fx === null ? 'the dependencies fix round returned nothing: the attempt stays undeclared'
+    : !o2 || !o2.exists ? 'the attempt could not be read again after the dependencies fix round'
+    : dc.gaps.length ? `one fix round left the dependencies undeclared: ${dc.gaps.join('; ')}`
+    : 'one fix round declared the dependencies')
+}
+out.gaps = o.gaps
+const deps = dc.deps
+const depGaps = dc.gaps
 out.dependencies = deps
-const depGaps = !o.dependencies_declared ? ['the frontmatter declares no dependencies: list']
-  : undeclared.length ? [`inputs not in its dependencies: ${undeclared.join(', ')}`] : []
-if (o.outcome !== 'complete' || (o.gaps || []).length || depGaps.length) {
+if (!completeNoGaps(o) || depGaps.length) {
   out.outcome = 'attempt-incomplete'
   if (depGaps.length) out.dependency_gaps = depGaps
   const gl = (o.gaps || []).concat(o.outcome === 'complete' ? depGaps : [])
-  await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}${o.outcome === 'complete' && depGaps.length ? ' but its dependencies are not declared' : ''}; ` +
+  await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}${o.outcome === 'complete' && depGaps.length ? ' but its dependencies are not declared' + (fixed ? ' after one fix round' : '') : ''}; ` +
     `gaps: ${gl.join('; ') || 'none listed'}; nothing filed for review`)
   return await end()
 }
