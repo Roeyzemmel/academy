@@ -57,13 +57,18 @@ merged in a throwaway worktree and gated together.
 Call the **Workflow** tool with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/maintain.js` and
 `args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/scripts/models.py" launches prints>, root: "<the academy repo, absolute>", workspace: "<the workspace root>", base:
 "<the base branch>", cap: 4}`; add `tasks: [{slug, title, kind, files, measure, why}]`
-when they are already chosen (the survey and plan stages are then skipped). The script
-applies the plan's rules, puts tasks that share a file in one stacked lane and runs the
-lanes side by side; each task is developed by `scientist:developer`, reviewed by
+when they are already chosen (the survey and plan stages are then skipped); a task may add
+`after: <slug>` (stack on a task of this round although they share no file) or `on:
+<pushed branch>` (stack on a branch of an earlier round). The script applies the plan's
+rules, puts tasks that share a file or name one another in one stacked lane and runs at
+most `cap` lanes at a time, the rest in later waves (never dropped below three waves); each task is developed by `scientist:developer`, reviewed by
 `scientist:test-engineer`, gets one fix round and a second look for a blocking finding,
 and is pushed through the gate; a task still blocked, refused or unreviewed is not pushed
-and nothing is stacked on it; `union` gates the lanes together. It needs the Scientist
-plugin. Do not relaunch a failed round: read `reason`, `dropped` and each task's reason.
+and nothing is stacked on it; `union` gates the lanes together. A develop stage that ends without its result (a turn limit) is salvaged:
+one run commits what passes in its worktree, and the review goes on from there. It needs
+the Scientist plugin. Do not relaunch a failed round: read `reason`, `dropped` and each
+task's reason. Never message a running workflow's agents (SendMessage): that starts a
+second copy of the agent in the same worktree, and the workflow loses the stage.
 
 ## 4. After
 

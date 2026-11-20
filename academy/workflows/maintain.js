@@ -1,10 +1,10 @@
 export const meta = {
   name: 'academy-maintain',
   description: 'A maintenance round on the academy\'s own code: survey by measurement, plan disjoint tasks, each task developed, reviewed and gated on its own branch (independent tasks side by side), then the branches gated together',
-  whenToUse: '/academy:maintain --workflow (the human asked for a round on the plugins: errors from the ledger, slow or large commands, defects). args: {root: "<academy repo>", workspace: "<workspace root>", base: "<branch the round starts from>", cap?: 4, days?: 7, role?: "human", tasks?: [{slug, title, kind, files: [paths], measure, why}]}',
+  whenToUse: '/academy:maintain --workflow (the human asked for a round on the plugins: errors from the ledger, slow or large commands, defects). args: {root: "<academy repo>", workspace: "<workspace root>", base: "<branch the round starts from>", cap?: 4, days?: 7, role?: "human", tasks?: [{slug, title, kind, files: [paths], measure, why, after?: "<slug of this round>", on?: "<pushed branch to stack on>"}]}',
   phases: [
     { title: 'Survey', detail: 'maintain.py survey: ledger families, commands over budget, unreadable definitions' },
-    { title: 'Plan', detail: 'at most cap tasks; tasks that touch the same files share a lane' },
+    { title: 'Plan', detail: 'tasks that touch the same files, or name one another (after), share a lane; at most cap lanes at a time, the rest in later waves' },
     { title: 'Work', detail: 'per task: develop in its own worktree, independent review, one fix round, push through the gate' },
     { title: 'Union', detail: 'maintain.py union: the lanes merged in a throwaway worktree and gated together' },
   ],
@@ -88,6 +88,8 @@ const TASK = {
     files: { type: 'array', items: { type: 'string' }, description: 'repo-relative files or folders the change will touch' },
     measure: { type: 'string', description: 'the command or case that shows the problem now and will show it gone' },
     why: { type: 'string' },
+    after: { type: 'string', description: 'optional: the slug of a task of this round it stacks on (same lane, after it)' },
+    on: { type: 'string', description: 'optional: a pushed branch it stacks on instead of the base (a task of an earlier round)' },
   },
   required: ['slug', 'title', 'kind', 'files', 'measure', 'why'],
 }
@@ -146,8 +148,17 @@ for (const t of tasks) {
   seen.add(t.slug)
   kept.push(t)
 }
-for (const t of kept.slice(CAP)) out.dropped.push(`${t.slug}: over the cap of ${CAP} (run another round)`)
-tasks = kept.slice(0, CAP)
+// the cap bounds the lanes that run at once (waves, below), not the tasks; a round larger
+// than three waves is split by the session instead (2026-11-20: tasks over the cap were
+// dropped, so a stacked task ran without what it stood on)
+const MAX_TASKS = 3 * CAP
+for (const t of kept.slice(MAX_TASKS)) out.dropped.push(`${t.slug}: over ${MAX_TASKS} tasks (three waves of the cap ${CAP}): run another round`)
+tasks = kept.slice(0, MAX_TASKS)
+for (const t of tasks) {
+  if (t.after && !tasks.some(u => u.slug === t.after)) { out.dropped.push(`${t.slug}: after ${t.after}, which is not a task of this round (stack on its pushed branch with on)`); t.dropped = true }
+  if (t.after === t.slug) { out.dropped.push(`${t.slug}: after itself`); t.dropped = true }
+}
+tasks = tasks.filter(t => !t.dropped)
 for (const d of out.dropped) log('dropped: ' + d)
 if (!tasks.length) return Object.assign(out, { ok: !out.dropped.length, reason: 'no task to work on' })
 
@@ -162,10 +173,26 @@ while (moved) {
   moved = false
   for (const a of tasks) for (const b of tasks) {
     const la = laneOf.get(a.slug), lb = laneOf.get(b.slug)
-    if (la !== lb && touches(a, b)) { const m = Math.min(la, lb); laneOf.set(a.slug, m); laneOf.set(b.slug, m); moved = true }
+    if (la !== lb && (touches(a, b) || a.after === b.slug || b.after === a.slug)) {
+      const m = Math.min(la, lb)
+      for (const t of tasks) if (laneOf.get(t.slug) === la || laneOf.get(t.slug) === lb) laneOf.set(t.slug, m)
+      moved = true
+    }
   }
 }
-const lanes = [...new Set(tasks.map(t => laneOf.get(t.slug)))].map(id => tasks.filter(t => laneOf.get(t.slug) === id))
+// within a lane, plan order, except that a task comes after the task it names (after)
+function ordered(lane) {
+  const out = [], placed = new Set(), byslug = new Map(lane.map(t => [t.slug, t]))
+  const put = (t, path) => {
+    if (placed.has(t.slug) || path.has(t.slug)) return
+    path.add(t.slug)
+    if (t.after && byslug.has(t.after)) put(byslug.get(t.after), path)
+    placed.add(t.slug); out.push(t)
+  }
+  for (const t of lane) put(t, new Set())
+  return out
+}
+const lanes = [...new Set(tasks.map(t => laneOf.get(t.slug)))].map(id => ordered(tasks.filter(t => laneOf.get(t.slug) === id)))
 out.lanes = lanes.map(l => l.map(t => t.slug))
 log(`${tasks.length} task(s) in ${lanes.length} lane(s): ` + out.lanes.map(l => l.join(' -> ')).join(' | '))
 
@@ -173,25 +200,42 @@ log(`${tasks.length} task(s) in ${lanes.length} lane(s): ` + out.lanes.map(l => 
 const RULES = [
   'Rules: work only in the worktree this stage names; never the main checkout, never another worktree, never main. Commits and pushes go through ship.py (raw git commit / push are refused by a hook). Never --no-gate. Stdlib-only Python that runs on 3.10; a new script or test follows its neighbours.',
 ]
+// a stage that throws (a run that ended without its structured output) is a lost stage, not
+// a lost lane: the lane goes on to record what happened (2026-11-20: three lanes were lost
+// whole, the developers' work left uncommitted in their worktrees)
+async function safe(prompt, opts) {
+  try { return await launch(prompt, opts) } catch (e) { log(`stage ${opts && opts.label} lost: ${String(e).slice(0, 200)}`); return null }
+}
 async function one(t, base) {
   const rec = { slug: t.slug, title: t.title, kind: t.kind, base, pushed: false, review: 'none', findings: [] }
-  const d = await launch(STAGE(`develop ${t.slug}`, [
+  let d = await safe(STAGE(`develop ${t.slug}`, [
     `Task: ${t.title}. Why: ${t.why}`,
     `It is expected to touch: ${t.files.join(', ')}. The measure: ${t.measure}`,
     `1. From ${WS}: \`py scripts/ship.py start ${SUB} ${t.slug} --role ${ROLE} --worktree --on ${base}\`. It prints the worktree; everything below happens there.`,
     '2. Take the measure now and keep the number or the failing output (before).',
     '3. Write the test that fails for this problem, then the change that makes it pass. Keep to this one concern: a second problem you meet is a line in your summary, not a change.',
+    '   Commit (step 5) after every step whose tests pass, not only at the end: a run that stops at its turn limit then leaves its work committed.',
     '4. Run the suite of every plugin you touched and, when ruff is installed, `ruff check .`; then take the measure again (after). A measure on live data must give the same answer as before wherever the answer is not what you changed: compare the outputs.',
     `5. From ${WS}: \`py scripts/ship.py commit ${SUB} --repo <the worktree> --all -m "<message>"\`: the message says what was wrong, what changed and the before and after numbers. Commit only; the workflow pushes after the review.`,
     'Return ok false with the reason when the problem is not there, is not in this repo, or cannot be fixed without a decision; change nothing in that case and remove nothing.',
     ...RULES,
   ]), { label: `develop ${t.slug}`, phase: 'Work', agentType: DEV, schema: DONE })
-  if (!d) return Object.assign(rec, { reason: 'the develop stage returned nothing' })
+  if (!d) {     // salvage: the developer's work may be in its worktree, uncommitted
+    d = await safe(STAGE(`salvage ${t.slug}`, [
+      `The develop stage of ${t.title} ended without its result (a turn limit, a lost hand-back). Develop nothing further.`,
+      `Find its worktree with \`git -C ${AR} worktree list\`: the one whose branch topic is ${t.slug} (started on ${base}). None: return ok false, reason "no worktree", and change nothing.`,
+      'In it: run the suite of every plugin the work touched and, when ruff is installed, `ruff check .`. When they pass and there are uncommitted changes, commit them: from ' + WS + ': `py scripts/ship.py commit ' + SUB + ' --repo <the worktree> --all -m "<the task title>: the work of an interrupted develop stage, salvaged; <what it does>"`. When they fail, commit nothing and return ok false with the failing lines and `git diff --stat`.',
+      `Return ok true only when the branch tip is ahead of ${base} and the suites pass; the branch, worktree, tip sha, tests, files, and in summary what the change does and what looks unfinished. Take no measure.`,
+      ...RULES,
+    ]), { label: `salvage ${t.slug}`, phase: 'Work', agentType: DEV, schema: DONE, effort: 'low' })
+    if (!d) return Object.assign(rec, { reason: 'the develop stage and its salvage returned nothing' })
+    rec.salvaged = true
+  }
   Object.assign(rec, { branch: d.branch, worktree: d.worktree, sha: d.sha, before: d.before, after: d.after, tests: d.tests, files: d.files, summary: d.summary })
   if (d.worktree) out.cleanup.push(d.worktree)
   if (!d.ok || !d.branch || !d.sha) return Object.assign(rec, { reason: d.reason || 'no commit was made' })
 
-  const look = (label) => launch(STAGE(label, [
+  const look = (label) => safe(STAGE(label, [
     `Review one change you did not write: \`git -C ${d.worktree} diff ${base}..${d.branch}\` (read whole files where the diff is not enough). The task was: ${t.title}.`,
     'Look for what is wrong, not for style: a result that differs from before where it should not, an input that occurs in practice and crashes, a caller in this repo that relied on what changed (grep for it), a test that would pass without the change. Reproduce a finding when that is cheap.',
     'blocking: it gives a wrong result or breaks a caller. minor: worth a line, not a fix round. For each: the file and line, what happens, and the input or sequence that triggers it. Say what you examined, so that no finding means something.',
@@ -202,7 +246,7 @@ async function one(t, base) {
   rec.findings = r.findings
   let blocking = r.findings.filter(f => f.severity === 'blocking')
   if (blocking.length) {
-    const f = await launch(STAGE(`fix ${t.slug}`, [
+    const f = await safe(STAGE(`fix ${t.slug}`, [
       `Your change on ${d.branch} (worktree ${d.worktree}) was reviewed. Fix exactly these blocking findings, each with a test that fails without the fix; a finding you can show to be wrong is answered in your summary instead, with the evidence.`,
       JSON.stringify(blocking),
       `Run the touched suites again, then from ${WS}: \`py scripts/ship.py commit ${SUB} --repo ${d.worktree} --all -m "<what the review found and what changed>"\`. Commit only.`,
@@ -220,7 +264,7 @@ async function one(t, base) {
     rec.review = 'clean'
   }
 
-  const p = await launch(STAGE(`push ${t.slug}`, [
+  const p = await safe(STAGE(`push ${t.slug}`, [
     `From ${WS}: \`py scripts/ship.py push ${SUB} --repo ${d.worktree}\`. It runs the push gate (the repo's workflows) and then pushes; wait for it and read its own exit status, not a pipe's.`,
     'Return ok true and the pushed sha only when it printed the push line; else ok false with the refusal as printed. A refusal is returned, never retried, and never passed with --no-gate.',
   ]), { label: `push ${t.slug}`, phase: 'Work', agentType: DEV, schema: PUSHED, effort: 'low' })
@@ -230,9 +274,9 @@ async function one(t, base) {
 
 phase('Work')
 // a lane is worked in order, each task on the one before it; the lanes run side by side
-const worked = await pipeline(lanes, async (lane) => {
+const work = async (lane) => {
   const done = []
-  let base = A.base
+  let base = lane[0].on || A.base
   for (const t of lane) {
     const rec = await one(t, base)
     done.push(rec)
@@ -243,7 +287,14 @@ const worked = await pipeline(lanes, async (lane) => {
     base = rec.branch
   }
   return done
-})
+}
+// at most CAP lanes at a time: waves, each lane whole within one wave
+const worked = []
+for (let i = 0; i < lanes.length; i += CAP) {
+  const wave = lanes.slice(i, i + CAP)
+  if (lanes.length > CAP) log(`wave ${i / CAP + 1}: ` + wave.map(l => l.map(t => t.slug).join(' -> ')).join(' | '))
+  worked.push(...await pipeline(wave, work))
+}
 out.tasks = worked.filter(Boolean).flat()
 for (const lane of lanes) if (!out.tasks.some(t => t.slug === lane[0].slug)) for (const t of lane) out.tasks.push({ slug: t.slug, title: t.title, kind: t.kind, base: A.base, pushed: false, review: 'none', findings: [], reason: 'the lane failed before its first stage returned' })
 const pushed = out.tasks.filter(t => t.pushed)
