@@ -14,7 +14,7 @@ The order is code (2026-10-31; docs/workflows.md). Call the **Workflow** tool wi
 The inbox runs the same script for a `prove` ticket. The script:
 
 1. **State.** The clerk takes the ticket and reports the claim's status, its unsettled
-   inputs, earlier attempts, whether a falsifier is on record, whether an attack exists, and whether
+   inputs, earlier attempts, whether a falsifier is on record or pending, whether an attack exists, and whether
    the ticket asks for a **repair** (repair, polish, restyle or record an argument, or
    answer a negative review) rather than a first proof (`mode: "repair"` forces it). A
    `proved` claim with no repair asked is handed back (`already_proved`; the inbox returns
@@ -23,14 +23,16 @@ The inbox runs the same script for a `prove` ticket. The script:
    deliver or cancel the ticket (it is left `in-progress`). A claim resting on an unsettled input can be proved at
    most `proved-modulo` it; the brief says so.
 2. **No falsifier wait** (2026-11-20). The attempt goes ahead whether or not a falsifier
-   is on record: the verify workflow runs it after review A. A falsifier counts as on
+   is on record: a falsifier is triggered by a failed attempt (step 5) or a GAP verdict of
+   the Expert's review, never a gate before an attempt or between A and B. A falsifier counts as on
    record when it attacked this claim, or is recorded on a declared input (`depends_on`) or
    the parent lead whose class covers it, or the human waived it on the ticket (#117); the
    script checks an input's id against the declared inputs and a waiver for the human's
    line, and the result (`falsifier_on_record`, `falsifier_source`, `falsifier`) and the
    verify ticket's ask say which, or that none is on record. A statement nobody attacked on
    paper first gets one attack-only `prover` run (`academy/skills/rigor/references/attack-brief.md`,
-   writing `proofs/<id>/attack.md`).
+   writing `proofs/<id>/attack.md`); that attack is the prover's own step, not a falsifier,
+   so a failed attempt after it still files one.
 3. **Related statements.** A clerk stage searches the registries (the paper's and the
    notebooks', `registry.py find` / `grep`) for statements related to the claim; a second
    clerk stage confirms each listed id with `claims_show` (one it cannot confirm is dropped,
@@ -54,10 +56,17 @@ The inbox runs the same script for a `prove` ticket. The script:
    - `complete` with no gaps but the dependencies not declared: one fix round, the prover
      fixes the frontmatter of the same attempt file and the clerk reads it again; still
      undeclared, it is incomplete.
-   - otherwise: nothing goes to review. The prover's attempt records the gaps; a gap
-     that is a separate lemma becomes its own object with a `prove` ticket.
+   - otherwise (`attempt-incomplete`): nothing goes to review. The prover's attempt records
+     the gaps; a gap that is a separate lemma becomes its own object with a `prove` ticket.
+     With no falsifier on record and none pending, `lead-researcher` (a researcher->scientist
+     liaison in `permissions.json`; the prover is none) files one `experiment` or `test`
+     ticket to the Scientist that tries to break the claim where the attempt failed (its
+     gaps), checked by the clerk; the delivery is unchanged and names it
+     (`falsifier_ticket`). An incomplete repair for a verify pass is blocked on the human
+     and files one too. A run lost to a limit files nothing.
 
-   On a ticket, the result line names the verify ticket and the dependencies, or the gaps.
+   On a ticket, the result line names the verify ticket and the dependencies, or the gaps
+   and the falsifier ticket filed.
 
 Nothing goes above `sketch`: `proved` and `proved-modulo` come only from two agreeing
 Expert reviews, through claim-keeper. **Report** the attempt path and outcome, each gap,

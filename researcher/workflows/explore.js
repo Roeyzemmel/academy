@@ -15,7 +15,7 @@ export const meta = {
 // art, prove, and the script checks what the lead reports: a falsify step must have filed
 // an experiment ticket to the Scientist naming the item, and today's journal records the run.
 // A prove step does not wait for a falsifier (2026-11-20: the attempt goes first and the
-// verify workflow runs the falsifier after review A), so it is not checked for one. The
+// a failed attempt or a GAP verdict triggers it), so it is not checked for one. The
 // lead's judgement stays its own.
 
 const A = args || {}
@@ -157,7 +157,7 @@ const lead = await launch(
   ' Move each item ONE step, in this order: falsify (a candidate claim gets its smallest falsifier: you file the experiment ticket to the Scientist, ' +
   'a probe for one named example, a search for a family or a range, with the claim id, what refutes it, a validation case and the unsettled inputs); ' +
   'prior art (prover\'s scout pass, lookup / cite tickets to the Expert); prove (an item with no prior proof: prover writes an attempt, and /researcher:prove files the review; ' +
-  'the attempt does not wait for a falsifier, which the verify workflow runs after review A). Update the direction\'s lists and today\'s journal (notebook.py journal --create); ' +
+  'the attempt does not wait for a falsifier, which a failed attempt or a GAP verdict triggers). Update the direction\'s lists and today\'s journal (notebook.py journal --create); ' +
   'new questions or claims become unsettled objects. Return per item the step, the tickets filed and the objects made, your report, and what the next run would pick.',
   { label: 'lead', phase: 'Move', agentType: LEAD, schema: MOVED })
 if (lead === null) return Object.assign(out, { outcome: 'lost', reason: 'the lead run returned nothing (a limit?): nothing further launched' })

@@ -29,6 +29,12 @@ hypothesis, "finitely many exceptions") as a new statement, never silently. The
 attack grades nobody's work and sets no status. Findings go into the proof brief;
 a computational falsifier remains `/researcher:explore`'s job.
 
+The attack file `proofs/<id>/attack.md` carries in its frontmatter `statement_hash:
+<16-hex>`, the attacked claim's statement hash as the registry computes it when the attack
+ran (`reviews.py hash --claim <id>`). The verify and prove workflows count an attack as a
+falsifier only on that hash; a lab claim that attacked a statement records it the same way,
+`falsifies: ["<ns:id>@<16-hex>", ...]` (2026-11-20).
+
 ## Example prompt (an example of the form, not a claim asserted true)
 
 > Claim: let X be a compact translation surface and p a point of X. The set of points

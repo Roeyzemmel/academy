@@ -14,9 +14,13 @@ export const meta = {
 // frontmatter by the clerk (never from the prover's summary), and only a complete attempt
 // files a verify ticket (by the prover, a liaison toward the Expert; the script checks the
 // ticket) and proposes sketch. Nothing is set above sketch.
-// 2026-11-20 (the human's design): the attempt no longer waits for a falsifier (it runs after
-// review A, in the verify workflow); the state stage still says whether one is on record, and
-// the result and the verify ask carry that. A clerk stage lists the related registry
+// 2026-11-20 (the human's design, as revised the same day): the attempt never waits for a
+// falsifier; a falsifier is triggered by a failure. An attempt that is not complete (failed,
+// or complete with gaps or undeclared dependencies after the fix round), on a claim with no
+// falsifier on record and none pending, gets one: lead-researcher (a liaison toward the
+// Scientist, permissions.json researcher->scientist; the prover is none) files an experiment
+// or test ticket that tries to break the claim where the attempt failed. Delivery is
+// unchanged; the result names the ticket. A run lost to a limit files nothing. A clerk stage lists the related registry
 // statements (the paper's and the notebooks') for the prover's brief: cite, never reprove. The
 // attempt declares its dependencies in its frontmatter; a complete attempt without them, or
 // with an input its Inputs section names left out, is not complete, and the verify ticket
@@ -70,6 +74,7 @@ if (!A.claim || !/^([a-z][a-z0-9]*:)?[A-Za-z][\w.:-]*$/.test(A.claim)) throw new
 if (!A.home) throw new Error('args.home must be the Researcher home')
 const CLERK = 'researcher:review-clerk'
 const PROVER = 'researcher:prover'
+const LEAD = 'researcher:lead-researcher'
 const T = A.ticket || ''
 const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
@@ -93,7 +98,11 @@ const STATE = { type: 'object', properties: {
   repair: { type: 'boolean', description: 'the ticket asks to repair, polish, restyle or record an argument for the claim, or answers a negative review of it (GAP, a hypothesis to add): not a first proof' },
   repair_ask: { type: 'string', description: 'what the ticket asks to repair, one line (empty if not a repair)' },
   for_verify: { type: 'string', description: 'the verify ticket T-NNNN when the ticket\'s ask carries the marker "amendment for verify T-NNNN pass <pass>" (a repair a verify pass asked for, the dependency amendment); else empty' },
-  for_verify_pass: { type: 'string', description: 'the pass that marker names; else empty' } },
+  for_verify_pass: { type: 'string', description: 'the pass that marker names; else empty' },
+  statement_hash: { type: 'string', description: 'the claim\'s statement hash now, the registry engine\'s (reviews.py hash --claim <id>)' },
+  falsifier_statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, read first from a lab claim\'s frontmatter falsifies: entry <ns:id>@<hash> for this claim, then the "statement hash <h>" a request\'s ask names; a waiver, the hash it names; else empty' },
+  falsifier_pending: { type: 'string', description: 'a falsifier on this claim filed and not back (an experiment or test ticket to the Scientist, or a falsifier request, open, accepted, in progress or blocked): its id; else empty' },
+  falsifier_pending_status: { type: 'string', description: 'that ticket\'s status; else empty' } },
   required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'attack_exists', 'repair'] }
 const PATH = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
 const FOR_VERIFY = { type: 'object', properties: { found: { type: 'boolean' }, kind: { type: 'string' },
@@ -223,8 +232,11 @@ phase('State')
 const st = await launch(STAGE('prove-state', [
   T ? `First take ${T}: open -> accepted -> in-progress (leave it if it is in progress already).` : '',
   `Then return: the claim's status (claims_show), its unsettled inputs (depends_on and modulo that are not proved), earlier attempts ` +
-  `(notebook.py ls / the object's proof: field), whether a falsifier counts and its source (#117: one that attacked this claim; or one recorded on a declared input, or on the parent lead or ` +
+  `(notebook.py ls / the object's proof: field), whether a falsifier counts and its source (#117: one that attacked this claim, an experiment or test of the Scientist (proofs/<id>/attack.md, the prover's own attack step, is not a falsifier); or one recorded on a declared input, or on the parent lead or ` +
   `direction item, whose class or statement covers this claim, saying how; or the ticket thread records one; or the human waived it on the ticket or the claim: then quote that thread line verbatim), with the evidence, and the declared inputs, ` +
+  `the claim's statement hash now (statement_hash: \`py ${AR}/expert/scripts/reviews.py hash --claim ${A.claim}\`, the registry engine's), ` +
+  `the statement hash the falsifier attacked (falsifier_statement_hash: first a lab claim's frontmatter falsifies: ["${A.claim}@<hash>", ...] entry; then the "statement hash <h>" its request's ask names; else empty), ` +
+  `any falsifier on this claim filed and not back (an experiment or test ticket to the Scientist, or a "Falsifier for ${A.claim}" request: tickets_list text ${A.claim}) with its status (falsifier_pending, falsifier_pending_status), ` +
   `whether proofs/<id>/attack.md exists, and whether the ticket asks for a repair (repair, polish, restyle or record an argument, or answer a negative review) rather than a first proof, with what it asks, ` +
   `and, when its ask carries the marker "amendment for verify T-NNNN pass <pass>", that verify ticket and pass (for_verify, for_verify_pass). Write nothing else.`,
 ]), { label: 'state', phase: 'State', agentType: CLERK, schema: STATE, effort: 'low' })
@@ -234,8 +246,8 @@ if (!st.ok) return Object.assign(out, { outcome: 'not-started', reason: st.stop_
 // proved claim with no repair asked is handed back, never delivered (nothing was done)
 // The dependency amendment (2026-11-20 review): a repair a verify pass asked for (the marker
 // "amendment for verify T-NNNN pass P" in the ask, or args.for_verify) files no verify ticket,
-// since run B of that pass, on the amended proof, is the second verdict; the falsifier
-// question belongs to that pass, so the gate below does not stop it
+// since run B of that pass, on the amended proof, is the second verdict; an incomplete one is
+// blocked on the human, and files a falsifier as any failed attempt does
 const RE_TICKET = /^T-\d{4,}$/
 let forVerify = [A.for_verify, st.for_verify].map(x => String(x || '').trim()).find(x => RE_TICKET.test(x)) || ''
 for (const x of [A.for_verify, st.for_verify]) {
@@ -268,7 +280,7 @@ const repair = A.mode === 'repair' || !!st.repair || !!forVerify
 out.repair = repair
 if (forVerify) {
   out.for_verify = forVerify
-  out.notes.push(`a repair for the verify pass of ${forVerify}${st.for_verify_pass ? ' (pass ' + st.for_verify_pass + ')' : ''}: no verify ticket is filed (run B of that pass is the second verdict), and the falsifier is that pass's question`)
+  out.notes.push(`a repair for the verify pass of ${forVerify}${st.for_verify_pass ? ' (pass ' + st.for_verify_pass + ')' : ''}: no verify ticket is filed (run B of that pass is the second verdict)`)
 }
 if (/^proved$/.test(st.status) && !repair) {
   return Object.assign(out, { outcome: 'already-proved', already_proved: true,
@@ -276,7 +288,8 @@ if (/^proved$/.test(st.status) && !repair) {
 }
 // #117: a falsifier on a declared input or the parent lead counts when it covers the claim, and
 // so does the human's waiver; checked in code against what the stage reported. Since 2026-11-20
-// it decides only what the result and the verify ask say is on record: nothing waits for it
+// it decides what the result and the verify ask say is on record, and whether a failed attempt
+// files one (with none pending): nothing waits for it
 // What the code holds (review of 7ecda27): a known source with evidence; an input that is
 // one of the declared inputs (namespace prefixes ignored); a waiver that quotes a thread line
 // of the human ("- YYYY-MM-DD human: ..."). That the falsifier covers the claim is the stage's
@@ -301,16 +314,31 @@ if (counts && src === 'waived' && !/(^|\n)\s*-?\s*\d{4}-\d{2}-\d{2} human:/.test
   counts = false
   out.notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ...): not counted')
 }
+// the same rule as verify.js (2026-11-20): a falsifier counts only on the statement hash it
+// attacked, which must be the claim's current one; with the hash unknown only a waiver counts
+const hashNow = /^[0-9a-f]{6,}$/.test(String(st.statement_hash || '').trim()) ? st.statement_hash.trim() : ''
+const fHash = String(st.falsifier_statement_hash || '').trim()
+if (counts && fHash && fHash !== hashNow) {
+  counts = false
+  out.notes.push(hashNow ? `the ${src} falsifier was recorded on another wording (statement hash ${fHash}, now ${hashNow}): not counted`
+    : `the ${src} falsifier's hash ${fHash} cannot be checked (the claim's current hash was not reported): not counted`)
+} else if (counts && !fHash) {
+  if (src === 'waived') out.notes.push('the waiver\'s statement hash is unknown: counted, a waiver being the human\'s call')
+  else { counts = false; out.notes.push(`the ${src} falsifier's statement hash is unknown (it may have attacked an older wording): not counted`) }
+}
 if (counts) out.falsifier = { source: src, on: st.falsifier_on || null, evidence: st.falsifier_evidence || '' }
 out.falsifier_on_record = counts
 out.falsifier_source = counts ? src : 'none'
-if (!counts) out.notes.push(`no falsifier on record for ${A.claim}: the attempt goes ahead and the verify ask says so (the verify workflow runs one after review A). ` +
-  `What counts: an experiment or test ticket to the Scientist that tries to break it (a search over the class it quantifies over, its standard examples first) ` +
-  `or a recorded attack on it; or one on a declared input or the parent lead whose class covers it; or the human's waiver on the ticket`)
+const PENDING_DONE = /^(delivered|closed|rejected|cancelled)$/
+const pending = String(st.falsifier_pending || '').trim()
+const falsifierPending = /^T-\d{4,}$/.test(pending) && !PENDING_DONE.test(String(st.falsifier_pending_status || '').trim()) ? pending : ''
+if (pending && !falsifierPending) out.notes.push(`the falsifier ${pending} reported pending is ${st.falsifier_pending_status || 'not a ticket id'}: not pending`)
+if (!counts) out.notes.push(`no falsifier on record for ${A.claim}${falsifierPending ? ` (${falsifierPending} is pending)` : ''}: the attempt goes ahead; a failed or incomplete attempt files one, and the verify ask says none is on record. ` +
+  `What counts: an experiment or test ticket to the Scientist that tries to break it (a search over the class it quantifies over, its standard examples first); or one on a declared input or the parent lead whose class covers it; or the human's waiver on the ticket`)
 const oneLine = (x, n) => String(x || '').replace(/\s+/g, ' ').trim().replace(/"/g, "'").slice(0, n || 200)
 const falsifierLine = counts
   ? `falsifier on record: ${src}${out.falsifier.on ? ' ' + out.falsifier.on : ''} (${oneLine(out.falsifier.evidence, 160)})`
-  : 'no falsifier on record (run it after review A)'
+  : 'no falsifier on record'
 
 // The related statements (2026-11-20): what the registry already holds, so the prover cites
 // instead of reproving. The clerk searches; one more clerk stage confirms every listed id with
@@ -378,7 +406,7 @@ phase('Attempt')
 let attacked = false
 if (!st.attack_exists) {
   const atk = await launchMax(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
-    `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why.`,
+    `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why; its frontmatter carries statement_hash: ${hashNow || '<the claim\'s statement hash>'}.`,
     { label: 'attack', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
   if (atk === null) return Object.assign(out, { outcome: 'lost', reason: 'the attack run returned nothing (a limit?): nothing further launched' })
   attacked = true
@@ -446,17 +474,42 @@ out.gaps = o.gaps
 const deps = dc.deps
 const depGaps = dc.gaps
 out.dependencies = deps
+// A failed or incomplete attempt triggers the falsifier (2026-11-20): filed by lead-researcher,
+// a liaison toward the Scientist (the prover is none), checked by the clerk; it changes no delivery
+async function fileFalsifier(gl) {
+  if (counts) { out.notes.push(`no falsifier filed: one is on record (${src}${out.falsifier.on ? ' ' + out.falsifier.on : ''})`); return '' }
+  if (falsifierPending) { out.notes.push(`no falsifier filed: ${falsifierPending} is pending (${st.falsifier_pending_status || 'status unknown'})`); return '' }
+  const target = gl.length ? gl.join('; ') : `the attempt's outcome ${o.outcome || 'without outcome'}, no gap listed`
+  const r = await launch(`WORKFLOW STAGE file-falsifier of the academy-prove workflow (lead-researcher, workflow mode): do this only and return the structured result; launch no agent. ` +
+    `Claim: ${A.claim}. Home: ${A.home}. The proof attempt ${p.path} is ${o.outcome || 'without outcome'} and ${A.claim} has no falsifier on record and none pending. ` +
+    `File exactly one ticket to the Scientist instance (tickets_create from your instance: kind experiment, or test when one named example settles it; to the scientist@ instance of the workspace, workspace_get), ` +
+    `title "Falsifier for ${A.claim}", ask: an experiment or test that tries to break ${A.claim} where the attempt failed (${oneLine(target, 600)}): a search over the class it quantifies over, its standard examples first, ` +
+    `reporting the bound and the class searched; the ask names the statement it attacks as "statement hash ${hashNow || '<the claim\'s statement hash>'}" and asks that the lab claim record it as falsifies: ["${A.claim}@<that hash>"]; deliverable "what it found: nothing in the class searched, or a counterexample with its certificate", refs [${A.claim}, file:<instance>/${p.path}]${T ? ', parent ' + T : ''}. ` +
+    'Write nothing else, set no status. Return the ticket id; a refusal verbatim.',
+    { label: 'file falsifier', phase: 'File', agentType: LEAD, schema: FILED, effort: 'low' })
+  if (!r || !r.ticket) { out.notes.push('the falsifier was not filed: ' + (r ? r.refusal || 'no ticket id returned' : 'the stage returned nothing')); return '' }
+  const c = await launch(STAGE('get', [`tickets_get ${r.ticket} and return its to, kind and refs.`]), { label: 'check falsifier', phase: 'File', agentType: CLERK, schema: TICKET, effort: 'low' })
+  if (!c || !c.found || !/^scientist@/.test(c.to) || !/^(experiment|test)$/.test(c.kind) || !(c.refs || []).some(x => sameRef(String(x).trim(), A.claim))) {
+    out.notes.push(`ANOMALY: the falsifier ticket ${r.ticket} is not an experiment or test ticket to the Scientist naming ${A.claim}`)
+  }
+  out.falsifier_ticket = r.ticket
+  out.notes.push(`falsifier filed on the failed attempt: ${r.ticket} (targets: ${oneLine(target, 200)})`)
+  return r.ticket
+}
+const falsLine = id => id ? `; falsifier filed: ${id}` : ''
+
 if (forVerify && (!completeNoGaps(o) || depGaps.length)) {
   // an incomplete amendment is not delivered: the verify pass would take a delivered repair
   // for the amendment; the human decides
   out.outcome = 'amendment-incomplete'
+  const fid = await fileFalsifier((o.gaps || []).concat(depGaps))
   const gl = ((o.gaps || []).concat(depGaps).join('; ') || 'none listed').replace(/"/g, "'")
   if (T) {
-    const m = await launch(STAGE('block', [`Block ${T}: tickets_update status blocked, waiting_on [human], reason "the amendment attempt ${p.path} for the verify pass of ${forVerify} is ${o.outcome || 'without outcome'} (gaps: ${gl}): ${forVerify} stays blocked on this repair; the human decides".`]),
+    const m = await launch(STAGE('block', [`Block ${T}: tickets_update status blocked, waiting_on [human], reason "the amendment attempt ${p.path} for the verify pass of ${forVerify} is ${o.outcome || 'without outcome'} (gaps: ${gl}): ${forVerify} stays blocked on this repair; the human decides${falsLine(fid)}".`]),
       { label: 'block', phase: 'File', agentType: CLERK, schema: MOVE, effort: 'low' })
     out.ticket_blocked = !!(m && m.ok)
   }
-  out.reason = `the amendment attempt ${p.path} is ${o.outcome || 'without outcome'} (gaps: ${gl}): not delivered, no verify ticket`
+  out.reason = `the amendment attempt ${p.path} is ${o.outcome || 'without outcome'} (gaps: ${gl}): not delivered, no verify ticket${falsLine(fid)}`
   return await end()
 }
 if (forVerify) {
@@ -468,8 +521,9 @@ if (!completeNoGaps(o) || depGaps.length) {
   out.outcome = 'attempt-incomplete'
   if (depGaps.length) out.dependency_gaps = depGaps
   const gl = (o.gaps || []).concat(o.outcome === 'complete' ? depGaps : [])
+  const fid = await fileFalsifier(gl)
   await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}${o.outcome === 'complete' && depGaps.length ? ' but its dependencies are not declared' + (fixed ? ' after one fix round' : '') : ''}; ` +
-    `gaps: ${gl.join('; ') || 'none listed'}; nothing filed for review`)
+    `gaps: ${gl.join('; ') || 'none listed'}; nothing filed for review${falsLine(fid)}`)
   return await end()
 }
 const depAsk = deps.length ? `dependencies: ${deps.join('; ')}` : 'dependencies: none declared'
@@ -495,5 +549,5 @@ out.proposal = f.proposal || null
 out.outcome = 'verify-filed'
 const fal = out.falsifier && out.falsifier.source !== 'claim' ? `; falsifier accepted: ${out.falsifier.source}${out.falsifier.on ? ' ' + out.falsifier.on : ''}` : ''
 await deliver(`complete attempt ${p.path}; verify ticket ${f.ticket}${f.proposal ? '; sketch proposed (' + f.proposal + ')' : ''}${fal}` +
-  `${counts ? '' : '; no falsifier on record (the verify workflow runs it after review A)'}; ${depAsk}`)
+  `${counts ? '' : '; no falsifier on record'}; ${depAsk}`)
 return await end()

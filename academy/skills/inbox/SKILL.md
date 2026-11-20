@@ -68,7 +68,7 @@ the run.
     with `for_main.args` (it takes the ticket, still `in-progress`, and delivers it). The
     falsifier the lead reported (`falsifier`) is on the ticket's thread, where prove.js's
     state stage reads it. With none on record the hand-back is the same (2026-11-20): the
-    attempt does not wait for a falsifier, the verify workflow runs one after review A, and
+    attempt does not wait for a falsifier, a failed attempt or a GAP verdict triggers one, and
     `why` says none is on record (`pending` names falsifier tickets still open).
   - `skill: researcher:prove` with `mode: repair` and `handback: prove` (#85): prove.js found
     the claim `proved` and did not read the ticket as a repair, and delivered nothing. Read

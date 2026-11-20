@@ -1,8 +1,8 @@
 """The prove workflow (workflows/prove.js), 2026-10-31: an attack-only run first when none
 exists, the outcome read from the attempt file, a verify ticket only for a complete attempt
 (filed by the prover, checked), nothing above sketch. Since 2026-11-20 (the human's design):
-the attempt goes ahead with no falsifier on record (the verify workflow runs it after review
-A; the result and the verify ask say whether one is on record), a clerk stage lists the
+the attempt goes ahead with no falsifier on record (a failed or incomplete attempt files one
+through lead-researcher; the result and the verify ask say whether one is on record), a clerk stage lists the
 related registry statements for the prover's brief (cite, never reprove), and the attempt
 declares its dependencies in its frontmatter: a complete attempt without them is not filed.
 Under node with a fake agent(); skipped without node."""
@@ -40,7 +40,8 @@ body(Object.assign({ nested: true, models: { 'expert:rigor-reviewer': 'fable', '
 
 def state(**kw):
     s = {"ok": True, "stop_reason": "", "status": "open", "unsettled_inputs": [], "attempts": [],
-         "falsified": True, "falsifier_evidence": "explore D-1", "attack_exists": True}
+         "falsified": True, "falsifier_evidence": "explore D-1", "attack_exists": True,
+         "statement_hash": "0123456789abcdef", "falsifier_statement_hash": "0123456789abcdef"}
     s.update(kw)
     return s
 
@@ -81,7 +82,7 @@ class ProveTests(unittest.TestCase):
 
     def test_no_falsifier_on_record_still_gets_an_attempt(self):
         """Was test_no_falsifier_means_explore_first (needs-explore, nothing attempted): the
-        falsifier now runs after review A, in the verify workflow; the attempt goes ahead and the
+        attempt goes ahead (a falsifier is triggered by a failed attempt or a GAP verdict) and the
         result and the verify ask say that none is on record."""
         res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(falsified=False, falsifier_source="none")]))
         self.assertNotIn("needs_explore", res)
@@ -472,7 +473,8 @@ class ProveTests(unittest.TestCase):
 
     def test_an_incomplete_amendment_is_not_delivered(self):
         plan = dict(self.AMEND, outcome=[done(outcome="partial", gaps=["step 2"])],
-                    block=[MOVE])
+                    block=[MOVE], **{"file falsifier": [{"ticket": "T-0030", "proposal": "", "refusal": ""}],
+                                     "check falsifier": [{"found": True, "to": "scientist@t", "kind": "test", "refs": ["flat:GEO-3"]}]})
         plan.pop("close")
         res, labels, calls = self.run_wf(plan)
         self.assertEqual(res["outcome"], "amendment-incomplete")
@@ -487,6 +489,119 @@ class ProveTests(unittest.TestCase):
 
 def shipped(t, line):
     return {"status": "nothing", "detail": "", "branches": [], "output": "%s: delivered (delivered)\n%s\n" % (t, line)}
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class FalsifierOnFailureTests(unittest.TestCase):
+    """The human's design (2026-11-20, revised the same day): a failed or incomplete attempt on a
+    claim with no falsifier on record and none pending files one, through lead-researcher (a
+    liaison toward the Scientist; the prover is none); the delivery is unchanged."""
+    run_wf = ProveTests.run_wf
+    NONE = dict(falsified=False, falsifier_source="none", falsifier_evidence="")
+    FILED_F = {"ticket": "T-0030", "proposal": "", "refusal": ""}
+    CHECK_F = {"found": True, "to": "scientist@t", "kind": "experiment", "refs": ["flat:GEO-3"]}
+
+    def plan(self, outcome, st=None, **extra):
+        p = {"state": [state(**(st if st is not None else self.NONE))],
+             "attempt path": [{"path": "proofs/GEO-3/attempt-2.md"}], "attempt": ["done"],
+             "outcome": [outcome], "close": [MOVE]}
+        p.update(extra)
+        return p
+
+    def test_a_failed_attempt_files_a_falsifier_through_lead_researcher(self):
+        for o in (done(outcome="failed", gaps=["step 4: the cylinder bound fails for slope 2"]),
+                  done(outcome="complete", gaps=["step 4: the cylinder bound fails for slope 2"])):
+            res, labels, calls = self.run_wf(self.plan(o, **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+            self.assertEqual(res["outcome"], "attempt-incomplete", o)
+            self.assertEqual(labels[-3:], ["file falsifier", "check falsifier", "close"], o)
+            f = next(c for c in calls if c["label"] == "file falsifier")
+            self.assertEqual(f["agentType"], "researcher:lead-researcher")    # a liaison, not the prover
+            self.assertIn("step 4: the cylinder bound fails for slope 2", f["prompt"])   # targets the failed step
+            self.assertIn("kind experiment", f["prompt"])
+            self.assertIn("parent T-0010", f["prompt"])
+            self.assertEqual(res["falsifier_ticket"], "T-0030")
+            close = calls[-1]["prompt"]
+            self.assertIn("nothing filed for review", close)                 # the delivery as before
+            self.assertIn("falsifier filed: T-0030", close)
+            self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+
+    def test_undeclared_dependencies_after_the_fix_round_file_one_too(self):
+        o = done(dependencies_declared=False)
+        res, labels, _c = self.run_wf(self.plan(o, **{"fix dependencies": ["fixed"], "outcome (after fix)": [o],
+                                                     "file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        self.assertIn("file falsifier", labels)
+
+    def test_a_bad_falsifier_ticket_is_an_anomaly_and_a_refusal_a_note(self):
+        res, _l, _c = self.run_wf(self.plan(done(outcome="failed", gaps=["g"]), **{"file falsifier": [self.FILED_F],
+                                  "check falsifier": [dict(self.CHECK_F, to="expert@t")]}))
+        self.assertIn("ANOMALY", " ".join(res["notes"]))
+        res, labels, calls = self.run_wf(self.plan(done(outcome="failed", gaps=["g"]),
+                                         **{"file falsifier": [{"ticket": "", "proposal": "", "refusal": "chain: not a liaison"}]}))
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        self.assertIn("not a liaison", " ".join(res["notes"]))
+        self.assertNotIn("check falsifier", labels)
+        self.assertNotIn("falsifier filed", calls[-1]["prompt"])
+
+    def test_a_complete_attempt_files_no_falsifier(self):
+        plan = dict(ProveTests.COMPLETE, state=[state(attack_exists=False, **self.NONE)])
+        res, labels, _c = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertNotIn("file falsifier", labels)
+
+    def test_on_record_or_pending_files_none(self):
+        for st in (dict(falsified=True, falsifier_evidence="explore D-1"),
+                   dict(self.NONE, falsifier_pending="T-0031", falsifier_pending_status="in-progress")):
+            res, labels, _c = self.run_wf(self.plan(done(outcome="failed", gaps=["g"]), st=st))
+            self.assertEqual(res["outcome"], "attempt-incomplete", st)
+            self.assertNotIn("file falsifier", labels, st)
+            self.assertIn("no falsifier filed", " ".join(res["notes"]), st)
+        # a "pending" one that ended is not pending
+        res, labels, _c = self.run_wf(self.plan(done(outcome="failed", gaps=["g"]),
+                                      st=dict(self.NONE, falsifier_pending="T-0031", falsifier_pending_status="delivered"),
+                                      **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+        self.assertIn("file falsifier", labels)
+
+    def test_a_lost_prover_run_files_nothing(self):
+        res, labels, _c = self.run_wf({"state": [state(**self.NONE)], "attempt path": [{"path": "proofs/GEO-3/attempt-2.md"}],
+                                       "attempt": [None], "attempt (opus fallback)": [None]})
+        self.assertEqual(res["outcome"], "lost")
+        self.assertNotIn("file falsifier", labels)
+
+    def test_an_incomplete_amendment_files_one_and_stays_blocked(self):
+        plan = dict(ProveTests.AMEND, outcome=[done(outcome="partial", gaps=["step 2"])], block=[MOVE],
+                    **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]})
+        plan.pop("close")
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "amendment-incomplete")
+        self.assertEqual(labels[-3:], ["file falsifier", "check falsifier", "block"])
+        self.assertIn("waiting_on [human]", calls[-1]["prompt"])
+        self.assertIn("falsifier filed: T-0030", calls[-1]["prompt"])
+
+    def test_a_falsifier_counts_only_on_the_current_statement_hash(self):
+        """As verify.js counts it (2026-11-20): another hash or none is not on record (and a
+        failed attempt then files one); a waiver counts without a hash."""
+        for st in (dict(falsified=True, falsifier_evidence="explore D-1", falsifier_statement_hash="ffffffffffffffff"),
+                   dict(falsified=True, falsifier_evidence="explore D-1", falsifier_statement_hash="")):
+            res, labels, calls = self.run_wf(self.plan(done(outcome="failed", gaps=["g"]), st=st,
+                                             **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+            self.assertFalse(res["falsifier_on_record"], st)
+            self.assertIn("file falsifier", labels, st)
+            self.assertIn("statement hash 0123456789abcdef", next(c for c in calls if c["label"] == "file falsifier")["prompt"])
+        res, labels, _c = self.run_wf(self.plan(done(outcome="failed", gaps=["g"]),
+                                      st=dict(falsifier_source="waived", falsified=True, falsifier_statement_hash="",
+                                              falsifier_evidence="- 2026-11-20 human: no falsifier needed")))
+        self.assertTrue(res["falsifier_on_record"])
+        self.assertNotIn("file falsifier", labels)
+
+    def test_the_attack_records_the_statement_hash(self):
+        _r, _l, calls = self.run_wf(dict(ProveTests.COMPLETE))
+        self.assertIn("statement_hash: 0123456789abcdef", next(c for c in calls if c["label"] == "attack")["prompt"])
+        self.assertIn("falsifies:", calls[0]["prompt"])
+
+    def test_the_state_stage_is_asked_whether_one_is_pending(self):
+        _r, _l, calls = self.run_wf(dict(ProveTests.COMPLETE))
+        self.assertIn("falsifier_pending", calls[0]["prompt"])
 
 
 @unittest.skipUnless(NODE, "node is not installed")

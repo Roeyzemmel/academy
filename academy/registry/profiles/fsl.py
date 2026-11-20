@@ -64,7 +64,7 @@ STATUS_BLURB = {
     "dropped": "no longer pursued",
 }
 EVIDENCE_KINDS = ("experiment", "audit", "verdict", "hand", "citation", "note")
-LIST_FIELDS = ("bears_on", "depends_on", "evidence", "history", "open", "tags")
+LIST_FIELDS = ("bears_on", "depends_on", "falsifies", "evidence", "history", "open", "tags")
 SCALAR_FIELDS = ("id", "title", "status", "where", "supersedes", "superseded_by")
 REQUIRED = ("id", "title", "status", "history")
 ID_RE = re.compile(r"^[a-z0-9]+:[A-Za-z0-9:_.\-]+$")
@@ -73,7 +73,7 @@ FOREIGN_ID_RE = re.compile(r"^[a-z0-9]+:\S+$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 #: the canonical field order and the fields written as block lists
 FIELD_ORDER = ("id", "title", "status", "where", "supersedes", "superseded_by",
-               "bears_on", "depends_on", "evidence", "history", "open", "tags")
+               "bears_on", "depends_on", "falsifies", "evidence", "history", "open", "tags")
 BLOCK_FIELDS = LIST_FIELDS
 #: schema v2: the v1 blurbs, with `modulo` for `open` and the lifecycle words
 STATUS_BLURB_V2 = dict(STATUS_BLURB, **{
@@ -86,12 +86,16 @@ STATUS_BLURB_V2 = dict(STATUS_BLURB, **{
 V2_STATUS_KINDS = {"paper": schema.KINDS, "lab": schema.STATUS_KINDS}
 #: the lab/paper profile's own field in schema v2: ``open``, the caveats and next steps
 #: of a record (v1's ``open:`` less the missing inputs, which are ``modulo``)
-V2_EXTRA = ("open",)
+#: ``falsifies`` (2026-11-20): the statements an experiment attacked, each as
+#: ``<ns:id>@<16-hex statement hash>`` (the target's statement as it was when it ran), read
+#: by the verify and prove workflows (a falsifier counts only on the hash it attacked)
+V2_EXTRA = ("open", "falsifies")
+FALSIFIES_RE = re.compile(r"^[a-z][a-z0-9]*:\S+@[0-9a-f]{16}$")
 V2_ORDER = schema.FIELD_ORDER[:-2] + V2_EXTRA + ("evidence", "history")
 V2_BLOCK = schema.BLOCK_FIELDS + V2_EXTRA
 V2_AFTER = ("id", "kind", "form", "title", "status", "statement", "modulo", "depends_on",
             "bears_on", "supersedes", "lifecycle", "aliases", "domain", "tags", "proof",
-            "where", "open")
+            "where", "open", "falsifies")
 
 _cache = federation.CACHE
 
@@ -518,6 +522,10 @@ def _cls(c):
 
 def _check_common(c, repo, own_ns, known, by_id, e, w):
     """The home rules both schemas share: the namespace, the paper's rules, the links."""
+    fal = c.fields.get("falsifies") or []
+    for x in (fal if isinstance(fal, list) else [fal]):
+        if not FALSIFIES_RE.match(str(x).strip()):
+            e(f"falsifies `{x}` is not `<ns:id>@<16-hex statement hash>`")
     if c.ns in known and c.ns != own_ns:
         e(f"`{c.ns}:` claims live in {known[c.ns]['name']}, not here")
     elif workspace.rule_set(c.ns, repo) == "paper":

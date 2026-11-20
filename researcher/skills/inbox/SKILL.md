@@ -23,7 +23,7 @@ and stop), or ticket ids.
    lead-researcher needs a proof attempt, with or without a falsifier on record (it cannot launch
    `prover` inside the run, T-1271; no `args`: `why` says what to fix first, usually
    `claims_new`; `/academy:inbox` section 2 has the cases; no attempt waits for a falsifier
-   since 2026-11-20: the verify workflow runs it after review A), and, rarely, the falsifier tests the lead could not file, with the command in
+   since 2026-11-20: a failed attempt or a GAP verdict triggers one), and, rarely, the falsifier tests the lead could not file, with the command in
    `to_file` and then the generalize workflow again with `mode: "deliver"`), then its
    `inbox.py --check T-NNNN`, then the workflow again with the cap lowered; `stopped` ends
    the run (a limit; `budget.md` rule 4).

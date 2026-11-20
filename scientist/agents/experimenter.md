@@ -91,7 +91,11 @@ is "the same thing", it checks a shadow of the claim: redesign.
 
 - Record the experiment as a lab claim with `claims_new` (status `open`,
   `where:` the script, `bears_on:` the claim it is evidence for) and name it on the
-  header's `Claims:` line. Evidence rows go through `claims_attach_evidence`; a
+  header's `Claims:` line. An experiment that tries to break a claim (a falsifier) also
+  records, in the lab claim's frontmatter, the statement it attacked:
+  `falsifies: ["<ns:id>@<hash>", ...]`, one entry per target, the hash the ticket's ask
+  names ("statement hash <h>") or else `reviews.py hash --claim <ns:id>` when the run is
+  filed. Without it the falsifier counts for no statement and is requested again. Evidence rows go through `claims_attach_evidence`; a
   status change is only ever *proposed* (`claims_propose_status`) — the
   claim-keeper decides, on two agreeing experiment reviews.
 - A ticket you work on gets thread notes and its receiver-side transitions through

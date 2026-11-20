@@ -19,10 +19,13 @@ the ticket protocol is `docs/protocol.md`.
    (the `status-vocabulary` skill gives the mapping). Run B is launched only if run A
    is positive, and neither run sees the other (one exception, the amend run below: B is
    told A's suggested dependency, never A's report); for proof reviews the `academy-verify`
-   workflow enforces this in code (docs/workflows.md). The order of a proof's review is
-   **attempt, run A, the falsifier, run B** (the human's design, 2026-11-20): a falsifier
-   is spent only on a proof that survived A, and B runs only once the claim's falsifier
-   is on record and found nothing; a counterexample ends the pass with no status change.
+   workflow enforces this in code (docs/workflows.md). **A falsifier** (an experiment or test that
+   tries to break the claim) **is triggered by a failure** (the human's design,
+   2026-11-20): a prover's failed or incomplete attempt, or a GAP verdict (run A, or run B
+   after a CONFIRMED A), when the claim has no clean falsifier on record for its statement
+   hash and none pending. It targets the gap, is filed alongside the repair, and blocks
+   nothing; it is never a gate before an attempt or between A and B. A counterexample on
+   record ends a pass with no status change.
    **A suggested dependency** (the human's design, 2026-11-20): a reviewer whose only
    objection is an input the proof relies on but does not list says CONFIRMED with
    `add_dependency` (a missing argument is still GAP). The producer then adds exactly that

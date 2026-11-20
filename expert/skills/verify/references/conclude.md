@@ -3,9 +3,9 @@
 The procedure for the concluder: the `review-chair` agent in the stages of the
 `academy-verify` workflow (`workflows/verify.js`), or the main session when
 `/expert:verify` runs by hand. In the workflow, **the script launches the runs and holds
-sections 1, 1a, 1b and 7.5** (A, then the falsifier, B only on `launch_b` with an unchanged
-hash and a falsifier that found nothing, the identical brief, or in amend mode once a
-suggested dependency is in, one relaunch, a lost run stops the pass); the chair's stages
+sections 1, 1a, 1b and 7.5** (A, B only on `launch_b` with an unchanged hash, the
+identical brief, or in amend mode once a suggested dependency is in, one relaunch, a lost
+run stops the pass; a GAP verdict files a falsifier request); the chair's stages
 are *prepare* (section 0, or 7.1-7.4), *table* (the `decision_table.py <run>.md --json`
 check of section 1), *falsifier* (section 1a), *amendment* and *amend-brief* (section 1b) and
 *conclude* (sections 2-6, or 7.6-7.7). Section 1 below is the by-hand
@@ -55,18 +55,20 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   another ticket's pass first, or, if it is dead (a
   stalled run, a changed statement), close it with
   `py $E/reviews.py abandon <id> <pass> --reason "..."` and say so in the thread.
-- **Report the falsifier on record** (a blind pass; section 1a uses it after A). The
+- **Report the falsifier on record** (a blind pass; section 1a uses it on a GAP verdict,
+  and a counterexample on record stops B). The
   sources are the ones `researcher/workflows/prove.js` accepts (#117): a falsifier that
   attacked this claim (an experiment or test ticket to the Scientist that tried to break
-  it, or a recorded attack); one recorded on a declared input, or on the parent lead or
+  it; the prover's own `proofs/<id>/attack.md` is the attack step, not a falsifier); one recorded on a declared input, or on the parent lead or
   direction item, whose class or statement covers the claim (say how, and name the id);
-  the ticket's thread (the falsifier request this ticket waited on, once it is back, with
-  its result); or the human's waiver on the ticket or the claim (quote the thread line
+  the ticket's thread (a falsifier request on this claim, once it is back, with its
+  result); or the human's waiver on the ticket or the claim (quote the thread line
   `- YYYY-MM-DD human: ...` verbatim). Say what it found (nothing, or a counterexample),
-  the statement hash it attacked when its record says it (a request this workflow filed
-  names it in its ask), any falsifier request the ticket already filed with its status, and
-  the claim's declared inputs. A ticket blocked by an earlier run of this pass (awaiting its falsifier) is taken
-  `blocked -> in-progress`.
+  the statement hash it attacked when its record says it: first the structured fields (a
+  lab claim's frontmatter `falsifies: ["<ns:id>@<16-hex hash>", ...]`, one entry per
+  target it attacked, the target's hash when the experiment ran), then, for a request this
+  workflow filed, the `statement hash <h>` its ask names, any falsifier request on this claim that is filed and not back
+  (a ticket titled `Falsifier for <id>`) with its status, and the claim's declared inputs.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
   reviewer reads the files, `budget.md` rule 9):
 
@@ -90,11 +92,11 @@ returns, the `land_verdict` hook has written `<pass dir>/A.md`. Then
 
 - `launch_b: true` (A CONFIRMED on one of the grading primaries (`grading.primaryModels`)): re-hash the
   statement (`py $E/reviews.py hash --claim <id>`, as in section 0); if the hash changed, stop — the statement moved under the review; record
-  that and conclude nothing. Otherwise the falsifier comes first (section 1a); once it is on
-  record and found nothing, launch run B with the identical brief and `run: B`, telling it
-  nothing of A.
-- `awaiting-amendment` (A CONFIRMED with `add_dependency`): the falsifier first (section
-  1a), then the amendment (section 1b); B runs in amend mode.
+  that and conclude nothing. Otherwise launch run B at once with the identical brief and
+  `run: B`, telling it nothing of A (a counterexample already on record stops it: section
+  1a). No falsifier is waited for.
+- `awaiting-amendment` (A CONFIRMED with `add_dependency`): the amendment (section 1b);
+  B runs in amend mode.
 - Otherwise conclude on A alone (`single-negative`, `degraded`, `disproved`,
   `incomplete`) and say in the record that B was **skipped by design**, not lost.
 
@@ -109,53 +111,47 @@ the substitution in the ticket thread and the record. A run on any of the gradin
 primaries (`grading.primaryModels`, roster-rules.md) counts in full; a run on any other
 model the table reads as PLAUSIBLE, so nothing is proposed on it.
 
-## 1a. The falsifier, between A and B
+## 1a. The falsifier, on a GAP verdict
 
-A falsifier counts only on this statement's hash. Most falsifiers recorded before this
-rule (2026-11-20) name no hash, so they do not count: such a claim gets a new falsifier
-request (only the human's waiver counts without a hash).
+The human's design (2026-11-20, as revised the same day): a falsifier (an experiment or
+test that tries to break the claim) is **triggered by a failure**: a GAP verdict of run A
+(`single-negative`), or of run B after a CONFIRMED A (a disagreement). It is never a
+gate between A and B: a CONFIRMED A with `launch_b` launches B at once, and nothing waits
+for a falsifier. (A prover's failed attempt triggers one too, on the Researcher's side:
+`researcher/workflows/prove.js`.) A DISPROVED run is routed with its counterexample as
+always (section 4.3); a reword pass files no falsifier.
 
-The human's design (2026-11-20): the order is **attempt, run A, the falsifier, run B**. A
-falsifier (an experiment or test that tries to break the claim) is spent only on a proof
-that survived A. It runs only after a CONFIRMED A with `launch_b` and an unchanged hash;
-a negative A concludes on A alone, and a reword pass has no falsifier stage.
-
-- **On record and found nothing** (section 0's sources, checked by the script as
-  prove.js checks them: evidence given, an input that is a declared input, a waiver
-  quoting the human's thread line): B is launched at once. What counts is checked in code:
-  a falsifier counts only when it found `nothing` (or a `counterexample`, below; an empty
-  or other answer does not count), a falsifier request only once it is `delivered` or
+- **What is on record** (section 0's sources, checked in code as prove.js checks them:
+  evidence given, an input that is a declared input, a waiver quoting the human's thread
+  line). A falsifier counts only when it found `nothing` or a `counterexample` (an empty or
+  other answer does not count), a falsifier request only once it is `delivered` or
   `closed`, and only on the statement hash the pass reviews: one recorded on another hash
   never counts, one whose hash is unknown counts only as the human's waiver (with a note).
-  The request this stage files names the hash in its ask, so its result carries it.
-- **No verify ticket** (`/expert:verify` by hand with none): the pass cannot wait, since
-  nothing could resume it (`reviews.py` resumes a ticket's own pass only). The falsifier
-  stage is skipped, the record's process notes say so, and B runs as before.
-- **None on record**: launch no B. File one falsifier request: `tickets_create` kind
-  `research` to the Researcher that `py $E/reviews.py researcher-for <id> --party <instance>...`
-  names (the prepare stage runs it, a `--party` for the `from` and `to` of the ticket and of
-  each ticket up its parent chain). The rule, in code (`decision_table.researcher_for`): the
-  Researcher owning the claim's namespace; else (a `paper:` or `lab:` claim) the one
-  Researcher owning a namespace of the claim's `bears_on`; else the one Researcher in the
-  ticket's parent chain; none, or several at one step, is the human's call: file nothing and
-  block the ticket `waiting_on: [human]` with the script's reason. `final_to: scientist`
-  (the Expert is no neighbour of the Scientist; the Researcher's `experiment-spec` relays
-  it; review-chair is an expert->researcher liaison), `parent` and `refs` the verify
-  ticket and the claim. It asks for an experiment or test that tries to break the claim
-  and for what it found. It never states A's verdict, its findings or anything of the pass
-  folder: B stays blind. Then block the verify ticket `waiting_on` the request, with a
-  thread note naming it and the open pass. A refused `tickets_create` blocks the ticket
-  `waiting_on: [human]` with the refusal. The pass stays open (no `decision.md`); the
-  workflow returns `awaiting-falsifier`.
-- **A request already filed** by an earlier run of this pass: file nothing. Still out:
-  block the ticket on it again. Back with no falsifier that counts: block the ticket
-  `waiting_on: [human]` (another falsifier, or a waiver, is the human's call).
-- **The rerun.** Once the request is back the Expert's inbox releases the verify ticket
-  (`inbox.py`: a `released` row, `blocked -> accepted`; a request that was rejected or
-  cancelled releases it to the human instead, never into B) and it is run again:
-  `new-pass` returns the same open pass (#89), A is tabled, not relaunched, and the
-  falsifier is read from the request's result (source `ticket`).
-- **A counterexample.** B is not launched and no status changes: never
+  Most falsifiers recorded before 2026-11-20 name no hash, so they do not count.
+- **Pending**: a falsifier request on this claim filed and not back (open, accepted, in
+  progress or blocked), on this statement hash or one its record does not say.
+- **The request** (stage *falsifier*), on a GAP verdict when none counts on record and none
+  is pending: `tickets_create` kind `research` to the Researcher that
+  `py $E/reviews.py researcher-for <id> --party <instance>...` names (the prepare stage
+  runs it, a `--party` for the `from` and `to` of the ticket and of each ticket up its parent
+  chain). The rule, in code (`decision_table.researcher_for`): the Researcher owning the
+  claim's namespace; else (a `paper:` or `lab:` claim) the one Researcher owning a namespace
+  of the claim's `bears_on`; else the one Researcher in the ticket's parent chain; none, or
+  several at one step, is the human's call: file nothing, and the record's process notes
+  say so. `final_to: scientist` (the Expert is no neighbour of the Scientist; the
+  Researcher's `experiment-spec` relays it; review-chair is an expert->researcher liaison),
+  `parent` and `refs` the verify ticket (when there is one) and the claim; title
+  `Falsifier for <id>`. It asks for an experiment or test that tries to break the claim
+  **where the proof has a gap**, naming the blocking step the run gave (the table reports
+  it), names the statement as `statement hash <h>`, and asks for what it found.
+- **It blocks nothing.** It is filed **alongside** the follow-up repair the decision table
+  routes (section 4.3): the pass concludes as it does without it, the record and the ticket
+  result name the request, and the verify ticket is delivered. A refused `tickets_create`
+  is noted in the record; nothing is blocked on it.
+- **When it comes back**, its result is a falsifier on record (source `ticket`) for the
+  next pass on that statement; a counterexample is routed as below.
+- **A counterexample on record** (a falsifier that broke the claim, e.g. one filed on an
+  earlier GAP). After a CONFIRMED A, B is not launched and no status changes: never
   `claims_propose_status`. Write the record (A's table, the falsifier and its evidence,
   the process notes), the evidence row for A, and route the counterexample as every
   counterexample is routed (section 4.3; `decision_table.follow_up`, kind
@@ -171,8 +167,8 @@ The human's design (2026-11-20). A reviewer whose only objection is an input the
 relies on but does not list says CONFIRMED with `add_dependency: <ids or
 bib:key#pinpoint>` (a missing argument is still GAP). On run A alone the table then gives
 `awaiting-amendment` (no `launch_b`), with an `add-dependency` item routed as a `prove`
-ticket in mode `repair`. The falsifier (section 1a) still comes first: a counterexample
-spends no amendment. Each suggested dependency must be an existing result (a registry id
+ticket in mode `repair`. A counterexample already on record (section 1a) spends no
+amendment; no falsifier is waited for. Each suggested dependency must be an existing result (a registry id
 `ns:id` the registry knows, or `bib:key[#pinpoint]`); anything else (a lemma still to be
 proved, a statement in words) makes the run GAP for this route, with an anomaly, and no
 amendment is asked for.
@@ -186,8 +182,9 @@ amendment is asked for.
   new attempt. It names the dependencies only, never A's verdict or report. Its ask ends
   with the marker `amendment for verify <T> pass <pass>` and says `run A reviewed
   <attempt>`: the Researcher's prove workflow then files **no verify ticket** (this pass's
-  amend B is the second verdict), is not held by its falsifier gate, and delivers with the
-  new attempt's path (an incomplete attempt is blocked on the human, not delivered). Block the verify ticket `waiting_on` it; a refusal
+  amend B is the second verdict) and delivers with the new attempt's path (an incomplete
+  attempt is blocked on the human, not delivered, and files a falsifier as any failed
+  attempt does). Block the verify ticket `waiting_on` it; a refusal
   blocks it on the human. The pass stays open; the workflow returns `awaiting-amendment`.
   The block note also says `run A reviewed <attempt>`. A repair already filed and still
   out: file nothing, block on it again; one that ended without the amendment: block on

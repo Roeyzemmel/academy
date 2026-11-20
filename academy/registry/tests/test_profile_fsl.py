@@ -97,6 +97,16 @@ class TestClaims(unittest.TestCase):
         self.assertEqual(cs[0].bears_on, ["paper:prop:foo"])
         self.assertEqual(cs[0].body, "Body.")
 
+    def test_falsifies_is_allowed_and_checked(self):
+        """2026-11-20: a lab claim names the statements it attacked, with their hash."""
+        ok = GOOD.replace("evidence:", "falsifies:\n  - paper:prop:foo@0123456789abcdef\nevidence:")
+        self.r.write("foo.md", ok)
+        _cs, errs, _w = self.r.run()
+        self.assertEqual(errs, [])
+        self.r.write("foo.md", ok.replace("@0123456789abcdef", "@xyz"))
+        _cs, errs, _w = self.r.run()
+        self.assertTrue(any("falsifies" in x for x in errs), errs)
+
     def test_unknown_status(self):
         self.r.write("foo.md", GOOD.replace("status: supported", "status: true"))
         _, errs, _ = self.r.run()
