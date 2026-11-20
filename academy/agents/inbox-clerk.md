@@ -1,6 +1,6 @@
 ---
 name: inbox-clerk
-description: 'The clerical stages of the academy-inbox workflow (academy/workflows/inbox.js), which holds the inbox rules and dispatches every route: lists each instance''s inbox (inbox.py --json), makes the ticket moves the script names (start, deliver, block, reject, release, a relay''s return leg and its conclusion) acting for the ticket''s party, reads a ticket back, and runs the --check checkpoint. Grades nothing, launches no agent, files no ticket, writes no file. Use only as a stage of that workflow (behind /academy:inbox and the role inboxes).'
+description: 'The clerical stages of the academy-inbox workflow (academy/workflows/inbox.js), which holds the inbox rules and dispatches every route: lists each instance''s inbox (inbox.py --json), makes the ticket moves the script names (start, deliver, block, reject, release, put back, a relay''s return leg and its conclusion) acting for the ticket''s party, reads a ticket back, and runs the --check checkpoint. Grades nothing, launches no agent, files no ticket, writes no file. Use only as a stage of that workflow (behind /academy:inbox and the role inboxes).'
 tools: Read, Grep, Glob, Bash, PowerShell, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_list, mcp__plugin_academy_academy__tickets_update, mcp__plugin_academy_academy__workspace_get, mcp__plugin_academy_academy__config_get, mcp__academy__tickets_get, mcp__academy__tickets_list, mcp__academy__tickets_update, mcp__academy__workspace_get, mcp__academy__config_get
 model: haiku
 tier: base
@@ -33,6 +33,8 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
   - `block-human` / `block-on`: `blocked` with the `waiting_on` and reason given;
   - `reject`: `rejected` with the reason given;
   - `release`: `blocked -> accepted`;
+  - `put back`: `in-progress -> accepted` (receiver, a ticket started but not worked this
+    run): one direct step, no reason, never through `blocked` (#123);
   - `return-leg`: as the stage spells it out;
   - `note`: append the text to the thread (`note`), no status move.
 

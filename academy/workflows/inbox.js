@@ -30,7 +30,10 @@ export const meta = {
 //    a route that needs the main session (a skill, a question to the human, a ticket
 //    only `main` may file) ends the run with `for_main`, in order, so nothing overtakes it.
 // Every transition is made by the academy's inbox-clerk, acting for the ticket's party
-// (instance=...). Each agent runs under its own definition and the plugin hooks.
+// (instance=...). Each agent runs under its own definition and the plugin hooks. The
+// clerk's move vocabulary is its agent file (academy/agents/inbox-clerk.md): no stage here
+// lists the moves; each names one (release is blocked -> accepted; the receiver's put back
+// of a started ticket, in-progress -> accepted, is one direct step since #123).
 
 const A = args || {}
 

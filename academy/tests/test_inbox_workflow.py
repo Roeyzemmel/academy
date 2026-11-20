@@ -660,5 +660,49 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("args.root", json.loads(p.stdout.strip().splitlines()[-1])["error"])
 
 
+class ClerkMoveVocabularyTests(unittest.TestCase):
+    """The clerks' move lists name the receiver's put back of a started ticket (#123
+    follow-up): in-progress -> accepted is one direct step since feba39f, and a move the
+    vocabulary does not name is one a clerk guesses (20 refusals 2026-11-14..19 of the
+    old hint, in-progress -> blocked -> accepted)."""
+
+    PUT_BACK = ("put back: in-progress -> accepted (receiver, a ticket started but not "
+                "worked this run)")
+    CLERKS = (os.path.join(PLUGIN, "agents", "inbox-clerk.md"),
+              os.path.join(os.path.dirname(PLUGIN), "researcher", "agents", "review-clerk.md"))
+
+    @staticmethod
+    def text(path):
+        with open(path, encoding="utf-8") as fh:
+            # markdown code and emphasis marks are not part of the words
+            return " ".join(fh.read().replace("`", "").replace("**", "").split())
+
+    def workflows(self):
+        repo = os.path.dirname(PLUGIN)
+        for plugin in sorted(os.listdir(repo)):
+            d = os.path.join(repo, plugin, "workflows")
+            if os.path.isdir(d):
+                for name in sorted(os.listdir(d)):
+                    if name.endswith(".js"):
+                        yield os.path.join(d, name)
+
+    def test_every_clerk_names_the_put_back(self):
+        for path in self.CLERKS:
+            self.assertTrue(self.PUT_BACK in self.text(path), path)
+
+    def test_the_inbox_clerks_description_lists_it_with_the_release(self):
+        desc = self.text(self.CLERKS[0]).split(" description: ", 1)[1].split(" tools: ", 1)[0]
+        self.assertIn("release, put back,", desc)
+
+    def test_the_release_of_a_blocked_ticket_is_unchanged(self):
+        self.assertIn("release: blocked -> accepted", self.text(self.CLERKS[0]))
+        self.assertIn("'release: blocked -> accepted (everything it waited on is back)'",
+                      self.text(SCRIPT))
+
+    def test_no_clerk_or_workflow_offers_the_route_through_blocked(self):
+        for path in list(self.CLERKS) + list(self.workflows()):
+            self.assertFalse("in-progress -> blocked -> accepted" in self.text(path), path)
+
+
 if __name__ == "__main__":
     unittest.main()
