@@ -12,6 +12,7 @@ import json
 import re
 import sys
 import unittest
+from pathlib import Path
 
 from _util import Homes, write, ENGINE
 
@@ -118,10 +119,22 @@ class StaleHomes(Homes):
             {"prop:foo": "Every $x$ is fine.", "lem:bar": "Bar holds."}[label], new)
         self._write_tex()
 
-    def found(self, ns="paper"):
+    def found(self, ns="paper", kind="stale"):
         registry.clear_cache()
         st = federation.store(ns, {"paper": self.bi, "s1": self.s1}[ns])
-        return stale.find(st, stale.reviews_root(self.bi))
+        return [i for i in stale.find(st, stale.reviews_root(self.bi)) if i["kind"] == kind]
+
+    def unreviewed(self, ns="paper"):
+        return self.found(ns, kind="unreviewed")
+
+    def differing_pair(self, label, pass_, h, decision):
+        """Two CONFIRMED runs whose modulo lists differ: the table's
+        settle-dependencies (T-1461's shape)."""
+        self.run_record(label, pass_, "A", h, modulo="[paper:lem:bar]")
+        d = self.run_record(label, pass_, "B", h, modulo="[]")
+        if decision is not None:
+            write(d / "decision.md", decision)
+        return d
 
     def cli(self, *argv, repo=None):
         out = io.StringIO()
@@ -302,6 +315,69 @@ class TestFind(StaleHomes):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["hold"], "")
 
+    # -- re-review of 5111b1b ----------------------------------------------------
+    def test_table_gives_settle_dependencies_for_the_fixture(self):
+        d = self.differing_pair("prop:foo", "2026-11-01-T-0001", "0123456789abcdef", None)
+        dt = stale.decision_table()
+        recs = stale.latest_records(d)
+        self.assertEqual(dt.decide(recs["A"][1], recs["B"][1])["outcome"],
+                         "settle-dependencies")
+
+    def test_a_settled_pass_is_positive_and_held(self):
+        """Finding 6: settle-dependencies settled to confirmed-modulo (decision.md, no
+        S.json: T-1461) is positive; the reword route refuses it as a base: held."""
+        self.claim("prop:foo")
+        self.differing_pair("prop:foo", "2026-11-01-T-0001", self.hash_of("prop:foo"),
+                            "## Outcome\n\n- outcome: `confirmed-modulo` (settled)\n")
+        self.assertEqual(self.found(), [])
+        self.assertEqual(self.unreviewed(), [])
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        items = self.found()
+        self.assertEqual([i["pass"] for i in items], ["2026-11-01-T-0001"])
+        self.assertIn("settle-dependencies", items[0]["hold"])
+
+    def test_an_unsettled_pass_is_not_positive(self):
+        self.claim("prop:foo")
+        self.differing_pair("prop:foo", "2026-11-01-T-0001", self.hash_of("prop:foo"),
+                            "- outcome: `settle-dependencies`\n")
+        self.assertEqual(self.found(), [])
+
+    def test_a_settlement_record_decides(self):
+        """An applied S.json (settle_deps check + apply: confirmed-settled) settles the
+        pass whatever decision.md says."""
+        self.claim("prop:foo")
+        d = self.differing_pair("prop:foo", "2026-11-01-T-0001", self.hash_of("prop:foo"),
+                                "pass concluded\n")
+        write(d / "S.json", json.dumps({"readings": {"differ": False, "evidence": ""},
+                                        "inputs": [{"input": "paper:lem:bar", "case": 6,
+                                                    "chosen": "", "sources": [],
+                                                    "line": "l.3", "remark": "",
+                                                    "evidence": "unused at l.3"}]}))
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        self.assertEqual([i["pass"] for i in self.found()], ["2026-11-01-T-0001"])
+
+    def test_a_reword_over_a_settled_base_is_positive(self):
+        """cor:covering-systole 0687 over 0670: the table gives invalid-base (its base is
+        settle-dependencies); the base was settled, so the reword pass stands."""
+        self.claim("prop:foo")
+        h0 = self.hash_of("prop:foo")
+        self.differing_pair("prop:foo", "2026-11-01-T-0001", h0,
+                            "- outcome: `confirmed-modulo` (settled)\n")
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        h1 = self.hash_of("prop:foo")
+        self.reword_pass("prop:foo", "2026-11-03-T-0005-reword", "2026-11-01-T-0001", h0, h1)
+        self.assertEqual(self.found(), [])
+        self.assertEqual(self.unreviewed(), [])
+
+    def test_proved_without_a_positive_pass_is_reported(self):
+        self.claim("prop:foo")
+        self.blind_pass("prop:foo", "2026-11-01-T-0001", self.hash_of("prop:foo"),
+                        ("GAP", "CONFIRMED"))
+        items = self.unreviewed()
+        self.assertEqual([i["qid"] for i in items], ["paper:prop:foo"])
+        self.assertIn("without a positive review pass", items[0]["hold"])
+        self.assertEqual(self.found(), [])
+
     def test_no_library_means_nothing_flagged(self):
         self.claim("prop:foo")
         self.blind_pass("prop:foo", "2026-11-01-T-0001", "0123456789abcdef")
@@ -334,6 +410,45 @@ class TestCheckAndViews(StaleHomes):
         self.blind_pass("prop:foo", "2026-11-01-T-0001", self.hash_of("prop:foo"))
         _rc, out = self.cli("check")
         self.assertNotIn("stale", out)
+
+    def test_check_warns_on_proved_without_a_positive_pass(self):
+        self.claim("prop:foo")
+        self.blind_pass("prop:foo", "2026-11-01-T-0001", self.hash_of("prop:foo"),
+                        ("GAP", "CONFIRMED"))
+        _rc, out = self.cli("check")
+        self.assertIn("proved without a positive review pass on record", out)
+        self.cli("render")
+        index = (self.bi / "claims" / "INDEX.md").read_text(encoding="utf-8")
+        self.assertNotIn("(stale)", index)
+
+    def test_missing_decision_table_is_said(self):
+        """(a): without the Expert's decision table the check says so, naming the path,
+        and stale --file-reword fails instead of reporting 0 claims."""
+        self.make_stale()
+        saved = dict(stale._DT), stale.DT_PATH
+        self.addCleanup(lambda: (stale._DT.clear(), stale._DT.update(saved[0]),
+                                 setattr(stale, "DT_PATH", saved[1])))
+        stale._DT.clear()
+        stale.DT_PATH = self.tmp / "nowhere" / "decision_table.py"
+        _rc, out = self.cli("check")
+        self.assertIn("decision_table.py", out)
+        self.assertIn("nowhere", out)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc, out = self.cli("stale", "--ns", "paper", "--file-reword")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("nowhere", err.getvalue())
+
+    def test_decision_table_is_not_shadowed(self):
+        fake = self.tmp / "fake"
+        write(fake / "decision_table.py", "def decide(*a, **k):\n    return {}\n")
+        sys.path.insert(0, str(fake))
+        sys.modules.pop("decision_table", None)
+        self.addCleanup(sys.path.remove, str(fake))
+        self.addCleanup(sys.modules.pop, "decision_table", None)
+        stale._DT.clear()
+        dt = stale.decision_table()
+        self.assertEqual(Path(dt.__file__).resolve(), stale.DT_PATH.resolve())
 
     def test_render_shows_proved_stale(self):
         self.make_stale()
@@ -443,6 +558,15 @@ class TestFileReword(StaleHomes):
         self.assertEqual(len(self.tickets()), 2, out)
         self.assertIn("already open: %s" % meta["id"], out)
         self.assertIn("already open: %s" % meta2["id"], out)
+
+    def test_unreviewed_is_listed_held_not_filed(self):
+        self.claim("prop:foo")
+        self.blind_pass("prop:foo", "2026-11-01-T-0001", self.hash_of("prop:foo"),
+                        ("GAP", "CONFIRMED"))
+        _rc, out = self.cli("stale", "--ns", "paper", "--file-reword")
+        self.assertIn("paper:prop:foo", out)
+        self.assertIn("without a positive review pass", out)
+        self.assertEqual(self.tickets(), [])
 
     def test_section_filter(self):
         self.make_stale()

@@ -177,6 +177,10 @@ def _stale_cmd(repo, a):
         print("stale: no library reviews/ folder beside this repo (no Expert instance home "
               "here): nothing can be compared", file=sys.stderr)
         return 2
+    problem = stale.decision_table_problem()
+    if problem:
+        print(f"stale: {problem}; nothing compared, nothing filed", file=sys.stderr)
+        return 1
     items = []
     for ns in nss:
         st = federation.store_from(ns, repo)
@@ -200,7 +204,8 @@ def _stale_cmd(repo, a):
                 return 1
     as_inst = a.as_instance or expert
     for it in items:
-        it["title_to_file"] = stale.ticket_title(it["qid"], it["base_pass"])
+        it["title_to_file"] = stale.ticket_title(it["qid"], it["base_pass"]) \
+            if it["kind"] == "stale" else ""
         cov = _covering(tickets, it["qid"], it["title_to_file"])
         it["open_ticket"] = f"{cov.get('id')} {cov.get('title')}" if cov else None
         it["filed"] = None
@@ -224,16 +229,21 @@ def _stale_cmd(repo, a):
         print(json.dumps({"items": items, "board": board_note or None}, indent=1,
                          default=sorted))
         return 1 if any(i.get("refused") for i in items) else 0
-    print(f"stale: {len(items)} claim(s) whose statement changed since their last positive "
-          f"review pass ({', '.join(nss)}){'; ' + board_note if board_note else ''}")
+    n_un = sum(1 for i in items if i["kind"] == "unreviewed")
+    print(f"stale: {len(items) - n_un} claim(s) whose statement changed since their last "
+          f"positive review pass, {n_un} proved without a positive pass on record "
+          f"({', '.join(nss)}){'; ' + board_note if board_note else ''}")
     section = None
     for it in items:
         if it["section"] != section:
             section = it["section"]
             n = sum(1 for i in items if i["section"] == section)
             print(f"\n## {section} ({n})")
-        print(f"- {it['qid']}  {stale.label(it['status'])}  pass {it['pass']} "
-              f"(hash {it['pass_hash']}, now {it['hash']})")
+        if it["kind"] == "unreviewed":
+            print(f"- {it['qid']}  {it['status']}  no positive review pass on record")
+        else:
+            print(f"- {it['qid']}  {stale.label(it['status'])}  pass {it['pass']} "
+                  f"(hash {it['pass_hash']}, now {it['hash']})")
         if it["hold"]:
             print(f"    held, not filed: {it['hold']}")
         elif it["open_ticket"]:

@@ -902,9 +902,13 @@ def _check_stale(kb):
     root = _stale.reviews_root(kb.root)
     if not ns or root is None:
         return
+    if _stale.decision_table_problem():
+        kb.warn(".", _stale.decision_table_problem())
+        return
     for item in _stale.find(S1Store(ns, kb.root, kb=kb), root):
         e = kb.entities[item["id"]]
-        e.stale = item["pass"]
+        if item["kind"] == "stale":
+            e.stale = item["pass"]
         kb.warn(e.path, _stale.warning(item))
 
 

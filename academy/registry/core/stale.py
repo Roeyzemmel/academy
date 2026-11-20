@@ -8,11 +8,18 @@ the library's ``reviews/<ns>/<id-slug>/`` that is closed by a ``decision.md`` (n
 (``expert/scripts/decision_table.py``) gives ``confirmed`` or ``confirmed-modulo``:
 
 * a blind (or amend) pass: ``decide`` on the latest record of runs A and B (so the
-  primary-model rule and differing modulo lists count as the table counts them);
+  primary-model rule and differing modulo lists count as the table counts them). When
+  the table gives ``settle-dependencies`` the settlement decides: the pass's settler
+  record (``S.json``, or the JSON block of ``S.md``) checked and applied by
+  ``settle_deps.py`` (``confirmed-settled``), else, with no such record (the passes
+  settled before it existed, T-1461), the outcome ``decision.md`` records
+  (``confirmed`` / ``confirmed-modulo``);
 * a reword pass: ``decide`` on its latest ``R`` record (``mode: reword``) with its base
-  pass's records.
+  pass's records; when the table gives ``invalid-base`` because the base was settled,
+  the reword pass stands if its base pass is positive by the rule above, run R is
+  ``CONFIRMED`` within a reword scope and ``decision.md`` records a confirmed outcome.
 
-``decision.md``'s wording is not read. The latest record of a run letter is the one with
+Otherwise ``decision.md``'s wording is not read. The latest record of a run letter is the one with
 the greatest ``run_id``: a relaunch lands as ``A-2.md`` and the like (``land_verdict.py``),
 and it is the run the pass kept. Without the decision table (an Expert plugin not beside
 this one) nothing is flagged.
@@ -40,10 +47,20 @@ reviewed the current statement without a positive outcome (it needs the human or
 repair, not a reword), when a pass on it is still open, when its base pass name is
 not one the inbox reads, or when the base pass is filed under another id (a renamed
 record, T-0476: the title route passes no ``base_subject``). Nothing here reads the board; the command line does.
+
+A ``proved`` / ``proved-modulo`` claim that has review passes but **no positive one** is
+reported too (kind ``unreviewed``): ``check`` warns "proved without a positive review
+pass on record" and ``stale`` lists it as held; the views do not mark it.
+
+The Expert's ``decision_table.py`` and ``settle_deps.py`` are loaded by file path from
+``<academy repo>/expert/scripts`` (:data:`DT_PATH`) under private module names, so no
+other module of that name on ``sys.path`` stands in for them. When the table is missing,
+``check`` and ``stale`` say so (:func:`decision_table_problem`).
 """
 from __future__ import annotations
 
-import importlib
+import importlib.util
+import json
 import os
 import re
 import sys
@@ -70,23 +87,46 @@ def slug_id(cid):
 
 
 _DT = {}
+#: the Expert plugin's decision table, beside this plugin
+DT_PATH = Path(__file__).resolve().parents[3] / "expert" / "scripts" / "decision_table.py"
+
+
+def _load(key, path, name):
+    if key not in _DT:
+        mod = None
+        path = Path(path)
+        if path.is_file():
+            here = str(path.parent)
+            if here not in sys.path:
+                sys.path.insert(0, here)        # its own imports (_academy)
+            try:
+                spec = importlib.util.spec_from_file_location(name, str(path))
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+            except Exception:   # noqa: BLE001 -- unusable: decision_table_problem says so
+                mod = None
+        _DT[key] = mod
+    return _DT[key]
 
 
 def decision_table():
-    """The Expert plugin's ``decision_table`` module (``<academy repo>/expert/scripts``,
-    beside this plugin), or None when it is not there."""
-    if "dt" not in _DT:
-        here = Path(__file__).resolve().parents[3] / "expert" / "scripts"
-        mod = None
-        if (here / "decision_table.py").is_file():
-            if str(here) not in sys.path:
-                sys.path.insert(0, str(here))
-            try:
-                mod = importlib.import_module("decision_table")
-            except Exception:       # noqa: BLE001 -- an unusable plugin: nothing flagged
-                mod = None
-        _DT["dt"] = mod
-    return _DT["dt"]
+    """The Expert plugin's ``decision_table`` module (:data:`DT_PATH`), loaded by path
+    under a private name, or None when it is not there or does not load."""
+    return _load("dt", DT_PATH, "_academy_stale_decision_table")
+
+
+def settle_deps():
+    """The Expert plugin's ``settle_deps`` module (beside :data:`DT_PATH`), or None."""
+    return _load("sd", Path(DT_PATH).parent / "settle_deps.py", "_academy_stale_settle_deps")
+
+
+def decision_table_problem():
+    """'' when the decision table loads, else the one line ``check`` and ``stale`` say."""
+    if decision_table() is not None:
+        return ""
+    return ("the statement-drift check did not run: the Expert's decision table %s %s"
+            % (Path(DT_PATH).as_posix(), "does not load" if Path(DT_PATH).is_file()
+               else "is missing (expected at <academy repo>/expert/scripts/decision_table.py)"))
 
 
 def expert_instance():
@@ -152,6 +192,55 @@ def _outcome(res):
     return str((res or {}).get("outcome") or "")
 
 
+_WORDS = ("confirmed-settled", "confirmed-modulo", "confirmed", "settle-dependencies",
+          "disagreement", "single-negative", "disproved", "degraded", "invalid-base",
+          "invalid-pair", "invalid-amend", "incomplete", "awaiting-amendment", "awaiting-b",
+          "full-pass-needed", "no-change", "new-pass-after-amendment")
+#: the outcome a decision.md records, in its spellings ("- outcome: `confirmed`",
+#: "Outcome (decision_table.py): confirmed-modulo", "## Outcome" then "`confirmed`;")
+RE_RECORDED = re.compile(r"outcome\W{0,6}(?:\(decision_table\.py[^)\n]*\)\W{0,4})?\s*`?(%s)\b"
+                         % "|".join(re.escape(w) for w in _WORDS), re.I)
+
+
+def recorded_confirmed(d):
+    """Whether the pass's decision.md records a confirmed outcome (any of its outcome
+    lines says ``confirmed``, ``confirmed-modulo`` or ``confirmed-settled``)."""
+    try:
+        text = (Path(d) / "decision.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return any(m.group(1).lower().startswith("confirmed") for m in RE_RECORDED.finditer(text))
+
+
+def _settler_record(d):
+    """The pass's settler record (S.json, or the first JSON block of S.md), or None."""
+    p = Path(d) / "S.json"
+    try:
+        if p.is_file():
+            return json.loads(p.read_text(encoding="utf-8"))
+        md = Path(d) / "S.md"
+        if md.is_file():
+            m = re.search(r"```json\s*\n(.*?)\n```", md.read_text(encoding="utf-8"), re.S)
+            if m:
+                return json.loads(m.group(1))
+    except (OSError, ValueError):
+        return {}
+    return None
+
+
+def settled(d, table):
+    """Whether a ``settle-dependencies`` pass was settled to a confirmed outcome: its
+    settler record, checked and applied by ``settle_deps.py``, decides; without one, the
+    outcome decision.md records."""
+    rec = _settler_record(d)
+    if rec is None:
+        return recorded_confirmed(d)
+    sd = settle_deps()
+    if sd is None or not isinstance(rec, dict) or sd.check(rec, table):
+        return False
+    return _outcome(sd.apply(rec, table)).startswith("confirmed")
+
+
 def read_pass(d):
     """What the pass folder ``d`` says: ``{"pass", "decided", "abandoned", "hashes"}``
     (``hashes``: the statement hashes of its latest records)."""
@@ -179,13 +268,27 @@ def positive(d):
             ba, bb, notes = dt.base_records(str(r[0]), rec.get("base_pass"), None,
                                             rec.get("base_subject") or None)
             res = dt.decide(rec, None, base=(ba, bb), base_notes=notes)
-            if not _outcome(res).startswith("confirmed") or not rec.get("statement_hash"):
+            ok = _outcome(res).startswith("confirmed")
+            if not ok and _outcome(res) == "invalid-base" and rec.get("base_pass"):
+                # a settled base (cor:covering-systole 0687 over 0670): the table does not
+                # read settlements, so the base is judged here
+                bs = str(rec.get("base_subject") or "").strip()
+                base_dir = (d.parent.parent.parent / bs.split(":", 1)[0] /
+                            slug_id(bs.split(":", 1)[1]) if ":" in bs else d.parent) \
+                    / str(rec["base_pass"]).strip()
+                ok = (positive(base_dir) is not None and rec.get("verdict") == "CONFIRMED"
+                      and bool(rec.get("reword_scope")) and recorded_confirmed(d))
+            if not ok or not rec.get("statement_hash"):
                 return None
             return {"hash": rec["statement_hash"], "hashes": {rec["statement_hash"]},
                     "mode": "reword", "base_pass": str(rec.get("base_pass") or "").strip(),
                     "base_subject": str(rec.get("base_subject") or "").strip()}
         a, b = (recs.get(k, (None, None))[1] for k in ("A", "B"))
-        if a is None or b is None or not _outcome(dt.decide(a, b)).startswith("confirmed"):
+        if a is None or b is None:
+            return None
+        res = dt.decide(a, b)
+        if not (_outcome(res).startswith("confirmed") or
+                _outcome(res) == "settle-dependencies" and settled(d, res)):
             return None
     except Exception:               # noqa: BLE001 -- an unreadable pass is not positive
         return None
@@ -234,8 +337,9 @@ def label(status):
 def find(store, root, only=None):
     """The stale claims of ``store`` (a ``model.Store``) against the reviews under
     ``root`` (None: none), sorted by section then id. ``only``: record ids to look at.
-    Each is ``{"qid", "id", "status", "title", "file", "section", "hash", "pass",
-    "pass_hash", "mode", "base_pass", "base_subject", "hold"}``; ``hold`` says why no
+    Each is ``{"kind", "qid", "id", "status", "title", "file", "section", "hash", "pass",
+    "pass_hash", "mode", "base_pass", "base_subject", "hold"}``, ``kind`` ``stale`` or
+    ``unreviewed`` (passes on record, none positive); ``hold`` says why no
     reword ticket may be filed for it ('' when one may). Nothing for a store whose home
     is not the namespace's registered home (``is_registered_home``)."""
     if root is None or decision_table() is None or \
@@ -253,7 +357,19 @@ def find(store, root, only=None):
         while last is None and k > 0:            # newest first: stop at the first positive
             k -= 1
             last = positive(ps[k])
+        fields = rec.fields if isinstance(rec.fields, dict) else {}
+        where = fields.get("where") if isinstance(fields.get("where"), str) else ""
+        base_item = {"qid": rec.qid, "id": rid, "status": rec.status, "title": rec.title,
+                     "file": rec.file, "section": where or "(no section)"}
         if last is None:
+            if ps:
+                out.append(dict(base_item, **{
+                    "kind": "unreviewed", "hash": "", "pass": "", "pass_hash": "",
+                    "mode": "", "base_pass": "", "base_subject": "",
+                    "hold": "%s without a positive review pass on record (%d pass(es), "
+                            "the last %s): the status rests on no confirmed pass; the "
+                            "human decides (a blind verify)"
+                            % (rec.status, len(ps), ps[-1].name)}))
             continue
         h = store.statement_hash(rid)
         if not h or h in last["hashes"]:
@@ -283,19 +399,20 @@ def find(store, root, only=None):
                         "inbox's reword title cannot pass on; run the reword pass by hand "
                         "(/expert:verify, mode reword, base_subject %s)"
                         % (base, last["base_subject"], last["base_subject"]))
-        fields = rec.fields if isinstance(rec.fields, dict) else {}
-        where = fields.get("where") if isinstance(fields.get("where"), str) else ""
-        out.append({"qid": rec.qid, "id": rid, "status": rec.status, "title": rec.title,
-                    "file": rec.file, "section": where or "(no section)", "hash": h,
-                    "pass": last["pass"], "pass_hash": last["hash"], "mode": last["mode"],
-                    "base_pass": base, "base_subject": last["base_subject"],
-                    "hold": "; ".join(hold)})
+        out.append(dict(base_item, **{
+            "kind": "stale", "hash": h, "pass": last["pass"], "pass_hash": last["hash"],
+            "mode": last["mode"], "base_pass": base, "base_subject": last["base_subject"],
+            "hold": "; ".join(hold)}))
     out.sort(key=lambda i: (i["section"], i["qid"]))
     return out
 
 
 def warning(item):
-    """The ``check`` warning for a stale claim (the path is the caller's)."""
+    """The ``check`` warning for a stale or unreviewed claim (the path is the
+    caller's)."""
+    if item.get("kind") == "unreviewed":
+        return "%s without a positive review pass on record (the last pass is %s)" % (
+            item["status"], item["hold"].rsplit("the last ", 1)[-1].split(")", 1)[0])
     return ("statement changed since its last positive review pass %s (statement hash %s, "
             "now %s): its status shows as `%s` until a reword pass lands; "
             "`registry.py stale --file-reword` files it"

@@ -514,15 +514,19 @@ def check(claims, repo=None, root=None, only=None):
         if c.status in ("proved", "supported") and not c.evidence:
             e(f"status `{c.status}` with no evidence")
         _check_common(c, repo, own_ns, known, by_id, e, w)
-    for c, item in stale_claims(claims, repo, only).items():
+    for c, item in stale_claims(claims, repo, only, kinds=None).items():
         warns.append(f"{c.path}: WARN: {_stale.warning(item)}")
+    if workspace.repo_ns(repo) and _stale.reviews_root(repo) is not None \
+            and _stale.decision_table_problem():
+        warns.append(f"{root}: WARN: {_stale.decision_table_problem()}")
     return errs, warns
 
 
-def stale_claims(claims, repo=None, only=None):
-    """{claim: stale item} for the claims of this repo's own namespace whose statement
-    changed since their last positive review pass (``core/stale.py``, #109); {} when the
-    library is not beside this repo. ``only``: resolved paths to look at."""
+def stale_claims(claims, repo=None, only=None, kinds=("stale",)):
+    """{claim: item} for the claims of this repo's own namespace whose statement changed
+    since their last positive review pass (``core/stale.py``, #109; with ``kinds=None``
+    also those proved with no positive pass, kind ``unreviewed``); {} when the library is
+    not beside this repo. ``only``: resolved paths to look at."""
     repo = _repo(repo)
     ns = workspace.repo_ns(repo)
     root = _stale.reviews_root(repo)
@@ -531,7 +535,8 @@ def stale_claims(claims, repo=None, only=None):
     st = FslStore(ns, repo, claims=claims)
     names = None if not only else \
         {n for n, c in st.claim_by_name.items() if c.path.resolve() in only}
-    return {st.claim_by_name[i["id"]]: i for i in _stale.find(st, root, names)}
+    return {st.claim_by_name[i["id"]]: i for i in _stale.find(st, root, names)
+            if kinds is None or i["kind"] in kinds}
 
 
 def _cls(c):
