@@ -31,6 +31,23 @@ FROZEN = ("id", "created", "updated")
 WALK_THROUGH = ("accepted", "in-progress")
 #: arguments an agent puts inside ``fields`` although they are arguments of the call
 FIELD_ARGS = ("result_detail", "ask_detail", "note", "reason", "reopen")
+VIA = {"type": "string", "enum": list(ac.VIAS), "description":
+       "main session only: who writes this call's human lines (#100). Omitted, they read "
+       "'human (via main session)'; pass 'human' only to record the human's own words "
+       "(a quoted answer, given in the note or reason)"}
+
+
+def _apply_via(ctx, a):
+    """Take the call's ``via`` (main session only) onto ``ctx`` (#100)."""
+    via = a.get("via")
+    if via is None:
+        return
+    if not ctx.is_human:
+        raise ToolError("via is for the main session writing as the human; an agent "
+                        "speaks as its instance")
+    if via not in ac.VIAS:
+        raise ToolError("via must be one of %s" % ", ".join(ac.VIAS))
+    ctx.via = via
 BLOCK_HINT = ("; pending: status 'blocked' with waiting_on: ['T-0123'] (the tickets, or "
               "'human', it waits for); a dead route: blocked_by: 'T-0123' (a ticket or "
               "registry id), reopen_if: '<what would reopen it>' and reason: '<what was "
@@ -143,6 +160,7 @@ def create_ticket(ctx, a, clerical=False):
         a["ask"] = ask
         a["ask_detail"] = "\n\n".join(x for x in (ask_rest, (a.get("ask_detail") or "").strip())
                                       if x)
+    _apply_via(ctx, a)
     sender, agent = ctx.filer(bool(a.get("as_human")))
     if sender == ac.HUMAN and not ctx.is_human:
         raise ToolError("refused: only the main session files as 'human'")
@@ -214,7 +232,7 @@ def create_ticket(ctx, a, clerical=False):
     probs = ac.validate_ticket(meta)
     if probs:
         raise ToolError("invalid ticket: " + "; ".join(probs))
-    speaker = ac.format_who(sender, agent)
+    speaker = ac.format_who(sender, agent, ctx.via if ctx.is_human else None)
     text = ac.new_ticket(meta, a.get("ask_detail") or "")
     fm, body = ac.read_frontmatter(text)
     note = (a.get("note") or "").strip()
@@ -237,6 +255,7 @@ def _fmt_val(v):
 
 
 def update_ticket(ctx, a):
+    _apply_via(ctx, a)
     path, meta, body = load_ticket(ctx, a.get("id"))
     old_meta = dict(meta)
     old_body = body
@@ -501,7 +520,7 @@ TOOLS = [
                          "runs); an optional max_model is an advisory note only, never "
                          "a gate: an agent runs on its agent file's model"},
               "note": S, "final_to": S, "campaign": S, "cowork": S, "as_human": B,
-              "instance": ACTING},
+              "via": VIA, "instance": ACTING},
              ["title", "kind", "to", "ask", "deliverable"]),
          lambda ctx, a: create_ticket(ctx, a), write=True),
     Tool("tickets_update", "Change a ticket: a status transition (with reason where the "
@@ -519,6 +538,6 @@ TOOLS = [
               "reason": S, "reopen": S, "fields": {"type": "object"}, "ask_detail": S,
               "result_detail": S, "note": S, "deliver": B, "result": S,
               "waiting_on": {"type": ["array", "string"], "items": {"type": "string"}},
-              "blocked_by": S, "reopen_if": S, "instance": ACTING}, ["id"]),
+              "blocked_by": S, "reopen_if": S, "via": VIA, "instance": ACTING}, ["id"]),
          update_ticket, write=True),
 ]

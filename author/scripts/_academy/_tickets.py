@@ -71,8 +71,15 @@ TICKET_KEY_ORDER = ("id", "title", "kind", "from", "to", "status", "priority", "
 REQUIRED_TICKET_FIELDS = ("id", "title", "kind", "from", "to", "status", "ask",
                           "deliverable", "priority", "budget", "created", "updated")
 THREAD_HEADING = "## Thread"
-RE_THREAD_LINE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) ([^\s:]+): (.*)$")
-RE_WHO = re.compile(r"^(human|(author|researcher|expert|scientist)@[a-z0-9][a-z0-9-]*"
+#: the speaker of a line the main Claude session wrote as the human (#100): not the
+#: human's own words, which stay plain ``human`` (``format_who(..., via=...)``)
+HUMAN_VIA_SESSION = "human (via main session)"
+#: the values of ``via``: who actually wrote a ``human`` line
+VIA_SESSION = "session"
+VIAS = (VIA_SESSION, "human")
+RE_THREAD_LINE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) (human \(via [^)]*\)|[^\s:]+): (.*)$")
+RE_WHO = re.compile(r"^(human|human \(via main session\)"
+                    r"|(author|researcher|expert|scientist)@[a-z0-9][a-z0-9-]*"
                     r"(/[a-z0-9][a-z0-9-]*)?)$")
 
 
@@ -610,11 +617,24 @@ def thread_lines(body, raw=False):
     return [tuple(x) for x in out]
 
 
-def format_who(instance, agent=""):
-    """Thread speaker: 'human', '<instance>' or '<instance>/<bare agent>'."""
+def format_who(instance, agent="", via=None):
+    """Thread speaker: 'human', '<instance>' or '<instance>/<bare agent>'.
+
+    ``via`` says who wrote a human line (#100): ``"session"`` (the main Claude session
+    acting as the human) gives ``human (via main session)``; ``"human"`` or None (the
+    human's own hand, or their quoted answer) gives ``human``. It never qualifies an
+    instance."""
+    if via not in (None, "") + VIAS:
+        raise AcademyError("via must be one of %s, not %r" % (", ".join(VIAS), via))
     if not instance or instance == HUMAN:
-        return HUMAN
+        return HUMAN_VIA_SESSION if via == VIA_SESSION else HUMAN
     return "%s/%s" % (instance, agent) if agent else instance
+
+
+def is_human_speaker(who):
+    """True for a line spoken with the human's authority: ``human`` or
+    ``human (via main session)``."""
+    return who in (HUMAN, HUMAN_VIA_SESSION)
 
 
 def append_thread(body, who, text, date=None):

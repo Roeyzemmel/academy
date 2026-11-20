@@ -87,9 +87,17 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   therefore fine. If that refusal ever recurs on a call with a non-ASCII argument,
   retry it in plain ASCII (`+/-`, `--`, LaTeX); if the ASCII call passes, the
   encoding fault is back, so file a ticket.
-- **A speaker** in a thread is written `human`, `<instance>` or
-  `<instance>/<bare-agent>`, for example `researcher@alpha/prover`. It contains no
-  colon and no space.
+- **A speaker** in a thread is written `human`, `human (via main session)`,
+  `<instance>` or `<instance>/<bare-agent>`, for example `researcher@alpha/prover`. It
+  contains no colon, and no space except in `human (via main session)`.
+- **Who wrote a human line** (#100). `human` is the human's own hand (the CLI's default)
+  or the human's own words recorded by a session; `human (via main session)` is the main
+  Claude session acting as the human (bookkeeping, a block, a re-kind). The MCP server's
+  main-thread writes are the session's by default; a session passes `via: "human"`
+  (`tickets_create` / `tickets_update`) only to record the human's quoted answer, with
+  the quote in the note or reason. The CLI takes `board.py ... --via session` and the
+  board functions `via="session"`. Both forms move with the human's authority
+  (`ac.is_human_speaker`).
 
 ## 2. The board
 
@@ -312,7 +320,7 @@ heading.
 ### Thread format
 
 - One entry is one line, `- YYYY-MM-DD <speaker>: <text>`, which matches
-  `^- (\d{4}-\d{2}-\d{2}) ([^\s:]+): (.*)$`.
+  `^- (\d{4}-\d{2}-\d{2}) (human \(via [^)]*\)|[^\s:]+): (.*)$`.
 - A multi-line entry continues on lines indented by exactly two spaces.
 - Entries are only ever appended, at the end of the section. An existing line is
   never edited, reordered or deleted (`thread_is_append_only`).

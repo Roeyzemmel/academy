@@ -96,7 +96,7 @@ class Context(object):
     """Per-call view of the workspace, the caller and its instance."""
 
     def __init__(self, cwd=None, agent="", workspace=None, agent_ns="", verified=True,
-                 store=None, requested_instance=None):
+                 store=None, requested_instance=None, via=None):
         self.cwd = os.path.abspath(cwd or os.environ.get("ACADEMY_CWD") or os.getcwd())
         self.agent = agent or ""
         self.agent_ns = agent_ns or ""
@@ -108,6 +108,10 @@ class Context(object):
         self.claim_ns = None
         #: False when no mcp_write_gate record identified the caller (reads only)
         self.verified = verified
+        #: who writes the human's lines (#100): "session" from the MCP server (its main-
+        #: thread caller is a Claude session), "human" for the human's own words; None
+        #: (board_batch, the human's reviewed batch) writes plain ``human``
+        self.via = via
         self._ws = workspace
         self._perms = None
         self._store = store
@@ -330,9 +334,10 @@ class Context(object):
 
     @property
     def speaker(self):
-        """Thread speaker for this caller."""
+        """Thread speaker for this caller (the main session: ``human (via main session)``
+        unless the call passes ``via: "human"``; #100)."""
         if self.is_human:
-            return ac.HUMAN
+            return ac.format_who(ac.HUMAN, via=self.via)
         inst = self.instance
         if not inst:
             raise ToolError("agent %r runs outside every academy home and no instance "

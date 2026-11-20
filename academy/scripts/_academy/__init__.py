@@ -56,6 +56,7 @@ Files and ids
 Tickets
     TICKET_STATUSES, TRANSITIONS, can_transition(...), validate_ticket(...)
     slugify, ticket_filename, find_ticket, thread_lines, append_thread,
+    HUMAN_VIA_SESSION, VIA_SESSION, VIAS, is_human_speaker,
     thread_is_append_only, new_ticket, parties, editable_fields
 Inbox (one core, thin per-role wrappers)
     inbox_core.select(board, instance, limit, all=False, route=..., campaign=None)
