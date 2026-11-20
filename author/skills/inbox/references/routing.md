@@ -39,8 +39,9 @@ Before the kind, `route` applies these rules, in order (the first that matches w
 |---|---|---|---|---|
 | another role's kind (`BELONGS`) | prove, generalize, review-experiment, experiment, test, code | reject | - | the Author only lands: ask through a `research` ticket to the Expert |
 | an agenda pass (`agenda_pass`) | write, apply, copy, note, question, other | skill | `author:agenda` | runs in the main session; deliver the ticket with what it changed |
+| the human's decided edit (`decided_edit`), needing an argument | question, other | agent | `math-writer` | make the decided change; file `research` for the argument |
 | the human's decided edit (`decided_edit`) | question, other | agent | `math-editor` | the edit is already decided, as an `apply` ticket |
-| a missing argument, delivered (`delivered_argument`, `proved_source`) | write, copy, note, question, other | agent | (the kind's) | land it: a ref, a wait or a child delivered it |
+| a missing argument, delivered (`delivered_argument`, `proved_source`) | write, copy, note, question, other | agent | (the kind's) | land it: a ref, a wait, or the newest child (none still out, not unproved) delivered it |
 | a missing argument, not delivered (`needs_argument`) | write, copy, note, question, other | research | `expert` | file `research` to the Expert, final_to researcher; park on it |
 <!-- /routes:rules -->
 
@@ -77,9 +78,11 @@ Researcher or the Scientist by `final_to` (`lead`: the Researcher's `prove` flow
 `experiment`: the Researcher's experiment-spec files it to the Scientist). A blocked
 ticket to the Author whose `waiting_on` tickets are all `delivered` is offered again as a
 released row (move `blocked -> accepted`, then route by kind). The return leg: a ticket
-whose argument came back (a delivered `research`/`prove` ticket in its refs, its
-`waiting_on`, or among its children by `parent`; the release empties `waiting_on`) is
-landed by its kind's agent, never sent to research again (#92, T-1494, T-1385). The
+whose argument came back (a delivered `research`/`prove` ticket in its refs or its
+`waiting_on`, or its newest such child by `parent`, when no other is still out and its
+result does not say unproved, GAP or refuted; the release empties `waiting_on`) is
+landed by its kind's agent, never sent to research again (#92, T-1494, T-1385; not
+T-0876, T-1341). The
 relay hop limit (T-0961) waits for the human's ruling and is unchanged. `figure-maker` runs on opus
 when the picture carries data.
 

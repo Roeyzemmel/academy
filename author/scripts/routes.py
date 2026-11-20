@@ -100,8 +100,16 @@ ROUTED_WRITER_KINDS = tuple(k for k in WRITER_KINDS if k != "apply") + TRIAGE_KI
 #: the kinds an agenda pass may be filed as (T-0051 was a ``write``)
 AGENDA_KINDS = WRITER_KINDS + TRIAGE_KINDS
 #: an ask for a pass over the agenda (``/author:agenda``), not an edit of the paper
-RE_AGENDA_PASS = re.compile(
-    r"(?i)\bagenda pass\b|/author:agenda\b|\b(refresh|update) the agenda\b")
+RE_AGENDA_PASS = re.compile(r"(?i)\bagenda pass\b|/author:agenda\b")
+#: a returned argument that did not deliver one (T-1341: "returned unproved: no lead"); a
+#: bare "gap" is no verdict ("fills the gap"), the verdict word GAP is
+RE_NOT_DELIVERED = re.compile(
+    r"(?i:\bunproved\b|\bnot proved\b|\brefuted\b|\bgap (?:remains|stands|is still open)\b)"
+    r"|\bGAP\b")
+#: words before "<who>'s decision" that say it is still wanted, not taken
+RE_DECISION_WANTED = re.compile(
+    r"(?i)\b(?:needs?|needing|awaits?|awaiting|pending|to be|wait(?:s|ing)? for|"
+    r"ask(?:s|ing)? for|requires?|wants?|until)\s+$")
 #: ticket kinds whose delivery is an argument, and the statuses that say it was delivered
 ARGUMENT_TICKET_KINDS = ("research", "prove")
 DELIVERED_STATUSES = ("delivered", "closed")
@@ -117,11 +125,14 @@ RULES = (
      "the Author only lands: ask through a `research` ticket to the Expert"),
     ("an agenda pass (`agenda_pass`)", ", ".join(AGENDA_KINDS), "skill", "author:agenda",
      "runs in the main session; deliver the ticket with what it changed"),
+    ("the human's decided edit (`decided_edit`), needing an argument", ", ".join(TRIAGE_KINDS),
+     "agent", "math-writer", "make the decided change; file `research` for the argument"),
     ("the human's decided edit (`decided_edit`)", ", ".join(TRIAGE_KINDS), "agent",
      "math-editor", "the edit is already decided, as an `apply` ticket"),
     ("a missing argument, delivered (`delivered_argument`, `proved_source`)",
      ", ".join(ROUTED_WRITER_KINDS), "agent", "(the kind's)",
-     "land it: a ref, a wait or a child delivered it"),
+     "land it: a ref, a wait, or the newest child (none still out, not unproved) "
+     "delivered it"),
     ("a missing argument, not delivered (`needs_argument`)", ", ".join(ROUTED_WRITER_KINDS),
      "research", "expert", "file `research` to the Expert, final_to researcher; park on it"),
 )
@@ -135,18 +146,23 @@ def agenda_pass(meta):
 
 
 def decided_edit(meta, human=None):
-    """True when a ticket's title or ask says the human decided the edit (T-0085 "per
-    <name>'s decision", T-1441 "per the human's word"): an ``apply`` in all but its kind. A
-    choice still open ("Decide the repair", "to be decided", a reviewer's decision table) is
-    not."""
+    """True when a ticket's title or ask says the human already decided the edit (T-0085
+    "per <name>'s decision", T-1441 "per the human's word"): an ``apply`` in all but its
+    kind. Only the human's decision, already taken: not a choice still open ("Decide the
+    repair", "to be decided"), not one still wanted ("needs <name>'s decision between A and
+    B", "awaiting the human's decision"), not another's ("the reviewer decided on T-12")."""
     names = ["the human"] + [n for n in [human or _human()] if n and n != "the human"]
     who = "(?:%s)" % "|".join(re.escape(n) for n in names)
-    pat = re.compile(
-        r"(?i)\b%s['\u2019]s (?:decision|word|instruction|ruling|choice)\b"
-        r"|\b%s (?:decided|chose|ruled)\b"
-        r"|\b(?:as|already) decided\b|\bdecided (?:by %s|on T-\d+)" % (who, who, who))
     text = " ".join(str(meta.get(k) or "") for k in ("title", "ask"))
-    return bool(pat.search(text))
+    poss = re.compile(r"(?i)\b%s['\u2019]s (?:decision|word|instruction|ruling|choice)\b"
+                      % who)
+    for m in poss.finditer(text):
+        if not RE_DECISION_WANTED.search(text[max(0, m.start() - 24):m.start()]):
+            return True
+    past = re.compile(r"(?i)\b%s (?:has |had )?(?:decided|chose|ruled)\b"
+                      r"|\b(?:as|already) decided by %s\b|\bdecided by %s\b"
+                      % (who, who, who))
+    return bool(past.search(text))
 
 
 def needs_argument(meta):
@@ -187,21 +203,41 @@ def proved_source(meta, status_of=None):
     return ""
 
 
-def _is_argument(t):
-    """A ``research`` or ``prove`` ticket delivered or closed, not an experiment relayed to
-    the Scientist (``check_filed``'s rule)."""
+def _asks_argument(t):
+    """A ``research`` or ``prove`` ticket, not an experiment relayed to the Scientist
+    (``check_filed``'s rule)."""
     return (t.get("kind") in ARGUMENT_TICKET_KINDS
-            and t.get("status") in DELIVERED_STATUSES
             and str(t.get("final_to") or "").split("@")[0] != "scientist")
+
+
+def _is_argument(t):
+    """An argument ticket delivered or closed."""
+    return _asks_argument(t) and t.get("status") in DELIVERED_STATUSES
+
+
+def _child_argument(kids):
+    """The child that delivered the argument, or '': only the newest argument child counts
+    (an older one answered another gap: T-0876's T-0881), none while another is still out
+    (T-0876's T-0880 blocked), and not one whose result says it delivered none (unproved,
+    GAP, refuted: T-1341). Rejected and cancelled children are skipped."""
+    asks = [t for t in kids if _asks_argument(t)
+            and t.get("status") not in ("rejected", "cancelled")]
+    if not asks or any(t.get("status") not in DELIVERED_STATUSES for t in asks):
+        return ""
+    t = max(asks, key=lambda m: _ticket_num(m.get("id")) or 0)
+    if RE_NOT_DELIVERED.search(str(t.get("result") or "")):
+        return ""
+    return str(t.get("id"))
 
 
 def delivered_argument(meta, ticket_of=None):
     """The first ticket that delivered the argument this ticket asks for, so it lands it,
     whatever its wording: a ``research`` or ``prove`` ticket now delivered or closed named
     by the refs or ``waiting_on`` (#92, T-1385 sent to research again after T-1618
-    delivered the repair), else such a child of it (its ``parent`` is this ticket: the
-    return leg; T-1494, whose child T-1664 came back, was released with ``waiting_on``
-    emptied and refs naming only the verify). A ``research`` ticket relayed to the
+    delivered the repair), else its newest argument child, back and not unproved
+    (``_child_argument``; its ``parent`` is this ticket: the return leg; T-1494, whose
+    child T-1664 came back, was released with ``waiting_on`` emptied and refs naming only
+    the verify). A ``research`` ticket relayed to the
     Scientist is an experiment, not an argument. ``ticket_of`` (``ticket_lookup``: id ->
     meta or None, with ``children``; the inbox passes its own board's) replaces the
     workspace board's; a plain callable has no children. '' when none qualifies or the
@@ -224,12 +260,10 @@ def delivered_argument(meta, ticket_of=None):
     children = getattr(ticket_of, "children", None)
     if own and children is not None:
         try:
-            kids = sorted(children(own) or (), key=lambda m: _ticket_num(m.get("id")) or 0)
+            kids = list(children(own) or ())
         except Exception:
             kids = []
-        for t in kids:
-            if _is_argument(t):
-                return str(t.get("id"))
+        return _child_argument(kids)
     return ""
 
 
@@ -330,6 +364,28 @@ def research_route(why):
                    "this one waiting on it, and land what returns" % why}
 
 
+def decision_ticket(meta, question, options):
+    """The ``tickets_create`` fields of the ``decision`` ticket to the human by which a
+    writer asks a choice only the human can make (a ``question`` that needs one), then
+    blocks ``meta`` waiting on it. The options go in the one-line ask, which is what
+    ``decisions.py list`` shows (it builds a ticket's item from the ask, with fixed
+    Proceed/Decline options; a block reason is not read)."""
+    opts = [" ".join(str(o).split()) for o in options if str(o).strip()]
+    if len(opts) < 2:
+        raise ValueError("a decision needs at least two options")
+    q = " ".join(str(question).split()).rstrip("?.:; ")
+    ask = "%s? %s" % (q, "; ".join("(%s) %s" % (chr(97 + i), o) for i, o in enumerate(opts)))
+    refs = [str(r) for r in _as_list(meta.get("refs")) if isinstance(r, (str, int))]
+    if meta.get("id") and meta["id"] not in refs:
+        refs.append(meta["id"])
+    out = {"kind": "decision", "from": meta.get("to"), "to": "human",
+           "title": "Decide: %s" % q, "ask": ask, "parent": meta.get("id"), "refs": refs,
+           "deliverable": "The chosen option, as the ticket result."}
+    if meta.get("agenda"):
+        out["agenda"] = meta["agenda"]
+    return out
+
+
 def check_filed(meta):
     """Problems with a ticket an Author writer files for a missing argument (empty: it
     passes). The role cut: an argument is asked of the Researcher as ``kind: research``,
@@ -385,6 +441,13 @@ def route(meta, ticket_of=None):
                        "and vision steps ask %s); deliver this ticket with what it changed"
                        % _human()}
     if kind in TRIAGE_KINDS and decided_edit(meta):
+        if needs_argument(meta):
+            # T-0368: the decision strengthens a statement; the writer makes the change
+            # and files the research ticket for the argument
+            return {"how": "agent", "target": "math-writer",
+                    "why": "the change is decided (the ask says so) but needs an argument: "
+                           "make it in the conjecture colour and file the `research` ticket "
+                           "to the Expert with final_to researcher"}
         return {"how": "agent", "target": "math-editor",
                 "why": "the edit is already decided (the ask says so): made as an `apply` "
                        "ticket, never sent to research"}

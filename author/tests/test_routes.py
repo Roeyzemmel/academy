@@ -232,9 +232,12 @@ class UnroutedKindTests(unittest.TestCase):
         self.assertIn("answer", r["why"])
 
     def test_a_question_or_other_naming_a_decided_edit_goes_to_the_editor(self):
-        for meta in (T0085, T0068):
-            r = self.route(meta)
-            self.assertEqual(("agent", "math-editor"), (r["how"], r["target"]), meta["id"])
+        r = self.route(T0085)
+        self.assertEqual(("agent", "math-editor"), (r["how"], r["target"]))
+        # T-0068 is decided too, but adds a hypothesis: the writer (and its research ticket)
+        r = self.route(T0068)
+        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
+        self.assertTrue(routes.decided_edit(T0068, human="Ada"))
         # the human's word, unnamed, counts too (T-1441's phrase)
         r = self.route(dict(T0351, ask="Reword item 2 per the human's word of 2026-11-15."))
         self.assertEqual("math-editor", r["target"])
@@ -242,9 +245,28 @@ class UnroutedKindTests(unittest.TestCase):
     def test_a_choice_still_open_is_not_a_decided_edit(self):
         for ask in ("Decide the repair: restrict the hypothesis, or recolour.",
                     "The wording is to be decided; see the reviewer's decision table.",
-                    "Which reading is undecided."):
+                    "Which reading is undecided.",
+                    # review of badbc50: a decision still wanted, or another's decision
+                    "This needs Ada's decision between A and B.",
+                    "Awaiting the human's decision on K_P.",
+                    "Pending Ada's ruling on the convention.",
+                    "Wait for the human's choice of reading.",
+                    "The reviewer decided on T-12 that it is a GAP; what is the fix?"):
             self.assertFalse(routes.decided_edit({"ask": ask}, human="Ada"), ask)
             self.assertEqual("math-writer", self.route(dict(T0351, ask=ask))["target"], ask)
+
+    def test_a_decided_edit_that_needs_an_argument_goes_to_the_writer(self):
+        """T-0368 (review of badbc50): the human's decision removes an exception, i.e. it
+        strengthens a statement; math-writer makes the change and files the research
+        ticket for the argument, math-editor would only edit."""
+        meta = dict(T0351, title="Unite plugs and semi-corners",
+                    ask="Ada's decision: drop the semi-corner exception; add the hypothesis "
+                        "that P has no plugs to thm:x.")
+        self.assertTrue(routes.decided_edit(meta, human="Ada"))
+        self.assertTrue(routes.needs_argument(meta))
+        r = self.route(meta)
+        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
+        self.assertIn("research", r["why"])
 
     def test_a_question_needing_an_argument_goes_to_research(self):
         r = self.route(T0086)
@@ -263,12 +285,14 @@ class UnroutedKindTests(unittest.TestCase):
         for kind in ("write", "question", "other", "apply"):
             r = self.route(dict(T0051, kind=kind))
             self.assertEqual(("skill", "author:agenda"), (r["how"], r["target"]), kind)
-        r = self.route({"kind": "question", "title": "Refresh the agenda before the round"})
+        r = self.route({"kind": "question", "title": "Run /author:agenda gaps before the round"})
         self.assertEqual("author:agenda", r["target"])
-        # a ticket that only mentions the agenda field is not a pass
-        r = self.route({"kind": "write", "title": "Write up lem:x", "ask": "its agenda entry is "
-                        "paper:lem:x"})
-        self.assertEqual("math-writer", r["target"])
+        # a ticket that only mentions the agenda, or an entry of it, is not a pass
+        for title in ("Write up lem:x", "Update the agenda entry for lem:x",
+                      "Refresh the agenda entry of prop:y and its proof"):
+            r = self.route({"kind": "write", "title": title,
+                            "ask": "its agenda entry is paper:lem:x"})
+            self.assertEqual("math-writer", r["target"], title)
         # another role's kind is still rejected
         self.assertEqual("reject", self.route(dict(T0051, kind="prove"))["how"])
 
@@ -295,6 +319,40 @@ class ReturnLegTests(unittest.TestCase):
             self.assertEqual(("research", "expert"), (r["how"], r["target"]),
                              (status, final_to))
 
+    def test_a_child_still_out_holds_an_older_delivered_one(self):
+        """T-0876 (review of badbc50): an older closed child (another gap) does not land
+        the ticket while the child for its current gap is still blocked."""
+        meta = dict(T1494, id="T-0876")
+        board = [{"id": "T-0880", "kind": "research", "status": "blocked",
+                  "final_to": "researcher", "parent": "T-0876"},
+                 {"id": "T-0881", "kind": "research", "status": "closed",
+                  "final_to": "researcher", "parent": "T-0876", "result": "a proof"}]
+        self.assertEqual("", routes.delivered_argument(meta, routes.TicketLookup(lambda: board)))
+        self.assertEqual("research", self.route(meta, board)["how"])
+
+    def test_only_the_newest_child_counts(self):
+        older = {"id": "T-0010", "kind": "research", "status": "closed",
+                 "final_to": "researcher", "parent": "T-1494", "result": "proved"}
+        newer = dict(older, id="T-0020", status="cancelled")
+        look = routes.TicketLookup(lambda: [older, newer])
+        self.assertEqual("T-0010", routes.delivered_argument(T1494, look))   # cancelled: skipped
+        newest = dict(older, id="T-0030", kind="prove", result="the lemma is unproved")
+        look = routes.TicketLookup(lambda: [older, newest])
+        self.assertEqual("", routes.delivered_argument(T1494, look))
+
+    def test_a_child_returned_unproved_gap_or_refuted_does_not_count(self):
+        """T-1341 (review of badbc50): closed with 'returned unproved: no lead'."""
+        for result in ("child T-1392 closed (returned unproved: no lead)",
+                       "GAP at step 3; no repair found", "the statement is refuted",
+                       "Not proved: the gap remains open"):
+            board = [dict(BOARD_1494[1], result=result)]
+            self.assertEqual("", routes.delivered_argument(
+                T1494, routes.TicketLookup(lambda b=board: b)), result)
+        # a result that fills a gap is a delivered argument
+        board = [dict(BOARD_1494[1], result="the repair fills the gap in step 2 (attempt-2)")]
+        self.assertEqual("T-1664", routes.delivered_argument(
+            T1494, routes.TicketLookup(lambda: board)))
+
     def test_a_question_parent_lands_its_child_too(self):
         board = [{"id": "T-0090", "kind": "research", "status": "delivered",
                   "final_to": "researcher", "parent": "T-0086"}]
@@ -315,6 +373,49 @@ class ReturnLegTests(unittest.TestCase):
         self.assertEqual(1, len(calls))
         # a plain id -> meta callable (the older ticket_of) still works, without children
         self.assertEqual("", routes.delivered_argument(T1494, {}.get))
+
+
+class DecisionTicketTests(unittest.TestCase):
+    """A choice only the human can make is filed as a `decision` ticket to the human whose
+    ask carries the options (review of badbc50: decisions.py builds a ticket's item from
+    its ask, with fixed Proceed/Decline options, so options left in a block reason are
+    lost)."""
+
+    def test_the_decision_ask_carries_the_options(self):
+        meta = routes.decision_ticket(
+            dict(T0351, id="T-0364", to="author@t", agenda="paper:conj:x",
+                 refs=["paper:conj:x"]),
+            "Which repair of conj:x", ["restrict the hypothesis to primitive origamis",
+                                       "change the conclusion", "recolour it conjectural"])
+        self.assertEqual(("decision", "human", "author@t"),
+                         (meta["kind"], meta["to"], meta["from"]))
+        self.assertEqual("T-0364", meta["parent"])
+        self.assertEqual(["paper:conj:x", "T-0364"], meta["refs"])
+        self.assertEqual("Which repair of conj:x? (a) restrict the hypothesis to primitive "
+                         "origamis; (b) change the conclusion; (c) recolour it conjectural",
+                         meta["ask"])
+        self.assertNotIn("\n", meta["ask"])
+        with self.assertRaises(ValueError):
+            routes.decision_ticket(T0351, "Which?", ["only one"])
+
+    def test_decisions_list_shows_the_options(self):
+        sb = Sandbox()
+        try:
+            meta = routes.decision_ticket(dict(T0351, id="T-0002", to="author@t"),
+                                          "Which reading", ["H^{*0}=H", "H^{*0} empty"])
+            write_ticket(sb.board, "T-0001", "human", "open", "decision", ask=meta["ask"])
+            res = subprocess.run(
+                [sys.executable, os.path.join(SCRIPTS, "..", "..", "academy", "scripts",
+                                              "decisions.py"),
+                 "--board", sb.board, "list", "--json"],
+                capture_output=True, env=dict(sb.env))
+            self.assertEqual(0, res.returncode, res.stderr)
+            items = json.loads(res.stdout.decode("utf-8"))
+            q = [i for i in items if i["id"] == "T-0001"][0]["question"]
+            self.assertIn("(a) H^{*0}=H", q)
+            self.assertIn("(b) H^{*0} empty", q)
+        finally:
+            sb.cleanup()
 
 
 def write_ticket(board, tid, to, status, kind, frm="author@t", refs=(), ask="x",

@@ -40,10 +40,13 @@ ticket ids (at most three).
      (a ticket with `parent` this one) is one, lands it: the return leg (#92).
    - A `question` or `other` ticket goes to `math-writer`, which answers it from the paper,
      the registry and the library (an edit it settles is made; an argument is asked as
-     below; a choice only the human can make is blocked `waiting_on: [human]` with the
-     options, for `/academy:decide`); one that says the human decided the edit
-     (`routes.decided_edit`) goes to `math-editor` as an `apply` would (#92).
-   - An agenda pass (`routes.agenda_pass`, any writer kind) comes back as `for_main` with
+     below; a choice only the human can make is a `decision` ticket to the human with the
+     options in its ask, `routes.decision_ticket`, and the question waits on it). One that
+     says the human already decided the edit (`routes.decided_edit`) goes to
+     `math-editor` as an `apply` would, or to `math-writer` when the decided change needs
+     an argument (#92).
+   - An agenda pass (`routes.agenda_pass`: "agenda pass" or `/author:agenda` in the title
+     or ask, any writer kind) comes back as `for_main` with
      the skill `author:agenda`: run it for the ticket's ask, then deliver the ticket with
      what it changed.
    - A self-ticket that needs an argument nobody has delivered (`research`,

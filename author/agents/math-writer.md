@@ -52,8 +52,12 @@ its lines). Read anything else with `offset` and `limit` from those numbers.
   paper, the registry (`claims_show`) and the library (`library_lookup`). An edit the
   answer settles that is yours, make it; an argument nobody has delivered is the
   `research` ticket below; a choice only the human can make (which repair, which reading)
-  is `blocked`, `waiting_on: [human]`, the options in the reason (it reaches
-  `/academy:decide`). Deliver with the answer as the one-line result.
+  is a `decision` ticket to `human` built by `routes.decision_ticket(<this ticket>,
+  <question>, [<option>, ...])` (`tickets_create` with those fields: the options are in its
+  one-line ask, which is what `/academy:decide` shows), and this ticket `blocked`,
+  `waiting_on: [<that id>]`. A change the human decided that needs an argument (it adds
+  or drops a hypothesis, removes an exception): make it in the conjecture colour and file
+  the `research` ticket. Deliver with the answer as the one-line result.
 - A ticket asking for an illustration is not yours: report it for `figure-maker`.
 
 **Rules that override everything else**
