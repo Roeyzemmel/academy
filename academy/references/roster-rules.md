@@ -17,7 +17,8 @@ the ticket protocol is `docs/protocol.md`.
    not substitute its own reading for a verdict.
 4. **Two agreeing, independent verdicts** are the grounds for raising a status
    (the `status-vocabulary` skill gives the mapping). Run B is launched only if run A
-   is positive, and neither run sees the other; for proof reviews the `academy-verify`
+   is positive, and neither run sees the other (one exception, the amend run below: B is
+   told A's suggested dependency, never A's report); for proof reviews the `academy-verify`
    workflow enforces this in code (docs/workflows.md). The order of a proof's review is
    **attempt, run A, the falsifier, run B** (the human's design, 2026-11-20): a falsifier
    is spent only on a proof that survived A, and B runs only once the claim's falsifier
@@ -28,8 +29,10 @@ the ticket protocol is `docs/protocol.md`.
    to the proof and to `depends_on` (a `prove` repair), and run B reviews the amended
    proof in amend mode, told the suggestion only, never A's report; A and that B **are the
    two agreeing verdicts** (as a reword run is over a CONFIRMED x2 pass), and the claim is
-   proved-modulo the added dependency until it is established. When A suggests nothing,
-   the blind pair is unchanged. A definition used only as notation is
+   proved-modulo the added dependency until it is established. The repair files no verify
+   ticket of its own (the amend B is the second verdict), and a suggestion names an
+   existing result only (`ns:id` or `bib:key#pinpoint`; a lemma still to be proved is a
+   GAP). When A suggests nothing, the blind pair is unchanged. A definition used only as notation is
    not an input in a verdict's `modulo` list; only a definition whose content the
    argument relies on counts (the human's decision, 2026-10-09, T-0148). So two
    CONFIRMED runs whose `modulo` lists differ only in definitions agree, on the

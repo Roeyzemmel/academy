@@ -172,21 +172,33 @@ relies on but does not list says CONFIRMED with `add_dependency: <ids or
 bib:key#pinpoint>` (a missing argument is still GAP). On run A alone the table then gives
 `awaiting-amendment` (no `launch_b`), with an `add-dependency` item routed as a `prove`
 ticket in mode `repair`. The falsifier (section 1a) still comes first: a counterexample
-spends no amendment.
+spends no amendment. Each suggested dependency must be an existing result (a registry id
+`ns:id` the registry knows, or `bib:key[#pinpoint]`); anything else (a lemma still to be
+proved, a statement in words) makes the run GAP for this route, with an anomaly, and no
+amendment is asked for.
 
 - **The amendment** (stage *amendment*): launch no B. File one repair: `tickets_create`
   kind `prove` to the Researcher that owns the claim's namespace (a `paper:` or `lab:`
   claim: the Researcher of the claim's domain, as in section 4.3; a `lab:` claim with
   `final_to: scientist`), `parent` and `refs` the verify ticket and the claim, asking (mode
   repair) to add **exactly** those dependencies to the proof and to the claim's
-  `depends_on` (a `bib:` key to its `cites`), and nothing else. It names the dependencies
-  only, never A's verdict or report. Block the verify ticket `waiting_on` it; a refusal
+  `depends_on` (a `bib:` key to its `cites`, cited at its pinpoint), and nothing else, as a
+  new attempt. It names the dependencies only, never A's verdict or report. Its ask ends
+  with the marker `amendment for verify <T> pass <pass>` and says `run A reviewed
+  <attempt>`: the Researcher's prove workflow then files **no verify ticket** (this pass's
+  amend B is the second verdict), is not held by its falsifier gate, and delivers with the
+  new attempt's path (an incomplete attempt is blocked on the human, not delivered). Block the verify ticket `waiting_on` it; a refusal
   blocks it on the human. The pass stays open; the workflow returns `awaiting-amendment`.
-  A repair already filed and still out: file nothing, block on it again; one that ended
-  without adding them: block on the human.
-- **The rerun.** The pass resumes (A tabled, not relaunched). The amendment counts once
+  The block note also says `run A reviewed <attempt>`. A repair already filed and still
+  out: file nothing, block on it again; one that ended without the amendment: block on
+  the human.
+- **The rerun.** The pass resumes (A tabled, not relaunched). The amendment counts only
+  when all three hold: a repair **this pass filed** has ended `delivered` or `closed`; the
+  claim's current attempt is **not the one run A reviewed** (as the pass recorded it); and
   every suggested dependency is among the claim's declared inputs as the registry reads
-  them now and the repair has ended. Then (stage *amend-brief*) write run B's bundle,
+  them now, **namespace and pinpoint included**, compared in canonical spelling
+  (`decision_table.py canon --subject <id> <input>...`). Inputs that were declared all
+  along are not an amendment. Otherwise B does not launch. Then (stage *amend-brief*) write run B's bundle,
   outside `reviews/`:
 
       py $E/reviews.py amend-brief <id> <pass> --attempt <the amended attempt> --ticket <T> --out <file>
@@ -201,7 +213,11 @@ spends no amendment.
   dependencies (`confirmed`, propose proved, when every one is established), grounds
   naming both runs (`mode: amend`); B GAP is a `disagreement` (no status; B's blocking
   step is filed); a B on another pass, hash, statement or set of dependencies, or a B
-  whose A suggested nothing, is `invalid-amend` (no status). The added dependencies enter
+  whose A suggested nothing, is `invalid-amend` (no status). A blind B (no amend mode,
+  A suggested nothing) that is CONFIRMED with its own `add_dependency` is
+  `new-pass-after-amendment`: no status; file the `add-dependency` item to the producer as
+  a repair (no marker: it files its own verify ticket), and say that run B, not A,
+  suggested it and that a new pass is needed after the repair. The added dependencies enter
   `depends_on`, so an unestablished one is a pending input (section 2).
 
 ## 2. The table, input by input
