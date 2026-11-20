@@ -43,7 +43,17 @@ const A = args || {}
 // model. Nested workflows get the same map.
 const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
 const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
-const launch = (prompt, opts) => {
+// Two launches in a row that return nothing (a usage limit: every launch fails until the
+// reset, #115) stop the run: launch() then launches nothing and returns null at once, so
+// each caller's "returned nothing" path ends it; LAUNCH_LIMIT.stopped tells the result.
+const LAUNCH_LIMIT = { nulls: 0, stopped: false }
+const launch = async (prompt, opts) => {
+  if (LAUNCH_LIMIT.stopped) return null
+  const r = await launchOnce(prompt, opts)
+  if (r === null) { if (++LAUNCH_LIMIT.nulls >= 2) LAUNCH_LIMIT.stopped = true } else LAUNCH_LIMIT.nulls = 0
+  return r
+}
+const launchOnce = (prompt, opts) => {
   const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
   const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
   const t = opts && opts.agentType
@@ -225,8 +235,11 @@ async function listAll(pass) {
   return xs
 }
 phase('List')
+const LIMIT_WHY = 'two agent launches in a row returned nothing: most likely a usage limit (every launch fails until it resets: ' +
+  'the session\'s own error names the reset time; resume after it). Nothing further launched (#115)'
 let insts = await listAll(1)
-if (!insts) return Object.assign(out, { stopped: 'the list stage returned nothing' })
+if (!insts) return Object.assign(out, { stopped: 'the list stage returned nothing (a usage limit?)', usage_limit: LAUNCH_LIMIT.stopped })
+let lastInsts = insts
 
 // ---- Sweep (the Author's, before any ticket; counts against no cap) -------------------
 phase('Sweep')
@@ -622,7 +635,10 @@ outer:
 for (let pass = 1; pass <= MAX_PASSES; pass++) {
   if (pass > 1) {
     insts = await listAll(pass)
-    if (!insts) { out.stopped = 'the list stage returned nothing'; break }
+    // #114: a later listing that returns nothing (the weekly limit, 2026-11-20) ends the
+    // run; the close-out reads the last listing, never a null one
+    if (!insts) { out.stopped = 'the list stage of pass ' + pass + ' returned nothing (a usage limit?)'; break }
+    lastInsts = insts
   }
   out.passes = pass
   let moved = 0
@@ -648,6 +664,11 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
       }
       spent += need
       const res = await handle(row, i)
+      if (LAUNCH_LIMIT.stopped) {         // #115: a limit, whatever this ticket's stages made of it
+        taken.push({ instance: i.name, id: row.id, route: row.route, outcome: 'stopped (usage limit?)' })
+        out.stopped = `${row.id}: ` + LIMIT_WHY
+        break outer
+      }
       if (typeof res.runs_used === 'number') spent += res.runs_used - need      // what it really took
       if (res.for_main) {
         if (!LOOP) { out.for_main = res.for_main; notes.push(`stopped for the main session at ${row.id}: ${res.for_main.why}`); break outer }
@@ -664,11 +685,13 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
       if (res.lost) {
         taken.push({ instance: i.name, id: row.id, route: row.route, outcome: 'lost' })
         out.stopped = `an agent on ${row.id} returned nothing (a limit or an API error): nothing further launched (budget.md rule 4)`
+        if (LAUNCH_LIMIT.stopped) { out.stopped = `${row.id}: ` + LIMIT_WHY; break outer }
         await move(row, i.name, 'note: append to the thread "interrupted: the workflow agent returned nothing; what was recorded is above"', `${row.id} interrupted`)
         break outer
       }
       const chk = readCheck(await clerk('check', [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`,
         'Run it once. Return the exit code the shell printed (echo $?), the ticket status, and the whole output verbatim in output.'], CHECK, `check ${row.id}`), row.id)
+      if (LAUNCH_LIMIT.stopped) { out.stopped = `${row.id} (its check): ` + LIMIT_WHY; break outer }
       if (chk && !chk.shipped) notes.push(`${row.id}: the checkpoint did not ship everything (see its output); commit by hand`)
       // a ticket that ends blocked is parked (on its child, on the human, on a dead route): --check's exit 3 is
       // then its expected end, not unfinished work (live run 2026-10-31 closed the Expert on it)
@@ -703,7 +726,9 @@ if (LOOP && out.gates.length && !out.for_main)
 
 // ---- Close: the Author's delivered self-tickets ------------------------------------------
 phase('Close')
-for (const i of (insts || []).filter(i => i.role === 'author' && touched.has(i.name))) {
+insts = insts || lastInsts || []
+if (LAUNCH_LIMIT.stopped) { out.usage_limit = true; if (!/usage limit/.test(out.stopped || '')) out.stopped = LIMIT_WHY }
+for (const i of insts.filter(i => i.role === 'author' && touched.has(i.name) && !LAUNCH_LIMIT.stopped)) {
   await clerk('close-self', [`act as: ${i.name}`, 'Close (delivered -> closed) every delivered ticket whose from and to are both this instance; return how many.'], MOVE, `close ${i.name}`)
 }
 out.count = count

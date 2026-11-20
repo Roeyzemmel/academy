@@ -29,7 +29,17 @@ const A = args || {}
 // model. Nested workflows get the same map.
 const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
 const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
-const launch = (prompt, opts) => {
+// Two launches in a row that return nothing (a usage limit: every launch fails until the
+// reset, #115) stop the run: launch() then launches nothing and returns null at once, so
+// each caller's "returned nothing" path ends it; LAUNCH_LIMIT.stopped tells the result.
+const LAUNCH_LIMIT = { nulls: 0, stopped: false }
+const launch = async (prompt, opts) => {
+  if (LAUNCH_LIMIT.stopped) return null
+  const r = await launchOnce(prompt, opts)
+  if (r === null) { if (++LAUNCH_LIMIT.nulls >= 2) LAUNCH_LIMIT.stopped = true } else LAUNCH_LIMIT.nulls = 0
+  return r
+}
+const launchOnce = (prompt, opts) => {
   const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
   const mapped = k => has(TIER_MODELS, k) && typeof TIER_MODELS[k] === 'string' && TIER_MODELS[k] ? TIER_MODELS[k] : null
   const t = opts && opts.agentType

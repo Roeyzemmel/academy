@@ -119,6 +119,13 @@ The launch value is an alias (`claude-opus-5-5` launches as `opus`): the per-cal
 takes no full id. The id still decides the grading floor, read by the graders' own report
 of the model they ran on (roster-rules.md, "Model fallback").
 
+**A usage limit (#115).** `launch()` counts launches that return nothing: after two in a
+row (under a usage limit every launch fails until it resets) it launches nothing more and
+returns `null` at once, so each caller's "returned nothing" path ends the run quickly;
+`LAUNCH_LIMIT.stopped` says so, and the inbox reports `usage_limit: true` with
+`stopped` naming it. A script cannot read the reset time (the agent's error is not
+passed to it): the session's own error names it, and a scheduled run resumes after it.
+
 ## Shipping is a step of the workflow, not a habit of the session
 
 A workflow that changes files ends by shipping them, in code: the inbox's `--check` runs
