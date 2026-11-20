@@ -1115,5 +1115,17 @@ class TestSyncLegacyBump(MergeBase):
         self.assertEqual(run(self.root, "diff", "--cached", "--name-only"), "")
 
 
+    def test_bump_sees_a_pointer_under_ignore_all(self):
+        # the workspace's .gitmodules sets ignore = all; the bump must still see the change
+        with open(os.path.join(self.root, ".gitmodules"), "a", encoding="utf-8") as f:
+            f.write("\tignore = all\n")
+        tip = self.main_moves({"q.txt": "q\n"})
+        run(self.sub, "fetch", "-q", "origin")
+        run(self.sub, "switch", "-q", "--detach", tip)
+        rc, out, err = self.ship("bump", "sub", "--sha", tip[:9])
+        self.assertEqual(rc, 0, err)
+        self.assertIn("Bump sub to " + tip[:9], out)
+        self.assertEqual(run(self.root, "rev-parse", "HEAD:sub"), tip)
+
 if __name__ == "__main__":
     unittest.main()
