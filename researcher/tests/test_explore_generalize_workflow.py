@@ -53,7 +53,7 @@ JOURNAL = {"exists": True, "path": "journal/2026-10-31.md", "mentions": ["flat:K
 H = {"home": "/h/nb", "instance": "researcher@u"}
 OK = {"ok": True, "detail": ""}
 FAILED = {"exists": True, "kind": "attempt", "outcome": "failed", "gaps": 1, "verdict": ""}
-GOOD_FALSIFIER = {"found": True, "to": "scientist@ts", "kind": "experiment", "refs": ["flat:KDC-6", "Q"]}
+GOOD_FALSIFIER = {"found": True, "to": "scientist@lab", "kind": "experiment", "refs": ["flat:KDC-6", "Q"]}
 
 
 def item(ref, step, tickets=(), objects=(), updated=(), claim="", after=""):
