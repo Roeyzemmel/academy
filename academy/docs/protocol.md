@@ -152,6 +152,38 @@ board/
 One lock covers both counters. Nothing else takes the lock. After allocating, write
 the ticket or packet file with `atomic_write`, outside the lock.
 
+**Across branches and clones.** The counter and the files are those of one checkout,
+so two branches (or two clones, or a cloud session and the laptop) that diverged from
+one board each issue the same next number: on 2026-11-20 the live board had 32 packet
+ids naming two files each (P-0354 to P-0385, academy#90). No scan of the checkout can
+prevent that, and scanning `origin/main` only narrows it (two unpushed branches still
+collide). What prevents it is an authority every branch shares, consulted at allocation:
+
+5. `allocate_id(board, kind, reserve=store.reserve_id)` then calls
+   `reserve(prefix, n)` outside the lock. It reserves the smallest number `>= n` that
+   nobody holds there and returns it; that number is the id, and the counter is raised
+   past it (never lowered).
+
+- **The GitHub board** (`backend` `github`) is that authority. A ticket id already is
+  GitHub's issue number. A packet id is reserved as a ref of the board's repository,
+  `refs/academy/ids/P-0471` (`board_store.GithubBoardStore.reserve_id`; the transport's
+  `matching_refs` / `create_ref`, `POST git/refs` at the default branch's head). The
+  start is past the highest number reserved there; GitHub refuses to create a ref that
+  exists (HTTP 422), so a number taken in the meantime by another branch is skipped and
+  the next tried. Two allocators can therefore never hold one number, whatever their
+  branches hold. A failed reservation (network, permissions) fails the packet's
+  creation, with nothing written; a transport without the two methods is refused, never
+  skipped. A retried request whose first try reached GitHub only skips a number. The
+  refs are outside `refs/heads` and `refs/tags`: no branch or tag lists them and a plain
+  `git fetch` does not fetch them.
+- **The file board** has no such authority: `FileBoardStore.reserve_id` returns `n`,
+  and its ids are unique within one checkout only. A file board shared by several
+  branches must be moved to the GitHub backend for this guarantee.
+- Ids allocated before this rule (2026-11-20) were never reserved: the first
+  reservation starts past the highest number on the allocating checkout, so a packet
+  written earlier on an unmerged branch above that number can still be met once. The
+  existing twins are renumbered only by the human's decision (academy#90 (d)).
+
 ## 3. The ticket file
 
 ```markdown

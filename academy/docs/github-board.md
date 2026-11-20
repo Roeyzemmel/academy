@@ -25,7 +25,7 @@ numbering is empty; an id that was never used is a closed placeholder issue).
 | `## Thread` | one comment per entry, marked `<!-- academy:thread -->`; other comments are conversation, not Thread |
 | `campaign`, `blocked_by`, `reopen_if` | the meta line (ticket-only fields, `docs/protocol.md` section 4 and the campaign design); a dead-route ticket is `status:blocked` like a pending one, told apart by `blocked_by` + `reopen_if` in the meta line. `blocked_by` is **not** a native issue dependency: only `waiting_on` ticket ids are (codec payload key `waits_on`, manifest relation `dependency`), so the ticket field `blocked_by` never gets confused with GitHub's "blocked by" relation |
 | `agenda` | Project text field **Agenda**; milestones stay free for the paper's milestones |
-| packets, `.render/`, `deep-dives/` | stay files in the board directory (the workspace's `board/`, `packets/`) |
+| packets, `.render/`, `deep-dives/` | stay files in the board directory (the workspace's `board/`, `packets/`); a packet id is reserved as the ref `refs/academy/ids/P-NNNN` of the board's repository, so branches cannot issue it twice (`docs/protocol.md`, "Id allocation"; academy#90) |
 
 The status label is the write surface: it decides, and `board-sync` makes state, role and
 Project fields follow. There is no separate `resolution:` label; `rejected` and `cancelled`
