@@ -1117,9 +1117,10 @@ class DifferingInputsTests(unittest.TestCase):
         self.assertEqual(r["differing_inputs"], [
             {"input": "bib:LMW16#Thm11", "run": "A", "shape": "card",
              "result": "bib:LMW16#Thm11", "pointer": False, "open_check": False,
-             "exists": None, "cycle": False},
+             "exists": None, "cycle": False, "definition": False},
             {"input": "paper:lem:b", "run": "B", "shape": "id", "result": "paper:lem:b",
-             "pointer": False, "open_check": False, "exists": None, "cycle": False}])
+             "pointer": False, "open_check": False, "exists": None, "cycle": False,
+             "definition": False}])
         # both runs' lists kept, as the table compared them
         self.assertEqual(r["modulo_lists"], {"A": ["paper:lem:a", "bib:LMW16#Thm11"],
                                              "B": ["paper:lem:a", "paper:lem:b"]})
@@ -1692,3 +1693,109 @@ class ResearcherForTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DefinitionRuleReviewTests(unittest.TestCase):
+    """The review of 47ab60e (#103): the definition rule's findings, from the reviewer's
+    scenario script."""
+    D, E = "paper:defn:d", "paper:defn:e"
+    KINDS = {"paper:defn:d": "definition", "paper:defn:e": "definition",
+             "paper:lem:a": "claim", "paper:lem:b": "claim", "paper:lem:x": "claim"}
+
+    def run_(self, a, b, tags=None, links=None, kinds=None):
+        return dt.decide(rec("CONFIRMED", modulo=a), rec("CONFIRMED", run="B", modulo=b),
+                         kind_of=(kinds or self.KINDS).get, tags_of=(tags or {}).get,
+                         links_of=links)
+
+    # finding 1: the kind is read on the head token, and the settler gets a definition fact
+    def test_a_definition_with_pointer_text_and_any_label_is_kept(self):
+        kinds = {"s1:GEO-9": "definition"}
+        r = self.run_("s1:GEO-9 (clause 2)", "none", kinds=kinds)
+        self.assertEqual((r["outcome"], r["proposed_status"]),
+                         ("confirmed-modulo", "proved-modulo"))
+        self.assertEqual(r["kept_definitions"], ["s1:GEO-9 (clause 2)"])
+        self.assertTrue(dt.is_definition("s1:GEO-9 (clause 2)", kinds.get))
+        self.assertTrue(dt.is_definition("paper:defn:c#labelled-points", lambda q: None))
+        self.assertFalse(dt.is_definition("paper:lem:a (item 2)", self.KINDS.get))
+
+    def test_input_facts_say_whether_the_input_is_a_definition(self):
+        kinds = {"s1:GEO-9": "definition", "paper:lem:a": "claim"}.get
+        self.assertTrue(dt.input_facts("s1:GEO-9 (clause 2)", "A", kind_of=kinds)["definition"])
+        self.assertFalse(dt.input_facts("paper:lem:a", "A", kind_of=kinds)["definition"])
+        self.assertFalse(dt.input_facts("bib:Ha02#1.3", "A", kind_of=kinds)["definition"])
+
+    # finding 2: a kept definition is no route for a case-4 drop
+    def test_a_kept_definition_does_not_drop_a_lemma_by_granularity(self):
+        links = {"paper:lem:x": {"depends_on": [], "modulo": [], "cites": []},
+                 self.D: {"depends_on": ["paper:lem:a"], "modulo": [], "cites": []},
+                 "paper:lem:a": {"depends_on": [], "modulo": [], "cites": []}}.get
+        r = self.run_("paper:lem:a", self.D, links=links)
+        self.assertEqual(r["outcome"], "settle-dependencies")
+        self.assertEqual(r["modulo"], [self.D])
+        self.assertEqual([d["input"] for d in r["differing_inputs"]], ["paper:lem:a"])
+        self.assertEqual(r["dropped_inputs"], [])
+
+    # finding 3: a kept definition is a once-per-definition decision, never a verify ticket
+    def test_a_kept_definition_is_a_definition_input_decision_not_a_verify(self):
+        r = self.run_("paper:lem:a, " + self.D, "paper:lem:a")
+        items = {i["text"]: i for i in r["file_items"]}
+        self.assertEqual(items["paper:lem:a"]["kind"], "verify-input")
+        it = items[self.D]
+        self.assertEqual(it["kind"], "definition-input")
+        self.assertEqual(it["definition"], self.D)
+        route = it["route"]
+        self.assertEqual((route["kind"], route["to_role"]), ("decision", "human"))
+        self.assertTrue(route["once"])
+        self.assertEqual(route["title"], "Definition input: %s" % self.D)
+        self.assertIn("notation-only", route["ask"])
+        self.assertIn("paper:lem:x", route["ask"])
+        self.assertFalse(r["recolour"])
+        # the pointer variant: the decision is about the definition's id
+        r = self.run_(self.D + " (item 2)", "none")
+        self.assertEqual([(i["kind"], i["definition"]) for i in r["file_items"]],
+                         [("definition-input", self.D)])
+
+    # nit (a): one kept input per definition, the pointer variant when there is one
+    def test_one_kept_input_per_definition(self):
+        r = self.run_(self.D + " (item 2)", self.D)
+        self.assertEqual(r["kept_definitions"], [self.D + " (item 2)"])
+        self.assertEqual(r["modulo"], [self.D + " (item 2)"])
+        r = self.run_(self.D + " (notation only)", self.D)
+        self.assertEqual(r["kept_definitions"], [self.D])
+
+    # nit (b): the reword run's modulo follows the same rule
+    def test_the_reword_run_applies_the_definition_rule(self):
+        a, b = rec("CONFIRMED"), rec("CONFIRMED", run="B")
+        tags = {self.D: ["notation-only"]}.get
+        r = dt.decide_reword(rwrec(modulo=self.D + " (notation only)"), a, b,
+                             kind_of=self.KINDS.get, tags_of=tags)
+        self.assertEqual((r["outcome"], r["proposed_status"]), ("confirmed", "proved"))
+        self.assertEqual(r["dropped_definitions"], [self.D])
+        r = dt.decide_reword(rwrec(modulo=self.D + " (notation only)"), a, b,
+                             kind_of=self.KINDS.get, tags_of=lambda q: None)
+        self.assertEqual((r["outcome"], r["modulo"]), ("confirmed-modulo", [self.D]))
+        self.assertEqual(r["kept_definitions"], [self.D])
+        self.assertEqual([i["kind"] for i in r["file_items"]], ["definition-input"])
+
+    def test_the_amend_pass_applies_the_definition_rule(self):
+        tags = {self.D: ["notation-only"]}.get
+        r = dt.decide(arec(add="paper:lem:x2", modulo=self.D),
+                      amrec(amended="paper:lem:x2"), kind_of=self.KINDS.get, tags_of=tags,
+                      established=["paper:lem:x2"])
+        self.assertEqual((r["outcome"], r["proposed_status"]), ("confirmed", "proved"))
+        self.assertEqual(r["dropped_definitions"], [self.D])
+        r = dt.decide(arec(add="paper:lem:x2", modulo=self.D),
+                      amrec(amended="paper:lem:x2"), kind_of=self.KINDS.get,
+                      tags_of=lambda q: None, established=["paper:lem:x2"])
+        self.assertEqual((r["outcome"], r["modulo"]),
+                         ("confirmed-modulo", [self.D, "paper:lem:x2"]))
+        self.assertEqual([i["kind"] for i in r["file_items"]], ["definition-input"])
+
+    # nit (d): an open [CHECK] on a definition is not kept past the settler's case-9 stop
+    def test_a_definition_with_an_open_check_goes_to_the_settler(self):
+        r = self.run_(self.D + " [CHECK]", "none")
+        self.assertEqual(r["outcome"], "settle-dependencies")
+        self.assertEqual(r["kept_definitions"], [])
+        (f,) = r["differing_inputs"]
+        self.assertEqual((f["input"], f["open_check"], f["definition"]),
+                         (self.D + " [CHECK]", True, True))

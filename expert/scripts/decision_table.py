@@ -60,12 +60,19 @@ Mechanical rules applied before the table:
   record is tagged ``notation-only`` (``tags: [notation-only]``; a reviewer's own
   ``(notation only)`` mark is read past, never trusted). A tagged definition is dropped
   from both lists (``dropped_definitions``); any other definition either run lists is an
-  input of both (``kept_definitions``), mechanically, so it never reaches the
-  dependency-settler. Both are named in the grounds' note. An id is a definition when
-  its registry record's kind is a definition (``definition`` / ``def`` / ``defn``,
-  looked up through the registry engine), or, when the registry cannot be read or has
-  no such record, when its label starts with ``defn:`` / ``def:`` or its id with
-  ``DEF-``. A ``bib:`` input is never one.
+  input of both (``kept_definitions``, one per definition, its pointer variant when
+  there is one), mechanically, so it never reaches the dependency-settler; it is kept
+  out of the stage-1 reduction (never a route for a case-4 drop) and added back after.
+  An entry with an open ``[CHECK]`` is not kept: it is held to the settler's case 9 like
+  any input. A pending kept definition is a ``definition-input`` item, never a
+  ``verify-input``: a ``decision`` to the human, filed at most once per definition id
+  (``route.once``, ``route.title``), whether to tag it notation-only. The same rule
+  applies to a reword run's and an amend pass's modulo. Both lists are named in the
+  grounds' note. An id is a definition when the registry kind of its head token
+  (``definition_head``: pointer text and a ``#`` pinpoint removed) is a definition
+  (``definition`` / ``def`` / ``defn``, looked up through the registry engine), or, when
+  the registry cannot be read or has no such record, when its label starts with
+  ``defn:`` / ``def:`` or its id with ``DEF-``. A ``bib:`` input is never one.
 * One input, one spelling (#103): before any comparison every modulo list (and
   ``--established``) is normalised by ``normalise_modulo``: split only on top-level
   commas (a list landed split inside brackets is rejoined), a pointer's trailing text
@@ -379,6 +386,18 @@ def follow_up(item, subject="", producer_role="", rec=None):
     if kind == "verify-input":
         return {"kind": "verify", "to_role": "expert", "final_to": None, "gap_class": gc,
                 "why": "an input that is itself a proof to review"}
+    if kind == "definition-input":
+        # #103 (the coordinator's decision on the review of 47ab60e): a definition has no
+        # status to verify; the human says once per definition whether it is notation-only
+        d = item.get("definition") or item.get("text") or ""
+        return {"kind": "decision", "to_role": "human", "final_to": None, "gap_class": gc,
+                "once": True, "title": "Definition input: %s" % d,
+                "ask": ("%s is an input of %s: tag it notation-only (tags: [notation-only] "
+                        "on its registry record; then the claim can be proved) or keep it "
+                        "as an input (the claim stays proved-modulo it)"
+                        % (d, subject or "the claim")),
+                "why": "a definition kept as an input (the definition rule, #103): filed "
+                       "at most once per definition id, across passes and claims"}
     if kind == "inputs":
         return {"kind": "decision", "to_role": "human", "final_to": None, "gap_class": gc,
                 "why": "the runs disagree on the inputs: a ruling or a re-run"}
@@ -439,18 +458,34 @@ def registry_kind(qid):
     return str(rec.fields.get("kind") or rec.type or "").strip().lower() or None
 
 
+def definition_head(item):
+    """The registry id an input names, read on its head token (review of 47ab60e): the
+    reviewer's ``(notation only)`` mark, pointer text after a space, ``(`` or ``[`` and a
+    ``#`` pinpoint removed. ``s1:GEO-9 (clause 2)`` -> ``s1:GEO-9``,
+    ``paper:defn:c#labelled-points`` -> ``paper:defn:c``; ``""`` for a ``bib:`` card or
+    free text."""
+    s = " ".join(str(item or "").split()).strip("`'\"")
+    s = RE_NOTATION_MARK.sub("", s)
+    if not s or s.startswith("bib:"):
+        return ""
+    tok = re.split(r"\s|\(|\[", s, maxsplit=1)[0].split("#", 1)[0]
+    return tok if _bare_id(tok) else ""
+
+
 def is_definition(qid, kind_of=None):
-    """True when the input ``qid`` names a definition: by its registry kind when the
-    registry knows it (``kind_of``, default ``registry_kind``), else by its label
-    (``ns:defn:...``, ``ns:def:...``, ``ns:DEF-...``). A ``bib:`` input never is."""
+    """True when the input ``qid`` names a definition: by the registry kind of its head
+    (``definition_head``; ``kind_of``, default ``registry_kind``) when the registry knows
+    it, else by its label (``ns:defn:...``, ``ns:def:...``, ``ns:DEF-...``). A ``bib:``
+    input never is."""
     q = str(qid or "").strip()
     if not q or q.startswith("bib:"):
         return False
-    kind = (kind_of or registry_kind)(q)
+    head = definition_head(q) or q
+    kind = (kind_of or registry_kind)(head)
     if kind:
         return kind.lower() in DEFINITION_KINDS
-    _ns, _, name = q.partition(":")
-    return bool(RE_DEF_LABEL.match(name or q))
+    _ns, _, name = head.partition(":")
+    return bool(RE_DEF_LABEL.match(name or head))
 
 
 # The definition rule (the human's ruling of 2026-11-20 on #103, replacing T-0148's drop):
@@ -508,19 +543,53 @@ def notation_only(item, kind_of=None, tags_of=None):
     return head if NOTATION_TAG in [str(t).strip().lower() for t in tags] else None
 
 
-def kept_definitions(items, kind_of=None):
-    """``{entry as written: definition id}`` for every entry of ``items`` (modulo entries
-    already past ``notation_only``) that names a definition (``is_definition``): the
-    definition rule keeps it as an input of both runs, spelled without a reviewer's
-    ``(notation only)`` mark, which is read past and never trusted. An entry with other
-    pointer text is kept as written (the pointer can restrict the input)."""
-    out = {}
-    for item in items:
-        s = str(item or "").strip()
-        head = RE_NOTATION_MARK.sub("", s)
-        if head and is_definition(head, kind_of):
-            out[s] = head
-    return out
+def merge_kept(spellings):
+    """One kept input per definition (nit (a) of the review of 47ab60e): the spellings
+    grouped by ``definition_head``; a group keeps its pointer variants (``d (item 2)``),
+    each once, and the bare id only when it has none. Sorted."""
+    groups = {}
+    for x in spellings:
+        groups.setdefault(definition_head(x) or x, set()).add(x)
+    out = []
+    for head, xs in groups.items():
+        out.extend(sorted(x for x in xs if x != head) or [head])
+    return sorted(out)
+
+
+def apply_definition_rule(lists, kind_of=None, tags_of=None):
+    """The definition rule (the human's ruling of 2026-11-20 on #103) over modulo lists:
+    ``(rest, dropped, kept)``. ``dropped``: the definitions tagged ``notation-only`` in
+    their registry records (``notation_only``), out of every list. ``kept``: every other
+    definition any list names (``is_definition``, read on the head token), spelled without
+    the reviewer's mark, one per definition (``merge_kept``): an input of every run, added
+    back by the caller after the comparison, so it is never a route for a case-4 drop.
+    ``rest``: each list without the definitions. An entry with an open ``[CHECK]`` is not
+    kept: it stays in ``rest`` and is held to the settler's case 9 like any input."""
+    dropped, kept, rest = set(), [], []
+    for lst in lists:
+        out = []
+        for item in lst or ():
+            gone = notation_only(item, kind_of, tags_of)
+            if gone:
+                dropped.add(gone)
+            elif (definition_head(item) and not has_open_check(item)
+                  and is_definition(item, kind_of)):
+                kept.append(RE_NOTATION_MARK.sub("", " ".join(str(item).split())).strip())
+            else:
+                out.append(item)
+        rest.append(out)
+    return rest, sorted(dropped), merge_kept(kept)
+
+
+def _input_items(pending, run, kept):
+    """The items a pending input becomes: a ``verify-input``, or, for a kept definition
+    (``kept``), a ``definition-input`` naming the definition's id (review of 47ab60e,
+    finding 3: a definition has no status to verify; the human decides once whether it is
+    notation-only)."""
+    kept = set(kept or ())
+    return [{"run": run, "kind": "definition-input", "text": i,
+             "definition": definition_head(i) or i} if i in kept
+            else {"run": run, "kind": "verify-input", "text": i} for i in pending]
 
 
 # ----------------------------------------------------------------------------
@@ -881,10 +950,15 @@ def _result_head(item, subject="", canon=None):
     return "", False
 
 
-def input_facts(item, run, subject="", exists=None, links_of=None, canon=None):
+def input_facts(item, run, subject="", exists=None, links_of=None, canon=None,
+                kind_of=None):
     """The admissibility facts of one differing input (#121), what the dependency-settler
     needs and cannot work out itself: ``{input, run, shape, result, pointer, open_check,
-    exists, cycle}``.
+    exists, cycle, definition}``.
+
+    * ``definition``: the input names a definition (``is_definition``, its head token's
+      registry kind, ``kind_of``, else its label): no settler case drops it (the
+      definition rule, #103; ``settle_deps.py`` refuses by this fact).
 
     * ``open_check``: the input carries an open ``[CHECK ...]``; it never passes
       ``dependency_ok`` and is held to case 9 (``shape`` ``check`` whatever else it is).
@@ -928,7 +1002,8 @@ def input_facts(item, run, subject="", exists=None, links_of=None, canon=None):
     else:
         shape = "id"
     return {"input": s, "run": run, "shape": shape, "result": head, "pointer": pointer,
-            "open_check": check, "exists": known, "cycle": cycle}
+            "open_check": check, "exists": known, "cycle": cycle,
+            "definition": is_definition(s, kind_of)}
 
 
 def missing_verdict(path, a, b):
@@ -1153,10 +1228,11 @@ def _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, ba
             notes.append("a second record was given with a reword run: ignored (a reword "
                          "pass has one run, R)")
         return decide_reword(rec_a, ba, bb, established, primary, producer_role, kind_of,
-                             notes)
+                             notes, tags_of=tags_of)
     if is_amend(rec_b) or is_amend(rec_a) or _suggests(rec_a, primary) \
             or _suggests(rec_b, primary):
-        res = decide_amend(rec_a, rec_b, established, primary, producer_role, kind_of)
+        res = decide_amend(rec_a, rec_b, established, primary, producer_role, kind_of,
+                           tags_of=tags_of)
         _route_items(res, rec_a, rec_b, producer_role)
         return res
     res = _decide(rec_a, rec_b, established, primary, producer_role, kind_of, links_of,
@@ -1306,15 +1382,14 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
             return res
         # the definition rule (the human's ruling of 2026-11-20, #103): a definition either
         # run lists is an input of both, unless its registry record is tagged notation-only
-        defs = sorted({h for h in (notation_only(i, kind_of, tags_of)
-                                   for i in rec_a["modulo"] + rec_b["modulo"]) if h})
+        (la, lb), defs, kept = apply_definition_rule([rec_a["modulo"], rec_b["modulo"]],
+                                                     kind_of, tags_of)
         res["dropped_definitions"] = defs
-        la = [i for i in rec_a["modulo"] if not notation_only(i, kind_of, tags_of)]
-        lb = [i for i in rec_b["modulo"] if not notation_only(i, kind_of, tags_of)]
-        kept = kept_definitions(la + lb, kind_of)
-        res["kept_definitions"] = sorted(set(kept.values()))
-        ma = {kept.get(i, i) for i in la} | set(kept.values())
-        mb = {kept.get(i, i) for i in lb} | set(kept.values())
+        res["kept_definitions"] = kept
+        kd = set(kept)
+        # the kept definitions stay out of the comparison and the reduction (no case-4 drop
+        # through a definition, review of 47ab60e), and are added back to both lists after
+        ma, mb = set(la), set(lb)
         dnote = ("; notation-only definitions dropped from the modulo lists (not inputs, "
                  "the definition rule, #103): %s" % ", ".join(defs)) if defs else ""
         if res["kept_definitions"]:
@@ -1328,7 +1403,9 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
             res["modulo_lists"] = {"A": list(rec_a["modulo"]), "B": list(rec_b["modulo"])}
             res["dropped_inputs"] = red["dropped"]
             if red["differing"]:
-                _settle_dependencies(res, red, ma, subject, exists, links_of, canon, dnote)
+                red = dict(red, agreed=sorted(set(red["agreed"]) | kd))
+                _settle_dependencies(res, red, ma, subject, exists, links_of, canon, dnote,
+                                     kind_of)
                 # the grounds settle_deps.py completes (modulo, note) once the record is
                 # applied: the concluder proposes with grounds made in code (#121 part 3)
                 res["grounds_template"] = _grounds(recs, [], "", prod_role)
@@ -1341,6 +1418,7 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
                           ", ".join("%s (reached through %s, registry %s, case %d)"
                                     % (d["input"], d["via"], d["how"], d["case"])
                                     for d in red["dropped"])))
+        ma, mb = ma | kd, mb | kd
         if ma != mb:
             res["outcome"] = "disagreement"
             res["modulo"] = sorted(ma | mb)
@@ -1374,8 +1452,7 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
         res["recolour"] = not res["pending_inputs"]
         res["grounds"] = _grounds(recs, sorted(ma), "two CONFIRMED verdicts modulo %s"
                                   % ", ".join(sorted(ma)) + dnote, prod_role)
-        res["file_items"] = [{"run": "A+B", "kind": "verify-input", "text": i}
-                             for i in res["pending_inputs"]]
+        res["file_items"] = _input_items(res["pending_inputs"], "A+B", kept)
         res["summary"] = ("CONFIRMED x2 modulo %s: propose proved-modulo; %s"
                           % (", ".join(sorted(ma)),
                              "recolour earned (every input established)" if res["recolour"]
@@ -1398,7 +1475,8 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
     return res
 
 
-def _settle_dependencies(res, red, ma, subject, exists, links_of, canon, dnote=""):
+def _settle_dependencies(res, red, ma, subject, exists, links_of, canon, dnote="",
+                         kind_of=None):
     """#121: two CONFIRMED runs, no blocking step, whose modulo lists still differ after
     the mechanical reduction (``red``, from ``reduce_differing``): ``res`` filled as
     ``settle-dependencies``. No status and no ticket: the dependency-settler classifies
@@ -1408,7 +1486,8 @@ def _settle_dependencies(res, red, ma, subject, exists, links_of, canon, dnote="
     res["outcome"] = "settle-dependencies"
     res["modulo"] = list(red["agreed"])
     res["differing_inputs"] = [input_facts(x, "A" if x in ma else "B", subject, exists,
-                                           links_of, canon) for x in red["differing"]]
+                                           links_of, canon, kind_of)
+                               for x in red["differing"]]
     lists = res.get("modulo_lists") or {}
     gone = ("; dropped mechanically: %s" % ", ".join(
         "%s (reached through %s, case %d)" % (d["input"], d["via"], d["case"])
@@ -1542,7 +1621,7 @@ def _reword_grounds(rec_r, base_recs, modulo, note, prod_role):
 
 
 def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
-                  producer_role=None, kind_of=None, base_notes=()):
+                  producer_role=None, kind_of=None, base_notes=(), tags_of=None):
     """The reword table (T-0347). ``rec_r`` is the reword run's record (``mode:
     reword``); ``base_a`` / ``base_b`` the base pass's runs, both CONFIRMED on
     ``base_hash`` for the reword to carry anything.
@@ -1617,7 +1696,8 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
     bad = _base_problems(rec_r, base_a, base_b)
     base_res = None
     if not bad:
-        base_res = _decide(base_a, base_b, established, primary, producer_role, kind_of)
+        base_res = _decide(base_a, base_b, established, primary, producer_role, kind_of,
+                           tags_of=tags_of)
         res["base_outcome"] = base_res["outcome"]
         res["anomalies"].extend("base pass: " + a for a in base_res["anomalies"])
         if base_res["outcome"] not in ("confirmed", "confirmed-modulo"):
@@ -1631,9 +1711,14 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
                           "brief, or open a fresh blind pass")
         return res
 
-    res["dropped_definitions"] = base_res.get("dropped_definitions") or []
-    res["kept_definitions"] = base_res.get("kept_definitions") or []
-    mod = sorted(set(base_res["modulo"]) | set(rec_r["modulo"]))
+    # the definition rule on R's modulo too (nit (b) of the review of 47ab60e)
+    (r_rest,), r_dropped, r_kept = apply_definition_rule([rec_r["modulo"]], kind_of, tags_of)
+    base_kept = base_res.get("kept_definitions") or []
+    kept = merge_kept(list(base_kept) + r_kept)
+    res["dropped_definitions"] = sorted(set(base_res.get("dropped_definitions") or [])
+                                        | set(r_dropped))
+    res["kept_definitions"] = kept
+    mod = sorted((set(base_res["modulo"]) - set(base_kept)) | set(r_rest) | set(kept))
     base_recs = [base_a, base_b]
     how = ("reword run CONFIRMED (%s) on base pass %s%s, CONFIRMED x2 on %s"
            % (scope, rec_r.get("base_pass"),
@@ -1654,8 +1739,7 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
     res["recolour"] = not res["pending_inputs"]
     res["grounds"] = _reword_grounds(rec_r, base_recs, mod, "%s, modulo %s"
                                      % (how, ", ".join(mod)), prod_role)
-    res["file_items"] = [{"run": "R", "kind": "verify-input", "text": i}
-                         for i in res["pending_inputs"]]
+    res["file_items"] = _input_items(res["pending_inputs"], "R", kept)
     res["summary"] = ("%s, modulo %s: propose proved-modulo; %s"
                       % (how, ", ".join(mod), "recolour earned (every input established)"
                          if res["recolour"] else "stays sketch until %s are established"
@@ -1712,7 +1796,7 @@ def _amend_problems(rec_a, rec_b):
 
 
 def decide_amend(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
-                 kind_of=None):
+                 kind_of=None, tags_of=None):
     """The amend table (the human's design, 2026-11-20). ``rec_a`` is run A, CONFIRMED
     with ``add_dependency`` X; ``rec_b`` run B in amend mode (``mode: amend``,
     ``base_pass`` A's pass, ``base_hash`` A's statement hash, ``amended_with`` X), the
@@ -1835,7 +1919,11 @@ def decide_amend(rec_a, rec_b=None, established=(), primary=None, producer_role=
         res["outcome"] = "no-change"
         res["summary"] = "no status change: run B is %s" % (b or "missing")
         return res
-    mod = sorted(set(rec_a["modulo"]) | set(rec_b["modulo"]) | set(added))
+    # the definition rule, as in a blind pair (review of 47ab60e)
+    (la, lb), res["dropped_definitions"], kept = apply_definition_rule(
+        [rec_a["modulo"], rec_b["modulo"]], kind_of, tags_of)
+    res["kept_definitions"] = kept
+    mod = sorted(set(la) | set(lb) | set(added) | set(kept))
     res["modulo"] = mod
     res["pending_inputs"] = sorted(set(mod) - established)
     how = ("run A CONFIRMED (%s) suggesting %s, run B (amend, %s) CONFIRMED on the proof "
@@ -1853,8 +1941,7 @@ def decide_amend(rec_a, rec_b=None, established=(), primary=None, producer_role=
     res["proposed_status"] = "proved-modulo"
     res["grounds"] = _amend_grounds(rec_a, rec_b, mod, added, "%s, modulo %s"
                                     % (how, ", ".join(mod)), prod_role)
-    res["file_items"] = [{"run": "A+B", "kind": "verify-input", "text": i}
-                         for i in res["pending_inputs"]]
+    res["file_items"] = _input_items(res["pending_inputs"], "A+B", kept)
     res["summary"] = ("%s: propose proved-modulo %s; stays sketch until %s are established"
                       % (how, ", ".join(mod), ", ".join(res["pending_inputs"])))
     return res
