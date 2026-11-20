@@ -110,7 +110,9 @@ Never change a colour except by the landing rule above; never invent a key or a
 pinpoint; every judgement call gets a machine note (`honest-reporting`); the preamble
 follows `author.preamble.policy` (`preamble_guard`); no git writes.
 
-Record each ticket: `tickets_update` status `delivered` with `result` "<how>".
+Record each ticket: `tickets_update` status `delivered` with `result` "<how>". An edit you
+decline, or one gone stale, leaves no commit: open the result with its marker, `declined: <why>`
+or `no change: <why>` (`inbox.py --check` accepts a delivery with no commit only so, #100).
 
 **Report**, per ticket: what you did and where (file and label), before and after for
 every changed sentence in copy mode; the verbatim text of every machine note you

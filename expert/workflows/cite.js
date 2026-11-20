@@ -284,7 +284,8 @@ if (T && !c.reachable) {
   return await end()
 }
 if (T) {
-  const result = `${c.key}, ${c.pinpoint || 'no pinpoint'}, verdict ${c.verdict}, card ${c.card}`.replace(/"/g, "'")
+  // the card first (#100 review: the result is cut at 240 characters, and --check reads the card from it)
+  const result = `card ${c.card}; ${c.key}, ${c.pinpoint || 'no pinpoint'}, verdict ${c.verdict}`.replace(/"/g, "'")
   const m = await clerk('move', [`ticket: ${T}`, ask.instance ? `act as: ${ask.instance}` : '',
     `deliver: deliver: true with result "${result.slice(0, 240)}"` + (out.packet ? ` and fields.packets [${out.packet}]` : '')], MOVE, 'deliver', 'Land')
   out.ticket_delivered = !!(m && m.ok)

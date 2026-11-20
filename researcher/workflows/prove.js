@@ -374,7 +374,7 @@ if (forVerify) {
 }
 if (/^proved$/.test(st.status) && !repair) {
   return Object.assign(out, { outcome: 'already-proved', already_proved: true,
-    reason: `${A.claim} is proved and the ticket asks for no repair: nothing attempted, the ticket left as it was (rerun with mode repair, or deliver or cancel it)` })
+    reason: `${A.claim} is proved and the ticket asks for no repair: nothing attempted, the ticket left as it was (rerun with mode repair, or deliver it with a result starting "already proved: ", the marker --check accepts for no attempt (#100), or cancel it)` })
 }
 // #117: a falsifier on a declared input or the parent lead counts when it covers the claim, and
 // so does the human's waiver; checked in code against what the stage reported. Since 2026-11-20

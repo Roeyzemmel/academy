@@ -81,8 +81,8 @@ class ProveArtefact(Workspace):
         self.assertTrue(r["ok"], r)
 
     def test_no_attempt_named_is_missing(self):
-        # #85 / T-0714: "already proved: nothing to attempt"
-        r = self.check(ticket(result="flat:KDC-9 is already proved: nothing to attempt"))
+        # T-0700: the clerk's "<title>: none (T-...)", nothing behind it
+        r = self.check(ticket(result="T-0042: record the answers: none (T-0042)"))
         self.assertFalse(r["ok"])
         self.assertIn("proof attempt", r["need"])
 
@@ -176,6 +176,82 @@ class OtherKinds(Workspace):
             self.assertTrue(self.check(ticket(status=st, result="nothing"))["ok"], st)
 
 
+class ReviewOfDd0fcd1(Workspace):
+    """The review against the real board: cite and experiment results as the workflows write
+    them, deliveries with no artefact on purpose, hashes in prose."""
+
+    def test_cite_resolves_the_card_from_the_key(self):
+        m = ticket(kind="cite", to="expert@x", refs=["paper:lem:x"],
+                   result="Ve89, Theorem (1.1), pp. 553-554, case n = 5 (" + "x" * 300)
+        self.assertFalse(self.check(m)["ok"])
+        write(os.path.join(self.lib, "cards", "Ve89", "_intro.md"))
+        self.assertFalse(self.check(m)["ok"])                     # an intro is no card
+        write(os.path.join(self.lib, "cards", "Ve89", "theorem-1-1.md"))
+        self.assertTrue(self.check(m)["ok"])
+        m = ticket(kind="cite", to="expert@x", refs=["bib:Mo06"], result="verdict partial")
+        self.assertFalse(self.check(m)["ok"])
+        write(os.path.join(self.lib, "cards", "Mo06", "theorem-2-6.md"))
+        self.assertTrue(self.check(m)["ok"])
+
+    def test_experiment_accepts_its_report_packet_or_a_header_naming_the_ticket(self):
+        board = os.path.join(self.root, "board")
+        self.ws["board"] = board
+        m = ticket(kind="experiment", to="scientist@x", result="report P-0345; review ticket T-1155")
+        self.assertFalse(self.check(m)["ok"])
+        write(os.path.join(board, "packets", "scientist@x", "P-0345-report.md"), "---\nid: P-0345\n---\n")
+        self.assertTrue(self.check(m)["ok"])
+        m = ticket(kind="experiment", to="scientist@x", result="Not found: 8225 instances")
+        self.assertFalse(self.check(m)["ok"])
+        write(os.path.join(self.lab, "experiments", "2026-11-01_x.py"), '"""Ticket: T-00420\n"""')
+        self.assertFalse(self.check(m)["ok"])                     # another ticket
+        write(os.path.join(self.lab, "experiments", "2026-11-02_y.py"), '"""Ticket: T-0042\n"""')
+        self.assertTrue(self.check(m)["ok"])
+
+    def test_a_result_that_says_why_there_is_no_artefact_passes_with_its_marker(self):
+        self.ws["human"] = {"name": "Ada"}
+        git(self.root, "init", "-q", "-b", "main")               # the commit kinds are checked
+        for kind, result, marker in (
+                ("apply", "Declined, all four edits, nothing changed", "declined"),
+                ("apply", "Both edits declined, no tex or registry change", "both edits declined"),
+                ("apply", "Not applied (stale): the remark is now item x", "not applied"),
+                ("apply", "No tex change: the ticket only asks to hold it", "no tex change"),
+                ("apply", "Nothing applied, tex untouched", "nothing applied"),
+                ("prove", "s1:GEO-67 is already proved: nothing to attempt", "already proved"),
+                ("experiment", "dropped: Ada dropped the search", "dropped"),
+                ("figure", "Already in the file (from T-1237): remark", "already in the file"),
+                ("apply", "Ada replied 'Good!' (markings.tex:28)", "the decision of Ada"),
+                ("experiment", "Falsify step, by argument (Ada accepts it)", "the decision of Ada")):
+            r = self.check(ticket(kind=kind, to="author@p", result=result))
+            self.assertTrue(r["ok"], (kind, result, r))
+            self.assertEqual(r["marker"], marker, result)
+        r = self.check(ticket(kind="prove", result="T-0700: record the answers: none (T-0700)"))
+        self.assertFalse(r["ok"])                                 # nothing behind it, no reason
+        self.assertIsNone(r["marker"])
+
+    def test_a_bare_attempt_number_beside_the_claim_it_names(self):
+        write(os.path.join(self.nb, "proofs", "PIR", "attempt-1.md"), "---\noutcome: complete\n---\n")
+        self.assertTrue(self.check(ticket(result="proved (sketch) in nb:PIR, attempt-1; verify T-1"))["ok"])
+        # the result's own id wins over one of its refs (T-1180)
+        write(os.path.join(self.nb, "proofs", "PER-7", "attempt-1.md"), "---\noutcome: in-progress\n---\n")
+        r = self.check(ticket(result="nb:PER-7 (attempt-1 in-progress): a derivation", refs=["nb:PIR"]))
+        self.assertFalse(r["ok"], r)
+        self.assertIn("in-progress", r["why"])
+
+    def test_a_hash_in_prose_resolves_in_a_home_outside_the_root(self):
+        home = tempfile.mkdtemp(prefix="acad-home-")
+        self.addCleanup(shutil.rmtree, home, True)
+        git(home, "init", "-q", "-b", "main")
+        write(os.path.join(home, "a.tex"), "a")
+        git(home, "add", "a.tex")
+        git(home, "commit", "-q", "-m", "re-cut")
+        sha = git(home, "rev-parse", "--short=7", "HEAD").strip()
+        git(self.root, "init", "-q", "-b", "main")
+        self.ws["instances"]["author@p"]["home"] = home
+        m = ticket(kind="copy", to="author@p", result="Re-cut: 2026-10-26/pr27-recut/author @ %s." % sha)
+        r = self.check(m)
+        self.assertTrue(r["ok"], r)
+
+
 class PartialStatus(unittest.TestCase):
     def test_partial_is_a_status_with_its_transitions(self):
         self.assertIn("partial", ac.TICKET_STATUSES)
@@ -220,6 +296,30 @@ class PartialStatus(unittest.TestCase):
         self.assertIn("partial", core.SHIP_STATES)
 
 
+class PartialComesBackToItsSender(unittest.TestCase):
+    """Review of dd0fcd1, point 6: a partial ticket an instance sent is a return row of that
+    instance's inbox; one the human sent is not (desk, /academy:decide)."""
+
+    def test_the_senders_inbox_takes_it(self):
+        board = tempfile.mkdtemp(prefix="acad-pr-")
+        self.addCleanup(shutil.rmtree, board, True)
+        for tid, frm, to, status in (("T-0001", "researcher@nb", "scientist@x", "partial"),
+                                     ("T-0002", "human", "scientist@x", "partial"),
+                                     ("T-0003", "researcher@nb", "scientist@x", "delivered"),
+                                     ("T-0004", "researcher@nb", "researcher@nb", "partial")):
+            m = ticket(tid=tid, frm=frm, to=to, status=status, kind="experiment", result="half")
+            os.makedirs(os.path.join(board, to), exist_ok=True)
+            ac.atomic_write(os.path.join(board, to, ac.ticket_filename(tid, "t")), ac.new_ticket(m))
+        rows, total = core.select(board, "researcher@nb", 3)
+        self.assertEqual([r["id"] for r in rows], ["T-0001"])
+        r = rows[0]
+        self.assertTrue(r["partial"] and r["return"])
+        self.assertEqual(r["route"]["target"], "lead-researcher")
+        self.assertIn("reopen", r["route"]["why"])
+        self.assertTrue(core.takeable(r))
+        self.assertEqual(core.select(board, "researcher@nb", 3, return_legs=False)[0], [])
+
+
 class CheckRefuses(unittest.TestCase):
     """``inbox.py --check`` on a delivered prove ticket, against a file board."""
 
@@ -251,13 +351,29 @@ class CheckRefuses(unittest.TestCase):
             ac.load_workspace = orig_ws
         return rc, out.getvalue()
 
-    def test_a_delivered_prove_without_an_attempt_is_refused(self):
-        self.put(ticket(to="researcher@nb", result="already proved: nothing to attempt"))
+    def test_a_delivered_prove_without_an_attempt_is_moved_to_partial(self):
+        """Review of dd0fcd1, point 5: the refusal moves the ticket to partial itself (as its
+        receiver, a thread note naming what is missing) and the check is then settled."""
+        self.put(ticket(to="researcher@nb", result="T-0042: prove it: none (T-0042)"))
         rc, out = self.run_check()
-        self.assertEqual(rc, 3, out)
-        self.assertTrue(out.startswith("T-0042: unfinished (delivered, no artefact)"), out)
-        self.assertIn("partial", out)
-        self.assertIn("proof attempt", out)
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(out.startswith("T-0042: partial (partial); no artefact: a prove "
+                                       "ticket without a proof attempt"), out)
+        self.assertIn("moved delivered -> partial", out)
+        _ref, meta, body = ac.as_store(self.board).get("T-0042")
+        self.assertEqual(meta["status"], "partial")
+        self.assertIn("researcher@nb/inbox-check: no artefact: a prove ticket without a proof "
+                      "attempt", body)
+        self.assertIn("researcher@nb/inbox-check: status delivered -> partial", body)
+        self.assertEqual(ac.validate_ticket(meta, body), [])
+
+    def test_a_delivery_with_a_marker_passes_and_warns(self):
+        self.put(ticket(to="researcher@nb", result="already proved: s1:GEO-1, nothing to attempt"))
+        rc, out = self.run_check()
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(out.startswith("T-0042: delivered (delivered)"), out)
+        self.assertIn("WARN: T-0042 delivered without a proof attempt", out)
+        self.assertIn("'already proved'", out)
 
     def test_a_delivered_prove_with_its_attempt_passes(self):
         write(os.path.join(self.nb, "proofs", "GEO-3", "attempt-1.md"),
@@ -275,8 +391,10 @@ class CheckRefuses(unittest.TestCase):
 
     def test_the_workspace_can_switch_it_off(self):
         self.ws["artefactCheck"] = False
-        self.put(ticket(to="researcher@nb", result="already proved"))
-        self.assertEqual(self.run_check()[0], 0)
+        self.put(ticket(to="researcher@nb", result="T-0042: none"))
+        rc, out = self.run_check()
+        self.assertEqual(rc, 0)
+        self.assertTrue(out.startswith("T-0042: delivered (delivered)"), out)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ import subprocess
 
 from ._base import HUMAN, ROLES
 from ._files import read_frontmatter
-from ._tickets import role_of
+from ._tickets import find_packet, role_of
 
 #: attempt outcomes (the attempt's frontmatter ``outcome:``) that are not a proof delivered
 NOT_DELIVERED_OUTCOMES = ("incomplete", "failed", "in-progress")
@@ -26,6 +26,22 @@ NOT_DELIVERED_OUTCOMES = ("incomplete", "failed", "in-progress")
 _RE_TOKEN = re.compile(r"[^\s;,'\"()\[\]<>`]+")
 _RE_FILE_REF = re.compile(r"^file:([^/\s]+)/(.+)$")
 _RE_SHA = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")
+_RE_PACKET = re.compile(r"(?<![A-Za-z0-9])P-\d{4,}(?![0-9])")
+#: a bib key as the library names its card folders (``Ve89``, ``LMW16``, ``Fil16b``)
+_RE_KEY = re.compile(r"(?<![A-Za-z0-9])(?:bib:)?([A-Z][A-Za-z]*\d{2}[a-z]?(?:-published)?)(?![A-Za-z0-9])")
+#: a bare ``attempt-<n>`` in prose (T-0059: "proved (sketch) in <claim>, attempt-1")
+_RE_ATTEMPT_N = re.compile(r"(?<![\w/])attempt-(\d+)(?![\w.])")
+_RE_ID = re.compile(r"(?<![\w:/-])((?:[a-z][a-z0-9]*:)?[A-Za-z][\w.-]*(?::[\w.-]+)*)")
+
+#: #100 review: a delivery with no artefact on purpose says so first, in its result:
+#: declined or stale edits, a claim already proved, a search the human dropped. The check
+#: passes such a result and warns, naming the marker. The workflows and agents write
+#: ``<marker>: <why>`` (``declined:``, ``already proved:``, ``dropped:``, ...).
+NO_ARTEFACT_MARKERS = re.compile(
+    r"^\s*(?:\S+ is )?(?P<m>no change|no tex change|no edits? made|nothing (?:applied|changed|to "
+    r"attempt|to do)|not applied|(?:both |all )?(?:edits? )?declined|already (?:proved|in the file|"
+    r"done|landed|recorded)|superseded|dropped|not needed|no search(?: run)?|no computation|no attempt)"
+    r"\b", re.I)
 
 
 def _texts(meta, body):
@@ -99,12 +115,59 @@ def _named_file(meta, texts, workspace, pattern, role):
                   else "none named in the result, refs or ## Result")
 
 
+def no_artefact_marker(meta, workspace=None):
+    """The marker that opens the ticket's result when it was delivered with no artefact on
+    purpose (``NO_ARTEFACT_MARKERS``), or the human's decision quoted in it ("(<name>, <date>: ...", "<name> replied ..."), the
+    name the workspace's ``human.name``; None otherwise."""
+    result = " ".join(str(meta.get("result") or "").split())
+    m = NO_ARTEFACT_MARKERS.match(result)
+    if m:
+        return m.group("m").lower()
+    name = str(((workspace or {}).get("human") or {}).get("name") or "").strip()
+    if name and re.search(r"^%s\b|\(%s\b" % (re.escape(name), re.escape(name)), result[:240]):
+        return "the decision of %s" % name
+    return None
+
+
+def _bare_attempts(texts, workspace, homes):
+    """The attempt files a result names as ``<id>, attempt-<n>`` or ``attempt-<n>`` beside an
+    id of its refs: ``proofs/<id>/attempt-<n>.md`` (the id as is, then without namespace)."""
+    nums = sorted({n for t in texts for n in _RE_ATTEMPT_N.findall(t)})
+    if not nums:
+        return []
+    # the ids of the result first: an attempt of an id the result names is the one meant
+    # (T-1180: "<claim> (...; attempt-1 in-progress)", its refs naming another claim)
+    found = _bare_attempts_of(texts[:1], nums, homes)
+    return found or _bare_attempts_of(texts[1:], nums, homes)
+
+
+def _bare_attempts_of(texts, nums, homes):
+    ids = []
+    for t in texts:
+        for x in _RE_ID.findall(t):
+            for cand in (x, x.split(":", 1)[1] if ":" in x else x):
+                cand = cand.rstrip(".:")
+                if cand and cand not in ids and not cand.startswith("attempt-"):
+                    ids.append(cand)
+    out = []
+    for i in ids:
+        for n in nums:
+            for h in homes:
+                p = os.path.join(h, "proofs", i, "attempt-%s.md" % n)
+                if os.path.isfile(p) and p not in out:
+                    out.append(p)
+    return out
+
+
 def check_prove(meta, texts, workspace):
     """A proof attempt (``proofs/<ID>/attempt-<n>.md``) named and present, whose
     frontmatter ``outcome:`` (when it has one) is not incomplete, failed or in-progress."""
     homes = _homes(workspace, "researcher", first=meta.get("to"))
     bad, missing = [], []
-    for inst, p in _named(texts, r"proofs/.+?/attempt-\d+\.md"):
+    named = _named(texts, r"proofs/.+?/attempt-\d+\.md")
+    if not named:
+        named = [(None, p) for p in _bare_attempts(texts, workspace, homes)]
+    for inst, p in named:
         full = _resolve(workspace, inst, p, homes)
         if not full:
             missing.append(p)
@@ -141,15 +204,60 @@ def check_verify(meta, texts, workspace):
 
 
 def check_cite(meta, texts, workspace):
-    """A library card (``cards/<key>/<slug>.md``) named and present."""
-    return _named_file(meta, texts, workspace, r"cards/.+?\.md", "expert")
+    """A library card: a ``cards/<key>/<slug>.md`` named and present, else a card file in
+    ``cards/<key>/`` (not ``_intro.md``) of a key the refs (``bib:<key>``) or the result
+    name (the cite workflow's result leads with the key and the pinpoint, #100 review)."""
+    found, why = _named_file(meta, texts, workspace, r"cards/.+?\.md", "expert")
+    if found:
+        return found, why
+    keys = []
+    for t in texts:
+        for k in _RE_KEY.findall(t):
+            if k not in keys:
+                keys.append(k)
+    for h in _homes(workspace, "expert", first=meta.get("to")):
+        for k in keys:
+            d = os.path.join(h, "cards", k)
+            cards = sorted(n for n in os.listdir(d) if n.endswith(".md") and n != "_intro.md") \
+                if os.path.isdir(d) else []
+            if cards:
+                return os.path.join(d, cards[-1]), "a card of %s in the library" % k
+    return None, ("no card of %s in the library" % ", ".join(keys) if keys
+                  else "no card path and no bib key named")
 
 
 def check_experiment(meta, texts, workspace):
     """An experiment header (``experiments/<stem>.py``) or a result JSON
-    (``results/....json``) of the lab, named and present."""
-    return _named_file(meta, texts, workspace, r"(?:experiments/.+?\.py|results/.+?\.json)",
-                       "scientist")
+    (``results/....json``) of the lab, named and present; else a report packet
+    (``P-NNNN``) the result names that exists on the board (the experiment workflow's
+    "report P-NNNN; review ticket T-..."), else an ``experiments/*.py`` whose header (its
+    first 4 KB) names the ticket."""
+    found, why = _named_file(meta, texts, workspace,
+                             r"(?:experiments/.+?\.py|results/.+?\.json)", "scientist")
+    if found:
+        return found, why
+    board = (workspace or {}).get("board")
+    if board:
+        for t in texts:
+            for pid in _RE_PACKET.findall(t):
+                try:
+                    path = find_packet(board, pid)
+                except Exception:                    # noqa: BLE001 -- twins: it exists
+                    path = pid
+                if path:
+                    return path, "the report packet %s" % pid
+    tid = str(meta.get("id") or "")
+    word = re.compile(r"(?<![A-Za-z0-9])%s(?![0-9])" % re.escape(tid)) if tid else None
+    for h in _homes(workspace, "scientist", first=meta.get("to")):
+        for f in sorted(glob.glob(os.path.join(h, "experiments", "*.py"))):
+            try:
+                with open(f, encoding="utf-8", errors="replace") as fh:
+                    head = fh.read(4096)
+            except OSError:
+                continue
+            if word and word.search(head):
+                return f, "an experiment header naming %s" % tid
+    return None, why + "; no report packet named, no experiment header names %s" % tid
 
 
 def _git(repo, *args):
@@ -165,8 +273,9 @@ def _git(repo, *args):
     return p.returncode, p.stdout
 
 
-def _repos(root):
-    """The workspace's superproject and its checked-out submodules (``.gitmodules``)."""
+def _repos(root, workspace=None):
+    """The workspace's superproject, its checked-out submodules (``.gitmodules``) and the
+    instances' homes (an attached checkout outside the root), each once."""
     out = [root]
     try:
         with open(os.path.join(root, ".gitmodules"), encoding="utf-8") as fh:
@@ -176,7 +285,14 @@ def _repos(root):
                     out.append(os.path.join(root, m.group(1)))
     except OSError:
         pass
-    return [r for r in out if os.path.exists(os.path.join(r, ".git"))]
+    out += _homes(workspace)
+    seen, repos = set(), []
+    for r in out:
+        k = os.path.realpath(r)
+        if k not in seen and os.path.exists(os.path.join(r, ".git")):
+            seen.add(k)
+            repos.append(r)
+    return repos
 
 
 def check_commit(meta, texts, workspace):
@@ -186,7 +302,7 @@ def check_commit(meta, texts, workspace):
     if not workspace or not workspace.get("_path"):
         return "", "not checked (no workspace)"
     root = os.path.dirname(os.path.realpath(workspace["_path"]))
-    repos = _repos(root)
+    repos = _repos(root, workspace)
     if not repos:
         return "", "not checked (the workspace is no git checkout)"
     tid = str(meta.get("id") or "")
@@ -239,7 +355,7 @@ def delivery_artefact(meta, body=None, workspace=None):
     the table pass."""
     kind = meta.get("kind")
     need, fn = ARTEFACTS.get(kind, ("", None))
-    res = {"ok": True, "kind": kind, "need": need, "found": None, "why": ""}
+    res = {"ok": True, "kind": kind, "need": need, "found": None, "why": "", "marker": None}
     if meta.get("status") != "delivered":
         res["why"] = "not delivered: not checked"
     elif fn is None:
@@ -251,4 +367,9 @@ def delivery_artefact(meta, body=None, workspace=None):
     else:
         found, why = fn(meta, _texts(meta, body), workspace)
         res.update(ok=found is not None, found=found or None, why=why)
+        if not res["ok"]:
+            marker = no_artefact_marker(meta, workspace)
+            if marker:
+                res.update(ok=True, marker=marker,
+                           why="no artefact, on purpose: the result says %r (%s)" % (marker, why))
     return res

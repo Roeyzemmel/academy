@@ -2,7 +2,9 @@
 CLI, the MCP tool, the GitHub codec, the desk and /academy:decide."""
 
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -97,6 +99,62 @@ class BoardCli(DecisionsCase):
 
     def test_a_workplan_counts_partial_as_done(self):
         self.assertIn("partial", workplan.TERMINAL)
+
+
+class PartialLabel(unittest.TestCase):
+    """Review of dd0fcd1, point 7: ``status:partial`` is created at the first partial write,
+    idempotently (the mock transport; board_gh's 422 already_exists)."""
+
+    def setUp(self):
+        import board_store as bs
+        from test_board_store import StoreCase  # noqa: F401
+        self.bs = bs
+        self.tmp = tempfile.mkdtemp(prefix="acad-label-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.board = os.path.join(self.tmp, "board")
+        folder = os.path.join(self.board, "expert@t")
+        os.makedirs(folder)
+        meta = {"id": "T-0020", "title": "t", "kind": "verify", "from": "author@t",
+                "to": "expert@t", "status": "in-progress", "priority": "normal", "ask": "a",
+                "deliverable": "d", "refs": [], "blocks": [], "waiting_on": [],
+                "budget": {"runs": 1}, "packets": [], "created": DATE, "updated": DATE}
+        ac.atomic_write(os.path.join(folder, ac.ticket_filename("T-0020", "t")), ac.new_ticket(meta))
+        self.t = bs.from_file_board(self.board)
+        self.gh = bs.GithubBoardStore(self.t, "o/r")
+
+    def creates(self):
+        return [c for c in self.t.calls if c[0] == "create_label"]
+
+    def test_the_first_partial_write_creates_the_label_once(self):
+        self.assertNotIn("status:partial", self.t.labels)
+        bd.transition_ticket(self.gh, "T-0020", "partial", result="run A only",
+                             as_instance="expert@t", date=DATE)
+        self.assertIn("status:partial", self.t.labels)
+        bd.append_to_ticket(self.gh, "T-0020", "a note", as_instance="expert@t", date=DATE)
+        self.assertEqual(len(self.creates()), 1)
+
+    def test_a_label_that_exists_is_fine(self):
+        self.t.labels["status:partial"] = {"name": "status:partial", "color": "x", "description": ""}
+        bd.transition_ticket(self.gh, "T-0020", "partial", result="run A only",
+                             as_instance="expert@t", date=DATE)
+        self.assertEqual(self.gh.get("T-0020")[1]["status"], "partial")
+
+    def test_board_gh_create_label_is_idempotent(self):
+        import board_gh as bg
+
+        class T(bg.GhTransport):
+            def __init__(self):
+                pass
+
+            def api(self, method, path, payload=None, missing_ok=False):
+                raise bg.GhError("exists", 422, '{"errors": [{"code": "already_exists"}]}')
+        self.assertIsNone(T().create_label("status:partial"))
+
+        class U(T):
+            def api(self, method, path, payload=None, missing_ok=False):
+                raise bg.GhError("bad", 403, "")
+        with self.assertRaises(bg.GhError):
+            U().create_label("status:partial")
 
 
 class Mcp(McpTestBase):

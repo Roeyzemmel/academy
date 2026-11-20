@@ -214,8 +214,15 @@ class GhTransport(object):
             page += 1
 
     def create_label(self, name, color="ededed", description=""):
-        return self.api("POST", "labels", {"name": name, "color": color,
-                                           "description": description})
+        """Create label ``name``; None when it exists already (GitHub's 422
+        ``already_exists``): idempotent, as the partial status's first write needs (#100)."""
+        try:
+            return self.api("POST", "labels", {"name": name, "color": color,
+                                               "description": description})
+        except GhError as exc:
+            if exc.status == 422 and "already_exists" in exc.error_codes():
+                return None
+            raise
 
     def set_parent(self, number, parent):
         """Make ``number`` a sub-issue of ``parent``, replacing any parent it had."""
