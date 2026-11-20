@@ -49,7 +49,11 @@ list its text names, a wait / split / other files nothing, and ``action`` names 
 by what it does (refused when it disagrees with the letter). A re-run is filed even when
 an earlier, different answer was acted on (T-0979: the keeper set a status on (a)); the
 thread says the earlier status stands until the new pass decides. Any other answer over
-such an earlier one is refused unless ``force``.
+such an earlier one is refused unless ``force``; an earlier answer with no letter (a bare
+``proceed``) that was acted on counts as different. An own accept option takes the list
+it names ("proved-modulo [..]", or a plain "proved"), refused when it names none. A
+decline is always recorded (the ruling is rejected) and undoes nothing. Options count
+only when presented (``_presented``), each with its own text, the last run winning.
 """
 
 import glob
@@ -406,7 +410,7 @@ ACTIONS = {"rerun": "rerun", "re-run": "rerun", "accept": "accept", "wait": "wai
 
 def kind_of(which):
     """The action class of an answer: union and intersection are both an accept."""
-    return "accept" if which in ("union", "intersection") else which
+    return "accept" if which in ("union", "intersection", "listed") else which
 
 
 #: words that present a list of options just before its "(a)"
@@ -560,21 +564,38 @@ def pick_own(own, choice, action, tid):
     return hits[0], kind_of(act), own[hits[0]], act
 
 
+#: an explicit modulo list in an option's text: "proved-modulo [x, y]", "modulo `[x]`"
+RE_LISTED = re.compile(r"(?i)\bmodulo\b[\s`]*\[([^\]]*)\]")
+
+
 def _accept_list(r, text):
-    """Which modulo list (union or intersection) an own 'accept' option names."""
+    """``(which, modulo)``: the list an own 'accept' option takes. An explicit "modulo
+    [...]" list is taken as written (named union / intersection when it is one of them,
+    else ``listed``); else the words union / intersection; else a run list all of whose
+    items the text names; else a plain "proved" (no modulo). Anything else is refused: the
+    human states the list (review 5)."""
     low = text.lower()
+    ns = str(r.get("subject") or "")
+    m = RE_LISTED.search(text)
+    if m:
+        lst = modulo_list(m.group(1), ns)
+        for which in ("intersection", "union"):
+            if set(lst) == set(r[which]):
+                return which, list(r[which])
+        return "listed", lst
     if ("union" in low) != ("intersection" in low):
-        return "union" if "union" in low else "intersection"
+        which = "union" if "union" in low else "intersection"
+        return which, list(r[which])
     if r["union"] and all(x in text for x in r["union"]):
-        return "union"
+        return "union", list(r["union"])
     if r["intersection"] and all(x in text for x in r["intersection"]):
-        return "intersection"
-    if not r["intersection"] and re.search(r"\bproved\b(?!-)", low):
-        return "intersection"                       # "take proved": the empty intersection
+        return "intersection", list(r["intersection"])
+    if re.search(r"\bproved\b(?!-)", low):          # "take proved": no modulo
+        return ("intersection", []) if not r["intersection"] else ("listed", [])
     raise ac.AcademyError(
-        "%s: the ticket's own option %r does not say which modulo list it takes (union %s, "
-        "intersection %s); answer with --action union or --action intersection"
-        % (r["id"], text, _fmt(r["union"]), _fmt(r["intersection"])))
+        "%s: the ticket's own option %r names no modulo list and no plain 'proved'; nothing "
+        "is recorded: the human must state the list (the runs' lists, for reference: union "
+        "%s, intersection %s)" % (r["id"], text, _fmt(r["union"]), _fmt(r["intersection"])))
 
 
 def resolve(r, meta, body, choice, action=None):
@@ -588,13 +609,14 @@ def resolve(r, meta, body, choice, action=None):
             and not any(classify(v) == act for v in own.values())):
         # a re-run (or a decline) is always an answer to a ruling, even when none of the
         # ticket's own options is one (T-0981); "-" is no letter, so none is misread
-        return {"letter": "-", "which": act, "option": None}
+        return {"letter": "-", "which": act, "option": None, "modulo": None}
     if own:
         letter, cls, text, act = pick_own(own, choice, action, r["id"])
         if cls == "accept":
-            which = act if act in ("union", "intersection") else _accept_list(r, text)
+            which, modulo = ((act, list(r[act])) if act in ("union", "intersection")
+                             else _accept_list(r, text))
         else:
-            which = cls
+            which, modulo = cls, None
     else:
         if act in ("accept", "wait", "split"):
             raise ac.AcademyError(
@@ -611,17 +633,26 @@ def resolve(r, meta, body, choice, action=None):
         if not which:
             raise ac.AcademyError("%s: name the answer with --choice or --action" % r["id"])
         letter, text = LETTER[which], None
-    if r.get("no_status") and which in ("union", "intersection"):
-        parse_choice(which, r)                                  # raises: no status to give
-    return {"letter": letter, "which": which, "option": text}
+        modulo = list(r[which]) if which in ("union", "intersection") else None
+    if r.get("no_status") and which in ("union", "intersection", "listed"):
+        parse_choice("union", r)                                # raises: no status to give
+    return {"letter": letter, "which": which, "option": text, "modulo": modulo}
 
 
-def grounds(r, which, quote=""):
-    modulo = list(r[which])
+def _what(which, letter):
+    """How an accept answer reads in a note: the union / intersection of the runs' lists,
+    or the list the ticket's own option names."""
+    if which == "listed":
+        return "(%s) the modulo list the ruling's own option names" % letter
+    return "(%s) the %s of both runs' modulo lists" % (letter or LETTER[which], which)
+
+
+def grounds(r, which, quote="", modulo=None, letter=None):
+    modulo = list(r[which]) if modulo is None else list(modulo)
     g = {"basis": "proof", "verdicts": [dict(v) for v in r["verdicts"]],
          "producer_role": r["producer_role"], "statement_hash": r["statement_hash"],
-         "note": "the human's ruling %s: (%s) the %s of both runs' modulo lists%s"
-                 % (r["id"], LETTER[which], which, (" -- " + quote) if quote else "")}
+         "note": "the human's ruling %s: %s%s"
+                 % (r["id"], _what(which, letter), (" -- " + quote) if quote else "")}
     if modulo:
         g["modulo"] = modulo
     return g
@@ -686,8 +717,9 @@ def follow_up_of(board, tid, body=None):
     return (f[0], f[1]) if f else None
 
 
-def plan(r, which, comment=""):
-    """The follow-up ticket's fields for answer ``which`` (no write), or None for decline."""
+def plan(r, which, comment="", modulo=None, letter=None):
+    """The follow-up ticket's fields for answer ``which`` (no write), or None for decline.
+    ``modulo`` / ``letter``: the list and letter of an own option (``which`` ``listed``)."""
     quote = " ".join(str(comment or "").split())
     vrefs = [v["ref"] for v in r["verdicts"]]
     refs = [r["subject"], r["id"]] + [p for p in r["packets"] if p not in (r["subject"],)] + vrefs
@@ -705,9 +737,9 @@ def plan(r, which, comment=""):
                              ("\n\nThe dependency-settler stopped (S.json, S.md in the pass "
                               "folder): %s. Re-run once the statement is reworded or the proof "
                               "repaired." % _stops_text(r)) if r.get("stops") else "")}
-    if which not in ("union", "intersection"):
+    if which not in ("union", "intersection", "listed"):
         return None
-    g = grounds(r, which, quote)
+    g = grounds(r, which, quote, modulo, letter)
     status = _target(g.get("modulo"))
     return {"to": r["keeper"], "kind": "decision",
             "title": "Status of %s -> %s (ruling %s)" % (r["subject"], status, r["id"]),
@@ -719,8 +751,8 @@ def plan(r, which, comment=""):
                            "the reason.",
             "refs": refs,
             "detail": "\n\n".join(p for p in [
-                "The human's answer on %s: (%s) the %s of both runs' modulo lists%s."
-                % (r["id"], LETTER[which], which, (" -- \"%s\"" % quote) if quote else ""),
+                "The human's answer on %s: %s%s."
+                % (r["id"], _what(which, letter), (" -- \"%s\"" % quote) if quote else ""),
                 "Pass `%s` of the Expert %s: A and B CONFIRMED on statement hash %s. "
                 "A lists %s; B lists %s." % (r["pass_dir"], r["expert"], r["statement_hash"],
                                             _fmt(r["modulo_lists"]["A"]),
@@ -903,7 +935,7 @@ def record(board, r, choice, comment="", workspace=None, date=None, ticket=None,
     if match:
         new, how = _best(match)[:2]
     elif cls in ("accept", "rerun"):
-        spec = plan(r, which, comment)
+        spec = plan(r, which, comment, pick["modulo"], letter)
         _p, stored = boardlib.create_ticket(
             board, spec["to"], spec["title"], spec["ask"], spec["deliverable"],
             kind=spec["kind"], priority=r["priority"], refs=spec["refs"], parent=tid,

@@ -62,7 +62,12 @@ phrases the questions. Neither one asks the human or records on its own.
    is refused, naming the ticket's options. A re-run always files its `verify` ticket,
    even when the claim-keeper acted on an earlier ruling (whose status stands until the
    new pass decides; a thread line says so); any other answer over an earlier, different
-   one that was acted on is refused unless the human confirms it (`--force`).
+   one that was acted on (an answer with no letter, a bare `proceed`, counts as different)
+   is refused unless the human confirms it (`--force`). An own accept option takes the
+   list it names (`proved-modulo [..]`, or plain `proved`); one naming no list is refused,
+   and the human states the list. A decline is always recorded (the ruling is rejected)
+   and undoes nothing already done. Options count only when presented as such (after
+   "Options", "Choose", "Please rule", a ':' or a '?'), each with its own text.
    `decisions.py stalled-rulings` lists rulings answered but not delivered (no
    follow-up yet, or a record interrupted); `record <id> --choice <a-c>` files or
    completes theirs.

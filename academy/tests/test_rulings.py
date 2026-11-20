@@ -587,9 +587,14 @@ class TestOwnOptions(RulingCase):
         tid = self.t0981()
         out = self.record(tid, "a")
         self.assertIn("-> proved ", self.tickets()[out["follow_up"]]["title"])
-        with self.assertRaises(ac.AcademyError) as cm:            # a third list: not guessed
-            self.record(self.t0981(), "b")
-        self.assertIn("--action union", str(cm.exception))
+        tid = self.t0981()                                        # a third list, named: taken
+        out = self.record(tid, "b")
+        k = bd.get_ticket(self.board, out["follow_up"])
+        self.assertIn("-> proved-modulo", k[1]["title"])
+        grounds = rl.grounds_in(k[2])
+        self.assertEqual(["paper:lem:other"], grounds["modulo"])
+        self.assertTrue(check_grounds("proved-modulo", grounds, HASH)[0])
+        self.assertIn("(b)", grounds["note"])
 
     def test_cli_takes_an_action_and_refuses_a_disagreement(self):
         tid = self.own()
@@ -785,6 +790,33 @@ class TestEarlierAnswers(RulingCase):
         self.assertEqual([], rl.stalled(self.board, self.ws))
         bd.append_to_ticket(self.board, tid, "human decision: (d) union", date=DATE)
         self.assertEqual([tid], [x["id"] for x in rl.stalled(self.board, self.ws)])
+
+
+class TestOwnAcceptLists(RulingCase):
+    """Review of 54692a4, finding 5: the list an own accept option names."""
+
+    def test_an_option_naming_no_list_is_refused_without_advising_a_list(self):
+        tid = self.ruling(ask="Rule on the modulo inputs. Choose: (a) accept the card's "
+                              "reading; (b) re-run the pass.")
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "a")
+        msg = str(cm.exception)
+        self.assertIn("state the list", msg)
+        self.assertNotIn("--action", msg)
+        self.assertEqual("open", bd.get_ticket(self.board, tid)[1]["status"])
+
+    def test_bare_proved_with_a_nonempty_intersection_proposes_proved(self):
+        tid = self.ruling(ask="Rule on the modulo inputs. Choose: (a) take proved, the modulo "
+                              "is formal; (b) re-run the pass.")
+        out = self.record(tid, "a")
+        k = bd.get_ticket(self.board, out["follow_up"])
+        self.assertIn("-> proved ", k[1]["title"])
+        self.assertNotIn("modulo", rl.grounds_in(k[2]))
+
+    def test_a_named_list_equal_to_a_run_list_keeps_its_name(self):
+        tid = self.ruling(ask=OWN_ASK)                    # (a) names the intersection exactly
+        self.record(tid, "a")
+        self.assertIn("(a) intersection", bd.get_ticket(self.board, tid)[1]["result"])
 
 
 class TestGithubBackend(RulingCase):
