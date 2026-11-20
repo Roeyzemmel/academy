@@ -1,10 +1,10 @@
 export const meta = {
   name: 'academy-verify',
-  description: 'Expert proof review of one registry statement: blind rigor-reviewer A, then the claim\'s falsifier, B only if A is CONFIRMED and the falsifier found nothing (or one reword run R), the decision table, the record, evidence, proposal and packet',
+  description: 'Expert proof review of one registry statement: blind rigor-reviewer A, then the claim\'s falsifier, B only if A is CONFIRMED and the falsifier found nothing (in amend mode on the amended proof when A suggested a dependency), or one reword run R; the decision table, the record, evidence, proposal and packet',
   whenToUse: 'Every verify ticket and /expert:verify, from the library home. args: {claim, ticket?, question?, mode?: "blind"|"reword", base_pass?, base_subject?, findings?}',
   phases: [
     { title: 'Prepare', detail: 'take the ticket, hash the statement, open the pass' },
-    { title: 'Review', detail: 'blind run A; the falsifier (filed and waited for when none is on record); B only if the table says launch_b and the falsifier found nothing (or run R)' },
+    { title: 'Review', detail: 'blind run A; the falsifier (filed and waited for when none is on record); a suggested dependency added by the producer (filed and waited for); B only if the table says launch_b, or in amend mode once the amendment is in, and the falsifier found nothing (or run R)' },
     { title: 'Conclude', detail: 'decision table, record, evidence, proposal, packet, follow-ups' },
   ],
 }
@@ -17,7 +17,11 @@ export const meta = {
 // the files. The order is attempt, run A, the falsifier, run B (the human's design,
 // 2026-11-20): a falsifier is spent only on a proof that survived A, so after a CONFIRMED
 // A with no falsifier on record the chair files one and the ticket waits for it, the pass
-// left open; a counterexample concludes the pass with no B and no status. The verdicts are landed by the expert plugin's land_verdict hook (it
+// left open; a counterexample concludes the pass with no B and no status. A CONFIRMED A
+// that suggests a dependency (add_dependency, the human's design of 2026-11-20) pauses the
+// pass the same way: the chair files a repair to the producer (add exactly those to the
+// proof and depends_on) and blocks the ticket; on the rerun B runs in amend mode, told the
+// suggestion only (reviews.py amend-brief), and A + B are the two verdicts. The verdicts are landed by the expert plugin's land_verdict hook (it
 // fires for workflow agents: B0 pilot, docs/workflows.md).
 
 const A = args || {}
@@ -101,9 +105,33 @@ const PREP = {
         request: { type: 'string', description: 'a falsifier request an earlier run of this pass filed (the verify ticket\'s waiting_on or its thread), or empty' },
         request_status: { type: 'string', description: 'that request\'s status, or empty' } },
       required: ['source', 'on', 'evidence', 'found', 'request', 'request_status'] },
-    inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs (depends_on, and the other-namespace inputs its record names), verbatim' },
+    inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs (depends_on, its cites as bib:<key>, and the other-namespace inputs its record names), verbatim, as the registry reads them now' },
+    amendment: { type: 'object', description: 'a dependency amendment this pass asked for (2026-11-20; blind mode)',
+      properties: {
+        request: { type: 'string', description: 'the repair ticket an earlier run of this pass filed to add run A\'s suggested dependencies (the verify ticket\'s waiting_on or its thread), or empty' },
+        request_status: { type: 'string', description: 'that ticket\'s status, or empty' },
+        attempt: { type: 'string', description: 'the claim\'s current proof attempt (the record\'s proof: field, or the tex proof\'s lines), the amended one once the repair is back; else empty' } },
+      required: ['request', 'request_status', 'attempt'] },
   },
   required: ['ok', 'stop_reason', 'pass', 'pass_dir', 'statement_hash', 'location', 'bundle', 'ticket', 'landed'],
+}
+const AMEND_OUT = {
+  type: 'object',
+  properties: {
+    request: { type: 'string', description: 'the repair ticket filed (or the earlier one waited on); empty when none' },
+    blocked: { type: 'boolean', description: 'the verify ticket is now blocked' },
+    waiting_on: { type: 'array', items: { type: 'string' }, description: 'its waiting_on after the update' },
+    refusal: { type: 'string', description: 'a refused tickets_create or tickets_update, verbatim; else empty' },
+  },
+  required: ['request', 'blocked', 'waiting_on', 'refusal'],
+}
+const BUNDLE_OUT = {
+  type: 'object',
+  properties: {
+    bundle: { type: 'string', description: 'absolute path of the amend bundle written; empty when refused' },
+    refusal: { type: 'string', description: 'reviews.py amend-brief\'s refusal, verbatim; else empty' },
+  },
+  required: ['bundle', 'refusal'],
 }
 const FALS_OUT = {
   type: 'object',
@@ -125,6 +153,7 @@ const TABLE = {
     launch_b: { type: 'boolean', description: 'decision_table.py launch_b (false when absent)' },
     hash_now: { type: 'string', description: 'reviews.py hash of the statement as it stands now' },
     run_hash: { type: 'string', description: 'the statement_hash in the landed run file\'s own frontmatter (empty when not landed)' },
+    add_dependency: { type: 'array', items: { type: 'string' }, description: 'decision_table.py add_dependency: the dependencies the run suggests adding (empty when none)' },
   },
   required: ['landed', 'run_file', 'verdict', 'outcome', 'launch_b', 'hash_now', 'run_hash'],
 }
@@ -237,7 +266,8 @@ const prep = await launch(STAGE('prepare', [
       'A ticket blocked by an earlier run of this pass (awaiting its falsifier) is taken blocked -> in-progress. ' +
       'Report the claim\'s falsifier on record (falsifier; conclude.md section 0, the sources prove.js accepts, #117): one that attacked this claim; or one recorded on a declared input, or on the parent lead or direction item, whose class or statement covers it, saying how; ' +
       'or the ticket thread records one (the falsifier request this ticket waited on, once it is back: its result); or the human waived it on the ticket or the claim (quote that thread line verbatim); else none. ' +
-      'Say what it found (nothing, or a counterexample), any falsifier request this ticket already filed with its status, and the claim\'s declared inputs.',
+      'Say what it found (nothing, or a counterexample), any falsifier request this ticket already filed with its status, and the claim\'s declared inputs (inputs: depends_on, its cites as bib:<key>, read from the registry now). ' +
+      'Report the dependency amendment (amendment; conclude.md section 1b): a repair ticket an earlier run of this pass filed to add run A\'s suggested dependencies, with its status, and the claim\'s current proof attempt; a ticket blocked on it is taken blocked -> in-progress too.',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {
@@ -260,7 +290,12 @@ if (stale.length) {
     reason: `the open pass ${prep.pass} of this ticket holds run(s) ${stale.join(', ')} that cannot be resumed (another statement hash, or B without A): abandon it (reviews.py abandon ${A.claim} ${prep.pass} --reason "statement changed") and run again` }
 }
 const ids = `subject: ${A.claim} · pass: ${prep.pass} · run: RUN · statement_hash: ${prep.statement_hash} · ticket: ${ticket}`
-const brief = (run) => MODE === 'reword'
+let amendBundle = ''      // set once the amend bundle is written (run B in amend mode)
+const brief = (run) => run === 'B' && amendBundle
+  ? `Review ${A.claim} in amend mode (run B, rigor-reviewer "Amend mode"): read the bundle ${amendBundle} first; ` +
+    `its statement and amended proof are at ${prep.location}. The question: ${QUESTION} ` +
+    `Work through your obligation ledger before reading the proof.\n` + ids.replace('RUN', 'B')
+  : MODE === 'reword'
   ? `Reword review of ${A.claim} (reword mode, run R): read the bundle ${prep.bundle} first; ` +
     `the proof is at ${prep.location}. The question: does the proof as reviewed still prove the new wording?\n` +
     ids.replace('RUN', 'R')
@@ -269,10 +304,14 @@ const brief = (run) => MODE === 'reword'
 
 // ---- 2. Review: one run, checked by the table, relaunched once when it did not land ----
 const notes = []
+let amending = false      // run A suggested a dependency: B is an amend run (2026-11-20)
 const table = (run) => launch(STAGE('table', [
   `pass_dir: ${prep.pass_dir}`, `run: ${run}`, `claim: ${A.claim}`,
-  `Check that ${run}.md landed in the pass folder; run \`decision_table.py "<pass_dir>/${run}.md" --json\` ` +
-  `(no B argument) and report its outcome and launch_b, and the statement_hash of the run file's own frontmatter (run_hash); re-hash the statement as it stands now ` +
+  `Check that ${run}.md landed in the pass folder; run ` +
+  (run === 'B' && amending
+    ? `\`decision_table.py "<pass_dir>/A.md" "<pass_dir>/B.md" --json\` (an amend run B is tabled against A, mode amend)`
+    : `\`decision_table.py "<pass_dir>/${run}.md" --json\` (no B argument)`) +
+  ` and report its outcome, launch_b and add_dependency (empty when none), and the statement_hash of the run file's own frontmatter (run_hash); re-hash the statement as it stands now ` +
   `exactly as the prepare stage hashed it, through the registry engine (\`reviews.py hash --claim ${A.claim}\`; never \`hash\` on a copied extract). Write nothing.`,
 ].join('\n')), { label: `table ${run}`, phase: 'Review', agentType: CHAIR, schema: TABLE, effort: 'low' })
 
@@ -364,6 +403,42 @@ async function requestFalsifier(f) {
   ].join('\n')), { label: 'falsifier', phase: 'Review', agentType: CHAIR, schema: FALS_OUT, effort: 'low' })
 }
 
+// ---- The dependency amendment (2026-11-20) -----------------------------------------
+// A's suggestion counts as made once every suggested dependency is among the claim's declared
+// inputs as the registry reads them now (namespace prefixes and pinpoints ignored) and the
+// repair, if one was filed, has ended.
+const depKey = x => bare(x).replace(/#.*$/, '').trim()
+function amendmentIn(deps) {
+  const am = prep.amendment || {}
+  const have = new Set((prep.inputs || []).map(depKey))
+  const missing = deps.filter(d => !have.has(depKey(d)))
+  const open = am.request && !DONE_TICKET.test(am.request_status || '')
+  return { done: !missing.length && !open, missing, open, request: am.request || '', status: am.request_status || '', attempt: am.attempt || '' }
+}
+async function requestAmendment(deps, st) {
+  const T = ticket === 'none' ? '' : ticket
+  const list = deps.join(', ')
+  const how = st.open
+    ? [`An earlier run of this pass filed the repair ${st.request} (${st.status || 'status unknown'}), which is not back: file nothing. ` +
+       (T ? `Block ${T}: tickets_update status blocked, waiting_on [${st.request}], note "amendment ${st.request} not back; the pass ${prep.pass} stays open".` : 'There is no verify ticket to block.')]
+    : st.request
+      ? [`The repair ${st.request} ended (${st.status}) but the claim's declared inputs still lack ${st.missing.join(', ')}: file nothing. ` +
+         (T ? `Block ${T}: tickets_update status blocked, waiting_on [human], reason "the repair ${st.request} ended without adding ${st.missing.join(', ')} to ${A.claim}: the human decides (another repair, or a fresh pass)".` : 'There is no verify ticket to block.')]
+      : [`File one repair with tickets_create: kind prove, to the Researcher instance that owns the namespace of ${A.claim} ` +
+         `(for a claim of another namespace, paper: or lab:, the Researcher of the claim's domain, as a prove follow-up is routed, conclude.md section 4.3; a lab: claim with final_to scientist), ` +
+         `refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; title "Repair: add dependencies to ${A.claim}"; ` +
+         `ask (mode repair, researcher prove.js): add exactly these dependencies to the proof of ${A.claim} (cite and use them where the argument relies on them) and to the claim's depends_on (a bib: key to its cites): ${list}; change nothing else, not the statement. ` +
+         `deliverable: the amended proof attempt and the record's depends_on. The ask names the dependencies only: never run A's verdict, report or findings.`,
+         T ? `Then block ${T}: tickets_update status blocked, waiting_on [<the repair's id>], note "amendment requested: <id> (add ${list}); the pass ${prep.pass} stays open and resumes when it is back". ` +
+             `If tickets_create refuses, block ${T} waiting_on [human] with the refusal as the reason, and return the refusal.`
+           : 'There is no verify ticket: block nothing.']
+  return launch(STAGE('amendment', [
+    `claim: ${A.claim}`, `ticket: ${ticket}`, `pass: ${prep.pass}`, `suggested dependencies (run A's add_dependency): ${list}`,
+    `conclude.md section 1b. ${how.join('\n')}`,
+    'Write nothing in the pass folder and no claims_propose_status; return the request id, whether the ticket is blocked and its waiting_on.',
+  ].join('\n')), { label: 'amendment', phase: 'Review', agentType: CHAIR, schema: AMEND_OUT, effort: 'low' })
+}
+
 phase('Review')
 let runs = []
 let falsifier = null        // the falsifier that let B run, or the counterexample that stopped it
@@ -374,9 +449,11 @@ if (MODE === 'reword') {
 } else {
   const a = await review('A')
   runs.push(Object.assign({ run: 'A' }, a))
+  const suggested = (!a.lost && Array.isArray(a.add_dependency)) ? a.add_dependency.filter(x => String(x || '').trim()) : []
+  amending = !a.lost && (a.outcome === 'awaiting-amendment' || (suggested.length > 0 && /^CONFIRMED/.test(String(a.verdict || ''))))
   if (a.lost) {
     // nothing to add
-  } else if (!a.launch_b) {
+  } else if (!a.launch_b && !amending) {
     notes.push(`run B skipped by design: the table on A says ${a.outcome} (launch_b false)`)
   } else if (a.hash_now !== prep.statement_hash) {
     notes.push(`statement moved under the review (hash ${prep.statement_hash} -> ${a.hash_now}): B not launched, nothing to conclude on the old wording`)
@@ -407,8 +484,49 @@ if (MODE === 'reword') {
       notes.push(`run B not launched: the falsifier (${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}) found a counterexample: ${falsifier.evidence}`)
     } else {
       if (falsifier.source !== 'claim') notes.push(`falsifier accepted: ${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}`)
-      const b = await review('B')     // the identical brief, run B, a fresh agent told nothing of A
-      runs.push(Object.assign({ run: 'B' }, b))
+      if (amending) {
+        // A suggested a dependency: B reviews the amended proof, once the amendment is in
+        const st = amendmentIn(suggested)
+        if (!landed.has('B') && !st.done) {
+          if (st.request && !st.open && st.missing.length) notes.push(`the repair ${st.request} ended, but ${st.missing.join(', ')} ${st.missing.length > 1 ? 'are' : 'is'} not among the declared inputs of ${A.claim}`)
+          const req = await requestAmendment(suggested, st)
+          const id = req && /^T-\d{4,}$/.test(String(req.request || '').trim()) ? req.request.trim() : ''
+          if (!req) notes.push('the amendment stage returned nothing: no repair is known to be filed')
+          if (req && req.refusal) notes.push(`the repair was refused (${req.refusal})`)
+          if (req && ticket !== 'none' && !req.blocked) notes.push(`ANOMALY: ${ticket} was not blocked on the amendment`)
+          notes.push(`run B not launched: A is CONFIRMED and suggests adding ${suggested.join(', ')}; ${id ? 'repair ' + id : 'no repair'}`)
+          log(`A: ${a.verdict} + add_dependency ${suggested.join(', ')} -> awaiting the amendment${id ? ' ' + id : ''}`)
+          const res = { claim: A.claim, outcome: 'awaiting-amendment', pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
+            amendment_request: id || null, add_dependency: suggested,
+            reason: (req && req.refusal ? `the repair was refused (${req.refusal}). ` : '') +
+              `run A suggests adding ${suggested.join(', ')} to the proof of ${A.claim}: B waits for the amendment, and the pass ${prep.pass} stays open; ` +
+              (ticket !== 'none' ? `rerun ${ticket} once ${id || 'the repair'} is back (the pass resumes, A is kept, B runs in amend mode)` : 'without a verify ticket the pass cannot be resumed (reviews.py resumes a ticket\'s own pass only)'),
+            launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
+          if (!A.nested) res.ship = await ship({ role: 'expert', ticket: ticket === 'none' ? '' : ticket, done: false, topic: 'verify-' + A.claim,
+            only: 'library board', agentType: CHAIR, phase: 'Review', notes })
+          return res
+        }
+        if (!landed.has('B')) {
+          const bb = await launch(STAGE('amend-brief', [
+            `claim: ${A.claim}`, `pass: ${prep.pass}`, `ticket: ${ticket}`,
+            `conclude.md section 1b, "The amend run": write run B's bundle with \`reviews.py amend-brief ${A.claim} ${prep.pass} --attempt ${st.attempt || '<the claim\'s current proof attempt>'}${ticket !== 'none' ? ' --ticket ' + ticket : ''} --out <a file outside reviews/>\` ` +
+            '(the scratch folder of the home), once, and return its path; on a refusal return it verbatim and write nothing else.',
+          ].join('\n')), { label: 'amend-brief', phase: 'Review', agentType: CHAIR, schema: BUNDLE_OUT, effort: 'low' })
+          if (!bb || bb.refusal || !String(bb.bundle || '').trim()) {
+            notes.push(`run B not launched: the amend bundle was not written (${bb ? bb.refusal || 'no path returned' : 'the stage returned nothing'})`)
+            return { claim: A.claim, outcome: 'awaiting-amendment', pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
+              add_dependency: suggested, reason: 'the amend bundle could not be written: ' + (bb ? bb.refusal || 'no path' : 'stage lost') + '; rerun the ticket',
+              launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
+          }
+          amendBundle = bb.bundle.trim()
+        }
+        notes.push(`amend pass: A suggested ${suggested.join(', ')}; the producer added ${suggested.length > 1 ? 'them' : 'it'}; B reviews the amended proof, told the suggestion only`)
+        const b = await review('B')     // amend mode: a fresh agent told only A's suggestion (the bundle)
+        runs.push(Object.assign({ run: 'B', mode: 'amend' }, b))
+      } else {
+        const b = await review('B')     // the identical brief, run B, a fresh agent told nothing of A
+        runs.push(Object.assign({ run: 'B' }, b))
+      }
     }
   }
 }
@@ -437,7 +555,10 @@ const done = await launch(STAGE('conclude', [
         'Write the record decision.md (A\'s table, the falsifier and its evidence, the process notes), the evidence row for A, and route the counterexample as a finding to the claim\'s producer: ' +
         'one ticket, kind prove (gap_class statement) to the Researcher of the claim\'s domain (a lab: claim to the Researcher with final_to scientist), with the counterexample and where it is recorded; ' +
         'then the packet (the counterexample in Decisions needed, for the human), the ticket result and delivery, the blast radius, the report.'
-      : 'conclude.md sections 2-6: the input-by-input status, the final decision_table.py over the landed runs with --established, the record decision.md, evidence rows, the proposal (only the script\'s proposed_status), follow-up tickets exactly as the script routes them, the packet, the ticket result and delivery, the blast radius, the report.',
+      : (amending && runs.some(r => r.run === 'B' && !r.lost)
+          ? 'An amend pass (conclude.md section 1b): run B reviewed the proof amended with A\'s suggested dependencies; decision_table.py A.md B.md decides it (mode amend), the added dependencies in its modulo until established. Then: '
+          : '') +
+        'conclude.md sections 2-6: the input-by-input status, the final decision_table.py over the landed runs with --established, the record decision.md, evidence rows, the proposal (only the script\'s proposed_status), follow-up tickets exactly as the script routes them, the packet, the ticket result and delivery, the blast radius, the report.',
   'Then list the run files in the pass folder (run_files).',
 ].filter(s => s !== '').join('\n')), { label: 'conclude', phase: 'Conclude', agentType: CHAIR, schema: DONE })
 
