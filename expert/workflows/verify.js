@@ -1,10 +1,10 @@
 export const meta = {
   name: 'academy-verify',
-  description: 'Expert proof review of one registry statement: blind rigor-reviewer A, B only if A is CONFIRMED (or one reword run R), the decision table, the record, evidence, proposal and packet',
+  description: 'Expert proof review of one registry statement: blind rigor-reviewer A, then the claim\'s falsifier, B only if A is CONFIRMED and the falsifier found nothing (or one reword run R), the decision table, the record, evidence, proposal and packet',
   whenToUse: 'Every verify ticket and /expert:verify, from the library home. args: {claim, ticket?, question?, mode?: "blind"|"reword", base_pass?, base_subject?, findings?}',
   phases: [
     { title: 'Prepare', detail: 'take the ticket, hash the statement, open the pass' },
-    { title: 'Review', detail: 'blind run A; B only if the table says launch_b (or run R)' },
+    { title: 'Review', detail: 'blind run A; the falsifier (filed and waited for when none is on record); B only if the table says launch_b and the falsifier found nothing (or run R)' },
     { title: 'Conclude', detail: 'decision table, record, evidence, proposal, packet, follow-ups' },
   ],
 }
@@ -14,7 +14,10 @@ export const meta = {
 // launched only when decision_table.py says launch_b and the statement hash has not
 // moved, B gets A's brief byte for byte with run B, a reword pass runs R alone, a lost
 // run is relaunched once, and nothing but the review-chair's clerical stages touches
-// the files. The verdicts are landed by the expert plugin's land_verdict hook (it
+// the files. The order is attempt, run A, the falsifier, run B (the human's design,
+// 2026-11-20): a falsifier is spent only on a proof that survived A, so after a CONFIRMED
+// A with no falsifier on record the chair files one and the ticket waits for it, the pass
+// left open; a counterexample concludes the pass with no B and no status. The verdicts are landed by the expert plugin's land_verdict hook (it
 // fires for workflow agents: B0 pilot, docs/workflows.md).
 
 const A = args || {}
@@ -88,8 +91,29 @@ const PREP = {
     ticket: { type: 'string', description: 'the ticket id, or none' },
     landed: { type: 'array', description: 'a resumed pass (#89): the run files already in the pass folder, each with the statement_hash of its frontmatter; else empty',
       items: { type: 'object', properties: { run: { type: 'string', description: 'A, B or R' }, statement_hash: { type: 'string' } }, required: ['run', 'statement_hash'] } },
+    falsifier: { type: 'object', description: 'the claim\'s falsifier on record (blind mode; the sources prove.js accepts, #117)',
+      properties: {
+        source: { type: 'string', enum: ['claim', 'input', 'parent', 'ticket', 'waived', 'none'],
+          description: 'claim: a falsifier attacked this claim; input: one recorded on a declared input whose class or statement covers it; parent: one on the parent lead or direction item that covers it; ticket: the verify ticket\'s thread, or the falsifier request it waited on, records one that came back; waived: the human waived it on the ticket or the claim; none' },
+        on: { type: 'string', description: 'for input or parent: the id it is recorded on; for ticket: the request ticket; else empty' },
+        evidence: { type: 'string', description: 'where it is (a report, a result, a direction item, a thread line), quoted or pointed at; a waiver quotes the human\'s thread line verbatim' },
+        found: { type: 'string', enum: ['nothing', 'counterexample', ''], description: 'what the falsifier found: nothing (it ran and did not break the claim), a counterexample, or empty (none, or a waiver)' },
+        request: { type: 'string', description: 'a falsifier request an earlier run of this pass filed (the verify ticket\'s waiting_on or its thread), or empty' },
+        request_status: { type: 'string', description: 'that request\'s status, or empty' } },
+      required: ['source', 'on', 'evidence', 'found', 'request', 'request_status'] },
+    inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs (depends_on, and the other-namespace inputs its record names), verbatim' },
   },
   required: ['ok', 'stop_reason', 'pass', 'pass_dir', 'statement_hash', 'location', 'bundle', 'ticket', 'landed'],
+}
+const FALS_OUT = {
+  type: 'object',
+  properties: {
+    request: { type: 'string', description: 'the falsifier request ticket filed (or the earlier one waited on); empty when none' },
+    blocked: { type: 'boolean', description: 'the verify ticket is now blocked' },
+    waiting_on: { type: 'array', items: { type: 'string' }, description: 'its waiting_on after the update' },
+    refusal: { type: 'string', description: 'a refused tickets_create or tickets_update, verbatim; else empty' },
+  },
+  required: ['request', 'blocked', 'waiting_on', 'refusal'],
 }
 const TABLE = {
   type: 'object',
@@ -209,7 +233,11 @@ const prep = await launch(STAGE('prepare', [
   MODE === 'reword'
     ? `conclude.md section 7 steps 1-4: take the ticket, recover old.txt, check the old hash, \`reviews.py new-pass <id> --reword-of <base pass>\` (with --base-subject when given), write the bundle with \`reviews.py reword-brief\` (no --new-file: it takes the registry's statement). statement_hash is the NEW statement's hash, the registry engine's: \`reviews.py hash --claim ${A.claim}\` (T-0464).`
     : `conclude.md section 0: take the ticket (its budget field gates nothing: never block it for budget), pin and hash the statement with \`reviews.py hash --claim ${A.claim}\` (the registry engine's statement text, the hash claims_set_status checks; never a hand-copied extract, T-0464), open the pass (\`reviews.py new-pass\`, \`reviews.py dir\`). For a statement that lives in a tex file, location is the output line of \`statement.py <label> --where --home <that Author home>\` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder. ` +
-      'new-pass returns the open pass of this same ticket when one is open (a rerun, #89): then list in landed the run files already in its folder (A.md, B.md) with the statement_hash of each one\'s frontmatter.',
+      'new-pass returns the open pass of this same ticket when one is open (a rerun, #89): then list in landed the run files already in its folder (A.md, B.md) with the statement_hash of each one\'s frontmatter. ' +
+      'A ticket blocked by an earlier run of this pass (awaiting its falsifier) is taken blocked -> in-progress. ' +
+      'Report the claim\'s falsifier on record (falsifier; conclude.md section 0, the sources prove.js accepts, #117): one that attacked this claim; or one recorded on a declared input, or on the parent lead or direction item, whose class or statement covers it, saying how; ' +
+      'or the ticket thread records one (the falsifier request this ticket waited on, once it is back: its result); or the human waived it on the ticket or the claim (quote that thread line verbatim); else none. ' +
+      'Say what it found (nothing, or a counterexample), any falsifier request this ticket already filed with its status, and the claim\'s declared inputs.',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {
@@ -280,8 +308,65 @@ async function review(run) {
   return { lost: true }
 }
 
+// ---- The falsifier, between A and B (2026-11-20) ---------------------------------
+// What counts is prove.js's #117 rule, held here against the prepare stage's report: a known
+// source with evidence; an input that is one of the declared inputs (namespace prefixes
+// ignored) and names it; a parent that names it; a waiver that quotes the human's thread line
+// ("- YYYY-MM-DD human: ..."). That it covers the claim is the stage's report.
+const FSOURCES = ['claim', 'input', 'parent', 'ticket', 'waived', 'none']
+const bare = x => String(x || '').trim().replace(/^[a-z][a-z0-9]*:/, '')
+function falsifierOnRecord(f) {
+  f = f || {}
+  let src = FSOURCES.includes(f.source) ? f.source : 'none'
+  if (f.source && !FSOURCES.includes(f.source)) notes.push(`falsifier source ${JSON.stringify(f.source)} is not a known source: not counted`)
+  if (src === 'input' && bare(f.on) === bare(A.claim)) src = 'claim'
+  let counts = src !== 'none'
+  if (counts && !String(f.evidence || '').trim()) { counts = false; notes.push(`a ${src} falsifier was reported with no evidence: not counted`) }
+  if (counts && src === 'input' && !(prep.inputs || []).map(bare).includes(bare(f.on))) {
+    counts = false
+    notes.push(`the falsifier named is on ${f.on || '(none named)'}, not a declared input of ${A.claim} (${(prep.inputs || []).join(', ') || 'none declared'}): not counted`)
+  }
+  if (counts && (src === 'input' || src === 'parent') && !f.on) { counts = false; notes.push(`a ${src} falsifier was reported with no id it is recorded on: not counted`) }
+  if (counts && src === 'waived' && !/(^|\n)\s*-?\s*\d{4}-\d{2}-\d{2} human:/.test(f.evidence || '')) {
+    counts = false
+    notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ...): not counted')
+  }
+  return { counts, source: src, on: f.on || '', evidence: f.evidence || '', found: counts ? (f.found || '') : '' }
+}
+const DONE_TICKET = /^(delivered|closed|rejected|cancelled)$/
+
+// No falsifier on record after a CONFIRMED A: the chair files the request (or waits on the one
+// already filed) and blocks the verify ticket on it; the pass stays open for the rerun (#89).
+async function requestFalsifier(f) {
+  const prev = (prep.falsifier && prep.falsifier.request) || ''
+  const prevStatus = (prep.falsifier && prep.falsifier.request_status) || ''
+  const T = ticket === 'none' ? '' : ticket
+  const how = prev && !DONE_TICKET.test(prevStatus)
+    ? [`An earlier run of this pass filed the falsifier request ${prev} (${prevStatus || 'status unknown'}), which is not back: file nothing. ` +
+       (T ? `Block ${T}: tickets_update status blocked, waiting_on [${prev}], note "falsifier ${prev} not back; the pass ${prep.pass} stays open".` : 'There is no verify ticket to block.')]
+    : prev
+      ? [`The falsifier request ${prev} ended (${prevStatus}) with no falsifier that counts: file nothing. ` +
+         (T ? `Block ${T}: tickets_update status blocked, waiting_on [human], reason "the falsifier request ${prev} ended without a falsifier of ${A.claim}: the human decides (another falsifier, or a waiver on this ticket)".` : 'There is no verify ticket to block.')]
+      : [`File one falsifier request with tickets_create: kind research, to the Researcher instance that owns the namespace of ${A.claim} ` +
+         `(for a claim of another namespace, paper: or lab:, the Researcher of the claim's domain, as a prove follow-up is routed, conclude.md section 4.3), final_to scientist ` +
+         `(the Expert is no neighbour of the Scientist: the Researcher's experiment-spec relays it), refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; ` +
+         `title "Falsifier for ${A.claim}"; ask: run a falsifier on ${A.claim}, an experiment or test that tries to break it (a search over the class it quantifies over, its standard examples first), ` +
+         `and deliver what it found (nothing, or a counterexample with its certificate); deliverable: the result (a lab result or report id) and whether it found a counterexample. ` +
+         `The ask names the claim and the order (the falsifier before the second review) and never state run A's verdict, its findings or anything of the pass folder: run B must stay blind.`,
+         T ? `Then block ${T}: tickets_update status blocked, waiting_on [<the request's id>], note "falsifier requested: <id>; the pass ${prep.pass} stays open and resumes when it is back". ` +
+             `If tickets_create refuses, block ${T} waiting_on [human] with the refusal as the reason, and return the refusal.`
+           : 'There is no verify ticket: block nothing.']
+  return launch(STAGE('falsifier', [
+    `claim: ${A.claim}`, `ticket: ${ticket}`, `pass: ${prep.pass}`,
+    `the falsifier the prepare stage reported: ${JSON.stringify(prep.falsifier || null)}${f.source !== 'none' ? ' (reported, but it does not count: evidence missing, not a declared input, or a waiver without the human\'s thread line)' : ''}`,
+    `conclude.md section 1a. ${how.join('\n')}`,
+    'Write nothing in the pass folder and no claims_propose_status; return the request id, whether the ticket is blocked and its waiting_on.',
+  ].join('\n')), { label: 'falsifier', phase: 'Review', agentType: CHAIR, schema: FALS_OUT, effort: 'low' })
+}
+
 phase('Review')
 let runs = []
+let falsifier = null        // the falsifier that let B run, or the counterexample that stopped it
 if (MODE === 'reword') {
   const r = await review('R')
   runs.push(Object.assign({ run: 'R' }, r))
@@ -296,10 +381,38 @@ if (MODE === 'reword') {
   } else if (a.hash_now !== prep.statement_hash) {
     notes.push(`statement moved under the review (hash ${prep.statement_hash} -> ${a.hash_now}): B not launched, nothing to conclude on the old wording`)
   } else {
-    const b = await review('B')     // the identical brief, run B, a fresh agent told nothing of A
-    runs.push(Object.assign({ run: 'B' }, b))
+    falsifier = falsifierOnRecord(prep.falsifier)
+    if (!falsifier.counts) {
+      // the order is attempt, A, falsifier, B: B waits for the falsifier, the pass stays open
+      const req = await requestFalsifier(falsifier)
+      const id = req && /^T-\d{4,}$/.test(String(req.request || '').trim()) ? req.request.trim() : ''
+      const onHuman = !!(req && (req.waiting_on || []).includes('human'))
+      if (!req) notes.push('the falsifier stage returned nothing: no request is known to be filed')
+      if (req && req.refusal) notes.push(`the falsifier request was refused (${req.refusal})${onHuman ? ': the ticket is parked on the human' : ''}`)
+      else if (onHuman) notes.push('no falsifier came back from the request: the ticket is parked on the human')
+      if (req && ticket !== 'none' && !req.blocked) notes.push(`ANOMALY: ${ticket} was not blocked on the falsifier`)
+      notes.push(`run B not launched: ${A.claim} has no falsifier on record (A ${a.verdict}); ${id ? 'falsifier request ' + id : 'no falsifier request'}`)
+      log(`A: ${a.verdict} -> awaiting the falsifier${id ? ' ' + id : ''}`)
+      const res = { claim: A.claim, outcome: 'awaiting-falsifier', pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
+        falsifier_request: id || null,
+        reason: (req && req.refusal ? `the falsifier request was refused (${req.refusal}). ` : '') +
+          `${A.claim} has no falsifier on record: B waits for it, and the pass ${prep.pass} stays open; ` +
+          (ticket !== 'none' ? `rerun ${ticket} once ${id || 'the falsifier'} is back (the pass resumes, A is kept)` : 'without a verify ticket the pass cannot be resumed (reviews.py resumes a ticket\'s own pass only)'),
+        launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
+      if (!A.nested) res.ship = await ship({ role: 'expert', ticket: ticket === 'none' ? '' : ticket, done: false, topic: 'verify-' + A.claim,
+        only: 'library board', agentType: CHAIR, phase: 'Review', notes })
+      return res
+    }
+    if (falsifier.found === 'counterexample') {
+      notes.push(`run B not launched: the falsifier (${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}) found a counterexample: ${falsifier.evidence}`)
+    } else {
+      if (falsifier.source !== 'claim') notes.push(`falsifier accepted: ${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}`)
+      const b = await review('B')     // the identical brief, run B, a fresh agent told nothing of A
+      runs.push(Object.assign({ run: 'B' }, b))
+    }
   }
 }
+const counterexample = !!(falsifier && falsifier.counts && falsifier.found === 'counterexample')
 log(runs.map(r => `${r.run}: ${r.lost ? 'lost' : r.verdict + ' -> ' + r.outcome}`).join('; '))
 if (runs.some(r => r.stale)) {     // #89 review: a run file on another statement is never concluded on
   return { claim: A.claim, outcome: 'stale-pass', pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
@@ -318,7 +431,13 @@ const done = await launch(STAGE('conclude', [
   '',
   MODE === 'reword'
     ? 'conclude.md section 7 steps 6-7, then sections 4-6.'
-    : 'conclude.md sections 2-6: the input-by-input status, the final decision_table.py over the landed runs with --established, the record decision.md, evidence rows, the proposal (only the script\'s proposed_status), follow-up tickets exactly as the script routes them, the packet, the ticket result and delivery, the blast radius, the report.',
+    : counterexample
+      ? `conclude.md section 1a, "A counterexample": the falsifier (${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}) found a counterexample: ${falsifier.evidence}. ` +
+        'Run B was not launched. Return outcome falsifier-counterexample and proposed_status none: never claims_propose_status, no status changes. ' +
+        'Write the record decision.md (A\'s table, the falsifier and its evidence, the process notes), the evidence row for A, and route the counterexample as a finding to the claim\'s producer: ' +
+        'one ticket, kind prove (gap_class statement) to the Researcher of the claim\'s domain (a lab: claim to the Researcher with final_to scientist), with the counterexample and where it is recorded; ' +
+        'then the packet (the counterexample in Decisions needed, for the human), the ticket result and delivery, the blast radius, the report.'
+      : 'conclude.md sections 2-6: the input-by-input status, the final decision_table.py over the landed runs with --established, the record decision.md, evidence rows, the proposal (only the script\'s proposed_status), follow-up tickets exactly as the script routes them, the packet, the ticket result and delivery, the blast radius, the report.',
   'Then list the run files in the pass folder (run_files).',
 ].filter(s => s !== '').join('\n')), { label: 'conclude', phase: 'Conclude', agentType: CHAIR, schema: DONE })
 
@@ -332,10 +451,15 @@ const earlier = f => landed.size > 0 && /^[AB](-\d+|-noverdict)\.md$/.test(f)
 const extra = (done.run_files || []).map(f => f.split(/[\\/]/).pop())
   .filter(f => /^[ABR](-\d+)?(-noverdict)?\.md$/.test(f) && !allowed.has(f) && !earlier(f))
 if (extra.length) notes.push('ANOMALY: run files the workflow did not launch: ' + extra.join(', '))
+if (counterexample && done.proposed_status && done.proposed_status !== 'none') {
+  notes.push(`ANOMALY: the concluder proposed ${done.proposed_status} on a falsifier's counterexample (no status may change)`)
+}
+if (counterexample && done.outcome !== 'falsifier-counterexample') notes.push(`the concluder returned outcome ${done.outcome}: the pass is falsifier-counterexample`)
 const res = { claim: A.claim, pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
-         outcome: done.outcome, proposed_status: done.proposed_status, record: done.record,
+         outcome: counterexample ? 'falsifier-counterexample' : done.outcome, proposed_status: done.proposed_status, record: done.record,
          packet: done.packet, tickets: done.tickets, report: done.report, anomalies: extra,
          launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
+if (falsifier && falsifier.counts) res.falsifier = { source: falsifier.source, on: falsifier.on || null, evidence: falsifier.evidence, found: falsifier.found }
 // the ticket's state is read by inbox.py --check itself (the concluder delivers it)
 if (!A.nested) res.ship = await ship({ role: 'expert', ticket: ticket === 'none' ? '' : ticket, done: true, topic: 'verify-' + A.claim,
   only: 'library board', agentType: CHAIR, phase: 'Conclude', notes })

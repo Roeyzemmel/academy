@@ -3,10 +3,11 @@
 The procedure for the concluder: the `review-chair` agent in the stages of the
 `academy-verify` workflow (`workflows/verify.js`), or the main session when
 `/expert:verify` runs by hand. In the workflow, **the script launches the runs and holds
-sections 1 and 7.5** (A, B only on `launch_b` with an unchanged hash, the identical
-brief, one relaunch, a lost run stops the pass); the chair's stages are *prepare*
-(section 0, or 7.1-7.4), *table* (the `decision_table.py <run>.md --json` check of
-section 1) and *conclude* (sections 2-6, or 7.6-7.7). Section 1 below is the by-hand
+sections 1, 1a and 7.5** (A, then the falsifier, B only on `launch_b` with an unchanged
+hash and a falsifier that found nothing, the identical brief, one relaunch, a lost run
+stops the pass); the chair's stages are *prepare* (section 0, or 7.1-7.4), *table* (the
+`decision_table.py <run>.md --json` check of section 1), *falsifier* (section 1a) and
+*conclude* (sections 2-6, or 7.6-7.7). Section 1 below is the by-hand
 route. A review fails loudly, in a verdict; a conclusion fails
 silently, by leaving a finding in a transcript nothing will read again. This file is
 about the second.
@@ -53,6 +54,17 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   another ticket's pass first, or, if it is dead (a
   stalled run, a changed statement), close it with
   `py $E/reviews.py abandon <id> <pass> --reason "..."` and say so in the thread.
+- **Report the falsifier on record** (a blind pass; section 1a uses it after A). The
+  sources are the ones `researcher/workflows/prove.js` accepts (#117): a falsifier that
+  attacked this claim (an experiment or test ticket to the Scientist that tried to break
+  it, or a recorded attack); one recorded on a declared input, or on the parent lead or
+  direction item, whose class or statement covers the claim (say how, and name the id);
+  the ticket's thread (the falsifier request this ticket waited on, once it is back, with
+  its result); or the human's waiver on the ticket or the claim (quote the thread line
+  `- YYYY-MM-DD human: ...` verbatim). Say what it found (nothing, or a counterexample),
+  any falsifier request the ticket already filed with its status, and the claim's declared
+  inputs. A ticket blocked by an earlier run of this pass (awaiting its falsifier) is taken
+  `blocked -> in-progress`.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
   reviewer reads the files, `budget.md` rule 9):
 
@@ -76,7 +88,8 @@ returns, the `land_verdict` hook has written `<pass dir>/A.md`. Then
 
 - `launch_b: true` (A CONFIRMED on one of the grading primaries (`grading.primaryModels`)): re-hash the
   statement (`py $E/reviews.py hash --claim <id>`, as in section 0); if the hash changed, stop — the statement moved under the review; record
-  that and conclude nothing. Otherwise launch run B with the identical brief and `run: B`, telling it
+  that and conclude nothing. Otherwise the falsifier comes first (section 1a); once it is on
+  record and found nothing, launch run B with the identical brief and `run: B`, telling it
   nothing of A.
 - Otherwise conclude on A alone (`single-negative`, `degraded`, `disproved`,
   `incomplete`) and say in the record that B was **skipped by design**, not lost.
@@ -91,6 +104,42 @@ it is genuinely unavailable, relaunch with the agent's frontmatter `fallback`, a
 the substitution in the ticket thread and the record. A run on any of the grading
 primaries (`grading.primaryModels`, roster-rules.md) counts in full; a run on any other
 model the table reads as PLAUSIBLE, so nothing is proposed on it.
+
+## 1a. The falsifier, between A and B
+
+The human's design (2026-11-20): the order is **attempt, run A, the falsifier, run B**. A
+falsifier (an experiment or test that tries to break the claim) is spent only on a proof
+that survived A. It runs only after a CONFIRMED A with `launch_b` and an unchanged hash;
+a negative A concludes on A alone, and a reword pass has no falsifier stage.
+
+- **On record and found nothing** (section 0's sources, checked by the script as
+  prove.js checks them: evidence given, an input that is a declared input, a waiver
+  quoting the human's thread line): B is launched at once.
+- **None on record**: launch no B. File one falsifier request: `tickets_create` kind
+  `research` to the Researcher that owns the claim's namespace (a `paper:` or `lab:`
+  claim: the Researcher of the claim's domain, as in section 4.3), `final_to: scientist`
+  (the Expert is no neighbour of the Scientist; the Researcher's `experiment-spec` relays
+  it; review-chair is an expert->researcher liaison), `parent` and `refs` the verify
+  ticket and the claim. It asks for an experiment or test that tries to break the claim
+  and for what it found. It never states A's verdict, its findings or anything of the pass
+  folder: B stays blind. Then block the verify ticket `waiting_on` the request, with a
+  thread note naming it and the open pass. A refused `tickets_create` blocks the ticket
+  `waiting_on: [human]` with the refusal. The pass stays open (no `decision.md`); the
+  workflow returns `awaiting-falsifier`.
+- **A request already filed** by an earlier run of this pass: file nothing. Still out:
+  block the ticket on it again. Back with no falsifier that counts: block the ticket
+  `waiting_on: [human]` (another falsifier, or a waiver, is the human's call).
+- **The rerun.** Once the request is back the verify ticket is released and run again:
+  `new-pass` returns the same open pass (#89), A is tabled, not relaunched, and the
+  falsifier is read from the request's result (source `ticket`).
+- **A counterexample.** B is not launched and no status changes: never
+  `claims_propose_status`. Write the record (A's table, the falsifier and its evidence,
+  the process notes), the evidence row for A, and route the counterexample as a finding
+  to the claim's producer: one `prove` ticket (gap class `statement`) to the Researcher of
+  the claim's domain (a `lab:` claim: to the Researcher with `final_to: scientist`), with
+  the counterexample and where it is recorded. The packet puts the counterexample in
+  `## Decisions needed`; the ticket is delivered. The outcome is
+  `falsifier-counterexample`.
 
 ## 2. The table, input by input
 

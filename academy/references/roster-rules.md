@@ -18,7 +18,10 @@ the ticket protocol is `docs/protocol.md`.
 4. **Two agreeing, independent verdicts** are the grounds for raising a status
    (the `status-vocabulary` skill gives the mapping). Run B is launched only if run A
    is positive, and neither run sees the other; for proof reviews the `academy-verify`
-   workflow enforces this in code (docs/workflows.md). A definition used only as notation is
+   workflow enforces this in code (docs/workflows.md). The order of a proof's review is
+   **attempt, run A, the falsifier, run B** (the human's design, 2026-11-20): a falsifier
+   is spent only on a proof that survived A, and B runs only once the claim's falsifier
+   is on record and found nothing; a counterexample ends the pass with no status change. A definition used only as notation is
    not an input in a verdict's `modulo` list; only a definition whose content the
    argument relies on counts (the human's decision, 2026-10-09, T-0148). So two
    CONFIRMED runs whose `modulo` lists differ only in definitions agree, on the
