@@ -33,16 +33,20 @@ OUTPUT_READ = {
     ("researcher/workflows/prove.js", "MODEL_OUT"): "launchModel parses the model line",
     ("researcher/workflows/review-experiment.js", "MODEL_OUT"): "launchModel parses the model line",
 }
+# the shared Ship block parses inbox.py --check's output (ship() reads the ticket's state and
+# the repos from it), in every workflow that ships
+SHIPPING = ("expert/workflows/cite.js", "expert/workflows/verify.js", "expert/workflows/referee.js",
+            "expert/workflows/domain.js", "researcher/workflows/prove.js", "researcher/workflows/explore.js",
+            "researcher/workflows/generalize.js", "researcher/workflows/review-experiment.js",
+            "scientist/workflows/experiment.js")
+OUTPUT_READ.update({(f, "SHIP"): "ship() parses the --check output" for f in SHIPPING})
+OUTPUT_READ.update({
+    ("expert/workflows/verify.js", "MODEL_OUT"): "launchModel parses the model line",
+    ("researcher/workflows/explore.js", "REG"): "the prove step reads registry.py statement's output",
+})
 # Out of this test's reach, each handled by its own change (#124 follow-ups run in parallel):
-ALLOWED_FILES = {
-    "researcher/workflows/explore.js": "explore.js: its stage schemas are fixed by a separate #124 task",
-    "expert/workflows/verify.js": "verify.js: its stage schemas are fixed by a separate #124 task",
-    "academy/workflows/maintain.js": "maintain.js: its stage schemas are fixed by a separate #124 task",
-}
-ALLOWED_SCHEMAS = {
-    "SHIP": "the shared Ship block, pinned byte-identical in every workflow (test_workflow_ship_stage); "
-            "changed once for all files, by a separate task",
-}
+ALLOWED_FILES = {}         # explore.js, verify.js and maintain.js were fixed on their own branches (2026-11-20)
+ALLOWED_SCHEMAS = {}       # SHIP was the last (2026-11-20): it now requires only status and output
 CLERK_TYPE = re.compile(r"^[a-z]+:[a-z-]*(clerk|review-chair)$")
 # Clerical stage agents not named a clerk: their stages run a script and return its answer.
 CLERK_LIKE = {"academy:usage-analyst": "its agent file says 'Clerical'; weekly.js's three stages run scripts"}
@@ -337,8 +341,8 @@ class ClerkSchemasRequireNoFreeText(unittest.TestCase):
         prove = by["researcher/workflows/prove.js"].clerk_schemas()
         self.assertNotIn("FILED", prove)              # launched by the prover and the lead only
         self.assertIn("MODEL_OUT", prove)             # launchModel's s.agentType
-        # SHIP still requires detail (allowed): the check really reads required lists
-        self.assertIn("detail", by["expert/workflows/cite.js"].violations().get("SHIP", []))
+        # SHIP is a clerk schema and no longer requires a free-text field (output is parsed)
+        self.assertNotIn("SHIP", by["expert/workflows/cite.js"].violations())
 
     def test_the_reader_catches_a_required_free_text_field(self):
         src = ("const CLERK = 'academy:inbox-clerk'\n"

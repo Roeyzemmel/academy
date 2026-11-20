@@ -125,7 +125,7 @@ const PREP = {
     researcher: { type: 'string', description: 'blind mode: the instance field of `reviews.py researcher-for <claim> --party <each from and to of the ticket and its parent chain>` (a researcher@ instance, or human)' },
     researcher_why: { type: 'string', description: 'its why field, verbatim' },
   },
-  required: ['ok', 'stop_reason', 'pass', 'pass_dir', 'statement_hash', 'location', 'bundle', 'ticket', 'landed'],
+  required: ['ok', 'pass', 'pass_dir', 'statement_hash', 'location', 'bundle', 'ticket', 'landed'],     // stop_reason: asked, defaulted (#124)
 }
 const AMEND_OUT = {
   type: 'object',
@@ -135,7 +135,7 @@ const AMEND_OUT = {
     waiting_on: { type: 'array', items: { type: 'string' }, description: 'its waiting_on after the update' },
     refusal: { type: 'string', description: 'a refused tickets_create or tickets_update, verbatim; else empty' },
   },
-  required: ['request', 'blocked', 'waiting_on', 'refusal'],
+  required: ['request', 'blocked', 'waiting_on'],     // refusal: asked; absent means none (#124)
 }
 const BUNDLE_OUT = {
   type: 'object',
@@ -143,7 +143,7 @@ const BUNDLE_OUT = {
     bundle: { type: 'string', description: 'absolute path of the amend bundle written; empty when refused' },
     refusal: { type: 'string', description: 'reviews.py amend-brief\'s refusal, verbatim; else empty' },
   },
-  required: ['bundle', 'refusal'],
+  required: ['bundle'],     // refusal: asked; absent means none (#124)
 }
 const FALS_OUT = {
   type: 'object',
@@ -151,7 +151,7 @@ const FALS_OUT = {
     request: { type: 'string', description: 'the falsifier request ticket filed; empty when none' },
     refusal: { type: 'string', description: 'a refused tickets_create, verbatim; else empty' },
   },
-  required: ['request', 'refusal'],
+  required: ['request'],     // refusal: asked; absent means none (#124)
 }
 // #121 part 3: the new stages' schemas require nothing; the code supplies every default
 const SETTLE_TABLE_OUT = {
@@ -231,7 +231,7 @@ const STAGE = (name, body) =>
 // "shipCheckpoint": false); anything else is not-run, with the command for the session.
 const SHIP = { type: 'object', properties: { status: { type: 'string', enum: ['pushed', 'nothing', 'refused', 'not-run'] }, detail: { type: 'string' },
   branches: { type: 'array', items: { type: 'string' } }, output: { type: 'string', description: 'the whole output, stdout and stderr, verbatim' } },
-  required: ['status', 'detail', 'branches', 'output'] }
+  required: ['status', 'output'] }     // detail and branches: asked, defaulted below (#124: no free-text field required)
 async function ship(s) {   // {role, ticket, done, instance, topic, only, agentType, phase, notes}
   if (!s.ticket) return { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
     command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
@@ -252,7 +252,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
     : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
     : rows.length ? { status: 'nothing', detail: 'nothing to commit or push' }
     : m ? { status: 'not-run', detail: 'no checkpoint ran ("shipCheckpoint": false, another board, or no ship script)' }
-    : { status: r.status, detail: r.detail }
+    : { status: r.status || 'not-run', detail: r.detail || 'no detail given' }
   if (!/^(pushed|nothing)$/.test(res.status)) res.command = check
   if (res.status === 'refused' && s.notes) s.notes.push(`the ship stage was refused (${res.detail}); fix the cause, then run \`${check}\` once by hand`)
   return res
@@ -321,8 +321,8 @@ const prep = await launch(STAGE('prepare', [
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {
-  log('pass not started: ' + (prep ? prep.stop_reason : 'the prepare stage returned nothing'))
-  return { claim: A.claim, outcome: 'not-started', reason: prep ? prep.stop_reason : 'prepare lost' }
+  log('pass not started: ' + (prep ? prep.stop_reason || 'no reason given' : 'the prepare stage returned nothing'))
+  return { claim: A.claim, outcome: 'not-started', reason: prep ? prep.stop_reason || 'no reason given' : 'prepare lost' }
 }
 if (!RE_PASS.test(prep.pass) || !RE_HASH.test(prep.statement_hash)) {
   throw new Error(`prepare returned a malformed pass ${JSON.stringify(prep.pass)} or hash ${JSON.stringify(prep.statement_hash)}`)
