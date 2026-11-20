@@ -81,7 +81,7 @@ const STAGE = (name, lines) => `WORKFLOW STAGE ${name} of the academy-workplan w
 
 const CAPS = { type: 'object', properties: { ok: { type: 'boolean' }, error: { type: 'string' },
   rounds: { type: ['number', 'null'] }, agents: { type: 'number' }, runs: { type: 'number' }, profile: { type: ['string', 'null'] } },
-  required: ['ok', 'error', 'rounds', 'agents', 'runs', 'profile'] }
+  required: ['ok', 'rounds', 'agents', 'runs', 'profile'] }   // #124: error asked, never required
 const APPROACH = { type: 'object', properties: { approach: { type: 'string' }, lifecycle: { type: 'string' }, state: { type: 'string' },
   directions: { type: 'array', items: { type: 'string' } }, waiting_tickets: { type: 'array', items: { type: 'string' } },
   decision_tickets: { type: 'array', items: { type: 'string' } } }, required: ['approach', 'lifecycle', 'state', 'directions', 'waiting_tickets', 'decision_tickets'] }
@@ -206,7 +206,7 @@ function report(st, why) {
 // ---- Caps ------------------------------------------------------------------------------
 phase('Caps')
 const cp = await caps()
-if (!cp || !cp.ok) return report(null, 'caps: ' + (cp ? cp.error : 'the caps stage returned nothing') + (KIND === 'campaign' ? ' (stop and ask; suggest 3 rounds and 4 agents)' : ''))
+if (!cp || !cp.ok) return report(null, 'caps: ' + (cp ? cp.error || 'no reason given' : 'the caps stage returned nothing') + (KIND === 'campaign' ? ' (stop and ask; suggest 3 rounds and 4 agents)' : ''))
 out.caps = cp
 
 // ---- Cowork: one pass ------------------------------------------------------------------------

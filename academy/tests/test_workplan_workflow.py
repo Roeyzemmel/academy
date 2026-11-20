@@ -21,7 +21,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -98,6 +98,19 @@ class SharedStopRules(unittest.TestCase):
         res, labels, _, err = run(WORKPLAN, {"caps": [dict(CAPS, ok=False, error="--rounds is required")]}, CAMPAIGN)
         self.assertIn("suggest 3 rounds and 4 agents", res["stopped"])
         self.assertEqual(labels, ["caps"])
+
+    def test_caps_without_error_lose_nothing(self):
+        """#124 follow-up 2: CAPS asks for error and does not require it; a refusal without
+        one says 'no reason given'."""
+        caps = dict(CAPS, ok=False)
+        del caps["error"]
+        res, labels, calls, err = run(WORKPLAN, {"caps": [caps]}, CAMPAIGN)
+        self.assertIsNone(err, err)
+        schema = calls[0]["schema"]
+        self.assertIn("error", schema["properties"])
+        self.assertNotIn("error", schema["required"])
+        self.assertIn("caps: no reason given", res["stopped"])
+        self.assertNotIn("undefined", json.dumps(res))
 
 
 @unittest.skipUnless(NODE, "node is not installed")
