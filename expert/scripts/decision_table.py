@@ -1,6 +1,7 @@
 """decision_table.py -- the proof-review decision table, applied mechanically.
 
     py decision_table.py A.md [B.md|-] [--established id1,id2] [--primary M1,M2] [--json]
+    py decision_table.py canon [--subject S] ITEM...   # each input in canonical spelling
 
 Takes the verdict records of run A and (optionally) run B -- files landed by
 ``land_verdict.py`` under ``<expert home>/reviews/<ns>/<id>/<pass>/`` or any text
@@ -1529,7 +1530,23 @@ def _text(res):
     return "\n".join(out)
 
 
+def main_canon(argv):
+    """``decision_table.py canon --subject S ITEM...``: each input in canonical spelling
+    (``canon_input``), one per line (the verify workflow compares suggested dependencies
+    with a claim's declared inputs in it)."""
+    ap = argparse.ArgumentParser(prog="decision_table.py canon")
+    ap.add_argument("--subject", default="")
+    ap.add_argument("items", nargs="*")
+    args = ap.parse_args(argv)
+    for it in args.items:
+        print(canon_input(it, args.subject))
+    return 0
+
+
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] == "canon":
+        return main_canon(argv[1:])
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("a", help="run A's verdict file")
     ap.add_argument("b", nargs="?", default=None, help="run B's verdict file, or - / omitted")

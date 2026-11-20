@@ -1148,6 +1148,16 @@ class AmendReviewFixTests(unittest.TestCase):
         self.assertEqual(r["outcome"], "disagreement", r)
         self.assertIsNone(r["proposed_status"])
 
+    def test_the_canon_command_prints_the_canonical_spelling(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = dt.main(["canon", "--subject", "paper:lem:x", "bib:LMW16#Thm-11",
+                            " paper:lem:y "])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf.getvalue().split(), ["bib:LMW16#Thm11", "paper:lem:y"])
+
     def test_the_cli_checks_the_registry(self):
         d = tempfile.mkdtemp()
         try:

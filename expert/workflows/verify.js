@@ -106,13 +106,14 @@ const PREP = {
         request_status: { type: 'string', description: 'that request\'s status, or empty' },
         statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, when the record says it (a lab result or report that records it; for a request this workflow filed, the hash its ask names; a waiver, the hash it names): else empty' } },
       required: ['source', 'on', 'evidence', 'found', 'request', 'request_status', 'statement_hash'] },
-    inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs (depends_on, its cites as bib:<key>, and the other-namespace inputs its record names), verbatim, as the registry reads them now' },
+    inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs (depends_on, its cites as bib:<key>, and the other-namespace inputs its record names), as the registry reads them now, namespaces and #pinpoints kept (a bib: key the current attempt cites at a pinpoint also as bib:<key>#<pinpoint>), in canonical spelling (`decision_table.py canon --subject <claim> <input>...`)' },
     amendment: { type: 'object', description: 'a dependency amendment this pass asked for (2026-11-20; blind mode)',
       properties: {
         request: { type: 'string', description: 'the repair ticket an earlier run of this pass filed to add run A\'s suggested dependencies (the verify ticket\'s waiting_on or its thread), or empty' },
         request_status: { type: 'string', description: 'that ticket\'s status, or empty' },
-        attempt: { type: 'string', description: 'the claim\'s current proof attempt (the record\'s proof: field, or the tex proof\'s lines), the amended one once the repair is back; else empty' } },
-      required: ['request', 'request_status', 'attempt'] },
+        attempt: { type: 'string', description: 'the claim\'s current proof attempt (the record\'s proof: field, or the tex proof\'s lines), the amended one once the repair is back; else empty' },
+        reviewed_attempt: { type: 'string', description: 'the proof attempt run A reviewed, as this pass recorded it when it asked for the amendment (the repair\'s ask and the verify ticket\'s block note say "run A reviewed <attempt>"), verbatim; else empty' } },
+      required: ['request', 'request_status', 'attempt', 'reviewed_attempt'] },
     researcher: { type: 'string', description: 'blind mode: the instance field of `reviews.py researcher-for <claim> --party <each from and to of the ticket and its parent chain>` (a researcher@ instance, or human)' },
     researcher_why: { type: 'string', description: 'its why field, verbatim' },
   },
@@ -270,7 +271,7 @@ const prep = await launch(STAGE('prepare', [
       'Report the claim\'s falsifier on record (falsifier; conclude.md section 0, the sources prove.js accepts, #117): one that attacked this claim; or one recorded on a declared input, or on the parent lead or direction item, whose class or statement covers it, saying how; ' +
       'or the ticket thread records one (the falsifier request this ticket waited on, once it is back: its result); or the human waived it on the ticket or the claim (quote that thread line verbatim); else none. ' +
       'Say what it found (nothing, or a counterexample), any falsifier request this ticket already filed with its status, and the claim\'s declared inputs (inputs: depends_on, its cites as bib:<key>, read from the registry now). ' +
-      'Report the dependency amendment (amendment; conclude.md section 1b): a repair ticket an earlier run of this pass filed to add run A\'s suggested dependencies, with its status, and the claim\'s current proof attempt; a ticket blocked on it is taken blocked -> in-progress too.',
+      'Report the dependency amendment (amendment; conclude.md section 1b): a repair ticket an earlier run of this pass filed to add run A\'s suggested dependencies, with its status, the claim\'s current proof attempt, and the attempt run A reviewed as this pass recorded it ("run A reviewed <attempt>" in the repair\'s ask or the ticket\'s block note); a ticket blocked on it is taken blocked -> in-progress too.',
       'Run `reviews.py researcher-for ' + A.claim + ' --party <instance>` once, with a --party for the from and the to of the ticket and of each ticket up its parent chain (tickets_get), and report its instance and why as researcher and researcher_why. ' +
       'Report in falsifier.statement_hash (not the pass\'s own statement_hash) the statement hash the falsifier attacked when its record says it (a request this workflow filed names it in its ask: "statement hash <h>"); else leave it empty: a falsifier of unknown or another wording does not count (a waiver aside).',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
@@ -443,32 +444,52 @@ async function requestFalsifier(f) {
 }
 
 // ---- The dependency amendment (2026-11-20) -----------------------------------------
-// A's suggestion counts as made once every suggested dependency is among the claim's declared
-// inputs as the registry reads them now (namespace prefixes and pinpoints ignored) and the
-// repair, if one was filed, has ended.
-const depKey = x => bare(x).replace(/#.*$/, '').trim()
+// A's suggestion counts as made (the 2026-11-20 review) only when a repair this pass filed
+// has ended delivered or closed, the claim's current attempt is not the one run A reviewed
+// (recorded in the pass's repair ask and block note), and every suggested dependency is
+// among the declared inputs as the registry reads them now, namespace and #pinpoint kept,
+// compared in canonical spelling (decision_table's canon_input: the table reports A's
+// suggestion in it, the prepare stage the inputs; the spelling-only part is redone here).
+const PIN_GLUE = /(\b(?:thm|theorem|lem|lemma|prop|proposition|cor|corollary|defn?|definition|rmk|rem|remark|sect?|section|item|pp?|ex|example|eq|fig|figure|tab|table|claim|step|fact|obs|ch|chapter|app|appendix)|§)[\s.\-]+(?=\d)/gi
+function depKey(x) {
+  const t = String(x || '').split(/\s+/).filter(Boolean).join(' ').replace(/^[`'"]+|[`'"]+$/g, '')
+  const i = t.indexOf('#')
+  return i < 0 ? t : t.slice(0, i) + '#' + t.slice(i + 1).trim().replace(PIN_GLUE, '$1')
+}
+const REPAIR_DONE = /^(delivered|closed)$/
 function amendmentIn(deps) {
   const am = prep.amendment || {}
   const have = new Set((prep.inputs || []).map(depKey))
   const missing = deps.filter(d => !have.has(depKey(d)))
-  const open = am.request && !DONE_TICKET.test(am.request_status || '')
-  return { done: !missing.length && !open, missing, open, request: am.request || '', status: am.request_status || '', attempt: am.attempt || '' }
+  const status = am.request_status || ''
+  const open = !!am.request && !DONE_TICKET.test(status)
+  const why = []
+  if (am.request && !open && !REPAIR_DONE.test(status)) why.push(`the repair ${am.request} ended ${status}, not delivered or closed`)
+  if (am.request && !open && !String(am.reviewed_attempt || '').trim()) why.push('the pass did not record the attempt run A reviewed')
+  else if (am.request && !open && (!String(am.attempt || '').trim() || am.attempt.trim() === am.reviewed_attempt.trim())) {
+    why.push(`the claim's current attempt (${am.attempt || 'none reported'}) is the one run A reviewed: the proof was not amended`)
+  }
+  if (am.request && !open && missing.length) why.push(`the declared inputs of ${A.claim} lack ${missing.join(', ')} (namespace and pinpoint as suggested)`)
+  const done = !!am.request && !open && !why.length
+  return { done, missing, open, why, request: am.request || '', status, attempt: am.attempt || '' }
 }
 async function requestAmendment(deps, st) {
   const T = ticket === 'none' ? '' : ticket
   const list = deps.join(', ')
+  const reviewed = String((prep.amendment || {}).attempt || '').trim() || '(no attempt reported)'
   const how = st.open
     ? [`An earlier run of this pass filed the repair ${st.request} (${st.status || 'status unknown'}), which is not back: file nothing. ` +
        (T ? `Block ${T}: tickets_update status blocked, waiting_on [${st.request}], note "amendment ${st.request} not back; the pass ${prep.pass} stays open".` : 'There is no verify ticket to block.')]
     : st.request
-      ? [`The repair ${st.request} ended (${st.status}) but the claim's declared inputs still lack ${st.missing.join(', ')}: file nothing. ` +
-         (T ? `Block ${T}: tickets_update status blocked, waiting_on [human], reason "the repair ${st.request} ended without adding ${st.missing.join(', ')} to ${A.claim}: the human decides (another repair, or a fresh pass)".` : 'There is no verify ticket to block.')]
+      ? [`The repair ${st.request} ended (${st.status}) without the amendment: ${st.why.join('; ')}. File nothing. ` +
+         (T ? `Block ${T}: tickets_update status blocked, waiting_on [human], reason "the repair ${st.request} ended (${st.status}) without the amendment of ${A.claim} (${st.why.join('; ')}): the human decides (another repair, or a fresh pass)".` : 'There is no verify ticket to block.')]
       : [`File one repair with tickets_create: kind prove, to the Researcher instance that owns the namespace of ${A.claim} ` +
          `(for a claim of another namespace, paper: or lab:, the Researcher of the claim's domain, as a prove follow-up is routed, conclude.md section 4.3; a lab: claim with final_to scientist), ` +
          `refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; title "Repair: add dependencies to ${A.claim}"; ` +
-         `ask (mode repair, researcher prove.js): add exactly these dependencies to the proof of ${A.claim} (cite and use them where the argument relies on them) and to the claim's depends_on (a bib: key to its cites): ${list}; change nothing else, not the statement. ` +
+         `ask (mode repair, researcher prove.js): add exactly these dependencies to the proof of ${A.claim} (cite and use them where the argument relies on them) and to the claim's depends_on (a bib: key to its cites, cited in the proof at its pinpoint): ${list}; change nothing else, not the statement; write the amended proof as a new attempt. ` +
+         (T ? `The ask's first line ends with the marker "amendment for verify ${T} pass ${prep.pass}" and its detail says "run A reviewed ${reviewed}": this repair files no verify ticket (run B of ${T}'s pass, on the amended proof, is the second verdict) and delivers with the new attempt's path. ` : '') +
          `deliverable: the amended proof attempt and the record's depends_on. The ask names the dependencies only: never run A's verdict, report or findings.`,
-         T ? `Then block ${T}: tickets_update status blocked, waiting_on [<the repair's id>], note "amendment requested: <id> (add ${list}); the pass ${prep.pass} stays open and resumes when it is back". ` +
+         T ? `Then block ${T}: tickets_update status blocked, waiting_on [<the repair's id>], note "amendment requested: <id> (add ${list}); run A reviewed ${reviewed}; the pass ${prep.pass} stays open and resumes when it is back". ` +
              `If tickets_create refuses, block ${T} waiting_on [human] with the refusal as the reason, and return the refusal.`
            : 'There is no verify ticket: block nothing.']
   return launch(STAGE('amendment', [
@@ -489,7 +510,10 @@ if (MODE === 'reword') {
   const a = await review('A')
   runs.push(Object.assign({ run: 'A' }, a))
   const suggested = (!a.lost && Array.isArray(a.add_dependency)) ? a.add_dependency.filter(x => String(x || '').trim()) : []
-  amending = !a.lost && (a.outcome === 'awaiting-amendment' || (suggested.length > 0 && /^CONFIRMED/.test(String(a.verdict || ''))))
+  // the table decides (it refuses a suggestion that names no existing result): an amend pass
+  // is the table's awaiting-amendment with the suggestion it reports
+  amending = !a.lost && a.outcome === 'awaiting-amendment' && suggested.length > 0
+  if (!a.lost && a.outcome === 'awaiting-amendment' && !suggested.length) notes.push('ANOMALY: the table on A says awaiting-amendment but reports no add_dependency: not an amend pass')
   if (a.lost) {
     // nothing to add
   } else if (!a.launch_b && !amending) {
@@ -532,7 +556,7 @@ if (MODE === 'reword') {
         // A suggested a dependency: B reviews the amended proof, once the amendment is in
         const st = amendmentIn(suggested)
         if (!landed.has('B') && !st.done) {
-          if (st.request && !st.open && st.missing.length) notes.push(`the repair ${st.request} ended, but ${st.missing.join(', ')} ${st.missing.length > 1 ? 'are' : 'is'} not among the declared inputs of ${A.claim}`)
+          if (st.request && !st.open) notes.push(`the repair ${st.request} ended (${st.status}) without the amendment: ${st.why.join('; ')}`)
           const req = await requestAmendment(suggested, st)
           const id = req && /^T-\d{4,}$/.test(String(req.request || '').trim()) ? req.request.trim() : ''
           if (!req) notes.push('the amendment stage returned nothing: no repair is known to be filed')
