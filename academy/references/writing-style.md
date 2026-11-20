@@ -446,9 +446,11 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
   it if it differs.
 - **Named terms are notation too.** A defined word is used in its defined sense only; a
   second sense needs a different word.
-- **The draft and the paper file.** The notation list the reader sees is the draft's. Where
-  the paper file and that list disagree, the paper file is wrong and is fixed by the
-  notation-auditor (pending the human: C-1). A change to the domain's standard notation is a
+- **The draft and the paper file** (the human, 2026-11-20). The human's dated notation
+  decisions in the paper file lead the draft: new text follows them, and a place where the
+  draft still differs is a clash to fix in the draft (a ticket), never a reason to change
+  the decision. Where the paper file has no decision, the draft's usage is the record, and
+  the notation-auditor writes it into the paper file. A change to the domain's standard notation is a
   `notation` ticket to the Expert; who changes what is the `notation-discipline` skill.
 
 ## 14. LaTeX habits
@@ -471,8 +473,8 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
   invented (`citation-discipline`); in the academy only the Expert's librarian edits the
   bibliography. Include both arXiv and published references when both exist.
 - **Small habits in the text, recommended for new text** (`modern-latex.md`, where the
-  preamble provides them; that file offers them as proposals, not rules, so they are not a
-  reason to rewrite accepted text: pending the human: C-4): `\left…\right` only where the
+  preamble provides them; the human, 2026-11-20: they bind new text only and are never a
+  reason to rewrite accepted text): `\left…\right` only where the
   content needs scaling (prefer `\bigl(` and kin when the size is known); `\emph` rather
   than `\textit`; `\dots` rather than `\ldots`/`\cdots`; `\operatorname{…}` for a one-off
   operator, `\DeclareMathOperator` (a preamble change) only for one used repeatedly;

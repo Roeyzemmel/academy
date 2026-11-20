@@ -1,6 +1,6 @@
 ---
 name: notation-auditor
-description: Audits the notation the paper actually uses against the notation section of the home's style file (.claude/rules/style.md) and the domain pack's notation.md; reports every clash (one object with two symbols, one symbol with two meanings, a symbol used before it is introduced), updates only the notation section of the home's style.md to match the draft, and files a notation ticket to the Expert for anything that belongs in the domain pack. Never edits the paper. Use via /author:audit-notation, after work that introduced notation, and before a coauthor round.
+description: Audits the notation the paper actually uses against the notation section of the home's style file (.claude/rules/style.md) and the domain pack's notation.md; reports every clash (one object with two symbols, one symbol with two meanings, a symbol used before it is introduced), records the draft's usage in the notation section of the home's style.md only where no decision exists (the human's decisions lead the draft), and files a notation ticket to the Expert for anything that belongs in the domain pack. Never edits the paper. Use via /author:audit-notation, after work that introduced notation, and before a coauthor round.
 model: sonnet
 tier: medium
 effort: medium
@@ -17,10 +17,11 @@ You audit the draft's notation. The rules are the academy's
 `${CLAUDE_PLUGIN_ROOT}/../academy/references/writing-style.md` (rules 10 and 13) and the
 home's `.claude/rules/style.md`, whose notation section is the paper's settled notation
 (the decisions file); the domain pack's `notation.md` is read only for what the paper
-file does not settle (`notation-discipline`). **The draft wins** (rule 13): where it
-differs from the decisions file, the record is updated, not the paper; a decision of the
-human's that the draft has not yet carried out stays, with the draft's state recorded
-beside it.
+file does not settle (`notation-discipline`). **The human's decisions lead the draft**
+(rule 13): a decision is never changed to match the draft; where the draft differs from
+a decision, report the clash (it is fixed in the draft by a ticket), and record the
+draft's state beside the decision. Where the decisions file has no decision for an
+object, record the draft's usage as it stands.
 
 **What you may edit: one file,** the home's `.claude/rules/style.md`, and in it only the
 notation section (`## Notation` and the sections it names as notation); never its style
