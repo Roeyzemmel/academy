@@ -19,7 +19,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -150,6 +150,62 @@ class ExperimentTests(unittest.TestCase):
                                                "deliver": [{"ok": True, "detail": ""}]}, mode="file", stem="s", ticket="T-1")
         self.assertEqual(res["outcome"], "filed")
         self.assertIn("--ticket T-1", next(c for c in calls if c["label"] == "file")["prompt"])
+
+    # ---- #124 follow-up: a clerk that leaves out 'detail' costs no run ------------------------
+    # (review of 0881c94: the 23 'must have required property detail' rows of academy:inbox-clerk
+    # are not only inbox.js's; this workflow's clerk stages HOME, QUEUED and MOVE required it too)
+
+    def schema_of(self, calls, label):
+        return next(c for c in calls if c["label"] == label)["schema"]
+
+    def assert_detail_optional(self, schema, label, required):
+        self.assertIn("detail", schema["properties"], label)          # still asked for
+        self.assertNotIn("detail", schema["required"], label)
+        self.assertEqual(set(schema["required"]), required, label)   # what the code reads stays required
+
+    def test_the_home_schema_does_not_require_detail(self):
+        _res, _labels, calls, err = self.run_wf({"lab home": [HOME], "design": [DESIGN]}, mode="design", claim="lab:x", ticket="T-1")
+        self.assertIsNone(err, err)
+        self.assert_detail_optional(self.schema_of(calls, "lab home"), "lab home", {"ok", "instance", "home", "run_profile"})
+
+    def test_the_queued_schema_does_not_require_detail(self):
+        _res, _labels, calls, err = self.run_wf({"committed?": [{"committed": True, "commit": "abc", "dirty": []}],
+                                                 "queue": [{"ok": True, "job": "j1", "command": "c", "detail": ""}]}, mode="queue", stem="s")
+        self.assertIsNone(err, err)
+        self.assert_detail_optional(self.schema_of(calls, "queue"), "queue", {"ok", "job", "command"})
+
+    def test_the_move_schema_does_not_require_detail(self):
+        _res, _labels, calls, err = self.run_wf({"file": [{"packet": "P-1", "review_ticket": "T-9", "researcher": "researcher@u", "why": "w", "error": ""}],
+                                                 "deliver": [{"ok": True, "detail": ""}]}, mode="file", stem="s", ticket="T-1")
+        self.assertIsNone(err, err)
+        self.assert_detail_optional(self.schema_of(calls, "deliver"), "deliver", {"ok"})
+
+    def test_answers_without_detail_lose_nothing(self):
+        home = {k: v for k, v in HOME.items() if k != "detail"}
+        res, labels, _, err = self.run_wf({"lab home": [home], "design": [DESIGN]}, mode="design", claim="lab:x", ticket="T-1")
+        self.assertIsNone(err, err)
+        self.assertEqual(labels, ["lab home", "design"])
+        self.assertIn("approve the header", res["for_main"]["why"])
+        res, labels, _, err = self.run_wf({"committed?": [{"committed": True, "commit": "abc", "dirty": []}],
+                                           "queue": [{"ok": True, "job": "j1", "command": "c"}]}, mode="queue", stem="s")
+        self.assertEqual((res["outcome"], res["job"]), ("queued", "j1"))
+        res, labels, _, err = self.run_wf({"file": [{"packet": "P-1", "review_ticket": "T-9", "researcher": "researcher@u", "why": "w", "error": ""}],
+                                           "deliver": [{"ok": True}]}, mode="file", stem="s", ticket="T-1")
+        self.assertEqual(res["outcome"], "filed")
+        self.assertTrue(res["ticket_delivered"])
+
+    def test_a_refusal_without_detail_says_so_plainly(self):
+        res, labels, _, err = self.run_wf({"lab home": [{"ok": False, "instance": "", "home": "", "run_profile": ""}]},
+                                          mode="design", claim="lab:x")
+        self.assertIsNone(err, err)
+        self.assertEqual((res["outcome"], res["reason"]), ("not-started", "no reason given"))
+        res, labels, _, err = self.run_wf({"committed?": [{"committed": True, "commit": "abc", "dirty": []}],
+                                           "queue": [{"ok": False, "job": "", "command": "c"}]}, mode="queue", stem="s")
+        self.assertEqual((res["outcome"], res["reason"]), ("not-queued", "no reason given"))
+        # a detail given is still the reason
+        res, _, _, _ = self.run_wf({"committed?": [{"committed": True, "commit": "abc", "dirty": []}],
+                                    "queue": [{"ok": False, "job": "", "command": "c", "detail": "gateway down"}]}, mode="queue", stem="s")
+        self.assertEqual(res["reason"], "gateway down")
 
 
 @unittest.skipUnless(NODE, "node is not installed")

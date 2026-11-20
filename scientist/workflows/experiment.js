@@ -67,10 +67,18 @@ const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
 const SCRIPTS = `Scripts: lab.py is \`py ${AR}/scientist/scripts/lab.py\`, report.py is \`py ${AR}/scientist/scripts/report.py\`, from the lab home (python3 where there is no py)` +
   (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.scientist is the scripts folder).\n')
-const clerk = (stage, lines, schema, label) => launch(`WORKFLOW STAGE ${stage} of the academy-experiment workflow (mode ${A.mode}). Run from the lab home (lab.py home names it).\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
-  { label: label || stage, phase: 'Leg', agentType: CLERK, schema, effort: 'low' })
+// #124 (as inbox.js, 0881c94): detail is asked for and never required by HOME, QUEUED and MOVE
+// (the ledger's 'must have required property detail' rows are academy:inbox-clerk's, this
+// workflow's clerk too): clerk() fills in '' for it, and a reader says 'no reason given'
+const withDetail = r => (r && typeof r === 'object' && typeof r.detail !== 'string') ? Object.assign({}, r, { detail: '' }) : r
+const reasonOf = r => r.detail || 'no reason given'
+const clerk = async (stage, lines, schema, label) => {
+  const r = await launch(`WORKFLOW STAGE ${stage} of the academy-experiment workflow (mode ${A.mode}). Run from the lab home (lab.py home names it).\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
+    { label: label || stage, phase: 'Leg', agentType: CLERK, schema, effort: 'low' })
+  return schema === HOME || schema === QUEUED || schema === MOVE ? withDetail(r) : r
+}
 
-const HOME = { type: 'object', properties: { ok: { type: 'boolean' }, instance: { type: 'string' }, home: { type: 'string' }, run_profile: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'instance', 'home', 'run_profile', 'detail'] }
+const HOME = { type: 'object', properties: { ok: { type: 'boolean' }, instance: { type: 'string' }, home: { type: 'string' }, run_profile: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'instance', 'home', 'run_profile'] }
 const DESIGN = { type: 'object', properties: {
   path: { type: 'string', enum: ['argument', 'probe', 'experiment'] },
   argument: { type: 'string', description: 'the two-line argument, when that settles it' },
@@ -82,11 +90,11 @@ const DESIGN = { type: 'object', properties: {
 const BUILT = { type: 'object', properties: { script: { type: 'string' }, lab_claim: { type: 'string' }, tests: { type: 'array', items: { type: 'string' } }, note: { type: 'string' } }, required: ['script', 'lab_claim', 'tests', 'note'] }
 const CHECK = { type: 'object', properties: { ok: { type: 'boolean' }, errors: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'errors'] }
 const COMMITTED = { type: 'object', properties: { committed: { type: 'boolean' }, commit: { type: 'string' }, dirty: { type: 'array', items: { type: 'string' } } }, required: ['committed', 'commit', 'dirty'] }
-const QUEUED = { type: 'object', properties: { ok: { type: 'boolean' }, job: { type: 'string' }, command: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'job', 'command', 'detail'] }
+const QUEUED = { type: 'object', properties: { ok: { type: 'boolean' }, job: { type: 'string' }, command: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'job', 'command'] }
 const DRAFT = { type: 'object', properties: { report: { type: 'string' }, result_line: { type: 'string' } }, required: ['report', 'result_line'] }
 const RENDER = { type: 'object', properties: { ok: { type: 'boolean' }, rendered: { type: 'string', description: 'the rendered packet text' }, errors: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'rendered', 'errors'] }
 const FILED = { type: 'object', properties: { packet: { type: 'string' }, review_ticket: { type: 'string' }, researcher: { type: 'string' }, why: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'review_ticket', 'researcher', 'why', 'error'] }
-const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
+const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
 // workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
@@ -127,7 +135,7 @@ phase('Leg')
 
 if (A.mode === 'design') {
   const h = await clerk('lab-home', [T ? `First take ${T} (open -> accepted -> in-progress, acting as its receiver).` : '', 'Run lab.py home and return the lab instance, its home and the policy.run profile.'], HOME, 'lab home')
-  if (!h || !h.ok) return Object.assign(out, { outcome: 'not-started', reason: h ? h.detail : 'lab.py home returned nothing' })
+  if (!h || !h.ok) return Object.assign(out, { outcome: 'not-started', reason: h ? reasonOf(h) : 'lab.py home returned nothing' })
   const designBrief = `Design one experiment in the lab ${h.home} for ${A.claim || 'the ticket ' + T}${A.kind ? ' (kind ' + A.kind + ')' : ''}. Read the statement from its owner, the pack's examples.md, traps.md and ` +
     'computation/ through domain_get, the nearest existing script and the lab\'s package. ' +
     (A.force
@@ -217,7 +225,7 @@ if (A.mode === 'queue') {
   if (!cm || !cm.committed) return gate('the script is not committed: the human commits it first (the queue runs the committed script)', { dirty: cm ? cm.dirty : [] })
   const q = await clerk('queue', [`File the run on the policy.run profile: lab.py cmd queue -Add experiments/${A.stem}.py -Label <the lab claim in its header> -Note "<one line>"` +
     (A.env ? ` (profile ${A.env})` : '') + '; run the command it prints; return the job id, the command, and any refusal.'], QUEUED, 'queue')
-  if (!q || !q.ok) return Object.assign(out, { outcome: 'not-queued', reason: q ? q.detail : 'no answer' })
+  if (!q || !q.ok) return Object.assign(out, { outcome: 'not-queued', reason: q ? reasonOf(q) : 'no answer' })
   return Object.assign(out, { outcome: 'queued', job: q.job, command: q.command, notes: ['watch it with /scientist:queue'] })
 }
 
