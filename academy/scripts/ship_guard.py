@@ -158,7 +158,8 @@ def advice(action, target):
             return ("py scripts/ship.py commit board -m \"...\" --paths P...  for board/ "
                     "files, or `commit workspace ...` for the workspace's own files (its "
                     "CLAUDE.md, scripts/, docs/); a submodule pointer is never committed")
-        return "py scripts/ship.py commit %s -m \"...\" (--paths P... | --all)" % target
+        return ("py scripts/ship.py commit %s -m \"...\" (--paths P... | --all); to record a "
+                "resolved merge: py scripts/ship.py sync %s --continue" % (target, target))
     if action == "push":
         return ("py scripts/ship.py push %s  (it runs the push gate; 'ship' is commit + push, "
                 "'stack %s' names the pull requests of a stack)" % (target, target))

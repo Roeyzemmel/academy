@@ -145,6 +145,13 @@ ACADEMY_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 ROOT = None
 ROLES = ("author", "expert", "researcher", "scientist", "human")
 BRANCH = re.compile(r"^\d{4}-\d{2}-\d{2}/[a-z0-9][a-z0-9-]*/(%s)$" % "|".join(ROLES))
+#: a branch made before ``start`` lowercased the topic (2026-11-13/T-1179-statement-hash/...):
+#: ``merge`` accepts it with a warning (#120); nothing else does
+LEGACY_BRANCH = re.compile(r"^\d{4}-\d{2}-\d{2}/[A-Za-z0-9][A-Za-z0-9_.-]*/(%s)$" % "|".join(ROLES))
+#: append-only ledgers a sync resolves by the union of their lines, and counters it
+#: resolves by the larger value (#119, #90 (c)): every other conflict is the human's
+UNION_LEDGERS = re.compile(r"(^|/)\.errors/[^/]+\.jsonl$")
+MAX_COUNTERS = re.compile(r"(^|/)\.ids/[^/]+$")
 PROTECTED = ("main", "master")
 
 
@@ -922,8 +929,11 @@ def cmd_merge(a):
     it was. Never pushes (``publish`` does that).
     """
     branch = a.branch
-    if branch in PROTECTED or not BRANCH.match(branch):
+    if branch in PROTECTED or not (BRANCH.match(branch) or LEGACY_BRANCH.match(branch)):
         raise Refuse("%r is not a <date>/<topic>/<role> template branch; refusing to merge it" % branch)
+    if not BRANCH.match(branch):
+        print("ship: warning: %s is a legacy branch name (uppercase or '_' in the topic, made "
+              "before start lowercased topics): merged as it is (#120)" % branch, file=sys.stderr)
     repo = repo_of(a.sub, a.repo)
     if a.bump:
         if a.sub not in submodule_names():
@@ -992,6 +1002,128 @@ def cmd_merge(a):
         except Refuse as e:
             raise Refuse("merge done; bump failed: %s" % e)
         print("superproject: Bump %s to %s @ %s" % (a.sub, short, git(ROOT, "rev-parse", "--short", "HEAD")))
+
+
+def _stage_text(repo, stage, path):
+    p = subprocess.run(["git", "-C", repo, "show", ":%d:%s" % (stage, path)], capture_output=True,
+                       text=True, env=git_env(), stdin=subprocess.DEVNULL)
+    return p.stdout if p.returncode == 0 else ""
+
+
+def resolve_ledger(repo, path):
+    """Resolve one conflicted ledger or counter in the merge in progress, or return False:
+    a ``.errors/*.jsonl`` ledger is ours then every line of theirs ours lacks (order kept,
+    each line once); an ``.ids/*`` counter is the larger number."""
+    top = git(repo, "rev-parse", "--show-toplevel")
+    ours, theirs = _stage_text(repo, 2, path), _stage_text(repo, 3, path)
+    if UNION_LEDGERS.search(path):
+        lines = ours.splitlines()
+        seen = set(lines)
+        for ln in theirs.splitlines():
+            if ln not in seen:
+                lines.append(ln)
+                seen.add(ln)
+        text = "\n".join(lines) + ("\n" if lines else "")
+    elif MAX_COUNTERS.search(path):
+        try:
+            text = "%d\n" % max(int(x.strip() or 0) for x in (ours, theirs))
+        except ValueError:
+            return False
+    else:
+        return False
+    with open(os.path.join(top, path), "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    git(repo, "add", "--", path)
+    return True
+
+
+def unmerged(repo):
+    return [p for p in git(repo, "diff", "--name-only", "--diff-filter=U").splitlines() if p]
+
+
+def cmd_sync(a):
+    """Bring origin/main into the current work branch (#91, #119): ``git merge`` of
+    origin/main; the append-only ledgers and counters are resolved (``resolve_ledger``);
+    any other conflict stops with the files listed and the merge left in progress, for
+    the human to resolve and record with ``sync --continue``, which commits the whole
+    merge (a pathspec commit is refused during a merge). Never pushes: ``push`` does."""
+    repo = repo_of(a.sub, a.repo)
+    b = require_template(repo)
+    if a.cont:
+        if not merge_in_progress(repo):
+            raise Refuse("%s has no merge in progress; nothing to continue" % repo)
+        left = unmerged(repo)
+        if left:
+            raise Refuse("still unmerged: %s; resolve them and 'git add' each, then sync --continue"
+                         % ", ".join(left))
+        git(repo, "commit", "-q", "--no-edit")
+        print("%s %s @ %s: merge recorded; 'push %s' sends it through the gate"
+              % (a.sub, b, git(repo, "rev-parse", "--short", "HEAD"), a.sub))
+        return 0
+    require_clean(repo, ignore_submodules=bool(prefix_of(a.sub)))
+    src = a.source or "main"
+    git(repo, "fetch", "-q", "origin", src)
+    ref = "refs/remotes/origin/" + src
+    if subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", ref, "HEAD"],
+                      capture_output=True, env=git_env(), stdin=subprocess.DEVNULL).returncode == 0:
+        print("%s %s already contains origin/%s; nothing to sync" % (a.sub, b, src))
+        return 0
+    p = subprocess.run(["git", "-C", repo, "merge", "-q", "--no-ff", "--no-commit", ref],
+                       capture_output=True, text=True, env=git_env(), stdin=subprocess.DEVNULL)
+    if p.returncode and not merge_in_progress(repo):
+        raise Refuse("git merge origin/%s failed in %s: %s" % (src, repo, (p.stderr or p.stdout).strip()))
+    resolved = [f for f in unmerged(repo) if resolve_ledger(repo, f)]
+    left = unmerged(repo)
+    if left:
+        print("ship: sync stopped on conflicts in %s%s; resolve them and 'git add' each, then "
+              "'ship.py sync %s --continue' (or 'git merge --abort')"
+              % (", ".join(left), (" (ledgers resolved: %s)" % ", ".join(resolved)) if resolved else "",
+                 a.sub), file=sys.stderr)
+        return 1
+    if not merge_in_progress(repo):
+        print("%s %s: origin/%s fast-forwarded" % (a.sub, b, src))
+        return 0
+    git(repo, "commit", "-q", "-m", "Sync %s with origin/%s" % (b, src))
+    print("%s %s @ %s: synced with origin/%s%s; 'push %s' sends it through the gate"
+          % (a.sub, b, git(repo, "rev-parse", "--short", "HEAD"), src,
+             (" (ledgers resolved: %s)" % ", ".join(resolved)) if resolved else "", a.sub))
+    return 0
+
+
+def cmd_bump(a):
+    """Commit the superproject pointer of each submodule to its reviewed main tip (#91):
+    the bump without a merge (``merge --bump`` does both). The pointer must be the sha
+    given, which must be the submodule's origin/main or an ancestor of it."""
+    if not a.subs:
+        raise Refuse("name the submodules to bump")
+    shas = a.sha or []
+    if len(shas) != len(a.subs):
+        raise Refuse("give one --sha per submodule (%d submodules, %d --sha)" % (len(a.subs), len(shas)))
+    names = submodule_names()
+    done = []
+    for sub, sha in zip(a.subs, shas):
+        if sub not in names:
+            raise Refuse("%s is not a submodule path in %s" % (sub, os.path.join(ROOT, ".gitmodules")))
+        repo = os.path.join(ROOT, sub)
+        git(repo, "fetch", "-q", "origin", "main")
+        full = git(repo, "rev-parse", "--verify", "--quiet", sha + "^{commit}", check=False)
+        if not full:
+            raise Refuse("%s: no commit %s" % (sub, sha))
+        if subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", full,
+                           "refs/remotes/origin/main"], capture_output=True, env=git_env(),
+                          stdin=subprocess.DEVNULL).returncode:
+            raise Refuse("%s: %s is not on origin/main; publish it first" % (sub, full[:9]))
+        head = git(repo, "rev-parse", "HEAD")
+        if head != full:
+            raise Refuse("%s's checkout is at %s, not %s: check out %s there first (the pointer "
+                         "is the checkout's commit)" % (sub, head[:9], full[:9], full[:9]))
+        git(ROOT, "add", "--", sub)
+        done.append("%s to %s" % (sub, full[:9]))
+    if not git(ROOT, "diff", "--cached", "--name-only", "--", *a.subs):
+        raise Refuse("the pointers already name those commits; nothing to bump")
+    git(ROOT, "commit", "-q", "-m", "Bump " + ", ".join(done), "--", *a.subs)
+    print("superproject: Bump %s @ %s" % (", ".join(done), git(ROOT, "rev-parse", "--short", "HEAD")))
+    return 0
 
 
 def rollback(repo, main_before, orig, detached):
@@ -1484,6 +1616,17 @@ def parser():
     c.add_argument("-m", help="merge commit message (default: Merge <branch> into main)")
     c.add_argument("--bump", action="store_true", help="then commit the new pointer in the superproject")
     c.set_defaults(fn=cmd_merge)
+    c = sp.add_parser("sync", help="merge origin/main into the current work branch; ledgers and "
+                      "counters resolved, any other conflict left for --continue (#119)")
+    c.add_argument("sub")
+    c.add_argument("--from", dest="source", default="main", help="the origin branch to merge (main)")
+    c.add_argument("--continue", dest="cont", action="store_true",
+                   help="record the resolved merge (after 'git add' of each file)")
+    c.set_defaults(fn=cmd_sync)
+    c = sp.add_parser("bump", help="commit superproject pointers to reviewed main tips (the human's)")
+    c.add_argument("subs", nargs="+")
+    c.add_argument("--sha", action="append", help="one per submodule, in order")
+    c.set_defaults(fn=cmd_bump)
     c = sp.add_parser("publish", help="push local main to origin")
     c.add_argument("sub"); c.add_argument("--sha", required=True, help="the approved tip of local main")
     c.set_defaults(fn=cmd_publish)
@@ -1504,7 +1647,7 @@ def parser():
                         "anything else in it is uncommitted")
     c.set_defaults(fn=cmd_checkpoint)
     for x in sp.choices.values():
-        if x.prog.split()[-1] not in ("status", "checkpoint"):
+        if x.prog.split()[-1] not in ("status", "checkpoint", "bump"):
             x.add_argument("--repo", help="the checkout to use instead of <workspace>/<sub>: that "
                                           "checkout or one of its worktrees (same git-common-dir)")
     return p
@@ -1516,11 +1659,12 @@ def main(argv):
     try:
         if a.workspace or ROOT is None:
             ROOT = find_workspace(a.workspace)
-        a.fn(a)
+        rc = a.fn(a)
     except Refuse as e:
         print("ship: refused: %s" % e, file=sys.stderr)
         return 1
-    return 0
+    # a command may say it stopped (sync on a conflict returns 1); anything else is success
+    return rc if isinstance(rc, int) and not isinstance(rc, bool) else 0
 
 
 if __name__ == "__main__":

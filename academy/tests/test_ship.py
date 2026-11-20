@@ -958,5 +958,113 @@ class TestParser(unittest.TestCase):
             self.assertFalse(bad in src, "ship.py contains %r" % bad)
 
 
+class TestSyncLegacyBump(MergeBase):
+    """#91, #119, #120."""
+
+    def commit_on(self, branch, files, msg):
+        run(self.sub, "switch", "-q", branch)
+        for name, text in files.items():
+            path = os.path.join(self.sub, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(text)
+            run(self.sub, "add", name)
+        run(self.sub, "commit", "-q", "-m", msg)
+
+    def main_moves(self, files):
+        """origin/main gets a commit the work branch lacks (pushed from another clone)."""
+        other = self.other_clone()
+        run(other, "fetch", "-q", "origin")
+        run(other, "switch", "-q", "-C", "m", "origin/main")
+        for name, text in files.items():
+            path = os.path.join(other, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(text)
+            run(other, "add", name)
+        run(other, "commit", "-q", "-m", "main side")
+        run(other, "push", "-q", "origin", "HEAD:refs/heads/main")
+        return run(other, "rev-parse", "HEAD")
+
+    def seed(self):
+        """Both sides start from one ledger and counter on main."""
+        self.main_moves({"board/.errors/w.jsonl": '{"a": 1}\n', "board/.ids/next-packet": "380\n"})
+        run(self.sub, "fetch", "-q", "origin")
+        run(self.sub, "switch", "-q", self.branch)
+        run(self.sub, "merge", "-q", "--no-edit", "origin/main")
+
+    def test_merge_accepts_a_legacy_uppercase_branch_with_a_warning(self):
+        legacy = "2026-11-13/T-1179-statement-hash/scientist"
+        run(self.sub, "switch", "-q", "-c", legacy)
+        self.write("c.txt", "c\n")
+        run(self.sub, "add", "c.txt")
+        run(self.sub, "commit", "-q", "-m", "legacy")
+        run(self.sub, "push", "-q", "origin", "HEAD:refs/heads/" + legacy)
+        tip = run(self.sub, "rev-parse", "HEAD")
+        rc, out, err = self.merge(branch=legacy, sha=tip)
+        self.assertEqual(rc, 0, err)
+        self.assertIn("legacy branch name", err)
+        self.assertNotEqual(run(self.sub, "rev-parse", "main"), self.main_before)
+        # start never makes one: the topic is lowercased
+        self.assertTrue(ship.BRANCH.match(ship.branch_name("T-1179 Statement", "human")))
+
+    def test_sync_resolves_ledgers_and_counters(self):
+        self.seed()
+        self.commit_on(self.branch, {"board/.errors/w.jsonl": '{"b": 2}\n', "board/.ids/next-packet": ""}, "branch side")
+        with open(os.path.join(self.sub, "board/.ids/next-packet"), "w") as f:
+            f.write("386\n")
+        run(self.sub, "commit", "-q", "-am", "counter")
+        self.main_moves({"board/.errors/w.jsonl": '{"c": 3}\n'})
+        other = self.other_clone()
+        with open(os.path.join(other, "board/.ids/next-packet"), "w") as f:
+            f.write("411\n")
+        run(other, "commit", "-q", "-am", "counter main")
+        run(other, "push", "-q", "origin", "HEAD:refs/heads/main")
+        rc, out, err = self.ship("sync", "sub")
+        self.assertEqual(rc, 0, err)
+        self.assertIn("ledgers resolved", out)
+        with open(os.path.join(self.sub, "board/.errors/w.jsonl")) as f:
+            self.assertEqual(f.read().splitlines(), ['{"a": 1}', '{"b": 2}', '{"c": 3}'])
+        with open(os.path.join(self.sub, "board/.ids/next-packet")) as f:
+            self.assertEqual(f.read(), "411\n")
+        self.assertFalse(ship.merge_in_progress(self.sub))
+        self.assertEqual(ship.current(self.sub), self.branch)
+        rc, out, err = self.ship("sync", "sub")
+        self.assertIn("nothing to sync", out)
+
+    def test_sync_stops_on_a_real_conflict_and_continue_records_it(self):
+        self.commit_on(self.branch, {"b.txt": "branch\n"}, "branch b")
+        self.main_moves({"b.txt": "main\n"})
+        rc, out, err = self.ship("sync", "sub")
+        self.assertEqual(rc, 1)
+        self.assertIn("b.txt", err)
+        self.assertTrue(ship.merge_in_progress(self.sub))
+        rc, _, err = self.ship("sync", "sub", "--continue")
+        self.assertEqual(rc, 1)
+        self.assertIn("still unmerged", err)
+        self.write("b.txt", "both\n")
+        run(self.sub, "add", "b.txt")
+        rc, out, err = self.ship("sync", "sub", "--continue")
+        self.assertEqual(rc, 0, err)
+        self.assertFalse(ship.merge_in_progress(self.sub))
+        self.assertEqual(len(run(self.sub, "rev-list", "--parents", "-n", "1", "HEAD").split()), 3)
+
+    def test_bump_moves_a_pointer_to_a_published_main_only(self):
+        tip = self.main_moves({"p.txt": "p\n"})
+        run(self.sub, "fetch", "-q", "origin")
+        rc, _, err = self.ship("bump", "sub", "--sha", tip[:9])
+        self.assertEqual(rc, 1)
+        self.assertIn("checkout is at", err)
+        run(self.sub, "switch", "-q", "--detach", tip)
+        rc, out, err = self.ship("bump", "sub", "--sha", tip[:9])
+        self.assertEqual(rc, 0, err)
+        self.assertIn("Bump sub to " + tip[:9], out)
+        self.assertEqual(run(self.root, "rev-parse", "HEAD:sub"), tip)
+        rc, _, err = self.ship("bump", "sub", "--sha", tip[:9])
+        self.assertIn("nothing to bump", err)
+        rc, _, err = self.ship("bump", "sub", "--sha", self.tip[:9])     # a branch tip, not main
+        self.assertIn("not on origin/main", err)
+
+
 if __name__ == "__main__":
     unittest.main()
