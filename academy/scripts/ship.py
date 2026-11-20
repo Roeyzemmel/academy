@@ -1004,10 +1004,12 @@ def cmd_merge(a):
         print("superproject: Bump %s to %s @ %s" % (a.sub, short, git(ROOT, "rev-parse", "--short", "HEAD")))
 
 
-def _stage_text(repo, stage, path):
+def _stage_bytes(repo, stage, path):
+    """The file at merge stage ``stage``, as bytes (never decoded: a ledger line is kept
+    byte for byte, whatever the locale); None when that side has no such file."""
     p = subprocess.run(["git", "-C", repo, "show", ":%d:%s" % (stage, path)], capture_output=True,
-                       text=True, env=git_env(), stdin=subprocess.DEVNULL)
-    return p.stdout if p.returncode == 0 else ""
+                       env=git_env(), stdin=subprocess.DEVNULL)
+    return p.stdout if p.returncode == 0 else None
 
 
 def resolve_ledger(repo, path):
@@ -1015,24 +1017,30 @@ def resolve_ledger(repo, path):
     a ``.errors/*.jsonl`` ledger is ours then every line of theirs ours lacks (order kept,
     each line once); an ``.ids/*`` counter is the larger number."""
     top = git(repo, "rev-parse", "--show-toplevel")
-    ours, theirs = _stage_text(repo, 2, path), _stage_text(repo, 3, path)
+    ours, theirs = _stage_bytes(repo, 2, path), _stage_bytes(repo, 3, path)
+    if ours is None or theirs is None:
+        return False         # a delete/modify conflict is the human's, never resolved here
     if UNION_LEDGERS.search(path):
-        lines = ours.splitlines()
-        seen = set(lines)
-        for ln in theirs.splitlines():
-            if ln not in seen:
-                lines.append(ln)
-                seen.add(ln)
-        text = "\n".join(lines) + ("\n" if lines else "")
+        # records are separated by b"\n" only (a JSON string may hold U+2028); our lines
+        # first, then theirs beyond the common start: an appended line is kept even when
+        # it repeats an earlier record
+        a, b = ours.split(b"\n"), theirs.split(b"\n")
+        a = a[:-1] if a and a[-1] == b"" else a
+        b = b[:-1] if b and b[-1] == b"" else b
+        n = 0
+        while n < min(len(a), len(b)) and a[n] == b[n]:
+            n += 1
+        out = a + [ln for ln in b[n:] if ln not in set(a[n:])]
+        data = b"\n".join(out) + (b"\n" if out else b"")
     elif MAX_COUNTERS.search(path):
-        try:
-            text = "%d\n" % max(int(x.strip() or 0) for x in (ours, theirs))
-        except ValueError:
+        vals = [x.strip() for x in (ours, theirs)]
+        if not all(re.fullmatch(rb"\d+", v) for v in vals):
             return False
+        data = b"%d\n" % max(int(v) for v in vals)
     else:
         return False
-    with open(os.path.join(top, path), "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
+    with open(os.path.join(top, path), "wb") as f:
+        f.write(data)
     git(repo, "add", "--", path)
     return True
 
@@ -1049,19 +1057,31 @@ def cmd_sync(a):
     merge (a pathspec commit is refused during a merge). Never pushes: ``push`` does."""
     repo = repo_of(a.sub, a.repo)
     b = require_template(repo)
+    key = "branch.%s.ship-sync" % b
     if a.cont:
         if not merge_in_progress(repo):
             raise Refuse("%s has no merge in progress; nothing to continue" % repo)
+        # only the merge this command started (review of a651426: any merge was committed)
+        want = git(repo, "config", "--get", key, check=False)
+        head = git(repo, "rev-parse", "MERGE_HEAD")
+        if not want or want.split()[0] != head:
+            raise Refuse("the merge in progress (%s) is not one 'sync' started; finish it with git, "
+                         "or 'git merge --abort'" % head[:9])
         left = unmerged(repo)
         if left:
             raise Refuse("still unmerged: %s; resolve them and 'git add' each, then sync --continue"
                          % ", ".join(left))
-        git(repo, "commit", "-q", "--no-edit")
+        git(repo, "commit", "-q", "-m", "Sync %s with origin/%s" % (b, want.split()[1]))
+        git(repo, "config", "--unset", key, check=False)
         print("%s %s @ %s: merge recorded; 'push %s' sends it through the gate"
               % (a.sub, b, git(repo, "rev-parse", "--short", "HEAD"), a.sub))
         return 0
     require_clean(repo, ignore_submodules=bool(prefix_of(a.sub)))
-    src = a.source or "main"
+    # a stacked branch syncs with the branch it was started on, else with main
+    base = base_of(repo, b)
+    src = a.source or (base if base not in PROTECTED else main_branch(repo))
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", src):
+        raise Refuse("--from %r is not a branch name" % src)
     git(repo, "fetch", "-q", "origin", src)
     ref = "refs/remotes/origin/" + src
     if subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", ref, "HEAD"],
@@ -1072,6 +1092,16 @@ def cmd_sync(a):
                        capture_output=True, text=True, env=git_env(), stdin=subprocess.DEVNULL)
     if p.returncode and not merge_in_progress(repo):
         raise Refuse("git merge origin/%s failed in %s: %s" % (src, repo, (p.stderr or p.stdout).strip()))
+    git(repo, "config", key, "%s %s" % (git(repo, "rev-parse", ref), src))
+    if prefix_of(a.sub):
+        # a superproject target: main's own pointer and file changes come with it (a merge
+        # cannot take only board/); say so, the push gate and the review see them
+        outside = [f for f in git(repo, "diff", "--cached", "--name-only", "HEAD").splitlines()
+                   if f and not f.startswith(prefix_of(a.sub).rstrip("/") + "/")]
+        if outside:
+            print("ship: note: the sync also brings main's changes outside %s: %s"
+                  % (prefix_of(a.sub), ", ".join(outside[:12]) + (" ..." if len(outside) > 12 else "")),
+                  file=sys.stderr)
     resolved = [f for f in unmerged(repo) if resolve_ledger(repo, f)]
     left = unmerged(repo)
     if left:
@@ -1080,10 +1110,8 @@ def cmd_sync(a):
               % (", ".join(left), (" (ledgers resolved: %s)" % ", ".join(resolved)) if resolved else "",
                  a.sub), file=sys.stderr)
         return 1
-    if not merge_in_progress(repo):
-        print("%s %s: origin/%s fast-forwarded" % (a.sub, b, src))
-        return 0
     git(repo, "commit", "-q", "-m", "Sync %s with origin/%s" % (b, src))
+    git(repo, "config", "--unset", key, check=False)
     print("%s %s @ %s: synced with origin/%s%s; 'push %s' sends it through the gate"
           % (a.sub, b, git(repo, "rev-parse", "--short", "HEAD"), src,
              (" (ledgers resolved: %s)" % ", ".join(resolved)) if resolved else "", a.sub))
@@ -1101,6 +1129,7 @@ def cmd_bump(a):
         raise Refuse("give one --sha per submodule (%d submodules, %d --sha)" % (len(a.subs), len(shas)))
     names = submodule_names()
     done = []
+    checked = []
     for sub, sha in zip(a.subs, shas):
         if sub not in names:
             raise Refuse("%s is not a submodule path in %s" % (sub, os.path.join(ROOT, ".gitmodules")))
@@ -1117,8 +1146,10 @@ def cmd_bump(a):
         if head != full:
             raise Refuse("%s's checkout is at %s, not %s: check out %s there first (the pointer "
                          "is the checkout's commit)" % (sub, head[:9], full[:9], full[:9]))
-        git(ROOT, "add", "--", sub)
+        checked.append(sub)
         done.append("%s to %s" % (sub, full[:9]))
+    for sub in checked:          # every one checked first: a refusal stages nothing
+        git(ROOT, "add", "--", sub)
     if not git(ROOT, "diff", "--cached", "--name-only", "--", *a.subs):
         raise Refuse("the pointers already name those commits; nothing to bump")
     git(ROOT, "commit", "-q", "-m", "Bump " + ", ".join(done), "--", *a.subs)

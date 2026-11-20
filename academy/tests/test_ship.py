@@ -1032,6 +1032,35 @@ class TestSyncLegacyBump(MergeBase):
         rc, out, err = self.ship("sync", "sub")
         self.assertIn("nothing to sync", out)
 
+    def test_sync_keeps_ledger_bytes_and_records_whole(self):
+        """review of a651426: a non-ASCII line, and U+2028 inside a JSON string, kept as is."""
+        self.seed()
+        ours = '{"b": "x\u2028y \u2032"}\n'
+        self.commit_on(self.branch, {"board/.errors/w.jsonl": ours}, "branch side")
+        self.main_moves({"board/.errors/w.jsonl": '{"c": "\u00e9"}\n'})
+        rc, out, err = self.ship("sync", "sub")
+        self.assertEqual(rc, 0, err)
+        with open(os.path.join(self.sub, "board/.errors/w.jsonl"), "rb") as f:
+            lines = f.read().split(b"\n")
+        self.assertEqual(lines, [b'{"a": 1}', ours.strip().encode("utf-8"),
+                                 '{"c": "\u00e9"}'.encode("utf-8"), b""])
+
+    def test_continue_refuses_a_merge_sync_did_not_start(self):
+        self.commit_on(self.branch, {"b.txt": "branch\n"}, "branch b")
+        run(self.sub, "switch", "-q", "-c", "other-side", "main")
+        self.write("b.txt", "other\n")
+        run(self.sub, "add", "b.txt")
+        run(self.sub, "commit", "-q", "-m", "other")
+        run(self.sub, "switch", "-q", self.branch)
+        subprocess_run = __import__("subprocess").run
+        subprocess_run(["git", "-C", self.sub, "merge", "-q", "--no-commit", "other-side"],
+                       capture_output=True)
+        self.write("b.txt", "both\n")
+        run(self.sub, "add", "b.txt")
+        rc, _, err = self.ship("sync", "sub", "--continue")
+        self.assertEqual(rc, 1)
+        self.assertIn("not one 'sync' started", err)
+
     def test_sync_stops_on_a_real_conflict_and_continue_records_it(self):
         self.commit_on(self.branch, {"b.txt": "branch\n"}, "branch b")
         self.main_moves({"b.txt": "main\n"})
@@ -1064,6 +1093,8 @@ class TestSyncLegacyBump(MergeBase):
         self.assertIn("nothing to bump", err)
         rc, _, err = self.ship("bump", "sub", "--sha", self.tip[:9])     # a branch tip, not main
         self.assertIn("not on origin/main", err)
+        # a refusal stages nothing (review of a651426)
+        self.assertEqual(run(self.root, "diff", "--cached", "--name-only"), "")
 
 
 if __name__ == "__main__":
