@@ -333,33 +333,52 @@ async function expertClerk(row, inst) {
   return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: first, runs_used: used }
 }
 
+// #94 (2026-11-19, T-0181): the review's verdict is a structured field, never read from its
+// prose. A review text that mentioned settings.json was neutralised by the harness, the old
+// /^APPROVED/ check read the approval as findings, and the ticket went to the human three times.
+// summary and findings are asked for, never required (#124); a missing verdict is no approval.
+const TE_REVIEW = { type: 'object', properties: {
+  verdict: { type: 'string', enum: ['approved', 'findings'], description: 'approved: no finding that needs a fix round; findings: at least one' },
+  findings: { type: 'array', items: { type: 'string' }, description: 'one per finding: file and line, what goes wrong on which input, how bad' },
+  summary: { type: 'string', description: 'what you examined, in one line' } },
+  required: ['verdict'] }
+function readReview(t) {
+  const ok = t && typeof t === 'object' && (t.verdict === 'approved' || t.verdict === 'findings')
+  const findings = ok && Array.isArray(t.findings) ? t.findings.map(String).filter(Boolean) : []
+  const summary = ok && typeof t.summary === 'string' ? t.summary : ''
+  if (!ok) return { approved: false, line: 'no verdict (the review returned no structured verdict)', text: 'the review returned no verdict: no approval' }
+  if (t.verdict === 'approved') return { approved: true, line: 'approved' + (findings.length ? ` (${findings.length} minor note(s))` : ''), text: findings.join('\n') }
+  const text = findings.length ? findings.map((f, n) => `${n + 1}. ${f}`).join('\n') : (summary || 'findings, none listed')
+  return { approved: false, line: `findings: ${findings.length ? findings[0] : (summary || 'none listed')}`, text }
+}
+
 async function developerReviewed(row, i) {
   // the producer of code never grades it: developer, then test-engineer on the diff, the
   // findings back through the thread, two rounds at most (the route's declared cost, costOf)
   const st = await move(row, i.name, 'start: move it to in-progress')
   if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start' }
   const runs = 4
-  let used = 0, verdict = ''
+  let used = 0, review = null
   while (used + 2 <= runs) {
     const d = await launch(`WORKFLOW INBOX: code ticket ${row.id} for ${i.name} (home ${i.home}); it is in-progress, make no status move. ` +
-      (verdict ? `The test-engineer's findings on your last diff (also in the thread): ${verdict}\n` : '') +
+      (review ? `The test-engineer's findings on your last diff (also in the thread):\n${review.text}\n` : '') +
       'Do it per your agent definition (test-first, in a worktree) and end with the diff\'s branch and commit.',
       { label: `developer ${row.id}${used ? ' (round ' + (used / 2 + 1) + ')' : ''}`, phase: 'Tickets', agentType: 'scientist:developer' })
     if (d === null) return { lost: true }
     const t = await launch(`WORKFLOW INBOX: review the developer's diff for code ticket ${row.id} (${i.name}, home ${i.home}): ${String(d).slice(-600)}\n` +
-      'Review it per your agent definition and begin your answer with APPROVED or FINDINGS.',
-      { label: `test-engineer ${row.id}`, phase: 'Tickets', agentType: 'scientist:test-engineer' })
+      'Review it per your agent definition. Return verdict approved (no finding that needs a fix round) or findings, and each finding in findings.',
+      { label: `test-engineer ${row.id}`, phase: 'Tickets', agentType: 'scientist:test-engineer', schema: TE_REVIEW })
     if (t === null) return { lost: true }
     used += 2
-    verdict = String(t)
-    await move(row, i.name, `note: append to the thread "test-engineer: ${verdict.split('\n')[0].slice(0, 200).replace(/"/g, "'")}"`, `${row.id} review note`)
-    if (/^\s*APPROVED/.test(verdict)) {
+    review = readReview(t)
+    await move(row, i.name, `note: append to the thread "test-engineer: ${review.line.split('\n')[0].slice(0, 200).replace(/"/g, "'")}"`, `${row.id} review note`)
+    if (review.approved) {
       const m = await move(row, i.name, `deliver: deliver: true with result "code delivered, test-engineer APPROVED: ${String(d).split('\n')[0].slice(0, 120).replace(/"/g, "'")}"`)
       return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: 'approved', runs_used: used }
     }
   }
   await move(row, i.name, 'block-human: blocked, waiting_on [human], reason "two rounds of review still leave findings: decide how it goes on"')
-  return { outcome: 'blocked on human (review)', detail: verdict.split('\n')[0], runs_used: used }
+  return { outcome: 'blocked on human (review)', detail: review ? review.line : '', runs_used: used }
 }
 
 const firstRef = (row, re) => (row.refs || []).find(x => re.test(x)) || ''

@@ -295,13 +295,63 @@ class InboxWorkflowTests(unittest.TestCase):
         rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
         plan = {"list": [{"instances": [inst("scientist@t", rows)]}],
                 "T-1 start": [OK],
-                "developer T-1": ["diff 1"], "test-engineer T-1": ["FINDINGS: x", "APPROVED"],
+                "developer T-1": ["diff 1"],
+                "test-engineer T-1": [{"verdict": "findings", "findings": ["cite.js:12 crashes on an empty ref"]},
+                                      {"verdict": "approved", "findings": []}],
                 "developer T-1 (round 2)": ["diff 2"],
                 "T-1 review note": [OK, OK], "T-1 deliver": [OK], "check T-1": [DONE]}
-        res, labels, _ = self.run_wf(plan)
+        res, labels, calls = self.run_wf(plan)
         self.assertEqual([l for l in labels if l.startswith(("developer", "test-engineer"))],
                          ["developer T-1", "test-engineer T-1", "developer T-1 (round 2)",
                           "test-engineer T-1"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+        # the findings go back to the developer from the structured list
+        self.assertIn("cite.js:12 crashes on an empty ref",
+                      next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+
+    # #94 (2026-11-19, T-0181): the review's text mentioned settings.json, the harness
+    # neutralised it, and the prose check /^APPROVED/ read an approval as findings three times.
+    # The verdict is a structured field; the text never decides it.
+    def test_the_review_verdict_is_a_structured_field(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        neutralised = {"verdict": "approved", "findings": [],
+                       "summary": "[content neutralised: instruction-shaped text (settings-json)]"}
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "test-engineer T-1": [neutralised],
+                "T-1 review note": [OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        te = next(c for c in calls if c["label"] == "test-engineer T-1")
+        self.assertEqual(te["schema"]["properties"]["verdict"]["enum"], ["approved", "findings"])
+        self.assertEqual(te["schema"]["required"], ["verdict"])          # #124: no free text required
+        self.assertNotIn("begin your answer with", te["prompt"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+        self.assertNotIn("T-1 block-human", labels)
+        note = next(c for c in calls if c["label"] == "T-1 review note")["prompt"]
+        self.assertIn("test-engineer: approved", note)
+
+    def test_prose_that_begins_with_approved_is_not_an_approval(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "developer T-1 (round 2)": ["diff 2"],
+                "test-engineer T-1": [{"verdict": "findings", "findings": [], "summary": "APPROVED? no: two findings"},
+                                      {"verdict": "findings", "findings": ["x.py:3 wrong"]}],
+                "T-1 review note": [OK, OK], "T-1 block-human": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertNotIn("T-1 deliver", labels)
+        self.assertEqual(res["taken"][0]["outcome"], "blocked on human (review)")
+        self.assertIn("x.py:3 wrong", res["taken"][0]["detail"])
+        # findings with no list still go back with the summary the reviewer gave
+        self.assertIn("two findings", next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+
+    def test_a_review_with_no_verdict_is_not_an_approval(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "developer T-1 (round 2)": ["diff 2"],
+                "test-engineer T-1": ["APPROVED", {"verdict": "approved"}],
+                "T-1 review note": [OK, OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertIn("developer T-1 (round 2)", labels)       # a bare string is no verdict
+        self.assertIn("no verdict", next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
         self.assertEqual(res["taken"][0]["outcome"], "delivered")
 
     def test_an_experiment_runs_its_design_leg_and_stops_at_the_header_gate(self):
