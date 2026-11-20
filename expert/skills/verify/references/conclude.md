@@ -64,8 +64,11 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   the ticket's thread (a falsifier request on this claim, once it is back, with its
   result); or the human's waiver on the ticket or the claim (quote the thread line
   `- YYYY-MM-DD human: ...` verbatim). Say what it found (nothing, or a counterexample),
-  the statement hash it attacked when its record says it (a request this workflow filed
-  names it in its ask), any falsifier request on this claim that is filed and not back
+  the statement hash it attacked when its record says it: first the structured fields (a
+  lab claim's frontmatter `falsifies: ["<ns:id>@<16-hex hash>", ...]`, one entry per
+  target it attacked, the target's hash when the experiment ran; a
+  `proofs/<id>/attack.md` frontmatter `statement_hash: <16-hex>`), then, for a request this
+  workflow filed, the `statement hash <h>` its ask names, any falsifier request on this claim that is filed and not back
   (a ticket titled `Falsifier for <id>`) with its status, and the claim's declared inputs.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
   reviewer reads the files, `budget.md` rule 9):
