@@ -27,7 +27,7 @@ The keys are written in this order. No other keys are allowed.
 | `title` | str, one line | yes | Dashboard heading |
 | `instance` | instance | yes | The producing instance, which is also the folder |
 | `kind` | enum, below | yes | What is being reviewed |
-| `by` | speaker (`<instance>/<agent>` or `human`) | yes | Who assembled the packet; for a hook-landed grader output, the grader |
+| `by` | speaker (`<instance>/<agent>`, `human`, or `human (via main session)` when the main session assembled it, #100) | yes | Who assembled the packet; for a hook-landed grader output, the grader |
 | `ticket` | `T-NNNN` \| empty | no | The ticket this packet answers; the decision is echoed into its thread |
 | `agenda` | claim id \| `global` \| empty | no | The Author agenda entry concerned |
 | `subject` | list of refs | yes (may be `[]`) | The objects under review, in the ref forms of protocol.md section 3 |

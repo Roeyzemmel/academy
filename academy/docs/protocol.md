@@ -97,7 +97,9 @@ tables. Where this text and the code disagree, fix one of them in the same commi
   (`tickets_create` / `tickets_update`) only to record the human's quoted answer, with
   the quote in the note or reason. The CLI takes `board.py ... --via session` and the
   board functions `via="session"`. Both forms move with the human's authority
-  (`ac.is_human_speaker`).
+  (`ac.is_human_speaker`). A plugin older than this change refuses the qualified form
+  (a bad speaker, a malformed thread line, a GitHub comment it does not decode), so every
+  home updates its plugins together before any session writes one.
 
 ## 2. The board
 

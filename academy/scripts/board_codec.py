@@ -445,7 +445,7 @@ def check_reopen(previous, current, body=None, human=False):
         ``reopened: <the new mechanism>`` thread entry, or by cancellation (the server
         cannot tell whose); the **human** may leave it by any transition, so the check is
         skipped when ``human`` is set or when the new last thread entry is spoken by
-        ``human`` (a *speaker name*, which any commenter can write: GitHub identity is one
+        ``human`` or ``human (via main session)`` (a *speaker name*, which any commenter can write: GitHub identity is one
         account, so this is a convention the server cannot verify);
       * a dead route may not turn pending or plain (``blocked_by`` / ``reopen_if`` cleared
         while still blocked) without that entry either;

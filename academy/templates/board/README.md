@@ -36,13 +36,15 @@ The top block (between the `---` lines) is the ticket's state:
 Below it come `## Ask` (the detail of the request), `## Result` (the detail of the
 answer) and `## Thread`, the conversation. The thread is append-only: one line per
 entry, `- YYYY-MM-DD <speaker>: <text>`, where the speaker is `human`, an instance
-such as `expert@lib`, or an agent such as `expert@lib/review-chair`.
+such as `expert@lib`, or an agent such as `expert@lib/review-chair`. A line a Claude
+session wrote while acting for you reads `human (via main session)`; plain `human` is
+your own hand or your own words quoted.
 
 ## Editing a ticket
 
 You may edit anything. The usual edits:
 
-- **Reply:** add a line at the end of `## Thread`, e.g.
+- **Reply** (your own lines are plain `human`): add a line at the end of `## Thread`, e.g.
   `- 2026-09-28 human: yes, use the simplest example as the validation case`.
   Never change or delete an existing thread line.
 - **Change status:** edit `status:` and add a thread line
