@@ -604,6 +604,8 @@ async function handle(row, i) {
       const reword = rw && !/-reword$/.test(rw[1]) ? { mode: 'reword', base_pass: rw[1] } : {}
       if (reword.mode) notes.push(`${row.id}: a reword verify over the base pass ${reword.base_pass} (from the title)`)
       const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id }, reword))
+      if (reword.mode && r && r.outcome === 'not-started') notes.push(`${row.id}: the reword pass over ${reword.base_pass} did not start (${r.reason || 'no reason given'}): ` +
+        `a reword ticket whose base pass is not CONFIRMED x2 needs a blind verify instead (the same ticket without "(reword of ...)" in its title)`)
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
     const subject = firstRef(row, /^lab:\S+$/)

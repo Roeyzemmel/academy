@@ -291,6 +291,23 @@ class InboxWorkflowTests(unittest.TestCase):
             self.assertNotIn("mode", a, title)
             self.assertNotIn("base_pass", a, title)
 
+    def test_a_reword_pass_that_does_not_start_says_a_blind_verify_is_needed(self):
+        """Review of 62be9fa: new-pass --reword-of refuses a base that is not CONFIRMED x2."""
+        r = dict(row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=["s1:GEO-3"]),
+                 title="Verify s1:GEO-3 (reword of 2026-11-01-T-0007)")
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r])]}],
+                                          "workflow verify.js": [{"outcome": "not-started", "reason": "base pass not confirmed x2"}],
+                                          "check T-1": [DONE]})
+        notes = " ".join(res["notes"])
+        self.assertIn("not CONFIRMED x2 needs a blind verify instead", notes)
+        self.assertIn("base pass not confirmed x2", notes)
+        # a blind verify that does not start gets no such line
+        r = dict(r, title="Verify s1:GEO-3")
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r])]}],
+                                          "workflow verify.js": [{"outcome": "not-started", "reason": "an open pass"}],
+                                          "check T-1": [DONE]})
+        self.assertNotIn("blind verify instead", " ".join(res["notes"]))
+
     def test_the_inbox_passes_its_map_and_resolves_no_model_itself(self):
         """T-0350 with T-1682: the inbox runs no model stage; the map it was given goes to
         every nested workflow as it is, whose launchMax resolves a max-tier agent the map
