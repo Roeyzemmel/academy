@@ -125,7 +125,8 @@ class EndToEndTests(unittest.TestCase):
         os.makedirs(self.board)
         ws = {"board": self.board.replace("\\", "/"), "instances": {
             "expert@t": {"role": "expert", "home": self.lib, "domains": ["d"]},
-            "author@t": {"role": "author", "home": self.paper, "domains": ["d"], "ns": "paper"}}}
+            "author@t": {"role": "author", "home": self.paper, "domains": ["d"], "ns": "paper"}},
+            "artefactCheck": False}  # checkpoint tests: #100's artefact check has its own (test_delivery_artefacts)
         self.ws_path = os.path.join(self.root, "workspace.json")
         with open(self.ws_path, "w") as f:
             json.dump(ws, f)

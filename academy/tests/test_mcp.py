@@ -584,7 +584,7 @@ class TestTickets(McpTestBase):
         self.assertTrue(err)
         self.assertIn("in-progress -> delivered -> closed", msg)
         self.assertIn("from in-progress you may move it to: accepted, blocked, delivered, "
-                      "rejected", msg)
+                      "partial, rejected", msg)
         self.assertEqual(before, self._ticket_file(tid))
 
     def test_a_multi_line_result_keeps_its_first_line_and_fills_the_body(self):

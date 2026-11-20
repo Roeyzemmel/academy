@@ -18,7 +18,8 @@ from ._touched import claim_touches, drop_touches
 from ._manifest import (ManifestError, find_claim, load_pending, manifest_changed,
                         manifest_targets, merge_manifest, prune_claims, release_claim,
                         save_pending)
-from ._tickets import is_dead_route, relay_return_ready
+from ._tickets import PARTIAL, is_dead_route, relay_return_ready
+from ._artefacts import delivery_artefact
 from ._store import FileBoardStore, as_store, board_dir, open_store, status_lookup
 
 # ----------------------------------------------------------------------------
@@ -199,7 +200,8 @@ class inbox_core(object):
     def serial_checkpoint(meta):
         """Where a ticket stands after its route ran, and whether it is settled.
 
-        Settled: delivered (with a result), blocked with its reason, rejected. A ticket
+        Settled: delivered (with a result), partial (with a result: the work done, the
+        deliverable not met; #100), blocked with its reason, rejected. A ticket
         still open, accepted or in-progress is *unfinished*: report it, do not take
         another ticket while it is (it comes first in the next run).
         """
@@ -209,6 +211,10 @@ class inbox_core(object):
             state = "delivered"
             if not meta.get("result"):
                 problem = "delivered without a result"
+        elif st == PARTIAL:
+            state = PARTIAL
+            if not meta.get("result"):
+                problem = "partial without a result (what was done, what is missing)"
         elif st in ("rejected", "cancelled"):
             state = "rejected"
         elif st == "blocked":
@@ -229,7 +235,7 @@ class inbox_core(object):
     #: still returns its own result in time
     SHIP_TIMEOUT = 90
     #: the ticket states (``serial_checkpoint``) after which the role's work is finished
-    SHIP_STATES = ("delivered", "rejected")
+    SHIP_STATES = ("delivered", "rejected", PARTIAL)
 
     @staticmethod
     def ship_checkpoint(args, instance, board, r, role=None, out=None):
@@ -670,7 +676,7 @@ class inbox_core(object):
         ``unpushed_branches`` with how to push it; [] when nothing is unpushed. Only for
         the workspace's own board; ``"unpushedCheck": false`` in workspace.json switches
         it off. Never raises (a failure is one warning line on stderr and no hold)."""
-        if r.get("unfinished") or r.get("state") != "delivered":
+        if r.get("unfinished") or r.get("state") not in ("delivered", PARTIAL):
             return []
         try:
             ws = load_workspace(getattr(args, "workspace", None))
@@ -702,6 +708,38 @@ class inbox_core(object):
             lines.append("  (delivered is reported once this work is pushed; then run "
                          "--check %s again)" % r["id"])
         return lines
+
+    #: the line --check prints after a delivery it refused for want of its artefact
+    PARTIAL_HINT = ("  -> finish the work and deliver it again, or re-mark it partial "
+                    "(tickets_update status partial, the result saying what was done and "
+                    "what is missing; the sender then reopens, closes or cancels it)")
+
+    @staticmethod
+    def artefact_problem(args, board, r):
+        """After the checkpoint of a *delivered* ticket ``r`` (status delivered, no problem):
+        the artefact its kind needs (``delivery_artefact``, #100 part 1) when it is missing,
+        as ``"no <what>: <why>"``; None when it is there, the kind needs none, or the check
+        is off (``"artefactCheck": false`` in workspace.json). Only for the workspace's own
+        board, whose homes it reads (as ``unpushed_check``). Never raises."""
+        if r.get("unfinished") or r.get("status") != "delivered":
+            return None
+        try:
+            try:
+                ws = load_workspace(getattr(args, "workspace", None))
+            except (AcademyError, OSError):
+                return None
+            if ws.get("artefactCheck") is False or not ws.get("board") or \
+                    not _same_file(board_dir(board), ws["board"]):
+                return None
+            _ref, meta, body = as_store(board).get(r["id"])
+            res = delivery_artefact(meta, body, ws)
+        except Exception as exc:                     # noqa: BLE001 -- never break --check
+            sys.stderr.write("warning: artefact check for %s failed: %s: %s\n"
+                             % (r.get("id"), type(exc).__name__, exc))
+            return None
+        if res["ok"]:
+            return None
+        return "no %s for this %s ticket: %s" % (res["need"], res["kind"], res["why"])
 
     @staticmethod
     def _session_inside(root):
@@ -762,7 +800,13 @@ class inbox_core(object):
             # can say unfinished: the workflow reads the first "<id>: <state> (<status>)"
             inbox_core.ship_checkpoint(args, instance, board, r, role=role, out=out)
             held = inbox_core.unpushed_check(args, board, r)
-            if held:
+            # #100 part 1: after the checkpoint (a code ticket's artefact is its commit)
+            missing = inbox_core.artefact_problem(args, board, r)
+            if missing:
+                r = dict(r, state="unfinished", unfinished=True, problem=missing)
+                status = "%s, no artefact" % r["status"]
+                held = held + [inbox_core.PARTIAL_HINT]
+            elif held:
                 r = dict(r, state="unfinished", unfinished=True,
                          problem="work of %s is not on a remote" % r["id"])
                 status = "%s, unpushed" % r["status"]

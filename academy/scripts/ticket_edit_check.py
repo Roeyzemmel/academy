@@ -103,8 +103,8 @@ def ownership_problems(old_meta, old_body, new_meta, new_body, instance, human):
                 continue
             old_n = len(ac.thread_lines(old_body))
             new_n = len(ac.thread_lines(new_body))
-            returned = (old_meta.get("status"), new_meta.get("status")) == \
-                ("delivered", "in-progress")
+            returned = (old_meta.get("status"), new_meta.get("status")) in \
+                (("delivered", "in-progress"), ("partial", "in-progress"))
             if (new_meta.get("status") in NEEDS_REASON or returned) and new_n <= old_n:
                 probs.append("status -> %s needs a reason line in ## Thread in the same "
                              "write" % new_meta.get("status"))
