@@ -62,14 +62,19 @@ class ExploreTests(unittest.TestCase):
         res, labels, calls, err = run("explore.js", {
             "direction": [DIR], "next": [NEXT], "lead": [lead],
             "get T-0500": [{"found": True, "to": "expert@t", "kind": "experiment", "refs": ["flat:KDC-6"]}],
-            "falsified flat:KDC-7": [{"falsified": False, "evidence": ""}], "journal": [JOURNAL]},
+            "journal": [JOURNAL]},
             dict(H, direction="DIR-1"))
         self.assertIsNone(err, err)
         lp = next(c for c in calls if c["label"] == "lead")["prompt"]
         self.assertIn("items flat:KDC-6, flat:KDC-7", lp)
         anomalies = " ".join(res["anomalies"])
         self.assertIn("not an experiment ticket to the Scientist", anomalies)   # wrong receiver
-        self.assertIn("moved to prove with no falsifier", anomalies)
+        # 2026-11-20: a prove step does not wait for a falsifier (the verify workflow runs it
+        # after review A): no check stage, no anomaly, and the lead is told so
+        self.assertNotIn("flat:KDC-7", anomalies)
+        self.assertFalse([c for c in labels if c.startswith("falsified")])
+        self.assertIn("does not wait for a falsifier", lp)
+        self.assertNotIn("survived falsification", lp)
         self.assertEqual(res["remaining"], 3)
 
     def test_a_missing_direction_is_filled_first(self):
