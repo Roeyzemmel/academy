@@ -101,7 +101,10 @@ allowlist matches; `py scripts/ship.py --help` lists the flags):
     py scripts/ship.py ship <sub> -m "..." --paths P...     # commit + push (or `commit` and `push` separately)
     py scripts/ship.py start <sub> <next topic>             # on a template branch: stacked on it (--on BRANCH names the base)
     py scripts/ship.py stack <sub>                          # the chain, bottom first, and each pull request's head and base
+    py scripts/ship.py sync <sub> [--from main]             # origin/main into the work branch (ledgers resolved); then push
+    py scripts/ship.py sync <sub> --continue                # after resolving a conflict it stopped on: record the merge
     (human)  py scripts/ship.py merge <sub> <branch> --sha <tip> [-m MSG] [--bump]
+    (human)  py scripts/ship.py bump <sub>... --sha <main tip>... # pointers to published mains, no merge
     (human)  py scripts/ship.py publish <sub> --sha <main tip>
 
 `<sub>` is a submodule path, `board`, or `workspace` (the workspace repo's own files:
@@ -115,6 +118,14 @@ everything but the board and the submodules; never a submodule pointer; not part
   with the `ship.py` command that does it. Reading, staging, stashing and switching to an
   existing branch are untouched, and so is any repository outside the workspace.
   `"shipGuard": false` in workspace.json switches it off.
+- **A work branch behind main** (#91, #119): `sync <sub>` merges `origin/main` into the
+  current work branch. The append-only ledgers (`.errors/*.jsonl`: the union of the
+  lines) and the counters (`.ids/*`: the larger number) are resolved by it; any other
+  conflict stops it with the files listed and the merge in progress. Resolve them,
+  `git add` each, then `sync <sub> --continue` records the merge (a `commit --paths` is
+  refused during a merge, and the guard denies a shell `git commit`). Then `push`.
+- **A legacy branch name** (uppercase or `_` in the topic, made before `start`
+  lowercased topics) is merged by `merge` with a warning (#120).
 - **A stack of pull requests.** A `start` made on a template branch records that branch
   as the new one's base; `stack <sub>` prints the chain and, for each branch, the pull
   request it wants: its head, and as base the branch under it (`main` only for the
