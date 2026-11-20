@@ -72,10 +72,14 @@ The inbox runs the same script for a `prove` ticket. The script:
      with a review standing on the old text (status `proved` / `proved-modulo`, or a
      confirmed pass): `lead-researcher` files a verify ticket to the Expert, checked by the
      clerk: **reword** mode, titled `Verify <claim> (reword of <pass>)` (the inbox reads that
-     title), when only the statement moved over a confirmed pass; otherwise a blind one,
-     saying why (a changed proof, or no confirmed pass). Unchanged, the result says why no
+     title), when only the statement moved over a confirmed pass; a blind one, saying why,
+     when the statement moved with no confirmed pass or with the proof not comparable (a
+     confirmed pass naming no reviewed proof is not comparable). A changed proof files
+     nothing (a blind pass on an attempt reported incomplete adds nothing): the result and a
+     thread note say the status no longer stands on the reviewed text and that a verify
+     follows the next complete attempt (`record_stale`). Unchanged, the result says why no
      ticket is needed; a comparison that could not be made files nothing and says how to
-     check. A complete repair's own verify ticket reviews the new text: no second ticket.
+     check. The result line says "nothing filed for review" only when nothing was. A complete repair's own verify ticket reviews the new text: no second ticket.
      The result: `record_change`, `record_verify`, `record_verify_why`.
 
    On a ticket, the result line names the verify ticket and the dependencies, or the gaps

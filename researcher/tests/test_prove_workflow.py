@@ -641,25 +641,68 @@ class RepairRecordTests(unittest.TestCase):
         self.assertEqual(res["record_change"]["proof"], "same")
         close = calls[-1]["prompt"]
         self.assertIn("reword verify ticket T-0040", close)
-        self.assertIn("nothing filed for review", close)                                # the attempt's own line stays
+        self.assertIn("the attempt is filed for no review", close)                      # consistent with the ticket filed
+        self.assertNotIn("nothing filed for review", close)
         self.assertNotIn("ANOMALY", " ".join(res["notes"]))
 
-    def test_a_changed_reviewed_proof_files_a_blind_verify(self):
-        """A changed proof takes the blind pass (conclude.md section 7), and reword-brief refuses
-        an unchanged statement: so a blind verify, saying why it is not a reword."""
+    def test_a_changed_reviewed_proof_files_no_verify_and_says_the_status_is_stale(self):
+        """Review of 62be9fa, point 2: after an incomplete attempt a changed proof would send an
+        attempt the prover reported incomplete to a blind pass (a GAP, nothing gained). No
+        ticket: the result and a thread note say the status no longer stands on the reviewed
+        text and that a verify follows the next complete attempt."""
         for after in (dict(self.SAME, reviewed_proof_hash="cccc2222dddd"),                # the reviewed file edited
                       dict(self.SAME, proof="proofs/GEO-3/attempt-2.md"),                 # the record's proof moved
                       dict(self.SAME, statement_hash="fedcba9876543210", proof="proofs/GEO-3/attempt-2.md")):
-            chk = dict(self.CHECK, title="Verify flat:GEO-3")
-            res, labels, calls = self.run_wf(self.plan(after, **{"file record verify": [self.FILED], "check record verify": [chk]}))
-            f = calls[labels.index("file record verify")]["prompt"]
-            self.assertNotIn("(reword of", f, after)
-            self.assertIn('title "Verify flat:GEO-3"', f, after)
-            self.assertIn("changed proof", f, after)
-            self.assertEqual(res["record_verify"]["mode"], "blind", after)
+            res, labels, calls = self.run_wf(self.plan(after))
+            self.assertNotIn("file record verify", labels, after)
+            self.assertIsNone(res["record_verify"], after)
             self.assertEqual(res["record_change"]["proof"], "changed", after)
-            self.assertIn("blind verify ticket T-0040", calls[-1]["prompt"])
-            self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+            self.assertTrue(res["record_stale"], after)
+            for s in ("no longer stands on the reviewed text", "a verify follows the next complete attempt"):
+                self.assertIn(s, res["record_verify_why"], after)
+            close = calls[-1]["prompt"]
+            self.assertIn("no longer stands on the reviewed text", close)                   # the result
+            self.assertIn('note "', close)                                                   # and a thread note
+            self.assertIn("nothing filed for review", close)
+
+    def test_an_untouched_record_writes_no_thread_note(self):
+        res, labels, calls = self.run_wf(self.plan())
+        self.assertNotIn('note "', calls[-1]["prompt"])
+        self.assertFalse(res.get("record_stale"))
+
+    def test_a_confirmed_pass_that_names_no_reviewed_proof_never_files_a_reword(self):
+        """Review of 62be9fa, point 1: nothing compared is unknown, not untouched."""
+        after = dict(self.SAME, statement_hash="fedcba9876543210", proof="")
+        before = dict(self.BEFORE, reviewed_proof="", reviewed_proof_hash="", proof="")
+        res, labels, calls = self.run_wf(self.plan(after, before=before, **{"file record verify": [self.FILED],
+                                                   "check record verify": [dict(self.CHECK, title="Verify flat:GEO-3")]}))
+        self.assertEqual(res["record_change"]["proof"], "unknown")
+        f = calls[labels.index("file record verify")]["prompt"]
+        self.assertNotIn("(reword of", f)
+        self.assertNotIn("untouched", f)
+        self.assertEqual(res["record_verify"]["mode"], "blind")
+        # the statement unchanged: nothing compared is the hand check, no ticket
+        res, labels, calls = self.run_wf(self.plan(dict(self.SAME, proof=""), before=before))
+        self.assertNotIn("file record verify", labels)
+        self.assertIn("could not be compared", res["record_verify_why"])
+
+    def test_the_result_line_matches_what_was_filed_on_undeclared_dependencies(self):
+        """Review of 62be9fa, point 3: a complete attempt with undeclared dependencies takes the
+        incomplete path; its line must not say "nothing filed for review" next to a ticket."""
+        undeclared = done(dependencies_declared=False)
+        extra = {"fix dependencies": ["fixed"], "outcome (after fix)": [undeclared]}
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        res, labels, calls = self.run_wf(self.plan(after, outcome=undeclared, **dict(extra, **{
+            "file record verify": [self.FILED], "check record verify": [self.CHECK]})))
+        close = calls[-1]["prompt"]
+        self.assertNotIn("nothing filed for review", close)
+        self.assertIn("the attempt is filed for no review", close)
+        self.assertIn("reword verify ticket T-0040", close)
+        # a proof change there files nothing, and the line says nothing was filed
+        res, labels, calls = self.run_wf(self.plan(dict(self.SAME, proof="proofs/GEO-3/attempt-2.md"), outcome=undeclared, **extra))
+        self.assertNotIn("file record verify", labels)
+        self.assertIn("nothing filed for review", calls[-1]["prompt"])
+        self.assertNotIn("verify ticket T-", calls[-1]["prompt"])
 
     def test_no_confirmed_pass_files_a_blind_verify_on_a_proved_claim(self):
         """T-1626: proved on the human's word, no CONFIRMED x2 pass to reword from."""

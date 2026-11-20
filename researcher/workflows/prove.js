@@ -252,9 +252,10 @@ const end = async () => {
     only: '<home submodule> board', agentType: CLERK, phase: 'File', notes: out.notes })
   return out
 }
-const deliver = async (result) => {
+const deliver = async (result, note) => {
   if (!T) return
-  const m = await launch(STAGE('close', [`Deliver ${T} (tickets_update deliver: true) with result "${(result + fallbackLine()).replace(/"/g, "'")}".`]),
+  const m = await launch(STAGE('close', [`Deliver ${T} (tickets_update deliver: true) with result "${(result + fallbackLine()).replace(/"/g, "'")}"` +
+    (note ? ` and, in the same call, note "${String(note).replace(/"/g, "'")}"` : '') + '.']),
     { label: 'close', phase: 'File', agentType: CLERK, schema: MOVE, effort: 'low' })
   out.ticket_delivered = !!(m && m.ok)
 }
@@ -562,15 +563,19 @@ const falsLine = id => id ? `; falsifier filed: ${id}` : ''
 // clerk. Reword mode (conclude.md section 7: one informed run R over the CONFIRMED x2 base) only
 // when the statement moved and the reviewed proof did not: reword-brief refuses an unchanged
 // statement, and a changed proof takes the blind pass. The inbox reads reword mode from the
-// title's "(reword of <pass>)". Unchanged: the result says why none is needed; unknown: it says
-// how to check. Returns the clause for the delivered result.
+// title's "(reword of <pass>)". A changed proof after an incomplete attempt files nothing (review
+// of 62be9fa: a blind pass on an attempt its prover reported incomplete is a GAP and adds
+// nothing): the result and a thread note say the status no longer stands on the reviewed text
+// and that a verify follows the next complete attempt. Unchanged: the result says why none is
+// needed; unknown: it says how to check. A confirmed pass that names no reviewed proof compares
+// nothing: unknown, never untouched. Returns {clause, ticket, note} for the delivered result.
 const RE_PASS = /^\d{4}-\d{2}-\d{2}(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?$/
 const isHash = x => /^[0-9a-f]{6,}$/.test(String(x || '').trim())
 async function recheckRecord() {
   const none = (why, needed) => {
     out.record_verify = null
     out.record_verify_why = why
-    return `; ${needed ? 'no verify ticket needed' : 'no verify ticket for the record'}: ${why}`
+    return { clause: `; ${needed ? 'no verify ticket needed' : 'no verify ticket for the record'}: ${why}` }
   }
   const how = `compare \`${REVIEWS} hash --claim ${A.claim}\` with ${hashNow || 'the hash before the repair (not reported)'} by hand`
   if (!recBefore) return none(`the record check did not run (the repair-before stage returned nothing): ${how}`)
@@ -587,10 +592,11 @@ async function recheckRecord() {
   const pAfter = String(aft.proof || '').trim()
   const rhB = String(recBefore.reviewed_proof_hash || '').trim()
   const rhA = String(aft.reviewed_proof_hash || '').trim()
-  const proof = pBefore !== pAfter ? 'changed' : !reviewed ? 'same' : !isHash(rhB) ? 'unknown' : rhA === rhB ? 'same' : 'changed'
   const cp = String(recBefore.confirmed_pass || '').trim()
   const base = RE_PASS.test(cp) && !/-reword$/.test(cp) ? cp : ''
   if (cp && !base) out.notes.push(`the confirmed pass ${JSON.stringify(cp)} reported is no base pass name: no reword base`)
+  // no reviewed proof named: with a confirmed pass a proof was reviewed and nothing was compared
+  const proof = pBefore !== pAfter ? 'changed' : !reviewed ? (base ? 'unknown' : 'same') : !isHash(rhB) ? 'unknown' : rhA === rhB ? 'same' : 'changed'
   out.record_change = { statement: stmt, proof, statement_hash_before: hashNow || null, statement_hash_after: hAfter || null,
     reviewed_proof: reviewed || null, proof_before: pBefore || null, proof_after: pAfter || null, confirmed_pass: base || null }
   if (stmt === 'same' && proof === 'same') {
@@ -605,9 +611,15 @@ async function recheckRecord() {
   if (!(/^proved(-modulo)?$/.test(st.status) || base)) {
     return none(`the record changed (${what}) but no review stands on the old text (status ${st.status}, no confirmed pass)`)
   }
+  if (proof === 'changed') {
+    out.record_stale = true
+    const why = `the record changed (${what}) after an incomplete attempt: the ${st.status} status no longer stands on the reviewed text` +
+      `${base ? ' (pass ' + base + ')' : ''}; a verify follows the next complete attempt (a blind pass on an attempt reported incomplete would add nothing)`
+    out.notes.push(why)
+    return Object.assign(none(why), { note: why })
+  }
   const reword = stmt === 'changed' && proof === 'same' && !!base
   const whyBlind = reword ? ''
-    : proof === 'changed' ? 'a changed proof takes the blind pass (conclude.md section 7)'
     : proof === 'unknown' ? 'the reviewed proof could not be compared, and a reword pass needs it unchanged'
     : 'no confirmed pass to reword from (a reword pass needs a CONFIRMED x2 base)'
   const marker = `(reword of ${base})`
@@ -628,7 +640,7 @@ async function recheckRecord() {
     out.notes.push(why)
     out.record_verify = null
     out.record_verify_why = why
-    return `; ${why}`
+    return { clause: `; ${why}` }
   }
   const c = await launch(STAGE('get', [`tickets_get ${r.ticket} and return its to, kind, refs and title.`]),
     { label: 'check record verify', phase: 'File', agentType: CLERK, schema: TICKET, effort: 'low' })
@@ -639,7 +651,7 @@ async function recheckRecord() {
   }
   out.record_verify = { ticket: r.ticket, mode: reword ? 'reword' : 'blind', base_pass: reword ? base : null }
   out.record_verify_why = reword ? `the statement changed (${what}) over the confirmed pass ${base}, the reviewed proof untouched` : whyBlind
-  return `; ${reword ? 'reword' : 'blind'} verify ticket ${r.ticket} for the changed record (${what}${reword ? ', base pass ' + base : ''})`
+  return { ticket: r.ticket, clause: `; ${reword ? 'reword' : 'blind'} verify ticket ${r.ticket} for the changed record (${what}${reword ? ', base pass ' + base : ''})` }
 }
 
 if (forVerify && (!completeNoGaps(o) || depGaps.length)) {
@@ -666,9 +678,10 @@ if (!completeNoGaps(o) || depGaps.length) {
   if (depGaps.length) out.dependency_gaps = depGaps
   const gl = (o.gaps || []).concat(o.outcome === 'complete' ? depGaps : [])
   const fid = await fileFalsifier(gl)
-  const rec = recordCheck ? await recheckRecord() : ''
+  const rec = recordCheck ? await recheckRecord() : { clause: '' }
+  // review of 62be9fa, point 3: the line says what was filed (the attempt itself never is)
   await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}${o.outcome === 'complete' && depGaps.length ? ' but its dependencies are not declared' + (fixed ? ' after one fix round' : '') : ''}; ` +
-    `gaps: ${gl.join('; ') || 'none listed'}; nothing filed for review${falsLine(fid)}${rec}`)
+    `gaps: ${gl.join('; ') || 'none listed'}; ${rec.ticket ? 'the attempt is filed for no review' : 'nothing filed for review'}${falsLine(fid)}${rec.clause}`, rec.note)
   return await end()
 }
 const depAsk = deps.length ? `dependencies: ${deps.join('; ')}` : 'dependencies: none declared'
