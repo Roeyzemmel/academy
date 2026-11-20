@@ -1,7 +1,7 @@
 """board_gh.py -- a board_store transport over the GitHub REST API, through the gh CLI.
 
 ``GhTransport(repo)`` implements the transport of ``board_store`` (list/get/create/update
-issues, list/add comments) plus what the migration needs: ``last_number``, labels
+issues, list/add comments, the id reservations ``matching_refs`` / ``create_ref``) plus what the migration needs: ``last_number``, labels
 (``list_labels``, ``create_label``), native relations (``set_parent``, ``get_parent``,
 ``add_dependency``, ``remove_dependency``, ``list_dependencies``; read exactly for
 ``board_relations.py`` by ``relations_available``, ``parent_ref``, ``blocker_refs``) and assignees on
@@ -76,6 +76,7 @@ class GhTransport(object):
         self.write_interval = write_interval
         self._last_write = None
         self._ids = {}
+        self._head = None
         #: list_issues takes ``since`` (board_store's incremental listing)
         self.since = True
 
@@ -165,6 +166,27 @@ class GhTransport(object):
         """The highest issue or PR number in the repo (0 when it has none)."""
         rows = self.api("GET", "issues?state=all&sort=created&direction=desc&per_page=1")
         return rows[0]["number"] if rows else 0
+
+    # -- id reservations (board_store.GithubBoardStore.reserve_id) -------------
+    def matching_refs(self, prefix):
+        """The names of the refs under ``refs/<prefix>`` (``git/matching-refs``, a prefix
+        match; ``prefix`` has no trailing slash, which the API refuses)."""
+        return [r["ref"] for r in self.api("GET", "git/matching-refs/" + prefix) or []]
+
+    def create_ref(self, ref):
+        """Create ``ref`` (``refs/...``) at the default branch's head: True when created,
+        False when it exists (GitHub answers 422 "Reference already exists"); any other
+        failure raises. A retried POST whose first try did reach GitHub answers False too:
+        the number is then skipped, never shared."""
+        if self._head is None:
+            self._head = self.api("GET", "commits/HEAD")["sha"]
+        try:
+            self.api("POST", "git/refs", {"ref": ref, "sha": self._head})
+        except GhError as exc:
+            if exc.status == 422 and "already exists" in str(exc).lower():
+                return False
+            raise
+        return True
 
     def list_labels(self):
         out, page = [], 1

@@ -21,6 +21,11 @@ may be names or ``{"name": ...}``; ``number`` is the issue number):
                                           {"body": ..., "id": ..., "created_at": ...}
     add_comment(number, body)             -> comment
 
+and, for the ids kept in files (packets; ``GithubBoardStore.reserve_id``):
+
+    matching_refs(prefix)                 -> [ref name]   (the refs under refs/<prefix>)
+    create_ref(ref)                       -> bool         (False: the ref exists already)
+
 **Pagination.** ``list_issues`` and ``list_comments`` return at most ``per_page`` items of
 page ``page`` (1-based) and an empty list past the last page; a transport may return fewer
 than ``per_page`` on any page (the REST API caps it), so the store reads pages until one is
@@ -58,6 +63,7 @@ import copy
 import datetime as _dt
 import json
 import os
+import re
 import sys
 import time
 
@@ -85,6 +91,12 @@ KEEP = ("number", "id", "node_id", "title", "body", "state", "state_reason", "up
         "created_at", "closed_at", "comments", "parent_issue_url", "sub_issues_summary",
         "issue_dependencies_summary")
 CACHE_VERSION = 2          # 2: the cache holds asked_at (when its last read began)
+#: where ids kept in files (packets) are reserved on GitHub: one ref per id,
+#: ``refs/academy/ids/P-0471``; the server refuses to create a ref that exists, so no two
+#: branches or clones ever hold one number (docs/protocol.md, "Id allocation")
+ID_REFS = "academy/ids"
+#: numbers tried, one after the other, before reserve_id gives up
+RESERVE_TRIES = 100
 
 
 def slim(issue):
@@ -432,6 +444,47 @@ class GithubBoardStore(ac.BoardStore):
             raise
 
 
+    # -- ids kept in files (packets) ------------------------------------------
+    def reserve_id(self, prefix, n):
+        """Reserve number ``n`` of id ``prefix`` on GitHub, or the next free one above it,
+        and return it (``allocate_id``'s ``reserve``; docs/protocol.md, "Id allocation").
+
+        The packets are files on the branch that wrote them, so their counter diverges
+        between branches (academy#90). The reservation is a ref, ``refs/academy/ids/P-0471``,
+        in the board's repository, which every branch and clone shares: the start is past
+        the highest number reserved there, and a ref another allocator created in the
+        meantime is refused by the server, so the next number is tried. A transport that
+        cannot create refs is refused rather than skipped: the id would be unique in this
+        checkout only, which is the defect."""
+        t = self.t
+        lib = self.lib
+        if not (callable(getattr(t, "matching_refs", None))
+                and callable(getattr(t, "create_ref", None))):
+            raise lib.ConfigError(
+                "the board's transport cannot reserve ids (it has no matching_refs / "
+                "create_ref): an id taken from this checkout alone can collide with one "
+                "on another branch")
+        rx = re.compile(r"^refs/%s/%s-(\d+)$" % (re.escape(ID_REFS), re.escape(prefix)))
+        n = int(n)
+        try:
+            for name in t.matching_refs("%s/%s-" % (ID_REFS, prefix)) or ():
+                m = rx.match(str(name))
+                if m:
+                    n = max(n, int(m.group(1)) + 1)
+            for _ in range(RESERVE_TRIES):
+                if t.create_ref("refs/%s/%s" % (ID_REFS, lib.format_id(prefix, n))):
+                    return n
+                n += 1
+        except lib.AcademyError:
+            raise
+        except Exception as exc:
+            raise lib.AcademyError("could not reserve %s on GitHub (%s); no id was taken"
+                                   % (lib.format_id(prefix, n), exc))
+        raise lib.AcademyError("could not reserve a %s- id on GitHub: %d numbers up to %s "
+                               "were taken" % (prefix, RESERVE_TRIES,
+                                               lib.format_id(prefix, n - 1)))
+
+
 class RelationUnavailable(RuntimeError):
     """A native relation kind the repository does not serve (the REST API's 404/410)."""
     status = 410
@@ -461,6 +514,8 @@ class MemoryTransport(object):
         self.unavailable = set()
         self.summaries = False
         self.labels = {}
+        #: ``{ref name: sha}``: the id reservations (``create_ref``, ``matching_refs``)
+        self.refs = {}
         self.calls = []
         self.max_page = max_page
         self._failures = {}
@@ -652,6 +707,20 @@ class MemoryTransport(object):
     def last_number(self):
         self._tick("last_number")
         return max(self.issues, default=0)
+
+    def matching_refs(self, prefix):
+        """The names of the refs under ``refs/<prefix>`` (a prefix match, as GitHub's
+        ``git/matching-refs``)."""
+        self._tick("matching_refs", prefix)
+        return sorted(r for r in self.refs if r.startswith("refs/" + prefix))
+
+    def create_ref(self, ref):
+        """Create ``ref``; False when it exists (GitHub's 422), True when created."""
+        self._tick("create_ref", ref)
+        if ref in self.refs:
+            return False
+        self.refs[ref] = "0" * 40
+        return True
 
     def list_labels(self):
         self._tick("list_labels")

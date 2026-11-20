@@ -50,7 +50,9 @@ Frontmatter
     write_frontmatter(meta, body)   the inverse; canonical output
 Files and ids
     atomic_write(path, text, newline='\\n')
-    allocate_id(board, kind)        'T-0007' / 'P-0012', under board/.ids/lock
+    allocate_id(board, kind, reserve=None)  'T-0007' / 'P-0012', under board/.ids/lock;
+                                    ``reserve`` (a store's reserve_id) makes it unique
+                                    across branches
 Tickets
     TICKET_STATUSES, TRANSITIONS, can_transition(...), validate_ticket(...)
     slugify, ticket_filename, find_ticket, thread_lines, append_thread,

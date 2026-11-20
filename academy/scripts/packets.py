@@ -156,7 +156,9 @@ def create_packet(board, instance, title, kind="other", by=None, ticket=None,
         tref = store.find(ticket)
         if not tref:
             raise ac.AcademyError("no ticket %s on the board" % ticket)
-    pid = ac.allocate_id(ac.board_dir(board), "packet")
+    # reserved where every branch meets on the GitHub board (academy#90; protocol.md)
+    pid = ac.allocate_id(ac.board_dir(board), "packet",
+                         reserve=getattr(store, "reserve_id", None))
     meta["packet"] = pid
     path = os.path.join(ac.board_dir(board), "packets", instance,
                         ac.packet_filename(pid, title))
