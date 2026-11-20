@@ -183,6 +183,9 @@ def decide(ctx, a):
         else:
             text = "decision on %s D%d: (%s) %s" % (meta["packet"], k, choice,
                                                     asked[k]["options"][choice])
+        # plain 'human', not ctx.speaker: the echo carries the human's own answer (their
+        # choice, their note), which is what 'human' records (#100); the session's other
+        # lines (packets_create above) read 'human (via main session)'
         tbody = ac.append_thread(tbody, ac.HUMAN, text)
         tmeta["updated"] = ac.today()
         ctx.store.save(tmeta, tbody, tref)

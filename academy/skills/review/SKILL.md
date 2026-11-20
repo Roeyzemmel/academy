@@ -44,7 +44,10 @@ runs this skill: only the human decides.
    prefers the page answers there and runs this skill again.
 6. **Write back** each answer at once, before asking the next batch:
    `py $S/packets.py decide P-NNNN --decision K --choice <letter|other|ack> [--comment "<note or free text>"]`.
-   A skipped decision writes nothing.
+   A skipped decision writes nothing. The echo into the packet's ticket reads plain
+   `human`: it is the human's own answer, so their free text goes verbatim in
+   `--comment`. Any other ticket move here is the session's (`board.py ... --via session`,
+   #100).
 7. **Report** one line per packet: decided (in chat or on the page) or still open, the
    ticket it echoed to, and the coauthors' input recorded. Re-render and re-publish the
    dashboard only if the human asks.

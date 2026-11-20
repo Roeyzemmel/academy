@@ -56,8 +56,8 @@ Record each in the plan file's `## Seeding`.
 - **File** one ticket per task to its owning instance, tagged `cowork: <slug>`
   (`tickets_create` field `cowork`, or `board.py new --cowork <slug>`), with `refs`,
   `agenda` and `blocks` links for the dependencies. Acting for the human who approved
-  the plan, the session files as the human (`board.py new --as human`, or
-  `tickets_create` with `as_human`). Write each ticket id into the task table.
+  the plan, the session files as the human (`board.py new --as human --via session`, or
+  `tickets_create` with `as_human`; both read `human (via main session)`, #100). Write each ticket id into the task table.
 - **One pass at a time, in code** (2026-10-31; docs/workflows.md). Call the **Workflow** tool
   with `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/workplan.js` and
   `args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/scripts/models.py" launches prints>, kind: "cowork", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", slug: "<slug>", agents: <A>}`.
