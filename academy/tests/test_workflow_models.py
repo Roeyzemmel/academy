@@ -44,19 +44,21 @@ async function agent(prompt, opts) {
   calls.push(opts); prompts.push(prompt)
   return Object.prototype.hasOwnProperty.call(answers, opts.label) ? answers[opts.label] : 'ok'
 }
-const body = new Function('A', 'agent', block + '\nreturn { launch, TIER_MODELS, TIER_DEFAULTS, MODELS }')
+const body = new Function('A', 'agent', block + '\nreturn { launch, TIER_MODELS, TIER_DEFAULTS, MODELS, LAUNCH_LIMIT }')
 const out = []
 ;(async () => {
   for (const c of plan.cases) {
     calls.length = 0; prompts.length = 0; answers = c.answers || {}
     try {
-      const { launch, TIER_MODELS, TIER_DEFAULTS, MODELS } = body(c.args, agent)
+      const { launch, TIER_MODELS, TIER_DEFAULTS, MODELS, LAUNCH_LIMIT } = body(c.args, agent)
       const n = c.times || 1
-      if (c.parallel) await Promise.all(Array.from({ length: n }, () => launch('p', c.opts)))
-      else for (let i = 0; i < n; i++) await launch('p', c.opts)
+      let results = []
+      if (c.parallel) results = await Promise.all(Array.from({ length: n }, () => launch('p', c.opts)))
+      else for (let i = 0; i < n; i++) results.push(await launch('p', c.opts))
       const last = calls[calls.length - 1]
       out.push({ opts: last, first: calls[0], labels: calls.map(x => x.label), prompts: prompts.slice(),
-                 map: TIER_MODELS, defaults: TIER_DEFAULTS, same: last === c.opts, source: MODELS.source })
+                 map: TIER_MODELS, defaults: TIER_DEFAULTS, same: last === c.opts, source: MODELS.source,
+                 results, stopped: LAUNCH_LIMIT.stopped })
     } catch (e) { out.push({ error: String(e), calls: calls.length }) }
   }
   console.log(JSON.stringify(out))
@@ -203,7 +205,7 @@ class LaunchUnderNode(unittest.TestCase):
         opts = {"label": "run A", "agentType": "expert:rigor-reviewer"}
         out = self.run_cases([
             {"args": {"root": "/acad/"}, "opts": opts, "times": 2, "answers": {"models": {"output": printed}}},
-            {"args": {"models": None}, "opts": opts, "answers": {"models": {"output": "x\n" + printed}}},
+            {"args": {"models": None}, "opts": opts, "answers": {"models": {"output": "```json\n" + printed + "```"}}},
             {"args": {}, "opts": opts, "times": 3, "parallel": True, "answers": {"models": {"output": printed}}},
         ])
         for o in out:
@@ -226,8 +228,10 @@ class LaunchUnderNode(unittest.TestCase):
         out = self.run_cases([
             {"args": {"root": "/acad"}, "opts": opts,
              "answers": {"models": {"output": "models: workspace.json not found"}}},
-            {"args": {"root": "/acad"}, "opts": opts, "answers": {"models": None}},
             {"args": {"root": "/acad"}, "opts": opts, "answers": {"models": {"output": "[1, 2]"}}},
+            # a map inside prose is refused, never guessed (review of abf478f)
+            {"args": {"root": "/acad"}, "opts": opts,
+             "answers": {"models": {"output": 'The map is {"expert:rigor-reviewer": "fable"} I think'}}},
         ])
         for o in out:
             self.assertIn("args.models was not given", o.get("error", ""))
@@ -235,7 +239,19 @@ class LaunchUnderNode(unittest.TestCase):
             self.assertIn("py /acad/academy/scripts/models.py launches", o["error"])
             self.assertEqual(o["calls"], 1)                         # the stage only: nothing launched
         self.assertIn("workspace.json not found", out[0]["error"])
-        self.assertIn("returned nothing", out[1]["error"])
+
+    def test_a_lookup_that_returns_nothing_stops_the_run_like_a_usage_limit(self):
+        """Review of abf478f: a null lookup (a usage limit at the start) must stop the run the
+        way three null launches do (#115), not throw: the inbox then returns stopped."""
+        opts = {"label": "run A", "agentType": "expert:rigor-reviewer"}
+        out = self.run_cases([{"args": {"root": "/acad"}, "opts": opts, "times": 2,
+                               "answers": {"models": None}}])
+        o = out[0]
+        self.assertNotIn("error", o, o.get("error"))
+        self.assertEqual([None, None], o["results"])
+        self.assertTrue(o["stopped"])
+        self.assertNotIn("run A", o["labels"])                    # nothing launched after it
+        self.assertIn("python3 /acad/academy/scripts/models.py launches", o["prompts"][0])
 
     def test_a_malformed_map_is_refused_before_anything_is_launched(self):
         opts = {"label": "run A", "agentType": "expert:rigor-reviewer"}

@@ -112,6 +112,7 @@ script cannot read workspace.json, so the map comes in its arguments:
   command to rerun with. (Until 2026-11-20 a missing map was read as `{}` and passed down
   as given: an inbox started without it launched the max-tier graders on their file's
   `opus`.)
+  A lookup that returns nothing (a usage limit at the start) stops the run as three null launches do, never a throw; its output must be the JSON object alone (a code fence allowed), never a map read out of prose. The lookup runs `py <academy>/academy/scripts/models.py launches` (python3 where there is no py), which no permission template allowlists today: a scheduled or unattended run passes `args.models` itself, or the human allowlists that command.
 - **`launch()`.** Every workflow carries the same block, between `// ---- Models` and
   `// ---- end Models` (pinned identical by `academy/tests/test_workflow_models.py`), and
   launches every agent through its `launch(prompt, opts)`, never `agent()` directly. An

@@ -267,6 +267,21 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("py /academy/academy/scripts/models.py launches", res["error"])
         self.assertEqual([c["label"] for c in res["calls"]], ["models"])   # nothing else ran
 
+    def test_a_usage_limit_at_the_map_lookup_returns_stopped(self):
+        """Review of abf478f: no map and a usage limit at the start (the lookup returns
+        nothing) ends the run as a usage limit does (stopped, usage_limit), not a throw."""
+        p = os.path.join(tempfile.mkdtemp(prefix="acad-inwf-"), "h.js")
+        self.addCleanup(shutil.rmtree, os.path.dirname(p), True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(HARNESS)
+        plan = {"models": [None], "__args": {"root": "/academy"}}
+        out = subprocess.run([NODE, p, SCRIPT, json.dumps(plan)], capture_output=True, text=True, timeout=60)
+        res = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertNotIn("error", res, res.get("error"))
+        self.assertIn("usage limit", res["result"]["stopped"])
+        self.assertTrue(res["result"]["usage_limit"])
+        self.assertEqual([c["label"] for c in res["calls"]], ["models"])
+
     def test_a_nested_explore_hand_back_reaches_the_main_session(self):
         """#87: explore hands its prove step back as for_main; the inbox passes it on with
         the ticket instead of reading the run as unfinished."""
