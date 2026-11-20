@@ -159,7 +159,8 @@ class ProveTests(unittest.TestCase):
         """#117: T-0825 and the parked T-1425, 1384, 1231, 1523, 1651."""
         for kw in ({"falsifier_source": "input", "falsifier_on": "flat:GEO-2", "inputs": ["flat:GEO-2"]},
                    {"falsifier_source": "parent", "falsifier_on": "flat:DIR-3", "inputs": []},
-                   {"falsifier_source": "waived", "falsifier_evidence": "2026-11-18 human: waive the experiment", "inputs": []}):
+                   {"falsifier_source": "waived", "falsifier_evidence": "- 2026-11-18 human: waive the experiment", "inputs": []},
+                   {"falsifier_source": "input", "falsifier_on": "s1:GEO-2", "inputs": ["GEO-2"]}):
             plan = dict(self.COMPLETE, state=[state(attack_exists=False, falsified=True, **kw)])
             res, labels, calls = self.run_wf(plan)
             self.assertEqual(res["outcome"], "verify-filed", kw)
@@ -169,7 +170,11 @@ class ProveTests(unittest.TestCase):
     def test_a_falsifier_that_does_not_count_is_refused_with_what_would(self):
         for kw in ({"falsifier_source": "input", "falsifier_on": "flat:GEO-9", "inputs": ["flat:GEO-2"]},
                    {"falsifier_source": "waived", "falsifier_evidence": "the lead thinks it is fine", "inputs": []},
-                   {"falsifier_source": "none", "falsified": False, "inputs": []}):
+                   {"falsifier_source": "none", "falsified": False, "inputs": []},
+                   {"falsifier_source": "waived", "falsifier_evidence": "the lead says no human has waived this", "inputs": []},
+                   {"falsifier_source": "ticket", "falsifier_evidence": "", "inputs": []},
+                   {"falsifier_source": "whatever", "inputs": []},
+                   {"falsifier_source": "parent", "falsifier_on": "", "inputs": []}):
             res, labels, _ = self.run_wf({"state": [state(**dict({"falsified": True}, **kw))]})
             self.assertEqual(res["outcome"], "needs-explore", kw)
             self.assertIn("What counts", res["reason"])
