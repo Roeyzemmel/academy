@@ -33,7 +33,9 @@ async function agent(prompt, opts) {
   calls.push({ label: opts.label, agentType: opts.agentType, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
-  return q.shift()
+  const v = q.shift()
+  if (v && v.__throw) throw new Error(v.__throw)     // a run that ended without its structured output
+  return v
 }
 async function workflow(ref, a) {
   const name = ref.scriptPath.split('/').pop()
@@ -380,13 +382,116 @@ class InboxWorkflowTests(unittest.TestCase):
         rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
         plan = {"list": [{"instances": [inst("scientist@t", rows)]}],
                 "T-1 start": [OK],
-                "developer T-1": ["diff 1"], "test-engineer T-1": ["FINDINGS: x", "APPROVED"],
+                "developer T-1": ["diff 1"],
+                "test-engineer T-1": [{"verdict": "findings", "findings": ["cite.js:12 crashes on an empty ref"]},
+                                      {"verdict": "approved", "findings": []}],
                 "developer T-1 (round 2)": ["diff 2"],
                 "T-1 review note": [OK, OK], "T-1 deliver": [OK], "check T-1": [DONE]}
-        res, labels, _ = self.run_wf(plan)
+        res, labels, calls = self.run_wf(plan)
         self.assertEqual([l for l in labels if l.startswith(("developer", "test-engineer"))],
                          ["developer T-1", "test-engineer T-1", "developer T-1 (round 2)",
                           "test-engineer T-1"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+        # the findings go back to the developer from the structured list
+        self.assertIn("cite.js:12 crashes on an empty ref",
+                      next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+
+    # #94 (2026-11-19, T-0181): the review's text mentioned settings.json, the harness
+    # neutralised it, and the prose check /^APPROVED/ read an approval as findings three times.
+    # The verdict is a structured field; the text never decides it.
+    def test_the_review_verdict_is_a_structured_field(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        neutralised = {"verdict": "approved", "findings": [],
+                       "summary": "[content neutralised: instruction-shaped text (settings-json)]"}
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "test-engineer T-1": [neutralised],
+                "T-1 review note": [OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        te = next(c for c in calls if c["label"] == "test-engineer T-1")
+        self.assertEqual(te["schema"]["properties"]["verdict"]["enum"], ["approved", "findings"])
+        self.assertEqual(te["schema"]["required"], ["verdict"])          # #124: no free text required
+        self.assertNotIn("begin your answer with", te["prompt"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+        self.assertNotIn("T-1 block-human", labels)
+        note = next(c for c in calls if c["label"] == "T-1 review note")["prompt"]
+        self.assertIn("test-engineer: approved", note)
+
+    def test_prose_that_begins_with_approved_is_not_an_approval(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "developer T-1 (round 2)": ["diff 2"],
+                "test-engineer T-1": [{"verdict": "findings", "findings": [], "summary": "APPROVED? no: two findings"},
+                                      {"verdict": "findings", "findings": ["x.py:3 wrong"]}],
+                "T-1 review note": [OK, OK], "T-1 block-human": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertNotIn("T-1 deliver", labels)
+        self.assertEqual(res["taken"][0]["outcome"], "blocked on human (review)")
+        self.assertIn("x.py:3 wrong", res["taken"][0]["detail"])
+        # findings with no list still go back with the summary the reviewer gave
+        self.assertIn("two findings", next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+
+    def test_a_review_with_no_verdict_is_asked_once_more_before_a_developer_round(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "developer T-1 (round 2)": ["diff 2"],
+                "test-engineer T-1": ["APPROVED", {"verdict": "approved"}],
+                "test-engineer T-1 (again)": ["still prose"],
+                "T-1 review note": [OK, OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual([l for l in labels if l.startswith(("developer", "test-engineer"))],
+                         ["developer T-1", "test-engineer T-1", "test-engineer T-1 (again)",
+                          "developer T-1 (round 2)", "test-engineer T-1"])
+        self.assertIn("no verdict", next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+
+    # #94 review: a reviewer that ends without its structured output throws (T-1614); the
+    # throw must not end the inbox run: it is no verdict, asked once more
+    def test_a_review_that_throws_is_asked_once_more_and_then_approves(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        boom = {"__throw": "agent({schema}): subagent completed without calling StructuredOutput (after in-conversation nudge)"}
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "test-engineer T-1": [boom],
+                "test-engineer T-1 (again)": [{"verdict": "approved", "findings": []}],
+                "T-1 review note": [OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertNotIn("developer T-1 (round 2)", labels)
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+        self.assertIsNone(res.get("stopped"))
+
+    def test_a_review_that_throws_twice_is_no_verdict_not_the_end_of_the_run(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        boom = {"__throw": "subagent completed without calling StructuredOutput"}
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "developer T-1 (round 2)": ["diff 2"],
+                "test-engineer T-1": [boom, {"verdict": "approved"}], "test-engineer T-1 (again)": [boom],
+                "T-1 review note": [OK, OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertIn("developer T-1 (round 2)", labels)
+        self.assertIn("no verdict", next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+
+    def test_a_review_that_returns_nothing_is_still_lost(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "test-engineer T-1": [None], "T-1 interrupted": [OK]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual(res["taken"][0]["outcome"], "lost")
+        self.assertNotIn("test-engineer T-1 (again)", labels)
+
+    # #94 review: an approval with minor findings kept them only in the agent's answer
+    def test_an_approval_with_findings_writes_them_into_the_thread_note(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        long = "b.py:9 " + "x" * 300
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"],
+                "test-engineer T-1": [{"verdict": "approved", "findings": ["a.py:3 a \"minor\" thing", long]}],
+                "T-1 review note": [OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        note = next(c for c in calls if c["label"] == "T-1 review note")["prompt"]
+        self.assertIn("test-engineer: approved", note)
+        self.assertIn("a.py:3 a 'minor' thing", note)
+        self.assertIn("b.py:9 xxx", note)
+        self.assertNotIn("x" * 200, note)                     # shortened, one line each
         self.assertEqual(res["taken"][0]["outcome"], "delivered")
 
     def test_an_experiment_runs_its_design_leg_and_stops_at_the_header_gate(self):
@@ -454,6 +559,72 @@ class InboxWorkflowTests(unittest.TestCase):
         res, labels, calls = self.run_wf(plan, loop=True)
         wf = next(c for c in calls if c["label"] == "workflow prove.js")
         self.assertEqual(wf["args"]["home"], "/h/researcher@u")
+
+    # #94 (2026-11-19 21:17): the list stage returned {"instances": []} and the run did
+    # nothing, while inbox.py listed 24 waiting tickets for the Author a minute later. Every
+    # instance is one entry of the listing, and waiting > 0 means rows: an empty listing is a
+    # failed stage, listed once more, and said so in the result, never "nothing to do".
+    def test_an_empty_listing_is_listed_once_more(self):
+        rows = [row("T-2", how="reject", target=None, kind="prove", to="scientist@t")]
+        plan = {"list": [{"instances": []}], "list (retry)": [{"instances": [inst("scientist@t", rows, waiting=1)]}],
+                "T-2 reject": [OK], "check T-2": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[:2], ["list", "list (retry)"])
+        self.assertIn("no instance", next(c for c in calls if c["label"] == "list (retry)")["prompt"])
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
+        self.assertIn("listed once more", " ".join(res["notes"]))
+
+    def test_an_empty_listing_twice_is_a_failed_stage_not_nothing_to_do(self):
+        plan = {"list": [{"instances": []}], "list (retry)": [{"instances": []}]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual(labels, ["list", "list (retry)"])
+        self.assertTrue(res.get("list_failed"))
+        self.assertIn("failed stage", res["stopped"])
+        self.assertEqual(res["taken"], [])
+
+    def test_waiting_tickets_with_no_rows_are_listed_once_more(self):
+        rows = [row("T-2", how="reject", target=None, kind="prove", to="author@t")]
+        plan = {"list": [{"instances": [inst("author@t", [], waiting=24), inst("expert@t", [])]}],
+                "list (retry)": [{"instances": [inst("author@t", rows, waiting=24), inst("expert@t", [])]}],
+                "sweep author@t": ["0"], "T-2 reject": [OK], "check T-2": [DONE], "close author@t": [OK]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[:2], ["list", "list (retry)"])
+        self.assertIn("author@t: 24 waiting, no rows", next(c for c in calls if c["label"] == "list (retry)")["prompt"])
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
+
+    def test_waiting_with_no_rows_twice_is_an_anomaly_and_the_others_go_on(self):
+        rows = [row("T-3", how="reject", target=None, kind="prove", to="expert@t")]
+        listed = {"instances": [inst("author@t", [], waiting=24), inst("expert@t", rows, waiting=1)]}
+        plan = {"list": [listed], "list (retry)": [listed], "sweep author@t": ["0"],
+                "T-3 reject": [OK], "check T-3": [DONE]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-3"])
+        self.assertIn("ANOMALY: author@t", " ".join(res["notes"]))
+
+    def test_only_with_none_of_its_instances_listed_twice_is_a_failed_stage(self):
+        listed = {"instances": [inst("expert@t", [])]}
+        res, labels, _ = self.run_wf({"list": [listed], "list (retry)": [listed]}, only=["author@t"])
+        self.assertEqual(labels, ["list", "list (retry)"])
+        self.assertTrue(res.get("list_failed"))
+
+    def test_a_quiet_listing_is_not_retried(self):
+        res, labels, _ = self.run_wf({"list": [{"instances": [inst("expert@t", []), inst("scientist@t", [])]}]})
+        self.assertEqual(labels, ["list"])
+        self.assertNotIn("list_failed", res)
+
+    def test_with_ids_waiting_without_rows_is_not_retried(self):
+        # --ids filters the rows in the script while waiting counts the whole inbox
+        res, labels, _ = self.run_wf({"list": [{"instances": [inst("expert@t", [], waiting=5)]}]}, ids=["T-9"])
+        self.assertEqual(labels, ["list"])
+
+    def test_a_later_empty_listing_is_retried_and_then_a_failed_stage(self):
+        rows = [row("T-2", how="reject", target=None, kind="prove", to="scientist@t")]
+        plan = {"list": [{"instances": [inst("scientist@t", rows, waiting=1)]}], "T-2 reject": [OK], "check T-2": [DONE],
+                "list 2": [{"instances": []}], "list 2 (retry)": [{"instances": []}]}
+        res, labels, _ = self.run_wf(plan, loop=True)
+        self.assertEqual(labels[-2:], ["list 2", "list 2 (retry)"])
+        self.assertIn("failed stage", res["stopped"])
+        self.assertTrue(res.get("list_failed"))
 
     def test_an_author_research_route_is_filed_by_math_writer_and_checked(self):
         rows = [row("T-5", how="research", target="expert", kind="write", to="author@t")]

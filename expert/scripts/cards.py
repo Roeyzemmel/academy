@@ -10,6 +10,7 @@ are notes, not cards.
                   [--used-by paper:lem:x,...] [--by expert@main/librarian] [--dry-run]
     py cards.py path KEY "PINPOINT"
     py cards.py list [--home H] [--key K]
+    py cards.py dups KEY "PINPOINT" [--bib PATH|INSTANCE:PATH] [--ref DOI|arXiv id] [--home H] [--json]
 
 The card format::
 
@@ -407,6 +408,121 @@ def cmd_path(args):
     return 0
 
 
+# ----------------------------------------------------------------------------
+# Duplicates (#94 review): a librarian run that ended without its result and was run
+# again may have written the bib entry or the card twice
+# ----------------------------------------------------------------------------
+
+RE_ENTRY = re.compile(r"@(\w+)\s*[{(]\s*([^,\s]*)\s*,", re.I)
+RE_DOI = re.compile(r"(?:doi:|https?://(?:dx\.)?doi\.org/)?\s*(10\.\d{4,9}/\S+)", re.I)
+RE_ARXIV = re.compile(r"(?:arxiv:|https?://arxiv\.org/(?:abs|pdf)/)?\s*(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?(?:\.pdf)?$", re.I)
+
+
+def ref_id(ref):
+    """``('doi', '10.x/y')`` or ``('arxiv', '2101.00001')`` when ``ref`` is one, else None."""
+    ref = (ref or "").strip().rstrip(".")
+    m = RE_DOI.fullmatch(ref)
+    if m:
+        return ("doi", m.group(1).lower())
+    m = RE_ARXIV.fullmatch(ref)
+    if m:
+        return ("arxiv", m.group(1).lower())
+    return None
+
+
+def bib_entries(text):
+    """``[(key, body)]`` of every entry (not @comment, @string, @preamble)."""
+    found = [m for m in RE_ENTRY.finditer(text)
+             if m.group(1).lower() not in ("comment", "string", "preamble")]
+    return [(m.group(2), text[m.end():(found[n + 1].start() if n + 1 < len(found) else len(text))])
+            for n, m in enumerate(found)]
+
+
+def entry_ids(body):
+    ids = set()
+    for m in re.finditer(r"\b(doi|eprint|url|arxiv)\s*=\s*[{\"]\s*([^}\"]+?)\s*[}\"]", body, re.I):
+        val = m.group(2).strip()
+        for cand in (val, val.split("arxiv.org/abs/")[-1], val.split("arxiv.org/pdf/")[-1]):
+            got = ref_id(cand)
+            if got:
+                ids.add(got)
+    return ids
+
+
+def resolve_bib(bib):
+    """A path, or ``<instance>:<path relative to its home>`` read from workspace.json."""
+    if not bib:
+        return None
+    if os.path.isfile(bib):
+        return os.path.abspath(bib)
+    m = re.match(r"^([a-z][a-z0-9-]*@[A-Za-z0-9._-]+):(.+)$", bib)
+    if m:
+        ws = ex.load_workspace_or_none()
+        inst = ((ws or {}).get("instances") or {}).get(m.group(1))
+        if inst and inst.get("home"):
+            p = os.path.join(inst["home"], m.group(2))
+            return os.path.abspath(p) if os.path.isfile(p) else None
+    return None
+
+
+def _pin(p):
+    return re.sub(r"\s+", " ", str(p or "")).strip().rstrip(".").lower()
+
+
+def duplicates(home, key, pinpoint, bib=None, ref=None):
+    """Count the entries of ``key`` (and of the DOI / arXiv id ``ref`` names) in the
+    bibliography, and the cards of ``key`` at ``pinpoint``; more than one is a problem.
+    A bibliography that cannot be found is a warning, its counts None (never a pass)."""
+    out = {"key": key, "pinpoint": pinpoint, "bib": None, "bib_key": None, "bib_id": None,
+           "id": None, "cards": 0, "card_paths": [], "problems": [], "warnings": []}
+    path = resolve_bib(bib)
+    ident = ref_id(ref)
+    if ident:
+        out["id"] = "%s:%s" % ident
+    if bib and not path:
+        out["warnings"].append("bibliography %s not found: entries not counted" % bib)
+    if path:
+        out["bib"] = path
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            entries = bib_entries(fh.read())
+        out["bib_key"] = sum(1 for k, _ in entries if k == key)
+        if out["bib_key"] > 1:
+            out["problems"].append("%d entries with the key %s in %s" % (out["bib_key"], key, path))
+        if ident:
+            same = [k for k, body in entries if ident in entry_ids(body)]
+            out["bib_id"] = len(same)
+            if len(same) > 1:
+                out["problems"].append("%d entries for %s in %s: %s" % (len(same), out["id"], path, ", ".join(same)))
+    want = _pin(pinpoint)
+    slug_path = os.path.normcase(os.path.abspath(card_path(home, key, pinpoint)))
+    for p in iter_cards(home, key):
+        same = os.path.normcase(os.path.abspath(p)) == slug_path
+        if not same:
+            try:
+                meta, _ = read_card(p)
+            except (OSError, ac.AcademyError, UnicodeDecodeError):
+                continue
+            same = _pin(meta.get("pinpoint")) == want
+        if same:
+            out["card_paths"].append(p.replace("\\", "/"))
+    out["cards"] = len(out["card_paths"])
+    if out["cards"] > 1:
+        out["problems"].append("%d cards for %s at %s: %s" % (out["cards"], key, pinpoint, ", ".join(out["card_paths"])))
+    return out
+
+
+def cmd_dups(args):
+    r = duplicates(_home(args), args.key, args.pinpoint, bib=args.bib, ref=args.ref)
+    if args.json:
+        print(json.dumps(r, ensure_ascii=False))
+    else:
+        for line in r["problems"] or ["no duplicate"]:
+            print(line)
+        for w in r["warnings"]:
+            print("warning: " + w)
+    return 1 if r["problems"] else 0
+
+
 def cmd_list(args):
     home = _home(args)
     for p in iter_cards(home, args.key):
@@ -451,9 +567,16 @@ def main(argv=None):
     ls = sub.add_parser("list")
     ls.add_argument("--home")
     ls.add_argument("--key")
+    d = sub.add_parser("dups", help="duplicate bib entries or cards of one key and pinpoint")
+    d.add_argument("key")
+    d.add_argument("pinpoint")
+    d.add_argument("--bib", help="a path, or <instance>:<path in its home>")
+    d.add_argument("--ref", help="the reference asked for: a DOI or arXiv id is checked too")
+    d.add_argument("--home")
+    d.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     return {"validate": cmd_validate, "new": cmd_new, "path": cmd_path,
-            "list": cmd_list}[args.cmd](args)
+            "list": cmd_list, "dups": cmd_dups}[args.cmd](args)
 
 
 if __name__ == "__main__":

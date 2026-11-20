@@ -22,7 +22,9 @@ async function agent(prompt, opts) {
   calls.push({ label: opts.label, agentType: opts.agentType, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
-  return q.shift()
+  const v = q.shift()
+  if (v && v.__throw) throw new Error(v.__throw)     // a run that ended without its structured output
+  return v
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
 // the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
@@ -110,9 +112,96 @@ class CiteTests(unittest.TestCase):
         self.assertEqual(res["gate"]["packet"], "P-0303")
 
     def test_a_lost_librarian_stops(self):
-        res, labels, _ = self.run_wf({"start": [ASK], "librarian": [None]}, ticket="T-0904")
+        res, labels, _ = self.run_wf({"start": [ASK], "librarian": [None], "librarian (retry)": [None],
+                                      "lost note": [MOVE]}, ticket="T-0904")
         self.assertEqual(res["outcome"], "lost")
         self.assertNotIn("packet", labels)
+
+    # #94: the librarian sometimes returns no result (T-1026, T-1614); on 2026-11-20 its schema
+    # failure ("completed without calling StructuredOutput") ended the whole inbox run
+    def test_a_librarian_with_no_result_is_retried_once(self):
+        clean = {"exit": 0, "output": json.dumps({"bib_key": 1, "bib_id": 1, "cards": 1, "problems": [], "warnings": []})}
+        res, labels, calls = self.run_wf({"start": [ASK], "librarian": [None], "librarian (retry)": [card()],
+                                          "duplicates": [clean], "validate": [OK], "packet": [{"packet": "P-0300", "error": ""}],
+                                          "deliver": [MOVE]}, ticket="T-0904")
+        self.assertEqual(labels, ["start", "librarian", "librarian (retry)", "duplicates", "validate", "packet", "deliver"])
+        retry = next(c for c in calls if c["label"] == "librarian (retry)")
+        self.assertIn("10.1000/xyz", retry["prompt"])
+        self.assertIn("may already be on disk", retry["prompt"])      # never a second bib entry
+        self.assertEqual(res["outcome"], "cited")
+        self.assertIn("no result", " ".join(res["notes"]))
+
+    # #94 review: a retried librarian may have written the bib entry or the card twice
+    # (cards.py new refuses only an identical card path): the retry path counts them
+    def test_after_a_retry_the_duplicates_are_counted_by_script(self):
+        clean = {"exit": 0, "output": json.dumps({"bib_key": 1, "bib_id": 1, "cards": 1, "problems": [], "warnings": []})}
+        res, labels, calls = self.run_wf({"start": [ASK], "librarian": [None], "librarian (retry)": [card()],
+                                          "duplicates": [clean], "validate": [OK],
+                                          "packet": [{"packet": "P-0300", "error": ""}], "deliver": [MOVE]}, ticket="T-0904")
+        self.assertEqual(labels, ["start", "librarian", "librarian (retry)", "duplicates", "validate", "packet", "deliver"])
+        dup = next(c for c in calls if c["label"] == "duplicates")
+        self.assertEqual(dup["agentType"], "academy:inbox-clerk")
+        self.assertIn('cards.py dups SW10 "Thm 2" --bib "author@t:references.bib" --ref "10.1000/xyz" --json', dup["prompt"])
+        self.assertEqual(dup["schema"]["required"], ["exit"])
+        self.assertEqual(res["outcome"], "cited")
+
+    def test_a_duplicate_after_the_retry_loses_the_ticket_with_a_note(self):
+        two = {"exit": 1, "output": json.dumps({"bib_key": 2, "bib_id": 2, "cards": 1,
+                                                "problems": ["2 entries with the key SW10 in /p/references.bib"], "warnings": []})}
+        res, labels, calls = self.run_wf({"start": [ASK], "librarian": [None], "librarian (retry)": [card()],
+                                          "duplicates": [two], "lost note": [MOVE]}, ticket="T-0904")
+        self.assertEqual(labels, ["start", "librarian", "librarian (retry)", "duplicates", "lost note"])
+        self.assertEqual(res["outcome"], "lost")
+        self.assertIn("2 entries with the key SW10", res["reason"])
+        self.assertIn("2 entries with the key SW10", next(c for c in calls if c["label"] == "lost note")["prompt"])
+
+    def test_a_duplicate_card_read_from_the_counts_alone_is_lost(self):
+        # an output the code cannot parse: the counts the clerk returned decide
+        res, labels, _ = self.run_wf({"librarian": [None], "librarian (retry)": [card()],
+                                      "duplicates": [{"exit": 1, "output": "garbled", "cards": 2}]}, ref="SW10")
+        self.assertEqual(res["outcome"], "lost")
+        self.assertIn("duplicate", res["reason"])
+
+    def test_a_lost_duplicate_check_is_noted_and_the_card_still_validated(self):
+        res, labels, _ = self.run_wf({"librarian": [None], "librarian (retry)": [card()], "duplicates": [None],
+                                      "validate": [OK], "packet": [{"packet": "P-0302", "error": ""}]}, ref="SW10")
+        self.assertIn("validate", labels)
+        self.assertIn("duplicate check returned nothing", " ".join(res["notes"]))
+
+    def test_a_librarian_schema_failure_is_caught_retried_then_lost(self):
+        boom = {"__throw": "agent({schema}): subagent completed without calling StructuredOutput (after in-conversation nudge)"}
+        res, labels, calls = self.run_wf({"start": [ASK], "librarian": [boom], "librarian (retry)": [boom],
+                                          "lost note": [MOVE]}, ticket="T-0904")
+        self.assertEqual(res["outcome"], "lost")
+        self.assertIn("twice", res["reason"])
+        self.assertIn("unvalidated", res["reason"])
+        self.assertEqual(labels, ["start", "librarian", "librarian (retry)", "lost note"])
+        note = next(c for c in calls if c["label"] == "lost note")["prompt"]
+        self.assertIn("ticket: T-0904", note)
+        self.assertIn("note: append to the thread", note)
+        self.assertIn("cards.py validate", note)
+        self.assertNotIn("ticket_delivered", res)
+
+    def test_a_lost_librarian_without_a_ticket_files_no_note(self):
+        res, labels, _ = self.run_wf({"librarian": [None], "librarian (retry)": [None]}, ref="SW10")
+        self.assertEqual(res["outcome"], "lost")
+        self.assertEqual(labels, ["librarian", "librarian (retry)"])
+
+    def test_a_librarian_fix_that_throws_is_lost_not_an_error(self):
+        boom = {"__throw": "subagent completed without calling StructuredOutput"}
+        res, labels, _ = self.run_wf({"start": [ASK], "librarian": [card()], "validate": [BAD],
+                                      "librarian (fix)": [boom], "lost note": [MOVE]}, ticket="T-0904")
+        self.assertEqual(res["outcome"], "lost")
+        self.assertIn("fix", res["reason"])
+        self.assertNotIn("packet", labels)
+
+    def test_a_packet_stage_that_throws_is_noted_and_the_ticket_still_lands(self):
+        boom = {"__throw": "subagent completed without calling StructuredOutput"}
+        res, labels, _ = self.run_wf({"start": [ASK], "librarian": [card()], "validate": [OK],
+                                      "packet": [boom], "deliver": [MOVE]}, ticket="T-0904")
+        self.assertIn("deliver", labels)
+        self.assertIsNone(res["packet"])
+        self.assertIn("packet was not filed", " ".join(res["notes"]))
 
 
 def shipped(t, line="library 2026-11-13/t-0904/expert @ abc1234 (2 files) pushed"):

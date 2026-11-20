@@ -254,16 +254,43 @@ const children = new Set()           // follow: the child ids this run's relays 
 
 // ---- List ---------------------------------------------------------------------------
 const knownHome = {}                 // instance -> the last non-empty home a listing gave
+// #94 (2026-11-19 21:17): the list stage returned {"instances": []} and the run did nothing, while
+// inbox.py listed 24 waiting tickets a minute later. The scripts cannot print that: every instance
+// is one entry, and (without --ids, which filters the rows and not the count) waiting > 0 means rows.
+// Such a listing is a failed stage: listed once more; empty twice, the run says so (list_failed).
+let listFailed = ''
+const NO_INSTANCE = 'no instance at all (every instance of workspace.json is one entry, even with no rows)'
+function listingProblems(listed) {
+  const xs = Array.isArray(listed.instances) ? listed.instances.filter(i => !A.only || A.only.includes(i.name)) : []
+  if (!xs.length) return [NO_INSTANCE]
+  if (A.ids && A.ids.length) return []
+  return xs.filter(i => i.waiting > 0 && !(i.rows || []).length).map(i => `${i.name}: ${i.waiting} waiting, no rows`)
+}
 async function listAll(pass) {
-  const listed = await clerk('list', [
+  const label = pass > 1 ? `list ${pass}` : 'list'
+  const lines = [
     `For each instance of workspace.json${A.only ? ' among ' + JSON.stringify(A.only) : ''}, run its role's inbox script:`,
     // with ids the per-instance cut (itemsPerRun) would hide the named tickets, and --all is too long to transcribe
     // (live runs 2026-10-31: 304 rows, four instances lost): --ids filters in the script (the ids and their children)
     `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.ids && A.ids.length ? ' --ids ' + [...new Set([...A.ids, ...(A.follow ? [...followed, ...children] : [])])].join(',') : ''}${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
     'Return every instance (one entry each, even with no rows) with its "home" copied verbatim from the script\'s JSON (never a path you know otherwise: the workspace\'s checkout, #116), ' +
     'and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
-  ], LIST, pass > 1 ? `list ${pass}` : 'list')
+  ]
+  let listed = await clerk('list', lines, LIST, label)
   if (!listed) return null
+  let bad = listingProblems(listed)
+  if (bad.length) {
+    notes.push(`the ${label} stage returned ${bad.join('; ')}: a failed stage, listed once more`)
+    listed = await clerk('list', lines.concat([`A first listing returned ${bad.join('; ')}, which the scripts never print: ` +
+      'run every instance\'s script again and transcribe its JSON as it is.']), LIST, label + ' (retry)')
+    if (!listed) return null
+    bad = listingProblems(listed)
+    if (bad[0] === NO_INSTANCE) {
+      listFailed = `the ${label} stage returned no instance twice: a failed stage, not "nothing to do"; run the inbox scripts by hand (inbox.py --instance <name> --json) and run again`
+      return null
+    }
+    for (const b of bad) notes.push(`ANOMALY: ${b} after the retry: its tickets are not taken this pass; inbox.py --instance ${b.split(':')[0]} --json lists them`)
+  }
   const xs = listed.instances.filter(i => !A.only || A.only.includes(i.name))
   // a later listing can come back with home '' (live run 2026-11-17: the second pass lost every home and the
   // nested prove threw 'args.home must be the Researcher home', ending the run): keep the last home seen
@@ -297,7 +324,7 @@ phase('List')
 const LIMIT_WHY = 'three agent launches in a row returned nothing: most likely a usage limit (every launch fails until it resets: ' +
   'the session\'s own error names the reset time; resume after it). Nothing further launched (#115)'
 let insts = await listAll(1)
-if (!insts) return Object.assign(out, { stopped: 'the list stage returned nothing (a usage limit?)', usage_limit: LAUNCH_LIMIT.stopped })
+if (!insts) return Object.assign(out, listFailed ? { stopped: listFailed, list_failed: true } : { stopped: 'the list stage returned nothing (a usage limit?)', usage_limit: LAUNCH_LIMIT.stopped })
 let lastInsts = insts
 
 // ---- Sweep (the Author's, before any ticket; counts against no cap) -------------------
@@ -377,33 +404,71 @@ async function expertClerk(row, inst) {
   return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: first, runs_used: used }
 }
 
+// #94 (2026-11-19, T-0181): the review's verdict is a structured field, never read from its
+// prose. A review text that mentioned settings.json was neutralised by the harness, the old
+// /^APPROVED/ check read the approval as findings, and the ticket went to the human three times.
+// summary and findings are asked for, never required (#124); a missing verdict is no approval.
+const TE_REVIEW = { type: 'object', properties: {
+  verdict: { type: 'string', enum: ['approved', 'findings'], description: 'approved: no finding that needs a fix round; findings: at least one' },
+  findings: { type: 'array', items: { type: 'string' }, description: 'one per finding: file and line, what goes wrong on which input, how bad' },
+  summary: { type: 'string', description: 'what you examined, in one line' } },
+  required: ['verdict'] }
+function readReview(t) {
+  const ok = t && typeof t === 'object' && (t.verdict === 'approved' || t.verdict === 'findings')
+  const findings = ok && Array.isArray(t.findings) ? t.findings.map(String).filter(Boolean) : []
+  const summary = ok && typeof t.summary === 'string' ? t.summary : ''
+  // the thread keeps every finding, approved or not (#94 review): one shortened line each
+  const short = f => { const x = f.replace(/\s+/g, ' ').replace(/"/g, "'").trim(); return x.length > 160 ? x.slice(0, 157) + '...' : x }
+  const listed = findings.slice(0, 8).map((f, n) => `${n + 1}. ${short(f)}`).concat(findings.length > 8 ? [`(and ${findings.length - 8} more)`] : [])
+  if (!ok) return { approved: false, verdict: false, line: 'no verdict (the review returned no structured verdict)', note: [], text: 'the review returned no verdict: no approval' }
+  if (t.verdict === 'approved') return { approved: true, verdict: true, line: 'approved' + (findings.length ? `, with ${findings.length} minor finding(s)` : ''), note: listed, text: findings.join('\n') }
+  const text = findings.length ? findings.map((f, n) => `${n + 1}. ${f}`).join('\n') : (summary || 'findings, none listed')
+  return { approved: false, verdict: true, line: `findings: ${findings.length ? short(findings[0]) : short(summary || 'none listed')}`, note: findings.length > 1 ? listed : [], text }
+}
+
 async function developerReviewed(row, i) {
   // the producer of code never grades it: developer, then test-engineer on the diff, the
   // findings back through the thread, two rounds at most (the route's declared cost, costOf)
   const st = await move(row, i.name, 'start: move it to in-progress')
   if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start' }
   const runs = 4
-  let used = 0, verdict = ''
+  let used = 0, extra = 0, review = null
+  // a review that throws (a run ended without its structured output, T-1614) is no verdict, never
+  // the end of this inbox run; null (nothing came back: a limit?) stays a lost agent
+  const askReview = async (prompt, label) => {
+    try { return await launch(prompt, { label, phase: 'Tickets', agentType: 'scientist:test-engineer', schema: TE_REVIEW }) } catch (e) {
+      notes.push(`${row.id}: the ${label} stage ended without its verdict (${String(e).slice(0, 120)})`)
+      return { thrown: true }
+    }
+  }
   while (used + 2 <= runs) {
     const d = await launch(`WORKFLOW INBOX: code ticket ${row.id} for ${i.name} (home ${i.home}); it is in-progress, make no status move. ` +
-      (verdict ? `The test-engineer's findings on your last diff (also in the thread): ${verdict}\n` : '') +
+      (review ? `The test-engineer's findings on your last diff (also in the thread):\n${review.text}\n` : '') +
       'Do it per your agent definition (test-first, in a worktree) and end with the diff\'s branch and commit.',
       { label: `developer ${row.id}${used ? ' (round ' + (used / 2 + 1) + ')' : ''}`, phase: 'Tickets', agentType: 'scientist:developer' })
     if (d === null) return { lost: true }
-    const t = await launch(`WORKFLOW INBOX: review the developer's diff for code ticket ${row.id} (${i.name}, home ${i.home}): ${String(d).slice(-600)}\n` +
-      'Review it per your agent definition and begin your answer with APPROVED or FINDINGS.',
-      { label: `test-engineer ${row.id}`, phase: 'Tickets', agentType: 'scientist:test-engineer' })
+    const ask = `WORKFLOW INBOX: review the developer's diff for code ticket ${row.id} (${i.name}, home ${i.home}): ${String(d).slice(-600)}\n` +
+      'Review it per your agent definition. Return verdict approved (no finding that needs a fix round) or findings, and each finding in findings.'
+    let t = await askReview(ask, `test-engineer ${row.id}`)
     if (t === null) return { lost: true }
+    review = readReview(t)
+    if (!review.verdict) {
+      // no verdict: the reviewer is asked once more before a developer round is spent on nothing
+      extra++
+      t = await askReview(ask + '\nYour last answer carried no verdict: return the structured answer (verdict approved or findings).', `test-engineer ${row.id} (again)`)
+      if (t === null) return { lost: true }
+      review = readReview(t)
+    }
     used += 2
-    verdict = String(t)
-    await move(row, i.name, `note: append to the thread "test-engineer: ${verdict.split('\n')[0].slice(0, 200).replace(/"/g, "'")}"`, `${row.id} review note`)
-    if (/^\s*APPROVED/.test(verdict)) {
+    const said = [review.line].concat(review.note).map(x => String(x).replace(/"/g, "'")).join('\n').slice(0, 1600)
+    await move(row, i.name, `note: append to the thread "test-engineer: ${said}"`, `${row.id} review note`)
+    if (review.approved) {
       const m = await move(row, i.name, `deliver: deliver: true with result "code delivered, test-engineer APPROVED: ${String(d).split('\n')[0].slice(0, 120).replace(/"/g, "'")}"`)
-      return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: 'approved', runs_used: used }
+      return { outcome: m && m.ok ? 'delivered' : 'unfinished', detail: 'approved', runs_used: used + extra }
     }
   }
   await move(row, i.name, 'block-human: blocked, waiting_on [human], reason "two rounds of review still leave findings: decide how it goes on"')
-  return { outcome: 'blocked on human (review)', detail: verdict.split('\n')[0], runs_used: used }
+  return { outcome: 'blocked on human (review)', detail: review ? review.line : '', runs_used: used + extra }
 }
 
 const firstRef = (row, re) => (row.refs || []).find(x => re.test(x)) || ''
@@ -701,7 +766,7 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
     insts = await listAll(pass)
     // #114: a later listing that returns nothing (the weekly limit, 2026-11-20) ends the
     // run; the close-out reads the last listing, never a null one
-    if (!insts) { out.stopped = 'the list stage of pass ' + pass + ' returned nothing (a usage limit?)'; break }
+    if (!insts) { if (listFailed) { out.stopped = listFailed; out.list_failed = true } else out.stopped = 'the list stage of pass ' + pass + ' returned nothing (a usage limit?)'; break }
     lastInsts = insts
   }
   out.passes = pass

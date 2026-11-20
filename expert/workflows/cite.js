@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: '/expert:cite and every cite ticket (also nested from the inbox), from the library home. args: {ticket?: "T-NNNN", ref?: "<DOI | arXiv id | bib key | title>", pinpoint?, relying?: "<sentence or claim id>", bib?: "<author instance>:references.bib"}',
   phases: [
     { title: 'Start', detail: 'take the ticket and read the ask' },
-    { title: 'Cite', detail: 'one librarian run; the card validated, one retry' },
+    { title: 'Cite', detail: 'one librarian run (once more if it returns nothing); the card validated, one retry' },
     { title: 'Land', detail: 'the citation packet and the ticket' },
   ],
 }
@@ -111,7 +111,17 @@ const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
 const SCRIPTS = `Scripts: cards.py is \`py ${AR}/expert/scripts/cards.py\`, from the library home (python3 where there is no py)` +
   (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.expert is the scripts folder).\n')
-const clerk = (stage, lines, schema, label, phase) => launch(`WORKFLOW STAGE ${stage} of the academy-cite workflow.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
+// #94: a stage that throws (a run that ended without its structured output: 2026-11-20, T-1614,
+// "subagent completed without calling StructuredOutput") is a lost stage, never the end of the
+// run that nests this one (the inbox): it reads as null, as a run that returned nothing does
+async function safe(prompt, opts) {
+  try { return await launch(prompt, opts) } catch (e) {
+    log(`stage ${opts && opts.label} lost: ${String(e).slice(0, 200)}`)
+    if (++LAUNCH_LIMIT.nulls >= 3) LAUNCH_LIMIT.stopped = true     // a throw counts as a null
+    return null
+  }
+}
+const clerk = (stage, lines, schema, label, phase) => safe(`WORKFLOW STAGE ${stage} of the academy-cite workflow.\n` + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
 const ASK = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' },
@@ -123,6 +133,10 @@ const CARD = { type: 'object', properties: {
   cached: { type: 'boolean' }, reachable: { type: 'boolean', description: 'false: paywalled, image-only, no text' },
   bib_changed: { type: 'boolean' }, note: { type: 'string' } },
   required: ['key', 'pinpoint', 'card', 'verdict', 'cached', 'reachable', 'bib_changed', 'note'] }
+// cards.py dups --json, parsed by the code; the counts are asked too, for an output that does not parse
+const DUPS = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
+  bib_key: { type: 'number' }, bib_id: { type: ['number', 'null'] }, cards: { type: 'number' },
+  output: { type: 'string', description: 'its whole stdout, verbatim' } }, required: ['exit'] }
 const CHECK = { type: 'object', properties: { ok: { type: 'boolean' }, errors: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'errors'] }
 const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'error'] }
 // #124: the clerk stages ask for detail (and stop_reason) and never require them (a clerk that left one
@@ -185,17 +199,55 @@ const brief = SCRIPTS + `${ask.ref}. ` + (ask.pinpoint ? `The pinpoint intended:
   'If it is new, fetch the record and add the entry in the file\'s key style. Then locate the statement, write its card with a verbatim quote ' +
   'from the version named, validate the card, and add the index row if the source is newly cached. Never write an entry from memory and never ' +
   'invent a pinpoint; a source you cannot read is said so on the card.'
-let c = await launch(brief, { label: 'librarian', phase: 'Cite', agentType: LIB, schema: CARD })
-if (c === null) return Object.assign(out, { outcome: 'lost', reason: 'the librarian run returned nothing (a limit?): nothing further launched' })
+// #94 (T-1026, T-1614): a librarian that returns no result is run once more, told that the first
+// run may have written already; a second empty run loses the ticket alone, said in its thread
+const lost = async (reason) => {
+  if (T) await clerk('note', [`ticket: ${T}`, ask.instance ? `act as: ${ask.instance}` : '',
+    `note: append to the thread "cite: ${reason.replace(/"/g, "'").slice(0, 300)}; check the library and the bibliography by hand ` +
+    `(cards.py validate on any card written) before the ticket is run again"`], MOVE, 'lost note', 'Cite')
+  return Object.assign(out, { outcome: 'lost', reason })
+}
+const lib = (prompt, label) => safe(prompt, { label, phase: 'Cite', agentType: LIB, schema: CARD })
+let c = await lib(brief, 'librarian')
+const retried = c === null && !LAUNCH_LIMIT.stopped
+if (retried) {
+  out.notes.push('the librarian run returned no result; run once more')
+  c = await lib(brief + '\n\nA first run on this reference ended without its result. What it wrote (the bib entry, the card, the index row) ' +
+    'may already be on disk: look before writing, finish what is there, and never add a second entry or card for the same pinpoint.', 'librarian (retry)')
+}
+if (c === null) return await lost('the librarian returned no result twice (a limit, or a run that ended without its structured output): ' +
+  'nothing further launched; any card or bib entry it wrote is unvalidated and uncommitted')
+// #94 review: two runs on one reference can leave two bib entries or two cards (cards.py new refuses only
+// the same card path): on the retry path cards.py dups counts them, and more than one loses the ticket
+if (retried) {
+  const q = x => '"' + String(x || '').replace(/"/g, "'") + '"'
+  const d = await clerk('duplicates', [`Run \`cards.py dups ${c.key} ${q(c.pinpoint || ask.pinpoint)}` + (ask.bib ? ` --bib ${q(ask.bib)}` : '') +
+    (ask.ref ? ` --ref ${q(ask.ref)}` : '') + ' --json; echo $?` once, from the library home. Return the exit code the shell printed, ' +
+    'its JSON line verbatim in output, and the counts bib_key, bib_id and cards from it.'], DUPS, 'duplicates', 'Cite')
+  if (!d) out.notes.push('the duplicate check returned nothing: look for a second bib entry or card of ' + c.key + ' by hand')
+  else {
+    let r = null
+    try { r = JSON.parse(String(d.output || '').trim().split(/\r?\n/).find(l => /^\{/.test(l)) || 'null') } catch (e) { r = null }
+    const n = r || d
+    const many = ['bib_key', 'bib_id', 'cards'].filter(k => typeof n[k] === 'number' && n[k] > 1)
+    if (many.length || (!r && d.exit === 1)) {
+      const what = r && Array.isArray(r.problems) && r.problems.length ? r.problems.join('; ')
+        : many.length ? many.map(k => `${n[k]} (${k})`).join(', ') : 'cards.py dups exited 1'
+      out.card = c.card
+      return await lost(`the librarian retry left a duplicate: ${what}; remove the extra one, then run the ticket again`)
+    }
+    if (r && Array.isArray(r.warnings) && r.warnings.length) out.notes.push('duplicate check: ' + r.warnings.join('; '))
+  }
+}
 // an unreachable source has no card to validate (live run 2026-10-31 validated the words "none written"): skip the check
 const noCard = !c.reachable && !/\.(md|ya?ml)$/i.test(String(c.card || '').trim())
 let v = noCard ? null : await clerk('validate', [`Run cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
 if (v && !v.ok) {
   out.notes.push('the card failed validation; sent back to the librarian once: ' + v.errors.join('; '))
-  const c2 = await launch(brief + `\n\nYour card ${c.card} fails cards.py validate:\n- ${v.errors.join('\n- ')}\n` +
+  const c2 = await lib(brief + `\n\nYour card ${c.card} fails cards.py validate:\n- ${v.errors.join('\n- ')}\n` +
     'Fix the card. A quote you cannot find in the cached text is corrected from the source, or the card says why it cannot be.',
-    { label: 'librarian (fix)', phase: 'Cite', agentType: LIB, schema: CARD })
-  if (c2 === null) return Object.assign(out, { outcome: 'lost', reason: 'the librarian fix returned nothing', card: c })
+    'librarian (fix)')
+  if (c2 === null) { out.card = c.card; return await lost(`the librarian fix returned no result: the card ${c.card} fails cards.py validate and is uncommitted`) }
   c = c2
   v = await clerk('validate', [`Run cards.py validate ${c.card} and return ok and every error line.`], CHECK, 'validate again', 'Cite')
   if (v && !v.ok) out.notes.push('the card still fails validation after one fix; it must say why: ' + v.errors.join('; '))
@@ -214,7 +266,7 @@ const end = async () => {
 
 // ---- Land --------------------------------------------------------------------------------
 phase('Land')
-const p = await launch(`File the citation packet for ${c.key}: packets_create kind citation, subject [bib:${c.key}#${c.pinpoint || '?'}], ` +
+const p = await safe(`File the citation packet for ${c.key}: packets_create kind citation, subject [bib:${c.key}#${c.pinpoint || '?'}], ` +
   `the card ${c.card} under ## Produced, the verdict (${c.verdict})${c.reachable ? '' : ' and how the unreadable source was read'} under ## Established vs assumed` +
   (T ? `, ticket ${T}` : '') + `; ## Decisions needed: None. unless the verdict is a mismatch, then one decision on what the relying statement should do. Return the packet id.`,
   { label: 'packet', phase: 'Land', agentType: LIB, schema: PACKET, effort: 'low' })
