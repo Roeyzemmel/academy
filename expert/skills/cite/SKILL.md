@@ -8,7 +8,7 @@ description: 'Add or verify a citation through the librarian, the only route int
 `$ARGUMENTS` is a DOI, an arXiv id, a bib key or a paper's title, optionally with the
 pinpoint wanted and the sentence of the paper (or the claim id) that will rely on it; or a
 `cite` ticket id (`T-NNNN`). Run it from the library home. Budget: one librarian run, plus
-at most one fix (`academy/references/budget.md`).
+at most one retry of a run that returned nothing and one fix (`academy/references/budget.md`).
 
 The bibliography gate refuses an edit to a `references.bib` from anyone but the librarian.
 An entry filled in from memory is the easiest way to put a fabricated reference into a
@@ -22,7 +22,9 @@ docs/workflows.md):
 1. the ticket is taken and its ask read;
 2. one `librarian` run, briefed by the script: verify an existing key against the record,
    or fetch and add the entry; the card with a verbatim quote; the index row when newly
-   cached;
+   cached. A run that returns no result (or ends without its structured output) is run
+   once more, told to look for what the first one wrote; a second empty run is the
+   outcome `lost`, with a note on the ticket's thread (#94), and ends this ticket only;
 3. `cards.py validate`: a failing card goes back to the librarian once, and a second
    failure is reported;
 4. the `citation` packet, then the ticket delivered with
