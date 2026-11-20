@@ -41,6 +41,15 @@ the rulings answered but not delivered.
 
 A bare ``proceed`` names no modulo (T-1521's "proceed" was "repair first"), so a ruling
 refuses it and asks for a letter.
+
+**Own options (#125).** A ruling whose ask carries its own lettered options ("(a) accept
+...; (b) re-run ...; (c) wait ...", as T-0979's) is read by them (:func:`own_options`,
+:func:`classify` by keyword): a letter is the ticket's own, an own accept takes the modulo
+list its text names, a wait / split / other files nothing, and ``action`` names the answer
+by what it does (refused when it disagrees with the letter). A re-run is filed even when
+an earlier, different answer was acted on (T-0979: the keeper set a status on (a)); the
+thread says the earlier status stands until the new pass decides. Any other answer over
+such an earlier one is refused unless ``force``.
 """
 
 import glob
@@ -374,6 +383,180 @@ def parse_choice(choice, r=None):
         "(a bare proceed names no modulo)" % choice)
 
 
+# ----------------------------------------------------------------------------
+# A ticket's own lettered options (#125)
+# ----------------------------------------------------------------------------
+
+#: a letter opening an option: ``(a) `` at the start or after a space or ``:;,``
+RE_OWN_MARK = re.compile(r"(?:^|(?<=[\s:;,]))\(([a-h])\)\s+(?=\S)")
+#: the action an option's text names, by keyword; the earliest keyword in the text wins
+ACTION_WORDS = (
+    ("rerun", re.compile(r"(?i)\bre-?run\b|\bfresh (?:blind )?pass\b|\bre-?verif")),
+    ("split", re.compile(r"(?i)\bsplit\b")),
+    ("wait", re.compile(r"(?i)\bwait\b|\bpostpone\b|\bdefer\b")),
+    ("decline", re.compile(r"(?i)\bdecline\b|\breject\b|\bdrop\b")),
+    ("accept", re.compile(r"(?i)\baccept\b|\bunion\b|\bintersection\b|\bproceed\b|"
+                          r"\bproved(?:-modulo)?\b|\bkeeper\b|\bredeploy\b")),
+)
+ACTION_LABEL = {"accept": "Accept", "rerun": "Re-run", "wait": "Wait", "split": "Split",
+                "decline": "Decline", "other": "Other"}
+#: ``--action`` words (and words given as ``--choice``) and the answer they name
+ACTIONS = {"rerun": "rerun", "re-run": "rerun", "accept": "accept", "wait": "wait",
+           "split": "split", "decline": "decline", "no": "decline", "n": "decline",
+           "union": "union", "intersection": "intersection"}
+
+
+def kind_of(which):
+    """The action class of an answer: union and intersection are both an accept."""
+    return "accept" if which in ("union", "intersection") else which
+
+
+def _lettered(text):
+    text = " ".join(str(text or "").split())
+    seq, want = [], "a"
+    for m in RE_OWN_MARK.finditer(text):
+        if m.group(1) == want:
+            seq.append(m)
+            want = chr(ord(want) + 1)
+    out = {}
+    for i, m in enumerate(seq):
+        last = i + 1 == len(seq)
+        t = text[m.end():len(text) if last else seq[i + 1].start()]
+        if last:
+            t = re.split(r"\.\s", t, maxsplit=1)[0]     # the last option ends with its sentence
+        out[m.group(1)] = re.sub(r"[\s;,.]*(?:\b(?:or|and)\b)?[\s;,.]*$", "", t).strip()
+    return out if len(out) >= 2 else {}
+
+
+def own_options(meta, body=None):
+    """The ticket's own lettered options ``{letter: text}`` ("(a) ...; (b) ...; (c) ..." in
+    its ask, else in the body's ``## Ask`` section), or ``{}`` when it has fewer than two."""
+    out = _lettered((meta or {}).get("ask"))
+    if out or not body:
+        return out
+    head = body.split(ac.THREAD_HEADING)[0]
+    m = re.search(r"^## Ask[ \t]*\n(.*?)(?=^## |\Z)", head, re.M | re.S)
+    return _lettered(m.group(1)) if m else {}
+
+
+def classify(text):
+    """The action an option's text names: rerun, split, wait, decline, accept or other."""
+    best = None
+    for name, rx in ACTION_WORDS:
+        m = rx.search(str(text or ""))
+        if m and (best is None or m.start() < best[0]):
+            best = (m.start(), name)
+    return best[1] if best else "other"
+
+
+def own_option_dicts(own):
+    """The own options as decisions.py shows them (``{label, description}``)."""
+    return [{"label": "(%s) %s" % (k, ACTION_LABEL[classify(v)]), "description": v}
+            for k, v in own.items()]
+
+
+def _own_names(own):
+    return "; ".join("(%s) %s" % (k, v) for k, v in own.items())
+
+
+def _action(action):
+    if action in (None, ""):
+        return None
+    a = str(action).strip().lower()
+    if a not in ACTIONS:
+        raise ac.AcademyError("--action takes rerun, accept, wait, split, decline, union or "
+                              "intersection, not %r" % action)
+    return ACTIONS[a]
+
+
+def pick_own(own, choice, action, tid):
+    """The ticket's own option an answer names: ``(letter, action class, text, action)``.
+    ``choice`` is one of its letters (or an action word); ``action`` an ``--action``; when
+    both are given their classes must agree."""
+    act = _action(action)
+    c = str(choice or "").strip().lower().strip("()")
+    names = _own_names(own)
+    if c and c not in own:
+        if c in ACTIONS and not act:
+            act, c = ACTIONS[c], ""
+        else:
+            raise ac.AcademyError(
+                "%s has its own options: %s. --choice takes one of their letters, or give "
+                "--action rerun|accept|wait|decline" % (tid, names))
+    if c:
+        cls = classify(own[c])
+        if act and kind_of(act) != cls:
+            raise ac.AcademyError(
+                "%s: --choice %s is the ticket's own (%s) %r, a %s, but --action %s says "
+                "otherwise. The ticket's own options: %s" % (tid, c, c, own[c], cls, act, names))
+        return c, cls, own[c], act
+    if not act:
+        raise ac.AcademyError("%s: name the answer with --choice <letter> or --action. The "
+                              "ticket's own options: %s" % (tid, names))
+    hits = [k for k in own if classify(own[k]) == kind_of(act)]
+    if len(hits) != 1:
+        raise ac.AcademyError(
+            "%s: %s of the ticket's own options is a %s; name the letter. Its options: %s"
+            % (tid, "none" if not hits else "more than one", kind_of(act), names))
+    return hits[0], kind_of(act), own[hits[0]], act
+
+
+def _accept_list(r, text):
+    """Which modulo list (union or intersection) an own 'accept' option names."""
+    low = text.lower()
+    if ("union" in low) != ("intersection" in low):
+        return "union" if "union" in low else "intersection"
+    if r["union"] and all(x in text for x in r["union"]):
+        return "union"
+    if r["intersection"] and all(x in text for x in r["intersection"]):
+        return "intersection"
+    if not r["intersection"] and re.search(r"\bproved\b(?!-)", low):
+        return "intersection"                       # "take proved": the empty intersection
+    raise ac.AcademyError(
+        "%s: the ticket's own option %r does not say which modulo list it takes (union %s, "
+        "intersection %s); answer with --action union or --action intersection"
+        % (r["id"], text, _fmt(r["union"]), _fmt(r["intersection"])))
+
+
+def resolve(r, meta, body, choice, action=None):
+    """The answer ``choice`` / ``action`` names on ruling ``r``: ``{"letter", "which",
+    "option"}``. ``which`` is union, intersection, rerun, decline, or (an own option only)
+    wait, split or other; ``option`` the ticket's own option text, else None. With its own
+    lettered options the ticket's letters are read (#125); else the generic four."""
+    own = own_options(meta, body)
+    act = _action(action)
+    if (own and choice in (None, "") and act in ("rerun", "decline")
+            and not any(classify(v) == act for v in own.values())):
+        # a re-run (or a decline) is always an answer to a ruling, even when none of the
+        # ticket's own options is one (T-0981); "-" is no letter, so none is misread
+        return {"letter": "-", "which": act, "option": None}
+    if own:
+        letter, cls, text, act = pick_own(own, choice, action, r["id"])
+        if cls == "accept":
+            which = act if act in ("union", "intersection") else _accept_list(r, text)
+        else:
+            which = cls
+    else:
+        if act in ("accept", "wait", "split"):
+            raise ac.AcademyError(
+                "%s offers (a) union, (b) intersection, (c) re-run, (d) decline: --action %s "
+                "is none of them%s" % (r["id"], act, " (name union or intersection)"
+                                       if act == "accept" else ""))
+        which = parse_choice(choice, r) if choice not in (None, "") else None
+        if which and act and which != act:
+            raise ac.AcademyError(
+                "%s: --choice %s is (%s) %s, but --action says %s; its options are (a) "
+                "union, (b) intersection, (c) re-run, (d) decline"
+                % (r["id"], choice, LETTER[which], which, act))
+        which = which or act
+        if not which:
+            raise ac.AcademyError("%s: name the answer with --choice or --action" % r["id"])
+        letter, text = LETTER[which], None
+    if r.get("no_status") and which in ("union", "intersection"):
+        parse_choice(which, r)                                  # raises: no status to give
+    return {"letter": letter, "which": which, "option": text}
+
+
 def grounds(r, which, quote=""):
     modulo = list(r[which])
     g = {"basis": "proof", "verdicts": [dict(v) for v in r["verdicts"]],
@@ -391,6 +574,48 @@ def grounds_in(body):
     return json.loads(m.group(1)) if m else None
 
 
+def follow_ups(board, tid, body=None):
+    """Every live follow-up of ruling ``tid``: ``[(ref, how, action)]``, the thread's
+    ``keeper follow-up:`` lines first (``how`` ``line``), then the tickets naming the ruling
+    in their title or ask (``ticket``), then a claim-keeper's line on it (``keeper``; ref
+    the speaker). ``action`` is ``rerun`` (a verify ticket) or ``accept`` (a keeper's
+    decision ticket, or the keeper's own action). A cancelled or rejected follow-up is not
+    live (the way to take an answer back is to cancel its follow-up, then record again)."""
+    if body is None:
+        body = boardlib.get_ticket(board, tid)[2]
+    metas = {m.get("id"): m for m in boardlib.list_tickets(board, include_terminal=True)}
+    dead = ("cancelled", "rejected")
+    out, keeper = [], None
+    for _d, who, text in ac.thread_lines(body):
+        m = RE_FOLLOW_UP.search(text)
+        if m and not any(o[0] == m.group(1) for o in out):
+            k = metas.get(m.group(1))
+            if k is None:
+                out.append((m.group(1), "line", "rerun" if "re-run" in text else "accept"))
+            elif k.get("status") not in dead:
+                out.append((m.group(1), "line", "rerun" if k.get("kind") == "verify"
+                            else "accept"))
+        if keeper is None and str(who).endswith("/claim-keeper"):
+            keeper = who
+    names = re.compile(r"\b%s\b" % re.escape(tid))
+    for m in metas.values():
+        if (m.get("kind") in FOLLOW_UP_KINDS and m.get("to") != ac.HUMAN
+                and m.get("id") != tid and m.get("status") not in dead
+                and not any(o[0] == m.get("id") for o in out)
+                and names.search("%s %s" % (m.get("title") or "", m.get("ask") or ""))):
+            out.append((m["id"], "ticket", "rerun" if m.get("kind") == "verify" else "accept"))
+    if keeper:
+        out.append((keeper, "keeper", "accept"))
+    return out
+
+
+def _best(fus):
+    """The follow-up to name: the last ``line``, else the first ticket, else the keeper.
+    ``fus`` is a :func:`follow_ups` list (or part of one)."""
+    lines = [f for f in fus if f[1] == "line"]
+    return lines[-1] if lines else (fus[0] if fus else None)
+
+
 def follow_up_of(board, tid, body=None):
     """The follow-up a ruling already has, as ``(ref, how)``, or None. ``how`` is ``line``
     (a ``keeper follow-up: T-NNNN`` line in its thread; ref the ticket id), ``keeper`` (a
@@ -398,22 +623,8 @@ def follow_up_of(board, tid, body=None):
     ``ticket`` (a ``decision`` / ``verify`` ticket to a role whose title or ask names the
     ruling, as this code files it: ``... (ruling T-NNNN)``; ref its id). A ticket that
     only lists the ruling in its refs is not one: it may be about something else."""
-    if body is None:
-        body = boardlib.get_ticket(board, tid)[2]
-    keeper = None
-    for _d, who, text in ac.thread_lines(body):
-        m = RE_FOLLOW_UP.search(text)
-        if m:
-            return m.group(1), "line"
-        if keeper is None and str(who).endswith("/claim-keeper"):
-            keeper = who
-    names = re.compile(r"\b%s\b" % re.escape(tid))
-    for m in boardlib.list_tickets(board, include_terminal=True):
-        if (m.get("kind") in FOLLOW_UP_KINDS and m.get("to") != ac.HUMAN
-                and m.get("id") != tid
-                and names.search("%s %s" % (m.get("title") or "", m.get("ask") or ""))):
-            return m["id"], "ticket"
-    return (keeper, "keeper") if keeper else None
+    f = _best(follow_ups(board, tid, body))
+    return (f[0], f[1]) if f else None
 
 
 def plan(r, which, comment=""):
@@ -480,66 +691,117 @@ def _deliver(board, tid, result, date):
                                date=date)
 
 
-RE_LETTER = re.compile(r"^human decision: \(([a-d])\)")
+#: this code's answer line: ``human decision: (<letter>) <which>``
+RE_ANSWER_LINE = re.compile(r"^human decision: \(([a-h-])\) ([a-z-]+)")
 
 
-def _letters(body):
-    """The letters of this code's earlier answer lines on a ruling, in order."""
+def _answers(body):
+    """``(letter, which)`` of this code's earlier answer lines on a ruling, in order."""
     out = []
     for _d, w, t in ac.thread_lines(body):
-        m = RE_LETTER.match(t) if w == ac.HUMAN else None
-        if m and m.group(1) not in out:
-            out.append(m.group(1))
+        m = RE_ANSWER_LINE.match(t) if w == ac.HUMAN else None
+        if m and (m.group(1), m.group(2)) not in out:
+            out.append((m.group(1), m.group(2)))
     return out
 
 
-def _answered(body, letter):
-    """True when the thread already holds this code's answer line for ``letter``."""
-    want = "human decision: (%s)" % letter
-    return any(w == ac.HUMAN and t.startswith(want) for _d, w, t in ac.thread_lines(body))
+def _answered(body, letter, which):
+    """True when the thread already holds this code's answer line for this answer."""
+    want = "human decision: (%s) %s" % (letter, which)
+    return any(w == ac.HUMAN and (t == want or t.startswith(want + " "))
+               for _d, w, t in ac.thread_lines(body))
 
 
-def record(board, r, choice, comment="", workspace=None, date=None, ticket=None):
+def _earlier(body):
+    """The last human answer on the ruling, as ``<date> "<line>"``, or None."""
+    rows = [(d, t) for d, w, t in ac.thread_lines(body)
+            if w == ac.HUMAN and t.startswith("human decision:")]
+    if not rows:
+        return None
+    d, t = rows[-1]
+    t = " ".join(t.split())
+    return '%s "%s"' % (d, t if len(t) <= 160 else t[:157] + "...")
+
+
+def _acted(fus):
+    return ", ".join("the claim-keeper's action (%s)" % ref if how == "keeper"
+                     else "%s (%s)" % (ref, "a re-run" if act == "rerun" else "the status")
+                     for ref, how, act in fus)
+
+
+def _short(text, n=120):
+    t = " ".join(str(text or "").split())
+    return t if len(t) <= n else t[:n - 3] + "..."
+
+
+def record(board, r, choice, comment="", workspace=None, date=None, ticket=None,
+           action=None, force=False):
     """Record the human's answer to ruling ``r`` and file its follow-up in the same step.
+
+    ``choice`` is a letter (the ticket's own when its ask carries lettered options, #125,
+    else the generic four) or ``None``; ``action`` (rerun, accept, wait, split, decline,
+    union, intersection) names the answer by what it does, and must agree with the letter
+    when both are given.
 
     Returns ``{"ref", "status", "choice", "follow_up", "filed"}``; ``filed`` is True only
     when this call filed the follow-up. Each step is written only when missing (the answer
     line, the follow-up, its ``keeper follow-up:`` line, the delivery), so a second record
-    of a delivered ruling writes nothing and one after an interruption completes it."""
+    of a delivered ruling writes nothing and one after an interruption completes it.
+
+    A follow-up of the same action is reused. A re-run is filed even when an earlier,
+    different answer was acted on (the keeper set a status): a thread line names that
+    answer and says its status stands until the new pass decides. Any other answer over an
+    earlier, different one that was acted on is refused unless ``force``. A wait, split or
+    other own option files nothing."""
     date = date or ac.today()
     tid = r["id"]
-    which = parse_choice(choice, r)
-    letter = LETTER[which]
     _path, meta, body = ticket or boardlib.get_ticket(board, tid)
+    pick = resolve(r, meta, body, choice, action)
+    which, letter, own = pick["which"], pick["letter"], pick["option"]
+    cls = kind_of(which)
     status = meta.get("status")
-    have = follow_up_of(board, tid, body)
-    if status == "delivered" and have:
-        return {"ref": tid, "status": status, "choice": letter, "follow_up": have[0],
-                "filed": False}
+    fus = follow_ups(board, tid, body)
+    clash = cls == "accept" and any(kind_of(w) == "accept" and w != which
+                                    for _l, w in _answers(body))
+    match = [] if clash else [f for f in fus if f[2] == cls]
+    differing = [f for f in fus if f not in match]
+    if status == "delivered" and (match or _answered(body, letter, which)):
+        f = _best(match)
+        return {"ref": tid, "status": status, "choice": letter,
+                "follow_up": f[0] if f else None, "filed": False}
     if status not in ("open", "accepted", "in-progress"):
         raise ac.AcademyError("%s is %s: a finished ruling is not answered again" % (tid, status))
     text = "human decision: (%s) %s" % (letter, which)
+    if own:
+        text += " [the ticket's own (%s): %s]" % (letter, _short(own))
+    elif letter == "-":
+        text += " [not one of the ticket's own options]"
     if str(comment).strip():
         text += " -- " + " ".join(str(comment).split())
-    other = [x for x in _letters(body) if x not in (letter, "d")]
-    if have and which != "decline" and other:
-        raise ac.AcademyError(
-            "%s was answered (%s) and its follow-up %s carries that answer: (%s) is not "
-            "recorded over it. If the human changed their mind, cancel %s first, then record "
-            "again." % (tid, other[-1], have[0], letter, have[0]))
-    if not _answered(body, letter):
-        boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
     if which == "decline":
+        if not _answered(body, letter, which):
+            boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
         reason = " ".join(str(comment).split()) or "declined via /academy:decide"
         boardlib.transition_ticket(board, tid, "rejected" if status == "open" else "cancelled",
                                    reason=reason, as_instance=ac.HUMAN, date=date)
+        have = _best(fus)
         return {"ref": tid, "status": "rejected" if status == "open" else "cancelled",
-                "choice": "d", "follow_up": have[0] if have else None, "filed": False}
-    filed = False
-    if have:
-        new, how = have
-        to = ""
-    else:
+                "choice": letter, "follow_up": have[0] if have else None, "filed": False}
+    over = differing and not match
+    if over and cls != "rerun" and not force:
+        raise ac.AcademyError(
+            "%s was answered before (%s) and that answer was acted on: %s. (%s) %s is not "
+            "recorded over it: a re-run is (the earlier status stands until the new pass "
+            "decides); for this answer pass --force (what was done stays done), or cancel the "
+            "follow-up ticket first, then record again."
+            % (tid, _earlier(body) or "the keeper acted on the ruling", _acted(differing),
+               letter, which))
+    if not _answered(body, letter, which):
+        boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
+    filed, new, how, to = False, None, None, ""
+    if match:
+        new, how = _best(match)[:2]
+    elif cls in ("accept", "rerun"):
         spec = plan(r, which, comment)
         _p, stored = boardlib.create_ticket(
             board, spec["to"], spec["title"], spec["ask"], spec["deliverable"],
@@ -551,11 +813,26 @@ def record(board, r, choice, comment="", workspace=None, date=None, ticket=None)
         boardlib.append_to_ticket(
             board, tid, "keeper follow-up: %s%s (%s)" % (
                 new, (" to " + to) if to else "",
-                "a re-run; no status now" if which == "rerun" else "the status, on this ruling"),
+                ("a re-run; no new status until it decides" if over else
+                 "a re-run; no status now") if cls == "rerun" else "the status, on this ruling"),
             as_instance=ac.HUMAN, date=date)
-    result = ("Ruling (%s) %s: %s %s" % (
-        letter, which, "the claim-keeper acted on it (%s)" % new if how == "keeper"
-        else "follow-up", "" if how == "keeper" else new)).strip()
+    if over:
+        boardlib.append_to_ticket(
+            board, tid, "earlier ruling: %s, acted on: %s. %s" % (
+                _earlier(body) or "none recorded by decisions.py", _acted(differing),
+                ("Its status stands until the new pass %s decides." % new) if cls == "rerun"
+                else "This answer (%s) %s was recorded over it with --force; what was done on "
+                     "the earlier one is not undone." % (letter, which)),
+            as_instance=ac.HUMAN, agent="decisions", date=date)
+    if how == "keeper":
+        result = "Ruling (%s) %s: the claim-keeper acted on it (%s)" % (letter, which, new)
+    elif new:
+        result = "Ruling (%s) %s: follow-up %s%s" % (
+            letter, which, new, " (the earlier ruling's status stands until it decides)"
+            if over and cls == "rerun" else "")
+    else:
+        result = "Ruling (%s) %s: nothing filed (the ticket's own option: %s)" % (
+            letter, which, _short(own, 100))
     _deliver(board, tid, result, date)
     return {"ref": tid, "status": "delivered", "choice": letter, "follow_up": new,
             "filed": filed}

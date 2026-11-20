@@ -38,7 +38,7 @@ phrases the questions. Neither one asks the human or records on its own.
    decline to answer (skip it — nothing is recorded for a skipped question).
 4. **Record before asking the next batch.** For every answered question in the batch,
    immediately:
-   `py $S/decisions.py record <id> --choice <letter|proceed|decline> [--comment "<note or free text>"]`
+   `py $S/decisions.py record <id> --choice <letter|proceed|decline> [--action <rerun|accept|wait|split|decline>] [--force] [--comment "<note or free text>"]`
    — a `P-NNNN` id records through `packets.py decide` (echoed into its ticket's
    thread); a `T-NNNN` id transitions the ticket as human (`accepted`/`rejected` from
    `open`, `accepted`/`cancelled` from `blocked`, with the comment as the reason for a
@@ -55,6 +55,14 @@ phrases the questions. Neither one asks the human or records on its own.
    (12, 11, or 7 with no existing result), only (c) and (d) are offered. A free-text
    answer that picks none of the offered options is not recorded: put the question
    again, quoting the answer, until the human picks one or skips it.
+   A ticket whose ask carries its **own lettered options** ("(a) accept ...; (b) re-run
+   ...; (c) wait ...") is listed and recorded by them (#125): `--choice c` is the
+   ticket's own (c). When the human's answer is an action ("re-run"), pass it as
+   `--action` too (with the letter, or alone): a letter whose option is another action
+   is refused, naming the ticket's options. A re-run always files its `verify` ticket,
+   even when the claim-keeper acted on an earlier ruling (whose status stands until the
+   new pass decides; a thread line says so); any other answer over an earlier, different
+   one that was acted on is refused unless the human confirms it (`--force`).
    `decisions.py stalled-rulings` lists rulings answered but not delivered (no
    follow-up yet, or a record interrupted); `record <id> --choice <a-c>` files or
    completes theirs.

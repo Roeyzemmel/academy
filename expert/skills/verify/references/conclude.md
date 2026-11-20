@@ -345,7 +345,9 @@ LF, Markdown, written by you:
      verify ticket and name the pass record in `refs`
      (`file:<expert instance>/reviews/<ns>/<id-slug>/<pass>/decision.md`): the human's
      answer is recorded by `decisions.py record`, which reads the pass from there, offers
-     (a) union, (b) intersection, (c) re-run, (d) decline, and files the keeper's
+     (a) union, (b) intersection, (c) re-run, (d) decline (or the ruling's own lettered
+     options when its ask names them, #125: name each option's action plainly, e.g.
+     "re-run", "wait until X is proved"), and files the keeper's
      `decision` ticket (or the re-run's `verify` ticket) itself (#121 item 4). Do not
      file the keeper ticket for a ruling yourself;
    - a missing card: kind `cite`.

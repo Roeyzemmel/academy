@@ -17,7 +17,8 @@ Usage::
 
     py decisions.py list [--json] [--instance X]
     py decisions.py batches [--size 4] [--json] [--instance X]
-    py decisions.py record <id> --choice <letter|label> [--comment TEXT]
+    py decisions.py record <id> (--choice <letter|label> | --action <what>) [--force]
+                                [--comment TEXT]
     py decisions.py accept-recommended [--mechanical-only] [--dry-run] [--json]
     py decisions.py stalled-rulings [--json]
 
@@ -32,6 +33,13 @@ CONFIRMED runs) takes (a) union, (b) intersection, (c) re-run or (d) decline, no
 proceed; ``record`` files its follow-up in the same step (the keeper's ``decision``
 ticket for (a)/(b), a ``verify`` ticket to the Expert for (c)), names it on the ruling and
 delivers the ruling; a second ``record`` files nothing (#121 item 4).
+
+A ticket whose ask carries its **own lettered options** ("(a) accept ...; (b) re-run ...;
+(c) wait ...") is read by them (#125): ``--choice c`` is the ticket's (c), classified by
+keyword (re-run / accept / wait / split / decline); ``--action`` names the answer by what
+it does and is refused when it disagrees with the letter. A re-run ruling always files its
+re-run, even over an earlier ruling the claim-keeper acted on; any other answer over such
+an earlier, different one is refused unless ``--force``.
 
 ``accept-recommended`` only ever applies a **packet's own recorded** ``Recommendation:``
 line -- a raw ticket carries no such recommendation, so ticket-sourced items are never
@@ -287,12 +295,15 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
         if instance and inst != instance:
             continue
         r = _ruling(board, t, workspace) if to_human else None
+        # a ticket's own lettered options are what its letters mean (#125)
+        own = rulinglib.own_options(t)
         items.append({
             "id": t["id"],
             "instance": inst,
             "title": t.get("title"),
             "question": _ticket_question(t),
-            "options": rulinglib.options(r) if r else _ticket_options(t),
+            "options": (rulinglib.own_option_dicts(own) if own
+                        else rulinglib.options(r) if r else _ticket_options(t)),
             "ruling": {k: r[k] for k in ("subject", "pass", "union", "intersection", "keeper")}
             if r else None,
             "recommendation": None,
@@ -343,6 +354,8 @@ def batches(items, size=4):
 
 def _is_proceed(choice):
     c = str(choice).strip().lower().strip("()")
+    if c == "accept":
+        return True
     if c in ("a", "proceed", "yes", "y"):
         return True
     if c in ("b", "decline", "no", "n"):
@@ -351,18 +364,34 @@ def _is_proceed(choice):
         "a ticket decision takes proceed/a or decline/b, not %r" % choice)
 
 
-def _record_ticket(board, tid, choice, comment, date, workspace=None):
+def _record_ticket(board, tid, choice, comment, date, workspace=None, action=None,
+                   force=False):
     ticket = boardlib.get_ticket(board, tid)
-    path, meta, _body = ticket
+    path, meta, body = ticket
     r = None
     if meta.get("kind") == "decision" and meta.get("to") == ac.HUMAN:
         r = rulinglib.find_ruling(board, tid, workspace, ticket=ticket)
     if r:
         # a ruling on a pass's inputs: its follow-up is filed in this same step (#121)
         return rulinglib.record(board, r, choice, comment, workspace=workspace, date=date,
-                                ticket=ticket)
-    proceed = _is_proceed(choice)
-    text = "human decision: %s" % ("proceed" if proceed else "decline")
+                                ticket=ticket, action=action, force=force)
+    own = rulinglib.own_options(meta, body)
+    if own:
+        # the ticket's own letters (#125): its (b) is its (b), not the generic decline
+        letter, cls, option, _act = rulinglib.pick_own(own, choice, action, tid)
+        proceed = cls != "decline"
+        text = "human decision: (%s) %s [the ticket's own (%s): %s]" % (
+            letter, cls, letter, " ".join(option.split())[:120])
+    else:
+        if choice in (None, "") and action in (None, ""):
+            raise ac.AcademyError("%s: name the answer with --choice or --action" % tid)
+        given = [x for x in (choice, action) if x not in (None, "")]
+        answers = {_is_proceed(x) for x in given}
+        if len(answers) > 1:
+            raise ac.AcademyError("%s: --choice %s and --action %s disagree (a proceed and a "
+                                  "decline)" % (tid, choice, action))
+        proceed = answers.pop()
+        text = "human decision: %s" % ("proceed" if proceed else "decline")
     if comment.strip():
         text += " -- " + " ".join(comment.split())
     boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
@@ -379,8 +408,14 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None):
     return {"ref": tid, "status": new}
 
 
-def record(board, item_id, choice, comment="", workspace=None, date=None):
-    """Write back the human's answer to one pending decision. Returns a small dict."""
+def record(board, item_id, choice, comment="", workspace=None, date=None, action=None,
+           force=False):
+    """Write back the human's answer to one pending decision. Returns a small dict.
+
+    For a ticket, ``choice`` is a letter (its own when its ask carries lettered options,
+    #125) and ``action`` the answer by what it does (rerun, accept, wait, split, decline);
+    ``force`` records a ruling's answer over an earlier, different one that was acted on
+    (rulings.record)."""
     date = date or ac.today()
     m = RE_PACKET_DECISION_ID.match(str(item_id))
     if m:
@@ -399,7 +434,7 @@ def record(board, item_id, choice, comment="", workspace=None, date=None):
                 % (item_id, len(pending), item_id))
         return record(board, "%s/D%d" % (item_id, pending[0]), choice, comment, workspace, date)
     if ac.RE_TICKET_ID.match(str(item_id)):
-        return _record_ticket(board, item_id, choice, comment, date, workspace)
+        return _record_ticket(board, item_id, choice, comment, date, workspace, action, force)
     raise ac.AcademyError(
         "id must look like P-0001/D1, P-0001 or T-0001, not %r" % item_id)
 
@@ -506,7 +541,15 @@ def main(argv=None):
     p.add_argument("--instance")
 
     p = sub.add_parser("record", help="record the human's answer to one decision")
-    p.add_argument("id"); p.add_argument("--choice", required=True)
+    p.add_argument("id")
+    p.add_argument("--choice", help="a letter: the ticket's own when its ask has lettered "
+                                    "options, else the generic ones (or proceed/decline)")
+    p.add_argument("--action", help="the answer by what it does: rerun, accept, wait, split, "
+                                    "decline (a ruling: also union, intersection); must agree "
+                                    "with --choice when both are given")
+    p.add_argument("--force", action="store_true",
+                   help="record a ruling's answer over an earlier, different one that was "
+                        "acted on (a re-run needs no --force)")
     p.add_argument("--comment", default="")
 
     p = sub.add_parser("accept-recommended", help="accept every packet's own recommendation")
@@ -547,8 +590,13 @@ def main(argv=None):
                     for i in b:
                         print("  " + _fmt_item(i))
         elif a.cmd == "record":
-            print(json.dumps(record(board, a.id, a.choice, a.comment, ws),
-                             ensure_ascii=False))
+            if a.choice is None and a.action is None:
+                raise ac.AcademyError("record needs --choice or --action")
+            if RE_PACKET_DECISION_ID.match(a.id) or RE_PACKET_ID.match(a.id):
+                if a.choice is None or a.action is not None:
+                    raise ac.AcademyError("a packet decision takes --choice <letter> only")
+            print(json.dumps(record(board, a.id, a.choice, a.comment, ws, action=a.action,
+                                    force=a.force), ensure_ascii=False))
         elif a.cmd == "stalled-rulings":
             rows = rulinglib.stalled(board, ws)
             if a.json:

@@ -687,6 +687,13 @@ result. A second record files nothing new and completes an interrupted one
 (`academy/scripts/rulings.py`; #121 item 4). The lists are the decision table's reduced
 ones when the pass holds `S-table.json`; a dependency-settler stop that leaves no status
 (`S.json`: case 12, 11, or 7 with no existing result) offers only (c) and (d).
+A ruling whose ask carries its own lettered options is read by them (#125): `record
+--choice <letter>` takes the ticket's own option, classified by keyword (re-run, accept,
+wait, split, decline), and `--action <what>` names the answer by what it does (refused
+when it disagrees with the letter). A re-run is filed even over an earlier ruling the
+keeper acted on (its status stands until the new pass decides, noted in the thread);
+another answer over such an earlier, different one needs `--force`; a wait or split
+files nothing.
 
 ### 6.4 A research request from the Author
 
