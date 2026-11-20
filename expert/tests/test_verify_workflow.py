@@ -284,7 +284,11 @@ class FalsifierAfterATests(unittest.TestCase):
         p = calls[-1]["prompt"]
         self.assertIn("found EX-L3", p)                    # the counterexample reaches the record
         self.assertIn("never claims_propose_status", p)
-        self.assertIn("kind prove", p)                     # a finding routed to the producer
+        # review V1 #6: one rule for a counterexample, the decision table's (follow_up kind
+        # counterexample): a decision ticket to the human at once, never a prove ticket
+        self.assertIn("kind decision", p)
+        self.assertIn("to human", p)
+        self.assertNotIn("kind prove", p)
         self.assertIn("run B not launched", " ".join(r["notes"]))
 
     def test_a_status_proposed_on_a_counterexample_is_an_anomaly(self):

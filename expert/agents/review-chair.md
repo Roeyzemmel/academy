@@ -62,8 +62,8 @@ structured result the stage asks for.
 - **conclude**: conclude.md sections 2-6 (blind) or section 7 steps 6-7 and sections 4-6
   (reword), over the runs the workflow lists, copying its process notes into the
   record's process note; then list the pass folder's files. After a falsifier's
-  counterexample (section 1a): no B, no status proposal, the counterexample routed as a
-  `prove` finding to the claim's Researcher.
+  counterexample (section 1a): no B, no status proposal, the counterexample to the human
+  as a `decision` ticket (the one rule for a counterexample, section 4.3).
 - **ship** (a standalone run of `workflows/verify.js`): run the `inbox.py --check` command the stage gives
   once, stderr joined, and return its whole output verbatim. It commits and pushes the
   ticket's work through `ship.py checkpoint`; whatever it prints, never run it again

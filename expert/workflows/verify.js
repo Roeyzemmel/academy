@@ -478,8 +478,8 @@ const done = await launch(STAGE('conclude', [
     : counterexample
       ? `conclude.md section 1a, "A counterexample": the falsifier (${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}) found a counterexample: ${falsifier.evidence}. ` +
         'Run B was not launched. Return outcome falsifier-counterexample and proposed_status none: never claims_propose_status, no status changes. ' +
-        'Write the record decision.md (A\'s table, the falsifier and its evidence, the process notes), the evidence row for A, and route the counterexample as a finding to the claim\'s producer: ' +
-        'one ticket, kind prove (gap_class statement) to the Researcher of the claim\'s domain (a lab: claim to the Researcher with final_to scientist), with the counterexample and where it is recorded; ' +
+        'Write the record decision.md (A\'s table, the falsifier and its evidence, the process notes), the evidence row for A, and route the counterexample as the decision table routes every counterexample (conclude.md section 4.3; decision_table follow_up, kind counterexample): ' +
+        'one ticket, kind decision to human, at once, with the counterexample and where it is recorded (what becomes of the claim, a weaker statement or a repair, is the human\'s call); ' +
         'then the packet (the counterexample in Decisions needed, for the human), the ticket result and delivery, the blast radius, the report.'
       : 'conclude.md sections 2-6: the input-by-input status, the final decision_table.py over the landed runs with --established, the record decision.md, evidence rows, the proposal (only the script\'s proposed_status), follow-up tickets exactly as the script routes them, the packet, the ticket result and delivery, the blast radius, the report.',
   'Then list the run files in the pass folder (run_files).',

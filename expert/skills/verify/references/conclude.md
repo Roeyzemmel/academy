@@ -148,10 +148,11 @@ a negative A concludes on A alone, and a reword pass has no falsifier stage.
   falsifier is read from the request's result (source `ticket`).
 - **A counterexample.** B is not launched and no status changes: never
   `claims_propose_status`. Write the record (A's table, the falsifier and its evidence,
-  the process notes), the evidence row for A, and route the counterexample as a finding
-  to the claim's producer: one `prove` ticket (gap class `statement`) to the Researcher of
-  the claim's domain (a `lab:` claim: to the Researcher with `final_to: scientist`), with
-  the counterexample and where it is recorded. The packet puts the counterexample in
+  the process notes), the evidence row for A, and route the counterexample as every
+  counterexample is routed (section 4.3; `decision_table.follow_up`, kind
+  `counterexample`): one `decision` ticket to the human, at once, with the counterexample
+  and where it is recorded. What becomes of the claim (a weaker statement, a repair through
+  the Researcher) is the human's call. The packet puts the counterexample in
   `## Decisions needed`; the ticket is delivered. The outcome is
   `falsifier-counterexample`.
 
@@ -221,7 +222,9 @@ LF, Markdown, written by you:
    - a `lab:` claim: to the Researcher with `final_to: scientist`, since the
      Scientist is not a neighbour of the Expert;
    - an input that is itself a proof to review: kind `verify`, back to the Expert;
-   - a counterexample, or runs that disagree on the inputs: to the human;
+   - a counterexample, from a DISPROVED run or from the falsifier of section 1a, or runs
+     that disagree on the inputs: a `decision` ticket to the human (the one rule for a
+     counterexample; never a `prove` ticket);
    - a missing card: kind `cite`.
 
    Each ticket says where the defect lives, what exactly is missing, the repair both

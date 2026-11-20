@@ -56,8 +56,8 @@ report says the pass ran by hand.
   never waits: it could not be resumed (`reviews.py` resumes a ticket's own pass only),
   so the falsifier stage is skipped with a note in the record and B runs as before.
 - **`falsifier-counterexample`**: the falsifier broke the claim. No B, no status; the
-  counterexample went to the claim's Researcher as a `prove` finding and is in the packet
-  for the human.
+  counterexample went to the human as a `decision` ticket (the one rule for a
+  counterexample, `references/conclude.md` section 4.3) and is in the packet.
 
 - `notes` and `anomalies` go into your report verbatim (a skipped B, a relaunch, a lost
   run, a run file the workflow did not launch).
