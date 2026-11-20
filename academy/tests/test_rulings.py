@@ -127,6 +127,62 @@ class TestFindRuling(RulingCase):
         self.write_pass(b=record_text("B", modulo=self.B_MODULO, run_id="rv-%s-A" % PASS))
         self.assertIsNone(rl.find_ruling(self.board, "T-0002", self.ws))
 
+    def test_identical_lists_are_no_ruling(self):
+        """Point 1 of the review: nothing to rule on when the lists agree."""
+        self.write_pass(a=record_text("A", modulo="paper:lem:rigid, lem:locus2"),
+                        b=record_text("B", modulo="paper:lem:locus2, paper:lem:rigid"))
+        self.assertIsNone(rl.find_ruling(self.board, self.ruling(), self.ws))
+
+    def test_the_table_s_reduced_lists_are_used_when_present(self):
+        d = self.write_pass()
+        with open(os.path.join(d, "S-table.json"), "w", encoding="utf-8") as fh:
+            json.dump({"outcome": "settle-dependencies", "modulo": ["paper:lem:rigid"],
+                       "differing_inputs": [{"input": "paper:lem:locus2", "run": "B"}],
+                       "dropped_inputs": [{"input": "paper:cor:locus", "via": "paper:lem:rigid",
+                                           "case": 4}]}, fh)
+        tid = self.ruling()
+        r = rl.find_ruling(self.board, tid, self.ws)
+        self.assertEqual((["paper:lem:rigid", "paper:lem:locus2"], ["paper:lem:rigid"]),
+                         (r["union"], r["intersection"]))
+        out = self.record(tid, "a")
+        body = bd.get_ticket(self.board, out["follow_up"])[2]
+        self.assertEqual(["paper:lem:rigid", "paper:lem:locus2"], rl.grounds_in(body)["modulo"])
+        self.assertIn("dropped mechanically [paper:cor:locus]", body)
+
+    def write_settler(self, record):
+        d = self.write_pass()
+        with open(os.path.join(d, "S.json"), "w", encoding="utf-8") as fh:
+            json.dump(record, fh)
+
+    def test_a_settler_stop_with_no_status_offers_only_rerun_and_decline(self):
+        """Point 5: case 12 (and 11, and 7 with no result) leave no status to give."""
+        for rec in ({"readings": {"differ": True, "evidence": "A reads X open, B closed"}},
+                    {"readings": {"differ": False}, "inputs": [
+                        {"input": "paper:lem:locus2", "case": 11, "evidence": "cycle"}]},
+                    {"readings": {"differ": False}, "inputs": [
+                        {"input": "paper:lem:locus2", "case": 7, "chosen": "",
+                         "evidence": "no result"}]}):
+            self.write_settler(rec)
+            tid = self.ruling()
+            r = rl.find_ruling(self.board, tid, self.ws)
+            self.assertTrue(r["no_status"])
+            self.assertEqual(["(c) Re-run", "(d) Decline"], [o["label"] for o in rl.options(r)])
+            with self.assertRaises(ac.AcademyError):
+                self.record(tid, "a")
+        out = self.record(tid, "c")
+        k = bd.get_ticket(self.board, out["follow_up"])
+        self.assertEqual("verify", k[1]["kind"])
+        self.assertIn("no result", k[2])
+
+    def test_a_case_9_stop_keeps_the_four_options_and_is_quoted(self):
+        self.write_settler({"readings": {"differ": False}, "inputs": [
+            {"input": "paper:lem:locus2", "case": 9, "evidence": "open [CHECK] T-1144"}]})
+        tid = self.ruling()
+        r = rl.find_ruling(self.board, tid, self.ws)
+        self.assertEqual(4, len(rl.options(r)))
+        out = self.record(tid, "a")
+        self.assertIn("open [CHECK] T-1144", bd.get_ticket(self.board, out["follow_up"])[2])
+
     def test_a_plain_decision_ticket_to_the_human_is_no_ruling(self):
         self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
                     ask="Redeploy fsq.sh?", refs=[])
@@ -186,13 +242,23 @@ class TestRecordRuling(RulingCase):
         self.assertEqual(thread, self.thread(tid))
 
     def test_a_follow_up_filed_before_an_interruption_is_found_not_filed_again(self):
+        """Point 3 of the review: the follow-up was filed, then the line and the delivery
+        were lost; the next record completes them and files nothing new."""
         tid = self.ruling()
-        bd.transition_ticket(self.board, tid, "accepted", as_instance="human", date=DATE)
+        bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
         self.ticket(to="researcher@r1", as_instance="human", kind="decision", parent=tid,
-                    title="Status of paper:lem:x -> proved-modulo", ask="Set it.")
+                    title="Status of paper:lem:x -> proved-modulo (ruling %s)" % tid,
+                    ask="Set it.")
+        self.assertEqual([tid], [x["id"] for x in rl.stalled(self.board, self.ws)])
         n = len(self.tickets())
         out = self.record(tid, "a")
-        self.assertEqual((False, n), (out["filed"], len(self.tickets())))
+        self.assertEqual((False, n, "T-0003"), (out["filed"], len(self.tickets()),
+                                                out["follow_up"]))
+        self.assertEqual("delivered", bd.get_ticket(self.board, tid)[1]["status"])
+        th = self.thread(tid)
+        self.assertEqual(1, len([t for t in th if t.startswith("human decision: (a)")]))
+        self.assertTrue(any(t.startswith("keeper follow-up: T-0003") for t in th))
+        self.assertEqual([], rl.stalled(self.board, self.ws))
 
     def test_a_ruling_the_keeper_already_acted_on_files_nothing(self):
         """T-0979: the claim-keeper set the status from the packet and said so on the ruling."""
@@ -200,22 +266,38 @@ class TestRecordRuling(RulingCase):
         bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
                             as_instance="researcher@r1", agent="claim-keeper", date=DATE)
         n = len(self.tickets())
-        out = self.record(tid, "a")
+        out = self.record(tid, "a", comment="union")
         self.assertEqual((False, n), (out["filed"], len(self.tickets())))
-        self.assertEqual("open", bd.get_ticket(self.board, tid)[1]["status"])
+        meta = bd.get_ticket(self.board, tid)[1]
+        self.assertEqual("delivered", meta["status"])                  # the answer is kept
+        self.assertIn("claim-keeper", meta["result"])
+        self.assertTrue(any(t.startswith("human decision: (a) union -- union")
+                            for t in self.thread(tid)))
 
-    def test_a_keeper_ticket_naming_the_ruling_in_its_refs_counts(self):
-        """T-0786 (claims_propose_status from the Expert, refs naming the ruling T-0769) and
-        T-1769 (one human ticket naming six rulings) are follow-ups too."""
+    def test_a_ticket_naming_the_ruling_only_in_its_refs_is_not_its_follow_up(self):
+        """Point 2 of the review: an unrelated verify ticket listing the ruling in its refs
+        must not swallow the human's answer."""
         tid = self.ruling()
-        bd.transition_ticket(self.board, tid, "accepted", as_instance="human", date=DATE)
-        self.ticket(to="researcher@r1", as_instance="human", kind="question",
-                    title="unrelated", ask="?", refs=[tid])
+        self.ticket(to="expert@main", as_instance="human", kind="verify",
+                    title="verify lem:y", ask="Verify it.", refs=[SUBJECT, tid])
+        self.assertIsNone(rl.follow_up_of(self.board, tid))
+        out = self.record(tid, "a")
+        self.assertTrue(out["filed"])
+        self.assertEqual("delivered", bd.get_ticket(self.board, tid)[1]["status"])
+
+    def test_a_ticket_whose_ask_names_the_ruling_is_its_follow_up(self):
+        tid = self.ruling()
         self.ticket(to="researcher@r1", as_instance="human", kind="decision",
-                    title="Status of paper:lem:x -> proved", ask="Set it.", refs=[SUBJECT, tid])
-        self.ticket(to="researcher@r1", as_instance="human", kind="question",
-                    title="unrelated", ask="?", refs=[tid])
-        self.assertEqual("T-0004", rl.follow_up_of(self.board, tid))
+                    title="Keeper: six statements", ask="Set them, on %s." % tid)
+        self.assertEqual(("T-0003", "ticket"), rl.follow_up_of(self.board, tid))
+
+    def test_decline_rejects_even_when_a_follow_up_exists(self):
+        tid = self.ruling()
+        self.ticket(to="researcher@r1", as_instance="human", kind="decision",
+                    title="Status (ruling %s)" % tid, ask="Set it.")
+        out = self.record(tid, "d", comment="no")
+        self.assertEqual("rejected", out["status"])
+        self.assertEqual("rejected", bd.get_ticket(self.board, tid)[1]["status"])
 
     def test_intersection_and_an_empty_intersection_proposes_proved(self):
         self.write_pass(a=record_text("A", modulo="paper:lem:rigid"),

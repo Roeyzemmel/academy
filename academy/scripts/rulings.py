@@ -5,7 +5,17 @@ the inputs of one review pass whose two blind runs are both CONFIRMED on one sta
 hash (verify's ``disagreement`` on the modulo lists, expert ``conclude.md`` section 4.3).
 It is recognised mechanically: the ticket's text (or its parent's pass, ``<date>-<parent>``)
 names the pass folder ``reviews/<ns>/<slug>/<pass>/`` in the Expert's home, whose ``A.md``
-and ``B.md`` are both CONFIRMED, about one subject, on one hash, with distinct run ids.
+and ``B.md`` are both CONFIRMED, about one subject, on one hash, with distinct run ids, and
+whose modulo lists differ (union != intersection).
+
+When the pass holds the table the settler stage wrote (``S-table.json``, verify.js), the
+lists are the table's reduced ones: the intersection is its agreed ``modulo``, the union
+adds its ``differing_inputs`` (its ``dropped_inputs`` stay out). When it holds the
+dependency-settler's record (``S.json``), its stops are read: case 12 (different readings),
+11 (circular) and 7 with no existing result (a hidden step) leave no status to give, so
+only (c) re-run after a reword or repair and (d) decline are offered; a case-9 stop
+(unverified hypotheses, an open [CHECK]) keeps all four, and its evidence is quoted in the
+keeper ticket.
 
 Its options (``options``): (a) the union of the two modulo lists, (b) their intersection,
 (c) a re-run, (d) decline. ``decisions.py record`` calls :func:`record` for such a ticket,
@@ -20,11 +30,14 @@ the follow-up named in its result and thread:
 * (c): a ``verify`` ticket back to the Expert for a fresh blind pass;
 * (d): nothing; the ruling is rejected (as for any ticket).
 
-Idempotent: a ruling that already has a follow-up (a child ticket filed by the human, a
-``keeper follow-up: T-NNNN`` thread line, or a claim-keeper's line on it) files nothing
-and writes nothing. An
-``accepted`` ruling without one (answered before this existed: the stall of #121) gets
-it on its next record. ``stalled`` lists those.
+Idempotent: a ruling that already has a follow-up (a ``keeper follow-up: T-NNNN`` thread
+line, a ``decision`` / ``verify`` ticket whose title or ask names the ruling, or a
+claim-keeper's line on it) files nothing new; a delivered one writes nothing at all. A
+record that was interrupted (the follow-up filed, then the line or the delivery lost)
+is completed by the next record: the answer line, the follow-up line and the delivery
+are each written when missing. An ``accepted`` ruling without a follow-up (answered
+before this existed: the stall of #121) gets it on its next record. ``stalled`` lists
+the rulings answered but not delivered.
 
 A bare ``proceed`` names no modulo (T-1521's "proceed" was "repair first"), so a ruling
 refuses it and asks for a letter.
@@ -62,7 +75,12 @@ LETTER = {"union": "a", "intersection": "b", "rerun": "c", "decline": "d"}
 #: the kinds a ruling's follow-up has: the keeper's status decision, or a verify re-run
 FOLLOW_UP_KINDS = ("decision", "verify")
 #: how a human's answer line reads (decisions.py, before and after this change)
-RE_ANSWER = re.compile(r"^human decision: (?!decline)")
+RE_ANSWER = re.compile(r"^human decision: (?!decline|\(d\))")
+#: the settler's stops that leave no status to give (settle_deps.py): 12 different readings,
+#: 11 circular, 7 a hidden step with no existing result
+NO_STATUS_CASES = (12, 11, 7)
+STOP_NAMES = {12: "different readings", 11: "circular", 9: "unverified hypotheses or an "
+              "open [CHECK]", 7: "hidden step with no existing result"}
 
 
 # ----------------------------------------------------------------------------
@@ -189,6 +207,45 @@ def _pass_dirs(home, text, parent, subjects):
     return seen
 
 
+def _json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _item(x):
+    return str(x.get("input") if isinstance(x, dict) else x or "").strip()
+
+
+def settler_stops(record):
+    """The stops of a dependency-settler record (``S.json``): ``[{"case", "input",
+    "evidence"}]``, the rule of ``settle_deps.apply``."""
+    if not isinstance(record, dict):
+        return []
+    rd = record.get("readings") or {}
+    if rd.get("differ"):
+        return [{"case": 12, "input": "the statement", "evidence": str(rd.get("evidence") or "")}]
+    out = []
+    for e in record.get("inputs") or ():
+        if not isinstance(e, dict):
+            continue
+        case = e.get("case")
+        if case in (11, 9) or (case == 7 and not str(e.get("chosen") or "").strip()):
+            out.append({"case": case, "input": _item(e),
+                        "evidence": " ".join(str(e.get("evidence") or "").split())})
+    return out
+
+
+def _uniq(items):
+    out = []
+    for x in items:
+        if x and x not in out:
+            out.append(x)
+    return out
+
+
 def find_ruling(board, tid, workspace=None, ticket=None):
     """The ruling ``tid`` is, as a dict, or None when it is not one (module docstring).
 
@@ -229,14 +286,26 @@ def find_ruling(board, tid, workspace=None, ticket=None):
         author_ns = owner.get("role") == "author"
         la = modulo_list(a.get("modulo"), subject, author_ns)
         lb = modulo_list(b.get("modulo"), subject, author_ns)
+        union, inter = la + [x for x in lb if x not in la], [x for x in la if x in lb]
+        table = _json(os.path.join(d, "S-table.json"))
+        reduced = isinstance(table, dict) and "differing_inputs" in table
+        if reduced:
+            inter = _uniq([_item(x) for x in table.get("modulo") or ()])
+            union = _uniq(inter + [_item(x) for x in table.get("differing_inputs") or ()])
+        if set(union) == set(inter):
+            continue            # the lists agree: nothing to rule on
+        stops = settler_stops(_json(os.path.join(d, "S.json")))
         rel = os.path.relpath(d, home).replace("\\", "/")
         return {
             "id": meta["id"], "subject": subject, "pass": os.path.basename(d),
             "pass_dir": rel, "expert": frm, "statement_hash": h,
             "producer_role": owner.get("role") or "",
             "modulo_lists": {"A": la, "B": lb},
-            "union": la + [x for x in lb if x not in la],
-            "intersection": [x for x in la if x in lb],
+            "union": union, "intersection": inter,
+            "reduced": bool(reduced),
+            "dropped": [_item(x) for x in (table.get("dropped_inputs") or ())] if reduced else [],
+            "stops": stops,
+            "no_status": any(x["case"] in NO_STATUS_CASES for x in stops),
             "verdicts": [{"verdict": "CONFIRMED", "run_id": r.get("run_id"),
                           "statement_hash": h, "grader_role": "expert",
                           "ref": "file:%s/%s/%s.md" % (frm, rel, run)}
@@ -260,8 +329,22 @@ def _fmt(items):
     return "[" + ", ".join(items) + "]" if items else "no inputs"
 
 
+def _stops_text(r):
+    return "; ".join("%s (case %s, %s)%s" % (x["input"], x["case"], STOP_NAMES.get(x["case"], ""),
+                                             (": " + x["evidence"]) if x["evidence"] else "")
+                     for x in r.get("stops") or ())
+
+
 def options(r):
-    """The four options of a ruling, ``{label, description}`` as decisions.py shows them."""
+    """The options of a ruling, ``{label, description}`` as decisions.py shows them: four,
+    or only (c) and (d) when the settler stopped on a case that leaves no status."""
+    if r.get("no_status"):
+        return [
+            {"label": "(c) Re-run", "description": "No status: the dependency-settler stopped "
+             "(%s); a verify ticket for a fresh blind pass after the reword or repair goes to %s"
+             % (_stops_text(r), r["expert"])},
+            {"label": "(d) Decline", "description": "Reject the ruling; nothing is filed."},
+        ]
     return [
         {"label": "(a) Union", "description": "%s %s modulo the union of both runs' lists %s; "
          "the keeper ticket is filed now" % (r["subject"], _target(r["union"]), _fmt(r["union"]))},
@@ -278,9 +361,13 @@ def _target(modulo):
     return "proved-modulo" if modulo else "proved"
 
 
-def parse_choice(choice):
+def parse_choice(choice, r=None):
     c = str(choice or "").strip().lower().strip("()")
     if c in CHOICES:
+        if r and r.get("no_status") and CHOICES[c] in ("union", "intersection"):
+            raise ac.AcademyError(
+                "%s: the dependency-settler stopped (%s): no status can be given; answer "
+                "c/re-run or d/decline" % (r["id"], _stops_text(r)))
         return CHOICES[c]
     raise ac.AcademyError(
         "a ruling on the inputs takes a/union, b/intersection, c/re-run or d/decline, not %r "
@@ -305,26 +392,28 @@ def grounds_in(body):
 
 
 def follow_up_of(board, tid, body=None):
-    """The follow-up a ruling already has, or None: a ``keeper follow-up:`` line in its
-    thread (its ticket id), a line by a claim-keeper (the keeper acted on the ruling, as on
-    T-0979: ``<instance>/claim-keeper``), else a child ticket (``parent`` = the ruling)
-    filed by the human, or a ``decision`` / ``verify`` ticket to a role naming the ruling
-    as parent or in its refs (T-0786, T-1769; its id)."""
+    """The follow-up a ruling already has, as ``(ref, how)``, or None. ``how`` is ``line``
+    (a ``keeper follow-up: T-NNNN`` line in its thread; ref the ticket id), ``keeper`` (a
+    claim-keeper's line on it: the keeper acted, as on T-0979; ref the speaker) or
+    ``ticket`` (a ``decision`` / ``verify`` ticket to a role whose title or ask names the
+    ruling, as this code files it: ``... (ruling T-NNNN)``; ref its id). A ticket that
+    only lists the ruling in its refs is not one: it may be about something else."""
     if body is None:
         body = boardlib.get_ticket(board, tid)[2]
+    keeper = None
     for _d, who, text in ac.thread_lines(body):
         m = RE_FOLLOW_UP.search(text)
         if m:
-            return m.group(1)
-        if str(who).endswith("/claim-keeper"):
-            return who
+            return m.group(1), "line"
+        if keeper is None and str(who).endswith("/claim-keeper"):
+            keeper = who
+    names = re.compile(r"\b%s\b" % re.escape(tid))
     for m in boardlib.list_tickets(board, include_terminal=True):
-        if m.get("parent") == tid and m.get("from") == ac.HUMAN:
-            return m["id"]
-        if m.get("kind") in FOLLOW_UP_KINDS and m.get("to") != ac.HUMAN and (
-                m.get("parent") == tid or tid in [str(x) for x in (m.get("refs") or [])]):
-            return m["id"]
-    return None
+        if (m.get("kind") in FOLLOW_UP_KINDS and m.get("to") != ac.HUMAN
+                and m.get("id") != tid
+                and names.search("%s %s" % (m.get("title") or "", m.get("ask") or ""))):
+            return m["id"], "ticket"
+    return (keeper, "keeper") if keeper else None
 
 
 def plan(r, which, comment=""):
@@ -340,9 +429,12 @@ def plan(r, which, comment=""):
                 "deliverable": "A new pass with its decision record and packet.",
                 "refs": refs,
                 "detail": "The human's answer on %s: (c) re-run%s.\n\nThe earlier pass: `%s` "
-                          "(A and B CONFIRMED on hash %s, modulo lists differing)."
+                          "(A and B CONFIRMED on hash %s, modulo lists differing).%s"
                           % (r["id"], (" -- " + quote) if quote else "", r["pass_dir"],
-                             r["statement_hash"])}
+                             r["statement_hash"],
+                             ("\n\nThe dependency-settler stopped (S.json, S.md in the pass "
+                              "folder): %s. Re-run once the statement is reworded or the proof "
+                              "repaired." % _stops_text(r)) if r.get("stops") else "")}
     if which not in ("union", "intersection"):
         return None
     g = grounds(r, which, quote)
@@ -356,18 +448,25 @@ def plan(r, which, comment=""):
             "deliverable": "The status is set with grounds, or the ticket is rejected with "
                            "the reason.",
             "refs": refs,
-            "detail": "\n\n".join([
+            "detail": "\n\n".join(p for p in [
                 "The human's answer on %s: (%s) the %s of both runs' modulo lists%s."
                 % (r["id"], LETTER[which], which, (" -- \"%s\"" % quote) if quote else ""),
                 "Pass `%s` of the Expert %s: A and B CONFIRMED on statement hash %s. "
                 "A lists %s; B lists %s." % (r["pass_dir"], r["expert"], r["statement_hash"],
                                             _fmt(r["modulo_lists"]["A"]),
                                             _fmt(r["modulo_lists"]["B"])),
+                ("The lists are the decision table's reduced ones (S-table.json): agreed %s; "
+                 "differing %s; dropped mechanically %s." % (
+                     _fmt(r["intersection"]), _fmt([x for x in r["union"]
+                                                    if x not in r["intersection"]]),
+                     _fmt(r["dropped"]))) if r.get("reduced") else "",
+                ("The dependency-settler's stops (S.json, S.md in the pass folder): %s."
+                 % _stops_text(r)) if r.get("stops") else "",
                 "If the claim's statement hash is no longer %s (the statement was edited), do "
                 "not set it: reject this ticket with that reason, for a re-run. An input that "
                 "is itself unsettled stays in the modulo list." % r["statement_hash"],
                 "Grounds (JSON): " + json.dumps(g, ensure_ascii=False, separators=(", ", ": ")),
-            ])}
+            ] if p)}
 
 
 def _deliver(board, tid, result, date):
@@ -381,59 +480,66 @@ def _deliver(board, tid, result, date):
                                date=date)
 
 
+def _answered(body, letter):
+    """True when the thread already holds this code's answer line for ``letter``."""
+    want = "human decision: (%s)" % letter
+    return any(w == ac.HUMAN and t.startswith(want) for _d, w, t in ac.thread_lines(body))
+
+
 def record(board, r, choice, comment="", workspace=None, date=None, ticket=None):
     """Record the human's answer to ruling ``r`` and file its follow-up in the same step.
 
-    Returns ``{"ref", "status", "choice", "follow_up", "filed"}``. A ruling that already
-    has a follow-up writes nothing (``filed`` False)."""
+    Returns ``{"ref", "status", "choice", "follow_up", "filed"}``; ``filed`` is True only
+    when this call filed the follow-up. Each step is written only when missing (the answer
+    line, the follow-up, its ``keeper follow-up:`` line, the delivery), so a second record
+    of a delivered ruling writes nothing and one after an interruption completes it."""
     date = date or ac.today()
     tid = r["id"]
-    which = parse_choice(choice)
+    which = parse_choice(choice, r)
+    letter = LETTER[which]
     _path, meta, body = ticket or boardlib.get_ticket(board, tid)
     status = meta.get("status")
     have = follow_up_of(board, tid, body)
-    if have:
-        return {"ref": tid, "status": status, "choice": LETTER.get(which), "follow_up": have,
+    if status == "delivered" and have:
+        return {"ref": tid, "status": status, "choice": letter, "follow_up": have[0],
                 "filed": False}
     if status not in ("open", "accepted", "in-progress"):
         raise ac.AcademyError("%s is %s: a finished ruling is not answered again" % (tid, status))
-    text = "human decision: (%s) %s" % (LETTER[which], which)
+    text = "human decision: (%s) %s" % (letter, which)
     if str(comment).strip():
         text += " -- " + " ".join(str(comment).split())
-    if which == "decline":
-        if status != "open":
-            raise ac.AcademyError("%s is %s: decline it with board.py transition" % (tid, status))
+    if not _answered(body, letter):
         boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
-        boardlib.transition_ticket(board, tid, "rejected", reason=" ".join(
-            str(comment).split()) or "declined via /academy:decide", as_instance=ac.HUMAN,
-            date=date)
-        return {"ref": tid, "status": "rejected", "choice": "d", "follow_up": None,
-                "filed": False}
-    spec = plan(r, which, comment)
-    boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
-    path = boardlib.create_ticket(
-        board, spec["to"], spec["title"], spec["ask"], spec["deliverable"], kind=spec["kind"],
-        priority=r["priority"], refs=spec["refs"], parent=tid, budget={"runs": 1},
-        detail=spec["detail"], as_instance=ac.HUMAN, workspace=workspace, date=date)
-    new = (boardlib.read_ticket(path)[0]["id"] if os.path.isfile(str(path))
-           else _id_of(board, path, tid))
-    what = ("keeper follow-up: %s to %s (%s)" % (new, spec["to"], spec["title"])
-            if which != "rerun" else
-            "keeper follow-up: %s to %s (a re-run; no status now)" % (new, spec["to"]))
-    boardlib.append_to_ticket(board, tid, what, as_instance=ac.HUMAN, date=date)
-    result = ("Ruling (%s) %s: %s; %s filed to %s" % (
-        LETTER[which], which, spec["title"], new, spec["to"]))
+    if which == "decline":
+        reason = " ".join(str(comment).split()) or "declined via /academy:decide"
+        boardlib.transition_ticket(board, tid, "rejected" if status == "open" else "cancelled",
+                                   reason=reason, as_instance=ac.HUMAN, date=date)
+        return {"ref": tid, "status": "rejected" if status == "open" else "cancelled",
+                "choice": "d", "follow_up": have[0] if have else None, "filed": False}
+    filed = False
+    if have:
+        new, how = have
+        to = ""
+    else:
+        spec = plan(r, which, comment)
+        _p, stored = boardlib.create_ticket(
+            board, spec["to"], spec["title"], spec["ask"], spec["deliverable"],
+            kind=spec["kind"], priority=r["priority"], refs=spec["refs"], parent=tid,
+            budget={"runs": 1}, detail=spec["detail"], as_instance=ac.HUMAN,
+            workspace=workspace, date=date, return_meta=True)
+        new, how, to, filed = stored["id"], "ticket", spec["to"], True
+    if how == "ticket":
+        boardlib.append_to_ticket(
+            board, tid, "keeper follow-up: %s%s (%s)" % (
+                new, (" to " + to) if to else "",
+                "a re-run; no status now" if which == "rerun" else "the status, on this ruling"),
+            as_instance=ac.HUMAN, date=date)
+    result = ("Ruling (%s) %s: %s %s" % (
+        letter, which, "the claim-keeper acted on it (%s)" % new if how == "keeper"
+        else "follow-up", "" if how == "keeper" else new)).strip()
     _deliver(board, tid, result, date)
-    return {"ref": tid, "status": "delivered", "choice": LETTER[which], "follow_up": new,
-            "filed": True}
-
-
-def _id_of(board, path, parent):
-    """The id of the ticket just created at ``path`` on a non-file store."""
-    for m in boardlib.list_tickets(board, include_terminal=True):
-        if m.get("_path") == path or (m.get("parent") == parent and m.get("from") == ac.HUMAN):
-            return m["id"]
-    raise ac.AcademyError("the follow-up of %s was filed but its id is not found" % parent)
+    return {"ref": tid, "status": "delivered", "choice": letter, "follow_up": new,
+            "filed": filed}
 
 
 # ----------------------------------------------------------------------------
@@ -441,8 +547,10 @@ def _id_of(board, path, parent):
 # ----------------------------------------------------------------------------
 
 def stalled(board, workspace=None):
-    """Rulings the human answered (a ``human decision:`` line, not a decline) that are
-    still ``accepted`` / ``in-progress`` with no follow-up: ``[{"id", "subject", "answer"}]``."""
+    """Rulings the human answered (a ``human decision:`` line, not a decline) that are not
+    delivered: ``[{"id", "subject", "answer", "follow_up"}]``. ``follow_up`` is what
+    ``follow_up_of`` found (an interrupted record, or a keeper who acted), or None (the
+    stall of #121); ``record <id> --choice <a-c>`` completes either."""
     ws = workspace if workspace is not None else boardlib._workspace_or_none()
     roles = {n: i.get("role") for n, i in (ws or {}).get("instances", {}).items()}
     metas = boardlib.list_tickets(board, include_terminal=True)
@@ -450,14 +558,16 @@ def stalled(board, workspace=None):
     for m in metas:
         if (m.get("kind") != "decision" or m.get("to") != ac.HUMAN
                 or roles.get(m.get("from")) != "expert"
-                or m.get("status") not in ("accepted", "in-progress")):
+                or m.get("status") not in ("open", "accepted", "in-progress")):
             continue
         t = boardlib.get_ticket(board, m["id"])
         answers = [x for _d, w, x in ac.thread_lines(t[2]) if w == ac.HUMAN and RE_ANSWER.match(x)]
         if not answers:
             continue
         r = find_ruling(board, m["id"], ws, ticket=t)
-        if not r or follow_up_of(board, m["id"], t[2]):
+        if not r:
             continue
-        out.append({"id": m["id"], "subject": r["subject"], "answer": answers[-1]})
+        have = follow_up_of(board, m["id"], t[2])
+        out.append({"id": m["id"], "subject": r["subject"], "answer": answers[-1],
+                    "follow_up": have[0] if have else None})
     return out

@@ -164,8 +164,10 @@ def _check_party(name, workspace, what):
 def create_ticket(board, to, title, ask, deliverable, kind="other", priority="normal",
                   refs=None, agenda=None, domain=None, parent=None, budget=None,
                   detail="", as_instance=None, agent="", workspace=None, date=None,
-                  final_to=None, perms=None, campaign=None, cowork=None):
-    """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path.
+                  final_to=None, perms=None, campaign=None, cowork=None, return_meta=False):
+    """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path
+    (with ``return_meta``, ``(path, meta)``: the stored frontmatter, its id included, so a
+    caller on the GitHub store need not list the board to learn it).
 
     ``campaign`` (a registry id, the campaign's target) tags the ticket so
     ``inbox.py --campaign <target>`` selects it; ``cowork`` (a slug, the plan
@@ -210,8 +212,8 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     text = ac.new_ticket(meta, detail)
     fm, body = ac.read_frontmatter(text)
     body = ac.append_thread(body, ac.format_who(as_instance, who), "opened", date)
-    path, _fm = store.create(fm, body)
-    return path
+    path, stored = store.create(fm, body)
+    return (path, stored) if return_meta else path
 
 
 def append_to_ticket(board, tid, text, as_instance=ac.HUMAN, agent="", date=None):

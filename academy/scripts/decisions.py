@@ -520,8 +520,8 @@ def main(argv=None):
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
 
-    p = sub.add_parser("stalled-rulings", help="rulings the human answered that are still "
-                                               "accepted with no follow-up filed (read-only)")
+    p = sub.add_parser("stalled-rulings", help="rulings the human answered that are not "
+                                               "delivered (read-only)")
     p.add_argument("--json", action="store_true")
 
     a = ap.parse_args(argv)
@@ -555,9 +555,10 @@ def main(argv=None):
                 print(json.dumps(rows, ensure_ascii=False))
             else:
                 for r in rows:
-                    print("%s %s: %s" % (r["id"], r["subject"], r["answer"]))
-                print("%d answered ruling(s) with no follow-up; `record <id> --choice <a-d>` "
-                      "files it" % len(rows))
+                    print("%s %s: %s (follow-up: %s)" % (r["id"], r["subject"], r["answer"],
+                                                         r["follow_up"] or "none"))
+                print("%d answered ruling(s) not delivered; `record <id> --choice <a-c>` "
+                      "files or completes the follow-up" % len(rows))
         elif a.cmd == "proceed":
             done = proceed(board, a.instance, a.dry_run)
             if a.json:
