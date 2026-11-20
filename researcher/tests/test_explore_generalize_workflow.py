@@ -69,8 +69,8 @@ class ExploreTests(unittest.TestCase):
         self.assertIn("items flat:KDC-6, flat:KDC-7", lp)
         anomalies = " ".join(res["anomalies"])
         self.assertIn("not an experiment ticket to the Scientist", anomalies)   # wrong receiver
-        # 2026-11-20: a prove step does not wait for a falsifier (the verify workflow runs it
-        # after review A): no check stage, no anomaly, and the lead is told so
+        # 2026-11-20: a prove step does not wait for a falsifier (a failed attempt or a GAP
+        # verdict triggers one): no check stage, no anomaly, and the lead is told so
         self.assertNotIn("flat:KDC-7", anomalies)
         self.assertFalse([c for c in labels if c.startswith("falsified")])
         self.assertIn("does not wait for a falsifier", lp)

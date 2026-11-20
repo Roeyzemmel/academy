@@ -598,8 +598,8 @@ class InboxWorkflowTests(unittest.TestCase):
             self.assertNotIn("T-2 reject", labels)
             self.assertNotIn("does not resolve", " ".join(res["notes"]))
 
-    # 2026-11-20 (the human's design): prove.js attempts without a falsifier and the verify
-    # workflow runs it after review A, so the lead's hand-back no longer waits for one. These two
+    # 2026-11-20 (the human's design): prove.js attempts without a falsifier and a failed attempt or a GAP
+    # verdict triggers one, so the lead's hand-back no longer waits for one. These two
     # replace ..._parks_the_ticket_on_the_pending_falsifier and ..._hands_back_explore_not_prove.
     def test_no_falsifier_on_record_still_hands_prove_back_with_a_pending_one(self):
         ask = self._ask(claim="flat:GEO-40", created=True, falsifier="", pending=["T-9"])

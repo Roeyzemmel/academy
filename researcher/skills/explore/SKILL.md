@@ -27,7 +27,7 @@ The inbox runs it for a `question` ticket. The order is code (2026-10-31; docs/w
      validation case and the unsettled inputs;
    - **prior art**: the prover's scout pass, and `lookup` or `cite` tickets to the Expert;
    - **prove**: an item with no prior proof; the attempt does not wait for a falsifier
-     (the verify workflow runs it after review A);
+     (a failed attempt or a GAP verdict triggers one);
 4. the script checks:
    - a falsify step names an experiment ticket to the Scientist naming the item;
    - one step per item;

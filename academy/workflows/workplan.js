@@ -180,8 +180,8 @@ async function nextActor(receivers, cap) {
   return r.stopped ? { lost: true, why: r.stopped } : r
 }
 // A lead-researcher hand-back (for_main.handback, T-1271: /researcher:prove, which since
-// 2026-11-20 attempts with or without a falsifier on record; the verify workflow runs one
-// after review A) ends the campaign's rounds: its ticket stays
+// 2026-11-20 attempts with or without a falsifier on record; a failed attempt or a GAP
+// verdict triggers one) ends the campaign's rounds: its ticket stays
 // in-progress and heads the list, so every later round's nested inbox would run its lead
 // again and stop at it again. The session runs the item, then calls again. Any other
 // for_main (the cost gate, a nested route the inbox cannot run) is reported and the rounds

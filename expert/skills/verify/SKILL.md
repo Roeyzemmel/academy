@@ -21,11 +21,14 @@ tool with
     args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", claim: "<ns:id>", ticket: "T-NNNN" or omitted, question: "<if not 'may it be raised to proved?'>",
            mode: "blind" | "reword", base_pass: "<reword only>", base_subject: "<renamed label only>"}
 
-The script runs the blind `rigor-reviewer` run A, then holds the claim's falsifier
-(the order is attempt, A, falsifier, B: the human's design, 2026-11-20), launches B (A's
-brief byte for byte, `run: B`) only when `decision_table.py` says `launch_b`, the statement
-hash has not moved and the falsifier on record found nothing, relaunches a run that did
-not land once, stops on a lost run, and hands the landed
+The script runs the blind `rigor-reviewer` run A, launches B at once (A's brief byte for
+byte, `run: B`) only when `decision_table.py` says `launch_b` and the statement hash has not
+moved (a counterexample already on record stops it), relaunches a run that did not land
+once, stops on a lost run. A falsifier is triggered by a failure, never a gate between A
+and B (the human's design, 2026-11-20): when A, or B after a CONFIRMED A, says GAP and the
+claim has no clean falsifier on record for this statement hash and none pending, a chair
+stage files the falsifier request, naming the blocking step, alongside the follow-up repair
+(`references/conclude.md` section 1a); it blocks nothing. The script then hands the landed
 runs to a `review-chair` stage that writes the record, the evidence, the proposal, the
 follow-up tickets and the packet (`references/conclude.md`). The `land_verdict` hook files
 each verdict; a hand-launched `rigor-reviewer` is refused by the `review_launch_guard` hook.
@@ -47,15 +50,11 @@ report says the pass ran by hand.
 
 ## 2. After the workflow returns
 
-- **`awaiting-falsifier`**: A was CONFIRMED and the claim had no falsifier on record
-  (`references/conclude.md` section 1a). The chair filed the falsifier request
-  (`falsifier_request`, a `research` ticket to the Researcher with `final_to: scientist`)
-  and blocked the verify ticket on it; the pass stays open. Once the request is back,
-  the Expert's inbox releases the ticket (`inbox.py`, a `released` row) and runs this skill
-  on it again (a rejected or cancelled request releases it to the human instead): the pass resumes (A is tabled, not
-  relaunched) and B launches only if the falsifier found nothing. A pass with no ticket
-  never waits: it could not be resumed (`reviews.py` resumes a ticket's own pass only),
-  so the falsifier stage is skipped with a note in the record and B runs as before.
+- **`falsifier_request`** (in the result): the request a GAP verdict filed (a `research`
+  ticket to the Researcher with `final_to: scientist`, naming the gap), or null when a
+  falsifier was on record or pending, no Researcher could be named (a note says so), or the
+  verdict was no GAP. Nothing waits for it: the pass concluded and the ticket was delivered
+  as without it. Name it in your report.
 - **`awaiting-amendment`**: A was CONFIRMED and suggested a dependency (`add_dependency`,
   an existing result the proof relies on but does not list; `references/conclude.md`
   section 1b). The chair filed a `prove` repair to the producer (marked `amendment for
@@ -66,7 +65,7 @@ report says the pass ran by hand.
   the attempt is not the one A reviewed, and each dependency is declared with its pinpoint.
 - **`new-pass-after-amendment`** (in the table): a blind B, not A, suggested a dependency.
   No status; the dependency goes to the producer as a repair, and a new pass follows it.
-- **`falsifier-counterexample`**: the falsifier broke the claim. No B, no status; the
+- **`falsifier-counterexample`**: a falsifier on record broke the claim. No B, no status; the
   counterexample went to the human as a `decision` ticket (the one rule for a
   counterexample, `references/conclude.md` section 4.3) and is in the packet.
 
