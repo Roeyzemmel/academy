@@ -48,7 +48,11 @@ const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'op
 // each caller's "returned nothing" path ends it; LAUNCH_LIMIT.stopped tells the result.
 const LAUNCH_LIMIT = { nulls: 0, stopped: false }
 const launch = async (prompt, opts) => {
-  if (LAUNCH_LIMIT.stopped) return null
+  // record: true is the stage that writes down what came back: tried even after a stop
+  // (litwatch's record after three lost scouts of a fan-out; review of aeba1f4)
+  const rec = !!(opts && opts.record)
+  if (rec) { opts = Object.assign({}, opts); delete opts.record }
+  if (LAUNCH_LIMIT.stopped && !rec) return null
   const r = await launchOnce(prompt, opts)
   if (r === null) { if (++LAUNCH_LIMIT.nulls >= 3) LAUNCH_LIMIT.stopped = true } else LAUNCH_LIMIT.nulls = 0
   return r
@@ -727,7 +731,7 @@ if (LOOP && out.gates.length && !out.for_main)
 // ---- Close: the Author's delivered self-tickets ------------------------------------------
 phase('Close')
 insts = insts || lastInsts || []
-if (LAUNCH_LIMIT.stopped) { out.usage_limit = true; if (!/usage limit/.test(out.stopped || '')) out.stopped = LIMIT_WHY }
+if (LAUNCH_LIMIT.stopped) { out.usage_limit = true; if (!/usage limit/.test(out.stopped || '')) out.stopped = (out.stopped ? out.stopped + '; then: ' : '') + LIMIT_WHY }
 for (const i of insts.filter(i => i.role === 'author' && touched.has(i.name) && !LAUNCH_LIMIT.stopped)) {
   await clerk('close-self', [`act as: ${i.name}`, 'Close (delivered -> closed) every delivered ticket whose from and to are both this instance; return how many.'], MOVE, `close ${i.name}`)
 }

@@ -30,7 +30,11 @@ const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'op
 // each caller's "returned nothing" path ends it; LAUNCH_LIMIT.stopped tells the result.
 const LAUNCH_LIMIT = { nulls: 0, stopped: false }
 const launch = async (prompt, opts) => {
-  if (LAUNCH_LIMIT.stopped) return null
+  // record: true is the stage that writes down what came back: tried even after a stop
+  // (litwatch's record after three lost scouts of a fan-out; review of aeba1f4)
+  const rec = !!(opts && opts.record)
+  if (rec) { opts = Object.assign({}, opts); delete opts.record }
+  if (LAUNCH_LIMIT.stopped && !rec) return null
   const r = await launchOnce(prompt, opts)
   if (r === null) { if (++LAUNCH_LIMIT.nulls >= 3) LAUNCH_LIMIT.stopped = true } else LAUNCH_LIMIT.nulls = 0
   return r
@@ -149,7 +153,7 @@ const w = await launch(
   `(window ${plan.window_start}..${plan.today}; a watch with no hits still gets its file):\n` +
   `Pages and queries run: ${JSON.stringify(ran)}\n` + (lost.length ? `Searches lost (say so in the file): ${lost.join(', ')}\n` : '') +
   `Hits (deduplicated): ${JSON.stringify(hits)}\nThen list the file names in ${LEDGER}.`,
-  { label: 'record', phase: 'Record', agentType: SCOUT, schema: WROTE, effort: 'low' })
+  { label: 'record', phase: 'Record', agentType: SCOUT, schema: WROTE, effort: 'low', record: true })
 const before = new Set(plan.files_before || [])
 const extra = w ? (w.files_after || []).filter(f => !before.has(f) && !file.endsWith(f)) : []
 return { instance: A.instance, window: [plan.window_start, plan.today], file: w ? w.file : null,

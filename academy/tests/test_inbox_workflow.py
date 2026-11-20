@@ -327,7 +327,7 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("returned nothing", res["stopped"])
         self.assertIn("check_paper.py", " ".join(res["notes"]))     # the close-out ran on the last listing
 
-    def test_two_launches_returning_nothing_stop_the_run(self):
+    def test_three_launches_returning_nothing_stop_the_run(self):
         """#115: under a usage limit every launch fails; after three in a row nothing more is
         launched and the result says why."""
         rows = [row("T-1", target="clerk", kind="lookup", to="expert@t"),
