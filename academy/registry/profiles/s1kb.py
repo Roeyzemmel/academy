@@ -245,6 +245,7 @@ from ..core.model import Record, Store  # noqa: E402
 from ..core import projection as _projection  # noqa: E402
 from ..core import schema as _schema  # noqa: E402
 from ..core import workspace as _workspace  # noqa: E402
+from ..core import stale as _stale  # noqa: E402
 from ..core.edit import Doc as _Doc  # noqa: E402
 
 #: s1's own fields, kept beside the core ones in schema v2 (the home's data: the
@@ -340,6 +341,7 @@ class Entity:
     implied_by: list = field(default_factory=list)
     v2: dict = None                # the frontmatter as written, for a schema-v2 file
     folder: str = ""               # objects layout: the kind folder it sits in
+    stale: str = ""                # the review pass its statement changed after (#109)
 
 
 class KB:
@@ -888,7 +890,22 @@ def run_check(kb):
     _check_supersession(kb)
     _check_assumptions(kb)
     _check_proved_deps(kb)
+    _check_stale(kb)
     return kb.errors, kb.warnings
+
+
+def _check_stale(kb):
+    """Warn on every proved / proved-modulo record whose statement changed since its
+    last positive review pass, and mark it so the views show ``proved (stale)``
+    (``core/stale.py``, #109; display only). Nothing when the library is not here."""
+    ns = _workspace.repo_ns(kb.root)
+    root = _stale.reviews_root(kb.root)
+    if not ns or root is None:
+        return
+    for item in _stale.find(S1Store(ns, kb.root, kb=kb), root):
+        e = kb.entities[item["id"]]
+        e.stale = item["pass"]
+        kb.warn(e.path, _stale.warning(item))
 
 
 def report_check(kb, quiet=False) -> int:
@@ -919,6 +936,8 @@ def rel_from(from_dir: str, target: str) -> str:
 def status_cell(e) -> str:
     note = e.meta.get("status_note")
     st = status_of(e)
+    if e.stale:
+        st = _stale.label(st)
     return f"{st} ({note})" if isinstance(note, str) and note else st
 
 
@@ -2741,9 +2760,10 @@ class S1Store(Store):
     """This namespace as the other profiles and the engine see it."""
     profile = "s1-kb"
 
-    def __init__(self, ns, home):
+    def __init__(self, ns, home, kb=None):
+        """``kb``: the home as already loaded (``check``), read again only when None."""
         super().__init__(ns, home)
-        self.kb = load_kb(home)
+        self.kb = kb if kb is not None else load_kb(home)
         self.errors = list(self.kb.errors)
         for e in self.kb.sorted():
             st = e.meta.get("status") if isinstance(e.meta.get("status"), str) else ""
