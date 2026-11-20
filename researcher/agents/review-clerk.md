@@ -37,6 +37,9 @@ in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Use `py` on Windows, `python3`
   only when it says the human must decide.
 - **close**: `tickets_update` with `deliver: true` and `result` = the one line the stage
   gives.
+- **put back**: `in-progress -> accepted` (receiver, a ticket started but not worked this
+  run): one direct step, no reason, never through `blocked` (#123). The same move puts
+  back a ticket taken in any stage below.
 
 The same clerk serves `workflows/prove.js` and the campaign of `academy/workflows/workplan.js`
 (`notebook.py` = `${CLAUDE_PLUGIN_ROOT}/scripts/notebook.py --home <the home the stage names>`):
