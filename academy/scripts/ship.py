@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Branch, commit and push in one repo of an academy workspace, one plain command per step.
 
-    py scripts/ship.py [--workspace DIR] status
+    py scripts/ship.py [--workspace DIR] status [--all]             # then the worktrees holding work
     py scripts/ship.py start  <sub> <topic> [--role R] [--worktree] [--on BRANCH]
     py scripts/ship.py commit <sub> -m MSG (--paths P... | --all)
     py scripts/ship.py push   <sub> [--no-gate]
@@ -1207,6 +1207,131 @@ def drifted_pointers():
     return [p for p in out.splitlines() if p in subs]
 
 
+#: the label of the superproject's own worktrees in ``status``
+SUPERPROJECT = "superproject"
+#: git calls of ``status``'s worktree scan run side by side (each is mostly waiting on disk)
+SCAN_WORKERS = 8
+AHEAD = re.compile(r"\bahead (\d+)")
+
+
+def _git_quiet(repo, *args):
+    """``git --no-optional-locks -C repo args``: (returncode, stdout). Never refreshes the
+    index on disk, so a scan cannot race an agent committing in that worktree."""
+    p = subprocess.run(["git", "--no-optional-locks", "-C", repo, *args], capture_output=True,
+                       text=True, env=git_env(), stdin=subprocess.DEVNULL)
+    return p.returncode, p.stdout
+
+
+def linked_worktrees(repo):
+    """The linked worktrees of ``repo``'s repository, as dicts ``path``, ``head`` (sha or
+    ''), ``branch`` (short name, or '' when detached): every entry of ``git worktree list``
+    but the first (the main one: for a submodule whose git directory is absorbed into
+    the superproject that entry is the git directory), a bare one, and ``repo`` itself."""
+    rc, out = _git_quiet(repo, "worktree", "list", "--porcelain")
+    if rc:
+        return []
+    entries, cur = [], None
+    for line in out.splitlines() + [""]:
+        if not line:
+            if cur is not None:
+                entries.append(cur)
+            cur = None
+            continue
+        key, _, val = line.partition(" ")
+        if key == "worktree":
+            cur = {"path": val, "head": "", "branch": "", "bare": False, "locked": False}
+        elif cur is None:
+            continue
+        elif key == "HEAD":
+            cur["head"] = val
+        elif key == "branch":
+            cur["branch"] = val[len("refs/heads/"):] if val.startswith("refs/heads/") else val
+        elif key == "bare":
+            cur["bare"] = True
+        elif key == "locked":
+            cur["locked"] = True
+    me = os.path.normcase(os.path.realpath(repo))
+    return [e for e in entries[1:]
+            if not e["bare"] and os.path.normcase(os.path.realpath(e["path"])) != me]
+
+
+def branch_ahead(repo):
+    """``{branch: commits ahead of its upstream}`` for every local branch with an
+    upstream, from one ``for-each-ref`` (no fetch: the remote-tracking refs as they are)."""
+    rc, out = _git_quiet(repo, "for-each-ref", "--format=%(refname)%00%(upstream:track)",
+                         "refs/heads")
+    ahead = {}
+    for line in out.splitlines() if not rc else ():
+        name, _, track = line.partition("\0")
+        name = name[len("refs/heads/"):] if name.startswith("refs/heads/") else name   # a tag of the same name made :short ambiguous
+        m = AHEAD.search(track)
+        if m:
+            ahead[name] = int(m.group(1))
+    return ahead
+
+
+def worktree_work(repo, wt, ahead):
+    """The state of one linked worktree ``wt`` (a ``linked_worktrees`` entry) of ``repo``:
+    ``wt`` plus ``missing`` (its directory is gone), ``dirty`` (entries of ``git status
+    --porcelain``, untracked files included: new files are work too; None if unreadable),
+    ``unpushed`` (commits of its HEAD on no remote-tracking branch) and ``ahead`` (of its
+    branch's upstream)."""
+    st = dict(wt, missing=not os.path.isdir(wt["path"]), dirty=0, unpushed=0,
+              ahead=ahead.get(wt["branch"], 0))
+    if not st["missing"]:
+        rc, out = _git_quiet(wt["path"], "status", "--porcelain")
+        st["dirty"] = None if rc else len(out.splitlines())
+    if wt["head"] and set(wt["head"]) != {"0"}:      # an unborn (orphan) HEAD has no commits
+        rc, out = _git_quiet(repo, "rev-list", "--count", wt["head"], "--not", "--remotes")
+        st["unpushed"] = None if rc else int(out.strip() or 0)
+    return st
+
+
+def worktree_report(repos, show_all=False):
+    """The rows of ``status``'s worktree section: for each ``(label, checkout)`` in
+    ``repos``, every linked worktree holding work (uncommitted changes, commits on no
+    remote branch, a branch ahead of its upstream; an unreadable count counts as work),
+    and with ``show_all`` the others too, marked removable. The git calls run side by
+    side; the rows keep the order of ``repos`` and of ``git worktree list``."""
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as pool:
+        listed = list(pool.map(lambda r: (linked_worktrees(r[1]), branch_ahead(r[1])), repos))
+        jobs = [(label, repo, wt, ahead) for (label, repo), (wts, ahead) in zip(repos, listed)
+                for wt in wts]
+        states = list(pool.map(lambda j: worktree_work(j[1], j[2], j[3]), jobs))
+    rows = []
+    for (label, repo, _wt, _ahead), st in zip(jobs, states):
+        work = st["dirty"] != 0 or st["unpushed"] != 0 or st["ahead"]
+        if not (work or show_all):
+            continue
+        top = os.path.realpath(repo)
+        full = os.path.realpath(st["path"])
+        try:
+            inside = os.path.commonpath([top, full]) == top
+        except ValueError:  # different drives
+            inside = False
+        shown = os.path.relpath(full, top) if inside else st["path"]
+        count = lambda n: "?" if n is None else n  # noqa: E731
+        # a clean one: a gone directory needs `git worktree prune`, a locked one `remove -f -f`
+        marks = (["missing"] if st["missing"] else []) + (
+            [] if work else ["prunable"] if st["missing"] else
+            ["locked"] if st.get("locked") else ["removable"])
+        rows.append("  %-26s %-58s %-44s dirty=%s unpushed=%s%s%s" % (
+            label, shown, st["branch"] or "(detached)", count(st["dirty"]),
+            count(st["unpushed"]), " ahead=%d" % st["ahead"] if st["ahead"] else "",
+            " [%s]" % ", ".join(marks) if marks else ""))
+    return rows
+
+
+def status_repos():
+    """``(label, checkout)`` for each checked-out submodule, then the superproject."""
+    repos = [(sub, os.path.join(ROOT, sub)) for sub in submodule_names()
+             if os.path.exists(os.path.join(ROOT, sub, ".git"))]
+    if os.path.exists(os.path.join(ROOT, ".git")):
+        repos.append((SUPERPROJECT, ROOT))
+    return repos
+
+
 def cmd_status(a):
     drift = drifted_pointers()
     if drift:
@@ -1230,6 +1355,14 @@ def cmd_status(a):
                                                        (" (superproject, without the board and the submodules)"
                                                         if prefix == "." else
                                                         " (superproject, %s/ only)" % prefix) if prefix else ""))
+    show_all = getattr(a, "all", False)
+    rows = worktree_report(status_repos(), show_all)
+    if rows:
+        print("worktrees %s (dirty includes untracked files):"
+              % ("of every repo; the clean, pushed ones are removable" if show_all else
+                 "holding work not on a remote (--all: the clean ones too)"))
+        for row in rows:
+            print(row)
 
 
 TICKET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")
@@ -1620,7 +1753,11 @@ def parser():
                    help="the workspace root (or its workspace.json); default: found from the "
                         "cwd, $ACADEMY_WORKSPACE or this academy checkout (module docstring)")
     sp = p.add_subparsers(dest="cmd", required=True)
-    sp.add_parser("status").set_defaults(fn=cmd_status)
+    c = sp.add_parser("status", help="each target's branch, dirty and unpushed counts; then the "
+                                     "linked worktrees holding work not on a remote")
+    c.add_argument("--all", action="store_true",
+                   help="list every linked worktree, the clean pushed ones marked removable")
+    c.set_defaults(fn=cmd_status)
     s = sp.add_parser("start")
     s.add_argument("sub"); s.add_argument("topic")
     s.add_argument("--role"); s.add_argument("--worktree", action="store_true")

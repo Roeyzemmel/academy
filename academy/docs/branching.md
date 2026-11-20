@@ -95,7 +95,7 @@ submodule and the board) is for the human or the session that owns the checkout.
 One plain command per step, from the workspace root (the relative form is what the
 allowlist matches; `py scripts/ship.py --help` lists the flags):
 
-    py scripts/ship.py status                               # what is dirty / unpushed, per target
+    py scripts/ship.py status [--all]                       # what is dirty / unpushed, per target and per worktree
     py scripts/ship.py start <sub> <topic> [--role R]       # branch <date>/<topic>/<role> (--worktree for an isolated checkout)
     ... edit ...
     py scripts/ship.py ship <sub> -m "..." --paths P...     # commit + push (or `commit` and `push` separately)
@@ -124,6 +124,15 @@ everything but the board and the submodules; never a submodule pointer; not part
   conflict stops it with the files listed and the merge in progress. Resolve them,
   `git add` each, then `sync <sub> --continue` records the merge (a `commit --paths` is
   refused during a merge, and the guard denies a shell `git commit`). Then `push`.
+- **Work left in a worktree** (#101): `status` ends with the linked worktrees of every
+  submodule and of the superproject that hold work not on a remote: uncommitted changes
+  (`dirty`, untracked files included), commits on no remote-tracking branch
+  (`unpushed`), or a branch ahead of its upstream (`ahead`), with the path (relative to
+  the checkout when it is inside it), the branch and `missing` when the directory is
+  gone. A clean, pushed worktree is not shown; `status --all` lists it too, marked
+  `removable`. Nothing is fetched (the remote-tracking refs as they are) and no index is
+  rewritten (`--no-optional-locks`), so the scan never races a commit in that worktree.
+  A developer's run ends with its worktree off that list: `push`, or say what is left.
 - **A legacy branch name** (uppercase or `_` in the topic, made before `start`
   lowercased topics) is merged by `merge` with a warning (#120).
 - **A stack of pull requests.** A `start` made on a template branch records that branch
