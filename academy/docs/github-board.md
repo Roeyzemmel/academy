@@ -24,8 +24,8 @@ numbering is empty; an id that was never used is a closed placeholder issue).
 | `## Ask`, `## Result` | issue body, after the line `<!-- academy:meta {json} -->` that carries the other fields (never a label's field, `id` or `title`: decode refuses such a line; a key the schema does not know is kept, after the known ones) |
 | `## Thread` | one comment per entry, marked `<!-- academy:thread -->`; other comments are conversation, not Thread |
 | `campaign`, `blocked_by`, `reopen_if` | the meta line (ticket-only fields, `docs/protocol.md` section 4 and the campaign design); a dead-route ticket is `status:blocked` like a pending one, told apart by `blocked_by` + `reopen_if` in the meta line. `blocked_by` is **not** a native issue dependency: only `waiting_on` ticket ids are (codec payload key `waits_on`, manifest relation `dependency`), so the ticket field `blocked_by` never gets confused with GitHub's "blocked by" relation |
-| `agenda` | Project text field **Agenda**; milestones stay free for the paper's milestones |
-| packets, `.render/`, `deep-dives/` | stay files in the board directory (the workspace's `board/`, `packets/`) |
+| `agenda` | Project text field **Agenda**; milestones stay free for the paper's milestones (the closed `id:P-NNNN` milestones below are id reservations, not milestones of the paper) |
+| packets, `.render/`, `deep-dives/` | stay files in the board directory (the workspace's `board/`, `packets/`); a packet id is reserved as a closed milestone titled `id:P-NNNN` of the board's repository, so branches cannot issue it twice (`docs/protocol.md`, "Id allocation"; academy#90). Creating that milestone needs a token with issues: write on the board's repository, as filing a ticket does: a token without it cannot create a packet either, and the creation then fails loudly. (A milestone and not a git ref: the cloud sessions' GitHub proxy refuses writes to `git/refs`.) |
 
 The status label is the write surface: it decides, and `board-sync` makes state, role and
 Project fields follow. There is no separate `resolution:` label; `rejected` and `cancelled`

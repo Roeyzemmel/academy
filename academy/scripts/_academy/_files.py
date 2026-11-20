@@ -392,13 +392,28 @@ def format_id(prefix, n):
     return "%s-%04d" % (prefix, n)
 
 
-def allocate_id(board, kind):
+def _read_counter(counter):
+    try:
+        with open(counter, "r", encoding="utf-8") as fh:
+            return int(fh.read().strip() or "1")
+    except (OSError, ValueError):
+        return 1
+
+
+def allocate_id(board, kind, reserve=None):
     """Allocate the next id of ``kind`` ('ticket'|'packet', or 'T'|'P') on ``board``.
 
     Under the lock: read ``<board>/.ids/next-<kind>`` (the next free number, one
     integer and a newline), take the maximum of it and one past the highest id
     already on disk (so a lost or stale counter can never reissue an id), write
     back that number plus one, and return the formatted id ('T-0001').
+
+    That number is unique in this checkout only: another branch or clone of the board
+    issues the same one (academy#90: 32 packet ids named two files each). ``reserve``,
+    when given, is the authority every branch shares (the GitHub board's
+    ``reserve_id``): called outside the lock as ``reserve(prefix, n)``, it reserves the
+    smallest number ``>= n`` nobody holds there and returns it; that number is the id,
+    and the counter is raised past it (docs/protocol.md, "Id allocation").
     """
     kind = {"T": "ticket", "P": "packet"}.get(kind, kind)
     if kind not in ID_KINDS:
@@ -406,12 +421,16 @@ def allocate_id(board, kind):
     prefix = ID_KINDS[kind]
     counter = os.path.join(str(board), IDS_DIR, "next-" + kind)
     with IdLock(board):
-        n = 1
-        try:
-            with open(counter, "r", encoding="utf-8") as fh:
-                n = int(fh.read().strip() or "1")
-        except (OSError, ValueError):
-            n = 1
-        n = max(n, _max_id_on_disk(board, prefix) + 1)
+        n = max(_read_counter(counter), _max_id_on_disk(board, prefix) + 1)
         atomic_write(counter, "%d\n" % (n + 1))
-    return format_id(prefix, n)
+    if reserve is None:
+        return format_id(prefix, n)
+    got = int(reserve(prefix, n))
+    if got < n:
+        raise AcademyError("the id authority returned %s, below %s, the next free id here"
+                           % (format_id(prefix, got), format_id(prefix, n)))
+    if got > n:
+        with IdLock(board):
+            if _read_counter(counter) <= got:
+                atomic_write(counter, "%d\n" % (got + 1))
+    return format_id(prefix, got)

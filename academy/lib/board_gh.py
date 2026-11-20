@@ -1,7 +1,8 @@
 """board_gh.py -- a board_store transport over the GitHub REST API, through the gh CLI.
 
 ``GhTransport(repo)`` implements the transport of ``board_store`` (list/get/create/update
-issues, list/add comments) plus what the migration needs: ``last_number``, labels
+issues, list/add comments, the id reservations ``list_milestones`` / ``create_milestone``)
+plus what the migration needs: ``last_number``, labels
 (``list_labels``, ``create_label``), native relations (``set_parent``, ``get_parent``,
 ``add_dependency``, ``remove_dependency``, ``list_dependencies``; read exactly for
 ``board_relations.py`` by ``relations_available``, ``parent_ref``, ``blocker_refs``) and assignees on
@@ -38,9 +39,21 @@ TRANSIENT = ("HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 429",
 
 
 class GhError(RuntimeError):
-    def __init__(self, msg, status=None):
+    """A failed call; ``status`` is the HTTP status, ``body`` what gh printed on stdout (the
+    response body, where a 422 names its error codes; the message is on stderr)."""
+
+    def __init__(self, msg, status=None, body=""):
         RuntimeError.__init__(self, msg)
         self.status = status
+        self.body = body
+
+    def error_codes(self):
+        """The ``code`` of each entry of the body's ``errors`` (a 422's reason), or []."""
+        try:
+            errors = json.loads(self.body).get("errors") or []
+        except (ValueError, AttributeError):
+            return []
+        return [e.get("code") for e in errors if isinstance(e, dict)]
 
 
 GH_MISSING = ("gh is not installed: the board is on GitHub (board.backend github) and its "
@@ -108,7 +121,7 @@ class GhTransport(object):
                 self.sleep(RETRY_DELAYS[transient])
                 transient += 1
                 continue
-            raise GhError("%s %s: %s" % (method, path, (err or out).strip()), status)
+            raise GhError("%s %s: %s" % (method, path, (err or out).strip()), status, out)
 
     def _space(self):
         now = self.clock()
@@ -165,6 +178,31 @@ class GhTransport(object):
         """The highest issue or PR number in the repo (0 when it has none)."""
         rows = self.api("GET", "issues?state=all&sort=created&direction=desc&per_page=1")
         return rows[0]["number"] if rows else 0
+
+    # -- id reservations (board_store.GithubBoardStore.reserve_id) -------------
+    def list_milestones(self, state="all"):
+        """Every milestone of ``state`` ('all', 'open', 'closed'), every page."""
+        out, page = [], 1
+        while True:
+            chunk = self.api("GET", "milestones?state=%s&per_page=100&page=%d"
+                             % (state, page)) or []
+            out += chunk
+            if len(chunk) < 100:
+                return out
+            page += 1
+
+    def create_milestone(self, title, state="closed"):
+        """Create the milestone ``title``: True when created, False when a milestone of that
+        title exists (GitHub answers 422 with the error code ``already_exists``); any other
+        failure raises. A retried POST whose first try did reach GitHub answers False too:
+        the number is then skipped, never shared."""
+        try:
+            self.api("POST", "milestones", {"title": title, "state": state})
+        except GhError as exc:
+            if exc.status == 422 and "already_exists" in exc.error_codes():
+                return False
+            raise
+        return True
 
     def list_labels(self):
         out, page = [], 1

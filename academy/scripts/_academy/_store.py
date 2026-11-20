@@ -75,6 +75,13 @@ class BoardStore(object):
         """Give a new ticket its id, store it; returns ``(ref, meta)``."""
         raise NotImplementedError
 
+    def reserve_id(self, prefix, n):
+        """Reserve number ``n`` of id ``prefix`` ('P') where every branch and clone of the
+        board meets, or the next free number above it; returns the number reserved
+        (``allocate_id``'s ``reserve``, docs/protocol.md, "Id allocation"). A file board has
+        no such place: it returns ``n``, unique in this checkout only."""
+        return int(n)
+
     def status_of(self, tid):
         """The status of ticket ``tid``, or None when missing or unreadable."""
         try:

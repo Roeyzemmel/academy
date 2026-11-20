@@ -126,7 +126,8 @@ def create_packet(ctx, a):
     tref = None
     if meta["ticket"]:
         tref, tmeta, tbody = load_ticket(ctx, meta["ticket"])
-    pid = ac.allocate_id(ctx.board, "packet")
+    # reserved where every branch meets on the GitHub board (academy#90; protocol.md)
+    pid = ac.allocate_id(ctx.board, "packet", reserve=getattr(ctx.store, "reserve_id", None))
     meta["packet"] = pid
     path = os.path.join(ctx.board, "packets", inst, ac.packet_filename(pid, meta["title"]))
     _write(path, meta, body)
