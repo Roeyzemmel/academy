@@ -76,16 +76,47 @@ class ExperimentTests(unittest.TestCase):
                                               mode="design", claim="c")
         self.assertIsNone(err, err)
         self.assertEqual(labels, ["lab home", "design", "design (retry)"])
-        self.assertIn("no Kind: line", next(c for c in calls if c["label"] == "design (retry)")["prompt"])
+        retry = next(c for c in calls if c["label"] == "design (retry)")["prompt"]
+        self.assertIn("no Kind: line", retry)
+        self.assertIn("Read the statement from its owner", retry)      # the full brief again
+        self.assertIn("a hand argument", retry)                        # and what came back
         self.assertIn("approve the header", res["for_main"]["why"])
         res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [bad], "design (retry)": [bad]},
                                           mode="design", claim="c")
-        self.assertEqual(res["outcome"], "no-header")
-        self.assertNotIn("for_main", res)
+        self.assertEqual(res["for_main"]["outcome"], "no-header")     # asks someone (review of 641a695)
+        self.assertTrue(res["for_main"]["gate"])
         probe = dict(DESIGN, path="probe", header="Kind: probe\nGoal: is it fast")
         res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [probe], "design (retry)": [probe]},
                                           mode="design", claim="c")
         self.assertIn("Goal: and Decides:", res["reason"])
+
+    def test_the_header_check_reads_prose_and_markup_as_a_header(self):
+        """review of 641a695: 'class v = ...' in a wrapped sentence is prose; markup around
+        Kind is allowed; a probe path needs Kind: probe; an empty argument is no argument."""
+        good = [dict(DESIGN, header="Kind: verify\nGoal: for each M in the\n   class below, decide"),
+                dict(DESIGN, header="**Kind:** search\nClaims: lab:x"),
+                dict(DESIGN, header='"""Kind: measure\nClaims: lab:x')]
+        for d in good:
+            res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [d]}, mode="design", claim="c")
+            self.assertNotIn("design (retry)", labels, d["header"])
+        bad = [dict(DESIGN, header="Kind:\nClaims: lab:x"),
+               dict(DESIGN, header="Kind: search\nimport numpy as np"),
+               dict(DESIGN, path="probe", header="Kind: search\nGoal: g\nDecides: d"),
+               dict(DESIGN, path="experiment", header="Kind: probe\nGoal: g\nDecides: d"),
+               dict(DESIGN, path="argument", argument="  ")]
+        for d in bad:
+            res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [d], "design (retry)": [d]},
+                                              mode="design", claim="c")
+            self.assertEqual(res["for_main"]["outcome"], "no-header", d)
+
+    def test_force_asks_for_the_experiment_and_never_offers_the_argument_again(self):
+        res, labels, calls, err = self.run_wf({"lab home": [HOME], "design": [dict(DESIGN, path="argument", argument="by parity")],
+                                               "design (retry)": [DESIGN]}, mode="design", claim="c", force=True)
+        self.assertIn("do not answer with an argument", next(c for c in calls if c["label"] == "design")["prompt"])
+        self.assertIn("approve the header", res["for_main"]["why"])
+        res, _, _, _ = self.run_wf({"lab home": [HOME], "design": [dict(DESIGN, path="argument", argument="by parity")]},
+                                   mode="design", claim="c", ticket="T-1")
+        self.assertEqual(res["for_main"]["next"], {"mode": "design", "force": True, "claim": "c", "ticket": "T-1", "kind": None})
 
     def test_build_checks_with_one_fix_and_stops_for_the_commit(self):
         built = {"script": "experiments/2026-10-31_x.py", "lab_claim": "lab:x", "tests": [], "note": ""}

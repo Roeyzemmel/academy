@@ -20,7 +20,7 @@ and stop), or ticket ids.
 2. **Finish what it hands back**, as `/academy:inbox` section 2 says. An `experiment` or
    `test` ticket runs `experiment.js`'s `design` leg in the workflow and comes back as a
    **header gate**: show the header and ask (approve / change / drop), then run the
-   experiment skill's next modes. A `test` ticket tests the falsifier in the ask **first**.
+   experiment skill's next modes. It can come back instead as an experiment design that came back with an argument instead (`outcome: argument-instead`, the argument and three `options`): ask accept it (deliver the ticket with it), prove instead (a `prove` ticket to the Researcher, the argument as its lead), or run the experiment anyway (the design again with `next`, which carries `force: true`); and one with no usable header (`outcome: no-header`, its `problems`): run the design again, write the header with the experimenter, or drop it (#88). A `test` ticket tests the falsifier in the ask **first**.
    A `question` is answered from the lab's records, in the workflow. A ticket with no
    route: `AskUserQuestion`, the answer recorded in the thread. After each, its
    `inbox.py --check T-NNNN`, then the workflow again with the cap lowered; `stopped` ends
