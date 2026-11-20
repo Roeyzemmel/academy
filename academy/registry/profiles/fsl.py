@@ -41,6 +41,7 @@ import sys
 from pathlib import Path
 
 from ..core import fm, legacy_fm, workspace, federation, projection, schema, grounds as _grounds
+from ..core import stale as _stale
 from ..core.edit import Doc
 from ..core.model import Record, Store
 
@@ -513,7 +514,29 @@ def check(claims, repo=None, root=None, only=None):
         if c.status in ("proved", "supported") and not c.evidence:
             e(f"status `{c.status}` with no evidence")
         _check_common(c, repo, own_ns, known, by_id, e, w)
+    for c, item in stale_claims(claims, repo, only, kinds=None).items():
+        warns.append(f"{c.path}: WARN: {_stale.warning(item)}")
+    if workspace.repo_ns(repo) and _stale.reviews_root(repo) is not None \
+            and _stale.decision_table_problem():
+        warns.append(f"{root}: WARN: {_stale.decision_table_problem()}")
     return errs, warns
+
+
+def stale_claims(claims, repo=None, only=None, kinds=("stale",)):
+    """{claim: item} for the claims of this repo's own namespace whose statement changed
+    since their last positive review pass (``core/stale.py``, #109; with ``kinds=None``
+    also those proved with no positive pass, kind ``unreviewed``); {} when the library is
+    not beside this repo. ``only``: resolved paths to look at."""
+    repo = _repo(repo)
+    ns = workspace.repo_ns(repo)
+    root = _stale.reviews_root(repo)
+    if not ns or root is None:
+        return {}
+    st = FslStore(ns, repo, claims=claims)
+    names = None if not only else \
+        {n for n, c in st.claim_by_name.items() if c.path.resolve() in only}
+    return {st.claim_by_name[i["id"]]: i for i in _stale.find(st, root, names)
+            if kinds is None or i["kind"] in kinds}
 
 
 def _cls(c):
@@ -703,7 +726,10 @@ def _blurbs(claims):
     return STATUS_BLURB_V2 if any(c.v2 for c in claims) else STATUS_BLURB
 
 
-def render_index(claims):
+def render_index(claims, stale=None):
+    """``stale`` ({claim id: stale item}, ``stale_claims``) marks a claim's line with
+    its status as ``proved (stale)`` (display only, #109)."""
+    stale = stale or {}
     order = {s: i for i, s in enumerate(STATUSES)}
     blurb = _blurbs(claims)
     out = ["# Claims index", "",
@@ -716,11 +742,15 @@ def render_index(claims):
         for c in sorted((c for c in claims if c.state == s), key=lambda c: c.id):
             extra = f" → `{c.superseded_by}`" if c.superseded_by else ""
             sup = f" (bears on {', '.join('`%s`' % x for x in c.bears_on)})" if c.bears_on else ""
-            out.append(f"- `{c.id}` {c.title}{extra}{sup}")
+            it = stale.get(c.id)
+            mark = (f" — **{_stale.label(c.state)}**: statement changed since the review "
+                    f"pass {it['pass']}") if it else ""
+            out.append(f"- `{c.id}` {c.title}{extra}{sup}{mark}")
     return "\n".join(out) + "\n"
 
 
-def render_html(claims):
+def render_html(claims, stale=None):
+    stale = stale or {}
     order = {s: i for i, s in enumerate(STATUSES)}
     rows = []
     for c in sorted(claims, key=lambda c: (order.get(c.state, 99), c.id)):
@@ -731,7 +761,8 @@ def render_html(claims):
         st = c.state
         rows.append(
             f'<tr data-status="{html.escape(st)}"><td><code>{html.escape(c.id)}</code></td>'
-            f'<td><span class="st st-{html.escape(st)}">{html.escape(st)}</span></td>'
+            f'<td><span class="st st-{html.escape(st)}">'
+            f'{html.escape(_stale.label(st) if c.id in stale else st)}</span></td>'
             f'<td>{html.escape(c.title)}<details><summary>details</summary>'
             f'<p><b>where</b> {html.escape(c.where or "—")}</p><p><b>links</b><br>{links or "—"}</p>'
             f'<p><b>evidence</b><br>{ev}</p><p><b>{"modulo / open" if c.v2 else "open"}</b><br>{opn or "—"}</p>'
@@ -859,10 +890,15 @@ def render_experiments(repo):
 
 # --------------------------------------------------------------- the store
 
-def _paper_statement(home_, label):
-    """The LaTeX environment that carries ``\\label{label}`` in sections/*.tex, or None."""
-    for p in sorted((home_ / "sections").glob("*.tex")):
-        text = p.read_text(encoding="utf-8", errors="replace")
+def _paper_texts(home_):
+    return [p.read_text(encoding="utf-8", errors="replace")
+            for p in sorted((home_ / "sections").glob("*.tex"))]
+
+
+def _paper_statement(home_, label, texts=None):
+    """The LaTeX environment that carries ``\\label{label}`` in sections/*.tex, or None.
+    ``texts``: those files' texts, read once by the caller."""
+    for text in (texts if texts is not None else _paper_texts(home_)):
         i = text.find("\\label{%s}" % label)
         if i < 0:
             continue
@@ -879,10 +915,19 @@ def _paper_statement(home_, label):
 class FslStore(Store):
     profile = "fsl-claims"
 
-    def __init__(self, ns, home_):
+    def __init__(self, ns, home_, claims=None):
+        """``claims``: the home's claims as already loaded (``check``, ``render``), so a
+        store over them needs no second read of the registry. Such a short-lived store also
+        reads the tex sections once; a store of the federation cache (a long-running MCP
+        server) reads them on every statement, so its hashes follow the draft."""
         super().__init__(ns, home_)
         self.root = registry_root(home_)
-        self.claims, self.errors = load(self.root)
+        if claims is None:
+            self.claims, self.errors = load(self.root)
+        else:
+            self.claims, self.errors = list(claims), []
+        self._texts = None
+        self._cache_texts = claims is not None
         for c in self.claims:
             cid = c.fields.get("id") or ""
             if not cid.startswith(ns + ":"):
@@ -902,7 +947,9 @@ class FslStore(Store):
         if r is None:
             return None
         if workspace.rule_set(self.ns, self.home) == "paper":
-            env = _paper_statement(self.home, rid)
+            if self._cache_texts and self._texts is None:
+                self._texts = _paper_texts(Path(self.home))
+            env = _paper_statement(self.home, rid, self._texts)
             if env:
                 return env
         return r.title + "\n" + r.body
@@ -1348,8 +1395,9 @@ def main(argv=None):
         return 1 if errs or (a.strict and warns) else 0
     if a.cmd in ("render", "build"):
         root.mkdir(parents=True, exist_ok=True)
-        (root / "INDEX.md").write_text(render_index(claims), encoding="utf-8", newline="\n")
-        (root / "index.html").write_text(render_html(claims), encoding="utf-8", newline="\n")
+        st = {c.id: i for c, i in stale_claims(claims, repo).items()}
+        (root / "INDEX.md").write_text(render_index(claims, st), encoding="utf-8", newline="\n")
+        (root / "index.html").write_text(render_html(claims, st), encoding="utf-8", newline="\n")
         print(f"wrote {root / 'INDEX.md'} and {root / 'index.html'} ({len(claims)} claims)")
         return 0
     if a.cmd == "ledger":
