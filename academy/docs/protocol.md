@@ -314,6 +314,7 @@ open --> accepted --> in-progress --> delivered --> closed (sender)
   |         |              |              |
   |         +----> blocked <-+            +--> in-progress (sender: "returned")
   +--------------> blocked --> accepted | in-progress (receiver)
+in-progress --> accepted | rejected (receiver: "released" | "cannot be done as asked")
 any non-terminal state --> cancelled (sender)
 ```
 
@@ -333,6 +334,7 @@ permissions.json). **The human may make any transition**, including re-opening
 | accepted | cancelled | sender | reason in thread |
 | in-progress | delivered | receiver | `result` non-empty |
 | in-progress | blocked | receiver | `waiting_on` non-empty, or a dead route |
+| in-progress | accepted | receiver | nothing ("released": started, put back untouched for a later run; since 2026-11-20, #123) |
 | in-progress | rejected | receiver | a reason, as for every rejection (it turned out it cannot be done as asked; since 2026-11-14) |
 | in-progress | cancelled | sender | reason in thread |
 | blocked | accepted | receiver | `waiting_on` cleared; a dead route needs `--reopen` |
@@ -358,9 +360,17 @@ longer refused for its form:
 
 - a `status` that is not one transition away is walked like `deliver: true` when every
   status in between is `accepted` or `in-progress` and the caller may make every hop
-  (`open -> in-progress`, `open -> delivered` with a result). A route through `blocked`
-  or `delivered` (`in-progress -> accepted`, `open -> closed`) is still refused, naming
-  the route;
+  (`open -> in-progress`, `open -> delivered` with a result). A route through
+  `delivered` (`in-progress -> closed`, `open -> closed`) is still refused, naming the
+  route; every transition refusal also names the caller's party on the ticket and the
+  statuses it may move the ticket to from where it is;
+- **releasing and rejecting a started ticket are direct transitions, not walks**
+  (2026-11-20, #123). A walk would have to pass through `blocked`, which needs a
+  `waiting_on` or a dead route of its own, so the hint the refusal gave before
+  (`in-progress -> blocked -> accepted`) only led to a second refusal: the receiver moves
+  `in-progress -> accepted` in one step with nothing else required, and
+  `in-progress -> rejected` (since 2026-11-14) in one step with a reason. No shortest
+  route between two statuses passes through `blocked` any more (a test keeps it so);
 - `deliver: true` (or `status: delivered`) on a ticket that is already `delivered`, by
   its receiver or the human, is an amendment of the result, or nothing; a call that
   changes nothing answers `changed: false` and is not an error;

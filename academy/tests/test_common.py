@@ -699,6 +699,30 @@ class TicketTests(TempDir):
         for term in ac.TERMINAL:
             self.assertFalse(any(o == term for o, _ in ac.TRANSITIONS))
 
+    def test_the_receiver_releases_or_rejects_a_started_ticket_directly(self):
+        # #123: in-progress -> accepted (20 refusals since 2026-11-14, inbox-clerk and
+        # review-clerk putting back a ticket they started) and in-progress -> rejected are
+        # one direct step each, the receiver's; the sender's rights are unchanged
+        ok = lambda o, n, p: ac.can_transition(o, n, p)[0]  # noqa: E731
+        for new in ("accepted", "rejected"):
+            self.assertTrue(ok("in-progress", new, {"receiver"}), new)
+            self.assertFalse(ok("in-progress", new, {"sender"}), new)
+            self.assertFalse(ok("in-progress", new, set()), new)
+        self.assertEqual(["accepted", "blocked", "delivered", "rejected"],
+                         ac.allowed_moves("in-progress", {"receiver"}))
+        self.assertEqual(["cancelled"], ac.allowed_moves("in-progress", {"sender"}))
+        self.assertFalse(ac.reason_needed("in-progress", "accepted"))
+        self.assertTrue(ac.reason_needed("in-progress", "rejected"))
+
+    def test_no_refusal_routes_through_blocked(self):
+        # blocked needs waiting_on or a dead route of its own: a hint "go through blocked"
+        # sent the clerks into a second refusal (#123)
+        for old in ac.TICKET_STATUSES:
+            for new in ac.TICKET_STATUSES:
+                route = ac.transition_route(old, new)
+                if route:
+                    self.assertNotIn("blocked", route[1:-1], (old, new, route))
+
     def test_transition_refusal_names_the_route(self):
         self.assertEqual(ac.transition_route("open", "delivered"),
                          ["open", "accepted", "in-progress", "delivered"])
