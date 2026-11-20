@@ -1,7 +1,7 @@
 export const meta = {
   name: 'academy-prove',
   description: 'Take one notebook claim to a reviewable proof: falsifier and attack first, one prover attempt, the outcome read from the attempt file, a verify ticket to the Expert only for a complete attempt',
-  whenToUse: '/researcher:prove and every prove ticket (also nested from the inbox). args: {claim: "<ns:id>", ticket?: "T-NNNN", home: "<the Researcher home>", instance?: "researcher@<x>"}',
+  whenToUse: '/researcher:prove and every prove ticket (also nested from the inbox). args: {claim: "<ns:id>", ticket?: "T-NNNN", mode?: "repair", home: "<the Researcher home>", instance?: "researcher@<x>"}',
   phases: [
     { title: 'State', detail: 'status, inputs, earlier attempts, falsifier, attack' },
     { title: 'Attempt', detail: 'an attack-only run if none, then one proof attempt' },
@@ -65,8 +65,10 @@ const STATE = { type: 'object', properties: {
   attempts: { type: 'array', items: { type: 'string' }, description: 'earlier attempt paths' },
   falsified: { type: 'boolean', description: 'a falsifier ran: a report, a direction item, or the ticket says so' },
   falsifier_evidence: { type: 'string' },
-  attack_exists: { type: 'boolean', description: 'proofs/<id>/attack.md exists' } },
-  required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'attack_exists'] }
+  attack_exists: { type: 'boolean', description: 'proofs/<id>/attack.md exists' },
+  repair: { type: 'boolean', description: 'the ticket asks to repair, polish, restyle or record an argument for the claim, or answers a negative review of it (GAP, a hypothesis to add): not a first proof' },
+  repair_ask: { type: 'string', description: 'what the ticket asks to repair, one line (empty if not a repair)' } },
+  required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'attack_exists', 'repair'] }
 const PATH = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
 const OUTCOME = { type: 'object', properties: {
   exists: { type: 'boolean' }, outcome: { type: 'string', description: 'the attempt frontmatter\'s outcome: field, verbatim' },
@@ -171,12 +173,20 @@ const st = await launch(STAGE('prove-state', [
   T ? `First take ${T}: open -> accepted -> in-progress (leave it if it is in progress already).` : '',
   `Then return: the claim's status (claims_show), its unsettled inputs (depends_on and modulo that are not proved), earlier attempts ` +
   `(notebook.py ls / the object's proof: field), whether a falsifier ran (a report or direction item that attacked it, or the ticket says so: give the evidence), ` +
-  `and whether proofs/<id>/attack.md exists. Write nothing else.`,
+  `whether proofs/<id>/attack.md exists, and whether the ticket asks for a repair (repair, polish, restyle or record an argument, or answer a negative review) rather than a first proof, with what it asks. Write nothing else.`,
 ]), { label: 'state', phase: 'State', agentType: CLERK, schema: STATE, effort: 'low' })
 if (!st) return Object.assign(out, { outcome: 'not-started', reason: 'the state stage returned nothing' })
 if (!st.ok) return Object.assign(out, { outcome: 'not-started', reason: st.stop_reason })
-if (/^proved$/.test(st.status)) { await deliver(`${A.claim} is already proved: nothing to attempt`); return Object.assign(out, { outcome: 'already-proved' }) }
-if (!st.falsified) return Object.assign(out, { outcome: 'needs-explore', needs_explore: true, reason: 'nobody has tried to break it: run /researcher:explore (its falsifier) first' })
+// #85: a repair (args.mode 'repair', or a ticket that asks for one) goes on whatever the status; a
+// proved claim with no repair asked is handed back, never delivered (nothing was done)
+const repair = A.mode === 'repair' || !!st.repair
+out.repair = repair
+if (/^proved$/.test(st.status) && !repair) {
+  return Object.assign(out, { outcome: 'already-proved', already_proved: true,
+    reason: `${A.claim} is proved and the ticket asks for no repair: nothing attempted, the ticket left as it was (rerun with mode repair, or deliver or cancel it)` })
+}
+const reviewed = /^proved(-modulo)?$/.test(st.status)   // it survived a review once: a repair needs no new falsifier
+if (!st.falsified && !(repair && reviewed)) return Object.assign(out, { outcome: 'needs-explore', needs_explore: true, reason: 'nobody has tried to break it: run /researcher:explore (its falsifier) first' })
 const modulo = (st.unsettled_inputs || []).length ? `It rests on unsettled inputs (${st.unsettled_inputs.join(', ')}): it can be proved at most proved-modulo them; say so in the attempt.` : ''
 
 // ---- Attempt ---------------------------------------------------------------------------
@@ -197,7 +207,9 @@ out.attempt = p.path
 const proved = await launchMax(`Prove ${A.claim} (home ${A.home}) in the attempt file ${p.path}, per your agent definition: scout prior art first (cite before reproving), ` +
   `then the statement as attempted, the strategy, the proof, the inputs with their statuses, and the gaps; set outcome: in its frontmatter. ` +
   (st.attempts.length ? `Earlier attempts: ${st.attempts.join(', ')} (a repair is this new attempt; the old ones stay). ` : '') +
-  (attacked ? 'Read proofs/<id>/attack.md first. ' : '') + modulo + ' Set no status.',
+  (attacked ? 'Read proofs/<id>/attack.md first. ' : '') +
+  (repair ? `This is a repair of a ${st.status} claim${T ? ' (ticket ' + T + ': tickets_get it)' : ''}: ${st.repair_ask || 'what the ticket asks'}. Fix exactly that in this new attempt, and make the record edits the ticket asks (the statement only if it asks). ` : '') +
+  modulo + ' Set no status.',
   { label: 'attempt', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
 if (proved === null) return Object.assign(out, { outcome: 'lost', reason: 'the prover returned nothing (a limit?): nothing further launched' })
 
@@ -213,7 +225,7 @@ if (o.outcome !== 'complete' || (o.gaps || []).length) {
   return await end()
 }
 const f = await launchMax(`Your attempt ${p.path} on ${A.claim} is complete. File exactly one verify ticket to the Expert instance (tickets_create: kind verify, ` +
-  `title "Verify ${A.claim}", ask "Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?", deliverable "A verification packet with two verdicts, or one negative verdict.", ` +
+  `title "Verify ${A.claim}", ask "Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?${repair ? ' (a repair of the ' + st.status + ' claim)' : ''}", deliverable "A verification packet with two verdicts, or one negative verdict.", ` +
   `refs [${A.claim}, file:<instance>/${p.path}]${T ? ', parent ' + T : ''}). ` +
   (/^open$/.test(st.status) ? `Then propose sketch (claims_propose_status, grounds note "complete attempt ${p.path}"). ` : '') +
   'Return the ticket id and the proposal ticket; a refusal verbatim.',

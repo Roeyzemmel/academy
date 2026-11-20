@@ -10,12 +10,18 @@ Independence: `academy/references/roster-rules.md` (the producer never grades it
 
 The order is code (2026-10-31; docs/workflows.md). Call the **Workflow** tool with
 `scriptPath: ${CLAUDE_PLUGIN_ROOT}/workflows/prove.js` and
-`args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, claim: "<ns:id>", ticket: "T-NNNN" or omitted, home: "<this home, absolute>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"}`.
+`args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, claim: "<ns:id>", ticket: "T-NNNN" or omitted, mode: "repair" when the human or a hand-back asks for a repair, home: "<this home, absolute>", instance: "<this instance>", root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>"}`.
 The inbox runs the same script for a `prove` ticket. The script:
 
 1. **State.** The clerk takes the ticket and reports the claim's status, its unsettled
-   inputs, earlier attempts, whether a falsifier ran, and whether an attack exists. A
-   `proved` claim needs nothing. A claim resting on an unsettled input can be proved at
+   inputs, earlier attempts, whether a falsifier ran, whether an attack exists, and whether
+   the ticket asks for a **repair** (repair, polish, restyle or record an argument, or
+   answer a negative review) rather than a first proof (`mode: "repair"` forces it). A
+   `proved` claim with no repair asked is handed back (`already_proved`; the inbox returns
+   it to the main session with `mode: "repair"` to rerun), never delivered with nothing
+   done (#85); called directly with a ticket, read it and rerun with `mode: "repair"`, or
+   deliver or cancel the ticket (it is left `in-progress`). A repair of a `proved` or `proved-modulo` claim needs no new falsifier: it
+   survived a review once. A claim resting on an unsettled input can be proved at
    most `proved-modulo` it; the brief says so.
 2. **Falsified first.** A claim nobody tried to break returns `needs_explore`: run
    `/researcher:explore` (its falsifier), then call again. A statement nobody attacked on
