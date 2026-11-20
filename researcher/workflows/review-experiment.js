@@ -257,12 +257,14 @@ if (!LATER) {
     const run = d.state === 'need-A' ? 'A' : 'B'
     tried[run] = (tried[run] || 0) + 1
     if (tried[run] > 2) { notes.push(`run ${run} did not land twice; the pass stops here`); break }
+    const launchedAt = new Date().toISOString()
     const text = await launchMax(brief(run, result, A.ticket, report), {
       label: `run ${run}${tried[run] > 1 ? ' (relaunch)' : ''}`, phase: 'Review', agentType: REVIEWER }, { agentType: CLERK, phase: 'Review', notes })
     if (text === null) { notes.push(`run ${run} lost (no result: a limit or an API error); nothing further launched`); out.runs.push({ run, lost: true }); break }
     const before = d.state
     d = await clerk('decide', ['Return reviews.py decide <subject> --json parsed. If the state is still ' + before +
-      ', also list in unparsed the files under the audits folder\'s _unparsed/ landed today whose subject is this subject, each with its problems. Write nothing.'], DECIDE, 'Review')
+      ', also list in unparsed the files under the audits folder\'s _unparsed/ whose subject is this subject and that were written after ' + launchedAt +
+      ' (this run\'s, not an earlier one\'s: compare the file times), each with its problems. Write nothing.'], DECIDE, 'Review')
     if (!d) { notes.push('the decide stage returned nothing'); break }
     if (d.state === before) {
       // #93: a run that reported but did not land is not relaunched blind: the hook kept
