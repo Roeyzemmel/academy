@@ -88,7 +88,9 @@ RE_NEEDS_ARGUMENT = re.compile(
     r"|\bfill (in )?the gap\b|\brepair (the|its) (proof|argument)\b"
     r"|\bconstruct (a|the) proof\b|\b(find|give|write) a (new )?proof\b"
     r"|\bprove (that|it|the)\b|\bcleaner formulation\b|\bunifying lemma\b"
-    r"|\b(add|drop|weaken|strengthen) (a |the )?hypothes")
+    r"|\b(add|drop|weaken|strengthen) (a |the )?hypothes"
+    # removing an exception strengthens the statement (T-0368, review of badbc50)
+    r"|\b(remove|drop|without) (the |its |an |any )?([\w-]+ )?exceptions?\b(?! list)")
 #: the self kinds whose ask is checked for a missing argument (``check_filed``)
 WRITER_KINDS = ("write", "apply", "copy", "note")
 #: the kinds with no work of their own: math-writer triages them (#92)

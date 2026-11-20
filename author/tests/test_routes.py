@@ -267,6 +267,19 @@ class UnroutedKindTests(unittest.TestCase):
         r = self.route(meta)
         self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
         self.assertIn("research", r["why"])
+        # the live T-0368 wording: the exception goes, so the statement is stronger
+        t0368 = dict(T0351, title="Unite plugs and semi-corners so pathologies are inherited "
+                                  "without exception",
+                     ask="Ada's decision while preparing the talk: plugs and semi-corners "
+                         "form one pathology. Then prop:pathologies-inherited holds without "
+                         "its semi-corner exception.")
+        self.assertTrue(routes.needs_argument(t0368))
+        self.assertEqual("math-writer", self.route(t0368)["target"])
+        for ask in ("Remove the exception in item 2 of lem:x.",
+                    "Drop the semi-corner exception from prop:y."):
+            self.assertTrue(routes.needs_argument({"ask": ask}), ask)
+        self.assertFalse(routes.needs_argument({"ask": "Typeset the exception list as a "
+                                                       "table."}))
 
     def test_a_question_needing_an_argument_goes_to_research(self):
         r = self.route(T0086)
