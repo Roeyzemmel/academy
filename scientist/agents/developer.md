@@ -74,7 +74,10 @@ belongs in the plugin** (`${CLAUDE_PLUGIN_ROOT}/scripts/`), parameterised by
 - Anything that changes a remote host (deploying the runner, installing an env
   there) is the human's call: prepare it, give the one command, and stop.
 - Commits only on your worktree branch and only if the home's config and the human allow
-  it; never on `main`, never push.
+  it; never on `main`. In a workspace, end by pushing that branch with `py
+  scripts/ship.py push <sub> --repo <worktree>` (the inbox's `--check` does not report
+  the ticket delivered while a branch naming it is unpushed); never a raw `git push`,
+  never another branch.
 - A usage-limit error stops you: report what was and was not done; no retry.
 - No questions: make the routine call, state it, return.
 

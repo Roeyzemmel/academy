@@ -470,7 +470,16 @@ is outside the workspace root or in a worktree under it (a `.claude/worktrees` p
 segment); one stderr line then gives the command to run by hand, always with the same
 `--only` (the unscoped manual run is for the session that owns the checkout). Never
 fatal: anything that goes wrong is one warning line on stderr, and the exit code is
-`--check`'s, unchanged. Selection, ordering, return legs and the
+`--check`'s, unchanged. **Unpushed work holds delivery back** (#101): after the checkpoint,
+`--check` of a `delivered` or `closed` ticket looks in every checked-out submodule and the
+superproject for a local branch whose name names the ticket (`t-1673`, `t1673`, `T-1673`
+as a word of the name; never `main`) with commits on no remote-tracking branch, or a
+linked worktree on such a branch with uncommitted changes. If there is one, the status
+line reads `T-NNNN: unfinished (delivered, unpushed); work of T-NNNN is not on a remote`,
+one line per branch says how to push it (`py scripts/ship.py push <sub> --repo
+<worktree>`), and the exit is 3: the ticket is not reported delivered until that work is
+pushed and `--check` is run again. `"unpushedCheck": false` in workspace.json switches
+this off. Selection, ordering, return legs and the
 checkpoint live once, in the academy library (`inbox_core` in `academy_common`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,

@@ -473,6 +473,130 @@ class inbox_core(object):
                              % (r["id"], p.returncode, by_hand))
         return p.returncode
 
+    #: a ticket id, for the branches that name it (``ticket_branch_re``)
+    TICKET_ID = re.compile(r"^T-(\d+)$", re.I)
+    #: a ship.py template branch: ``ship.py push`` can push it
+    TEMPLATE_BRANCH = re.compile(r"^\d{4}-\d{2}-\d{2}/[a-z0-9][a-z0-9-]*/"
+                                 r"(author|expert|researcher|scientist|human)$")
+
+    @staticmethod
+    def ticket_branch_re(ticket):
+        """The pattern of the branch names that name ticket ``ticket`` (``T-0007``):
+        ``t-0007``, ``t0007``, ``t-7``, any case, as a word of the name (not preceded by
+        a letter or digit, not followed by one); None for anything but a ticket id."""
+        m = inbox_core.TICKET_ID.match(str(ticket or "").strip())
+        if not m:
+            return None
+        return re.compile(r"(?<![A-Za-z0-9])t-?0*%d(?![A-Za-z0-9])" % int(m.group(1)), re.I)
+
+    @staticmethod
+    def _git(repo, *args):
+        """``git --no-optional-locks -C repo args`` -> (returncode, stdout); never prompts,
+        never refreshes an index on disk (a scan must not race a commit in a worktree)."""
+        import subprocess
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_PAGER="cat",
+                   GCM_INTERACTIVE="never")
+        for k in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            env.pop(k, None)
+        try:
+            p = subprocess.run(["git", "--no-optional-locks", "-C", repo] + list(args),
+                               capture_output=True, text=True, env=env,
+                               stdin=subprocess.DEVNULL, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return 1, ""
+        return p.returncode, p.stdout
+
+    @staticmethod
+    def unpushed_branches(root, ticket):
+        """The work of ticket ``ticket`` that is on no remote, in the workspace at
+        ``root``: for each checked-out submodule (``.gitmodules``) and the superproject,
+        every local branch whose name names the ticket (``ticket_branch_re``; never
+        main/master) with commits on no remote-tracking branch (no fetch: the refs as
+        they are), or checked out in a linked worktree with uncommitted changes (untracked
+        files included). ``[{label, repo, branch, unpushed, dirty, worktree}]``; label is
+        the ship.py target (the submodule's path, ``workspace`` for the superproject).
+        A git call that fails counts as nothing found."""
+        pat = inbox_core.ticket_branch_re(ticket)
+        if not pat:
+            return []
+        repos = [(s, os.path.join(root, s)) for s in inbox_core._gitmodule_paths(root)]
+        repos.append(("workspace", root))
+        found = []
+        for label, repo in repos:
+            if not os.path.exists(os.path.join(repo, ".git")):
+                continue
+            rc, out = inbox_core._git(repo, "for-each-ref", "--format=%(refname:lstrip=2)",
+                                      "refs/heads")
+            names = [b for b in out.splitlines() if not rc and b and b not in ("main", "master")
+                     and pat.search(b)]
+            if not names:
+                continue
+            # the linked worktrees on those branches (the first entry is the main one)
+            rc, out = inbox_core._git(repo, "worktree", "list", "--porcelain")
+            where, cur, first = {}, None, True
+            for line in (out.splitlines() if not rc else []) + [""]:
+                if line.startswith("worktree "):
+                    cur = line[len("worktree "):]
+                elif line.startswith("branch refs/heads/") and cur and not first:
+                    where[line[len("branch refs/heads/"):]] = cur
+                elif not line:
+                    if cur is not None:
+                        first = False
+                    cur = None
+            for b in names:
+                rc, out = inbox_core._git(repo, "rev-list", "--count", "refs/heads/" + b,
+                                          "--not", "--remotes")
+                ahead = int(out.strip() or 0) if not rc else 0
+                wt = where.get(b)
+                dirty = 0
+                if wt and os.path.isdir(wt):
+                    rc, out = inbox_core._git(wt, "status", "--porcelain")
+                    dirty = len(out.splitlines()) if not rc else 0
+                if ahead or dirty:
+                    found.append({"label": label, "repo": repo, "branch": b,
+                                  "unpushed": ahead, "dirty": dirty, "worktree": wt or ""})
+        return found
+
+    @staticmethod
+    def unpushed_check(args, board, r):
+        """After the checkpoint of a *delivered* ticket ``r`` (delivered or closed, no
+        problem): the lines that hold its delivery back, one per branch of
+        ``unpushed_branches`` with how to push it; [] when nothing is unpushed. Only for
+        the workspace's own board; ``"unpushedCheck": false`` in workspace.json switches
+        it off. Never raises (a failure is one warning line on stderr and no hold)."""
+        if r.get("unfinished") or r.get("state") != "delivered":
+            return []
+        try:
+            ws = load_workspace(getattr(args, "workspace", None))
+            if not _same_file(board_dir(board), ws["board"]) or ws.get("unpushedCheck") is False:
+                return []
+            root = os.path.realpath(os.path.dirname(ws["_path"]))
+            found = inbox_core.unpushed_branches(root, r["id"])
+        except AcademyError:
+            return []
+        except Exception as exc:                     # noqa: BLE001 -- never break --check
+            sys.stderr.write("warning: unpushed-branch scan for %s failed: %s: %s\n"
+                             % (r.get("id"), type(exc).__name__, exc))
+            return []
+        lines = []
+        for f in found:
+            lines.append("  %s %s unpushed=%d dirty=%d%s" % (
+                f["label"], f["branch"], f["unpushed"], f["dirty"],
+                (" " + f["worktree"]) if f["worktree"] else ""))
+            push = "py scripts/ship.py push %s --repo %s" % (f["label"], f["worktree"])
+            if not (f["worktree"] and inbox_core.TEMPLATE_BRANCH.match(f["branch"])):
+                lines.append("    -> not a <date>/<topic>/<role> branch in a worktree: ship.py "
+                             "cannot push it; the human pushes it or moves its commits to one")
+            elif f["dirty"]:
+                lines.append("    -> commit it first (py scripts/ship.py commit %s -m MSG "
+                             "--paths ... --repo %s), then %s" % (f["label"], f["worktree"], push))
+            else:
+                lines.append("    -> " + push)
+        if lines:
+            lines.append("  (delivered is reported once this work is pushed; then run "
+                         "--check %s again)" % r["id"])
+        return lines
+
     @staticmethod
     def _session_inside(root):
         """Whether this session (``$CLAUDE_PROJECT_DIR``, else the cwd) works in the
@@ -528,9 +652,20 @@ class inbox_core(object):
         out = out or sys.stdout
         if args.check:
             r = inbox_core.check(board, args.check)
-            out.write("%s: %s (%s)%s\n" % (r["id"], r["state"], r["status"],
-                                           ("; " + r["problem"]) if r["problem"] else ""))
+            # the status line comes after the checkpoint and the unpushed scan, so that it
+            # can say unfinished: the workflow reads the first "<id>: <state> (<status>)"
             inbox_core.ship_checkpoint(args, instance, board, r, role=role, out=out)
+            held = inbox_core.unpushed_check(args, board, r)
+            if held:
+                r = dict(r, state="unfinished", unfinished=True,
+                         problem="work of %s is not on a remote" % r["id"])
+                status = "%s, unpushed" % r["status"]
+            else:
+                status = r["status"]
+            out.write("%s: %s (%s)%s\n" % (r["id"], r["state"], status,
+                                           ("; " + r["problem"]) if r["problem"] else ""))
+            for line in held:
+                out.write(line + "\n")
             return 3 if r["unfinished"] else 0
         cowork = getattr(args, "cowork", None)
         field, plan = ("cowork", cowork) if cowork else ("campaign", args.campaign)
