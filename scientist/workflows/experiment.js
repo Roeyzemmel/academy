@@ -93,7 +93,7 @@ const COMMITTED = { type: 'object', properties: { committed: { type: 'boolean' }
 const QUEUED = { type: 'object', properties: { ok: { type: 'boolean' }, job: { type: 'string' }, command: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'job', 'command'] }
 const DRAFT = { type: 'object', properties: { report: { type: 'string' }, result_line: { type: 'string' } }, required: ['report', 'result_line'] }
 const RENDER = { type: 'object', properties: { ok: { type: 'boolean' }, rendered: { type: 'string', description: 'the rendered packet text' }, errors: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'rendered', 'errors'] }
-const FILED = { type: 'object', properties: { packet: { type: 'string' }, review_ticket: { type: 'string' }, researcher: { type: 'string' }, why: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'review_ticket', 'researcher', 'why', 'error'] }
+const FILED = { type: 'object', properties: { packet: { type: 'string' }, review_ticket: { type: 'string' }, researcher: { type: 'string' }, why: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'review_ticket', 'researcher'] }   // #124 follow-up 2: why and error asked, never required
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
@@ -252,12 +252,12 @@ if (A.mode === 'report') {
 if (!A.stem) throw new Error('file needs args.stem')
 const opts = (A.env ? ` --env ${A.env}` : '') + (A.job ? ` --job ${A.job}` : '') + (T ? ` --ticket ${T}` : '')
 const f = await clerk('report-file', [`Run report.py file experiments/${A.stem}.py${opts}; return the packet id, the review-experiment ticket it filed, the Researcher it went to and why (the script prints it), or the error.`], FILED, 'file')
-if (!f || !f.packet) return Object.assign(out, { outcome: 'not-filed', reason: f ? f.error : 'no answer' })
+if (!f || !f.packet) return Object.assign(out, { outcome: 'not-filed', reason: f ? f.error || 'no reason given' : 'no answer' })
 if (T) {
   const m = await clerk('close', [`Deliver ${T} (tickets_update deliver: true, acting as its receiver) with result "report ${f.packet}; review ticket ${f.review_ticket} to ${f.researcher}" and fields.packets [${f.packet}].`], MOVE, 'deliver')
   out.ticket_delivered = !!(m && m.ok)
 }
-Object.assign(out, { outcome: 'filed', packet: f.packet, review_ticket: f.review_ticket, researcher: f.researcher, why: f.why })
+Object.assign(out, { outcome: 'filed', packet: f.packet, review_ticket: f.review_ticket, researcher: f.researcher, why: f.why || 'no reason given' })
 // only the file leg ships: the other legs end at a human gate (build's commit is the human's)
 if (!A.nested) out.ship = await ship({ role: 'scientist', ticket: T, done: !!out.ticket_delivered, topic: 'report-' + A.stem,
   only: '<home submodule> board', agentType: CLERK, phase: 'Leg', notes: out.notes })
