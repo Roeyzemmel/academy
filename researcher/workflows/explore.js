@@ -210,6 +210,7 @@ const art = { tickets: [], objects: [], files: [] }   // what a delivery may nam
 const add = (k, x) => {
   x = String(x || '').trim()
   if (k === 'tickets' && !TICKET_ID.test(x)) { if (x) out.notes.push(`${x} is no ticket id (T-NNNN): not counted as an artefact`); return }
+  if (k === 'tickets' && T && x === T) { out.notes.push(`${x} is the ticket itself: not counted as an artefact`); return }   // review of 1bbcc77
   if (x && !art[k].includes(x)) art[k].push(x)
 }
 const prove = []                      // {claim} | {claim, why}: the prove steps to hand back
@@ -267,10 +268,14 @@ for (const it of moved) {
 }
 const listed = art.tickets.concat(art.objects, art.files)
 const j = await clerk('journal', ['Return whether today\'s journal file exists (notebook.py journal shows its path), its path, and which of these ids it mentions: ' + moved.map(i => i.item).join(', ') + '. ' +
-  (listed.length ? 'Return in found those of these artefacts that exist (tickets with tickets_get, files under the home, objects with notebook.py): ' + listed.join(', ') + '. ' : 'No artefacts to check: found is empty. ') +
+  (listed.length ? 'Return in found those of these artefacts that this run made or changed today: a ticket tickets_get finds whose created date is today and whose parent or refs name ' + (T || 'the item') + ' or the item; a file under the home or an object (notebook.py) changed today (git log or the file time; existing is not enough): ' + listed.join(', ') + '. ' : 'No artefacts to check: found is empty. ') +
   'Write nothing.'], JOURNAL, 'journal', 'Check')
 if (!j || !j.exists) out.notes.push('today\'s journal does not exist: the lead did not record the run')
 else if (moved.some(i => i.step !== 'none' && !(j.mentions || []).includes(i.item))) out.notes.push('today\'s journal does not mention every item moved')
+if (!j && !prove.length) {      // a lost clerk run is lost, not "no artefact" (budget.md rule 4; review of 1bbcc77); a prove hand-back needs no check
+  out.notes.push('the journal/artefact check returned nothing (lost): the ticket is left as it is')
+  return Object.assign(out, { outcome: 'lost', ticket_delivered: false, reason: 'the check stage returned nothing' })
+}
 out.artefacts = listed.filter(x => j && (j.found || []).includes(x))
 const missing = listed.filter(x => !out.artefacts.includes(x))
 if (missing.length) out.notes.push(`artefacts the lead named that the clerk did not find: ${missing.join(', ')}`)

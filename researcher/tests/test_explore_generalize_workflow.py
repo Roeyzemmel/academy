@@ -190,6 +190,30 @@ class ExploreTests(unittest.TestCase):
             self.assertEqual(res["outcome"], "no-artefact")
             self.assertIn("not delivered", next(c for c in calls if c["label"] == "note")["prompt"])
 
+    def test_the_ticket_itself_is_no_artefact_and_the_check_asks_for_change(self):
+        """Review of 1bbcc77: a lead naming the question ticket itself, or a file that merely
+        exists, could deliver it with nothing behind it."""
+        lead = {"items": [item("Q", "prior-art", tickets=["T-0600"])], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "note": [OK],
+                                                     "journal": [dict(JOURNAL, mentions=["Q"], found=[])]},
+                                      dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertNotIn("close", labels)
+        self.assertIn("the ticket itself", " ".join(res["notes"]))
+        lead = {"items": [item("Q", "prior-art", updated=["objects/direction/DIR-2.md"])], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "note": [OK],
+                                                     "journal": [dict(JOURNAL, mentions=["Q"], found=[])]},
+                                      dict(H, ticket="T-0600"))
+        self.assertIn("changed today", next(c for c in calls if c["label"] == "journal")["prompt"])
+
+    def test_a_lost_check_is_lost_not_no_artefact(self):
+        lead = {"items": [item("Q", "prior-art", tickets=["T-77"])], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [None]},
+                                      dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertEqual("lost", res["outcome"])
+        self.assertNotIn("note", labels)
+
     def test_a_delivered_ticket_names_its_artefacts(self):
         lead = {"items": [item("Q", "prior-art", tickets=["T-77"], updated=["objects/direction/DIR-2.md"])], "report": "r", "next_picks": []}
         res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "close": [OK],

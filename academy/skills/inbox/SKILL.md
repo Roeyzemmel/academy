@@ -66,6 +66,9 @@ the run.
   such an item among a loop's `gates`, whatever the end message says.
   - `skill: researcher:prove` with `args`: run the Workflow `researcher/workflows/prove.js`
     with `for_main.args` (it takes the ticket, still `in-progress`, and delivers it). The
+    A nested explore (a `question` ticket) can hand back several prove steps: `for_main.runs`,
+    one entry per claim; run prove.js for each entry with `args` in turn (the ticket rides with
+    the first), and register first each entry that has only a `why`.
     falsifier the lead reported (`falsifier`) is on the ticket's thread, where prove.js's
     state stage reads it. With none on record the hand-back is the same (2026-11-20): the
     attempt does not wait for a falsifier, a failed attempt or a GAP verdict triggers one, and
