@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Branch, commit and push in one repo of an academy workspace, one plain command per step.
 
-    py scripts/ship.py [--workspace DIR] status
+    py scripts/ship.py [--workspace DIR] status [--all]             # then the worktrees holding work
     py scripts/ship.py start  <sub> <topic> [--role R] [--worktree] [--on BRANCH]
     py scripts/ship.py commit <sub> -m MSG (--paths P... | --all)
     py scripts/ship.py push   <sub> [--no-gate]
