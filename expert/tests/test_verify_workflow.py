@@ -537,97 +537,195 @@ class AmendAfterATests(unittest.TestCase):
 
 
 @unittest.skipUnless(NODE, "node is not installed")
-class ConfirmedUnionTests(unittest.TestCase):
-    """#121: a CONFIRMED x2 pass whose runs list different inputs is concluded like a
-    confirmed one: proved-modulo the union to the keeper, never a ruling for the human."""
+class SettleDependenciesTests(unittest.TestCase):
+    """#121 part 3: CONFIRMED x2 on differing inputs (settle-dependencies) launches one
+    dependency-settler; settle_deps.py checks its record (one retry, then a disagreement
+    with an anomaly) and applies it; a settled pass files its follow-ups, blocking nothing,
+    and proposes the status to the keeper; a stop concludes as a disagreement."""
     run_wf = GateTests.run_wf
 
-    FILED = {"request": "T-0004", "blocked": False, "waiting_on": [], "refusal": ""}
+    RECORD = {"readings": {"differ": False, "evidence": ""},
+              "inputs": [{"input": "paper:lem:b", "case": 1, "chosen": "paper:lem:b",
+                          "sources": [], "line": "", "remark": "", "evidence": "l.4"}]}
+    REPORT = "lem:b is the step A took as folklore.\n```json\n%s\n```\n" % json.dumps(RECORD)
+    GROUNDS = {"basis": "proof", "verdicts": [{"run_id": "a"}, {"run_id": "b"}],
+               "modulo": ["paper:lem:a", "paper:lem:b"], "note": "settled"}
+    SETTLED = {"ok": True, "problems": [], "outcome": "confirmed-settled",
+               "proposed_status": "proved-modulo", "modulo": ["paper:lem:a", "paper:lem:b"],
+               "declarations": [{"dependency": "paper:lem:b", "case": 1, "from": "paper:lem:b"}],
+               "notes": [], "cite": [], "stops": [], "dropped": [], "grounds": GROUNDS,
+               "summary": "settled: proved-modulo paper:lem:a, paper:lem:b"}
+    FILED = {"repair": "T-0004", "cite": [], "author": "", "blocked": False, "refusals": []}
+    INVALID = {"ok": False, "problems": ["'paper:lem:b' is not classified"]}
 
-    def plan(self, b_outcome, done, declare=(), prep=PREP):
-        return {"prepare": prep, "run A": "r", "table A": tab("CONFIRMED", "awaiting-b", True),
-                "run B": "r",
-                "table B": dict(tab("CONFIRMED", b_outcome, run="B"),
-                                declare_dependencies=list(declare)),
-                "declaration": self.FILED,
-                "conclude": dict(DONE, run_files=["A.md", "B.md"], **done)}
+    def plan(self, settle=None, settler=None, done=None, prep=PREP, **extra):
+        p = {"prepare": prep, "run A": "r", "table A": tab("CONFIRMED", "awaiting-b", True),
+             "run B": "r", "table B": tab("CONFIRMED", "settle-dependencies", run="B"),
+             "settle-table": {"written": True, "outcome": "settle-dependencies"},
+             "settler": self.REPORT if settler is None else settler,
+             "settle": self.SETTLED if settle is None else settle,
+             "settle-file": self.FILED,
+             "conclude": dict(DONE, run_files=["A.md", "B.md"],
+                              **(done or {"outcome": "confirmed-settled",
+                                          "proposed_status": "proved-modulo"}))}
+        p.update(extra)
+        return p
 
-    UNION = {"outcome": "confirmed-union", "proposed_status": "proved-modulo"}
-
-    def test_the_blind_b_is_tabled_against_a(self):
-        _o, _l, calls = self.run_wf(self.plan("confirmed-union", self.UNION))
-        p = next(c for c in calls if c["label"] == "table B")["prompt"]
-        self.assertIn('"<pass_dir>/A.md" "<pass_dir>/B.md"', p)
-        self.assertIn("declare_dependencies", p)
-
-    def test_undeclared_inputs_get_the_amendment_repair_and_nothing_waits(self):
-        out, labels, calls = self.run_wf(self.plan("confirmed-union", self.UNION,
-                                                   declare=["paper:lem:b"]))
+    def test_a_settled_pass_files_the_repair_and_proposes_the_status(self):
+        out, labels, calls = self.run_wf(self.plan())
         self.assertEqual(labels, ["prepare", "run A", "table A", "run B", "table B",
-                                  "declaration", "conclude"])
-        st = next(c for c in calls if c["label"] == "declaration")
-        self.assertEqual(st["agentType"], "expert:review-chair")
-        for want in ("tickets_create", "kind prove", "mode repair", "researcher@main",
-                     "paper:lem:b", "depends_on", "amendment for verify T-0001 pass "
-                     "2026-10-31-T-0001", "files no verify ticket", "blocks nothing"):
-            self.assertIn(want, st["prompt"])
-        conclude = calls[-1]["prompt"]
-        self.assertIn("T-0004", conclude)
-        self.assertIn("do not file it again", conclude)
+                                  "settle-table", "settler", "settle", "settle-file",
+                                  "conclude"])
+        by = {c["label"]: c for c in calls}
+        self.assertEqual(by["settler"]["agentType"], "expert:dependency-settler")
+        self.assertIsNone(by["settler"].get("model"))   # the args map names no model for it
+        sp = by["settler"]["prompt"]
+        for want in ("/A.md", "/B.md", "/S-table.json", "sections/a.tex:lem:x", "fenced json"):
+            self.assertIn(want, sp)
+        self.assertNotIn("CONFIRMED modulo", sp)
+        st = by["settle"]["prompt"]
+        for want in ("S.md", "S.json", "settle_deps.py check", "settle_deps.py` apply",
+                     json.dumps(self.RECORD, separators=(",", ":"))):
+            self.assertIn(want.replace("settle_deps.py` apply", "`settle_deps.py apply`"), st)
+        f = by["settle-file"]["prompt"]
+        for want in ("kind prove", "researcher@main", "paper:lem:b", "depends_on",
+                     "amendment for verify T-0001 pass 2026-10-31-T-0001",
+                     "files no verify ticket", "never block"):
+            self.assertIn(want, f)
+        c = by["conclude"]["prompt"]
+        for want in ("confirmed-settled", "proved-modulo modulo paper:lem:a, paper:lem:b",
+                     "claims_propose_status", json.dumps(self.GROUNDS, separators=(",", ":")), "T-0004",
+                     "do not file them again", "no decision ticket"):
+            self.assertIn(want, c)
         r = out["result"]
-        self.assertEqual(r["outcome"], "confirmed-union")
-        self.assertEqual(r["declaration_request"], "T-0004")
-        self.assertEqual(r["declare_dependencies"], ["paper:lem:b"])
-        self.assertNotIn("awaiting-amendment", r["outcome"])
+        self.assertEqual((r["outcome"], r["proposed_status"]), ("confirmed-settled", "proved-modulo"))
+        self.assertEqual(r["settle"]["filed"]["repair"], "T-0004")
+        self.assertEqual(r["settle"]["attempts"], 1)
         self.assertFalse(any("ANOMALY" in n for n in r["notes"]), r["notes"])
 
-    def test_a_declaration_that_blocked_the_ticket_is_an_anomaly(self):
-        plan = self.plan("confirmed-union", self.UNION, declare=["paper:lem:b"])
-        plan["declaration"] = dict(self.FILED, blocked=True, waiting_on=["T-0004"])
-        out, _l, _c = self.run_wf(plan)
-        self.assertTrue(any("ANOMALY" in n and "declaration" in n
-                            for n in out["result"]["notes"]))
+    def test_the_new_stages_require_no_free_text(self):
+        with open(SCRIPT, encoding="utf-8") as fh:
+            src = fh.read()
+        for name in ("SETTLE_TABLE_OUT", "SETTLE_OUT", "SETTLE_FILED"):
+            block = src.split("const %s = {" % name, 1)[1].split("\n}\n", 1)[0]
+            self.assertIn("required: [],", block, name)
 
-    def test_nothing_to_declare_or_an_earlier_repair_files_none(self):
-        _o, labels, _c = self.run_wf(self.plan("confirmed-union", self.UNION))
-        self.assertNotIn("declaration", labels)
-        prep = dict(PREP, amendment={"request": "T-0009", "request_status": "open"})
-        out, labels, _c = self.run_wf(self.plan("confirmed-union", self.UNION,
-                                                declare=["paper:lem:b"], prep=prep))
-        self.assertNotIn("declaration", labels)
-        self.assertEqual(out["result"]["declaration_request"], "T-0009")
+    def test_cite_and_a_paper_remark_get_their_tickets(self):
+        settled = dict(self.SETTLED, declarations=[],
+                       notes=[{"kind": "remark", "dependency": "bib:K#1",
+                               "sources": ["bib:K#1", "bib:L#2"], "text": "L in the smooth case"},
+                              {"kind": "routine", "dependency": "paper:lem:b",
+                               "sources": ["paper:lem:b", "bib:M#3"]}],
+                       cite=[{"input": "a classical bound", "evidence": "no source named"}])
+        plan = self.plan(settle=settled)
+        plan["settle-file"] = dict(self.FILED, cite=["T-0005"], author="T-0006")
+        out, labels, calls = self.run_wf(plan)
+        f = next(c for c in calls if c["label"] == "settle-file")["prompt"]
+        self.assertIn("kind cite", f)
+        self.assertIn("a classical bound", f)
+        self.assertIn("kind write, to the Author", f)
+        self.assertIn("L in the smooth case", f)
+        self.assertIn("name every source (paper:lem:b, bib:M#3)", f)   # routine -> the repair
+        r = out["result"]["settle"]["filed"]
+        self.assertEqual((r["cite"], r["author"]), (["T-0005"], "T-0006"))
 
-    def test_no_researcher_leaves_the_item_to_the_concluder(self):
-        prep = dict(PREP, researcher="human", researcher_why="several Researchers")
-        out, labels, calls = self.run_wf(self.plan("confirmed-union", self.UNION,
-                                                   declare=["paper:lem:b"], prep=prep))
-        self.assertNotIn("declaration", labels)
-        self.assertIn("file the declare-dependency item", calls[-1]["prompt"])
+    def test_an_invalid_record_is_retried_with_its_problems(self):
+        plan = self.plan()
+        plan["settle"] = self.INVALID
+        plan["settler (retry)"] = self.REPORT
+        plan["settle (retry)"] = self.SETTLED
+        out, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[5:], ["settle-table", "settler", "settle", "settler (retry)",
+                                      "settle (retry)", "settle-file", "conclude"])
+        retry = next(c for c in calls if c["label"] == "settler (retry)")
+        self.assertEqual(retry["agentType"], "expert:dependency-settler")
+        self.assertIn("'paper:lem:b' is not classified", retry["prompt"])
+        r = out["result"]
+        self.assertEqual(r["outcome"], "confirmed-settled")
+        self.assertEqual(r["settle"]["attempts"], 2)
+        self.assertFalse(any("ANOMALY" in n for n in r["notes"]), r["notes"])
 
-    def test_a_union_is_proposed_to_the_keeper(self):
+    def test_a_report_without_a_record_is_retried_without_a_stage(self):
+        plan = self.plan(settler="no json here")
+        plan["settler (retry)"] = self.REPORT
+        plan["settle (retry)"] = self.SETTLED
+        out, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[5:8], ["settle-table", "settler", "settler (retry)"])
+        self.assertIn("no fenced json block",
+                      next(c for c in calls if c["label"] == "settler (retry)")["prompt"])
+
+    def test_invalid_twice_is_a_disagreement_with_an_anomaly(self):
+        plan = self.plan(settle=self.INVALID,
+                         done={"outcome": "disagreement", "proposed_status": "none"})
+        plan["settler (retry)"] = self.REPORT
+        plan["settle (retry)"] = self.INVALID
+        out, labels, calls = self.run_wf(plan)
+        self.assertNotIn("settle-file", labels)
+        c = calls[-1]["prompt"]
+        self.assertIn("Conclude it as a disagreement", c)
+        self.assertIn("is not classified", c)
+        r = out["result"]
+        self.assertEqual(r["outcome"], "disagreement")
+        self.assertTrue(any("ANOMALY" in n and "failed settle_deps.py check twice" in n
+                            for n in r["notes"]), r["notes"])
+
+    def test_a_stop_is_a_disagreement_with_the_classification(self):
+        stop = {"ok": True, "problems": [], "outcome": "disagreement", "proposed_status": "",
+                "modulo": [], "stops": [{"input": "paper:lem:b", "case": 11,
+                                         "name": "circular", "evidence": "reaches the subject"}],
+                "summary": "not settled: paper:lem:b (case 11, circular)"}
         out, labels, calls = self.run_wf(self.plan(
-            "confirmed-union", {"outcome": "confirmed-union", "proposed_status": "proved-modulo"}))
-        self.assertEqual(labels, ["prepare", "run A", "table A", "run B", "table B", "conclude"])
-        p = calls[-1]["prompt"]
-        for want in ("confirmed-union", "proved-modulo", "claims_propose_status",
-                     "modulo_lists", "union_dropped", "no decision ticket"):
-            self.assertIn(want, p)
+            settle=stop, done={"outcome": "disagreement", "proposed_status": "none"}))
+        self.assertNotIn("settle-file", labels)
+        self.assertNotIn("settler (retry)", labels)
+        c = calls[-1]["prompt"]
+        for want in ("Conclude it as a disagreement", "never claims_propose_status",
+                     "circular", "reaches the subject", "S.md", "for the human"):
+            self.assertIn(want, c)
+        self.assertNotIn("confirmed-settled", c)
         r = out["result"]
-        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["settle"]["stops"][0]["case"], 11)
         self.assertFalse(any("ANOMALY" in n for n in r["notes"]), r["notes"])
 
-    def test_a_union_parked_on_the_human_is_an_anomaly(self):
-        out, _l, _c = self.run_wf(self.plan(
-            "confirmed-union", {"outcome": "disagreement", "proposed_status": "none"}))
-        notes = " ".join(out["result"]["notes"])
-        self.assertIn("ANOMALY", notes)
-        self.assertIn("confirmed-union", notes)
+    def test_a_status_on_a_stop_or_a_parked_settlement_is_an_anomaly(self):
+        stop = {"ok": True, "outcome": "disagreement", "stops": [{"input": "x", "case": 9}]}
+        out, _l, _c = self.run_wf(self.plan(settle=stop, done={"outcome": "x",
+                                                               "proposed_status": "proved"}))
+        self.assertTrue(any("ANOMALY" in n for n in out["result"]["notes"]))
+        out, _l, _c = self.run_wf(self.plan(done={"outcome": "disagreement",
+                                                  "proposed_status": "none"}))
+        self.assertTrue(any("ANOMALY" in n and "settled" in n for n in out["result"]["notes"]))
 
-    def test_a_real_disagreement_is_concluded_as_before(self):
-        out, _l, calls = self.run_wf(self.plan(
-            "disagreement", {"outcome": "disagreement", "proposed_status": "none"}))
-        self.assertNotIn("confirmed-union", calls[-1]["prompt"])
-        self.assertFalse(any("ANOMALY" in n for n in out["result"]["notes"]))
+    def test_no_researcher_files_no_repair_but_still_proposes(self):
+        prep = dict(PREP, researcher="human", researcher_why="several Researchers")
+        out, labels, calls = self.run_wf(self.plan(prep=prep))
+        self.assertNotIn("settle-file", labels)       # nothing else to file
+        r = out["result"]
+        self.assertEqual(r["proposed_status"], "proved-modulo")
+        self.assertTrue(any("no declaration repair filed" in n for n in r["notes"]))
+        self.assertIn("claims_propose_status", calls[-1]["prompt"])
+
+    def test_no_researcher_still_files_the_cite_tickets(self):
+        prep = dict(PREP, researcher="human", researcher_why="several Researchers")
+        settled = dict(self.SETTLED, cite=[{"input": "a bound", "evidence": ""}])
+        _o, labels, calls = self.run_wf(self.plan(prep=prep, settle=settled))
+        f = next(c for c in calls if c["label"] == "settle-file")["prompt"]
+        self.assertIn("kind cite", f)
+        self.assertNotIn("kind prove", f)
+
+    def test_an_unwritten_table_launches_no_settler(self):
+        plan = self.plan(done={"outcome": "disagreement", "proposed_status": "none"})
+        plan["settle-table"] = {"written": False}
+        out, labels, _c = self.run_wf(plan)
+        self.assertNotIn("settler", labels)
+        self.assertTrue(any("ANOMALY" in n for n in out["result"]["notes"]))
+
+    def test_other_outcomes_launch_no_settler(self):
+        plan = self.plan(done={"outcome": "disagreement", "proposed_status": "none"})
+        plan["table B"] = tab("CONFIRMED", "disagreement", run="B")
+        _o, labels, calls = self.run_wf(plan)
+        self.assertNotIn("settle-table", labels)
+        self.assertNotIn("settle-dependencies", calls[-1]["prompt"])
 
 
 class MaxTierModelTests(unittest.TestCase):
