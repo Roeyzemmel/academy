@@ -1,6 +1,11 @@
 # Modern LaTeX practice for a math paper
 
-<!-- From the generic part of the old latex-paper-writing skill (Group B, 2026-09-28); project examples replaced by neutral ones. The home's own rules (e.g. BI .claude/rules/tex-conventions.md) say what a paper has adopted. -->
+**Not a style source.** This is a catalogue of proposals for the preamble and the build,
+tex-engineer's to raise. The habits it implies for the text itself are rule 14 of the
+academy's `academy/references/writing-style.md`; what a paper adopted is its
+`.claude/rules/style.md`.
+
+<!-- From the generic part of the old latex-paper-writing skill (Group B, 2026-09-28); project examples replaced by neutral ones. The home's own rules (e.g. BI .claude/rules/style.md) say what a paper has adopted. -->
 
 Propose these to the author, explain the reason, and let the author choose. Do
 not silently rewrite a preamble: a coauthored paper with several people compiling

@@ -56,12 +56,13 @@ colours and note macros.
    that does not match the sections.
 
 **Against the paper's vision**, after the six: the home's `Drafts/vision.md` (the
-paper's stated form and taste; the generic standard is the Author plugin's
-`references/aesthetic-vision.md`). Read it only after the cold reading. Report where the
-built paper departs from a decision the vision records (the arc, statement and proof
-style, examples and figures, voice), in its own `### Vision` class under the Judgement
-findings, each naming the vision line it misses. A line marked pending binds nothing;
-mention it only if the paper contradicts it. No vision file: say so in one line.
+paper's arc) and its two style sources, the home's `.claude/rules/style.md` and the
+academy's `<academy repo>/academy/references/writing-style.md`, which it refines. Read
+them only after the cold reading. Report where the built paper departs from a decision
+they record (the arc, statement and proof style, examples and figures, voice), in its
+own `### Vision` class under the Judgement findings, each naming the line or rule it
+misses. A line marked pending binds nothing; mention it only if the paper contradicts
+it. No vision or style file: say so in one line.
 
 Split every class into **Objective** (mechanically checkable; an editing agent can
 apply it) and **Judgement** (the author's call; never proposed as a mechanical edit).

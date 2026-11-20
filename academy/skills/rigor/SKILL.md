@@ -128,7 +128,8 @@ escapes into a submitted version (`honest-reporting`).
 
 Correctness is this skill; the shape of a correct proof (short statements in a chain,
 the plan and intuition of a composite proof, no discussion in a proof, what may be left
-out) is `${CLAUDE_PLUGIN_ROOT}/references/proof-style.md`. Write and judge proofs by it.
+out) is `${CLAUDE_PLUGIN_ROOT}/references/writing-style.md`, refined in a paper home by
+its `.claude/rules/style.md`. Write and judge proofs by them.
 
 ## 7. Working on someone else's draft
 

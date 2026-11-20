@@ -50,9 +50,10 @@ agenda order (budget.md rule 3). `milestones` and `show` list each entry's ticke
 ## vision: the aesthetic pass
 
 The Author owns the paper's form and taste (`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`;
-this paper's own taste is `Drafts/vision.md`). One section per run: the one named, else
-the first section holding an entry of the next milestone. Launch one `math-editor` in
-**vision mode** with the section file, `Drafts/vision.md` and the pinned list
+the taste is the academy's `writing-style.md` and this paper's `.claude/rules/style.md`,
+the arc `Drafts/vision.md`). One section per run: the one named, else the first section
+holding an entry of the next milestone. Launch one `math-editor` in **vision mode** with
+the section file, `.claude/rules/style.md`, `Drafts/vision.md` and the pinned list
 (`py $S/pinned.py`); it returns at most five proposals, each with its owner. Show them
 and ask the human with `AskUserQuestion` which to file (all / a subset / none).
 

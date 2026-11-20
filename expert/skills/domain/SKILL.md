@@ -17,8 +17,9 @@ A pack (`<academy repo>/domains/<name>/`) is read by every role through the MCP 
 `domain_get`, by its contract file names: `pack.json`, `notation.md`,
 `theorems/{INDEX,<topic>,unverified}.md`, `open-problems.md`, `examples.md`, `traps.md`,
 `figures.md`, `computation/{README,api/*,scripts/*}`, `CHANGELOG.md`. A pack holds no
-plugin logic. Precedence (`notation-discipline`): the pack yields to a project's
-decisions, which yield to the draft. So a pack change never rewrites a project, and a
+plugin logic. Precedence (`notation-discipline`): the pack yields to the academy's
+`writing-style.md`, which yields to a paper's `.claude/rules/style.md`. So a pack change
+never rewrites a project, and a
 project's decision is not a reason to change the pack unless the ticket says the field's
 usage is the project's.
 

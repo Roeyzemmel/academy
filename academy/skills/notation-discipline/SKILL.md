@@ -1,44 +1,31 @@
 ---
 name: notation-discipline
-description: 'Which notation wins (domain pack < project decisions < the draft) and how to introduce symbols: one symbol per object, introduced before use, changes routed to their owner. Use whenever a symbol is written or changed, or documents disagree on notation.'
+description: 'Which notation wins (paper style.md > writing-style.md > domain pack) and who changes it. Use whenever a symbol is written or changed, or documents disagree on notation.'
 ---
 
 # Notation discipline
 
-## Precedence
+## Where the rules are
 
-Three sources can fix notation. When they disagree, the later one wins:
+The habits of notation (one object, one symbol; introduce before use; the letter by the
+kind of object; notation that earns its place; quoted statements keep the source's
+notation; named terms are notation too) are rules 10 and 13 of the academy's writing
+guide, `${CLAUDE_PLUGIN_ROOT}/references/writing-style.md`. A paper's own choices (its
+symbols, letter families, reserved words, standard examples) are the notation section of
+its `.claude/rules/style.md`.
 
-1. **The domain pack's `notation.md`** (through `domain_get`): the subject's standard
-   notation, the default for a new home.
-2. **The project's decisions** (for an Author home, its notation-decisions rules file):
-   choices the project has settled, binding on every new formula.
-3. **The draft itself**: the notation list or section a reader actually sees.
-
-So the draft is the authority. If a decisions file disagrees with the draft's notation
-list, the decisions file is wrong and gets fixed; if the pack disagrees with the
-project, the project wins in that home and the pack stays as it is.
-
-## Rules for every formula
-
-- **One object, one symbol; one symbol, one meaning** within a document. A clash is a
-  finding, not a style preference.
-- **Introduce before use.** Every symbol is defined, or points to its definition,
-  before its first use; a result stated in the introduction points forward.
-- **Pick the letter by the kind of object**, in the field's habit: surfaces X, Y, M,
-  finite point sets A, F, P. An unusual letter (a surface called $B$) is a finding even
-  when it clashes with nothing yet.
-- **Follow the settled choices** even where you would choose differently. Propose a
-  change; do not make it.
-- **Quoted statements keep the source's notation**, verbatim, with a sentence
-  translating it if it differs.
-- **Named terms are notation too.** A defined word is used
-  (say, "admissible") in its defined sense only; a second sense needs a different word.
+**Precedence: the paper's `style.md` > `writing-style.md` > the domain pack's
+`notation.md`** (the human, 2026-11-19, academy issue #106). The pack (`domain_get
+<domain> notation.md`) is read only for the symbols the paper file does not settle; where
+the pack differs, the paper wins in that home and the pack stays as it is. A home with no
+paper file (a Researcher's notebook) follows the guide, then the pack. How the draft's
+notation list and the paper file relate: `writing-style.md`, rule 13.
 
 ## Changing notation
 
-- A change to the project's decisions goes to that home's notation owner (Author:
-  `notation-auditor`, which edits only the decisions file) or to the human.
+- A change to a paper's settled notation goes to that home's notation owner (Author:
+  `notation-auditor`, which edits only the notation of the paper's `style.md`) or to the
+  human.
 - A change to the domain's standard notation goes to the Expert as a `notation`
   ticket (the Scientist, not a neighbour of the Expert, files it to the Researcher
   with `final_to: expert`); the librarian curates the pack.

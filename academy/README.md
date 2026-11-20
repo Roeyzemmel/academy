@@ -1,7 +1,7 @@
 # academy: the academy plugin
 
 Role cut: what each role writes, never writes and hands off, and to whom, is one table, `academy/references/roster-rules.md` ("Role cut").
-Shared references beside it: `references/registry.md` (the `lab` / `paper` record format), `references/windows.md` (Python, shells and line endings on a Windows laptop), `references/proof-style.md` (how a proof is written: the prover, the writers and the reviewers).
+Shared references beside it: `references/registry.md` (the `lab` / `paper` record format), `references/windows.md` (Python, shells and line endings on a Windows laptop), `references/writing-style.md` (the academy's one general writing guide: statements, proofs, prose, figures, notation and LaTeX habits, for the prover, the writers and the reviewers; a paper home's `.claude/rules/style.md` refines it and wins; `references/proof-style.md` is a pointer to it).
 
 | Folder | What it holds |
 |---|---|
@@ -30,7 +30,7 @@ Shared references beside it: `references/registry.md` (the `lab` / `paper` recor
 | /academy:inbox | Work every instance's board inbox in one run, in a fixed order (Author, Expert, Researcher, Scientist), one ticket at a time under the 3-item cap; --campaign T or --cowork S takes only that workplan's tickets. Use for "work all the inboxes". |
 | /academy:init | Create a new academy instance: scaffold the home's .claude/academy.json, register it in workspace.json, add .gitattributes and a board folder, and for a Researcher the notebook layout. Use for "/academy:init researcher@<domain>", "add a research domain". |
 | /academy:maintain | Measured maintenance round on the academy plugins: survey, fix, gate. |
-| /academy:notation-discipline | Which notation wins (domain pack < project decisions < the draft) and how to introduce symbols: one symbol per object, introduced before use, changes routed to their owner. Use whenever a symbol is written or changed, or documents disagree on notation. |
+| /academy:notation-discipline | Which notation wins (paper style.md > writing-style.md > domain pack) and who changes it. Use whenever a symbol is written or changed, or documents disagree on notation. |
 | /academy:review | Review open packets across all instances: render one private HTML dashboard, put each pending decision to the human, and write each answer back to the packet and its ticket. Use for "review", "show me the packets", "let's go through the decisions". |
 | /academy:rigor | Discipline for honest research mathematics: pin the statement down, test before proving, hunt for gaps, report established versus assumed. Use whenever asked to prove, disprove, verify or repair a claim or review a proof ("is this proof correct"). |
 | /academy:status | Health of the academy as a whole: per instance, whether its home exists and .claude/academy.json is valid and matches workspace.json, plus ticket and packet counts. Use for "academy status", "is everything configured". Per role: /<role>:status. |

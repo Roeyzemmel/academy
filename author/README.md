@@ -10,8 +10,11 @@ contracts it codes against are the academy repo's `docs/protocol.md`,
 **The Author owns the paper's form and taste**, not only the typing of settled results:
 the arc, economy of statements, notation that earns its place, proofs at the right
 level, examples and figures where they carry the idea, the introduction's promise kept,
-one voice (`references/aesthetic-vision.md`). Each paper home keeps its own
-`Drafts/vision.md` (scaffolded from `templates/vision.md` by `/academy:init`; the
+one voice (the academy's `academy/references/writing-style.md`; the role cut and the
+aesthetic pass are `references/aesthetic-vision.md`). Each paper home keeps its own
+`.claude/rules/style.md` (the paper's notation, decisions, macros and margin-note rules,
+refining the guide; scaffolded from `templates/style.md`) and `Drafts/vision.md` (the
+arc and the decisions log, scaffolded from `templates/vision.md` by `/academy:init`; the
 human's stated taste, dated, with pending decisions marked). The writers read it first
 and apply it within their remit; `/author:agenda vision` and `/author:presync` run an
 aesthetic pass (a read-only `math-editor` in vision mode) whose proposals become Author
@@ -39,7 +42,8 @@ once, as `pre_tool_use.py`, which calls each guard's `decide(event)` in that ord
 process (the first denial wins, a guard that raises is skipped); each still runs standalone:
 `tex_edit_check` (PostToolUse edits: checker + dirty marker), `bib_gate` (only
 `expert:librarian` edits the bibliography), `notation_scope_guard` (PreToolUse edits:
-the notation-auditor edits only the home's `notation-decisions.md`; scoped by agent),
+the notation-auditor edits only the home's `.claude/rules/style.md`, or a home's old
+`notation-decisions.md`; scoped by agent),
 `pinned_guard` (PreToolUse edits: nobody, the main session included, changes the
 environment of a statement a CONFIRMED review pinned, `scripts/pinned.py`; the proof is
 free; only the human releases a pin in `.claude/pinned-release.txt`), `preamble_guard`
@@ -73,11 +77,11 @@ colours: `skills/paper-method/references/editing-tex.md`, `draft-colours.md`. Te
 | Skill | What it does |
 |---|---|
 | /author:agenda | Maintain the paper's agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into tickets. Use for "update the agenda", "what does the paper need". |
-| /author:audit-notation | Audit the paper's notation against the home's notation decisions and the domain pack, report clashes, sync notation-decisions.md to the draft, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round. |
+| /author:audit-notation | Audit the paper's notation against its style.md and the domain pack, report clashes, sync style.md's notation to the draft, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round. |
 | /author:inbox | Work the paper's inbox (replaces /author:next): sweep the machine notes, then take at most three tickets from the board, routed by kind, landed if returned, or released if unblocked. Use for "next", "run the agenda", "work the inbox". |
 | /author:next | Retired: /author:next is now /author:inbox. Use only to be redirected; for "next" or "run the agenda" use /author:inbox. |
 | /author:notes | File the human's new margin notes as tickets on their agenda entry (to the Author, or to the role owning the work), and referee-packet points. Use when the human left notes in the PDF, after an Overleaf sync, or when a referee packet returns. |
-| /author:paper-method | How to write a research mathematics paper in LaTeX so a reader one field over can follow it: structure, prose, labels, macros, bibliography, exposition from proofs, pre-send checklist. Use whenever writing, restructuring or cleaning up a paper. |
+| /author:paper-method | Writing a math paper in LaTeX: the two style sources (writing-style.md, the paper's style.md), the paper's mechanics, handing back a section, the pre-send checklist. Use whenever writing, restructuring or cleaning up a paper. |
 | /author:presync | The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, coloured diff, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone. |
 | /author:slideshow-maker | Build a research talk as a beamer deck plus lecture notes from one TeX source set: verified statements, definitions before use, figures that show the mechanism, no status tags, a review loop. Use for "make slides", "a 25-minute talk". |
 | /author:status | The paper's state at a glance: agenda progress, what /author:inbox would run, what waits on which ticket, tickets to this Author, checker summary. Read-only. Use for "where is the paper", "author status", "how far is the milestone". |

@@ -655,14 +655,30 @@ class InitInstanceTest(Sandbox):
             text = fh.read()
         self.assertIn("# Vision: author@pp", text)
         self.assertNotIn("{{", text)
-        for head in ("## The arc", "## Statements", "## Proofs", "## Decisions log"):
+        for head in ("## The arc", "## Decisions log"):
             self.assertIn(head, text)
+        self.assertIn("style.md", text)          # the style lives in the paper's file
+        # the paper's own style file (academy issue #106)
+        style = os.path.join(home, ".claude", "rules", "style.md")
+        self.assertTrue(any(l.startswith("style: wrote") for l in lines), lines)
+        with open(style, encoding="utf-8") as fh:
+            stext = fh.read()
+        self.assertIn("# Style of this paper: author@pp", stext)
+        self.assertNotIn("{{", stext)
+        self.assertIn("writing-style.md", stext)
+        for head in ("## Notation", "## Macros", "## Margin notes"):
+            self.assertIn(head, stext)
         with open(path, "w", encoding="utf-8") as fh:
+            fh.write("kept\n")
+        with open(style, "w", encoding="utf-8") as fh:
             fh.write("kept\n")
         lines = init_instance.init_instance("author@pp", home, ["dom"], ns="pp",
                                             workspace_path=self.ws_path, force=True)
         self.assertIn("vision: present, left alone", lines)
+        self.assertIn("style: present, left alone", lines)
         with open(path, encoding="utf-8") as fh:
+            self.assertEqual("kept\n", fh.read())
+        with open(style, encoding="utf-8") as fh:
             self.assertEqual("kept\n", fh.read())
 
     def test_gitattributes(self):

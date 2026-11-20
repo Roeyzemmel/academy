@@ -23,7 +23,8 @@ config fields are `docs/config.md`; the notebook layout is plan section 3.3.
    `ok`.
 6. **Tell the human** what is left by hand: the role-specific settings the template leaves
    generic (an Author's coauthor note macros, CRLF files, checker baseline, and the
-   human's taste in the scaffolded `Drafts/vision.md`, `author/references/aesthetic-vision.md`; a
+   human's taste in the scaffolded `.claude/rules/style.md` (refining the academy's
+   `references/writing-style.md`) and the arc in the scaffolded `Drafts/vision.md`; a
    Scientist's environment profiles and `knownCases`, and in the scaffolded lab
    (`scientist/templates/lab/`) the libraries `env.py` records and the scope defaults of
    `experiments/README.md`; an Expert's library `README.md` additions; an Expert's `bibs`), editing

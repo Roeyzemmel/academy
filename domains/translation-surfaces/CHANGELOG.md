@@ -3,6 +3,10 @@
 Newest first. One line per change to a pack file; a theorem entry or an API finding
 names its section.
 
+## Unreleased — 2026-11-20: precedence header (academy issue #106)
+
+- 2026-11-20 academy #106: `notation.md` header and the pack skill's "Notation and figures": precedence is now a paper's `.claude/rules/style.md` > the academy's `writing-style.md` > this pack (was: pack < project decisions < the draft). No notation row changed.
+
 ## Unreleased — 2026-11-07: notation (T-0997, first of three changes)
 
 - 2026-11-07 T-0997: `notation.md` (slope of an irreducible 2-point marking, signed rational form, slope locus, AW21/LMW16 normalisations; "Billiards, unfolding, illumination"). Blocking sets `B_n(X)` and decorated tori `T_L`, `T_Lambda`, `T[n]` are not yet done (own tickets).

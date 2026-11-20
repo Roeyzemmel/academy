@@ -4,8 +4,8 @@ Mechanics that hold in every Author home. The conventions a home may change are 
 the `author` block of `.claude/academy.json` (`docs/config.md`; defaults in brackets
 below): the files (`crlf`, `main`, `build`, `checker`), the draft levels
 (`statusLevels`, `draft-colours.md`), `preamble`, `labels`, `notes`, `figures`, `bib`
-and `mainResults`. The home's `.claude/rules/` add only its macro list and its note-macro
-names.
+and `mainResults`. The home's `.claude/rules/style.md` adds only its macro list, its
+note-macro names and its style decisions (refining the academy's `writing-style.md`).
 
 ## The preamble (`author.preamble`)
 

@@ -1006,7 +1006,7 @@ def cmd_merge(a):
     if a.bump:
         try:
             short = git(repo, "rev-parse", "--short", merged)
-            git(ROOT, "add", "--", a.sub)
+            git(ROOT, "add", "-f", "--", a.sub)   # -f: under ignore = all a plain add skips the pointer
             git(ROOT, "commit", "-q", "-m", "Bump %s to %s" % (a.sub, short), "--", a.sub)
         except Refuse as e:
             raise Refuse("merge done; bump failed: %s" % e)
@@ -1158,7 +1158,7 @@ def cmd_bump(a):
         checked.append(sub)
         done.append("%s to %s" % (sub, full[:9]))
     for sub in checked:          # every one checked first: a refusal stages nothing
-        git(ROOT, "add", "--", sub)
+        git(ROOT, "add", "-f", "--", sub)   # -f: under ignore = all a plain add skips the pointer
     # --ignore-submodules=none: the workspace's .gitmodules sets ignore = all, which hides
     # every pointer change from a plain diff (2026-11-20: every real bump said "nothing to bump")
     if not git(ROOT, "diff", "--cached", "--name-only", "--ignore-submodules=none", "--", *a.subs):

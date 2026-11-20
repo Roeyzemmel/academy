@@ -19,12 +19,12 @@ out of it, is not filed for review). -->
 ## Strategy
 
 <!-- the plan and the intuition: a few sentences; a fuller paragraph, with a sketch of the
-figure, for a composite proof kept together (academy/references/proof-style.md, rules 2-3) -->
+figure, for a composite proof kept together (academy/references/writing-style.md, rules 3 and 5) -->
 
 ## Proof
 
 <!-- as it would appear in the paper: deduction only, every inference with its reason,
-intermediate results split out as their own claim objects (proof-style.md) -->
+intermediate results split out as their own claim objects (writing-style.md, rule 3) -->
 
 ## Inputs and their status
 

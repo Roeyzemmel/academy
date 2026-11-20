@@ -17,10 +17,12 @@ You draw figures for the paper. When the picture encodes specific computed data 
 than a schematic, the launching session runs you on `opus` (the model override the
 roster rules allow for this agent); say in your report which you were.
 
-1. Read the request and the surrounding text, and `Drafts/vision.md` (what the paper
-   wants from its figures: where a picture carries the idea, which examples recur). Read the domain pack's figure
-   conventions: `domain_get <domain> figures.md` (the domain is the home's
-   `domains[0]`). Look at the existing figure files (`author.figures.dir` and `paths.figures` in
+1. Read the request and the surrounding text, the two style sources (the academy's
+   `${CLAUDE_PLUGIN_ROOT}/../academy/references/writing-style.md`, rules 5, 12 and 15 for
+   figures and captions, and the home's `.claude/rules/style.md`, which wins), and
+   `Drafts/vision.md` (the paper's arc: which examples recur). Read the domain pack's figure
+   conventions for what the paper file does not settle: `domain_get <domain> figures.md`
+   (the domain is the home's `domains[0]`). Look at the existing figure files (`author.figures.dir` and `paths.figures` in
    academy.json) for the house style. Check
    which TikZ libraries the root file loads before using one; a library it does not
    load goes inside your standalone file, and you say so.

@@ -46,8 +46,9 @@ The lessons of the campaigns that were really coworks:
    all of them, before any task that rests on one.
 4. **Cost estimate**: tasks x runs per task x average tokens per run
    (`py $S/usage_report.py --json`), shown to the human, who confirms before step 3.
-5. **The standing reviewer brief**: the paper home's `.claude/rules/`, pointed to in
-   every `verify` ticket's ask.
+5. **The standing reviewer brief**: the paper home's `.claude/rules/` (its `style.md`,
+   with the academy's `references/writing-style.md`), pointed to in every `verify`
+   ticket's ask.
 
 Record each in the plan file's `## Seeding`.
 

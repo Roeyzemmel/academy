@@ -1,14 +1,16 @@
 ---
 name: audit-notation
-description: 'Audit the paper''s notation against the home''s notation decisions and the domain pack, report clashes, sync notation-decisions.md to the draft, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round.'
+description: 'Audit the paper''s notation against its style.md and the domain pack, report clashes, record the draft''s notation in style.md where no decision exists, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round.'
 ---
 
 # /author:audit-notation
 
 Launch `notation-auditor` (`subagent_type: author:notation-auditor`). It reads the
-tex, edits **only** the home's `.claude/rules/notation-decisions.md`, and files one
-`notation` ticket to the Expert for rows that belong in the domain pack. Precedence
-(the academy `notation-discipline` skill): domain pack < project decisions < the draft.
+tex, edits **only** the notation section of the home's `.claude/rules/style.md` (a home
+not yet moved keeps `notation-decisions.md`), and files one `notation` ticket to the
+Expert for rows that belong in the domain pack. Precedence (the academy
+`notation-discipline` skill): the paper's `style.md` > the academy's `writing-style.md` >
+the domain pack; the draft and the paper file: `writing-style.md`, rule 13.
 
 ## The brief
 
@@ -27,6 +29,6 @@ tex, edits **only** the home's `.claude/rules/notation-decisions.md`, and files 
   transition T-NNNN blocked --waiting-on human --reason "<the decision>" --as <this
   instance>`).
 - **The domain ticket** (if any) is the Expert's to act on; relay its id.
-- **The decisions file** is this paper's only; say which rows changed.
+- **The notation section of `style.md`** is this paper's only; say which rows changed.
 
 Relay the report's parts as the agent wrote them. Never ask questions.

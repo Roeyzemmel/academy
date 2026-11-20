@@ -1,12 +1,15 @@
 """PreToolUse (Edit|Write|MultiEdit|NotebookEdit): the notation-auditor edits one file.
 
-Plan section 3.2: the notation-auditor "edits only the repo's notation-decisions.md";
-a change to the domain pack's notation goes to the Expert as a ticket. This hook makes
+Plan section 3.2: the notation-auditor edits only the paper's settled notation; a
+change to the domain pack's notation goes to the Expert as a ticket. This hook makes
 that mechanical. When the caller is the notation-auditor (``agent_identity``,
 namespace-stripped; a namespaced caller must come from the ``author`` plugin), the
-edit is allowed only on ``<author home>/.claude/rules/notation-decisions.md``, where
-an Author home is any author instance of workspace.json or any directory whose
-``.claude/academy.json`` has role author. Every other edit by it is denied.
+edit is allowed only on the home's style file ``<author home>/.claude/rules/style.md``
+(academy issue #106: its notation section is the paper's decisions file) or, for a home
+not yet moved to it, the old ``<author home>/.claude/rules/notation-decisions.md``,
+where an Author home is any author instance of workspace.json or any directory whose
+``.claude/academy.json`` has role author. Every other edit by it is denied. (Which
+section of ``style.md`` it may change is the agent's brief, not this hook's.)
 
 The hook scopes by agent, not by path: an edit by any other caller passes silently.
 A hook bug never blocks an edit.
@@ -21,7 +24,10 @@ ac = au.ac
 
 AGENT = "notation-auditor"
 NAMESPACES = ("", "author")
+STYLE_REL = os.path.join(".claude", "rules", "style.md")
+#: the file the notation section of style.md replaced; still accepted for a home not moved
 DECISIONS_REL = os.path.join(".claude", "rules", "notation-decisions.md")
+ALLOWED_REL = (STYLE_REL, DECISIONS_REL)
 
 
 def author_homes(path, ws=None):
@@ -52,11 +58,13 @@ def decide(event, ws=None):
     if path:
         full = os.path.normcase(os.path.abspath(path))
         for home in author_homes(path, ws):
-            want = os.path.normcase(os.path.abspath(os.path.join(home, DECISIONS_REL)))
-            if full == want:
-                return None
-    return ("deny", "author: the notation-auditor edits only the home's "
-                    ".claude/rules/notation-decisions.md (%s was refused). Report the "
+            for rel in ALLOWED_REL:
+                want = os.path.normcase(os.path.abspath(os.path.join(home, rel)))
+                if full == want:
+                    return None
+    return ("deny", "author: the notation-auditor edits only the notation section of the "
+                    "home's .claude/rules/style.md (or a home's old "
+                    ".claude/rules/notation-decisions.md) (%s was refused). Report the "
                     "draft's clashes; a change to the domain pack's notation.md is a "
                     "`notation` ticket to the Expert (tickets_create)." % (path or "?"))
 

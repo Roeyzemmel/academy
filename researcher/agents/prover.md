@@ -53,7 +53,7 @@ under `.git`.
   folder; `notebook.py attempt <id> --create` gives the path), where the folder is the id
   with every `:` written `-` (`proofs/paper-lem-x/`, never `proofs/paper:lem:x/`: a colon
   breaks Windows checkouts; the same for `attack.md`), from `attempt.md`, written to the proof style of
-  `<academy repo>/academy/references/proof-style.md` (read it before the first attempt:
+  `<academy repo>/academy/references/writing-style.md` (read it before the first attempt:
   short statements in a chain, a plan and the intuition for a composite proof, no
   discussion in the proof, every inference with its reason). List every input in *Inputs and their status* with its id
   and registry status, or its citation `bib:<key>#<pinpoint>`, and **state the same items

@@ -88,7 +88,8 @@ In short (each is elaborated, with the sheet entry that carries it, in
 ## Notation and figures
 
 [`notation.md`](../../notation.md) is the domain's default notation. A project's
-settled decisions and its draft override it (`academy:notation-discipline`); a change to
+own style file (`.claude/rules/style.md`) and the academy's writing guide override it
+(`academy:notation-discipline`); a change to
 the domain standard is a `notation` ticket to Expert.
 
 [`figures.md`](../../figures.md) has conventions and reusable TikZ for the pictures this
