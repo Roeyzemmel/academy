@@ -108,6 +108,10 @@ model the table reads as PLAUSIBLE, so nothing is proposed on it.
 
 ## 1a. The falsifier, between A and B
 
+A falsifier counts only on this statement's hash. Most falsifiers recorded before this
+rule (2026-11-20) name no hash, so they do not count: such a claim gets a new falsifier
+request (only the human's waiver counts without a hash).
+
 The human's design (2026-11-20): the order is **attempt, run A, the falsifier, run B**. A
 falsifier (an experiment or test that tries to break the claim) is spent only on a proof
 that survived A. It runs only after a CONFIRMED A with `launch_b` and an unchanged hash;

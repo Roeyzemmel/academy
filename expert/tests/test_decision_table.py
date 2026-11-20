@@ -933,6 +933,12 @@ class ResearcherForTests(unittest.TestCase):
     def who(self, subject, **kw):
         return dt.researcher_for(subject, self.WS, **kw)[0]
 
+    def test_several_owners_of_one_namespace_stop_at_the_human(self):
+        ws = {"instances": dict(self.WS["instances"], **{"researcher@a2": {"role": "researcher", "ns": "a"}})}
+        who, why = dt.researcher_for("a:GEO-1", ws, bears_on=["b:X"])
+        self.assertEqual(who, "human")
+        self.assertIn("several Researchers", why)
+
     def test_the_namespace_owner_wins(self):
         self.assertEqual(self.who("a:GEO-1", bears_on=["b:X"], parties=["researcher@b"]),
                          "researcher@a")

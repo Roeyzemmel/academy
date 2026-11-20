@@ -624,6 +624,9 @@ def researcher_for(subject, workspace, bears_on=(), parties=()):
     own = researcher_of_ns(ns) if ns else []
     if len(own) == 1:
         return own[0], "the Researcher owning the namespace %s" % ns
+    if len(own) > 1:
+        return "human", ("several Researchers own the namespace %s (%s): the human decides"
+                         % (ns, ", ".join(own)))
     steps = (
         ("bears_on", sorted({r for b in bears_on or ()
                              for r in researcher_of_ns(str(b).split(":", 1)[0].strip())

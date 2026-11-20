@@ -242,7 +242,7 @@ const prep = await launch(STAGE('prepare', [
       'or the ticket thread records one (the falsifier request this ticket waited on, once it is back: its result); or the human waived it on the ticket or the claim (quote that thread line verbatim); else none. ' +
       'Say what it found (nothing, or a counterexample), any falsifier request this ticket already filed with its status, and the claim\'s declared inputs. ' +
       'Run `reviews.py researcher-for ' + A.claim + ' --party <instance>` once, with a --party for the from and the to of the ticket and of each ticket up its parent chain (tickets_get), and report its instance and why as researcher and researcher_why. ' +
-      'Report in statement_hash the statement hash the falsifier attacked when its record says it (a request this workflow filed names it in its ask: "statement hash <h>"); else leave it empty: a falsifier of unknown or another wording does not count (a waiver aside).',
+      'Report in falsifier.statement_hash (not the pass\'s own statement_hash) the statement hash the falsifier attacked when its record says it (a request this workflow filed names it in its ask: "statement hash <h>"); else leave it empty: a falsifier of unknown or another wording does not count (a waiver aside).',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {
@@ -343,7 +343,7 @@ function falsifierOnRecord(f) {
     counts = false
     notes.push(`a ${src} falsifier was reported with found ${JSON.stringify(found)} (not nothing, not a counterexample): not counted`)
   }
-  if (counts && src === 'ticket' && !/^(delivered|closed)$/.test(String(f.request_status || '').trim())) {
+  if (counts && (src === 'ticket' || f.request) && !/^(delivered|closed)$/.test(String(f.request_status || '').trim())) {
     counts = false
     notes.push(`the falsifier request ${f.request || f.on || '(none named)'} is ${f.request_status || 'of unknown status'}, not delivered or closed: not counted`)
   }
