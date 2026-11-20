@@ -44,11 +44,13 @@ def compose_body(sections):
 
 
 def load_packet(ctx, pid):
-    if not ac.RE_PACKET_ID.match(str(pid or "")):
+    # P-0012, or P-0012@<part of its path> when two packet files share the id (#90)
+    if not ac.RE_PACKET_ID.match(str(pid or "").split("@", 1)[0]):
         hint = ""
         if ac.RE_TICKET_ID.match(str(pid or "")):
             hint = "; %s is a ticket: read it with tickets_get" % pid
-        raise ToolError("a packet id looks like P-0012, got %r%s" % (pid, hint))
+        raise ToolError("a packet id looks like P-0012 (or P-0012@<folder or slug> for one of "
+                        "two files sharing it), got %r%s" % (pid, hint))
     path = ac.find_packet(ctx.board, pid)
     if not path:
         raise ToolError("no packet %s on the board" % pid)

@@ -515,8 +515,31 @@ def find_ticket(board, tid):
 
 
 def find_packet(board, pid):
-    """Path of the packet file with id ``pid`` (under board/packets/), or None."""
-    return _find_by_id(os.path.join(str(board), "packets"), pid)
+    """Path of the packet file with id ``pid`` (under board/packets/), or None.
+
+    Two packet files with one id (P-0360, P-0361, P-0368, P-0380: allocated on parallel
+    branches) raise AcademyError listing both, never the first ``os.walk`` match (#90:
+    ``decisions.py record`` wrote into the wrong twin). ``P-0360@<text>`` picks the one
+    whose path under packets/ contains ``<text>`` (an instance folder or the slug)."""
+    pid, _, hint = str(pid).partition("@")
+    root = os.path.join(str(board), "packets")
+    found = _find_all_by_id(root, pid)
+    if hint:
+        found = [p for p in found if hint in os.path.relpath(p, root).replace(os.sep, "/")]
+    if len(found) > 1:
+        rels = [os.path.relpath(p, root).replace(os.sep, "/") for p in found]
+        raise AcademyError("%s names %d packet files (%s): say which, as %s@<folder or slug>"
+                           % (pid, len(found), ", ".join(rels), pid))
+    return found[0] if found else None
+
+
+def _find_all_by_id(root, xid):
+    rx = re.compile(r"^%s(?:-.*)?\.md$" % re.escape(xid))
+    out = []
+    for dirpath, dirnames, filenames in os.walk(str(root)):
+        dirnames[:] = sorted(d for d in dirnames if d not in (".git", IDS_DIR))
+        out.extend(os.path.join(dirpath, f) for f in sorted(filenames) if rx.match(f))
+    return out
 
 
 def _find_by_id(root, xid):

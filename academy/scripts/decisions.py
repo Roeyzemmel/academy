@@ -51,8 +51,9 @@ import academy_common as ac  # noqa: E402
 import board as boardlib  # noqa: E402
 import packets as packetlib  # noqa: E402
 
-RE_PACKET_DECISION_ID = re.compile(r"^(P-\d{4,})/D(\d+)$")
-RE_PACKET_ID = re.compile(r"^P-\d{4,}$")
+# a packet id may carry '@<part of its path under packets/>' when two files share it (#90)
+RE_PACKET_DECISION_ID = re.compile(r"^(P-\d{4,}(?:@[^\s]+?)?)/D(\d+)$")
+RE_PACKET_ID = re.compile(r"^P-\d{4,}(?:@\S+)?$")
 
 #: docs/packet-template.md kinds that are about the mathematics, a research
 #: direction or spending real agent budget -- never auto-accepted mechanically.
@@ -192,12 +193,22 @@ def _packet_items(board, instance=None):
     items = []
     every = packetlib.list_packets(board)                 # read once, for _staleness
     metas = None                                          # the tickets, listed on first need
+    root = os.path.join(ac.board_dir(board), "packets")
+    seen = {}
+    for m in every:
+        seen[m["packet"]] = seen.get(m["packet"], 0) + 1
     for m in every:
         if m.get("state") != "open" or (instance and m.get("instance") != instance):
             continue
         with open(m["_path"], "r", encoding="utf-8") as fh:
             _meta2, body = ac.read_frontmatter(fh.read())
         asked, answers = ac.packet_decisions(body), ac.packet_answers(body)
+        # #90: an id two packet files share is qualified with this file's path, so every
+        # write (record, proceed, accept-recommended) reaches this file and not its twin
+        ref = m["packet"]
+        if seen.get(ref, 0) > 1:
+            rel = os.path.relpath(m["_path"], root).replace(os.sep, "/")
+            ref = "%s@%s" % (ref, rel[:-3] if rel.endswith(".md") else rel)
         for k in sorted(asked):
             if k in answers:
                 continue
@@ -208,7 +219,7 @@ def _packet_items(board, instance=None):
             if metas is None and m.get("ticket"):
                 metas = _ticket_metas(board)
             items.append({
-                "id": "%s/D%d" % (m["packet"], k),
+                "id": "%s/D%d" % (ref, k),
                 "instance": m.get("instance"),
                 "title": m.get("title"),
                 "question": d["question"],
@@ -223,7 +234,7 @@ def _packet_items(board, instance=None):
                 "unblocks": _packet_unblocks(board, m.get("ticket"), metas),
                 "stale": _staleness(board, m, m.get("created"), every),
                 "source": "packet",
-                "ref": m["packet"],
+                "ref": ref,
             })
     return items
 

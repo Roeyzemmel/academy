@@ -317,6 +317,21 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("wait on the human", res["for_main"]["why"])
         self.assertEqual(res["passes"], 2)                     # pass 2 moved nothing: quiet
 
+    def test_a_later_listing_with_an_empty_home_keeps_the_home_seen_before(self):
+        """#94 (the fix of 26b28cd): pass 2's listing came back with home '' and the
+        nested prove threw 'args.home must be the Researcher home', ending the run."""
+        first = [row("T-2", how="reject", target=None, kind="prove", to="researcher@u")]
+        later = [row("T-3", how="skill", target="researcher:prove", kind="prove", to="researcher@u",
+                     refs=["flat:GEO-3"])]
+        lost = dict(inst("researcher@u", later), home="")
+        plan = {"list": [{"instances": [inst("researcher@u", first)]}], "T-2 reject": [OK], "check T-2": [DONE],
+                "list 2": [{"instances": [lost]}],
+                "workflow prove.js": [{"outcome": "verify-filed", "verify_ticket": "T-9"}], "check T-3": [DONE],
+                "list 3": [{"instances": [inst("researcher@u", [])]}]}
+        res, labels, calls = self.run_wf(plan, loop=True)
+        wf = next(c for c in calls if c["label"] == "workflow prove.js")
+        self.assertEqual(wf["args"]["home"], "/h/researcher@u")
+
     def test_an_author_research_route_is_filed_by_math_writer_and_checked(self):
         rows = [row("T-5", how="research", target="expert", kind="write", to="author@t")]
         plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
