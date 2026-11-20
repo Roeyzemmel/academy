@@ -51,7 +51,8 @@ report says the pass ran by hand.
   (`references/conclude.md` section 1a). The chair filed the falsifier request
   (`falsifier_request`, a `research` ticket to the Researcher with `final_to: scientist`)
   and blocked the verify ticket on it; the pass stays open. Once the request is back,
-  release the ticket and run this skill on it again: the pass resumes (A is tabled, not
+  the Expert's inbox releases the ticket (`inbox.py`, a `released` row) and runs this skill
+  on it again (a rejected or cancelled request releases it to the human instead): the pass resumes (A is tabled, not
   relaunched) and B launches only if the falsifier found nothing. A pass with no ticket
   never waits: it could not be resumed (`reviews.py` resumes a ticket's own pass only),
   so the falsifier stage is skipped with a note in the record and B runs as before.

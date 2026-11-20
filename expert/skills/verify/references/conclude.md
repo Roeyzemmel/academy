@@ -143,7 +143,9 @@ a negative A concludes on A alone, and a reword pass has no falsifier stage.
 - **A request already filed** by an earlier run of this pass: file nothing. Still out:
   block the ticket on it again. Back with no falsifier that counts: block the ticket
   `waiting_on: [human]` (another falsifier, or a waiver, is the human's call).
-- **The rerun.** Once the request is back the verify ticket is released and run again:
+- **The rerun.** Once the request is back the Expert's inbox releases the verify ticket
+  (`inbox.py`: a `released` row, `blocked -> accepted`; a request that was rejected or
+  cancelled releases it to the human instead, never into B) and it is run again:
   `new-pass` returns the same open pass (#89), A is tabled, not relaunched, and the
   falsifier is read from the request's result (source `ticket`).
 - **A counterexample.** B is not launched and no status changes: never
