@@ -2,7 +2,6 @@
 attributes changed paths to a ticket, the run claims and their staleness, the stop check's
 unclaimed set, and the manifest.py CLI. Temp repos only."""
 
-import io
 import json
 import os
 import shutil
@@ -11,7 +10,6 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(HERE)
