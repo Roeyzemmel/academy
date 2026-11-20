@@ -23,7 +23,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -108,6 +108,33 @@ class WeeklyTests(unittest.TestCase):
         res, calls = self.run_wf({}, instance="")
         self.assertEqual(calls, [])
         self.assertIn("file no packet", res["reason"])
+
+
+    # ---- #124 follow-up 2: a stage that leaves out a free-text field loses no run ----------
+
+    def test_free_text_fields_are_asked_and_never_required(self):
+        _res, calls = self.run_wf({"gather": [data()],
+                                   "write and file": [{"ok": True, "packet": "P-0200"}],
+                                   "settle": [{"ok": True, "closed": 0}]})
+        want = {"gather": "error", "write and file": "error", "settle": "detail"}
+        for c in calls:
+            field = want[c["label"]]
+            self.assertIn(field, c["schema"]["properties"], c["label"])
+            self.assertNotIn(field, c["schema"]["required"], c["label"])
+
+    def test_missing_reasons_read_no_reason_given(self):
+        d = data()
+        d.update(ok=False)
+        del d["error"]
+        res, _ = self.run_wf({"gather": [d]})
+        self.assertEqual(res["reason"], "a script failed: no reason given")
+        res, _ = self.run_wf({"gather": [data()], "write and file": [{"ok": False, "packet": ""}]})
+        self.assertIn("not filed: no reason given", res["reason"])
+        res, _ = self.run_wf({"gather": [data()], "write and file": [{"ok": True, "packet": "P-0200"}],
+                              "settle": [{"ok": False, "closed": 0}]})
+        self.assertFalse(res["settled"])
+        self.assertIn("did not run: no reason given", res["reason"])
+        self.assertNotIn("undefined", json.dumps(res))
 
 
 if __name__ == "__main__":

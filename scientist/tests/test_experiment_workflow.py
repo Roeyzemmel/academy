@@ -194,6 +194,21 @@ class ExperimentTests(unittest.TestCase):
         self.assertEqual(res["outcome"], "filed")
         self.assertTrue(res["ticket_delivered"])
 
+    def test_the_filed_schema_does_not_require_why_or_error(self):
+        """#124 follow-up 2: FILED asks for why and error and requires neither."""
+        res, _labels, calls, err = self.run_wf({"file": [{"packet": "P-1", "review_ticket": "T-9", "researcher": "researcher@u"}],
+                                                "deliver": [{"ok": True}]}, mode="file", stem="s", ticket="T-1")
+        self.assertIsNone(err, err)
+        schema = self.schema_of(calls, "file")
+        for field in ("why", "error"):
+            self.assertIn(field, schema["properties"])
+            self.assertNotIn(field, schema["required"])
+        self.assertEqual(set(schema["required"]), {"packet", "review_ticket", "researcher"})
+        self.assertEqual((res["outcome"], res["why"]), ("filed", "no reason given"))
+        res, _labels, _calls, err = self.run_wf({"file": [{"packet": "", "review_ticket": "", "researcher": ""}]},
+                                                mode="file", stem="s", ticket="T-1")
+        self.assertEqual((res["outcome"], res["reason"]), ("not-filed", "no reason given"))
+
     def test_a_refusal_without_detail_says_so_plainly(self):
         res, labels, _, err = self.run_wf({"lab home": [{"ok": False, "instance": "", "home": "", "run_profile": ""}]},
                                           mode="design", claim="lab:x")

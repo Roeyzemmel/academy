@@ -75,15 +75,17 @@ const clerk = (stage, lines, schema, label, phase) => launch(
   `WORKFLOW STAGE ${stage} of the academy-generalize workflow. Home: ${A.home}.` + (A.instance ? ` Instance: ${A.instance}.` : '') + (T ? ` Ticket: ${T}.` : '') + '\n' + SCRIPTS + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
+// #124: the clerk stages ask for their free text (refusal, error, detail) and never require it (a clerk
+// that left one out lost its run); a missing one reads 'no reason given'
 const SOURCE = { type: 'object', properties: { ok: { type: 'boolean' }, refusal: { type: 'string', description: 'the exit-2 message when the review has not cleared' },
   lab_claim: { type: 'string' }, report: { type: 'string' }, max: { type: 'number', description: 'the cap generalize.py reports (maxPerRun, at most 3)' } },
-  required: ['ok', 'refusal', 'lab_claim', 'report', 'max'] }
+  required: ['ok', 'lab_claim', 'report', 'max'] }
 const CHECKED = { type: 'object', properties: { ok: { type: 'boolean' }, problems: { type: 'array', items: { type: 'string' } },
   failing: { type: 'array', items: { type: 'string' }, description: 'the proposal ids the problems name' }, proposals: { type: 'number' } }, required: ['ok', 'problems', 'failing', 'proposals'] }
-const CREATED = { type: 'object', properties: { conjectures: { type: 'array', items: { type: 'string' } }, lemmas: { type: 'array', items: { type: 'string' } }, error: { type: 'string' } }, required: ['conjectures', 'lemmas', 'error'] }
-const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'error'] }
+const CREATED = { type: 'object', properties: { conjectures: { type: 'array', items: { type: 'string' } }, lemmas: { type: 'array', items: { type: 'string' } }, error: { type: 'string' } }, required: ['conjectures', 'lemmas'] }
+const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error: { type: 'string' } }, required: ['packet'] }
 const CHILDREN = { type: 'object', properties: { tests: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } }, required: ['id', 'refs'] } } }, required: ['tests'] }
-const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
+const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
 // workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
@@ -186,7 +188,7 @@ phase('Source')
 const s = await clerk('source', [`Run generalize.py source ${A.ref} --json: return ok, or ok false with its exit-2 refusal; the lab claim, the report packet and the cap (max).`,
   T ? `If it is ok, take ${T}: open -> accepted -> in-progress (leave an in-progress ticket as it is).` : 'Touch no ticket.'], SOURCE, 'source', 'Source')
 if (!s) return Object.assign(out, { outcome: 'not-started', reason: 'the source stage returned nothing' })
-if (!s.ok) return Object.assign(out, { outcome: 'not-started', reason: 'generalize.py source refused: ' + s.refusal + ' (run /researcher:review-experiment first)' })
+if (!s.ok) return Object.assign(out, { outcome: 'not-started', reason: 'generalize.py source refused: ' + (s.refusal || 'no reason given') + ' (run /researcher:review-experiment first)' })
 if (!T) return Object.assign(out, { outcome: 'needs-ticket', needs_ticket: true, lab_claim: s.lab_claim, report: s.report,
   reason: 'no generalize ticket: the main session files one to this instance (kind generalize, refs the lab claim and the report), then calls again with it' })
 const LAB = s.lab_claim
@@ -228,7 +230,7 @@ const pk = await clerk('packet', [`Run generalize.py packet-body ${FILE} --lab-c
   `--instance ${A.instance || '<this instance>'} --kind generalization --title "Generalizations of ${LAB}" --ticket ${T} --subject ${c.conjectures.concat(c.lemmas).join(',')} ` +
   `--status-proposed conjectured --body <that file>; return the packet id.`], PACKET, 'packet', 'Record')
 Object.assign(out, { lab_claim: LAB, file: FILE, conjectures: c.conjectures, lemmas: c.lemmas, packet: pk && pk.packet ? pk.packet : null })
-if (!out.packet) out.notes.push('the packet was not filed: ' + (pk ? pk.error : 'no answer'))
+if (!out.packet) out.notes.push('the packet was not filed: ' + (pk ? pk.error || 'no reason given' : 'no answer'))
 // the falsifier tests: lead-researcher (a researcher -> scientist liaison) files the ones
 // generalize.py tickets prints; the script then checks a test names each conjecture and delivers
 const SPECS = { type: 'object', properties: { specs: { type: 'array', items: { type: 'object' } } }, required: ['specs'] }

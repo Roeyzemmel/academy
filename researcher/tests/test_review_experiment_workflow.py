@@ -34,7 +34,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -87,6 +87,37 @@ class GateTests(unittest.TestCase):
     @staticmethod
     def labels(calls):
         return [c["label"] for c in calls]
+
+    # ---- #124 follow-up 2: free text asked, never required; the packet id is its own field ----
+
+    def test_prep_and_done_require_no_free_text(self):
+        p = prep()
+        del p["stop_reason"]
+        res, calls = self.run_wf({"prepare": [p], "run A": ["r"], "decide": [dec("not-cleared", ["BROKEN"])],
+                                  "claim-keeper evidence": ["rows"], "close": [{"ok": True}]})
+        for label, field in (("prepare", "stop_reason"), ("close", "detail")):
+            schema = next(c for c in calls if c["label"] == label)["schema"]
+            self.assertIn(field, schema["properties"], label)
+            self.assertNotIn(field, schema["required"], label)
+        self.assertTrue(res["ticket_closed"])
+        res, _calls = self.run_wf({"prepare": [dict(p, ok=False)]})
+        self.assertEqual((res["outcome"], res["reason"]), ("not-started", "no reason given"))
+
+    def test_the_decision_packet_id_is_read_from_its_own_field(self):
+        plan = {"prepare": [prep()], "run A": ["r"], "decide": [dec("unresolved", ["SOUND"])],
+                "claim-keeper evidence": ["rows"], "close": [OK]}
+        res, calls = self.run_wf(dict(plan, packet=[{"ok": True, "packet": "P-0042"}]))
+        schema = next(c for c in calls if c["label"] == "packet")["schema"]
+        self.assertIn("packet", schema["required"])
+        self.assertNotIn("detail", schema["required"])
+        self.assertEqual(res["packet"], "P-0042")
+        self.assertIn("packet P-0042", next(c for c in calls if c["label"] == "close")["prompt"])
+        res, calls = self.run_wf(dict(plan, packet=[{"ok": False, "packet": ""}]))
+        self.assertNotIn("packet", res)
+        self.assertIn("the decision packet was not filed: no reason given", res["notes"])
+        res, calls = self.run_wf(dict(plan, packet=[{"ok": True, "packet": "filed it"}]))
+        self.assertNotIn("packet", res)
+        self.assertIn("not a packet id: filed it", " ".join(res["notes"]))
 
     def test_a_broken_launches_no_b(self):
         res, calls = self.run_wf({"prepare": [prep()], "run A": ["r"],

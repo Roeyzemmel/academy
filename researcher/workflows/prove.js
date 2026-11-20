@@ -103,11 +103,22 @@ const STATE = { type: 'object', properties: {
   falsifier_statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, read first from a lab claim\'s frontmatter falsifies: entry <ns:id>@<hash> for this claim, then the "statement hash <h>" a request\'s ask names; a waiver, the hash it names; else empty' },
   falsifier_pending: { type: 'string', description: 'a falsifier on this claim filed and not back (an experiment or test ticket to the Scientist, or a falsifier request, open, accepted, in progress or blocked): its id; else empty' },
   falsifier_pending_status: { type: 'string', description: 'that ticket\'s status; else empty' } },
-  required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'repair'] }
+  required: ['ok', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'repair'] }
 // #124: attack_exists is asked for, named in the stage, and not required (22 clerk runs lost to
 // 'must have required property attack_exists' in the ledger since 2026-11-14); a missing or
 // non-boolean one is unknown, never false and never a skip: the attack-only run goes ahead once,
 // told to read an existing attack.md first and stop if one is present (nothing overwritten)
+// #124 follow-up 2: stop_reason (STATE) and detail (MOVE) are asked for and never required either; a
+// missing reason reads 'no reason given'
+// The attack-only run answers whether proofs/<id>/attack.md existed before it started and whether it
+// wrote it (the b5470b7 review): an overwrite is an ANOMALY found by this check, not left to the
+// prompt. Neither is required (a prover that left one out would lose a max-tier run); a missing
+// one is unknown and noted.
+const ATTACK = { type: 'object', properties: {
+  existed_before: { type: 'boolean', description: 'proofs/<id>/attack.md existed before this run wrote anything (list proofs/<id>/ first)' },
+  wrote: { type: 'boolean', description: 'this run wrote proofs/<id>/attack.md' },
+  summary: { type: 'string', description: 'one line: the counterexample, the unlisted hypothesis, or the attack that failed' } },
+  required: [] }
 const PATH = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
 const FOR_VERIFY = { type: 'object', properties: { found: { type: 'boolean' }, kind: { type: 'string' },
   refs: { type: 'array', items: { type: 'string' } }, status: { type: 'string' },
@@ -140,7 +151,7 @@ const CONFIRMED = { type: 'object', properties: {
   required: ['claim_id', 'rows'] }
 const FILED = { type: 'object', properties: { ticket: { type: 'string' }, proposal: { type: 'string', description: 'the decision ticket of the sketch proposal, or empty' }, refusal: { type: 'string' } }, required: ['ticket', 'proposal', 'refusal'] }
 const TICKET = { type: 'object', properties: { found: { type: 'boolean' }, to: { type: 'string' }, kind: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } }, required: ['found', 'to', 'kind', 'refs'] }
-const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
+const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
 // workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
@@ -245,7 +256,7 @@ const st = await launch(STAGE('prove-state', [
   `and, when its ask carries the marker "amendment for verify T-NNNN pass <pass>", that verify ticket and pass (for_verify, for_verify_pass). Write nothing else.`,
 ]), { label: 'state', phase: 'State', agentType: CLERK, schema: STATE, effort: 'low' })
 if (!st) return Object.assign(out, { outcome: 'not-started', reason: 'the state stage returned nothing' })
-if (!st.ok) return Object.assign(out, { outcome: 'not-started', reason: st.stop_reason })
+if (!st.ok) return Object.assign(out, { outcome: 'not-started', reason: st.stop_reason || 'no reason given' })
 // #85: a repair (args.mode 'repair', or a ticket that asks for one) goes on whatever the status; a
 // proved claim with no repair asked is handed back, never delivered (nothing was done)
 // The dependency amendment (2026-11-20 review): a repair a verify pass asked for (the marker
@@ -413,10 +424,18 @@ if (!attackKnown) out.notes.push('the state stage did not say whether proofs/<id
 if (!attackKnown || !st.attack_exists) {
   const atk = await launchMax(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
     (attackKnown ? '' : 'If proofs/<id>/attack.md already exists, read it first and stop there: write nothing and return (the state stage could not say whether one exists). ') +
-    `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why; its frontmatter carries statement_hash: ${hashNow || '<the claim\'s statement hash>'}.`,
-    { label: 'attack', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
+    `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why; its frontmatter carries statement_hash: ${hashNow || '<the claim\'s statement hash>'}. ` +
+    'Return whether proofs/<id>/attack.md existed before you wrote anything (existed_before), whether you wrote it (wrote), and the attack in one line.',
+    { label: 'attack', phase: 'Attempt', agentType: PROVER, schema: ATTACK }, MODEL_STAGE)
   if (atk === null) return Object.assign(out, { outcome: 'lost', reason: 'the attack run returned nothing (a limit?): nothing further launched' })
   attacked = true
+  const before = atk && typeof atk.existed_before === 'boolean' ? atk.existed_before : null
+  const wrote = atk && typeof atk.wrote === 'boolean' ? atk.wrote : null
+  out.attack = { existed_before: before, wrote }
+  if (before === null) out.notes.push('the attack run did not say whether proofs/<id>/attack.md existed before it (existed_before missing): an overwrite could not be checked')
+  if (before && wrote !== false) out.notes.push(`ANOMALY: the attack run ${wrote ? 'overwrote' : 'may have overwritten (wrote unknown)'} an existing proofs/<id>/attack.md` +
+    (attackKnown ? ' that the state stage reported absent' : '') + ': compare it with its git history before relying on it')
+  else if (before && attackKnown) out.notes.push('the attack run found proofs/<id>/attack.md although the state stage reported none; it left it as it was')
   out.notes.push('one attack-only run first (proofs/<id>/attack.md)')
 }
 const p = await launch(STAGE('attempt-path', ['Run notebook.py attempt <id> --create and return the attempt path it prints.']),

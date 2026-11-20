@@ -79,7 +79,7 @@ const NOTE = { type: 'object', properties: { id: { type: 'string', description: 
   macro: { type: 'string' }, label: { type: 'string', description: 'the label of the statement it sits on, or empty' }, text: { type: 'string', description: 'the whole brace group' } },
   required: ['id', 'file', 'line', 'macro', 'label', 'text'] }
 const INV = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' }, packet: { type: 'string', description: 'the referee packet id, when one was read' }, ns: { type: 'string', description: 'the paper\'s claim namespace' },
-  new: { type: 'array', items: NOTE }, inventory: { type: 'number' }, inventory_notes: { type: 'array', items: NOTE } }, required: ['ok', 'detail', 'ns', 'new', 'inventory', 'inventory_notes'] }
+  new: { type: 'array', items: NOTE }, inventory: { type: 'number' }, inventory_notes: { type: 'array', items: NOTE } }, required: ['ok', 'ns', 'new', 'inventory', 'inventory_notes'] }   // #124: detail asked, never required
 const PROPOSED = { type: 'object', properties: { to: { type: 'string' }, kind: { type: 'string' }, title: { type: 'string' }, ask: { type: 'string' },
   deliverable: { type: 'string' }, agenda: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } }, final_to: { type: 'string' },
   detail: { type: 'string' }, park_on: { type: 'string', description: '"human", the id of another note this one builds on, or empty' } },
@@ -110,7 +110,7 @@ const inv = await clerk('collect', REFEREE
        : `New notes: lines adding a note macro in git diff --cached -U0 and git diff -U0${A.base ? ' against ' + A.base : ''} over the tex paths; take the whole brace group from the file, with the label of the statement it sits on.`,
      'Inventory: git grep -n for each macro over the tex paths (count, and every note with file, line, macro, label, text). Return the claim namespace too. Write nothing.'],
   INV, 'collect', 'Collect')
-if (!inv || !inv.ok) return Object.assign(out, { outcome: 'not-started', reason: inv ? inv.detail : 'the collect stage returned nothing' })
+if (!inv || !inv.ok) return Object.assign(out, { outcome: 'not-started', reason: inv ? inv.detail || 'no reason given' : 'the collect stage returned nothing' })
 out.found = inv.new.map(n => `${n.file}:${n.line} ${n.label || '(no statement)'}: ${n.text.slice(0, 120)}`)
 out.inventory = inv.inventory
 if (inv.packet) out.packet = inv.packet

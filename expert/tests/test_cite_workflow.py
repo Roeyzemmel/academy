@@ -19,7 +19,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -57,6 +57,20 @@ class CiteTests(unittest.TestCase):
         out = json.loads(p.stdout.strip().splitlines()[-1])
         self.assertNotIn("error", out, out.get("error"))
         return out["result"], [c["label"] for c in out["calls"]], out["calls"]
+
+    def test_clerk_stages_without_detail_lose_nothing(self):
+        """#124 follow-up 2: ASK and MOVE ask for detail and do not require it."""
+        ask = {k: v for k, v in ASK.items() if k != "detail"}
+        res, labels, calls = self.run_wf({"start": [ask], "librarian": [card()], "validate": [OK],
+                                          "packet": [{"packet": "P-0300", "error": ""}],
+                                          "deliver": [{"ok": True, "status": "delivered"}]}, ticket="T-0904")
+        for label in ("start", "deliver"):
+            schema = next(c for c in calls if c["label"] == label)["schema"]
+            self.assertIn("detail", schema["properties"], label)
+            self.assertNotIn("detail", schema["required"], label)
+        self.assertTrue(res["ticket_delivered"])
+        res, labels, _ = self.run_wf({"start": [dict(ask, ok=False)]}, ticket="T-0904")
+        self.assertEqual((res["outcome"], res["reason"]), ("not-started", "no reason given"))
 
     def test_the_happy_path_lands_after_validation(self):
         res, labels, calls = self.run_wf({"start": [ASK], "librarian": [card()], "validate": [OK],

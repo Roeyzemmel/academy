@@ -67,16 +67,18 @@ const T = A.ticket || ''
 const clerk = (stage, lines, schema, label, phase) => launch(`WORKFLOW STAGE ${stage} of the academy-referee workflow.\n` + lines.filter(Boolean).join('\n'),
   { label: label || stage, phase, agentType: CLERK, schema, effort: 'low' })
 
-const START = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' }, instance: { type: 'string', description: 'the Author instance to referee' }, acted_as: { type: 'string' } }, required: ['ok', 'detail', 'instance', 'acted_as'] }
+const START = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' }, instance: { type: 'string', description: 'the Author instance to referee' }, acted_as: { type: 'string' } }, required: ['ok', 'instance', 'acted_as'] }
 const PDF = { type: 'object', properties: {
   ok: { type: 'boolean' }, stop_reason: { type: 'string', description: 'why there is no fresh PDF (the build lock stayed, the build failed)' },
   pdf: { type: 'string', description: 'absolute path' }, built: { type: 'string', description: 'YYYY-MM-DD of the PDF' }, rebuilt: { type: 'boolean' },
   vision: { type: 'string', description: 'absolute path of <Author home>/Drafts/vision.md, or empty when there is none' },
   last_report: { type: 'string', description: 'the newest reviews/referee/<instance>/<date>.md in the library, or empty' },
   last_date: { type: 'string' }, changed_since: { type: 'string', description: 'one line: the section files changed in the Author home since last_date (git log), or empty' } },
-  required: ['ok', 'stop_reason', 'pdf', 'built', 'rebuilt', 'vision', 'last_report', 'last_date', 'changed_since'] }
+  required: ['ok', 'pdf', 'built', 'rebuilt', 'vision', 'last_report', 'last_date', 'changed_since'] }
 const FOUND = { type: 'object', properties: { packet: { type: 'string' }, blocking: { type: 'number' }, copy: { type: 'string' } }, required: ['packet', 'blocking', 'copy'] }
-const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status', 'detail'] }
+// #124: the clerk stages ask for detail (and stop_reason) and never require them (a clerk that left one
+// out lost its run); a missing one reads 'no reason given'
+const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
 // workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
@@ -163,7 +165,7 @@ if (T) {
   const s = await clerk('start', [`ticket: ${T}`,
     'Move it to in-progress acting as its receiver (open -> accepted -> in-progress; leave it if in progress), then return the Author instance it asks to be refereed ' +
     '(its refs, or its sender when that is an Author instance) and the instance you acted as.'], START, 'start', 'Prepare')
-  if (!s || !s.ok) return Object.assign(out, { outcome: 'not-started', reason: s ? s.detail : 'the start stage returned nothing' })
+  if (!s || !s.ok) return Object.assign(out, { outcome: 'not-started', reason: s ? s.detail || 'no reason given' : 'the start stage returned nothing' })
   instance = instance || s.instance
   actedAs = s.acted_as
 }
@@ -175,7 +177,7 @@ const pdf = await clerk('pdf', [
   'Also return: whether <Author home>/Drafts/vision.md exists (its absolute path, or empty), the newest report under <library>/reviews/referee/<instance>/ and its date, ' +
   'and one line naming the section files changed in the Author home since that date (git log --since; empty when there is no earlier report).',
 ], PDF, 'pdf', 'Prepare')
-if (!pdf || !pdf.ok) return Object.assign(out, { outcome: 'not-started', reason: pdf ? pdf.stop_reason : 'the pdf stage returned nothing' })
+if (!pdf || !pdf.ok) return Object.assign(out, { outcome: 'not-started', reason: pdf ? pdf.stop_reason || 'no reason given' : 'the pdf stage returned nothing' })
 instance = instance || (pdf.pdf.match(/(author@[a-z0-9-]+)/) || [])[1] || instance
 // a clerk may answer "none: ... does not exist" where the schema asks for empty: only a real
 // file counts (a vision .md, an earlier report .md), so the brief never states a false fact

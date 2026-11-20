@@ -113,13 +113,13 @@ const PREP = {
     decide: DECIDE,
     unparsed_before: { type: 'array', items: { type: 'string' }, description: 'the file names under the audits folder\'s _unparsed/ whose subject is this subject, as they are now (before any run of this pass)' },
   },
-  required: ['ok', 'stop_reason', 'report', 'result', 'has_candidates', 'decide'],
+  required: ['ok', 'report', 'result', 'has_candidates', 'decide'],
 }
 const PLAN = {
   type: 'object',
   properties: {
     audit: { type: 'string' },
-    file_now: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, rank: { type: 'number' }, ref: { type: 'string' }, detail: { type: 'string' } }, required: ['name', 'ref', 'detail'] } },
+    file_now: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, rank: { type: 'number' }, ref: { type: 'string' }, detail: { type: 'string' } }, required: ['name', 'ref'] } },
     waiting: { type: 'array', items: { type: 'string' } },
     deferred: { type: 'array', items: { type: 'string' } },
     notes: { type: 'array', items: { type: 'string' } },
@@ -136,7 +136,11 @@ const SETTLED = {
   },
   required: ['recordable', 'rows', 'record', 'note'],
 }
-const DONE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
+// #124 follow-up 2: the clerk stages ask for their free text (PREP.stop_reason, a candidate's detail,
+// DONE.detail) and never require it (a clerk that left one out lost its run); a missing reason reads
+// 'no reason given'. The packet id was read from DONE.detail: it is PACKET.packet now, a real answer.
+const DONE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok'] }
+const PACKET = { type: 'object', properties: { ok: { type: 'boolean' }, packet: { type: 'string', description: 'the packet id P-NNNN, or empty' }, detail: { type: 'string' } }, required: ['ok', 'packet'] }
 
 const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
@@ -253,8 +257,8 @@ const prep = await clerk(LATER ? 'decide' : 'prepare', [
     : 'Take the ticket (open -> accepted -> in-progress), find the report packet and the result, say whether the report lists candidate counterexamples, list in unparsed_before the files under the audits folder\'s _unparsed/ whose subject is this subject, and return reviews.py decide <subject> --json parsed.',
 ], PREP, 'Prepare')
 if (!prep || !prep.ok) {
-  log('not started: ' + (prep ? prep.stop_reason : 'prepare returned nothing'))
-  return Object.assign(out, { outcome: 'not-started', reason: prep ? prep.stop_reason : 'prepare lost' })
+  log('not started: ' + (prep ? prep.stop_reason || 'no reason given' : 'prepare returned nothing'))
+  return Object.assign(out, { outcome: 'not-started', reason: prep ? prep.stop_reason || 'no reason given' : 'prepare lost' })
 }
 if (MODE === 'review' && prep.has_candidates) {
   notes.push('the report lists candidate counterexamples: run this workflow in settle-audit mode instead (/researcher:settle)')
@@ -329,9 +333,10 @@ if (d && !['need-A', 'need-B'].includes(d.state) && !LATER) {
     const pk = await clerk('packet', [
       `The human must decide: the pair is ${d.state}${d.reproduction ? ' and a run asked for reproduction' : ''}.`,
       `Reasons: ${JSON.stringify(d.reasons || [])}. Verdicts: ${JSON.stringify(d.verdicts || [])}.`,
-      'File one experiment-review packet with these facts and one decision (how to proceed); return ok and its id in detail.',
-    ], DONE, 'Record')
-    if (pk) out.packet = pk.detail
+      'File one experiment-review packet with these facts and one decision (how to proceed); return ok and its id (packet).',
+    ], PACKET, 'Record')
+    if (pk && pk.ok && /^P-\d{4,}$/.test(String(pk.packet || '').trim())) out.packet = String(pk.packet).trim()
+    else notes.push('the decision packet was not filed: ' + (pk ? pk.detail || (pk.packet ? `not a packet id: ${pk.packet}` : 'no reason given') : 'the stage returned nothing'))
   }
 }
 
@@ -364,7 +369,7 @@ if (MODE === 'settle-review') {
   const ST = { type: 'object', properties: { candidates: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, ref: { type: 'string' },
     rederivation: { type: 'string' }, status: { type: 'string', description: 'the re-derivation ticket\'s status' }, report: { type: 'string', description: 'its report packet, if delivered' },
     verify: { type: 'string', description: 'the verify ticket already filed, or empty' }, detail: { type: 'string' } },
-    required: ['name', 'ref', 'rederivation', 'status', 'report', 'verify', 'detail'] } } }, required: ['candidates'] }
+    required: ['name', 'ref', 'rederivation', 'status', 'report', 'verify'] } } }, required: ['candidates'] }
   const st = await clerk('settle-children', [`For each candidate in ${A.candidates}: its rederivation ticket, that ticket's status (tickets_get) and its report packet when delivered, and the verify ticket already recorded. Write nothing.`],
     ST, 'candidates state', 'Record')
   out.verifies = []
