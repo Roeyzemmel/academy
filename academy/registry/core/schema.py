@@ -17,6 +17,9 @@ instances), the same as the Researcher notebook's object template
 * ``modulo`` lists the missing inputs (ids, or plain text where no record carries the
   input): it replaces both lab/paper's ``open:`` and a v1 notebook's reduction text.
 * ``supersedes`` is one-way; ``superseded_by`` is derived.
+* ``tags`` is a list of free labels. On a definition, ``notation-only`` marks it as used
+  only as notation: the decision table (``expert/scripts/decision_table.py``) drops it
+  from a verdict's ``modulo``; any other definition listed there stays an input (#103).
 * ``lifecycle``: active, superseded, dropped (a lifecycle, no longer a status). A record
   that is not active projects to ``n/a`` whatever its status.
 * ``evidence`` rows: ``type | ref | verdict | run_id | note`` (``-`` for an empty cell).

@@ -230,11 +230,13 @@ inputs both runs name and mark each one: `proved`, `verified citation`, `sketch`
 `conjectured` / `open` (its status), `uncited folklore`, `cached but no card`,
 `uncitable`. The script then decides whether the recolour is earned; you do not.
 
-**The definition rule** (the human's decision of 2026-11-20, #121, replacing T-0148): a
-definition in a modulo list **is an input** unless its registry record is tagged
-`notation-only`; a reviewer's own mark is not trusted. The script drops only the tagged
-ones (in `dropped_definitions`): copy that list into the record and do not list a dropped
-definition among the inputs.
+**The definition rule** (the human's ruling of 2026-11-20 on #103, replacing T-0148): a
+definition in a CONFIRMED run's modulo list **is an input**, giving `proved-modulo`,
+unless its registry record is tagged `notation-only`; a reviewer's own mark is not
+trusted. The script drops only the tagged ones (in `dropped_definitions`) and keeps every
+other definition either run lists as an input of both (in `kept_definitions`), so a
+definition never reaches the dependency-settler: copy both lists into the record, and do
+not list a dropped definition among the inputs.
 
 **Differing inputs** (#121; the human's design of 2026-11-20). When both runs are
 CONFIRMED, neither names a blocking step, and their modulo lists (in canonical spelling,
@@ -302,7 +304,7 @@ LF, Markdown, written by you:
   or the proof attempt); if an older pass exists (`py $E/reviews.py list <id>`), a
   line saying which pass this one supersedes;
 - the outcome, verbatim from the script (`outcome`, `summary`, `proposed_status`,
-  `recolour`, `modulo`, `pending_inputs`, `dropped_definitions`, `anomalies`; for a
+  `recolour`, `modulo`, `pending_inputs`, `dropped_definitions`, `kept_definitions`, `anomalies`; for a
   `settle-dependencies` pass, also `modulo_lists`, `differing_inputs`, `dropped_inputs`,
   the settler's classification (`S.md`) and settle_deps.py's outcome with the tickets
   filed for it);

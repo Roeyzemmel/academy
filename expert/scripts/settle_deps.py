@@ -11,7 +11,10 @@ The cases, in the order they apply (the first that can apply wins):
 
 * stage 0, the statement (the whole pass): 12 different readings of the statement -> stop.
 * stage 1, mechanical, in decision_table.py (never in a settler record): 13 carried
-  modulo, 4 granularity, notation-only definitions.
+  modulo, 4 granularity, and the definition rule (the human's ruling of 2026-11-20 on
+  #103): a definition is an input of both runs unless its registry record is tagged
+  notation-only, so no definition is a differing input. No case drops a definition (6,
+  14, or 5 without a choice): ``check`` refuses it, for a table made before the ruling.
 * stage 2, admissibility: 11 circular (needs the table's cycle fact) -> stop (a gap);
   9 hypotheses not verified or an open [CHECK] -> stop; 10 missing or unreadable source,
   uncited free text -> a cite ticket, the input stays as a pending modulo input.
@@ -44,6 +47,7 @@ tickets to file. Usage::
 """
 import argparse
 import json
+import re
 import sys
 
 #: case -> stage, in the human's fixed order
@@ -53,6 +57,9 @@ RECORD_CASES = (11, 9, 10, 14, 6, 5, 7, 1, 2, 3, 8)
 MECHANICAL = (13, 4)
 #: cases whose input is dropped; cases that keep a dependency
 DROPPED = (14, 6)
+#: a definition's label (decision_table.RE_DEF_LABEL, after the namespace): ``defn:``,
+#: ``def:``, ``DEF-``
+RE_DEF_LABEL = re.compile(r"^(?:defn?:|DEF-)")
 STOPS = (11, 9)
 #: cases whose dependency the proof does not state yet, so the repair declares it:
 #: a hidden step (7), the dependency folklore stood for (1), the weaker result (8)
@@ -89,6 +96,13 @@ def _known_results(table):
             out.add(str(d["result"]))
         out.add(str(d.get("input")))
     return out
+
+
+def is_definition(name):
+    """True when the input names a definition by its label (``ns:defn:...``,
+    ``ns:def:...``, ``ns:DEF-...``); a ``bib:`` input never does."""
+    ns, _, rest = str(name or "").strip().partition(":")
+    return ns != "bib" and bool(RE_DEF_LABEL.match(rest))
 
 
 def first_case(fact):
@@ -166,6 +180,10 @@ def _check_entry(name, e, fact, table):
         return ["%r: the table shows %s, so case %d (%s) applies first, not case %d (the "
                 "fixed order)" % (name, "a cycle back to the subject" if forced == 11
                                   else "an open [CHECK]", forced, NAMES[forced], case)]
+    if is_definition(name) and (case in DROPPED or (case == 5 and not e.get("chosen"))):
+        return ["%r: a definition stays an input unless its registry record is tagged "
+                "notation-only (the definition rule, #103): case %d (%s) cannot drop it"
+                % (name, case, NAMES[case])]
     if case == 11 and not fact.get("cycle"):
         probs.append("%r: case 11 (circular) needs the registry cycle; the table found "
                      "none" % name)

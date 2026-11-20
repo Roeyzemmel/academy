@@ -15,7 +15,7 @@ The table (from the old /paper:verify, in the academy's verdict words):
 | CONFIRMED | not yet run | ``awaiting-b``: launch B with the identical brief |
 | CONFIRMED | CONFIRMED, no inputs on either | ``confirmed``: propose ``proved``; recolour earned |
 | CONFIRMED modulo X | CONFIRMED modulo X (same set) | ``confirmed-modulo``: propose ``proved-modulo``; recolour only if every input in X is established |
-| CONFIRMED (modulo X) | CONFIRMED modulo Y, X and Y differ only in notation-only definitions (the registry tag) | as if both said modulo X & Y; the dropped definitions are flagged (``dropped_definitions``) |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, X and Y differ only in definitions | a definition tagged ``notation-only`` in its registry record is dropped (``dropped_definitions``); any other is an input of both runs (``kept_definitions``), so ``confirmed-modulo`` (#103) |
 | CONFIRMED (modulo X) | CONFIRMED modulo Y, still different after the mechanical reduction, no blocking step | ``settle-dependencies``: no status yet; the dependency-settler classifies each differing input (``differing_inputs``), ``settle_deps.py`` checks and applies it (#121) |
 | CONFIRMED (modulo X) | CONFIRMED modulo Y, a run naming a blocking step | ``disagreement`` |
 | CONFIRMED | GAP | ``disagreement``: no status; file the weaker run's blocking step |
@@ -54,14 +54,18 @@ Mechanical rules applied before the table:
   Haiku, an older Opus, a bare ``opus`` that names no version, or no model at all) is
   read as PLAUSIBLE (roster-rules.md, "Graders degrade"). Every run's recorded model is kept
   in ``runs[].model``.
-* A definition used only as notation is not an input (the human's decision,
-  2026-10-09, T-0148): when two CONFIRMED runs' modulo lists differ only in
-  definitions, the runs agree, the decided modulo list is the intersection, and the
-  definitions dropped are flagged in ``dropped_definitions`` and the grounds' note.
-  An id is a definition when its registry record's kind is a definition
-  (``definition`` / ``def`` / ``defn``, looked up through the registry engine), or,
-  when the registry cannot be read or has no such record, when its label starts with
-  ``defn:`` / ``def:`` or its id with ``DEF-``. A ``bib:`` input is never one.
+* The definition rule (the human's ruling of 2026-11-20 on #103, replacing T-0148's
+  unconditional drop, which gave the wrong ``proved`` on T-1475): a definition listed in
+  a CONFIRMED run's modulo stays an input, giving ``proved-modulo``, unless its registry
+  record is tagged ``notation-only`` (``tags: [notation-only]``; a reviewer's own
+  ``(notation only)`` mark is read past, never trusted). A tagged definition is dropped
+  from both lists (``dropped_definitions``); any other definition either run lists is an
+  input of both (``kept_definitions``), mechanically, so it never reaches the
+  dependency-settler. Both are named in the grounds' note. An id is a definition when
+  its registry record's kind is a definition (``definition`` / ``def`` / ``defn``,
+  looked up through the registry engine), or, when the registry cannot be read or has
+  no such record, when its label starts with ``defn:`` / ``def:`` or its id with
+  ``DEF-``. A ``bib:`` input is never one.
 * One input, one spelling (#103): before any comparison every modulo list (and
   ``--established``) is normalised by ``normalise_modulo``: split only on top-level
   commas (a list landed split inside brackets is rejoined), a pointer's trailing text
@@ -73,9 +77,7 @@ Mechanical rules applied before the table:
   CONFIRMED runs, neither naming a blocking step, whose modulo lists differ are first
   reduced mechanically, stage 1 of the human's fixed order, only where the registry shows
   it (``links_of``, qid -> ``{depends_on, cites, modulo}``; the CLI passes
-  ``registry_links``): a definition is an input unless its registry record is tagged
-  ``notation-only`` (the definition rule, replacing T-0148; a reviewer's own mark is not
-  trusted); case 13, a shared input that is itself proved-modulo carries its modulo; case
+  ``registry_links``): the definition rule above; case 13, a shared input that is itself proved-modulo carries its modulo; case
   4, an input only one run lists is dropped when another listed input reaches it through
   ``depends_on`` (transitively, never through the subject) or, for a card
   ``bib:KEY[#PIN]``, ``cites`` KEY. What still differs gives ``settle-dependencies``:
@@ -405,7 +407,7 @@ def follow_up(item, subject="", producer_role="", rec=None):
 
 
 # ----------------------------------------------------------------------------
-# Definitions are not inputs (the human's decision, 2026-10-09, T-0148)
+# Which inputs are definitions (the definition rule, #103; T-0148 is replaced)
 # ----------------------------------------------------------------------------
 
 DEFINITION_KINDS = ("definition", "def", "defn")
@@ -451,9 +453,9 @@ def is_definition(qid, kind_of=None):
     return bool(RE_DEF_LABEL.match(name or q))
 
 
-# The definition rule (the human's decision of 2026-11-20, #121, replacing T-0148's drop):
-# a definition listed in a modulo stays an input unless it is marked notation-only, on the
-# registry record (a reviewer's own mark is not trusted). T-0148 dropped every definition one run
+# The definition rule (the human's ruling of 2026-11-20 on #103, replacing T-0148's drop):
+# a definition listed in a modulo stays an input, of both runs, unless it is marked
+# notation-only on the registry record (a reviewer's own mark is not trusted). T-0148 dropped every definition one run
 # listed, which turned a pair that differed on a definition the argument relies on into a
 # wrong ``proved`` (T-1475, #103's third comment).
 
@@ -504,6 +506,21 @@ def notation_only(item, kind_of=None, tags_of=None):
     # definition the argument relies on): only the registry record's tag drops it
     tags = (tags_of or registry_tags)(head) or ()
     return head if NOTATION_TAG in [str(t).strip().lower() for t in tags] else None
+
+
+def kept_definitions(items, kind_of=None):
+    """``{entry as written: definition id}`` for every entry of ``items`` (modulo entries
+    already past ``notation_only``) that names a definition (``is_definition``): the
+    definition rule keeps it as an input of both runs, spelled without a reviewer's
+    ``(notation only)`` mark, which is read past and never trusted. An entry with other
+    pointer text is kept as written (the pointer can restrict the input)."""
+    out = {}
+    for item in items:
+        s = str(item or "").strip()
+        head = RE_NOTATION_MARK.sub("", s)
+        if head and is_definition(head, kind_of):
+            out[s] = head
+    return out
 
 
 # ----------------------------------------------------------------------------
@@ -810,7 +827,8 @@ def reduce_differing(ma, mb, links_of=None, declared=None, subject=""):
     that reach each other drop neither. ``differing``: what is left for the
     dependency-settler, sorted. ``agreed``: what both runs list plus each declared input
     that covers the other run's (sorted). Without the registry nothing is dropped. The
-    notation-only definitions are dropped before this (``notation_only``)."""
+    notation-only definitions are dropped and every other definition is put in both lists
+    before this (``notation_only``, ``kept_definitions``): no definition differs here."""
     ma, mb = set(ma), set(mb)
     shared = ma & mb
     only_a, only_b = ma - mb, mb - ma
@@ -1178,7 +1196,7 @@ def _new_result():
     return {"outcome": "", "launch_b": False, "proposed_status": None, "recolour": False,
             "needs_human": False, "modulo": [], "pending_inputs": [], "file_items": [],
             "anomalies": [], "grounds": None, "summary": "", "runs": [],
-            "dropped_definitions": [], "modulo_options": []}
+            "dropped_definitions": [], "kept_definitions": [], "modulo_options": []}
 
 
 def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
@@ -1286,15 +1304,23 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
             res["outcome"] = "invalid-pair"
             res["summary"] = "the two runs are not independent reviews of one statement"
             return res
-        # the definition rule (#121): a notation-only definition is no input, in either list
+        # the definition rule (the human's ruling of 2026-11-20, #103): a definition either
+        # run lists is an input of both, unless its registry record is tagged notation-only
         defs = sorted({h for h in (notation_only(i, kind_of, tags_of)
                                    for i in rec_a["modulo"] + rec_b["modulo"]) if h})
         res["dropped_definitions"] = defs
         la = [i for i in rec_a["modulo"] if not notation_only(i, kind_of, tags_of)]
         lb = [i for i in rec_b["modulo"] if not notation_only(i, kind_of, tags_of)]
-        ma, mb = set(la), set(lb)
+        kept = kept_definitions(la + lb, kind_of)
+        res["kept_definitions"] = sorted(set(kept.values()))
+        ma = {kept.get(i, i) for i in la} | set(kept.values())
+        mb = {kept.get(i, i) for i in lb} | set(kept.values())
         dnote = ("; notation-only definitions dropped from the modulo lists (not inputs, "
-                 "the definition rule, #121): %s" % ", ".join(defs)) if defs else ""
+                 "the definition rule, #103): %s" % ", ".join(defs)) if defs else ""
+        if res["kept_definitions"]:
+            dnote += ("; definitions kept as inputs of both runs (no notation-only tag on "
+                      "their records, the definition rule, #103): %s"
+                      % ", ".join(res["kept_definitions"]))
         if ma != mb and not (rec_a.get("blocking") or rec_b.get("blocking")):
             subject = rec_a.get("subject") or ""
             declared = links_of(subject) if links_of is not None and subject else None
@@ -1606,6 +1632,7 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
         return res
 
     res["dropped_definitions"] = base_res.get("dropped_definitions") or []
+    res["kept_definitions"] = base_res.get("kept_definitions") or []
     mod = sorted(set(base_res["modulo"]) | set(rec_r["modulo"]))
     base_recs = [base_a, base_b]
     how = ("reword run CONFIRMED (%s) on base pass %s%s, CONFIRMED x2 on %s"
@@ -1915,6 +1942,9 @@ def _text(res):
     if res.get("dropped_definitions"):
         out.append("dropped definitions (notation only, not inputs): %s"
                    % ", ".join(res["dropped_definitions"]))
+    if res.get("kept_definitions"):
+        out.append("kept definitions (inputs of both runs, no notation-only tag): %s"
+                   % ", ".join(res["kept_definitions"]))
     for it in res["file_items"]:
         r = it.get("route") or {}
         out.append("file (%s, run %s%s): %s%s" % (

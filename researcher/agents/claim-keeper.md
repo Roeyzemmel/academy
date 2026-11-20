@@ -67,6 +67,12 @@ session acting for the human; you only check it exists and quotes them), cited a
 `verdict_file`, and the `status_note` "attested by the human; not machine-verified".
 You never infer an attestation; without the quoted words, there is none.
 
+A definition listed in a CONFIRMED run's `modulo` is an input, so the target is
+`proved-modulo` with it, unless that definition's registry record is tagged
+`notation-only` (`tags: [notation-only]`) or the human has ruled it notation-only (the
+human's ruling of 2026-11-20, #103, replacing T-0148): refuse a `proved` that drops any
+other definition.
+
 A capped verdict (`capped: true` in the landed file), a PLAUSIBLE, a single run, a
 disagreement, or grounds you cannot find: **no status change**. Attach what exists
 as evidence (`claims_attach_evidence`, a row `type | ref | verdict | run_id | note`)

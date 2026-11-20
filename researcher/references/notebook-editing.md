@@ -32,6 +32,10 @@ knowing beyond the obvious:
   namespace), `supersedes` (one-way; `superseded_by` is derived).
 - `lifecycle`: active · superseded · dropped (not a status).
 - `aliases`: every old label that has meant this item; `resolve` maps them.
+- `tags`: free labels. `notation-only` on a definition marks it as used only as notation:
+  the Expert's decision table then drops it from a verdict's `modulo` list; any other
+  definition listed there stays an input (`proved-modulo`, #103). The tag is the
+  human's call; a reviewer's own mark never counts.
 - `evidence` rows `type | ref | verdict | run_id | note`; `history` rows
   `date | status | note`, newest first.
 - `body_status_ack: "why"` silences a reviewed mismatch between the body's first status
