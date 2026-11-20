@@ -48,10 +48,46 @@ def _line(text, pos):
     return text.count("\n", 0, pos) + 1
 
 
-def proof_span(text, end):
-    """``(start, end)`` of the proof or sketch environment that follows position ``end``
-    (only blank lines and comments between), or None."""
-    m = RE_PROOF.match(text, end)
+#: the colour and provenance wrappers when the home's config names none
+DEFAULT_WRAPPERS = ("sketch", "conjectural", "meta", "added")
+RE_GAP = re.compile(r"(?:\s+|%[^\n]*(?:\n|$))*")
+RE_ENV_AT = re.compile(r"\\(begin|end)\{([A-Za-z*]+)\}")
+
+
+def wrappers(cfg):
+    """The environments a statement or its proof may be wrapped in: the home's colour levels
+    (author.statusLevels[].env) and its provenance env (author.provenance.env)."""
+    a = (cfg or {}).get("author") or {}
+    envs = {lv.get("env") for lv in a.get("statusLevels") or [] if lv.get("env")}
+    if (a.get("provenance") or {}).get("env"):
+        envs.add(a["provenance"]["env"])
+    return tuple(sorted(envs)) or DEFAULT_WRAPPERS
+
+
+def proof_span(text, end, wrap=DEFAULT_WRAPPERS):
+    """``(start, end)`` of the proof or sketch environment that follows position ``end``,
+    or None. Between them only blank lines, comments and the colour or provenance wrappers'
+    own ``\\end{...}`` / ``\\begin{...}`` lines (#113: ``\\end{lem} \\end{sketch}
+    \\begin{sketch} \\begin{proof}``, each wrapped on its own). A ``sketch`` wrapper
+    followed by a ``proof`` wraps it; one followed by anything else is the proof itself."""
+    pos, sketch_at = end, None
+    while True:
+        pos = RE_GAP.match(text, pos).end()
+        m = RE_ENV_AT.match(text, pos)
+        if not m:
+            break
+        kind, env = m.group(1), m.group(2)
+        if kind == "begin" and env == "proof":
+            sketch_at = None
+            break
+        if env not in wrap:
+            break
+        if kind == "begin" and env == "sketch" and sketch_at is None:
+            sketch_at = pos
+        pos = m.end()
+    if sketch_at is not None and not RE_ENV_AT.match(text, pos):
+        pos = sketch_at                 # a sketch wrapper around no proof: it is the proof
+    m = RE_PROOF.match(text, pos)
     if not m:
         return None
     env, depth = m.group(1), 0
@@ -60,7 +96,7 @@ def proof_span(text, end):
             continue
         depth += 1 if b.group(1) == "begin" else -1
         if depth == 0:
-            return (text.index("\\begin{%s}" % env, end), b.end())
+            return (text.index("\\begin{%s}" % env, pos), b.end())
     return None
 
 
@@ -114,7 +150,7 @@ def find(home, cfg, label, proof=False, context=0):
             out["note"] = NOT_INPUT
         last = out["lines"][1]
         if proof:
-            ps = proof_span(text, span[1])
+            ps = proof_span(text, span[1], wrappers(cfg))
             if ps:
                 out["proof"] = {"lines": [_line(text, ps[0]), _line(text, ps[1] - 1)],
                                 "text": text[ps[0]:ps[1]]}
@@ -156,7 +192,7 @@ def outline(home, cfg, path):
         seen.add(span[0])
         b = pinned.RE_BEGIN_END.match(text, span[0])
         first = RE_LABEL.search(live, span[0], span[1])
-        ps = proof_span(text, span[1])
+        ps = proof_span(text, span[1], wrappers(cfg))
         rows.append({"lines": [_line(text, span[0]), _line(text, span[1] - 1)],
                      "kind": b.group(2) if b else "", "label": first.group(1),
                      "proof": [_line(text, ps[0]), _line(text, ps[1] - 1)] if ps else None})
