@@ -598,32 +598,32 @@ class InboxWorkflowTests(unittest.TestCase):
             self.assertNotIn("T-2 reject", labels)
             self.assertNotIn("does not resolve", " ".join(res["notes"]))
 
-    def test_no_falsifier_on_record_parks_the_ticket_on_the_pending_falsifier(self):
-        # prove.js would answer needs-explore and deliver nothing: the ticket waits for its falsifier
+    # 2026-11-20 (the human's design): prove.js attempts without a falsifier and the verify
+    # workflow runs it after review A, so the lead's hand-back no longer waits for one. These two
+    # replace ..._parks_the_ticket_on_the_pending_falsifier and ..._hands_back_explore_not_prove.
+    def test_no_falsifier_on_record_still_hands_prove_back_with_a_pending_one(self):
         ask = self._ask(claim="flat:GEO-40", created=True, falsifier="", pending=["T-9"])
-        res, labels, calls = self._lead(ask, plan={"T-1 block-on": [OK], "check T-1": [{"exit": 3, "status": "blocked",
-                                                                                       "output": "", "detail": ""}],
-                                                   "T-2 reject": [OK], "check T-2": [DONE]})
-        self.assertIsNone(res["for_main"])
-        block = next(c for c in calls if c["label"] == "T-1 block-on")
-        self.assertIn("waiting_on [T-9]", block["prompt"])
-        self.assertIn("falsifier", block["prompt"])
-        self.assertTrue(res["taken"][0]["outcome"].startswith("waits on T-9"))
-        self.assertNotIn("T-1 park", labels)                   # parked on its child, not on the human
-        self.assertFalse(any(l.startswith(("claim ", "T-1 falsifier note")) for l in labels))
-        self.assertIn("T-2 reject", labels)                    # nothing was handed back: the run goes on
-
-    def test_no_falsifier_and_nothing_pending_hands_back_explore_not_prove(self):
-        ask = self._ask(falsifier="", pending=[])
-        res, labels, _ = self._lead(ask)
+        res, labels, calls = self._lead(ask, {"exit": 0, "output": "hash: cd"})
         fm = res["for_main"]
-        self.assertEqual("researcher:explore", fm["skill"])
+        self.assertEqual("researcher:prove", fm["skill"])
+        self.assertEqual("flat:GEO-40", fm["args"]["claim"])
+        self.assertEqual(["T-9"], fm["pending"])
+        self.assertIn("no falsifier on record", fm["why"])
+        self.assertFalse(any(l.startswith(("T-1 block", "T-1 falsifier note")) for l in labels))   # never parked, no note
+        lead = next(c for c in calls if c["label"] == "lead-researcher T-1")
+        self.assertIn("does not wait for a falsifier", lead["prompt"])
+        self.assertNotIn("attempts nothing without one", lead["prompt"])
+
+    def test_no_falsifier_and_nothing_pending_hands_back_prove_not_explore(self):
+        ask = self._ask(falsifier="", pending=[])
+        res, labels, _ = self._lead(ask, {"exit": 0, "output": "hash: ab"})
+        fm = res["for_main"]
+        self.assertEqual("researcher:prove", fm["skill"])
         self.assertEqual("lead-researcher", fm["handback"])
-        self.assertEqual("flat:FND-2", fm["claim"])
-        self.assertNotIn("args", fm)
-        self.assertIn("falsifier", fm["why"])
-        self.assertIn("ANOMALY", " ".join(res["notes"]))
-        self.assertFalse(any(l.startswith(("claim ", "T-1 block", "T-1 falsifier note")) for l in labels))
+        self.assertEqual("flat:FND-2", fm["args"]["claim"])
+        self.assertNotIn("pending", fm)
+        self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+        self.assertFalse(any(l.startswith(("T-1 block", "T-1 falsifier note")) for l in labels))
 
     def test_a_lead_that_delivers_or_blocks_is_checked_as_before(self):
         res, labels, _ = self._lead(dict(LEAD_DONE, report="delivered: falsifier T-9 filed\nmore"),

@@ -56,7 +56,14 @@ under `.git`.
   `<academy repo>/academy/references/proof-style.md` (read it before the first attempt:
   short statements in a chain, a plan and the intuition for a composite proof, no
   discussion in the proof, every inference with its reason). List every input in *Inputs and their status* with its id
-  and registry status, or its citation `bib:<key>#<pinpoint>`. Mark each unproved step
+  and registry status, or its citation `bib:<key>#<pinpoint>`, and **state the same items
+  as the frontmatter's `dependencies:` list** (the dependencies are part of the proof: a
+  complete attempt without the list, or with an input left out of it, is not complete and
+  goes to no review; add the key, `dependencies: []` only for a proof that uses no input;
+  asked to fix it, fix that frontmatter of the same file and nothing else). When the brief lists **related statements** (the registry's, found
+  by the clerk), cite each one that does the work as an input and never reprove a proved
+  statement; under *Related statements* say for each listed one "used as input" or why not.
+  Mark each unproved step
   under *Gaps*. Set `outcome:` to `complete` only when *Gaps* is empty. A failed attempt
   keeps its file with *Why it fails* filled in; never delete or overwrite an attempt —
   a repair is a new attempt. Point the object's `proof:` field at the current attempt.
