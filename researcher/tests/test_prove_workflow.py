@@ -175,6 +175,13 @@ class ProveTests(unittest.TestCase):
                 row["qualified"] = "paper:lem:unfold"
         res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[rel], **{"confirm related": [conf]}))
         self.assertEqual([r["id"] for r in res["related"]], ["s1:GEO-3", "s1:GEO-7", "paper:lem:unfold", "flat:GEO-7"])
+        # a confirmed id that is not the listed one is dropped (second look at 864cc32)
+        rel2 = {"related": [{"id": "s1:GEO-9", "status": "proved", "statement": "nine"}], "queries": []}
+        conf2 = self.confirm(rel2)
+        conf2["rows"][0]["qualified"] = "s1:GEO-90"
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[rel2], **{"confirm related": [conf2]}))
+        self.assertEqual(res["related"], [])
+        self.assertIn("confirmed as s1:GEO-90", " ".join(res["notes"]))
 
     def test_the_related_list_is_capped_and_a_lost_stage_is_noted(self):
         many = {"related": [{"id": "flat:X-%d" % i, "status": "proved", "statement": "s%d" % i} for i in range(20)], "queries": []}
@@ -265,7 +272,11 @@ class ProveTests(unittest.TestCase):
             text = fh.read()
         front = text.split("---")[1]
         self.assertNotRegex(front, r"(?m)^dependencies:")
-        self.assertIn("dependencies: []", text.split("---", 2)[2])                    # only for a proof with no input
+        body = text.split("---", 2)[2]
+        self.assertIn("frontmatter key `dependencies`", body)                       # how to add it
+        self.assertIn("an empty list only for a", body)
+        # no body line starts like the key, which a reader could take for a declaration
+        self.assertNotRegex(body, r"(?m)^dependencies:")
 
     def test_a_complete_attempt_files_a_checked_verify_ticket(self):
         res, labels, calls = self.run_wf({

@@ -308,7 +308,9 @@ if (listed.length) {
   for (const r of listed) {
     const c = rows.get(r.id)
     if (!c || !c.found) { dropped.push(r.id); continue }
-    const q = String(c.qualified || '').trim() || r.id
+    // the confirmed id must be the listed one (with its namespace added), never another
+    let q = String(c.qualified || '').trim() || r.id
+    if (!(q === r.id || q.endsWith(':' + r.id) || r.id.endsWith(':' + q))) { dropped.push(r.id + ' (confirmed as ' + q + ')'); continue }
     if (selfIds.has(q) || seen.has(q)) continue
     seen.add(q)
     related.push({ id: q, status: oneLine(c.status, 40) || '?', statement: r.statement })
