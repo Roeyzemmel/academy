@@ -22,7 +22,7 @@ lands. ``route`` rejects a ticket of another role's kind (``BELONGS``), and send
 self-ticket whose ask needs a new argument (``needs_argument``) to ``research``: the
 writer files the argument as a ``research`` ticket and lands what returns. Not when the
 argument exists: an ``apply`` ticket's edit is decided (math-editor), and a ticket whose
-refs name a delivered ``research`` or ``prove`` ticket (``delivered_argument``) or whose
+refs or waiting_on name a delivered ``research`` or ``prove`` ticket (``delivered_argument``) or whose
 first ref is proved in another namespace's registry (``proved_source``) is landed by the agent of its kind
 (#92: T-1441, T-1385).
 ``check_filed(meta)`` is the check on what an Author writer files for a missing
@@ -140,8 +140,11 @@ def delivered_argument(meta, ticket_of=None):
     does not count (``check_filed``'s rule). ``ticket_of`` (ticket id -> meta or None,
     ``ticket_lookup``; the inbox passes its own board's) replaces the workspace board's;
     '' when none qualifies or the board cannot be read."""
-    tids = [str(r).strip() for r in meta.get("refs") or ()
-            if re.match(r"^T-\d+$", str(r).strip())]
+    tids = []
+    for r in _as_list(meta.get("refs")) + _as_list(meta.get("waiting_on")):
+        r = str(r).strip()
+        if re.match(r"^T-\d+$", r) and r not in tids:
+            tids.append(r)
     if tids and ticket_of is None:
         ticket_of = _workspace_tickets()
     for tid in tids:
@@ -154,6 +157,15 @@ def delivered_argument(meta, ticket_of=None):
                 and str(t.get("final_to") or "").split("@")[0] != "scientist"):
             return tid
     return ""
+
+
+def _as_list(v):
+    """A field that should be a list, as one: a scalar is one item, None none."""
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple)):
+        return list(v)
+    return [v]
 
 
 def _ticket_num(tid):
@@ -259,6 +271,8 @@ def _human():
 def route(meta, ticket_of=None):
     """``{how, target, why}`` for a ticket to the Author. ``ticket_of`` (``ticket_lookup``)
     reads the tickets the refs name; default: the workspace's board."""
+    meta = dict(meta, refs=[str(r) for r in _as_list(meta.get("refs"))
+                            if isinstance(r, (str, int))])
     kind = meta.get("kind") or "other"
     if kind in BELONGS:
         role = BELONGS[kind]

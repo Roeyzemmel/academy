@@ -22,17 +22,17 @@ import routes  # noqa: E402
 import _academy as ac  # noqa: E402
 
 T1441 = {
-    "id": "T-1441", "kind": "apply", "from": "author@bi", "to": "author@bi",
+    "id": "T-1441", "kind": "apply", "from": "author@t", "to": "author@t",
     "status": "accepted",
     "title": "thm:arithmetic-billiard-goal: add the hypothesis that Q has no marked "
-             "regular points and no semi-corners (Roey 2026-11-15)",
+             "regular points and no semi-corners (the human, 2026-11-15)",
     "ask": "Add to paper:thm:arithmetic-billiard-goal (sections/introduction.tex, "
            "conjectural) the hypothesis that Q carries no marked regular points and no "
-           "semi-corners (Sigma_Q = V(Q)), per Roey's word of 2026-11-15.",
+           "semi-corners (Sigma_Q = V(Q)), per the human's word of 2026-11-15.",
     "refs": ["paper:thm:arithmetic-billiard-goal"],
 }
 T1385 = {
-    "id": "T-1385", "kind": "write", "from": "author@bi", "to": "author@bi",
+    "id": "T-1385", "kind": "write", "from": "author@t", "to": "author@t",
     "status": "accepted",
     "title": "Repair the proof of lem:periodic-one-point: \"It is injective\" (l.950) is "
              "false for the unlabelled Sigma_Y (T-1236 run B, F2)",
@@ -96,6 +96,20 @@ class LiveTicketTests(unittest.TestCase):
 
 
 class DeliveredArgumentTests(unittest.TestCase):
+    def test_a_parked_ticket_finds_its_research_ticket_in_waiting_on(self):
+        """The writer parks the self-ticket on the research ticket it filed (waiting_on),
+        often without listing it in refs (review of e68e18a)."""
+        meta = {"kind": "write", "refs": ["paper:lem:x"], "waiting_on": ["T-0009"]}
+        board = {"T-0009": {"id": "T-0009", "kind": "research", "status": "delivered",
+                            "final_to": "researcher"}}
+        self.assertEqual("T-0009", routes.delivered_argument(meta, board.get))
+
+    def test_scalar_or_odd_refs_do_not_crash(self):
+        for refs in (5, None, "T-0001", [None, 5, ["T-1"]]):
+            r = routes.route({"kind": "write", "ask": "a new argument", "refs": refs},
+                             ticket_of=lambda _t: None)
+            self.assertEqual("research", r["how"], refs)
+
     def test_only_a_delivered_or_closed_argument_ticket_counts(self):
         meta = {"kind": "write", "refs": ["paper:lem:x", "T-0001"]}
         for kind, status, final_to, want in (

@@ -35,6 +35,8 @@ ticket ids (at most three).
    lowered.
    - A returned referee packet (skill `author:notes`) runs the notes workflow nested; its
      points become tickets.
+   - An `apply` ticket is never sent to research (its edit is decided), and a self-ticket
+     whose refs or waiting_on name a delivered `research`/`prove` ticket lands it (#92).
    - A self-ticket that needs an argument nobody has delivered (`research`,
      `routes.needs_argument`): `math-writer`, an author -> expert liaison, files the
      `research` ticket to the Expert with `final_to: researcher`, and the script checks
