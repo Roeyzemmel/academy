@@ -220,9 +220,14 @@ class RoutesTests(unittest.TestCase):
             self.assertEqual((r["how"], r["target"]), ("agent", target), kind)
 
     def test_unknown_kind_is_asked_never_guessed(self):
-        for kind in ("question", "decision", "other", "verify", None):
+        """A decision ticket and a kind the Author has no route for (an Expert's kind sent
+        here by mistake) are asked; question and other have routes (#92)."""
+        for kind in ("decision", "verify", "lookup"):
             r = routes.route({"kind": kind})
             self.assertEqual((r["how"], r["target"]), ("human", "human"), kind)
+        for kind in ("question", "other", None):
+            r = routes.route({"kind": kind}, ticket_of=lambda _t: None)
+            self.assertEqual((r["how"], r["target"]), ("agent", "math-writer"), kind)
 
     def test_another_roles_kind_is_rejected_with_the_route_to_ask(self):
         for kind, role in (("prove", "researcher"), ("experiment", "scientist")):
