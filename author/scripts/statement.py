@@ -51,6 +51,9 @@ def _line(text, pos):
 #: the colour and provenance wrappers when the home's config names none
 DEFAULT_WRAPPERS = ("sketch", "conjectural", "meta", "added")
 RE_GAP = re.compile(r"(?:\s+|%[^\n]*(?:\n|$))*")
+#: environments a bare sketch proof may begin with (not a statement of its own)
+LIST_ENVS = ("itemize", "enumerate", "description", "align", "align*", "equation", "equation*",
+             "gather", "gather*", "multline", "multline*", "eqnarray", "eqnarray*", "tikzcd", "cases")
 RE_ENV_AT = re.compile(r"\\(begin|end)\{([A-Za-z*]+)\}")
 
 
@@ -61,7 +64,7 @@ def wrappers(cfg):
     envs = {lv.get("env") for lv in a.get("statusLevels") or [] if lv.get("env")}
     if (a.get("provenance") or {}).get("env"):
         envs.add(a["provenance"]["env"])
-    return tuple(sorted(envs)) or DEFAULT_WRAPPERS
+    return tuple(sorted(envs | set(DEFAULT_WRAPPERS)))
 
 
 def proof_span(text, end, wrap=DEFAULT_WRAPPERS):
@@ -70,7 +73,7 @@ def proof_span(text, end, wrap=DEFAULT_WRAPPERS):
     own ``\\end{...}`` / ``\\begin{...}`` lines (#113: ``\\end{lem} \\end{sketch}
     \\begin{sketch} \\begin{proof}``, each wrapped on its own). A ``sketch`` wrapper
     followed by a ``proof`` wraps it; one followed by anything else is the proof itself."""
-    pos, sketch_at = end, None
+    pos, sketch_at, closed = end, None, False
     while True:
         pos = RE_GAP.match(text, pos).end()
         m = RE_ENV_AT.match(text, pos)
@@ -82,11 +85,20 @@ def proof_span(text, end, wrap=DEFAULT_WRAPPERS):
             break
         if env not in wrap:
             break
-        if kind == "begin" and env == "sketch" and sketch_at is None:
-            sketch_at = pos
+        if kind == "end":
+            closed = True               # the statement's own wrapper ended here
+        elif env == "sketch" and sketch_at is None:
+            sketch_at = (pos, closed)
         pos = m.end()
-    if sketch_at is not None and not RE_ENV_AT.match(text, pos):
-        pos = sketch_at                 # a sketch wrapper around no proof: it is the proof
+    if sketch_at is not None:
+        # a sketch right after the statement (no wrapper closed before it) is the proof
+        # itself, unless what it holds is another statement; after a closed wrapper a sketch
+        # around prose is the next paragraph's colour, not a proof (review of e2a213a)
+        nxt = RE_ENV_AT.match(text, pos)
+        starts_statement = bool(nxt and nxt.group(1) == "begin" and nxt.group(2) not in LIST_ENVS)
+        if sketch_at[1] or starts_statement:
+            return None
+        pos = sketch_at[0]
     m = RE_PROOF.match(text, pos)
     if not m:
         return None
