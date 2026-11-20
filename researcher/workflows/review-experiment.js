@@ -30,14 +30,14 @@ const A = args || {}
 // model. Nested workflows get the same map.
 const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
 const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
-// Two launches in a row that return nothing (a usage limit: every launch fails until the
-// reset, #115) stop the run: launch() then launches nothing and returns null at once, so
+// Three launches in a row that return nothing (a usage limit: every launch fails until the
+// reset, #115; two can be one lost run and its fallback, whose record still runs) stop the run: launch() then launches nothing and returns null at once, so
 // each caller's "returned nothing" path ends it; LAUNCH_LIMIT.stopped tells the result.
 const LAUNCH_LIMIT = { nulls: 0, stopped: false }
 const launch = async (prompt, opts) => {
   if (LAUNCH_LIMIT.stopped) return null
   const r = await launchOnce(prompt, opts)
-  if (r === null) { if (++LAUNCH_LIMIT.nulls >= 2) LAUNCH_LIMIT.stopped = true } else LAUNCH_LIMIT.nulls = 0
+  if (r === null) { if (++LAUNCH_LIMIT.nulls >= 3) LAUNCH_LIMIT.stopped = true } else LAUNCH_LIMIT.nulls = 0
   return r
 }
 const launchOnce = (prompt, opts) => {

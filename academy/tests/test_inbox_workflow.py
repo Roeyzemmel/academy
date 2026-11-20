@@ -328,16 +328,17 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("check_paper.py", " ".join(res["notes"]))     # the close-out ran on the last listing
 
     def test_two_launches_returning_nothing_stop_the_run(self):
-        """#115: under a usage limit every launch fails; after two in a row nothing more is
+        """#115: under a usage limit every launch fails; after three in a row nothing more is
         launched and the result says why."""
         rows = [row("T-1", target="clerk", kind="lookup", to="expert@t"),
                 row("T-2", target="clerk", kind="lookup", to="expert@t")]
-        plan = {"list": [{"instances": [inst("expert@t", rows)]}], "T-1 start": [None], "check T-1": [None]}
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}], "T-1 start": [None], "check T-1": [None],
+                "T-2 start": [None]}
         res, labels, _ = self.run_wf(plan)
         self.assertTrue(res.get("usage_limit"), res)
         self.assertIn("usage limit", res["stopped"])
-        self.assertEqual(labels, ["list", "T-1 start", "check T-1"])    # nothing after the second null
-        self.assertNotIn("T-2 start", labels)
+        self.assertEqual(labels, ["list", "T-1 start", "check T-1", "T-2 start"])   # nothing after the third
+        self.assertNotIn("check T-2", labels)
 
     def test_a_later_listing_with_an_empty_home_keeps_the_home_seen_before(self):
         """#94 (the fix of 26b28cd): pass 2's listing came back with home '' and the
