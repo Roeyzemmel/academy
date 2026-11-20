@@ -4,9 +4,12 @@ Plan section 8 and docs/protocol.md section 5 (the grader rule): experiment-revi
 read-only, so its verdict reaches the notebook through this hook, never through its own
 writes or an MCP write tool.
 
-Scope: the stopping agent is ``experiment-reviewer`` (namespace stripped), and the
-session's cwd lies in a Researcher home (``_researcher.researcher_home``). Silent
-otherwise.
+Scope: the stopping agent is ``experiment-reviewer`` (namespace stripped). The Researcher
+home is the one the session's cwd lies in (``_researcher.researcher_home``); from anywhere
+else (an inbox run from the workspace root, #93) it is the home of the instance the
+record's ``Ticket`` is addressed to, else the workspace's only Researcher instance. With no
+home found the report is not landed and the hook says so (a ``systemMessage``), never
+silently: before #93 every review run from the workspace root was lost this way.
 
 The report's ``## Review record`` block (agents/experiment-reviewer.md) is parsed:
 Subject, Run (A|B), Verdict, Result, Commit, Validation, Outcome, Model, Reproduction,
@@ -103,32 +106,85 @@ def render(meta, report):
     return text.replace("---\n", "---\n%s\n" % MARKER, 1)
 
 
+#: seconds the hook waits for the board (its own timeout is 60 s: a hook killed at the
+#: timeout says nothing, and the review would be lost silently again; review of 7873733)
+BOARD_DEADLINE = 20
+
+
+def _ticket_to(tid, ws, deadline=None):
+    """The instance ticket ``tid`` is addressed to, or None (no board, no such ticket, or
+    no answer within ``deadline`` seconds: the gh transport retries for 30 s and sleeps
+    on a rate limit)."""
+    import threading
+    box = {}
+
+    def read():
+        try:
+            box["to"] = ac.open_store(ws).get(tid)[1].get("to")
+        except Exception:    # an unreachable board answers nothing; the caller says so
+            box["to"] = None
+    t = threading.Thread(target=read, daemon=True)
+    t.start()
+    t.join(BOARD_DEADLINE if deadline is None else deadline)
+    return box.get("to")
+
+
+def home_for(event, fields, ws=None):
+    """``(home, cfg, instance, how)``: where the review lands (see the module docstring);
+    ``home`` None when there is nowhere, ``how`` then says why."""
+    home, cfg, instance = rs.researcher_home(ac.event_cwd(event), ws)
+    if home:
+        return home, cfg, instance, "cwd"
+    ws = ws if ws is not None else rs.workspace_or_none()
+    if not ws:
+        return None, None, None, "the cwd is in no Researcher home and workspace.json cannot be read"
+    researchers = {n: i for n, i in (ws.get("instances") or {}).items()
+                   if i.get("role") == "researcher" and i.get("home")}
+    tid = str(fields.get("ticket") or "").strip()
+    to = _ticket_to(tid, ws) if ac.RE_TICKET_ID.match(tid) else None
+    name = to if to in researchers else (next(iter(researchers)) if len(researchers) == 1 else None)
+    if not name:
+        return None, None, None, (
+            "the cwd is in no Researcher home, and %s" % (
+                "ticket %s is addressed to %s, not a Researcher instance" % (tid, to) if to else
+                "the record names no ticket the board answered for (Ticket: %s) and the workspace "
+                "has %d Researcher instances" % (tid or "none", len(researchers))))
+    h = os.path.abspath(researchers[name]["home"]).replace("\\", "/")
+    cfg = rs._config_or_none(h) if os.path.isfile(os.path.join(h, ac.CONFIG_REL)) else None
+    return h, cfg, name, "ticket" if to == name else "only-researcher"
+
+
+def _malformed(probs):
+    return ("land_review: your report cannot be landed as a verdict (%s). End with a "
+            "'## Review record' block exactly as agents/experiment-reviewer.md gives it: "
+            "Subject, Run, Verdict, Result, Commit, Validation, Outcome, Model, "
+            "Reproduction, Ticket, one '- Key: value' line each." % "; ".join(probs))
+
+
 def land(event, ws=None, date=None):
     """Handle one SubagentStop event; returns ``(action, detail)``.
 
-    action: None (silent), 'block' (detail = reason), 'landed' / 'unparsed' (detail = path).
+    action: None (silent), 'block' (detail = reason), 'landed' / 'unparsed' (detail = path),
+    'nohome' (detail = why: the report was not landed anywhere).
     """
     _, bare = ac.agent_identity(event)
     if bare != AGENT:
         return None, ""
-    home, cfg, instance = rs.researcher_home(ac.event_cwd(event), ws)
-    if not home:
-        return None, ""
-    audits = rs.notebook_paths(home, cfg)["audits"]
     tpath = event.get("agent_transcript_path") or event.get("transcript_path")
     _, t_model = transcript_last(tpath)
     # the report: a closing SubagentHandback call's message (T-1194), else the event's
     # last_assistant_message, else the transcript's last text
     report = ac.subagent_report(event, path=tpath)
     fields, probs = rs.parse_review(report)
+    if probs and not event.get("stop_hook_active"):
+        # the restatement needs no home (and no board read): ask for it first
+        return "block", _malformed(probs)
+    home, cfg, instance, how = home_for(event, fields, ws)
+    if not home:
+        return "nohome", how
+    audits = rs.notebook_paths(home, cfg)["audits"]
     date = date or ac.today()
     if probs:
-        if not event.get("stop_hook_active"):
-            return "block", (
-                "land_review: your report cannot be landed as a verdict (%s). End with a "
-                "'## Review record' block exactly as agents/experiment-reviewer.md gives it: "
-                "Subject, Run, Verdict, Result, Commit, Validation, Outcome, Model, "
-                "Reproduction, Ticket, one '- Key: value' line each." % "; ".join(probs))
         folder = os.path.join(audits, "_unparsed")
         path = _unique(folder, "%s-%s" % (date, ac.slugify(event.get("agent_id") or "run",
                                                            maxlen=20)))
@@ -177,6 +233,9 @@ def main():
         return 0
     if action == "block":
         ac.emit_block(detail)
+    elif action == "nohome":
+        ac.emit({"systemMessage": "researcher: experiment review NOT landed: %s; the report is "
+                 "only in the agent's transcript" % detail})
     elif action in ("landed", "unparsed"):
         ac.emit({"systemMessage": "researcher: experiment review %s at %s"
                  % ("landed" if action == "landed" else "kept UNPARSED", detail)})

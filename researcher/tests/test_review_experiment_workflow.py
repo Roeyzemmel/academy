@@ -145,6 +145,20 @@ class GateTests(unittest.TestCase):
                                  models={"researcher:experiment-reviewer": "opus"})
         self.assertEqual(self.labels(calls), ["prepare", "run A"])
 
+    def test_a_run_kept_unparsed_is_not_relaunched(self):
+        """#93: the hook kept this run's report unparsed: stop with its problems, no blind relaunch."""
+        stuck = dict(dec("need-A"), unparsed=["audits/_unparsed/2026-11-19-ag-1.md: no Verdict line"])
+        res, calls = self.run_wf({"prepare": [prep()], "run A": ["a"], "decide": [stuck]})
+        self.assertEqual(self.labels(calls), ["prepare", "run A", "decide"])
+        self.assertEqual(res["outcome"], "unlanded")
+        self.assertIn("no Verdict line", res["reason"])
+        # a copy that was there at prepare is an earlier run's: relaunched as before
+        old = dict(prep(), unparsed_before=["2026-11-19-ag-1.md"])
+        res, calls = self.run_wf({"prepare": [old], "run A": ["a"], "run A (relaunch)": ["a"],
+                                  "decide": [stuck, dec("not-cleared", ["GAP"])],
+                                  "claim-keeper evidence": ["rows"], "close": [OK]})
+        self.assertIn("run A (relaunch)", self.labels(calls))
+
     def test_the_reviewer_launches_on_the_max_model(self):
         """T-1682: the args' model, or one clerk stage; a lost run falls back to opus once, noted in the result."""
         plan = {"prepare": [prep()], "run A": ["a"], "decide": [dec("not-cleared", ["GAP"])],

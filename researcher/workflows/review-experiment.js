@@ -84,6 +84,7 @@ const DECIDE = {
     grounds_problems: { type: 'array', items: { type: 'string' } },
     reasons: { type: 'array', items: { type: 'string' } },
     reproduction: { type: 'string', description: 'a reproduction request a landed run made (another profile), or empty' },
+    unparsed: { type: 'array', items: { type: 'string' }, description: 'files under the audits folder\'s _unparsed/ landed today whose subject is this subject (a report the hook could not parse), each with its problems; else empty' },
   },
   required: ['state', 'next', 'verdicts', 'proposed_status', 'grounds', 'grounds_problems', 'reasons', 'reproduction'],
 }
@@ -96,6 +97,7 @@ const PREP = {
     result: { type: 'string', description: 'the result file, or empty' },
     has_candidates: { type: 'boolean', description: 'the report lists candidate counterexamples' },
     decide: DECIDE,
+    unparsed_before: { type: 'array', items: { type: 'string' }, description: 'the file names under the audits folder\'s _unparsed/ whose subject is this subject, as they are now (before any run of this pass)' },
   },
   required: ['ok', 'stop_reason', 'report', 'result', 'has_candidates', 'decide'],
 }
@@ -234,7 +236,7 @@ const prep = await clerk(LATER ? 'decide' : 'prepare', [
   A.report ? `report: ${A.report}` : '',
   LATER
     ? 'Return reviews.py decide <subject> --json parsed, as prepare would (ok true, has_candidates true).'
-    : 'Take the ticket (open -> accepted -> in-progress), find the report packet and the result, say whether the report lists candidate counterexamples, and return reviews.py decide <subject> --json parsed.',
+    : 'Take the ticket (open -> accepted -> in-progress), find the report packet and the result, say whether the report lists candidate counterexamples, list in unparsed_before the files under the audits folder\'s _unparsed/ whose subject is this subject, and return reviews.py decide <subject> --json parsed.',
 ], PREP, 'Prepare')
 if (!prep || !prep.ok) {
   log('not started: ' + (prep ? prep.stop_reason : 'prepare returned nothing'))
@@ -260,9 +262,23 @@ if (!LATER) {
       label: `run ${run}${tried[run] > 1 ? ' (relaunch)' : ''}`, phase: 'Review', agentType: REVIEWER }, { agentType: CLERK, phase: 'Review', notes })
     if (text === null) { notes.push(`run ${run} lost (no result: a limit or an API error); nothing further launched`); out.runs.push({ run, lost: true }); break }
     const before = d.state
-    d = await clerk('decide', ['Return reviews.py decide <subject> --json parsed. Write nothing.'], DECIDE, 'Review')
+    d = await clerk('decide', ['Return reviews.py decide <subject> --json parsed. If the state is still ' + before +
+      ', also list in unparsed the files under the audits folder\'s _unparsed/ whose subject is this subject, each as "<file name>: <its problems>". Write nothing.'], DECIDE, 'Review')
     if (!d) { notes.push('the decide stage returned nothing'); break }
-    if (d.state === before) { notes.push(`run ${run} attempt ${tried[run]} did not land a review record`); continue }
+    if (d.state === before) {
+      // #93: a run that reported but did not land is not relaunched blind: the hook kept
+      // it unparsed (the reviewer restated nothing), or it found no home to land in
+      // only this pass's: a copy listed at prepare is an earlier run's (no clock in a workflow script)
+      const known = new Set((prep.unparsed_before || []).map(f => String(f).split(/[\\/]/).pop()))
+      d.unparsed = (d.unparsed || []).filter(u => !known.has(String(u).split(':')[0].split(/[\\/]/).pop()))
+      if (d.unparsed.length) {
+        notes.push(`run ${run} did not land: its report was kept unparsed (${d.unparsed.join('; ')}); not relaunched`)
+        out.runs.push({ run, landed: false, unparsed: d.unparsed })
+        return Object.assign(out, { outcome: 'unlanded', reason: `run ${run}'s report could not be parsed: ${d.unparsed.join('; ')}` })
+      }
+      notes.push(`run ${run} attempt ${tried[run]} did not land a review record (no unparsed copy: the land_review hook found no Researcher home, or did not run; its systemMessage says which)`)
+      continue
+    }
     if (tried[run] > 1) notes.push(`run ${run}: the kept run is the relaunch`)
     out.runs.push({ run, landed: true })
     if (run === 'A' && d.state !== 'need-B') notes.push(`run B skipped by design: the table on A says ${d.state}`)

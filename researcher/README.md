@@ -74,9 +74,13 @@ Tests: `py -m unittest discover researcher/tests` from the academy repo.
   silent in a home whose legacy hook is still registered.
 - `audit_blind_guard` (PreToolUse `Read|Grep|Glob`) denies an `experiment-reviewer`
   the audits folders, so run B never sees run A.
-- `land_review` (SubagentStop) fires only for `experiment-reviewer` in a Researcher
-  home. It writes the verdict as `audits/<lab-id>/<date>-<A|B>.md`. It fires for the
-  runs a workflow launches too.
+- `land_review` (SubagentStop) fires only for `experiment-reviewer`. It writes the
+  verdict as `audits/<lab-id>/<date>-<A|B>.md` in the Researcher home the session's cwd
+  lies in, else in the home of the instance the record's `Ticket` is addressed to (read
+  from the board, 20 s at most), else in the workspace's only Researcher instance; with
+  none it says so in a `systemMessage` and lands nothing (#93: from the workspace root,
+  where the inbox runs, reviews were silently lost). It fires for the runs a workflow
+  launches too.
 - `review_launch_guard` (PreToolUse `Agent|Task`) refuses a hand-launched
   `experiment-reviewer`: the runs are launched by `workflows/review-experiment.js`
   (docs/workflows.md). The human's opt-out is `ACADEMY_ALLOW_MANUAL_REVIEW=1`.

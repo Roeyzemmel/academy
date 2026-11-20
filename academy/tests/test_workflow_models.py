@@ -80,6 +80,14 @@ class TheBlock(unittest.TestCase):
             self.assertEqual(bare, [], "%s launches agent() directly" % rel)
             self.assertIn("launch(", rest, rel)
 
+    def test_no_script_reads_a_clock_or_randomness(self):
+        """The workflow runtime throws on Date.now(), an argless new Date() and
+        Math.random() (they would break resume); a test harness under node does not."""
+        bad = re.compile(r"Date\.now\(|new Date\(\s*\)|Math\.random\(")
+        for rel in WORKFLOWS:
+            hits = [m.group(0) for m in bad.finditer(text(rel))]
+            self.assertEqual(hits, [], rel)
+
     def test_no_script_names_a_model(self):
         for rel in WORKFLOWS:
             rest = BLOCK.sub("", text(rel))
