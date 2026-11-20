@@ -40,6 +40,10 @@ TRANSITIONS = {
     ("accepted", "cancelled"): ("sender",),
     ("in-progress", "delivered"): ("receiver",),
     ("in-progress", "blocked"): ("receiver",),
+    # started and put back, untouched, for a later run (a clerk releasing a ticket it took):
+    # one direct step, no reason (#123: 20 refusals 2026-11-14..19 of the hint offered
+    # before, in-progress -> blocked -> accepted, whose blocked needs waiting_on)
+    ("in-progress", "accepted"): ("receiver",),
     # started, and it turns out it cannot be done as asked: rejected with a reason, as from
     # open or accepted (the human's decision, 2026-11-14; before, the route offered was
     # in-progress -> blocked -> accepted -> rejected)
