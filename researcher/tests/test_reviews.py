@@ -130,11 +130,34 @@ class LandReviewTests(Workspace):
         self.assertEqual(action, "unparsed")
         self.assertIn("_unparsed", path.replace("\\", "/"))
 
-    def test_other_agents_and_other_homes_are_silent(self):
+    def test_other_agents_are_silent(self):
         self.assertEqual(land_review.land(self.event(report(), agent="expert:rigor-reviewer"))[0],
                          None)
         self.assertEqual(land_review.land(self.event(report(), agent=""))[0], None)
-        self.assertEqual(land_review.land(self.event(report(), cwd=self.L))[0], None)
+
+    def put_ticket(self, tid, to):
+        meta = {"id": tid, "title": "Review lab:ew-check", "kind": "review-experiment",
+                "from": "scientist@t", "to": to, "status": "in-progress", "priority": "normal",
+                "ask": "a", "deliverable": "d", "refs": ["lab:ew-check"], "blocks": [],
+                "waiting_on": [], "budget": {"runs": 1}, "packets": [],
+                "created": "2026-09-28", "updated": "2026-09-28"}
+        meta2, body = ac.read_frontmatter(ac.new_ticket(meta))
+        ac.as_store(self.B).save(meta2, body)
+
+    def test_from_outside_a_home_it_lands_in_the_tickets_researcher(self):
+        """#93: run from the workspace root (an inbox run) the review was silently lost."""
+        self.put_ticket("T-0003", "researcher@old")
+        action, path = land_review.land(self.event(report(), cwd=self.L), date="2026-09-28")
+        self.assertEqual(action, "landed")
+        self.assertTrue(path.replace("\\", "/").startswith(self.O + "/audits/ew-check/"), path)
+
+    def test_from_outside_a_home_with_no_ticket_it_says_so(self):
+        action, why = land_review.land(self.event(report(), cwd=self.L))
+        self.assertEqual(action, "nohome")
+        self.assertIn("T-0003", why)
+        self.assertIn("2 Researcher instances", why)
+        rc, out = self.run_hook("land_review.py", self.event(report(), cwd=self.L))
+        self.assertIn("NOT landed", out["systemMessage"])
 
     def test_legacy_researcher_home_lands_under_default_audits(self):
         action, path = land_review.land(self.event(report(), cwd=self.O))

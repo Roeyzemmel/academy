@@ -84,6 +84,7 @@ const DECIDE = {
     grounds_problems: { type: 'array', items: { type: 'string' } },
     reasons: { type: 'array', items: { type: 'string' } },
     reproduction: { type: 'string', description: 'a reproduction request a landed run made (another profile), or empty' },
+    unparsed: { type: 'array', items: { type: 'string' }, description: 'files under the audits folder\'s _unparsed/ landed today whose subject is this subject (a report the hook could not parse), each with its problems; else empty' },
   },
   required: ['state', 'next', 'verdicts', 'proposed_status', 'grounds', 'grounds_problems', 'reasons', 'reproduction'],
 }
@@ -260,9 +261,20 @@ if (!LATER) {
       label: `run ${run}${tried[run] > 1 ? ' (relaunch)' : ''}`, phase: 'Review', agentType: REVIEWER }, { agentType: CLERK, phase: 'Review', notes })
     if (text === null) { notes.push(`run ${run} lost (no result: a limit or an API error); nothing further launched`); out.runs.push({ run, lost: true }); break }
     const before = d.state
-    d = await clerk('decide', ['Return reviews.py decide <subject> --json parsed. Write nothing.'], DECIDE, 'Review')
+    d = await clerk('decide', ['Return reviews.py decide <subject> --json parsed. If the state is still ' + before +
+      ', also list in unparsed the files under the audits folder\'s _unparsed/ landed today whose subject is this subject, each with its problems. Write nothing.'], DECIDE, 'Review')
     if (!d) { notes.push('the decide stage returned nothing'); break }
-    if (d.state === before) { notes.push(`run ${run} attempt ${tried[run]} did not land a review record`); continue }
+    if (d.state === before) {
+      // #93: a run that reported but did not land is not relaunched blind: the hook kept
+      // it unparsed (the reviewer restated nothing), or it found no home to land in
+      if ((d.unparsed || []).length) {
+        notes.push(`run ${run} did not land: its report was kept unparsed (${d.unparsed.join('; ')}); not relaunched`)
+        out.runs.push({ run, landed: false, unparsed: d.unparsed })
+        return Object.assign(out, { outcome: 'unlanded', reason: `run ${run}'s report could not be parsed: ${d.unparsed.join('; ')}` })
+      }
+      notes.push(`run ${run} attempt ${tried[run]} did not land a review record (no unparsed copy: the land_review hook found no Researcher home, or did not run; its systemMessage says which)`)
+      continue
+    }
     if (tried[run] > 1) notes.push(`run ${run}: the kept run is the relaunch`)
     out.runs.push({ run, landed: true })
     if (run === 'A' && d.state !== 'need-B') notes.push(`run B skipped by design: the table on A says ${d.state}`)
