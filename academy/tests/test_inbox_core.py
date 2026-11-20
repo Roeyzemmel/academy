@@ -441,6 +441,29 @@ sys.exit(1 if mode == "fail" else 0)
 '''
 
 
+class HomeFromWorkspaceTests(unittest.TestCase):
+    """#116: the listing gives each instance's home from workspace.json; the workflow copies
+    it, never a path the clerk knows otherwise (an attached checkout outside the workspace)."""
+
+    def test_home_of_reads_workspace_json(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "workspace.json")
+        with open(path, "w") as f:
+            json.dump({"board": d, "instances": {INST: {"role": "researcher", "home": d + "/ws/nb",
+                                                        "domains": ["d"]}}}, f)
+        args = core.parser("d").parse_args(["--workspace", path])
+        self.assertEqual(core.home_of(INST, args), d + "/ws/nb")
+        self.assertEqual(core.home_of("expert@none", args), "")
+        bad = core.parser("d").parse_args(["--workspace", os.path.join(d, "missing.json")])
+        self.assertEqual(core.home_of(INST, bad), "")
+
+    def test_the_workflow_asks_for_the_scripts_home(self):
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               "workflows", "inbox.js"), encoding="utf-8") as f:
+            self.assertIn('"home" copied verbatim from the script', f.read())
+
+
 class ShipCheckpointHookTests(Board):
     """``--check`` on a ticket settled as finished runs the academy's
     ``ship.py --workspace <root> checkpoint --ticket <id> --role <role>`` (non-fatal, never
