@@ -60,21 +60,34 @@ RECORD_KEYS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
 #: a reword run's own keys (T-0347), written after ``statement_hash`` and only for a
 #: block that says ``mode: reword``; a blind run's record is unchanged
 REWORD_KEYS = dt.REWORD_FIELDS
+#: the dependency amendment (2026-11-20): a suggestion (``add_dependency``, any run, written
+#: after ``modulo`` only when given) and an amend run's own keys (``mode: amend``, written
+#: after ``statement_hash`` only for a block that says so); a record without either is
+#: unchanged
+AMEND_KEYS = ("mode", "base_pass", "base_hash", "amended_with")
 
 
-def record_keys(reword, base_subject=False):
+def record_keys(reword, base_subject=False, amend=False, suggests=False):
     """The record's keys in order; ``base_subject`` (T-0476) only when the block gave one,
-    so a reword record of the same subject is unchanged."""
-    if not reword:
-        return RECORD_KEYS
-    i = RECORD_KEYS.index("statement_hash") + 1
-    rk = tuple(k for k in REWORD_KEYS if base_subject or k != "base_subject")
-    return RECORD_KEYS[:i] + rk + RECORD_KEYS[i:]
+    so a reword record of the same subject is unchanged; ``add_dependency`` only when the
+    block suggests one, the amend keys only for an amend run."""
+    keys = RECORD_KEYS
+    if suggests:
+        i = keys.index("modulo") + 1
+        keys = keys[:i] + ("add_dependency",) + keys[i:]
+    i = keys.index("statement_hash") + 1
+    if reword:
+        rk = tuple(k for k in REWORD_KEYS if base_subject or k != "base_subject")
+        keys = keys[:i] + rk + keys[i:]
+    elif amend:
+        keys = keys[:i] + AMEND_KEYS + keys[i:]
+    return keys
 
 ASK = ("Close your report with the VERDICT block, exactly in the shape your "
        "instructions give (VERDICT, then subject, pass, run, verdict, modulo, model, "
-       "statement_hash, blocking, gap_class, ticket; in reword mode also mode, base_pass, "
-       "base_hash, reword_scope, and base_subject when the bundle gives it), as the last thing in your final message. "
+       "statement_hash, blocking, gap_class, ticket; add_dependency when you suggest one; in reword mode also mode, base_pass, "
+       "base_hash, reword_scope, and base_subject when the bundle gives it; in amend mode also mode, base_pass, base_hash, "
+       "amended_with), as the last thing in your final message. "
        "The hook that lands your verdict reads only that block.")
 
 
@@ -129,6 +142,15 @@ def block_problems(block):
         bs = (block.get("base_subject") or "").strip()
         if bs and bs.lower() not in dt.NONE_WORDS and not reviews.split_subject(bs)[0]:
             probs.append("base_subject")
+    elif dt.is_amend(block):
+        # an amend run is run B of the pass that run A opened (2026-11-20)
+        if (block.get("base_pass") or "").strip() != (block.get("pass") or "").strip() \
+                or not RE_PASS_NAME.match((block.get("base_pass") or "").strip()):
+            probs.append("base_pass")
+        if not RE_HASH.match((block.get("base_hash") or "").strip().lower()):
+            probs.append("base_hash")
+        if not dt._split_list(block.get("amended_with")):
+            probs.append("amended_with")
     return probs
 
 
@@ -165,8 +187,11 @@ def land(event, text, home, now=None, report=None):
     subject = (block.get("subject") or "").strip()
     run = (block.get("run") or "").strip().upper()[:1] or "X"
     reword = dt.is_reword(block)
+    amend = not reword and dt.is_amend(block)
     if reword:
         run = "R"           # a reword pass has one run, R, whatever the block says
+    elif amend:
+        run = "B"           # an amend run is run B of its pass (2026-11-20)
     probs = block_problems(block) if block else []
     if block and probs:
         folder = os.path.join(reviews.subject_dir(home, subject or "unknown"), UNFILED)
@@ -203,6 +228,13 @@ def land(event, text, home, now=None, report=None):
                      "base_hash": rec["base_hash"] or None,
                      "reword_scope": rec["reword_scope"] or None,
                      "base_subject": bsubj or None})
+    elif amend:
+        meta.update({"mode": "amend", "base_pass": rec["base_pass"] or None,
+                     "base_hash": rec["base_hash"] or None,
+                     "amended_with": rec["amended_with"]})
+    suggests = bool(rec.get("add_dependency"))
+    if suggests:
+        meta["add_dependency"] = rec["add_dependency"]
     prior = _same_run(folder, key, body)
     if prior:
         path, old, same_body = prior
@@ -227,7 +259,7 @@ def land(event, text, home, now=None, report=None):
                       "pass folder once pass and statement hash are known"
                       % (" and ".join(probs), "is" if len(probs) == 1 else "are"))
     ac.atomic_write(path, ac.write_frontmatter(
-        {k: meta[k] for k in record_keys(reword, bool(bsubj))}, body))
+        {k: meta[k] for k in record_keys(reword, bool(bsubj), amend, suggests)}, body))
     return path
 
 

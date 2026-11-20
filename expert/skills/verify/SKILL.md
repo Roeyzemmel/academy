@@ -56,6 +56,16 @@ report says the pass ran by hand.
   relaunched) and B launches only if the falsifier found nothing. A pass with no ticket
   never waits: it could not be resumed (`reviews.py` resumes a ticket's own pass only),
   so the falsifier stage is skipped with a note in the record and B runs as before.
+- **`awaiting-amendment`**: A was CONFIRMED and suggested a dependency (`add_dependency`,
+  an existing result the proof relies on but does not list; `references/conclude.md`
+  section 1b). The chair filed a `prove` repair to the producer (marked `amendment for
+  verify <T> pass <pass>`, so it files no verify ticket of its own) and blocked the verify
+  ticket on it; the pass stays open. On the rerun B runs in **amend mode** on the amended
+  proof, told the suggestion only, and A + B are the two verdicts (proved-modulo the added
+  dependencies until established) — but only once that repair ended delivered or closed,
+  the attempt is not the one A reviewed, and each dependency is declared with its pinpoint.
+- **`new-pass-after-amendment`** (in the table): a blind B, not A, suggested a dependency.
+  No status; the dependency goes to the producer as a repair, and a new pass follows it.
 - **`falsifier-counterexample`**: the falsifier broke the claim. No B, no status; the
   counterexample went to the human as a `decision` ticket (the one rule for a
   counterexample, `references/conclude.md` section 4.3) and is in the packet.

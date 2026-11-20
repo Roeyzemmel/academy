@@ -420,6 +420,173 @@ class FalsifierAfterATests(unittest.TestCase):
 
 
 @unittest.skipUnless(NODE, "node is not installed")
+class AmendAfterATests(unittest.TestCase):
+    """The human's design (2026-11-20): A CONFIRMED with a suggested dependency pauses the
+    pass; the producer adds it (a prove ticket, mode repair); on the rerun B reviews the
+    amended proof in amend mode, told the suggestion only."""
+    run_wf = GateTests.run_wf
+    A_SUG = dict(tab("CONFIRMED", "awaiting-amendment", False), add_dependency=["paper:lem:lift"])
+    FILED = {"request": "T-0003", "blocked": True, "waiting_on": ["T-0003"], "refusal": ""}
+    NO_AM = {"request": "", "request_status": "", "attempt": ""}
+    DONE_AM = {"request": "T-0003", "request_status": "delivered",
+               "attempt": "proofs/lem-x/attempt-3.md",
+               "reviewed_attempt": "proofs/lem-x/attempt-2.md"}
+    LANDED_A = [{"run": "A", "statement_hash": "abcdef12"}]
+    BUNDLE = {"bundle": "/lib/scratch/amend-T-0001.md", "refusal": ""}
+
+    def test_a_suggestion_files_the_repair_and_blocks_the_ticket_instead_of_b(self):
+        am = dict(self.NO_AM, attempt="proofs/lem-x/attempt-2.md")     # the attempt A reviews
+        out, labels, calls = self.run_wf({"prepare": dict(PREP, amendment=am), "run A": "r",
+                                          "table A": self.A_SUG, "amendment": self.FILED})
+        self.assertEqual(labels, ["prepare", "run A", "table A", "amendment"])
+        self.assertIn("run A reviewed proofs/lem-x/attempt-2.md", calls[-1]["prompt"])
+        r = out["result"]
+        self.assertEqual(r["outcome"], "awaiting-amendment")
+        self.assertEqual(r["amendment_request"], "T-0003")
+        self.assertEqual(r["add_dependency"], ["paper:lem:lift"])
+        self.assertIn("stays open", r["reason"])
+        stage = calls[-1]
+        self.assertEqual(stage["agentType"], "expert:review-chair")
+        for want in ("tickets_create", "kind prove", "mode repair", "paper:lem:lift",
+                     "depends_on", "blocked", "waiting_on", "T-0001"):
+            self.assertIn(want, stage["prompt"])
+        self.assertNotIn("run B", labels)
+
+    def test_a_placeholder_attempt_is_no_record_and_no_attempt_files_no_repair(self):
+        """Second look at 7044d82: '(no attempt reported)' always 'differed' from the current
+        attempt; and a repair asked for with no attempt on record cannot be checked."""
+        am = dict(self.DONE_AM, reviewed_attempt="(no attempt reported)")
+        prep = dict(PREP, amendment=am, landed=self.LANDED_A, inputs=["paper:lem:lift"])
+        out, labels, calls = self.run_wf({"prepare": prep, "table A": self.A_SUG,
+                                          "amendment": [{"request": "", "blocked": True, "waiting_on": ["human"], "refusal": ""}]})
+        self.assertNotIn("run B", labels)
+        self.assertIn("did not record the attempt run A reviewed", " ".join(out["result"]["notes"]) + out["result"].get("reason", ""))
+        prep = dict(PREP, amendment=dict(self.NO_AM, attempt=""))
+        out, labels, calls = self.run_wf({"prepare": prep, "run A": "r", "table A": self.A_SUG,
+                                          "amendment": [{"request": "", "blocked": True, "waiting_on": ["human"], "refusal": ""}]})
+        amend = next(c for c in calls if c["label"] == "amendment")["prompt"]
+        self.assertIn("file nothing", amend)
+        self.assertIn("is not on record", amend)
+
+    def test_a_pending_amendment_is_waited_on_not_filed_again(self):
+        am = dict(self.NO_AM, request="T-0003", request_status="open")
+        prep = dict(PREP, amendment=am, landed=self.LANDED_A)
+        out, labels, calls = self.run_wf({"prepare": prep, "table A": self.A_SUG, "amendment": self.FILED})
+        self.assertEqual(labels, ["prepare", "table A", "amendment"])
+        self.assertEqual(out["result"]["outcome"], "awaiting-amendment")
+        self.assertIn("file nothing", calls[-1]["prompt"])
+
+    def test_a_rerun_after_the_amendment_launches_b_in_amend_mode(self):
+        prep = dict(PREP, amendment=self.DONE_AM, landed=self.LANDED_A, inputs=["paper:lem:lift"])
+        done = dict(DONE, run_files=["A.md", "B.md", "decision.md"])
+        out, labels, calls = self.run_wf({"prepare": prep, "table A": self.A_SUG,
+                                          "amend-brief": self.BUNDLE, "run B": "r",
+                                          "table B": tab("CONFIRMED", "confirmed-modulo", run="B"),
+                                          "conclude": done})
+        self.assertEqual(labels, ["prepare", "table A", "amend-brief", "run B", "table B", "conclude"])
+        brief = next(c for c in calls if c["label"] == "amend-brief")["prompt"]
+        self.assertIn("reviews.py amend-brief", brief)
+        self.assertIn("proofs/lem-x/attempt-3.md", brief)
+        b = next(c for c in calls if c["label"] == "run B")["prompt"]
+        self.assertIn("amend mode", b)
+        self.assertIn(self.BUNDLE["bundle"], b)
+        self.assertIn("run: B", b)
+        self.assertNotIn("CONFIRMED", b)                 # told the suggestion only, via the bundle
+        tb = next(c for c in calls if c["label"] == "table B")["prompt"]
+        self.assertIn("A.md", tb)                        # the amend B is tabled against A
+        self.assertIn("mode amend", calls[-1]["prompt"])
+        self.assertEqual(out["result"]["anomalies"], [])
+
+    def test_an_amendment_that_does_not_list_the_dependency_is_not_taken(self):
+        prep = dict(PREP, amendment=self.DONE_AM, landed=self.LANDED_A, inputs=["paper:lem:other"])
+        out, labels, calls = self.run_wf({"prepare": prep, "table A": self.A_SUG, "amendment": self.FILED})
+        self.assertEqual(labels, ["prepare", "table A", "amendment"])
+        self.assertEqual(out["result"]["outcome"], "awaiting-amendment")
+        self.assertIn("paper:lem:lift", " ".join(out["result"]["notes"]))
+
+    def test_the_falsifier_comes_before_the_amendment(self):
+        out, labels, _ = self.run_wf({"prepare": dict(PREP, falsifier=NO_FALS, amendment=self.NO_AM),
+                                      "run A": "r", "table A": self.A_SUG,
+                                      "falsifier": FalsifierAfterATests.FILED})
+        self.assertEqual(labels, ["prepare", "run A", "table A", "falsifier"])
+        self.assertEqual(out["result"]["outcome"], "awaiting-falsifier")
+
+    def test_a_landed_amend_b_is_tabled_not_rebriefed(self):
+        prep = dict(PREP, amendment=self.DONE_AM, inputs=["paper:lem:lift"],
+                    landed=self.LANDED_A + [{"run": "B", "statement_hash": "abcdef12"}])
+        _o, labels, _ = self.run_wf({"prepare": prep, "table A": self.A_SUG,
+                                     "table B": tab("CONFIRMED", "confirmed-modulo", run="B"),
+                                     "conclude": dict(DONE, run_files=["A.md", "B.md"])})
+        self.assertEqual(labels, ["prepare", "table A", "table B", "conclude"])
+
+    def _not_done(self, am, inputs=("paper:lem:lift",), a_tab=None):
+        prep = dict(PREP, amendment=dict(self.DONE_AM, **am), landed=self.LANDED_A,
+                    inputs=list(inputs))
+        out, labels, calls = self.run_wf({"prepare": prep, "table A": a_tab or self.A_SUG,
+                                          "amendment": self.FILED})
+        self.assertEqual(labels, ["prepare", "table A", "amendment"], out)
+        self.assertEqual(out["result"]["outcome"], "awaiting-amendment")
+        return out, calls[-1]["prompt"]
+
+    def test_no_b_without_a_repair_this_pass_filed(self):
+        """Review fix 3: the dependencies being declared already is not the amendment."""
+        _o, p = self._not_done({"request": "", "request_status": ""})
+        self.assertIn("tickets_create", p)
+
+    def test_no_b_when_the_repair_did_not_end_delivered_or_closed(self):
+        _o, p = self._not_done({"request_status": "rejected"})
+        self.assertIn("human", p)
+        self.assertIn("rejected", p)
+
+    def test_no_b_when_the_attempt_is_the_one_a_reviewed(self):
+        _o, p = self._not_done({"attempt": "proofs/lem-x/attempt-2.md"})
+        self.assertIn("human", p)
+        self.assertIn("attempt", p)
+        _o, p = self._not_done({"reviewed_attempt": ""})
+        self.assertIn("human", p)
+
+    def test_the_pinpoint_counts(self):
+        sug = dict(self.A_SUG, add_dependency=["bib:LMW16#Thm11"])
+        out, _p = self._not_done({}, inputs=["bib:LMW16"], a_tab=sug)
+        self.assertIn("bib:LMW16#Thm11", " ".join(out["result"]["notes"]))
+        out, _p = self._not_done({}, inputs=["LMW16#Thm11"], a_tab=sug)    # the namespace counts too
+        prep = dict(PREP, amendment=self.DONE_AM, landed=self.LANDED_A, inputs=["bib:LMW16#Thm-11"])
+        _o, labels, _ = self.run_wf({"prepare": prep, "table A": sug, "amend-brief": self.BUNDLE,
+                                     "run B": "r", "table B": tab("CONFIRMED", "confirmed-modulo", run="B"),
+                                     "conclude": dict(DONE, run_files=["A.md", "B.md"])})
+        self.assertIn("run B", labels)                   # canonical spelling: Thm-11 == Thm11
+
+    def test_the_repair_ask_records_the_attempt_and_the_verify_marker(self):
+        am = dict(self.NO_AM, attempt="proofs/lem-x/attempt-2.md")
+        _o, _l, calls = self.run_wf({"prepare": dict(PREP, amendment=am), "run A": "r",
+                                     "table A": self.A_SUG, "amendment": self.FILED})
+        p = calls[-1]["prompt"]
+        self.assertIn("amendment for verify T-0001 pass 2026-10-31-T-0001", p)
+        self.assertIn("run A reviewed proofs/lem-x/attempt-2.md", p)
+        self.assertIn("no verify ticket", p)
+
+    def test_the_table_decides_amending_not_the_verdict_alone(self):
+        """Review fix 6 (and 5): a CONFIRMED A whose suggestion the table refused is not an
+        amend pass."""
+        t = dict(tab("CONFIRMED", "single-negative", False), add_dependency=["a lemma in words"])
+        out, labels, _ = self.run_wf({"prepare": dict(PREP, amendment=self.NO_AM), "run A": "r",
+                                      "table A": t, "conclude": DONE})
+        self.assertEqual(labels, ["prepare", "run A", "table A", "conclude"])
+        t = dict(tab("CONFIRMED", "awaiting-amendment", False), add_dependency=[])
+        out, labels, _ = self.run_wf({"prepare": dict(PREP, amendment=self.NO_AM), "run A": "r",
+                                      "table A": t, "conclude": DONE})
+        self.assertEqual(labels, ["prepare", "run A", "table A", "conclude"])
+        self.assertTrue(any("ANOMALY" in n for n in out["result"]["notes"]), out["result"]["notes"])
+
+    def test_the_prepare_stage_is_asked_for_the_amendment(self):
+        _o, _l, calls = self.run_wf({"prepare": PREP, "run A": "r",
+                                     "table A": tab("GAP", "single-negative"), "conclude": DONE})
+        self.assertIn("amendment", calls[0]["prompt"])
+        tab_a = next(c for c in calls if c["label"] == "table A")["prompt"]
+        self.assertIn("add_dependency", tab_a)
+
+
+@unittest.skipUnless(NODE, "node is not installed")
 class MaxTierModelTests(unittest.TestCase):
     """T-1682: the reviewers launch on the workspace's max tier, never a hard-coded opus."""
     run_wf = GateTests.run_wf

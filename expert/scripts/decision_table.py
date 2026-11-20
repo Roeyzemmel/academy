@@ -1,6 +1,7 @@
 """decision_table.py -- the proof-review decision table, applied mechanically.
 
     py decision_table.py A.md [B.md|-] [--established id1,id2] [--primary M1,M2] [--json]
+    py decision_table.py canon [--subject S] ITEM...   # each input in canonical spelling
 
 Takes the verdict records of run A and (optionally) run B -- files landed by
 ``land_verdict.py`` under ``<expert home>/reviews/<ns>/<id>/<pass>/`` or any text
@@ -98,8 +99,14 @@ import _academy as ac  # noqa: E402
 VERDICTS = ("CONFIRMED", "PLAUSIBLE", "GAP", "DISPROVED")
 #: the reword run's own fields (T-0347): blank on every blind run
 REWORD_FIELDS = ("mode", "base_pass", "base_hash", "reword_scope", "base_subject")
+#: the dependency amendment (the human's design, 2026-11-20): ``add_dependency`` is a
+#: reviewer's suggestion (inputs the proof relies on but does not list); ``amended_with``
+#: is an amend run's list of the dependencies the amendment added (``mode: amend``, with
+#: ``base_pass`` and ``base_hash`` naming run A of the same pass)
+AMEND_FIELDS = ("add_dependency", "amended_with")
 FIELDS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
-          "statement_hash", "blocking", "ticket", "gap_class") + REWORD_FIELDS
+          "statement_hash", "blocking", "ticket", "gap_class") + REWORD_FIELDS + AMEND_FIELDS
+LIST_FIELDS = ("modulo",) + AMEND_FIELDS
 #: a reword run's reading of the new wording against the proof as reviewed: ``equivalent``
 #: (the same content), ``weaker`` (implied by the old statement), ``covered`` (claims more
 #: than the old statement, but only what the reviewed proof already shows), ``exceeds``
@@ -116,7 +123,8 @@ RE_NS = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
             "single-negative", "degraded", "invalid-pair", "no-change", "incomplete",
-            "full-pass-needed", "invalid-base")
+            "full-pass-needed", "invalid-base", "awaiting-amendment", "invalid-amend",
+            "new-pass-after-amendment")
 
 
 # ----------------------------------------------------------------------------
@@ -272,13 +280,15 @@ def parse_record(text):
         if block is not None:
             fields = dict(fields or {})
             fields.update(block)
-    elif not fields.get("gap_class"):
+    elif any(not fields.get(k) for k in ("gap_class",) + AMEND_FIELDS):
         # a landed record keeps the report (and its VERDICT block) as its body
         block = parse_verdict_block(text) or {}
-        if block.get("gap_class"):
-            fields["gap_class"] = block["gap_class"]
+        for k in ("gap_class",) + AMEND_FIELDS:
+            if not fields.get(k) and block.get(k):
+                fields[k] = block[k]
     rec = {k: "" for k in FIELDS}
-    rec["modulo"] = []
+    for k in LIST_FIELDS:
+        rec[k] = []
     rec["problems"] = []
     if not fields:
         rec["problems"].append("no VERDICT block or verdict record found")
@@ -286,7 +296,7 @@ def parse_record(text):
         return rec
     for k in FIELDS:
         v = fields.get(k)
-        if k == "modulo":
+        if k in LIST_FIELDS:
             rec[k] = _split_list(v)
         else:
             rec[k] = "" if v is None else str(v).strip()
@@ -308,6 +318,12 @@ def parse_record(text):
 def is_reword(rec):
     """True when ``rec`` is a reword run's record (``mode: reword``, T-0347)."""
     return bool(rec) and str(rec.get("mode") or "").strip().lower() == "reword"
+
+
+def is_amend(rec):
+    """True when ``rec`` is an amend run's record (``mode: amend``, 2026-11-20): run B
+    reviewing the proof amended with the dependencies run A suggested."""
+    return bool(rec) and str(rec.get("mode") or "").strip().lower() == "amend"
 
 
 # ----------------------------------------------------------------------------
@@ -347,6 +363,14 @@ def follow_up(item, subject="", producer_role="", rec=None):
     if kind == "inputs":
         return {"kind": "decision", "to_role": "human", "final_to": None, "gap_class": gc,
                 "why": "the runs disagree on the inputs: a ruling or a re-run"}
+    if kind == "add-dependency":
+        # 2026-11-20: the producer adds exactly these to the proof and its depends_on; the
+        # verify ticket waits on it, and run B then reviews the amended proof (amend mode)
+        return {"kind": "prove", "to_role": "researcher",
+                "final_to": "scientist" if producer_role == "scientist" else None,
+                "mode": "repair", "gap_class": "proof",
+                "why": "a dependency the proof relies on but does not list: the producer "
+                       "adds it to the proof and to depends_on (prove ticket, mode repair)"}
     if producer_role == "scientist":
         return {"kind": "question", "to_role": "researcher", "final_to": "scientist",
                 "gap_class": gc, "why": "a lab claim: the Scientist repairs, through "
@@ -419,12 +443,13 @@ LABEL_PREFIXES = {"lem", "thm", "defn", "def", "cor", "prop", "fact", "rmk", "ob
                   "ex", "claim", "conj", "eq", "sec", "nota", "assm", "hyp"}
 
 
-def registry_canonical(qid):
-    """The record id ``qid`` (``ns:name``) resolves to in the registry, aliases
-    included; None when the registry, the home or the record cannot be found."""
+def _registry_lookup(qid):
+    """``(readable, record id or None)`` for ``qid`` (``ns:name``): ``readable`` is False
+    when the registry, the home or the store cannot be read (the id is then unknown, not
+    absent)."""
     ns, _, name = str(qid or "").partition(":")
     if not name or ns == "bib":
-        return None
+        return False, None
     try:
         plugin = os.path.join(ac.repo_root(), "academy")
         if plugin not in sys.path:
@@ -433,7 +458,7 @@ def registry_canonical(qid):
         info = rws.namespaces().get(ns)
         home = info and info.get("home")
         if not home or not os.path.isdir(str(home)):
-            return None
+            return False, None
         store = federation.store(ns, home)
         rid, exact = store.lookup(name)
         # only the id itself or a registered alias: a profile's normalisation (case,
@@ -441,8 +466,69 @@ def registry_canonical(qid):
         if rid and not exact and name not in [str(a) for a in (store.aliases(rid) or ())]:
             rid = None
     except Exception:        # an unreadable registry leaves the spelling as written
-        return None
-    return "%s:%s" % (ns, rid) if rid else None
+        return False, None
+    return True, ("%s:%s" % (ns, rid) if rid else None)
+
+
+def registry_canonical(qid):
+    """The record id ``qid`` (``ns:name``) resolves to in the registry, aliases
+    included; None when the registry, the home or the record cannot be found."""
+    return _registry_lookup(qid)[1]
+
+
+def registry_exists(qid):
+    """True / False: the registry (readable) has / lacks the record ``qid``; None when it
+    cannot be read."""
+    readable, rid = _registry_lookup(qid)
+    return (rid is not None) if readable else None
+
+
+RE_DEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]*:[^\s()\[\]{}<>,;#]+$")
+RE_DEP_BIB = re.compile(r"^bib:[A-Za-z0-9][A-Za-z0-9_:.+/-]*$")
+
+
+def dependency_ok(item, exists=None):
+    """True when ``item`` (in canonical spelling) names an existing result, as a suggested
+    dependency must (2026-11-20 review): a registry id ``ns:id`` (known to the registry
+    when ``exists``, qid -> True / False / None for unreadable, can tell) or a
+    ``bib:KEY``, either with an optional ``#pinpoint``. A statement in words, a bare
+    unqualified id or a pointer phrase is not a dependency: a lemma that remains to be
+    proved is a GAP."""
+    s = " ".join(str(item or "").split()).strip("`'\"")
+    head, hash_, pin = s.partition("#")
+    if hash_ and not pin.strip():
+        return False
+    if head.startswith("bib:"):
+        return bool(RE_DEP_BIB.match(head))
+    if not RE_DEP_ID.match(head):
+        return False
+    if exists is not None and exists(head) is False:
+        return False
+    return True
+
+
+def _check_deps(rec, exists, notes):
+    """``rec`` with a suggestion that names no existing result made GAP-equivalent for
+    the amend route: the verdict GAP, the blocking step the suggestion, no
+    add_dependency (an anomaly in ``notes``)."""
+    if not rec or rec.get("problems") or not rec.get("add_dependency"):
+        return rec
+    bad = [d for d in rec["add_dependency"] if not dependency_ok(d, exists)]
+    if not bad:
+        return rec
+    out = dict(rec)
+    out["add_dependency"] = []
+    out["dependencies_not_results"] = bad
+    notes.append("run %s suggests add_dependency %s, which is not an existing result (a "
+                 "registry id ns:id, or bib:KEY[#pinpoint]): not a dependency; the run "
+                 "counts as GAP for the amend route (a lemma that remains to be proved is "
+                 "a GAP)" % (rec.get("run") or "?", ", ".join(bad)))
+    if str(rec.get("verdict") or "").upper().startswith("CONFIRMED"):
+        out["verdict_as_written"] = rec.get("verdict")
+        out["verdict"] = "GAP"
+        out["blocking"] = ("the proof relies on %s, which is not an existing result: it "
+                           "remains to be proved" % "; ".join(bad))
+    return out
 
 
 def canon_input(item, subject="", canon=None):
@@ -661,17 +747,19 @@ def _grounds(recs, modulo, note, producer_role=""):
 
 
 def _canon_rec(rec, canon):
-    if not rec or not rec.get("modulo"):
+    if not rec or not any(rec.get(k) for k in LIST_FIELDS):
         return rec
     out = dict(rec)
-    out["modulo"] = normalise_modulo(rec["modulo"], rec.get("subject"), canon)
-    if out["modulo"] != list(rec["modulo"]):
+    for k in LIST_FIELDS:
+        if rec.get(k):
+            out[k] = normalise_modulo(rec[k], rec.get("subject"), canon)
+    if out.get("modulo") != list(rec.get("modulo") or []):
         out["modulo_as_written"] = list(rec["modulo"])
     return out
 
 
 def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
-           kind_of=None, base=None, base_notes=(), canon=None):
+           kind_of=None, base=None, base_notes=(), canon=None, exists=None):
     """Apply the table (``_decide``) and give every item to file its ``route``
     (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
     lookup that decides which inputs are definitions.
@@ -682,9 +770,25 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
 
     Every modulo list (and ``established``) is first put in canonical spelling
     (``normalise_modulo``, #103), so two runs that name one input two ways agree;
-    ``canon`` (qid -> record id or None) replaces the registry's alias lookup."""
+    ``canon`` (qid -> record id or None) replaces the registry's alias lookup.
+
+    A suggested dependency (``add_dependency``) must name an existing result
+    (``dependency_ok``; ``exists``, qid -> True / False / None, checks a registry id: the
+    CLI passes ``registry_exists``); a run whose suggestion does not is GAP-equivalent
+    for the amend route, with an anomaly."""
     rec_a = _canon_rec(rec_a, canon)
     rec_b = _canon_rec(rec_b, canon)
+    dep_notes = []
+    rec_a = _check_deps(rec_a, exists, dep_notes)
+    rec_b = _check_deps(rec_b, exists, dep_notes)
+    res = _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
+                        base_notes, canon)
+    res["anomalies"] = dep_notes + list(res.get("anomalies") or [])
+    return res
+
+
+def _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
+                  base_notes, canon):
     if base:
         base = tuple(_canon_rec(r, canon) for r in base)
     subj = (rec_a or {}).get("subject") or ""
@@ -697,9 +801,26 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
                          "pass has one run, R)")
         return decide_reword(rec_a, ba, bb, established, primary, producer_role, kind_of,
                              notes)
+    if is_amend(rec_b) or is_amend(rec_a) or _suggests(rec_a, primary) \
+            or _suggests(rec_b, primary):
+        res = decide_amend(rec_a, rec_b, established, primary, producer_role, kind_of)
+        _route_items(res, rec_a, rec_b, producer_role)
+        return res
     res = _decide(rec_a, rec_b, established, primary, producer_role, kind_of)
+    for r in (rec_a, rec_b):
+        if r and r.get("add_dependency"):
+            res["anomalies"].append("run %s suggests add_dependency %s on a %s verdict: "
+                                    "ignored (a dependency is suggested only with CONFIRMED)"
+                                    % (r.get("run") or "?", ", ".join(r["add_dependency"]),
+                                       r.get("verdict") or "missing"))
     _route_items(res, rec_a, rec_b, producer_role)
     return res
+
+
+def _suggests(rec, primary=None):
+    """A readable CONFIRMED (on a primary) that suggests dependencies to add."""
+    return bool(rec) and not rec["problems"] and bool(rec.get("add_dependency")) \
+        and effective(rec, primary)[0] == "CONFIRMED"
 
 
 def _route_items(res, rec_a, rec_b, producer_role):
@@ -1134,6 +1255,210 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
     return res
 
 
+# ----------------------------------------------------------------------------
+# The dependency amendment (the human's design, 2026-11-20): A CONFIRMED with a suggested
+# dependency, the producer adds it, B reviews the amended proof informed of the suggestion
+# ----------------------------------------------------------------------------
+
+def _amend_problems(rec_a, rec_b):
+    """Why ``rec_b`` is not an amend run of ``rec_a``'s suggestion (a list of anomalies)."""
+    probs = []
+    if is_amend(rec_a):
+        probs.append("run A is an amend record: an amend run is only ever run B")
+    if not rec_a.get("add_dependency"):
+        probs.append("run A suggested nothing (no add_dependency): an amend B has no base; "
+                     "the blind pair applies")
+        return probs
+    if not is_amend(rec_b):
+        probs.append("run A suggested dependencies %s, but run B is not an amend run "
+                     "(mode: amend) of the amended proof: a blind B on the unamended proof "
+                     "is not the second verdict" % ", ".join(rec_a["add_dependency"]))
+        return probs
+    pa = rec_a.get("pass") or ""
+    if (rec_b.get("base_pass") or "") != pa or (rec_b.get("pass") or "") != pa:
+        probs.append("the amend run's base_pass %s (pass %s) is not run A's pass %s"
+                     % (rec_b.get("base_pass") or "(none)", rec_b.get("pass") or "(none)",
+                        pa or "(none)"))
+    ha = rec_a.get("statement_hash") or ""
+    if (rec_b.get("base_hash") or "") != ha:
+        probs.append("the amend run's base_hash %s is not run A's statement_hash %s"
+                     % (rec_b.get("base_hash") or "(none)", ha or "(none)"))
+    if not ha or (rec_b.get("statement_hash") or "") != ha:
+        probs.append("the statement changed (A %s, B %s): an amendment adds dependencies "
+                     "to the proof, never rewords the statement (a reword pass does)"
+                     % (ha or "(none)", rec_b.get("statement_hash") or "(none)"))
+    ia, ib = rec_a.get("run_id") or "", rec_b.get("run_id") or ""
+    if not ia or not ib or ia == ib:
+        probs.append("the runs' run ids (A %s, B %s) are not two distinct runs"
+                     % (ia or "(none)", ib or "(none)"))
+    sa, sb = rec_a.get("subject"), rec_b.get("subject")
+    if sa and sb and sa != sb:
+        probs.append("subjects differ (A %s, B %s)" % (sa, sb))
+    want, got = set(rec_a["add_dependency"]), set(rec_b.get("amended_with") or ())
+    if want != got:
+        probs.append("the amend run reviewed other dependencies (amended_with %s) than "
+                     "run A suggested (%s): it must list exactly those"
+                     % (", ".join(sorted(got)) or "none", ", ".join(sorted(want))))
+    return probs
+
+
+def decide_amend(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
+                 kind_of=None):
+    """The amend table (the human's design, 2026-11-20). ``rec_a`` is run A, CONFIRMED
+    with ``add_dependency`` X; ``rec_b`` run B in amend mode (``mode: amend``,
+    ``base_pass`` A's pass, ``base_hash`` A's statement hash, ``amended_with`` X), the
+    informed review of the proof amended with X. The two count as the two agreeing
+    verdicts, and X enters the modulo list until it is established.
+
+    | Run A | Run B | Outcome |
+    |---|---|---|
+    | CONFIRMED + add_dependency X | not yet run | ``awaiting-amendment``: no B yet; the producer adds X to the proof and depends_on (``add-dependency`` item, a prove ticket, mode repair) |
+    | CONFIRMED + X | amend, CONFIRMED, amended_with X, modulo Y | ``confirmed-modulo`` on A's modulo, Y and X (propose proved-modulo); ``confirmed`` (proved) when every one is established |
+    | CONFIRMED + X | amend, GAP | ``disagreement``: no status; file B's blocking step |
+    | CONFIRMED + X | amend, DISPROVED | ``disproved``: no status; the counterexample goes to the human |
+    | CONFIRMED, no X | blind (not amend), CONFIRMED + add_dependency Z | ``new-pass-after-amendment``: no status; Z to the producer (``add-dependency`` item, as A's suggestion), then a new pass |
+    | either PLAUSIBLE (or CONFIRMED off a primary) | | ``degraded`` |
+    | no X, or B not amend, or amended_with != X, another pass / hash / statement / subject, a shared run id, or B suggesting further dependencies | | ``invalid-amend``: no status |
+    """
+    res = _new_result()
+    rb = rec_b or {}
+    res.update({"mode": "amend", "base_pass": rb.get("base_pass") or (rec_a or {}).get("pass") or "",
+                "base_hash": rb.get("base_hash") or (rec_a or {}).get("statement_hash") or "",
+                "add_dependency": list((rec_a or {}).get("add_dependency") or []),
+                "added_dependencies": []})
+    established = set(established or ())
+    if rec_a is None or rec_a["problems"]:
+        res["outcome"] = "incomplete"
+        res["summary"] = "run A has no readable verdict: nothing to conclude"
+        if rec_a:
+            res["anomalies"].extend("run A: " + p for p in rec_a["problems"])
+        return res
+    prod_role = producer_role_for(rec_a.get("subject"), producer_role)
+    recs = [rec_a] + ([rec_b] if rec_b is not None else [])
+    for r in recs:
+        eff, note = effective(r, primary) if not r["problems"] else ("", "")
+        r["_eff"] = eff
+        if note:
+            res["anomalies"].append(note)
+        row = {k: r.get(k) for k in ("run", "run_id", "verdict", "model", "modulo",
+                                     "statement_hash", "blocking", "file", "mode",
+                                     "add_dependency", "amended_with")}
+        row["effective"] = eff
+        res["runs"].append(row)
+    if rec_b is not None and rec_b["problems"]:
+        res["outcome"] = "incomplete"
+        res["anomalies"].extend("run B: " + p for p in rec_b["problems"])
+        res["summary"] = "run B has no readable verdict: conclude nothing yet"
+        return res
+    a = rec_a["_eff"]
+    b = rec_b["_eff"] if rec_b is not None else None
+
+    if rec_b is None:
+        if is_amend(rec_a):
+            res["outcome"] = "invalid-amend"
+            res["anomalies"].append("run A is an amend record: an amend run is only ever "
+                                    "run B")
+            res["summary"] = "no status change: run A cannot be an amend run"
+            return res
+        # only reached for a CONFIRMED A (on a primary) that suggests dependencies
+        deps = rec_a["add_dependency"]
+        res["outcome"] = "awaiting-amendment"
+        res["file_items"] = [{"run": rec_a.get("run") or "A", "kind": "add-dependency",
+                              "text": ", ".join(deps)}]
+        res["summary"] = ("A is CONFIRMED and suggests adding %s: no B yet; the producer adds "
+                          "exactly that to the proof and to depends_on, then run B reviews "
+                          "the amended proof (amend mode)" % ", ".join(deps))
+        return res
+
+    if b == "DISPROVED" or a == "DISPROVED":
+        res["outcome"] = "disproved"
+        res["needs_human"] = True
+        res["file_items"] = [{"run": r.get("run"), "kind": "counterexample",
+                              "text": r.get("blocking") or "see the run's report"}
+                             for r in recs if r["_eff"] == "DISPROVED"]
+        res["summary"] = ("DISPROVED in the amend pass: no status change; the counterexample "
+                          "goes to %s at once" % ac.human_name())
+        return res
+    if "PLAUSIBLE" in (a, b):
+        res["outcome"] = "degraded"
+        res["summary"] = ("a PLAUSIBLE verdict never counts toward two agreeing verdicts: "
+                          "re-run the PLAUSIBLE run on a primary model (%s)"
+                          % ", ".join(_primaries(primary)))
+        return res
+    if not is_amend(rec_a) and not is_amend(rec_b) and not rec_a.get("add_dependency") \
+            and rec_b.get("add_dependency") and a == "CONFIRMED" and b == "CONFIRMED":
+        # 2026-11-20 review: the blind B (not A) suggests a dependency. Nothing to pair: A
+        # reviewed the proof as it stands and B the same proof, so neither saw the amended
+        # one. The producer adds it (as A's suggestion is routed), then a new pass.
+        deps = rec_b["add_dependency"]
+        res["outcome"] = "new-pass-after-amendment"
+        res["add_dependency"] = list(deps)
+        res["file_items"] = [{"run": rec_b.get("run") or "B", "kind": "add-dependency",
+                              "text": ", ".join(deps)}]
+        res["summary"] = ("no status change: run B (not run A) is CONFIRMED and suggests "
+                          "adding %s; the producer adds it to the proof and to depends_on, "
+                          "and a new pass (a fresh blind A) is needed after the repair: "
+                          "this pair has no amend run to count" % ", ".join(deps))
+        return res
+    bad = _amend_problems(rec_a, rec_b)
+    if not bad and a != "CONFIRMED":
+        bad.append("run A is %s: an amend run follows only a CONFIRMED A" % a)
+    if not bad and b == "CONFIRMED" and rec_b.get("add_dependency"):
+        bad.append("the amend run suggests further dependencies (%s): the amended proof "
+                   "still does not list its inputs; amend it again and rerun B"
+                   % ", ".join(rec_b["add_dependency"]))
+    if bad:
+        res["outcome"] = "invalid-amend"
+        res["anomalies"].extend(bad)
+        res["summary"] = ("no status change: run B is not a valid amend run of run A's "
+                          "suggestion")
+        return res
+    added = sorted(rec_a["add_dependency"])
+    res["added_dependencies"] = added
+    if b == "GAP":
+        res["outcome"] = "disagreement"
+        res["file_items"] = [{"run": rec_b.get("run") or "B", "kind": "repair",
+                              "text": rec_b.get("blocking") or "see run B's report"}]
+        res["summary"] = ("A CONFIRMED with %s suggested, the amend run B GAP on the amended "
+                          "proof: no status change; file B's blocking step" % ", ".join(added))
+        return res
+    if b != "CONFIRMED":
+        res["outcome"] = "no-change"
+        res["summary"] = "no status change: run B is %s" % (b or "missing")
+        return res
+    mod = sorted(set(rec_a["modulo"]) | set(rec_b["modulo"]) | set(added))
+    res["modulo"] = mod
+    res["pending_inputs"] = sorted(set(mod) - established)
+    how = ("run A CONFIRMED (%s) suggesting %s, run B (amend, %s) CONFIRMED on the proof "
+           "amended with it, pass %s" % (rec_a.get("run_id") or "?", ", ".join(added),
+                                         rec_b.get("run_id") or "?", rec_a.get("pass") or "?"))
+    if not res["pending_inputs"]:
+        res["outcome"] = "confirmed"
+        res["proposed_status"] = "proved"
+        res["recolour"] = True
+        res["grounds"] = _amend_grounds(rec_a, rec_b, [], added, how + "; every input (%s) "
+                                        "established" % ", ".join(mod), prod_role)
+        res["summary"] = "%s; every input established: propose proved; recolour earned" % how
+        return res
+    res["outcome"] = "confirmed-modulo"
+    res["proposed_status"] = "proved-modulo"
+    res["grounds"] = _amend_grounds(rec_a, rec_b, mod, added, "%s, modulo %s"
+                                    % (how, ", ".join(mod)), prod_role)
+    res["file_items"] = [{"run": "A+B", "kind": "verify-input", "text": i}
+                         for i in res["pending_inputs"]]
+    res["summary"] = ("%s: propose proved-modulo %s; stays sketch until %s are established"
+                      % (how, ", ".join(mod), ", ".join(res["pending_inputs"])))
+    return res
+
+
+def _amend_grounds(rec_a, rec_b, modulo, added, note, prod_role):
+    g = _grounds([rec_a, rec_b], modulo, note, prod_role)
+    g["verdicts"][1].update({"mode": "amend", "base_hash": rec_b.get("base_hash") or ""})
+    g.update({"mode": "amend", "base_pass": rec_b.get("base_pass") or "",
+              "added_dependencies": list(added)})
+    return g
+
+
 def _pair_ok(ra, rb, res):
     ok = True
     ia, ib = ra.get("run_id"), rb.get("run_id")
@@ -1172,6 +1497,11 @@ def _text(res):
                       if res.get("base_subject") else ""))
     if res["launch_b"]:
         out.append("next: launch run B")
+    if res.get("mode") == "amend":
+        out.append("mode: amend (pass %s, suggested %s, added %s)"
+                   % (res.get("base_pass") or "?",
+                      ", ".join(res.get("add_dependency") or []) or "none",
+                      ", ".join(res.get("added_dependencies") or []) or "none"))
     if res.get("launch_full_pass"):
         out.append("next: open a fresh blind pass (run A) on the new statement")
     if res["proposed_status"]:
@@ -1200,7 +1530,23 @@ def _text(res):
     return "\n".join(out)
 
 
+def main_canon(argv):
+    """``decision_table.py canon --subject S ITEM...``: each input in canonical spelling
+    (``canon_input``), one per line (the verify workflow compares suggested dependencies
+    with a claim's declared inputs in it)."""
+    ap = argparse.ArgumentParser(prog="decision_table.py canon")
+    ap.add_argument("--subject", default="")
+    ap.add_argument("items", nargs="*")
+    args = ap.parse_args(argv)
+    for it in args.items:
+        print(canon_input(it, args.subject))
+    return 0
+
+
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] == "canon":
+        return main_canon(argv[1:])
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("a", help="run A's verdict file")
     ap.add_argument("b", nargs="?", default=None, help="run B's verdict file, or - / omitted")
@@ -1232,7 +1578,7 @@ def main(argv=None):
         sys.stderr.write("decision_table: %s\n" % exc)
         return 2
     res = decide(ra, rb, _split_list(args.established), args.primary, args.producer_role,
-                 base=base, base_notes=notes)
+                 base=base, base_notes=notes, exists=registry_exists)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
