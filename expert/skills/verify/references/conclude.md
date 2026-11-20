@@ -125,8 +125,13 @@ a negative A concludes on A alone, and a reword pass has no falsifier stage.
   nothing could resume it (`reviews.py` resumes a ticket's own pass only). The falsifier
   stage is skipped, the record's process notes say so, and B runs as before.
 - **None on record**: launch no B. File one falsifier request: `tickets_create` kind
-  `research` to the Researcher that owns the claim's namespace (a `paper:` or `lab:`
-  claim: the Researcher of the claim's domain, as in section 4.3), `final_to: scientist`
+  `research` to the Researcher that `py $E/reviews.py researcher-for <id> --party <instance>...`
+  names (the prepare stage runs it, a `--party` for the `from` and `to` of the ticket and of
+  each ticket up its parent chain). The rule, in code (`decision_table.researcher_for`): the
+  Researcher owning the claim's namespace; else (a `paper:` or `lab:` claim) the one
+  Researcher owning a namespace of the claim's `bears_on`; else the one Researcher in the
+  ticket's parent chain; none, or several at one step, is the human's call: file nothing and
+  block the ticket `waiting_on: [human]` with the script's reason. `final_to: scientist`
   (the Expert is no neighbour of the Scientist; the Researcher's `experiment-spec` relays
   it; review-chair is an expert->researcher liaison), `parent` and `refs` the verify
   ticket and the claim. It asks for an experiment or test that tries to break the claim

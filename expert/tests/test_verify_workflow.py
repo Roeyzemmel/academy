@@ -56,7 +56,8 @@ NO_FALS = {"source": "none", "on": "", "evidence": "", "found": "", "request": "
 PREP = {"ok": True, "stop_reason": "", "pass": "2026-10-31-T-0001",
         "pass_dir": "/lib/reviews/paper/x/2026-10-31-T-0001", "statement_hash": "abcdef12",
         "location": "sections/a.tex:lem:x", "bundle": "", "ticket": "T-0001",
-        "falsifier": FALS, "inputs": []}
+        "falsifier": FALS, "inputs": [],
+        "researcher": "researcher@main", "researcher_why": "the Researcher owning the namespace"}
 
 
 def tab(verdict, outcome, launch_b=False, hash_now="abcdef12", landed=True, run="A"):
@@ -369,6 +370,24 @@ class FalsifierAfterATests(unittest.TestCase):
         self.assertEqual(labels, ["prepare", "run A", "table A", "run B", "table B", "conclude"])
         self.assertNotEqual(out["result"]["outcome"], "awaiting-falsifier")
         self.assertIn("no verify ticket", " ".join(out["result"]["notes"]))
+
+    def test_the_request_goes_to_the_researcher_the_rule_names(self):
+        """Review V1 #5: the addressee is reviews.py researcher-for's answer, not a guess."""
+        out, labels, calls = self.run_wf({"prepare": dict(PREP, falsifier=NO_FALS), "run A": "r",
+                                          "table A": self.A_OK, "falsifier": self.FILED})
+        self.assertIn("to researcher@main", calls[-1]["prompt"])
+        self.assertIn("reviews.py researcher-for", calls[0]["prompt"])
+        for who in ("human", ""):
+            prep = dict(PREP, falsifier=NO_FALS, researcher=who,
+                        researcher_why="bears_on names several Researchers")
+            out, labels, calls = self.run_wf({"prepare": prep, "run A": "r", "table A": self.A_OK,
+                                              "falsifier": {"request": "", "blocked": True,
+                                                            "waiting_on": ["human"], "refusal": ""}})
+            p = calls[-1]["prompt"]
+            self.assertNotIn("tickets_create", p, who)
+            self.assertIn("waiting_on [human]", p, who)
+            self.assertEqual(out["result"]["outcome"], "awaiting-falsifier")
+            self.assertIn("no Researcher to ask", " ".join(out["result"]["notes"]), who)
 
     def test_a_negative_a_or_a_reword_pass_spends_no_falsifier(self):
         out, labels, _ = self.run_wf({"prepare": dict(PREP, falsifier=NO_FALS), "run A": "r",

@@ -103,6 +103,8 @@ const PREP = {
         statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, when the record says it (a lab result or report that records it; for a request this workflow filed, the hash its ask names; a waiver, the hash it names): else empty' } },
       required: ['source', 'on', 'evidence', 'found', 'request', 'request_status', 'statement_hash'] },
     inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs (depends_on, and the other-namespace inputs its record names), verbatim' },
+    researcher: { type: 'string', description: 'blind mode: the instance field of `reviews.py researcher-for <claim> --party <each from and to of the ticket and its parent chain>` (a researcher@ instance, or human)' },
+    researcher_why: { type: 'string', description: 'its why field, verbatim' },
   },
   required: ['ok', 'stop_reason', 'pass', 'pass_dir', 'statement_hash', 'location', 'bundle', 'ticket', 'landed'],
 }
@@ -239,6 +241,7 @@ const prep = await launch(STAGE('prepare', [
       'Report the claim\'s falsifier on record (falsifier; conclude.md section 0, the sources prove.js accepts, #117): one that attacked this claim; or one recorded on a declared input, or on the parent lead or direction item, whose class or statement covers it, saying how; ' +
       'or the ticket thread records one (the falsifier request this ticket waited on, once it is back: its result); or the human waived it on the ticket or the claim (quote that thread line verbatim); else none. ' +
       'Say what it found (nothing, or a counterexample), any falsifier request this ticket already filed with its status, and the claim\'s declared inputs. ' +
+      'Run `reviews.py researcher-for ' + A.claim + ' --party <instance>` once, with a --party for the from and the to of the ticket and of each ticket up its parent chain (tickets_get), and report its instance and why as researcher and researcher_why. ' +
       'Report in statement_hash the statement hash the falsifier attacked when its record says it (a request this workflow filed names it in its ask: "statement hash <h>"); else leave it empty: a falsifier of unknown or another wording does not count (a waiver aside).',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
@@ -358,28 +361,40 @@ function falsifierOnRecord(f) {
 }
 const DONE_TICKET = /^(delivered|closed|rejected|cancelled)$/
 
+// The falsifier request's addressee (review V1 #5) is computed by reviews.py researcher-for
+// (decision_table.researcher_for): the Researcher owning the claim's namespace, else the one its
+// bears_on names, else the one in the ticket's parent chain; none or several is the human's call.
+function researcherTo() {
+  const r = String(prep.researcher || '').trim()
+  const why = String(prep.researcher_why || '').trim() || 'the prepare stage named none'
+  return /^researcher@[A-Za-z0-9_.-]+$/.test(r) ? { instance: r, why } : { instance: '', why: r === 'human' ? why : `no Researcher instance reported (${JSON.stringify(r)}): ${why}` }
+}
+
 // No falsifier on record after a CONFIRMED A: the chair files the request (or waits on the one
 // already filed) and blocks the verify ticket on it; the pass stays open for the rerun (#89).
 async function requestFalsifier(f) {
   const prev = (prep.falsifier && prep.falsifier.request) || ''
   const prevStatus = (prep.falsifier && prep.falsifier.request_status) || ''
-  const T = ticket === 'none' ? '' : ticket
+  const T = ticket            // only a pass with a ticket waits (review V1 #4)
+  const to = researcherTo()
   const how = prev && !DONE_TICKET.test(prevStatus)
     ? [`An earlier run of this pass filed the falsifier request ${prev} (${prevStatus || 'status unknown'}), which is not back: file nothing. ` +
-       (T ? `Block ${T}: tickets_update status blocked, waiting_on [${prev}], note "falsifier ${prev} not back; the pass ${prep.pass} stays open".` : 'There is no verify ticket to block.')]
+       `Block ${T}: tickets_update status blocked, waiting_on [${prev}], note "falsifier ${prev} not back; the pass ${prep.pass} stays open".`]
     : prev
       ? [`The falsifier request ${prev} ended (${prevStatus}) with no falsifier that counts: file nothing. ` +
-         (T ? `Block ${T}: tickets_update status blocked, waiting_on [human], reason "the falsifier request ${prev} ended without a falsifier of ${A.claim}: the human decides (another falsifier, or a waiver on this ticket)".` : 'There is no verify ticket to block.')]
-      : [`File one falsifier request with tickets_create: kind research, to the Researcher instance that owns the namespace of ${A.claim} ` +
-         `(for a claim of another namespace, paper: or lab:, the Researcher of the claim's domain, as a prove follow-up is routed, conclude.md section 4.3), final_to scientist ` +
-         `(the Expert is no neighbour of the Scientist: the Researcher's experiment-spec relays it), refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; ` +
-         `title "Falsifier for ${A.claim}"; ask: run a falsifier on ${A.claim}, an experiment or test that tries to break it (a search over the class it quantifies over, its standard examples first), ` +
-         `and deliver what it found (nothing, or a counterexample with its certificate); the ask names the statement it attacks as "statement hash ${prep.statement_hash}" (a falsifier counts only on the wording it attacked); ` +
-         `deliverable: the result (a lab result or report id) and whether it found a counterexample. ` +
-         `The ask names the claim and the order (the falsifier before the second review) and never state run A's verdict, its findings or anything of the pass folder: run B must stay blind.`,
-         T ? `Then block ${T}: tickets_update status blocked, waiting_on [<the request's id>], note "falsifier requested: <id>; the pass ${prep.pass} stays open and resumes when it is back". ` +
-             `If tickets_create refuses, block ${T} waiting_on [human] with the refusal as the reason, and return the refusal.`
-           : 'There is no verify ticket: block nothing.']
+         `Block ${T}: tickets_update status blocked, waiting_on [human], reason "the falsifier request ${prev} ended without a falsifier of ${A.claim}: the human decides (another falsifier, or a waiver on this ticket)".`]
+      : !to.instance
+        ? [`File nothing: there is no Researcher to ask (${to.why}). ` +
+           `Block ${T}: tickets_update status blocked, waiting_on [human], reason "${A.claim} needs a falsifier before run B, and no Researcher can be named for it (${to.why.replace(/"/g, "'")}): the human names one, or waives the falsifier on this ticket".`]
+        : [`File one falsifier request with tickets_create: kind research, to ${to.instance} (${to.why}; reviews.py researcher-for), final_to scientist ` +
+           `(the Expert is no neighbour of the Scientist: the Researcher's experiment-spec relays it), refs [${A.claim}, ${T}], parent ${T}; ` +
+           `title "Falsifier for ${A.claim}"; ask: run a falsifier on ${A.claim}, an experiment or test that tries to break it (a search over the class it quantifies over, its standard examples first), ` +
+           `and deliver what it found (nothing, or a counterexample with its certificate); the ask names the statement it attacks as "statement hash ${prep.statement_hash}" (a falsifier counts only on the wording it attacked); ` +
+           `deliverable: the result (a lab result or report id) and whether it found a counterexample. ` +
+           `The ask names the claim and the order (the falsifier before the second review) and never state run A's verdict, its findings or anything of the pass folder: run B must stay blind.`,
+           `Then block ${T}: tickets_update status blocked, waiting_on [<the request's id>], note "falsifier requested: <id>; the pass ${prep.pass} stays open and resumes when it is back". ` +
+           `If tickets_create refuses, block ${T} waiting_on [human] with the refusal as the reason, and return the refusal.`]
+  if (!prev && !to.instance) notes.push(`no Researcher to ask for the falsifier of ${A.claim} (${to.why}): the ticket is parked on the human`)
   return launch(STAGE('falsifier', [
     `claim: ${A.claim}`, `ticket: ${ticket}`, `pass: ${prep.pass}`,
     `the falsifier the prepare stage reported: ${JSON.stringify(prep.falsifier || null)}${f.source !== 'none' ? ' (reported, but it does not count: evidence missing, not a declared input, or a waiver without the human\'s thread line)' : ''}`,

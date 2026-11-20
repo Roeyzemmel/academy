@@ -53,7 +53,8 @@ structured result the stage asks for.
   engine's text, never a copied extract). Write nothing.
 - **falsifier**: after a CONFIRMED A when the claim has no falsifier on record
   (conclude.md section 1a): file the one falsifier request the stage names (kind
-  `research` to the Researcher, `final_to: scientist`; review-chair is an
+  `research` to the Researcher `reviews.py researcher-for` names, `final_to: scientist`;
+  none named: file nothing and block on the human; review-chair is an
   expert->researcher liaison, the Scientist is no neighbour), or file nothing when an
   earlier request is named; block the verify ticket `waiting_on` it (the human when the
   request ended with no falsifier, or `tickets_create` refused). The request never states
