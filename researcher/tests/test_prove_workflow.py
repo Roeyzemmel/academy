@@ -40,7 +40,8 @@ body(Object.assign({ nested: true, models: { 'expert:rigor-reviewer': 'fable', '
 
 def state(**kw):
     s = {"ok": True, "stop_reason": "", "status": "open", "unsettled_inputs": [], "attempts": [],
-         "falsified": True, "falsifier_evidence": "explore D-1", "attack_exists": True}
+         "falsified": True, "falsifier_evidence": "explore D-1", "attack_exists": True,
+         "statement_hash": "0123456789abcdef", "falsifier_statement_hash": "0123456789abcdef"}
     s.update(kw)
     return s
 
@@ -576,6 +577,27 @@ class FalsifierOnFailureTests(unittest.TestCase):
         self.assertEqual(labels[-3:], ["file falsifier", "check falsifier", "block"])
         self.assertIn("waiting_on [human]", calls[-1]["prompt"])
         self.assertIn("falsifier filed: T-0030", calls[-1]["prompt"])
+
+    def test_a_falsifier_counts_only_on_the_current_statement_hash(self):
+        """As verify.js counts it (2026-11-20): another hash or none is not on record (and a
+        failed attempt then files one); a waiver counts without a hash."""
+        for st in (dict(falsified=True, falsifier_evidence="explore D-1", falsifier_statement_hash="ffffffffffffffff"),
+                   dict(falsified=True, falsifier_evidence="explore D-1", falsifier_statement_hash="")):
+            res, labels, calls = self.run_wf(self.plan(done(outcome="failed", gaps=["g"]), st=st,
+                                             **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+            self.assertFalse(res["falsifier_on_record"], st)
+            self.assertIn("file falsifier", labels, st)
+            self.assertIn("statement hash 0123456789abcdef", next(c for c in calls if c["label"] == "file falsifier")["prompt"])
+        res, labels, _c = self.run_wf(self.plan(done(outcome="failed", gaps=["g"]),
+                                      st=dict(falsifier_source="waived", falsified=True, falsifier_statement_hash="",
+                                              falsifier_evidence="- 2026-11-20 human: no falsifier needed")))
+        self.assertTrue(res["falsifier_on_record"])
+        self.assertNotIn("file falsifier", labels)
+
+    def test_the_attack_records_the_statement_hash(self):
+        _r, _l, calls = self.run_wf(dict(ProveTests.COMPLETE))
+        self.assertIn("statement_hash: 0123456789abcdef", next(c for c in calls if c["label"] == "attack")["prompt"])
+        self.assertIn("falsifies:", calls[0]["prompt"])
 
     def test_the_state_stage_is_asked_whether_one_is_pending(self):
         _r, _l, calls = self.run_wf(dict(ProveTests.COMPLETE))

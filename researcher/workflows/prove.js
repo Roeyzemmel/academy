@@ -99,6 +99,8 @@ const STATE = { type: 'object', properties: {
   repair_ask: { type: 'string', description: 'what the ticket asks to repair, one line (empty if not a repair)' },
   for_verify: { type: 'string', description: 'the verify ticket T-NNNN when the ticket\'s ask carries the marker "amendment for verify T-NNNN pass <pass>" (a repair a verify pass asked for, the dependency amendment); else empty' },
   for_verify_pass: { type: 'string', description: 'the pass that marker names; else empty' },
+  statement_hash: { type: 'string', description: 'the claim\'s statement hash now, the registry engine\'s (reviews.py hash --claim <id>)' },
+  falsifier_statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, read first from a lab claim\'s frontmatter falsifies: entry <ns:id>@<hash> for this claim or the attack.md frontmatter statement_hash:, then the "statement hash <h>" a request\'s ask names; a waiver, the hash it names; else empty' },
   falsifier_pending: { type: 'string', description: 'a falsifier on this claim filed and not back (an experiment or test ticket to the Scientist, or a falsifier request, open, accepted, in progress or blocked): its id; else empty' },
   falsifier_pending_status: { type: 'string', description: 'that ticket\'s status; else empty' } },
   required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'attack_exists', 'repair'] }
@@ -232,6 +234,8 @@ const st = await launch(STAGE('prove-state', [
   `Then return: the claim's status (claims_show), its unsettled inputs (depends_on and modulo that are not proved), earlier attempts ` +
   `(notebook.py ls / the object's proof: field), whether a falsifier counts and its source (#117: one that attacked this claim; or one recorded on a declared input, or on the parent lead or ` +
   `direction item, whose class or statement covers this claim, saying how; or the ticket thread records one; or the human waived it on the ticket or the claim: then quote that thread line verbatim), with the evidence, and the declared inputs, ` +
+  `the claim's statement hash now (statement_hash: \`py ${AR}/expert/scripts/reviews.py hash --claim ${A.claim}\`, the registry engine's), ` +
+  `the statement hash the falsifier attacked (falsifier_statement_hash: first a lab claim's frontmatter falsifies: ["${A.claim}@<hash>", ...] entry, or the frontmatter statement_hash: of proofs/<id>/attack.md; then the "statement hash <h>" its request's ask names; else empty), ` +
   `any falsifier on this claim filed and not back (an experiment or test ticket to the Scientist, or a "Falsifier for ${A.claim}" request: tickets_list text ${A.claim}) with its status (falsifier_pending, falsifier_pending_status), ` +
   `whether proofs/<id>/attack.md exists, and whether the ticket asks for a repair (repair, polish, restyle or record an argument, or answer a negative review) rather than a first proof, with what it asks, ` +
   `and, when its ask carries the marker "amendment for verify T-NNNN pass <pass>", that verify ticket and pass (for_verify, for_verify_pass). Write nothing else.`,
@@ -309,6 +313,18 @@ if (counts && (src === 'input' || src === 'parent') && !st.falsifier_on) counts 
 if (counts && src === 'waived' && !/(^|\n)\s*-?\s*\d{4}-\d{2}-\d{2} human:/.test(st.falsifier_evidence || '')) {
   counts = false
   out.notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ...): not counted')
+}
+// the same rule as verify.js (2026-11-20): a falsifier counts only on the statement hash it
+// attacked, which must be the claim's current one; with the hash unknown only a waiver counts
+const hashNow = /^[0-9a-f]{6,}$/.test(String(st.statement_hash || '').trim()) ? st.statement_hash.trim() : ''
+const fHash = String(st.falsifier_statement_hash || '').trim()
+if (counts && fHash && fHash !== hashNow) {
+  counts = false
+  out.notes.push(hashNow ? `the ${src} falsifier was recorded on another wording (statement hash ${fHash}, now ${hashNow}): not counted`
+    : `the ${src} falsifier's hash ${fHash} cannot be checked (the claim's current hash was not reported): not counted`)
+} else if (counts && !fHash) {
+  if (src === 'waived') out.notes.push('the waiver\'s statement hash is unknown: counted, a waiver being the human\'s call')
+  else { counts = false; out.notes.push(`the ${src} falsifier's statement hash is unknown (it may have attacked an older wording): not counted`) }
 }
 if (counts) out.falsifier = { source: src, on: st.falsifier_on || null, evidence: st.falsifier_evidence || '' }
 out.falsifier_on_record = counts
@@ -391,7 +407,7 @@ phase('Attempt')
 let attacked = false
 if (!st.attack_exists) {
   const atk = await launchMax(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
-    `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why.`,
+    `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why; its frontmatter carries statement_hash: ${hashNow || '<the claim\'s statement hash>'}.`,
     { label: 'attack', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
   if (atk === null) return Object.assign(out, { outcome: 'lost', reason: 'the attack run returned nothing (a limit?): nothing further launched' })
   attacked = true
@@ -469,7 +485,7 @@ async function fileFalsifier(gl) {
     `Claim: ${A.claim}. Home: ${A.home}. The proof attempt ${p.path} is ${o.outcome || 'without outcome'} and ${A.claim} has no falsifier on record and none pending. ` +
     `File exactly one ticket to the Scientist instance (tickets_create from your instance: kind experiment, or test when one named example settles it; to the scientist@ instance of the workspace, workspace_get), ` +
     `title "Falsifier for ${A.claim}", ask: an experiment or test that tries to break ${A.claim} where the attempt failed (${oneLine(target, 600)}): a search over the class it quantifies over, its standard examples first, ` +
-    `reporting the bound and the class searched; deliverable "what it found: nothing in the class searched, or a counterexample with its certificate", refs [${A.claim}, file:<instance>/${p.path}]${T ? ', parent ' + T : ''}. ` +
+    `reporting the bound and the class searched; the ask names the statement it attacks as "statement hash ${hashNow || '<the claim\'s statement hash>'}" and asks that the lab claim record it as falsifies: ["${A.claim}@<that hash>"]; deliverable "what it found: nothing in the class searched, or a counterexample with its certificate", refs [${A.claim}, file:<instance>/${p.path}]${T ? ', parent ' + T : ''}. ` +
     'Write nothing else, set no status. Return the ticket id; a refusal verbatim.',
     { label: 'file falsifier', phase: 'File', agentType: LEAD, schema: FILED, effort: 'low' })
   if (!r || !r.ticket) { out.notes.push('the falsifier was not filed: ' + (r ? r.refusal || 'no ticket id returned' : 'the stage returned nothing')); return '' }
