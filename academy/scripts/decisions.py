@@ -264,6 +264,11 @@ def _ruling(board, t, workspace):
     """``t``'s ruling (rulings.py) when it is a decision ticket from an Expert, else None."""
     if t.get("kind") != "decision" or t.get("to") != ac.HUMAN:
         return None
+    # the listing reads metas only (2026-11-13: one read per ticket made it 27 s): a
+    # ticket's body is read only when its title, ask or deliverable speak of inputs
+    if not rulinglib.RE_ABOUT_INPUTS.search(" ".join(
+            str(t.get(k) or "") for k in ("title", "ask", "deliverable"))):
+        return None
     try:
         return rulinglib.find_ruling(board, t["id"], workspace)
     except (ac.AcademyError, OSError):
