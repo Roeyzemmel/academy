@@ -108,9 +108,19 @@ class ProveTests(unittest.TestCase):
         {"id": "paper:lem:unfold", "status": "proved", "statement": "a duplicate row"}],
         "queries": ["registry.py find unfolding", "registry.py --repo paper grep unfolding"]}
 
+    @staticmethod
+    def confirm(rel, missing=(), status=None, claim="flat:GEO-3"):
+        """The confirm stage's answer: every listed id found (claims_show), but those in missing."""
+        status = status or {}
+        return {"claim_id": claim, "rows": [
+            {"id": r["id"], "qualified": r["id"], "found": r["id"] not in missing,
+             "status": status.get(r["id"], r["status"]) if r["id"] not in missing else ""}
+            for r in rel["related"]]}
+
     def test_the_prover_brief_carries_the_related_statements(self):
-        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[self.RELATED]))
-        self.assertLess(labels.index("related"), labels.index("attempt"))
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[self.RELATED], **{"confirm related": [self.confirm(self.RELATED)]}))
+        self.assertLess(labels.index("related"), labels.index("confirm related"))
+        self.assertLess(labels.index("confirm related"), labels.index("attempt"))
         rel = calls[labels.index("related")]
         self.assertEqual(rel["agentType"], "researcher:review-clerk")
         self.assertIn("paper:", rel["prompt"])
@@ -126,13 +136,54 @@ class ProveTests(unittest.TestCase):
             self.assertIn(duty, prompt)
         self.assertEqual([r["id"] for r in res["related"]], ["paper:lem:unfold", "flat:GEO-5", "flat:GEO-7"])
 
+    def test_related_ids_are_confirmed_and_an_unconfirmed_one_is_dropped(self):
+        """Review of fd04646, finding 4: each listed id is checked with claims_show by one clerk
+        stage; one it could not confirm is dropped (noted), and the confirmed status stands."""
+        conf = self.confirm(self.RELATED, missing=("flat:GEO-5",), status={"flat:GEO-7": "proved"})
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[self.RELATED], **{"confirm related": [conf]}))
+        c = calls[labels.index("confirm related")]
+        self.assertEqual(c["agentType"], "researcher:review-clerk")
+        self.assertIn("claims_show", c["prompt"])
+        for i in ("flat:GEO-7", "paper:lem:unfold", "flat:GEO-5"):
+            self.assertIn(i, c["prompt"])
+        self.assertEqual(c["prompt"].count("paper:lem:unfold"), 1)          # asked once
+        self.assertEqual([(r["id"], r["status"]) for r in res["related"]], [("flat:GEO-7", "proved"), ("paper:lem:unfold", "proved")])   # both proved: the clerk's order
+        prompt = next(x for x in calls if x["label"] == "attempt")["prompt"]
+        self.assertNotIn("flat:GEO-5", prompt)
+        self.assertIn("flat:GEO-5", " ".join(res["notes"]))
+        self.assertIn("not confirmed", " ".join(res["notes"]))
+        # a confirm stage that returns nothing confirms none: the prover searches itself
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[self.RELATED], **{"confirm related": [None]}))
+        self.assertEqual(res["related"], [])
+        self.assertIn("search it yourself", next(x for x in calls if x["label"] == "attempt")["prompt"])
+        self.assertEqual(res["outcome"], "verify-filed")
+
+    def test_related_dedupe_compares_qualified_ids(self):
+        """Review of fd04646, finding 4: s1:GEO-3 is not the claim flat:GEO-3, and flat:GEO-7
+        and s1:GEO-7 are two statements; a bare listed id is resolved by the confirm stage."""
+        rel = {"related": [{"id": "s1:GEO-3", "status": "proved", "statement": "another notebook's GEO-3"},
+                           {"id": "s1:GEO-7", "status": "proved", "statement": "s1 seven"},
+                           {"id": "flat:GEO-7", "status": "open", "statement": "flat seven"},
+                           {"id": "GEO-3", "status": "open", "statement": "the claim, written bare"},
+                           {"id": "lem:unfold", "status": "proved", "statement": "bare paper lemma"},
+                           {"id": "paper:lem:unfold", "status": "proved", "statement": "the same lemma"}], "queries": []}
+        conf = self.confirm(rel)
+        for row in conf["rows"]:
+            if row["id"] == "GEO-3":
+                row["qualified"] = "flat:GEO-3"
+            if row["id"] == "lem:unfold":
+                row["qualified"] = "paper:lem:unfold"
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[rel], **{"confirm related": [conf]}))
+        self.assertEqual([r["id"] for r in res["related"]], ["s1:GEO-3", "s1:GEO-7", "paper:lem:unfold", "flat:GEO-7"])
+
     def test_the_related_list_is_capped_and_a_lost_stage_is_noted(self):
         many = {"related": [{"id": "flat:X-%d" % i, "status": "proved", "statement": "s%d" % i} for i in range(20)], "queries": []}
-        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[many]))
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[many], **{"confirm related": [self.confirm(many)]}))
         self.assertEqual(len(res["related"]), 12)
         res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[None]))
         self.assertEqual(res["outcome"], "verify-filed")
         self.assertIn("related-statements stage returned nothing", " ".join(res["notes"]))
+        self.assertNotIn("confirm related", labels)                             # nothing to confirm
 
     def test_the_declared_dependencies_go_to_the_result_and_the_verify_ticket(self):
         deps = ["paper:lem:unfold", "bib:LMW16#Theorem 11"]

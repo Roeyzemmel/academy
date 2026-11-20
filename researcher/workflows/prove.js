@@ -110,6 +110,15 @@ const RELATED = { type: 'object', properties: {
   queries: { type: 'array', items: { type: 'string' }, description: 'every command or tool call run, verbatim' } },
   required: ['related', 'queries'] }
 const RELATED_CAP = 12
+const CONFIRMED = { type: 'object', properties: {
+  claim_id: { type: 'string', description: 'the claim\'s own id with its namespace, as claims_show gives it' },
+  rows: { type: 'array', items: { type: 'object', properties: {
+    id: { type: 'string', description: 'the id as listed, verbatim' },
+    qualified: { type: 'string', description: 'its id with its namespace, as claims_show gives it (empty if not found)' },
+    found: { type: 'boolean', description: 'claims_show (or registry.py show) found it' },
+    status: { type: 'string', description: 'its registry status as claims_show gives it, verbatim (- for a definition; empty if not found)' } },
+    required: ['id', 'qualified', 'found', 'status'] } } },
+  required: ['claim_id', 'rows'] }
 const FILED = { type: 'object', properties: { ticket: { type: 'string' }, proposal: { type: 'string', description: 'the decision ticket of the sketch proposal, or empty' }, refusal: { type: 'string' } }, required: ['ticket', 'proposal', 'refusal'] }
 const TICKET = { type: 'object', properties: { found: { type: 'boolean' }, to: { type: 'string' }, kind: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } }, required: ['found', 'to', 'kind', 'refs'] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
@@ -261,8 +270,11 @@ const falsifierLine = counts
   : 'no falsifier on record (run it after review A)'
 
 // The related statements (2026-11-20): what the registry already holds, so the prover cites
-// instead of reproving. The clerk searches; the code drops the claim itself and duplicates,
-// puts proved and proved-modulo first and keeps at most RELATED_CAP.
+// instead of reproving. The clerk searches; one more clerk stage confirms every listed id with
+// claims_show (review of fd04646: an id the code never checked went into the brief) and an id
+// it cannot confirm is dropped. The code drops the claim itself and duplicates, comparing ids
+// with their namespace (s1:GEO-3 is not flat:GEO-3), puts proved and proved-modulo first and
+// keeps at most RELATED_CAP.
 const rel = await launch(STAGE('related', [
   `Find the registry statements related to ${A.claim}: read it (claims_show), take the terms and objects of its statement, and search every registry of the workspace ` +
   'with them, the paper (paper:) and the notebooks (and the lab): `py ' + AR + '/academy/scripts/registry.py federation` (from the home) names each namespace\'s home; ' +
@@ -271,14 +283,38 @@ const rel = await launch(STAGE('related', [
   'and every query run, verbatim. Write nothing.',
 ]), { label: 'related', phase: 'State', agentType: CLERK, schema: RELATED, effort: 'low' })
 const RANK = s => /^proved$/.test(s) ? 0 : /^proved-modulo$/.test(s) ? 1 : 2
-const seen = new Set([bare(A.claim)])
-const related = []
+const hasNs = x => /^[a-z][a-z0-9]*:/.test(String(x || '').trim())
+const listed = []
+const seenListed = new Set([String(A.claim).trim()])
 if (!rel) out.notes.push('the related-statements stage returned nothing: the prover searches the registry itself')
 for (const r of (rel && rel.related) || []) {
   const id = String(r && r.id || '').trim()
-  if (!id || seen.has(bare(id))) continue
-  seen.add(bare(id))
-  related.push({ id, status: oneLine(r.status, 40) || '?', statement: oneLine(r.statement, 240) })
+  if (!id || seenListed.has(id)) continue
+  seenListed.add(id)
+  listed.push({ id, statement: oneLine(r.statement, 240) })
+}
+const related = []
+if (listed.length) {
+  const conf = await launch(STAGE('confirm-related', [
+    `Confirm each of these registry ids with claims_show (or \`registry.py show <id>\` from the home; python3 where there is no py), and resolve ${A.claim} itself the same way: ` +
+    listed.map(r => r.id).join(', ') + '. Return for each listed id, verbatim, whether it was found, its id with its namespace and its status as the registry gives them; ' +
+    `and ${A.claim}'s own id with its namespace. Never guess: an id you could not show is not found. Write nothing.`,
+  ]), { label: 'confirm related', phase: 'State', agentType: CLERK, schema: CONFIRMED, effort: 'low' })
+  const rows = new Map(((conf && conf.rows) || []).filter(x => x && x.id).map(x => [String(x.id).trim(), x]))
+  const claimQ = String((conf && conf.claim_id) || '').trim() || String(A.claim).trim()
+  const selfIds = new Set([claimQ].concat(hasNs(A.claim) ? [String(A.claim).trim()] : []))
+  const seen = new Set()
+  const dropped = []
+  for (const r of listed) {
+    const c = rows.get(r.id)
+    if (!c || !c.found) { dropped.push(r.id); continue }
+    const q = String(c.qualified || '').trim() || r.id
+    if (selfIds.has(q) || seen.has(q)) continue
+    seen.add(q)
+    related.push({ id: q, status: oneLine(c.status, 40) || '?', statement: r.statement })
+  }
+  if (!conf) out.notes.push(`the confirm stage for the related statements returned nothing: none of ${listed.length} listed goes to the prover, which searches the registry itself`)
+  else if (dropped.length) out.notes.push(`related statements not confirmed by claims_show, dropped from the brief: ${dropped.join(', ')}`)
 }
 related.sort((x, y) => RANK(x.status) - RANK(y.status))   // stable: the clerk's order within a rank
 out.related = related.slice(0, RELATED_CAP)

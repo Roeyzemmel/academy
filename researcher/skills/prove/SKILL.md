@@ -32,8 +32,11 @@ The inbox runs the same script for a `prove` ticket. The script:
    paper first gets one attack-only `prover` run (`academy/skills/rigor/references/attack-brief.md`,
    writing `proofs/<id>/attack.md`).
 3. **Related statements.** A clerk stage searches the registries (the paper's and the
-   notebooks', `registry.py find` / `grep`) for statements related to the claim and returns
-   at most twelve, proved and proved-modulo first (`related` in the result). They go into
+   notebooks', `registry.py find` / `grep`) for statements related to the claim; a second
+   clerk stage confirms each listed id with `claims_show` (one it cannot confirm is dropped,
+   noted), and the script drops the claim itself and duplicates by the id with its
+   namespace, keeping at most twelve, proved and proved-modulo first (`related` in the
+   result). They go into
    the prover's brief: cite each one that does the work, never reprove a proved statement,
    and say in the attempt for each one "used as input" or why not.
 4. **One `prover` attempt** in the path from `notebook.py attempt <id> --create`: prior art
