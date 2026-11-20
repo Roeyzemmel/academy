@@ -686,20 +686,22 @@ class InboxWorkflowTests(unittest.TestCase):
 
     def test_a_route_without_why_loses_nothing(self):
         """#124 follow-up 2: the LIST schema asks for route.why but does not require it; a
-        reject or block-human route without it says 'no reason given', never undefined."""
+        block-human route without it says 'no reason given', never undefined; a reject
+        without it is not made (a terminal move needs its reason: review of 0da42c3) and
+        goes to the main session."""
         r1 = row("T-1", how="reject", target=None, kind="prove", to="expert@t")
         r2 = row("T-2", how="human", target="human", kind="decision", to="expert@t")
         for r in (r1, r2):
             del r["route"]["why"]
-        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r1, r2])]}],
-                                          "T-1 reject": [OK], "check T-1": [DONE],
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r2, r1])]}],
                                           "T-2 block-human": [OK], "check T-2": [DONE]})
         route = next(c for c in calls if c["label"] == "list")["schema"]["properties"]["instances"]["items"]["properties"]["rows"]["items"]["properties"]["route"]
         self.assertIn("why", route["properties"])
         self.assertNotIn("why", route["required"])
-        self.assertEqual(["rejected", "blocked on human"], [t["outcome"] for t in res["taken"]])
-        self.assertIn('reason "no reason given"', next(c for c in calls if c["label"] == "T-1 reject")["prompt"])
+        self.assertEqual(["blocked on human"], [t["outcome"] for t in res["taken"]])
         self.assertIn('reason "no reason given"', next(c for c in calls if c["label"] == "T-2 block-human")["prompt"])
+        self.assertNotIn("T-1 reject", labels)
+        self.assertIn("gives no reason", res["for_main"]["why"])
         self.assertNotIn("undefined", json.dumps(res))
 
     def test_root_is_required(self):

@@ -493,6 +493,9 @@ async function handle(row, i) {
     const r = await move(row, inst, 'release: blocked -> accepted (everything it waited on is back)')
     if (!r || !r.ok) return { outcome: 'unfinished', detail: 'release failed' }
   }
+  if (rt.how === 'reject' && !rt.why) {      // a terminal move needs its reason: without one the human decides (review of 0da42c3)
+    return { for_main: { why: `${row.id}: the route says reject but gives no reason; reject it with one, or route it`, ticket: row.id, instance: inst } }
+  }
   if (rt.how === 'reject') {
     await move(row, inst, `reject: rejected, with reason "${why}"`)
     return { outcome: 'rejected', detail: why }

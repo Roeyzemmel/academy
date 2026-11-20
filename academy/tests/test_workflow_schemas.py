@@ -46,7 +46,7 @@ ALLOWED_SCHEMAS = {
 CLERK_TYPE = re.compile(r"^[a-z]+:[a-z-]*(clerk|review-chair)$")
 # Clerical stage agents not named a clerk: their stages run a script and return its answer.
 CLERK_LIKE = {"academy:usage-analyst": "its agent file says 'Clerical'; weekly.js's three stages run scripts"}
-SCHEMA_CONST = re.compile(r"^const ([A-Z][A-Z0-9_]*) = \{", re.M)
+SCHEMA_CONST = re.compile(r"^[ \t]*const ([A-Z][A-Z0-9_]*) = \{", re.M)
 REGEX_BEFORE = set("(,=:[!&|?{};+-*%<>~^")
 
 
@@ -361,6 +361,16 @@ class ClerkSchemasRequireNoFreeText(unittest.TestCase):
         self.assertEqual(bad.pop("SHOWN"), ["output"])        # shown only: not in OUTPUT_READ
         self.assertEqual(list(bad.values()), [["reason"]])    # the inline schema
         self.assertNotIn("FINE", w.violations())
+
+    def test_an_indented_schema_is_read_too(self):
+        """Review of 0da42c3: a schema const declared inside a block (review-experiment.js's
+        ST) was invisible to the reader."""
+        src = ("const CLERK = 'academy:inbox-clerk'\n"
+               "if (x) {\n"
+               "  const ST = { type: 'object', properties: { detail: { type: 'string' } }, required: ['detail'] }\n"
+               "  const st = await launch('p', { agentType: CLERK, schema: ST })\n"
+               "}\n")
+        self.assertEqual(Workflow("x/workflows/x.js", src).violations(), {"ST": ["detail"]})
 
 
 if __name__ == "__main__":

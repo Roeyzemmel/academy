@@ -369,7 +369,7 @@ if (MODE === 'settle-review') {
   const ST = { type: 'object', properties: { candidates: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, ref: { type: 'string' },
     rederivation: { type: 'string' }, status: { type: 'string', description: 'the re-derivation ticket\'s status' }, report: { type: 'string', description: 'its report packet, if delivered' },
     verify: { type: 'string', description: 'the verify ticket already filed, or empty' }, detail: { type: 'string' } },
-    required: ['name', 'ref', 'rederivation', 'status', 'report', 'verify', 'detail'] } } }, required: ['candidates'] }
+    required: ['name', 'ref', 'rederivation', 'status', 'report', 'verify'] } } }, required: ['candidates'] }
   const st = await clerk('settle-children', [`For each candidate in ${A.candidates}: its rederivation ticket, that ticket's status (tickets_get) and its report packet when delivered, and the verify ticket already recorded. Write nothing.`],
     ST, 'candidates state', 'Record')
   out.verifies = []
