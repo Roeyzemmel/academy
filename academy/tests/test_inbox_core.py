@@ -385,6 +385,16 @@ class CliTests(Board):
         self.assertEqual((data["remaining"], data["take"][0]["to"]), (0, INST))
         self.assertTrue(all("parent" in r and "final_to" in r for r in data["take"]))
 
+    def test_ids_do_not_widen_the_take_to_a_waiting_blocked_ticket(self):
+        """#92: --ids lists only takeable tickets; --all still lists everything."""
+        self.put("T-0001")
+        self.put("T-0002", status="blocked", waiting_on=["human"])
+        self.put("T-0003", status="in-progress")
+        data = json.loads(self.run_it("--json", "--ids", "T-0001,T-0002,T-0003")[1])
+        self.assertEqual(sorted(r["id"] for r in data["take"]), ["T-0001", "T-0003"])
+        data = json.loads(self.run_it("--json", "--all")[1])
+        self.assertIn("T-0002", [r["id"] for r in data["take"]])
+
     def test_text_output_marks_return_and_over_budget(self):
         self.put("T-0002", status="delivered", frm=INST, to="scientist@t", kind="research",
                  parent="T-0001", final_to="scientist")

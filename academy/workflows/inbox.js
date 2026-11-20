@@ -213,6 +213,14 @@ async function listAll(pass) {
   if (A.ids && A.ids.length) for (const i of xs) i.rows = i.rows.filter(r => (A.ids.includes(r.id)
       || (A.follow && (children.has(r.id) || (r.parent && followed.has(r.parent)))))
     && !(r.blocked && !r.return && !r.released))   // --all lists pending blocked tickets too: those are not takeable
+  // #92: whatever the listing gave (the clerk transcribes it), a row is taken only when the
+  // inbox may take it: open, accepted or in-progress, or a return leg / released row
+  const TAKEABLE = new Set(['open', 'accepted', 'in-progress'])
+  for (const i of xs) i.rows = i.rows.filter(r => {
+    if (r.return || r.released || !r.status || TAKEABLE.has(r.status)) return true
+    notes.push(`${r.id} was listed with status ${r.status}: not taken`)
+    return false
+  })
   for (const i of xs) out.remaining[i.name] = i.waiting
   return xs
 }

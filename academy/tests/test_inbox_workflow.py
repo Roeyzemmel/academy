@@ -407,6 +407,15 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("--ids T-1,T-2", calls[0]["prompt"])          # filtered in the script, not transcribed whole
         self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
 
+    def test_a_row_listed_with_a_status_the_inbox_cannot_take_is_skipped(self):
+        """#92: a blocked or delivered ticket whose row lost its blocked field is not taken."""
+        rows = [dict(row("T-1", how="reject", target=None, kind="prove", to="expert@t"), status="blocked"),
+                dict(row("T-3", how="reject", target=None, kind="prove", to="expert@t"), status="delivered"),
+                row("T-2", how="reject", target=None, kind="prove", to="expert@t")]
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", rows)]}], "T-2 reject": [OK], "check T-2": [DONE]})
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
+        self.assertIn("T-1 was listed with status blocked: not taken", res["notes"])
+
     def test_the_budget_is_the_runs_and_a_ticket_that_does_not_fit_waits(self):
         # 2026-11-14: no ticket is blocked "for budget"; the run counts what its routes cost
         rows = [row("T-1", target="clerk", kind="lookup", to="expert@t", runs=1)]

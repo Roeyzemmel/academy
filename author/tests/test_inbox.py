@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import unittest
+import unittest.mock
 
 from fixtures import REPO, SCRIPTS, Sandbox
 
@@ -235,6 +236,34 @@ class RoutesTests(unittest.TestCase):
         self.assertEqual(("research", "expert"), (r["how"], r["target"]))
         r = routes.route({"kind": "write", "ask": "write up the delivered proof of lem:x"})
         self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
+
+    def test_a_write_ticket_landing_a_proved_claim_goes_to_the_writer(self):
+        """#92 (T-0426): the ask's wording matches a missing argument, but its ref is a
+        notebook claim proved in the registry: the argument exists, the writer lands it."""
+        meta = {"kind": "write", "to": "author@t", "refs": ["flat:FND-14", "paper:lem:x"],
+                "ask": "prove that the lemma holds, as in flat:FND-14"}
+        status = {"flat:FND-14": "proved", "paper:lem:x": "sketch"}.get
+        self.assertEqual(routes.proved_source(meta, status), "flat:FND-14")
+        with unittest.mock.patch.object(routes, "_registry_status", side_effect=lambda q: status(q)), \
+                unittest.mock.patch.object(routes, "_own_ns", return_value="paper"):
+            r = routes.route(meta)
+        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
+        self.assertIn("flat:FND-14", r["why"])
+        # not proved, the paper's own claim, or an unreadable registry: research as before
+        self.assertEqual(routes.proved_source(meta, {"flat:FND-14": "sketch"}.get), "")
+        # a proved ref that is not the subject is a lemma the argument would use
+        uses = dict(meta, refs=["paper:prop:x", "flat:FND-14"],
+                    ask="prove that prop:x holds: a missing step, using the lemma flat:FND-14")
+        self.assertEqual(routes.proved_source(uses, status), "")
+        # a copy ticket keeps its own route
+        with unittest.mock.patch.object(routes, "_registry_status", side_effect=lambda q: status(q)), \
+                unittest.mock.patch.object(routes, "_own_ns", return_value="paper"):
+            self.assertEqual("math-editor", routes.route(dict(meta, kind="copy"))["target"])
+        # a negated phrase is not a missing argument (T-0424: "no new argument is asked")
+        self.assertFalse(routes.needs_argument({"ask": "the edit is the human's; no new argument is asked"}))
+        with unittest.mock.patch.object(routes, "_registry_status", side_effect=OSError("no home")), \
+                unittest.mock.patch.object(routes, "_own_ns", return_value="paper"):
+            self.assertEqual("research", routes.route(meta)["how"])
 
     def test_writers_file_research_tickets_for_missing_arguments(self):
         good = {"kind": "research", "to": "expert@t", "final_to": "researcher",
