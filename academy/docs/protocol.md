@@ -634,6 +634,18 @@ A packet's decisions are answered by the human in `/academy:review`. The answers
 written into the packet (`docs/packet-template.md`), and one thread line goes into
 the packet's ticket: `- <date> human: decision on P-NNNN D<k>: (<letter>) <option>`.
 
+A **ruling** (an Expert's `decision` ticket to the human on the inputs of a review pass
+whose two runs are CONFIRMED) is answered with `decisions.py record` (`/academy:decide`):
+(a) union or (b) intersection of the two modulo lists, (c) re-run, (d) decline. The
+record files the follow-up in the same step: a `decision` ticket from the human to the
+claim-keeper's instance (`parent` the ruling; the claim, the chosen modulo, the pass's
+two verdict files as `Grounds (JSON):`), or for (c) a `verify` ticket to the Expert;
+the ruling gets a `keeper follow-up: T-NNNN` thread line and is delivered with it in its
+result. A second record files nothing new and completes an interrupted one
+(`academy/scripts/rulings.py`; #121 item 4). The lists are the decision table's reduced
+ones when the pass holds `S-table.json`; a dependency-settler stop that leaves no status
+(`S.json`: case 12, 11, or 7 with no existing result) offers only (c) and (d).
+
 ### 6.4 A research request from the Author
 
 1. The Author's main session (`/author:inbox` files as `main`) or an Author agent

@@ -19,12 +19,19 @@ Usage::
     py decisions.py batches [--size 4] [--json] [--instance X]
     py decisions.py record <id> --choice <letter|label> [--comment TEXT]
     py decisions.py accept-recommended [--mechanical-only] [--dry-run] [--json]
+    py decisions.py stalled-rulings [--json]
 
 ``record`` writes back via ``packets.decide_packet`` for a ``P-NNNN/Dk`` (or a bare
 ``P-NNNN`` with exactly one decision still pending), and via ``board.append_to_ticket``
 + ``board.transition_ticket`` (as human) for a ``T-NNNN``. Recording a decision never
 starts work: the ticket's owner picks it up on its own next inbox run
 (``references/budget.md`` rule 3).
+
+A **ruling** (``rulings.py``: an Expert's decision ticket on the inputs of a pass with two
+CONFIRMED runs) takes (a) union, (b) intersection, (c) re-run or (d) decline, not a bare
+proceed; ``record`` files its follow-up in the same step (the keeper's ``decision``
+ticket for (a)/(b), a ``verify`` ticket to the Expert for (c)), names it on the ruling and
+delivers the ruling; a second ``record`` files nothing (#121 item 4).
 
 ``accept-recommended`` only ever applies a **packet's own recorded** ``Recommendation:``
 line -- a raw ticket carries no such recommendation, so ticket-sourced items are never
@@ -50,6 +57,7 @@ sys.path.insert(0, HERE)
 import academy_common as ac  # noqa: E402
 import board as boardlib  # noqa: E402
 import packets as packetlib  # noqa: E402
+import rulings as rulinglib  # noqa: E402
 
 # a packet id may carry '@<part of its path under packets/>' when two files share it (#90)
 RE_PACKET_DECISION_ID = re.compile(r"^(P-\d{4,}(?:@[^\s]+?)?)/D(\d+)$")
@@ -252,7 +260,22 @@ def _ticket_options(t):
     ]
 
 
-def _ticket_items(board, instance=None, to_human=False):
+def _ruling(board, t, workspace):
+    """``t``'s ruling (rulings.py) when it is a decision ticket from an Expert, else None."""
+    if t.get("kind") != "decision" or t.get("to") != ac.HUMAN:
+        return None
+    # the listing reads metas only (2026-11-13: one read per ticket made it 27 s): a
+    # ticket's body is read only when its title, ask or deliverable speak of inputs
+    if not rulinglib.RE_ABOUT_INPUTS.search(" ".join(
+            str(t.get(k) or "") for k in ("title", "ask", "deliverable"))):
+        return None
+    try:
+        return rulinglib.find_ruling(board, t["id"], workspace)
+    except (ac.AcademyError, OSError):
+        return None
+
+
+def _ticket_items(board, instance=None, to_human=False, workspace=None):
     items = []
     if to_human:
         rows = boardlib.list_tickets(board, to=ac.HUMAN, status="open")
@@ -263,12 +286,15 @@ def _ticket_items(board, instance=None, to_human=False):
         inst = t.get("from") if to_human else t.get("to")
         if instance and inst != instance:
             continue
+        r = _ruling(board, t, workspace) if to_human else None
         items.append({
             "id": t["id"],
             "instance": inst,
             "title": t.get("title"),
             "question": _ticket_question(t),
-            "options": _ticket_options(t),
+            "options": rulinglib.options(r) if r else _ticket_options(t),
+            "ruling": {k: r[k] for k in ("subject", "pass", "union", "intersection", "keeper")}
+            if r else None,
             "recommendation": None,
             "kind": _classify_ticket(t),
             "unblocks": [str(b) for b in (t.get("blocks") or [])],
@@ -279,15 +305,16 @@ def _ticket_items(board, instance=None, to_human=False):
     return items
 
 
-def pending_decisions(board, instance=None):
+def pending_decisions(board, instance=None, workspace=None):
     """Every pending decision (a)+(b)+(c) above, as a list of item dicts.
 
     Ordered packets first (by id, then D-number), then tickets to human, then
     blocked-on-human tickets (each by id). ``batches`` imposes the working order.
+    A ruling ticket (rulings.py) carries its four options and ``ruling``.
     """
     items = _packet_items(board, instance)
-    items += _ticket_items(board, instance, to_human=True)
-    items += _ticket_items(board, instance, to_human=False)
+    items += _ticket_items(board, instance, to_human=True, workspace=workspace)
+    items += _ticket_items(board, instance, to_human=False, workspace=workspace)
     return items
 
 
@@ -324,8 +351,16 @@ def _is_proceed(choice):
         "a ticket decision takes proceed/a or decline/b, not %r" % choice)
 
 
-def _record_ticket(board, tid, choice, comment, date):
-    path, meta, _body = boardlib.get_ticket(board, tid)
+def _record_ticket(board, tid, choice, comment, date, workspace=None):
+    ticket = boardlib.get_ticket(board, tid)
+    path, meta, _body = ticket
+    r = None
+    if meta.get("kind") == "decision" and meta.get("to") == ac.HUMAN:
+        r = rulinglib.find_ruling(board, tid, workspace, ticket=ticket)
+    if r:
+        # a ruling on a pass's inputs: its follow-up is filed in this same step (#121)
+        return rulinglib.record(board, r, choice, comment, workspace=workspace, date=date,
+                                ticket=ticket)
     proceed = _is_proceed(choice)
     text = "human decision: %s" % ("proceed" if proceed else "decline")
     if comment.strip():
@@ -364,7 +399,7 @@ def record(board, item_id, choice, comment="", workspace=None, date=None):
                 % (item_id, len(pending), item_id))
         return record(board, "%s/D%d" % (item_id, pending[0]), choice, comment, workspace, date)
     if ac.RE_TICKET_ID.match(str(item_id)):
-        return _record_ticket(board, item_id, choice, comment, date)
+        return _record_ticket(board, item_id, choice, comment, date, workspace)
     raise ac.AcademyError(
         "id must look like P-0001/D1, P-0001 or T-0001, not %r" % item_id)
 
@@ -485,13 +520,17 @@ def main(argv=None):
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("stalled-rulings", help="rulings the human answered that are not "
+                                               "delivered (read-only)")
+    p.add_argument("--json", action="store_true")
+
     a = ap.parse_args(argv)
     boardlib._utf8_stdout()
     try:
         ws = boardlib._workspace_or_none(a.workspace)
         board = boardlib.resolve_store(a.board, a.workspace)
         if a.cmd == "list":
-            items = pending_decisions(board, a.instance)
+            items = pending_decisions(board, a.instance, ws)
             if a.json:
                 print(_wire(items))
             else:
@@ -499,7 +538,7 @@ def main(argv=None):
                     print(_fmt_item(i))
                 print("%d pending decision(s)" % len(items))
         elif a.cmd == "batches":
-            bs = batches(pending_decisions(board, a.instance), a.size)
+            bs = batches(pending_decisions(board, a.instance, ws), a.size)
             if a.json:
                 print(_wire(bs))
             else:
@@ -510,6 +549,16 @@ def main(argv=None):
         elif a.cmd == "record":
             print(json.dumps(record(board, a.id, a.choice, a.comment, ws),
                              ensure_ascii=False))
+        elif a.cmd == "stalled-rulings":
+            rows = rulinglib.stalled(board, ws)
+            if a.json:
+                print(json.dumps(rows, ensure_ascii=False))
+            else:
+                for r in rows:
+                    print("%s %s: %s (follow-up: %s)" % (r["id"], r["subject"], r["answer"],
+                                                         r["follow_up"] or "none"))
+                print("%d answered ruling(s) not delivered; `record <id> --choice <a-c>` "
+                      "files or completes the follow-up" % len(rows))
         elif a.cmd == "proceed":
             done = proceed(board, a.instance, a.dry_run)
             if a.json:
