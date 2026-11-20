@@ -210,16 +210,43 @@ const children = new Set()           // follow: the child ids this run's relays 
 
 // ---- List ---------------------------------------------------------------------------
 const knownHome = {}                 // instance -> the last non-empty home a listing gave
+// #94 (2026-11-19 21:17): the list stage returned {"instances": []} and the run did nothing, while
+// inbox.py listed 24 waiting tickets a minute later. The scripts cannot print that: every instance
+// is one entry, and (without --ids, which filters the rows and not the count) waiting > 0 means rows.
+// Such a listing is a failed stage: listed once more; empty twice, the run says so (list_failed).
+let listFailed = ''
+const NO_INSTANCE = 'no instance at all (every instance of workspace.json is one entry, even with no rows)'
+function listingProblems(listed) {
+  const xs = Array.isArray(listed.instances) ? listed.instances.filter(i => !A.only || A.only.includes(i.name)) : []
+  if (!xs.length) return [NO_INSTANCE]
+  if (A.ids && A.ids.length) return []
+  return xs.filter(i => i.waiting > 0 && !(i.rows || []).length).map(i => `${i.name}: ${i.waiting} waiting, no rows`)
+}
 async function listAll(pass) {
-  const listed = await clerk('list', [
+  const label = pass > 1 ? `list ${pass}` : 'list'
+  const lines = [
     `For each instance of workspace.json${A.only ? ' among ' + JSON.stringify(A.only) : ''}, run its role's inbox script:`,
     // with ids the per-instance cut (itemsPerRun) would hide the named tickets, and --all is too long to transcribe
     // (live runs 2026-10-31: 304 rows, four instances lost): --ids filters in the script (the ids and their children)
     `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.ids && A.ids.length ? ' --ids ' + [...new Set([...A.ids, ...(A.follow ? [...followed, ...children] : [])])].join(',') : ''}${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
     'Return every instance (one entry each, even with no rows) with its "home" copied verbatim from the script\'s JSON (never a path you know otherwise: the workspace\'s checkout, #116), ' +
     'and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
-  ], LIST, pass > 1 ? `list ${pass}` : 'list')
+  ]
+  let listed = await clerk('list', lines, LIST, label)
   if (!listed) return null
+  let bad = listingProblems(listed)
+  if (bad.length) {
+    notes.push(`the ${label} stage returned ${bad.join('; ')}: a failed stage, listed once more`)
+    listed = await clerk('list', lines.concat([`A first listing returned ${bad.join('; ')}, which the scripts never print: ` +
+      'run every instance\'s script again and transcribe its JSON as it is.']), LIST, label + ' (retry)')
+    if (!listed) return null
+    bad = listingProblems(listed)
+    if (bad[0] === NO_INSTANCE) {
+      listFailed = `the ${label} stage returned no instance twice: a failed stage, not "nothing to do"; run the inbox scripts by hand (inbox.py --instance <name> --json) and run again`
+      return null
+    }
+    for (const b of bad) notes.push(`ANOMALY: ${b} after the retry: its tickets are not taken this pass; inbox.py --instance ${b.split(':')[0]} --json lists them`)
+  }
   const xs = listed.instances.filter(i => !A.only || A.only.includes(i.name))
   // a later listing can come back with home '' (live run 2026-11-17: the second pass lost every home and the
   // nested prove threw 'args.home must be the Researcher home', ending the run): keep the last home seen
@@ -253,7 +280,7 @@ phase('List')
 const LIMIT_WHY = 'three agent launches in a row returned nothing: most likely a usage limit (every launch fails until it resets: ' +
   'the session\'s own error names the reset time; resume after it). Nothing further launched (#115)'
 let insts = await listAll(1)
-if (!insts) return Object.assign(out, { stopped: 'the list stage returned nothing (a usage limit?)', usage_limit: LAUNCH_LIMIT.stopped })
+if (!insts) return Object.assign(out, listFailed ? { stopped: listFailed, list_failed: true } : { stopped: 'the list stage returned nothing (a usage limit?)', usage_limit: LAUNCH_LIMIT.stopped })
 let lastInsts = insts
 
 // ---- Sweep (the Author's, before any ticket; counts against no cap) -------------------
@@ -669,7 +696,7 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
     insts = await listAll(pass)
     // #114: a later listing that returns nothing (the weekly limit, 2026-11-20) ends the
     // run; the close-out reads the last listing, never a null one
-    if (!insts) { out.stopped = 'the list stage of pass ' + pass + ' returned nothing (a usage limit?)'; break }
+    if (!insts) { if (listFailed) { out.stopped = listFailed; out.list_failed = true } else out.stopped = 'the list stage of pass ' + pass + ' returned nothing (a usage limit?)'; break }
     lastInsts = insts
   }
   out.passes = pass

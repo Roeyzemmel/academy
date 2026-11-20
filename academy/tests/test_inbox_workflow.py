@@ -420,6 +420,72 @@ class InboxWorkflowTests(unittest.TestCase):
         wf = next(c for c in calls if c["label"] == "workflow prove.js")
         self.assertEqual(wf["args"]["home"], "/h/researcher@u")
 
+    # #94 (2026-11-19 21:17): the list stage returned {"instances": []} and the run did
+    # nothing, while inbox.py listed 24 waiting tickets for the Author a minute later. Every
+    # instance is one entry of the listing, and waiting > 0 means rows: an empty listing is a
+    # failed stage, listed once more, and said so in the result, never "nothing to do".
+    def test_an_empty_listing_is_listed_once_more(self):
+        rows = [row("T-2", how="reject", target=None, kind="prove", to="scientist@t")]
+        plan = {"list": [{"instances": []}], "list (retry)": [{"instances": [inst("scientist@t", rows, waiting=1)]}],
+                "T-2 reject": [OK], "check T-2": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[:2], ["list", "list (retry)"])
+        self.assertIn("no instance", next(c for c in calls if c["label"] == "list (retry)")["prompt"])
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
+        self.assertIn("listed once more", " ".join(res["notes"]))
+
+    def test_an_empty_listing_twice_is_a_failed_stage_not_nothing_to_do(self):
+        plan = {"list": [{"instances": []}], "list (retry)": [{"instances": []}]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual(labels, ["list", "list (retry)"])
+        self.assertTrue(res.get("list_failed"))
+        self.assertIn("failed stage", res["stopped"])
+        self.assertEqual(res["taken"], [])
+
+    def test_waiting_tickets_with_no_rows_are_listed_once_more(self):
+        rows = [row("T-2", how="reject", target=None, kind="prove", to="author@t")]
+        plan = {"list": [{"instances": [inst("author@t", [], waiting=24), inst("expert@t", [])]}],
+                "list (retry)": [{"instances": [inst("author@t", rows, waiting=24), inst("expert@t", [])]}],
+                "sweep author@t": ["0"], "T-2 reject": [OK], "check T-2": [DONE], "close author@t": [OK]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[:2], ["list", "list (retry)"])
+        self.assertIn("author@t: 24 waiting, no rows", next(c for c in calls if c["label"] == "list (retry)")["prompt"])
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
+
+    def test_waiting_with_no_rows_twice_is_an_anomaly_and_the_others_go_on(self):
+        rows = [row("T-3", how="reject", target=None, kind="prove", to="expert@t")]
+        listed = {"instances": [inst("author@t", [], waiting=24), inst("expert@t", rows, waiting=1)]}
+        plan = {"list": [listed], "list (retry)": [listed], "sweep author@t": ["0"],
+                "T-3 reject": [OK], "check T-3": [DONE]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-3"])
+        self.assertIn("ANOMALY: author@t", " ".join(res["notes"]))
+
+    def test_only_with_none_of_its_instances_listed_twice_is_a_failed_stage(self):
+        listed = {"instances": [inst("expert@t", [])]}
+        res, labels, _ = self.run_wf({"list": [listed], "list (retry)": [listed]}, only=["author@t"])
+        self.assertEqual(labels, ["list", "list (retry)"])
+        self.assertTrue(res.get("list_failed"))
+
+    def test_a_quiet_listing_is_not_retried(self):
+        res, labels, _ = self.run_wf({"list": [{"instances": [inst("expert@t", []), inst("scientist@t", [])]}]})
+        self.assertEqual(labels, ["list"])
+        self.assertNotIn("list_failed", res)
+
+    def test_with_ids_waiting_without_rows_is_not_retried(self):
+        # --ids filters the rows in the script while waiting counts the whole inbox
+        res, labels, _ = self.run_wf({"list": [{"instances": [inst("expert@t", [], waiting=5)]}]}, ids=["T-9"])
+        self.assertEqual(labels, ["list"])
+
+    def test_a_later_empty_listing_is_retried_and_then_a_failed_stage(self):
+        rows = [row("T-2", how="reject", target=None, kind="prove", to="scientist@t")]
+        plan = {"list": [{"instances": [inst("scientist@t", rows, waiting=1)]}], "T-2 reject": [OK], "check T-2": [DONE],
+                "list 2": [{"instances": []}], "list 2 (retry)": [{"instances": []}]}
+        res, labels, _ = self.run_wf(plan, loop=True)
+        self.assertEqual(labels[-2:], ["list 2", "list 2 (retry)"])
+        self.assertIn("failed stage", res["stopped"])
+        self.assertTrue(res.get("list_failed"))
+
     def test_an_author_research_route_is_filed_by_math_writer_and_checked(self):
         rows = [row("T-5", how="research", target="expert", kind="write", to="author@t")]
         plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
