@@ -60,6 +60,13 @@ Mechanical rules applied before the table:
   (``definition`` / ``def`` / ``defn``, looked up through the registry engine), or,
   when the registry cannot be read or has no such record, when its label starts with
   ``defn:`` / ``def:`` or its id with ``DEF-``. A ``bib:`` input is never one.
+* One input, one spelling (#103): before any comparison every modulo list (and
+  ``--established``) is normalised by ``normalise_modulo``: split only on top-level
+  commas (a list landed split inside brackets is rejoined), a pointer's trailing text
+  dropped, an unqualified label qualified with the subject's namespace, an alias
+  resolved to its record id, and a pinpoint's punctuation between word and number
+  removed (``#Thm-2.6`` = ``#Thm2.6``). A ``disagreement`` that remains carries
+  ``modulo_options``: the union and the intersection, the ruling's two options.
 * B present after a non-CONFIRMED A is a process anomaly (B should not have run);
   it is reported, and the outcome is taken from A alone.
 
@@ -154,18 +161,57 @@ RE_FIELD = re.compile(r"^\s*([A-Za-z_]+)\s*:\s*(.*?)\s*$")
 
 def _split_list(v):
     if isinstance(v, list):
-        items = v
+        items = _rejoin(v)
     else:
         s = str(v or "").strip()
         if s.lower() in NONE_WORDS:
             return []
         s = s.strip("[]")
-        items = re.split(r"[,;]", s)
+        items = _split_top(s)
     out = []
     for it in items:
         it = str(it).strip().strip("`'\"")
         if it and it.lower() not in NONE_WORDS:
             out.append(it)
+    return out
+
+
+_OPEN, _CLOSE = "([{", ")]}"
+
+
+def _split_top(s):
+    """Split ``s`` on the commas and semicolons outside brackets (#103: a pointer
+    ``lem:x (lifting, for covers)`` is one input, not two)."""
+    out, depth, cur = [], 0, []
+    for ch in str(s):
+        if ch in _OPEN:
+            depth += 1
+        elif ch in _CLOSE:
+            depth = max(0, depth - 1)
+        elif ch in ",;" and depth == 0:
+            out.append("".join(cur))
+            cur = []
+            continue
+        cur.append(ch)
+    out.append("".join(cur))
+    if depth:            # an unclosed bracket: no nesting to respect, split flat
+        return re.split(r"[,;]", str(s))
+    return out
+
+
+def _rejoin(items):
+    """A list landed before #103 was split inside brackets: put the pieces of one
+    bracketed pointer back together (``['x (a', 'b)']`` -> ``['x (a, b)']``)."""
+    out, cur, depth = [], None, 0
+    for it in items:
+        t = str(it)
+        cur = t if cur is None else cur + ", " + t.strip()
+        depth += sum(t.count(c) for c in _OPEN) - sum(t.count(c) for c in _CLOSE)
+        if depth <= 0:
+            out.append(cur)
+            cur, depth = None, 0
+    if cur is not None:  # an unclosed bracket: leave the list as it was landed
+        return [str(it) for it in items]
     return out
 
 
@@ -364,6 +410,96 @@ def is_definition(qid, kind_of=None):
     return bool(RE_DEF_LABEL.match(name or q))
 
 
+# ----------------------------------------------------------------------------
+# One spelling per input (#103): the runs' modulo lists are compared canonically
+# ----------------------------------------------------------------------------
+
+# the label prefixes of a paper's statements: ``lem:y`` written without its namespace
+LABEL_PREFIXES = {"lem", "thm", "defn", "def", "cor", "prop", "fact", "rmk", "obs",
+                  "ex", "claim", "conj", "eq", "sec", "nota", "assm", "hyp"}
+
+
+def registry_canonical(qid):
+    """The record id ``qid`` (``ns:name``) resolves to in the registry, aliases
+    included; None when the registry, the home or the record cannot be found."""
+    ns, _, name = str(qid or "").partition(":")
+    if not name or ns == "bib":
+        return None
+    try:
+        plugin = os.path.join(ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import federation, workspace as rws
+        info = rws.namespaces().get(ns)
+        home = info and info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return None
+        store = federation.store(ns, home)
+        rid, exact = store.lookup(name)
+        # only the id itself or a registered alias: a profile's normalisation (case,
+        # a trailing sub-item letter: CRIT-3a -> CRIT-3) is not the same input
+        if rid and not exact and name not in [str(a) for a in (store.aliases(rid) or ())]:
+            rid = None
+    except Exception:        # an unreadable registry leaves the spelling as written
+        return None
+    return "%s:%s" % (ns, rid) if rid else None
+
+
+def canon_input(item, subject="", canon=None):
+    """One modulo input in its canonical spelling, never merging two different inputs:
+    whitespace collapsed and quotes stripped; a ``#`` pinpoint's punctuation between a
+    theorem-style word and its number removed (``#Thm-2.6`` -> ``#Thm2.6``); and, for a
+    bare id only (no space or bracket before the ``#``), an unqualified paper label
+    qualified (``lem:y`` -> ``paper:lem:y``: with the subject's namespace when that is
+    an Author's, or when the registry knows the qualified id) and an alias resolved to
+    its record id (``canon``, default ``registry_canonical``: exact ids and registered
+    aliases only). Pointer text (``lem:y (first clause)``) is kept as written: it may
+    restrict the input."""
+    s = " ".join(str(item or "").split()).strip("`'\"")
+    if not s:
+        return s
+    head, hash_, pin = s.partition("#")
+    if hash_:
+        pin = _norm_pinpoint(pin)
+    if " " in head or any(c in head for c in _OPEN + _CLOSE) or head.startswith("bib:"):
+        return head + hash_ + pin
+    lookup = canon or registry_canonical
+    sub_ns = str(subject or "").partition(":")[0]
+    if ":" not in head:
+        # a bare notebook id (OBS-3): qualified only when the registry knows it
+        got = lookup("%s:%s" % (sub_ns, head)) if sub_ns else None
+        return (got or head) + hash_ + pin
+    if head.partition(":")[0].lower() in LABEL_PREFIXES:
+        q = "%s:%s" % (sub_ns, head) if sub_ns else ""
+        if not q or not (producer_role_for(subject) == "author" or lookup(q)):
+            return head + hash_ + pin
+        head = q
+    got = lookup(head)
+    return (got or head) + hash_ + pin
+
+
+RE_PIN_GLUE = re.compile(
+    r"(?i)(\b(?:thm|theorem|lem|lemma|prop|proposition|cor|corollary|defn?|definition|rmk|"
+    r"rem|remark|sect?|section|item|pp?|ex|example|eq|fig|figure|tab|table|claim|step|"
+    r"fact|obs|ch|chapter|app|appendix)|§)[\s.\-]+(?=\d)")
+
+
+def _norm_pinpoint(pin):
+    """A pinpoint without the punctuation between a word and its number:
+    ``Thm-2.6``, ``Thm 2.6`` -> ``Thm2.6``; ``item-4`` -> ``item4``; ``p. 2`` -> ``p2``."""
+    return RE_PIN_GLUE.sub(r"\1", pin.strip())
+
+
+def normalise_modulo(items, subject="", canon=None):
+    """``items`` in canonical spelling, duplicates dropped, order kept."""
+    out = []
+    for it in items or ():
+        c = canon_input(it, subject, canon)
+        if c and c not in out:
+            out.append(c)
+    return out
+
+
 def missing_verdict(path, a, b):
     """What to say when a verdict file is not there. It is nearly always one of two
     things (the ledger, five times in five weeks): the run has not ended, so the
@@ -487,15 +623,35 @@ def _grounds(recs, modulo, note, producer_role=""):
     return g
 
 
+def _canon_rec(rec, canon):
+    if not rec or not rec.get("modulo"):
+        return rec
+    out = dict(rec)
+    out["modulo"] = normalise_modulo(rec["modulo"], rec.get("subject"), canon)
+    if out["modulo"] != list(rec["modulo"]):
+        out["modulo_as_written"] = list(rec["modulo"])
+    return out
+
+
 def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
-           kind_of=None, base=None, base_notes=()):
+           kind_of=None, base=None, base_notes=(), canon=None):
     """Apply the table (``_decide``) and give every item to file its ``route``
     (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
     lookup that decides which inputs are definitions.
 
     A reword run's record as ``rec_a`` goes to :func:`decide_reword`, with ``base`` the
     base pass's ``(A, B)`` records (``base_records`` finds them) and ``base_notes`` what
-    finding them turned up."""
+    finding them turned up.
+
+    Every modulo list (and ``established``) is first put in canonical spelling
+    (``normalise_modulo``, #103), so two runs that name one input two ways agree;
+    ``canon`` (qid -> record id or None) replaces the registry's alias lookup."""
+    rec_a = _canon_rec(rec_a, canon)
+    rec_b = _canon_rec(rec_b, canon)
+    if base:
+        base = tuple(_canon_rec(r, canon) for r in base)
+    subj = (rec_a or {}).get("subject") or ""
+    established = normalise_modulo(established, subj, canon)
     if is_reword(rec_a):
         ba, bb = tuple(base or (None, None))[:2]
         notes = list(base_notes)
@@ -528,7 +684,7 @@ def _new_result():
     return {"outcome": "", "launch_b": False, "proposed_status": None, "recolour": False,
             "needs_human": False, "modulo": [], "pending_inputs": [], "file_items": [],
             "anomalies": [], "grounds": None, "summary": "", "runs": [],
-            "dropped_definitions": []}
+            "dropped_definitions": [], "modulo_options": []}
 
 
 def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
@@ -570,6 +726,8 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
         res["runs"].append({k: r.get(k) for k in ("run", "run_id", "verdict", "model",
                                                    "modulo", "statement_hash", "blocking",
                                                    "file")})
+        if r.get("modulo_as_written"):
+            res["runs"][-1]["modulo_as_written"] = r["modulo_as_written"]
         res["runs"][-1]["effective"] = r["_eff"]
 
     a = rec_a["_eff"]
@@ -652,8 +810,15 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
                                           "(not definitions: %s)"
                                           % (sorted(ma) or "none", sorted(mb) or "none",
                                              ", ".join(beyond))}]
+            # the ruling's two real options (#103)
+            res["modulo_options"] = [
+                {"label": "union", "modulo": sorted(ma | mb),
+                 "means": "proved-modulo every input either run named"},
+                {"label": "intersection", "modulo": sorted(ma & mb),
+                 "means": "proved-modulo only the inputs both runs named"}]
             res["summary"] = ("both CONFIRMED but on different inputs beyond definitions "
-                              "(%s): no status change" % ", ".join(beyond))
+                              "(%s): no status change; the ruling is union or "
+                              "intersection" % ", ".join(beyond))
             return res
         if not ma:
             res["outcome"] = "confirmed"
@@ -979,6 +1144,9 @@ def _text(res):
         out.append("modulo: %s" % ", ".join(res["modulo"]))
     if res["pending_inputs"]:
         out.append("pending inputs: %s" % ", ".join(res["pending_inputs"]))
+    for opt in res.get("modulo_options") or ():
+        out.append("option %s: modulo %s" % (opt["label"],
+                                             ", ".join(opt["modulo"]) or "none"))
     if res.get("dropped_definitions"):
         out.append("dropped definitions (not inputs, T-0148): %s"
                    % ", ".join(res["dropped_definitions"]))
