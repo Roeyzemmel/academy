@@ -9,6 +9,7 @@ import contextlib
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -191,7 +192,24 @@ class TestAll(Base):
         self.assertEqual([], self.rows(self.status()))
         row = self.row_for(self.status("--all"), os.path.join(".claude", "worktrees", "vanished"))
         self.assertIn("missing", row)
-        self.assertIn("removable", row)
+        self.assertIn("prunable", row)          # `git worktree prune`, not `remove`
+        self.assertNotIn("removable", row)
+
+    def test_a_locked_clean_worktree_is_marked_locked_not_removable(self):
+        wt = self.worktree("held")
+        run(wt, "push", "-q", "-u", "origin", "held")
+        run(wt, "worktree", "lock", wt)
+        row = self.row_for(self.status("--all"), os.path.join(".claude", "worktrees", "held"))
+        self.assertIn("locked", row)
+        self.assertNotIn("removable", row)
+
+    def test_an_unborn_orphan_worktree_is_not_unreadable_work(self):
+        wt = os.path.join(self.sub, ".claude", "worktrees", "orph")
+        r = subprocess.run(["git", "-C", self.sub, "worktree", "add", "-q", "--orphan",
+                            "-b", "orphb", wt], capture_output=True, text=True)
+        if r.returncode:
+            self.skipTest("this git has no worktree add --orphan")
+        self.assertEqual([], self.rows(self.status()))
 
 
 class TestNoLocks(Base):

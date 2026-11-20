@@ -1239,7 +1239,7 @@ def linked_worktrees(repo):
             continue
         key, _, val = line.partition(" ")
         if key == "worktree":
-            cur = {"path": val, "head": "", "branch": "", "bare": False}
+            cur = {"path": val, "head": "", "branch": "", "bare": False, "locked": False}
         elif cur is None:
             continue
         elif key == "HEAD":
@@ -1248,6 +1248,8 @@ def linked_worktrees(repo):
             cur["branch"] = val[len("refs/heads/"):] if val.startswith("refs/heads/") else val
         elif key == "bare":
             cur["bare"] = True
+        elif key == "locked":
+            cur["locked"] = True
     me = os.path.normcase(os.path.realpath(repo))
     return [e for e in entries[1:]
             if not e["bare"] and os.path.normcase(os.path.realpath(e["path"])) != me]
@@ -1256,11 +1258,12 @@ def linked_worktrees(repo):
 def branch_ahead(repo):
     """``{branch: commits ahead of its upstream}`` for every local branch with an
     upstream, from one ``for-each-ref`` (no fetch: the remote-tracking refs as they are)."""
-    rc, out = _git_quiet(repo, "for-each-ref", "--format=%(refname:short)%00%(upstream:track)",
+    rc, out = _git_quiet(repo, "for-each-ref", "--format=%(refname)%00%(upstream:track)",
                          "refs/heads")
     ahead = {}
     for line in out.splitlines() if not rc else ():
         name, _, track = line.partition("\0")
+        name = name[len("refs/heads/"):] if name.startswith("refs/heads/") else name   # a tag of the same name made :short ambiguous
         m = AHEAD.search(track)
         if m:
             ahead[name] = int(m.group(1))
@@ -1278,7 +1281,7 @@ def worktree_work(repo, wt, ahead):
     if not st["missing"]:
         rc, out = _git_quiet(wt["path"], "status", "--porcelain")
         st["dirty"] = None if rc else len(out.splitlines())
-    if wt["head"]:
+    if wt["head"] and set(wt["head"]) != {"0"}:      # an unborn (orphan) HEAD has no commits
         rc, out = _git_quiet(repo, "rev-list", "--count", wt["head"], "--not", "--remotes")
         st["unpushed"] = None if rc else int(out.strip() or 0)
     return st
@@ -1309,7 +1312,10 @@ def worktree_report(repos, show_all=False):
             inside = False
         shown = os.path.relpath(full, top) if inside else st["path"]
         count = lambda n: "?" if n is None else n  # noqa: E731
-        marks = (["missing"] if st["missing"] else []) + ([] if work else ["removable"])
+        # a clean one: a gone directory needs `git worktree prune`, a locked one `remove -f -f`
+        marks = (["missing"] if st["missing"] else []) + (
+            [] if work else ["prunable"] if st["missing"] else
+            ["locked"] if st.get("locked") else ["removable"])
         rows.append("  %-26s %-58s %-44s dirty=%s unpushed=%s%s%s" % (
             label, shown, st["branch"] or "(detached)", count(st["dirty"]),
             count(st["unpushed"]), " ahead=%d" % st["ahead"] if st["ahead"] else "",
