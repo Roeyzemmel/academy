@@ -354,6 +354,56 @@ class ProveTests(unittest.TestCase):
         self.assertNotIn("attack_exists", " ".join(res["notes"]))
         self.assertIn("Read proofs/<id>/attack.md first.", next(c for c in calls if c["label"] == "attempt")["prompt"])
 
+    # ---- #124 follow-up 2: stop_reason and detail are not required; the attack overwrite check --
+
+    def test_state_and_move_do_not_require_their_free_text(self):
+        _res, _labels, calls = self.run_wf(dict(self.COMPLETE, close=[{"ok": True}]))
+        for label, field in (("state", "stop_reason"), ("close", "detail")):
+            schema = next(c for c in calls if c["label"] == label)["schema"]
+            self.assertIn(field, schema["properties"], label)
+            self.assertNotIn(field, schema["required"], label)
+        s = state(ok=False)
+        del s["stop_reason"]
+        res, labels, _ = self.run_wf({"state": [s]})
+        self.assertEqual((res["outcome"], res["reason"]), ("not-started", "no reason given"))
+
+    def test_the_attack_run_says_whether_attack_md_existed_and_requires_nothing(self):
+        res, _labels, calls = self.run_wf(dict(self.COMPLETE, attack=[{"existed_before": False, "wrote": True, "summary": "s"}]))
+        schema = next(c for c in calls if c["label"] == "attack")["schema"]
+        self.assertLessEqual({"existed_before", "wrote"}, set(schema["properties"]))
+        self.assertEqual(schema["required"], [])
+        self.assertEqual(res["attack"], {"existed_before": False, "wrote": True})
+        self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+        self.assertEqual(res["outcome"], "verify-filed")
+
+    def test_an_overwritten_attack_md_is_an_anomaly(self):
+        """The b5470b7 review: a check, not a prompt sentence. Unknown state, and the run says
+        attack.md existed and it wrote it: ANOMALY. Known absent and found: also an ANOMALY when
+        written, a plain note when left alone."""
+        s = state()
+        del s["attack_exists"]
+        res, _labels, _ = self.run_wf(dict(self.COMPLETE, state=[s], attack=[{"existed_before": True, "wrote": True}]))
+        notes = " ".join(res["notes"])
+        self.assertIn("ANOMALY: the attack run overwrote an existing proofs/<id>/attack.md", notes)
+        self.assertEqual(res["attack"], {"existed_before": True, "wrote": True})
+        res, _labels, _ = self.run_wf(dict(self.COMPLETE, state=[s], attack=[{"existed_before": True}]))
+        self.assertIn("ANOMALY: the attack run may have overwritten", " ".join(res["notes"]))
+        res, _labels, _ = self.run_wf(dict(self.COMPLETE, state=[s], attack=[{"existed_before": True, "wrote": False}]))
+        self.assertNotIn("ANOMALY", " ".join(res["notes"]))           # it read the file and stopped, as told
+        res, _labels, _ = self.run_wf(dict(self.COMPLETE, attack=[{"existed_before": True, "wrote": True}]))
+        self.assertIn("that the state stage reported absent", " ".join(res["notes"]))
+        res, _labels, _ = self.run_wf(dict(self.COMPLETE, attack=[{"existed_before": True, "wrote": False}]))
+        notes = " ".join(res["notes"])
+        self.assertNotIn("ANOMALY", notes)
+        self.assertIn("although the state stage reported none", notes)
+
+    def test_an_attack_answer_without_the_fields_is_noted_unknown(self):
+        res, _labels, _ = self.run_wf(dict(self.COMPLETE, attack=[{"summary": "s"}]))
+        self.assertEqual(res["attack"], {"existed_before": None, "wrote": None})
+        self.assertIn("existed_before missing", " ".join(res["notes"]))
+        self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+        self.assertEqual(res["outcome"], "verify-filed")
+
     def test_every_prover_launch_is_on_the_max_model(self):
         """T-1682: attack, attempt and filing launch on the args' model, or one clerk stage resolves it."""
         res, labels, calls = self.run_wf(dict(self.COMPLETE))
