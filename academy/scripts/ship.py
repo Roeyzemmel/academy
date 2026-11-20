@@ -1150,7 +1150,9 @@ def cmd_bump(a):
         done.append("%s to %s" % (sub, full[:9]))
     for sub in checked:          # every one checked first: a refusal stages nothing
         git(ROOT, "add", "--", sub)
-    if not git(ROOT, "diff", "--cached", "--name-only", "--", *a.subs):
+    # --ignore-submodules=none: the workspace's .gitmodules sets ignore = all, which hides
+    # every pointer change from a plain diff (2026-11-20: every real bump said "nothing to bump")
+    if not git(ROOT, "diff", "--cached", "--name-only", "--ignore-submodules=none", "--", *a.subs):
         raise Refuse("the pointers already name those commits; nothing to bump")
     git(ROOT, "commit", "-q", "-m", "Bump " + ", ".join(done), "--", *a.subs)
     print("superproject: Bump %s @ %s" % (", ".join(done), git(ROOT, "rev-parse", "--short", "HEAD")))
