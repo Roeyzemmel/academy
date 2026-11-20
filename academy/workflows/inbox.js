@@ -598,7 +598,12 @@ async function handle(row, i) {
       if (!vc.claim) return { for_main: { why: `a verify ticket naming no single claim (#89): ${vc.why}; ask its sender (${row.from || 'the sender'}) to put the claim in refs`, ticket: row.id, instance: inst } }
       const claim = vc.claim
       if (vc.from_title) notes.push(`${row.id}: the claim ${claim} was read from the title (no claim in refs)`)
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id })
+      // #85: a repair that reworded a reviewed statement files "Verify <claim> (reword of <pass>)"
+      // (prove.js): reword mode over that base pass; any other title runs the blind pass
+      const rw = /\(reword of (\d{4}-\d{2}-\d{2}(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?)\)/.exec(row.title || '')
+      const reword = rw && !/-reword$/.test(rw[1]) ? { mode: 'reword', base_pass: rw[1] } : {}
+      if (reword.mode) notes.push(`${row.id}: a reword verify over the base pass ${reword.base_pass} (from the title)`)
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id }, reword))
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
     const subject = firstRef(row, /^lab:\S+$/)

@@ -273,6 +273,24 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["claim"], "s1:GEO-3")
         self.assertIn("read from the title", " ".join(res["notes"]))
 
+    def test_a_reword_verify_ticket_runs_verify_in_reword_mode(self):
+        """#85: prove.js files a repair's reword verify titled "Verify <claim> (reword of
+        <pass>)"; the inbox passes mode reword and that base pass. Any other title is blind."""
+        def args(title, refs=("s1:GEO-3", "T-0003")):
+            r = dict(row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=list(refs)),
+                     title=title)
+            res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r])]}],
+                                              "workflow verify.js": [{"outcome": "x"}], "check T-1": [DONE]})
+            return res, next(c for c in calls if c["label"] == "workflow verify.js")["args"]
+        res, a = args("Verify s1:GEO-3 (reword of 2026-11-01-T-0007)")
+        self.assertEqual((a["claim"], a.get("mode"), a.get("base_pass")), ("s1:GEO-3", "reword", "2026-11-01-T-0007"))
+        self.assertIn("reword", " ".join(res["notes"]))
+        for title in ("Verify s1:GEO-3", "Verify s1:GEO-3 (reword)", "Verify s1:GEO-3 (reword of the old text)",
+                      "Verify s1:GEO-3 (reword of 2026-11-01-T-0007-reword)"):
+            _res, a = args(title)
+            self.assertNotIn("mode", a, title)
+            self.assertNotIn("base_pass", a, title)
+
     def test_the_inbox_passes_its_map_and_resolves_no_model_itself(self):
         """T-0350 with T-1682: the inbox runs no model stage; the map it was given goes to
         every nested workflow as it is, whose launchMax resolves a max-tier agent the map
