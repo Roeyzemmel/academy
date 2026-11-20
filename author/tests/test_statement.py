@@ -83,6 +83,34 @@ class Statement(unittest.TestCase):
         rec = st.find(self.home, {}, "prop:free", proof=True)
         self.assertNotIn("proof", rec)
 
+    def test_a_proof_in_its_own_wrapper_is_found(self):
+        """#113: the statement and its proof each wrapped (\\end{lem} \\end{sketch}
+        \\end{added} | \\begin{added} \\begin{sketch} \\begin{proof}); a sketch with no
+        proof inside is the proof itself; another statement after a wrapper is not."""
+        text = ("\\begin{added}\n\\begin{sketch}\n\\begin{lem}\\label{lem:a} A.\\end{lem}\n\\end{sketch}\n\\end{added}\n\n"
+                "\\begin{added} %% lead-proof\n\\begin{sketch}\n\\begin{proof} P. \\end{proof}\n\\end{sketch}\n\\end{added}\n")
+        end = text.index("\\end{lem}") + len("\\end{lem}")
+        start, stop = st.proof_span(text, end)
+        self.assertEqual(text[start:stop], "\\begin{proof} P. \\end{proof}")
+        old = "\\begin{lem} B.\\end{lem}\n\\begin{sketch} S. \\end{sketch}\n"
+        e2 = old.index("\\end{lem}") + len("\\end{lem}")
+        start, stop = st.proof_span(old, e2)
+        self.assertEqual(old[start:stop], "\\begin{sketch} S. \\end{sketch}")
+        nxt = "\\begin{lem} C.\\end{lem}\n\\end{sketch}\n\\begin{sketch}\n\\begin{lem} D.\\end{lem}\n"
+        self.assertIsNone(st.proof_span(nxt, nxt.index("\\end{lem}") + len("\\end{lem}")))
+        self.assertEqual(st.wrappers({"author": {"statusLevels": [{"env": "colour"}, {"env": None}],
+                                                 "provenance": {"env": "prov"}}}),
+                         ("added", "colour", "conjectural", "meta", "prov", "sketch"))
+        # review of e2a213a: after the statement's wrapper closed, a sketch around prose is
+        # the next paragraph's colour (live: defn:marked-moduli got a paragraph as its proof)
+        prose = ("\\begin{defn}\\label{a} x\\end{defn}\n\\end{sketch}\n\\begin{added}\n\\begin{sketch}\n"
+                 "A remark in prose.\n\\end{sketch}\n\\end{added}")
+        self.assertIsNone(st.proof_span(prose, prose.index("\\end{defn}") + len("\\end{defn}")))
+        # a bare sketch proof may begin with a list or a display
+        lst = "\\begin{lem} L.\\end{lem}\n\\begin{sketch}\n\\begin{itemize}\\item a\\end{itemize}\n\\end{sketch}\n"
+        start, stop = st.proof_span(lst, lst.index("\\end{lem}") + len("\\end{lem}"))
+        self.assertTrue(lst[start:stop].startswith("\\begin{sketch}") and lst[start:stop].endswith("\\end{sketch}"))
+
     def test_cli_found_missing_and_namespace(self):
         rc, out, err = self.run_cli("paper:lem:lift", "--proof")
         self.assertEqual(0, rc, err)
