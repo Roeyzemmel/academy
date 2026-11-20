@@ -20,8 +20,9 @@ the follow-up named in its result and thread:
 * (c): a ``verify`` ticket back to the Expert for a fresh blind pass;
 * (d): nothing; the ruling is rejected (as for any ticket).
 
-Idempotent: a ruling that already has a follow-up (a child ticket filed by the human, or
-a ``keeper follow-up: T-NNNN`` thread line) files nothing and writes nothing. An
+Idempotent: a ruling that already has a follow-up (a child ticket filed by the human, a
+``keeper follow-up: T-NNNN`` thread line, or a claim-keeper's line on it) files nothing
+and writes nothing. An
 ``accepted`` ruling without one (answered before this existed: the stall of #121) gets
 it on its next record. ``stalled`` lists those.
 
@@ -43,6 +44,7 @@ sys.path.insert(0, HERE)
 import academy_common as ac  # noqa: E402
 import board as boardlib  # noqa: E402
 
+#: a pass folder named in the ticket's text or a ``file:`` ref (``reviews/<ns>/<slug>/<pass>``)
 RE_PASS_PATH = re.compile(r"reviews/([a-z0-9][a-z0-9-]*)/([^/\s`'\"()\[\]]+)/"
                           r"(\d{4}-\d{2}-\d{2}-[A-Za-z0-9-]+)")
 RE_ABOUT_INPUTS = re.compile(r"(?i)\bmodulo\b|\binputs?\b")
@@ -57,6 +59,8 @@ CHOICES = {"a": "union", "union": "union",
            "c": "rerun", "rerun": "rerun", "re-run": "rerun",
            "d": "decline", "decline": "decline", "no": "decline", "n": "decline"}
 LETTER = {"union": "a", "intersection": "b", "rerun": "c", "decline": "d"}
+#: the kinds a ruling's follow-up has: the keeper's status decision, or a verify re-run
+FOLLOW_UP_KINDS = ("decision", "verify")
 #: how a human's answer line reads (decisions.py, before and after this change)
 RE_ANSWER = re.compile(r"^human decision: (?!decline)")
 
@@ -208,7 +212,7 @@ def find_ruling(board, tid, workspace=None, ticket=None):
         return None
     refs = [str(r) for r in (meta.get("refs") or [])]
     subjects = [r for r in refs if ":" in r and not r.startswith(("file:", "bib:"))]
-    for d in _pass_dirs(home, text, meta.get("parent"), subjects):
+    for d in _pass_dirs(home, text + "\n" + " ".join(refs), meta.get("parent"), subjects):
         a, b = _read_run(os.path.join(d, "A.md")), _read_run(os.path.join(d, "B.md"))
         if not a or not b:
             continue
@@ -301,16 +305,24 @@ def grounds_in(body):
 
 
 def follow_up_of(board, tid, body=None):
-    """The id of the follow-up a ruling already has, or None: a ``keeper follow-up:`` line
-    in its thread, else a child ticket (``parent`` = the ruling) filed by the human."""
+    """The follow-up a ruling already has, or None: a ``keeper follow-up:`` line in its
+    thread (its ticket id), a line by a claim-keeper (the keeper acted on the ruling, as on
+    T-0979: ``<instance>/claim-keeper``), else a child ticket (``parent`` = the ruling)
+    filed by the human, or a ``decision`` / ``verify`` ticket to a role naming the ruling
+    as parent or in its refs (T-0786, T-1769; its id)."""
     if body is None:
         body = boardlib.get_ticket(board, tid)[2]
-    for _d, _w, text in ac.thread_lines(body):
+    for _d, who, text in ac.thread_lines(body):
         m = RE_FOLLOW_UP.search(text)
         if m:
             return m.group(1)
+        if str(who).endswith("/claim-keeper"):
+            return who
     for m in boardlib.list_tickets(board, include_terminal=True):
         if m.get("parent") == tid and m.get("from") == ac.HUMAN:
+            return m["id"]
+        if m.get("kind") in FOLLOW_UP_KINDS and m.get("to") != ac.HUMAN and (
+                m.get("parent") == tid or tid in [str(x) for x in (m.get("refs") or [])]):
             return m["id"]
     return None
 

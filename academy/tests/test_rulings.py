@@ -111,6 +111,11 @@ class TestFindRuling(RulingCase):
         tid = self.ruling(body_path=False)
         self.assertEqual(PASS, rl.find_ruling(self.board, tid, self.ws)["pass"])
 
+    def test_the_pass_is_found_through_a_file_ref(self):
+        tid = self.ruling(body_path=False, parent=None,
+                          refs=[SUBJECT, "file:expert@main/reviews/paper/lem-x/%s/decision.md" % PASS])
+        self.assertEqual(PASS, rl.find_ruling(self.board, tid, self.ws)["pass"])
+
     def test_a_pass_with_a_run_not_confirmed_is_no_ruling(self):
         self.write_pass(b=record_text("B", verdict="GAP", modulo=self.B_MODULO))
         tid = self.ruling()
@@ -188,6 +193,29 @@ class TestRecordRuling(RulingCase):
         n = len(self.tickets())
         out = self.record(tid, "a")
         self.assertEqual((False, n), (out["filed"], len(self.tickets())))
+
+    def test_a_ruling_the_keeper_already_acted_on_files_nothing(self):
+        """T-0979: the claim-keeper set the status from the packet and said so on the ruling."""
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date=DATE)
+        n = len(self.tickets())
+        out = self.record(tid, "a")
+        self.assertEqual((False, n), (out["filed"], len(self.tickets())))
+        self.assertEqual("open", bd.get_ticket(self.board, tid)[1]["status"])
+
+    def test_a_keeper_ticket_naming_the_ruling_in_its_refs_counts(self):
+        """T-0786 (claims_propose_status from the Expert, refs naming the ruling T-0769) and
+        T-1769 (one human ticket naming six rulings) are follow-ups too."""
+        tid = self.ruling()
+        bd.transition_ticket(self.board, tid, "accepted", as_instance="human", date=DATE)
+        self.ticket(to="researcher@r1", as_instance="human", kind="question",
+                    title="unrelated", ask="?", refs=[tid])
+        self.ticket(to="researcher@r1", as_instance="human", kind="decision",
+                    title="Status of paper:lem:x -> proved", ask="Set it.", refs=[SUBJECT, tid])
+        self.ticket(to="researcher@r1", as_instance="human", kind="question",
+                    title="unrelated", ask="?", refs=[tid])
+        self.assertEqual("T-0004", rl.follow_up_of(self.board, tid))
 
     def test_intersection_and_an_empty_intersection_proposes_proved(self):
         self.write_pass(a=record_text("A", modulo="paper:lem:rigid"),
