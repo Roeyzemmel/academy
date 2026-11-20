@@ -1,7 +1,7 @@
 export const meta = {
   name: 'academy-experiment',
   description: 'One computational experiment, from a claim to a filed report, one leg per mode: design (the header, then the human approves), build (test-first, the strict check, then the human commits), queue, report (the draft checked and rendered, then the human looks), file',
-  whenToUse: '/scientist:experiment and every experiment / test / question ticket of the lab (design is also nested from the inbox), from the lab home. args: {mode: "design"|"build"|"queue"|"report"|"file", claim?, ticket?, kind?, stem?, header?, commit_ok?, job?, env?}',
+  whenToUse: '/scientist:experiment and every experiment / test / question ticket of the lab (design is also nested from the inbox), from the lab home. args: {mode: "design"|"build"|"queue"|"report"|"file", claim?, ticket?, kind?, force? (design: no argument path), stem?, header?, commit_ok?, job?, env?}',
   phases: [
     { title: 'Leg', detail: 'the mode\'s own stages' },
     { title: 'Gate', detail: 'what the human must do before the next mode' },
@@ -114,14 +114,64 @@ phase('Leg')
 if (A.mode === 'design') {
   const h = await clerk('lab-home', [T ? `First take ${T} (open -> accepted -> in-progress, acting as its receiver).` : '', 'Run lab.py home and return the lab instance, its home and the policy.run profile.'], HOME, 'lab home')
   if (!h || !h.ok) return Object.assign(out, { outcome: 'not-started', reason: h ? h.detail : 'lab.py home returned nothing' })
-  const d = await launch(`Design one experiment in the lab ${h.home} for ${A.claim || 'the ticket ' + T}${A.kind ? ' (kind ' + A.kind + ')' : ''}. Read the statement from its owner, the pack's examples.md, traps.md and ` +
-    'computation/ through domain_get, the nearest existing script and the lab\'s package. First classify the path: a two-line argument that settles it more cheaply than code (give it, ' +
-    'and stop), a probe (feasibility, not evidence: header Kind: probe, Goal:, Decides:), or an experiment. For a probe or an experiment return the HEADER ONLY (no body, no code), ' +
-    'the answer to "if the claim were false, what would this experiment still report?", and the library calls not yet confirmed in the pack.',
-    { label: 'design', phase: 'Leg', agentType: EXP, schema: DESIGN })
+  const designBrief = `Design one experiment in the lab ${h.home} for ${A.claim || 'the ticket ' + T}${A.kind ? ' (kind ' + A.kind + ')' : ''}. Read the statement from its owner, the pack's examples.md, traps.md and ` +
+    'computation/ through domain_get, the nearest existing script and the lab\'s package. ' +
+    (A.force
+      ? 'The human asked for the experiment itself (an argument was offered before and not taken): do not answer with an argument; classify it as a probe or an experiment. '
+      : 'First classify the path: a two-line argument that settles it more cheaply than code (give it, and stop), a probe, or an experiment. ') +
+    'A probe is feasibility, not evidence: header Kind: probe, Goal:, Decides:. For a probe or an experiment return the HEADER ONLY (no body, no code), ' +
+    'the answer to "if the claim were false, what would this experiment still report?", and the library calls not yet confirmed in the pack.'
+  const d = await launch(designBrief, { label: 'design', phase: 'Leg', agentType: EXP, schema: DESIGN })
   if (d === null) return Object.assign(out, { outcome: 'lost', reason: 'the experimenter returned nothing' })
+  // #88: what comes back is checked in code. An argument instead of a header is the
+  // human's call (accept it, prove instead, or run the experiment anyway), never a leg
+  // left unfinished; a probe or experiment must bring a header (Kind:, no code), else one
+  // retry, then the leg fails visibly instead of putting junk to the header gate.
+  // a field line: markup around the key is allowed (`**Kind:** search`, `- Kind : x`, a
+  // docstring opener), never a newline between the key and its value (review of 641a695)
+  const field = (key) => new RegExp(`^[ \\t#*>\`"'-]*\\**${key}\\**[ \\t]*:[ \\t*\`]*([A-Za-z]+)`, 'mi')
+  // code, not prose: 'class v = ...' in a wrapped sentence is prose (a real lab header)
+  const CODE = /^[ \t]*(def \w+\s*\(|class \w+\s*[(:]|import [\w.]+(\s+as\s+\w+)?[ \t]*$|from [\w.]+ import [\w*])/m
+  const problemsOf = (x) => {
+    if (x.path === 'argument') return String(x.argument || '').trim() ? [] : ['path argument with no argument']
+    const h = String(x.header || '')
+    const probs = []
+    const kind = ((h.match(field('Kind')) || [])[1] || '').toLowerCase()
+    if (!h.trim()) probs.push('no header')
+    else if (!kind) probs.push('no Kind: line (write it as a plain line: Kind: search)')
+    else if (x.path === 'probe' && kind !== 'probe') probs.push(`path probe with Kind: ${kind} (a probe is Kind: probe)`)
+    else if (x.path !== 'probe' && !/^(search|measure|verify)$/.test(kind)) probs.push(`Kind: ${kind} is not search, measure or verify (an experiment's kinds; Kind: probe goes with path probe)`)
+    if (CODE.test(h)) probs.push('code in the header (the header only, no body)')
+    if (x.path === 'probe' && !(field('Goal').test(h) && field('Decides').test(h))) probs.push('a probe needs Goal: and Decides:')
+    if (!/^\d{4}-\d{2}-\d{2}_[\w-]+$/.test(String(x.stem || ''))) probs.push(`stem ${JSON.stringify(x.stem || '')} is not YYYY-MM-DD_<slug>`)
+    return probs
+  }
+  if (A.force && d.path === 'argument') d.path = 'experiment'     // asked for the experiment: no argument path
+  let probs = problemsOf(d)
+  if (probs.length) {
+    out.notes.push('the design returned no usable header (' + probs.join('; ') + '): one retry')
+    const d2 = await launch(designBrief + `\n\nA first design returned this, which is not usable (${probs.join('; ')}):\n` +
+      JSON.stringify({ path: d.path, stem: d.stem, header: d.header, argument: d.argument }) +
+      '\nReturn it again, fixed: path probe or experiment with the HEADER ONLY (a plain Kind: line, the fields of that kind, no code) and a stem YYYY-MM-DD_<slug>' +
+      (A.force ? '.' : '; or path argument with the argument, if an argument settles it.'), { label: 'design (retry)', phase: 'Leg', agentType: EXP, schema: DESIGN })
+    if (d2) { Object.assign(d, d2); if (A.force && d.path === 'argument') d.path = 'experiment'; probs = problemsOf(d) }
+    if (probs.length) {
+      // never a ticket left in-progress that asks no one (review of 641a695)
+      phase('Gate')
+      out.reason = 'the design returned no usable header twice: ' + probs.join('; ')
+      return gate('the design leg returned no usable header twice (' + probs.join('; ') + '): run mode design again, write the header with the experimenter here, or drop the ticket',
+        { outcome: 'no-header', problems: probs, header: d.header || '', argument: d.argument || '' })
+    }
+  }
   Object.assign(out, { path: d.path, stem: d.stem, header: d.header, if_false: d.if_false })
-  if (d.path === 'argument') return Object.assign(out, { outcome: 'argument', argument: d.argument, notes: ['a two-line argument settles it: no script (a better result)'] })
+  if (d.path === 'argument') {
+    phase('Gate')
+    out.argument = d.argument
+    return gate('the experimenter answered with an argument instead of a header (#88): accept it (deliver the ticket with it as its result), ' +
+      'prove instead (file a prove ticket to the Researcher with the argument as the lead), or run the experiment anyway (mode design again with force: true)',
+      { argument: d.argument, outcome: 'argument-instead', options: ['accept the argument', 'prove instead', 'run the experiment anyway'],
+        next: { mode: 'design', force: true, claim: A.claim || null, ticket: T, kind: A.kind || null } })
+  }
   if ((d.api_unfamiliar || []).length) out.notes.push('unfamiliar library calls: run /scientist:api-check on ' + d.api_unfamiliar.join(', ') + ' before build')
   phase('Gate')
   return gate('approve the header (approve / change / drop) before any compute; ask also: ' + d.if_false, { header: d.header, stem: d.stem, next: { mode: 'build', stem: d.stem, ticket: T } })

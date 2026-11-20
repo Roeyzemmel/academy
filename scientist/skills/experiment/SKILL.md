@@ -20,11 +20,20 @@ name the scripts' paths. Between the legs this session asks with `AskUserQuestio
 1. **`design`** (`{mode: "design", claim | ticket, kind}`): the lab is located
    (`lab.py home`), and the experimenter classifies the path:
    - a **two-line argument** that settles it more cheaply than code: no script, and that
-     is the better result;
+     may be the better result, but it is not the lab's to accept. It comes back as a gate
+     (`outcome: argument-instead`, with the argument): ask the human to accept it (deliver
+     the ticket with it), prove instead (a `prove` ticket to the Researcher, the argument
+     as its lead), or run the experiment anyway (the design again with `force: true`, as
+     the gate's `next` gives it: no argument path then) (#88);
    - a **probe**: feasibility, not evidence, with a header `Kind: probe`, `Goal:`,
      `Decides:`;
    - an **experiment**: the header only.
 
+   The script checks what comes back: a probe or experiment without a usable header
+   (`Kind:` of search, measure, verify or probe, `Goal:` and `Decides:` for a probe, no
+   code, a `YYYY-MM-DD_<slug>` stem; a `probe` path with `Kind: probe`) gets one retry
+   with the full brief and what came back, then comes back as a gate (`outcome:
+   no-header`, its `problems`): never a ticket left in-progress that asks no one.
    An unfamiliar library call goes to `/scientist:api-check` first. **Gate:** show the
    header with the design question (*if the claim were false, what would this experiment
    still report?*): approve, change or drop. No body is written before the answer. The

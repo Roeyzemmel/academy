@@ -55,6 +55,7 @@ the run.
 
 - **`for_main`**: since 2026-10-31 every route runs in code, so this is only a **human gate**:
   - an experiment header to approve (`/scientist:experiment`, its next mode in `next`);
+  - an experiment design that came back with an argument instead (`outcome: argument-instead`, the argument and three `options`): ask accept it (deliver the ticket with it), prove instead (a `prove` ticket to the Researcher, the argument as its lead), or run the experiment anyway (the design again with `next`, which carries `force: true`); and one with no usable header (`outcome: no-header`, its `problems`): run the design again, write the header with the experimenter, or drop it (#88);
   - an experiment script to commit, or a rendered report to look at;
   - a ticket with no route, which an Author or the Scientist puts to the human;
   - decisions that pause a campaign.
