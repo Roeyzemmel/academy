@@ -40,9 +40,13 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
 
   Return the ticket's status after the move.
 - **get**: `tickets_get` and return the fields asked (empty strings for absent ones).
+- **snapshot**: run the `manifest.py snapshot` command given, once, before the ticket's
+  route, and return its exit code and output verbatim. It records the homes' dirty set as
+  the run's claim (files under the workspace's `.academy/`, which nothing commits).
 - **check**: run the `--check` command given and return its exit code (0 finished,
   3 unfinished), the ticket's status and the output. The check also runs the academy's
-  `ship.py checkpoint` for a finished ticket; run it once.
+  `ship.py checkpoint` for a finished ticket (and, for a snapshotted one, its manifest, as
+  WIP when it is unfinished); run it once.
 - **ship** (the last stage of a standalone cite, referee, domain or experiment `file` run):
   the same `--check` command, run once, stderr joined; return its whole output verbatim and
   never run it again, whatever it prints.

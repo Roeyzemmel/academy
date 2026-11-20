@@ -48,6 +48,28 @@ workspace.json). Under `--only`:
 - untracked nested repositories and worktrees, and submodule pointers, are never
   committed (they are listed as skipped).
 
+**The manifest** (#101 part 1, 2026-11-20). Before each ticket that launches an agent, the
+inbox workflow's clerk runs `manifest.py snapshot --ticket <id> --run <run>`: every home's
+dirty set (each submodule, and the board's directory) with a content hash per path, written
+as the run's claim under `<workspace>/.academy/run-claims/` (a self-ignoring directory). The
+ticket's `--check` diffs it: the paths that were clean before the ticket, or whose content
+changed during it, plus the ticket's touch-ledger entries, are its manifest
+(`.academy/manifests/<id>.json`), and `ship.py checkpoint --manifest <file>` commits exactly
+those, in **every** home that has any (a verify's evidence row in the paper's claim record
+included), on the ticket's branch. A path dirty before the ticket and unchanged is not the
+ticket's and stays as it is. The rules above hold per home (a home dirty on `main` is
+refused, a home with other uncommitted work is not moved); a refused home's part stays in
+the manifest for the next `--check`. A ticket that ends blocked, unfinished or lost is
+committed and pushed too, as `WIP: <id> unfinished (<outcome>)`. A ticket the inbox did not
+snapshot (a standalone skill run, `snapshot: false`) is checkpointed by `--only` as before.
+
+**The stop check** (`stop_check.py`, a `Stop` hook of the academy plugin, opt-in with
+`"stopCheck": true` in workspace.json) lists the dirty paths of every home except those a
+live claim's run changed since its snapshot; a claim older than 12 hours, or whose pid of
+this host is gone, is stale and hides nothing. By hand: `manifest.py unclaimed`. Claude
+Code's own cloud stop check (`~/.claude/stop-hook-git-check.sh`) is not the academy's and
+does not read the claims.
+
 **Usage on the board.** When `board` is part of a checkpoint, `ship.py` first appends one
 content-free summary per recently active session of this machine (session id, instance
 bucket, turns, cache read/write, models, subagent counts, a hashed host; never prompts,
