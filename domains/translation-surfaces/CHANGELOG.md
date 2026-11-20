@@ -107,3 +107,4 @@ Built from the four old `domain/` skills of claude-flatsurf, as imported under
 authoritative); the split stubs `theorems.md` and `api-recipes.md` (their text is in the
 claude-flatsurf history, c06dbe7 and aded233).
 - 2026-11-16 T-0997: `notation.md` (slope of an irreducible 2-point marking row, "Billiards, unfolding, illumination"; row already present from the 2026-11-07 run, confirmed unchanged; this line logged at the end of the file as the diff check requires)
+- 2026-11-20 T-0997: `notation.md` (slope of an irreducible 2-point marking row, "Billiards, unfolding, illumination"; row already present, confirmed unchanged on re-run; no other file changed)
