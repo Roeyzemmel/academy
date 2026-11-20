@@ -56,6 +56,12 @@ class inbox_core(object):
     PARTIAL_WHY = ("came back partial (work done, deliverable not met): decide as its sender: "
                    "reopen it for the receiver (partial -> in-progress, with the reason), "
                    "close it as it stands (partial -> closed) or cancel it (with the reason)")
+    #: re-review of ca04c0e, finding B: the thread lines that count toward the cap on a
+    #: partial ticket's cycles (a reopen, or a decider leaving it for the human)
+    REOPEN_LINE = "status partial -> in-progress"
+    LEFT_LINE = "partial: left for the human"
+    #: the cycles after which the row goes to the human (blocked, waiting_on [human])
+    PARTIAL_CAP = 2
     #: the agent of each role that decides a partial ticket its instance sent
     PARTIAL_DECIDERS = {"author": "math-writer", "researcher": "lead-researcher",
                         "expert": "research-intake", "scientist": "experimenter"}
@@ -165,25 +171,44 @@ class inbox_core(object):
 
     @staticmethod
     def partial_rows(board, instance, campaign=None, cowork=None):
-        """The partial tickets ``instance`` sent to another instance (review of dd0fcd1,
-        point 6), as return rows (``return`` and ``partial`` true): its decider agent
-        (``PARTIAL_DECIDERS``) reopens, closes or cancels each. A partial ticket the human
+        """The partial tickets ``instance`` sent, to another instance or to itself (review of
+        dd0fcd1, point 6; re-review of ca04c0e, finding C), as return rows (``return`` and
+        ``partial`` true): its decider agent (``PARTIAL_DECIDERS``) reopens, closes or
+        cancels each. The cap (finding B): ``reopens`` counts the thread's reopen lines and
+        the decider's "left for the human" notes; after one, the decider may only close it
+        or leave it for the human; at ``PARTIAL_CAP`` the row is ``park``: it goes to the
+        human (blocked, waiting_on [human], with the reason). A partial ticket the human
         sent stays the human's (desk, /academy:decide)."""
         out = []
         role = instance.split("@", 1)[0] if "@" in str(instance) else None
-        for _ref, m in as_store(board).iter_meta():
-            if m.get("status") != PARTIAL or m.get("from") != instance or \
-                    m.get("to") == instance:
+        store = as_store(board)
+        for _ref, m in store.iter_meta():
+            if m.get("status") != PARTIAL or m.get("from") != instance:
                 continue
             if campaign and m.get("campaign") != campaign:
                 continue
             if cowork and m.get("cowork") != cowork:
                 continue
-            rt = {"how": "agent", "target": inbox_core.PARTIAL_DECIDERS.get(role, "human"),
-                  "why": "%s (%s: %s)" % (inbox_core.PARTIAL_WHY, m.get("to"),
-                                          " ".join(str(m.get("result") or "no result").split())[:200])}
+            try:
+                body = store.get(m["id"])[2] or ""
+            except Exception:                        # noqa: BLE001 -- unreadable: no count
+                body = ""
+            n = body.count(inbox_core.REOPEN_LINE) + body.count(inbox_core.LEFT_LINE)
+            got = "%s: %s" % (m.get("to"), " ".join(str(m.get("result") or "no result").split())[:200])
+            if n >= inbox_core.PARTIAL_CAP:
+                rt = {"how": "human", "target": "human",
+                      "why": "reopened twice: close or ask the human; partial again after %d "
+                             "reopens or hand-offs (%s): parked on the human" % (n, got)}
+            else:
+                rt = {"how": "agent", "target": inbox_core.PARTIAL_DECIDERS.get(role, "human"),
+                      "why": "%s (%s)%s" % (inbox_core.PARTIAL_WHY, got, (
+                          "; reopened once already: close it, or leave it partial with the "
+                          "thread note '%s' and file nothing; never reopen it again"
+                          % inbox_core.LEFT_LINE) if n else "")}
             row = inbox_core.extra_row(m, rt, returned=True)
             row["partial"] = True
+            row["reopens"] = n
+            row["park"] = n >= inbox_core.PARTIAL_CAP
             out.append(row)
         out.sort(key=lambda r: (inbox_core.prio(r), inbox_core.num(r)))
         return out

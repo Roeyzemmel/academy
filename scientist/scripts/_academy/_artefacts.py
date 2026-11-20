@@ -33,15 +33,37 @@ _RE_KEY = re.compile(r"(?<![A-Za-z0-9])(?:bib:)?([A-Z][A-Za-z]*\d{2}[a-z]?(?:-pu
 _RE_ATTEMPT_N = re.compile(r"(?<![\w/])attempt-(\d+)(?![\w.])")
 _RE_ID = re.compile(r"(?<![\w:/-])((?:[a-z][a-z0-9]*:)?[A-Za-z][\w.-]*(?::[\w.-]+)*)")
 
-#: #100 review: a delivery with no artefact on purpose says so first, in its result:
-#: declined or stale edits, a claim already proved, a search the human dropped. The check
-#: passes such a result and warns, naming the marker. The workflows and agents write
-#: ``<marker>: <why>`` (``declined:``, ``already proved:``, ``dropped:``, ...).
-NO_ARTEFACT_MARKERS = re.compile(
-    r"^\s*(?:\S+ is )?(?P<m>no change|no tex change|no edits? made|nothing (?:applied|changed|to "
-    r"attempt|to do)|not applied|(?:both |all )?(?:edits? )?declined|already (?:proved|in the file|"
-    r"done|landed|recorded)|superseded|dropped|not needed|no search(?: run)?|no computation|no attempt)"
-    r"\b", re.I)
+#: #100 review: a delivery with no artefact on purpose says so at the very start of its
+#: result, as ``<marker>: <why>``, and only for a kind where "nothing to do" is legitimate
+#: (re-review of ca04c0e, finding A). kind -> the colon markers it may use.
+EDIT_KINDS = ("apply", "write", "copy", "figure")
+MARKERS = {k: ("declined", "no change", "superseded", "not needed") for k in EDIT_KINDS}
+MARKERS["prove"] = ("already proved",)
+MARKERS["experiment"] = MARKERS["test"] = ("dropped", "no search")
+#: the wordings delivered before the colon form (the board up to 2026-11-20), matched as
+#: they are: kind -> [(regex at the start of the result, the marker it stands for)]
+LEGACY = {k: [(r"declined, ", "declined"), (r"(?:both|all) edits declined, ", "declined"),
+              (r"no tex change[.:] ", "no change"), (r"no edits made: ", "no change"),
+              (r"nothing applied, tex untouched", "no change"),
+              (r"not applied \(stale\): ", "superseded")] for k in EDIT_KINDS}
+LEGACY["figure"] = LEGACY["figure"] + [(r"already in the file \(from T-\d+\)", "no change")]
+LEGACY["prove"] = [(r"\S+ is already proved: nothing to attempt$", "already proved")]
+LEGACY["experiment"] = LEGACY["test"] = [
+    (r"no search run \(", "no search"), (r"no search \(", "no search"),
+    (r"no computation \(", "no search")]
+#: words that say the work failed: a marker beside one of them is no reason (finding A).
+#: Phrases about the work, not bare "fails" or "limit", which a mathematical result uses
+#: ("fails at a = b = 1", T-1154)
+FAILURE_WORDS = re.compile(
+    r"\b(?:(?:attempt|run|job|script|build|check|step|edit|search|computation)s? "
+    r"(?:has |was |had )?failed|failed to|crash(?:ed|es)?|budget|errors?|incomplete|"
+    r"timed out|time-?out|usage limit|(?:hit|reached|exceeded) (?:a|its|the) (?:\w+ )?limit)\b",
+    re.I)
+#: a decision word of the human's quoted decision
+DECISION_WORDS = (r"decided|decides|ruled|rules|declined?|satisfied|drop(?:ped)?|keep|kept|"
+                  r"accepts?|accepted|close|closed|cancel(?:led)?|approved?")
+#: kinds whose delivery may rest on the human's quoted decision instead of an artefact
+HUMAN_KINDS = EDIT_KINDS + ("experiment", "test")
 
 
 def _texts(meta, body):
@@ -115,16 +137,38 @@ def _named_file(meta, texts, workspace, pattern, role):
                   else "none named in the result, refs or ## Result")
 
 
+def _human_decision(result, name):
+    """Whether ``result`` quotes the human's decision: ``<name> <date>: <decision word>...``
+    or ``(<name>[,] <date>: "<... decision word ...>")``, the decision word within the
+    quoted clause; or one of the two legacy forms the board holds (``<name> replied '...'``
+    at the start, ``(<name> accepts it as the falsifier``)."""
+    n = re.escape(name)
+    date = r"\d{4}-\d{2}-\d{2}"
+    forms = (r"^%s,? %s: [^.;]{0,40}?\b(?:%s)\b" % (n, date, DECISION_WORDS),
+             r"\(%s,? %s: [\"'][^\"']{0,80}?\b(?:%s)\b" % (n, date, DECISION_WORDS),
+             r"^%s replied '[^']+'" % n,
+             r"\(%s accepts it as the falsifier" % n)
+    return any(re.search(f, result, re.I) for f in forms)
+
+
 def no_artefact_marker(meta, workspace=None):
-    """The marker that opens the ticket's result when it was delivered with no artefact on
-    purpose (``NO_ARTEFACT_MARKERS``), or the human's decision quoted in it ("(<name>, <date>: ...", "<name> replied ..."), the
-    name the workspace's ``human.name``; None otherwise."""
+    """The marker of a delivery with no artefact on purpose, or None (finding A of the
+    re-review of ca04c0e): the result opens with ``<marker>:`` of its kind (``MARKERS``), or
+    with a legacy wording of its kind (``LEGACY``), or quotes the human's decision (a kind of
+    ``HUMAN_KINDS``; the workspace's ``human.name``); and no word of the result says the
+    work failed (``FAILURE_WORDS``). A cite or verify ticket never passes so."""
+    kind = meta.get("kind")
     result = " ".join(str(meta.get("result") or "").split())
-    m = NO_ARTEFACT_MARKERS.match(result)
-    if m:
-        return m.group("m").lower()
+    if not result or FAILURE_WORDS.search(result):
+        return None
+    for m in MARKERS.get(kind, ()):
+        if result.lower().startswith(m + ":"):
+            return m
+    for rx, m in LEGACY.get(kind, ()):
+        if re.match(rx, result, re.I):
+            return m
     name = str(((workspace or {}).get("human") or {}).get("name") or "").strip()
-    if name and re.search(r"^%s\b|\(%s\b" % (re.escape(name), re.escape(name)), result[:240]):
+    if name and kind in HUMAN_KINDS and _human_decision(result, name):
         return "the decision of %s" % name
     return None
 

@@ -393,6 +393,7 @@ permissions.json). **The human may make any transition**, including re-opening
 | partial | closed | sender | (what was done is taken as it stands) |
 | partial | cancelled | sender | reason in thread |
 | delivered | partial | `--check`, as the receiver | the artefact missing (below); thread line `no artefact: <why>` |
+| partial | blocked | sender | `waiting_on [human]` and the reason: reopened twice (the cap, below) |
 
 Terminal states: `closed`, `rejected`, `cancelled`.
 
@@ -413,15 +414,27 @@ of the workspace's own board (`ARTEFACTS` in `academy_common/_artefacts.py`):
 
 A ticket to the human and a relay parent (its child carries the artefact) are not checked.
 
-**No artefact on purpose.** A result that opens with a marker passes, and `--check` prints a
-`WARN:` line naming it: `no change`, `no tex change`, `no edits made`, `nothing applied`,
-`nothing changed`, `nothing to attempt`, `nothing to do`, `not applied`, `declined` (also
-`both edits declined`, `all edits declined`), `already proved`, `already in the file`,
-`already done`, `already landed`, `already recorded`, `superseded`, `dropped`, `not needed`,
-`no search`, `no search run`, `no computation`, `no attempt`, any case, optionally after
-`<id> is ` (`s1:GEO-67 is already proved: ...`). The human's decision quoted in the result
-counts too (`(<human name>, <date>: ...` or a result opening with the human's name). Write
-`<marker>: <why>`.
+**No artefact on purpose.** A delivery may rest on no artefact only when its result says
+why at its very start, as `<marker>: <why>`, with a marker of its kind; `--check` then prints
+a `WARN:` line naming it. Never for `cite`, `verify` or `code`:
+
+| Kind | Markers |
+|---|---|
+| `apply`, `write`, `copy`, `figure` | `declined:`, `no change:`, `superseded:`, `not needed:` |
+| `prove` | `already proved:` |
+| `experiment`, `test` | `dropped:`, `no search:` |
+
+The wordings the board holds from before the colon form are matched as they are (`Declined,
+...`, `Both edits declined, ...`, `No tex change: ...`, `No edits made: ...`, `Nothing
+applied, tex untouched`, `Not applied (stale): ...`, `Already in the file (from T-NNNN)` for
+a figure, `<id> is already proved: nothing to attempt`, `No search run (`, `No search (`,
+`No computation (`). For the edit kinds and experiments the human's quoted decision counts
+too: `<name> <date>: <decision word> ...` at the start, or `(<name>, <date>: "...")` with a
+decision word (decided, ruled, declined, satisfied, drop, keep, accept, close, cancel,
+approve), `<name>` the workspace's `human.name`; a bare mention of the name does not. A
+marker never passes a result that says the work failed: `attempt/run/script/... failed`,
+`failed to`, `crashed`, `budget`, `error`, `incomplete`, `timed out`, `usage limit`, `hit
+a/its/the ... limit` anywhere in it.
 
 **The automatic move.** A delivery without its artefact and without a marker is moved by
 `--check` itself, as the ticket's receiver, `delivered -> partial`: a thread line
@@ -430,11 +443,16 @@ counts too (`(<human name>, <date>: ...` or a result opening with the human's na
 `T-NNNN: unfinished (delivered, no artefact)` and the exit is 3. The inbox workflow puts
 the reason in the run's notes and never counts either as the instance's unfinished work.
 
-**Back with the sender.** A `partial` ticket an instance sent comes back to that
-instance's inbox as a return row (`partial: true`): its decider (`math-writer`,
-`lead-researcher`, `research-intake`, `experimenter`) reopens it (`partial -> in-progress`
-with a reason), closes it or cancels it; a reopened one is the receiver's in-progress work,
-not unfinished. A partial ticket the human sent stays with the human (the desk,
+**Back with the sender.** A `partial` ticket an instance sent, to another instance or to
+itself, comes back to that instance's inbox as a return row (`partial: true`): its decider
+(`math-writer`, `lead-researcher`, `research-intake`, `experimenter`) reopens it
+(`partial -> in-progress` with a reason), closes it or cancels it; a reopened one is the
+receiver's in-progress work, not unfinished. **The cap**: the row counts the thread's
+`status partial -> in-progress` lines and the decider's `partial: left for the human`
+notes (`reopens`). After one, the decider may only close it or leave it partial with that
+note, and files nothing; at two the row is parked instead: the sender moves it
+`partial -> blocked`, `waiting_on [human]`, with the reason ("reopened twice: close or ask
+the human"), and `/academy:decide` lists it. A partial ticket the human sent stays with the human (the desk,
 `/academy:decide`; on GitHub the issue is assigned to the human, label `status:partial`,
 created at the first partial write).
 

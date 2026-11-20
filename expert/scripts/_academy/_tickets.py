@@ -67,6 +67,9 @@ TRANSITIONS = {
     ("partial", "in-progress"): ("sender",),
     ("partial", "closed"): ("sender",),
     ("partial", "cancelled"): ("sender",),
+    # re-review of ca04c0e, finding B: a partial ticket reopened twice is parked on the
+    # human by its sender (waiting_on [human], with the reason)
+    ("partial", "blocked"): ("sender",),
 }
 
 #: ticket frontmatter fields by owner (mirrors permissions.json "tickets.fields")

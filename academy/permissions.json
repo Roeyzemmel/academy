@@ -92,7 +92,7 @@
       "in-progress": {"delivered": ["receiver"], "partial": ["receiver"], "blocked": ["receiver"], "accepted": ["receiver"], "rejected": ["receiver"], "cancelled": ["sender"]},
       "blocked": {"accepted": ["receiver"], "in-progress": ["receiver"], "cancelled": ["sender"]},
       "delivered": {"closed": ["sender"], "in-progress": ["sender"], "partial": ["receiver"]},
-      "partial": {"in-progress": ["sender"], "closed": ["sender"], "cancelled": ["sender"]},
+      "partial": {"in-progress": ["sender"], "closed": ["sender"], "cancelled": ["sender"], "blocked": ["sender"]},
       "closed": {},
       "rejected": {},
       "cancelled": {}

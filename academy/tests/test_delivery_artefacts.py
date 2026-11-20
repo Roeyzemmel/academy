@@ -211,22 +211,63 @@ class ReviewOfDd0fcd1(Workspace):
         self.ws["human"] = {"name": "Ada"}
         git(self.root, "init", "-q", "-b", "main")               # the commit kinds are checked
         for kind, result, marker in (
+                # the colon form
+                ("apply", "declined: the statement is pinned", "declined"),
+                ("write", "no change: already says it", "no change"),
+                ("copy", "superseded: T-0700 re-cut it", "superseded"),
+                ("figure", "not needed: the remark was cut", "not needed"),
+                ("prove", "already proved: nb:GEO-1, nothing to attempt", "already proved"),
+                ("experiment", "dropped: Ada, 2026-11-07: 'drop the search'", "dropped"),
+                ("test", "no search: the falsifier was accepted by argument", "no search"),
+                # the board's legacy wordings (the 13 real passes of the sample)
                 ("apply", "Declined, all four edits, nothing changed", "declined"),
-                ("apply", "Both edits declined, no tex or registry change", "both edits declined"),
-                ("apply", "Not applied (stale): the remark is now item x", "not applied"),
-                ("apply", "No tex change: the ticket only asks to hold it", "no tex change"),
-                ("apply", "Nothing applied, tex untouched", "nothing applied"),
+                ("apply", "Both edits declined, no tex or registry change", "declined"),
+                ("apply", "Not applied (stale): the remark is now item x", "superseded"),
+                ("apply", "No tex change: the ticket only asks to hold it", "no change"),
+                ("apply", "No tex change. Item 1 declined: the sentence is gone", "no change"),
+                ("apply", "No edits made: F1 and F2 change the pinned statement", "no change"),
+                ("apply", "Nothing applied, tex untouched: it is pinned", "no change"),
                 ("prove", "s1:GEO-67 is already proved: nothing to attempt", "already proved"),
-                ("experiment", "dropped: Ada dropped the search", "dropped"),
-                ("figure", "Already in the file (from T-1237): remark", "already in the file"),
+                ("figure", "Already in the file (from T-1237): remark titled X", "no change"),
+                ("experiment", 'No search run (Ada, 2026-11-07: "Drop search, verify proof").', "no search"),
+                ("experiment", 'No computation (Ada, 2026-11-08: "Accept, go to prover").', "no search"),
+                ("experiment", 'No search (Ada, 2026-11-12: "Close search, prove").', "no search"),
+                # the human's quoted decision
+                ("apply", "Ada 2026-11-20: satisfied, since it already has J(F)", "the decision of Ada"),
                 ("apply", "Ada replied 'Good!' (markings.tex:28)", "the decision of Ada"),
-                ("experiment", "Falsify step, by argument (Ada accepts it)", "the decision of Ada")):
+                ("experiment", "Falsify step for GEO-76, by argument (Ada accepts it as the falsifier)",
+                 "the decision of Ada")):
             r = self.check(ticket(kind=kind, to="author@p", result=result))
             self.assertTrue(r["ok"], (kind, result, r))
             self.assertEqual(r["marker"], marker, result)
+
+    def test_a_marker_never_passes_failed_work_or_the_wrong_kind(self):
+        """Re-review of ca04c0e, finding A: each synthetic case is refused."""
+        self.ws["human"] = {"name": "Ada"}
+        git(self.root, "init", "-q", "-b", "main")
+        board = os.path.join(self.root, "board")
+        self.ws["board"] = board
+        for kind, result in (
+                ("prove", "No attempt made: the run hit its budget"),
+                ("prove", "Nothing to do with the claim; the attempt failed"),
+                ("experiment", "No computation: the script crashed on import"),
+                ("experiment", "no search: the run hit a usage limit"),           # failure word
+                ("cite", "Not needed"),
+                ("cite", "not needed: the key is cited elsewhere"),               # not for cite
+                ("verify", "Superseded by a later pass"),
+                ("verify", "superseded: a later pass"),                           # not for verify
+                ("apply", "Dropped the second edit and did the first"),
+                ("apply", "declined: the edit failed to compile"),                # failure word
+                ("prove", "declined: not mine"),                                  # not a prove marker
+                ("apply", "Ada mentioned it was fine"),                           # a bare mention
+                ("apply", "The edit is as Ada 2026-11-20 wanted"),                # not at the start, no decision
+                ("code", "Ada 2026-11-20: satisfied")):                           # not a human kind
+            r = self.check(ticket(kind=kind, to="author@p" if kind != "verify" else "expert@x",
+                                  result=result))
+            self.assertFalse(r["ok"], (kind, result, r))
+            self.assertIsNone(r["marker"], result)
         r = self.check(ticket(kind="prove", result="T-0700: record the answers: none (T-0700)"))
         self.assertFalse(r["ok"])                                 # nothing behind it, no reason
-        self.assertIsNone(r["marker"])
 
     def test_a_bare_attempt_number_beside_the_claim_it_names(self):
         write(os.path.join(self.nb, "proofs", "PIR", "attempt-1.md"), "---\noutcome: complete\n---\n")
@@ -271,7 +312,7 @@ class PartialStatus(unittest.TestCase):
         perms = ac.load_permissions(os.path.join(PLUGIN, "permissions.json"))
         tr = perms["tickets"]["transitions"]
         self.assertEqual(tr["partial"], {"in-progress": ["sender"], "closed": ["sender"],
-                                         "cancelled": ["sender"]})
+                                         "cancelled": ["sender"], "blocked": ["sender"]})
         self.assertEqual(tr["in-progress"]["partial"], ["receiver"])
         self.assertEqual(tr["delivered"]["partial"], ["receiver"])
 
@@ -311,13 +352,52 @@ class PartialComesBackToItsSender(unittest.TestCase):
             os.makedirs(os.path.join(board, to), exist_ok=True)
             ac.atomic_write(os.path.join(board, to, ac.ticket_filename(tid, "t")), ac.new_ticket(m))
         rows, total = core.select(board, "researcher@nb", 3)
-        self.assertEqual([r["id"] for r in rows], ["T-0001"])
+        # finding C of the re-review: the self-sent one (T-0004) is its own, too
+        self.assertEqual([r["id"] for r in rows], ["T-0001", "T-0004"])
         r = rows[0]
         self.assertTrue(r["partial"] and r["return"])
         self.assertEqual(r["route"]["target"], "lead-researcher")
         self.assertIn("reopen", r["route"]["why"])
         self.assertTrue(core.takeable(r))
         self.assertEqual(core.select(board, "researcher@nb", 3, return_legs=False)[0], [])
+
+    def put(self, board, tid, lines, frm="researcher@nb", to="researcher@nb"):
+        m = ticket(tid=tid, frm=frm, to=to, status="partial", kind="prove",
+                   result="partial: attempt proofs/X/attempt-1.md incomplete; gaps: step 3")
+        body = ac.new_ticket(m)
+        for who, text in lines:
+            body = ac.append_thread(body, who, text, "2026-11-20")
+        os.makedirs(os.path.join(board, to), exist_ok=True)
+        ac.atomic_write(os.path.join(board, to, ac.ticket_filename(tid, "t")), body)
+
+    def test_a_self_sent_prove_ticket_prove_js_marked_partial_and_the_cap(self):
+        """Finding C: researcher@flat's self-sent prove tickets; finding B: the cap."""
+        board = tempfile.mkdtemp(prefix="acad-cap-")
+        self.addCleanup(shutil.rmtree, board, True)
+        rcv = "researcher@nb/review-clerk"
+        # as prove.js leaves it: in-progress -> partial with the attempt and its gaps
+        self.put(board, "T-0001", [(rcv, "status in-progress -> partial")])
+        self.put(board, "T-0002", [(rcv, "status in-progress -> partial"),
+                                   ("researcher@nb/lead-researcher", "status partial -> in-progress: finish step 3"),
+                                   (rcv, "status in-progress -> partial")])
+        self.put(board, "T-0003", [(rcv, "status in-progress -> partial"),
+                                   ("researcher@nb/lead-researcher", "status partial -> in-progress: finish"),
+                                   (rcv, "status in-progress -> partial"),
+                                   ("researcher@nb/lead-researcher", "partial: left for the human"),
+                                   (rcv, "status in-progress -> partial")])
+        rows = {r["id"]: r for r in core.partial_rows(board, "researcher@nb")}
+        self.assertEqual(sorted(rows), ["T-0001", "T-0002", "T-0003"])
+        self.assertEqual([rows[t]["reopens"] for t in ("T-0001", "T-0002", "T-0003")], [0, 1, 2])
+        self.assertEqual(rows["T-0001"]["route"]["target"], "lead-researcher")
+        self.assertNotIn("never reopen", rows["T-0001"]["route"]["why"])
+        self.assertIn("never reopen it again", rows["T-0002"]["route"]["why"])
+        self.assertFalse(rows["T-0002"]["park"])
+        self.assertTrue(rows["T-0003"]["park"])
+        self.assertEqual(rows["T-0003"]["route"]["how"], "human")
+        self.assertIn("reopened twice: close or ask the human", rows["T-0003"]["route"]["why"])
+        # the sender parks it on the human: partial -> blocked is its move
+        self.assertTrue(ac.can_transition("partial", "blocked", {"sender"})[0])
+        self.assertFalse(ac.can_transition("partial", "blocked", {"receiver"})[0])
 
 
 class CheckRefuses(unittest.TestCase):

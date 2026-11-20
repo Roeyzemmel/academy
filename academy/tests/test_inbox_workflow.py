@@ -258,7 +258,32 @@ class InboxWorkflowTests(unittest.TestCase):
         # the list stage asks for the flag (a clerk transcribes only the fields asked)
         lst = next(c for c in calls if c["label"] == "list")
         self.assertIn("partial", lst["schema"]["properties"]["instances"]["items"]["properties"]["rows"]["items"]["properties"])
-        self.assertIn("partial false when absent", lst["prompt"])
+        self.assertIn("partial, park false and reopens 0 when absent", lst["prompt"])
+
+    def test_a_partial_row_reopened_once_may_not_be_reopened_and_twice_goes_to_the_human(self):
+        """Re-review of ca04c0e, finding B."""
+        r = dict(row("T-7", target="lead-researcher", kind="prove", frm="researcher@u",
+                     to="researcher@u", ret=True), partial=True, reopens=1)
+        plan = {"list": [{"instances": [inst("researcher@u", [r])]}],
+                "lead-researcher T-7 (partial)": ["closed it"],
+                "check T-7": [{"exit": 0, "status": "closed", "output": "T-7: rejected (closed)"}]}
+        res, labels, calls = self.run_wf(plan)
+        p = next(c for c in calls if c["label"] == "lead-researcher T-7 (partial)")["prompt"]
+        self.assertIn("never reopen it again", p)
+        self.assertIn("partial: left for the human", p)
+        self.assertNotIn("status in-progress", p)
+        r = dict(row("T-7", how="human", target="human", kind="prove", frm="researcher@u",
+                     to="researcher@u", ret=True), partial=True, reopens=2, park=True)
+        r["route"]["why"] = "reopened twice: close or ask the human; parked on the human"
+        plan = {"list": [{"instances": [inst("researcher@u", [r])]}],
+                "T-7 park": [OK],
+                "check T-7": [{"exit": 3, "status": "blocked", "output": "T-7: blocked (blocked)"}]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertNotIn("lead-researcher T-7 (partial)", labels)  # no decider: the human decides
+        p = next(c for c in calls if c["label"] == "T-7 park")["prompt"]
+        self.assertIn('block-human: blocked, waiting_on ["human"]', p)
+        self.assertIn("reopened twice: close or ask the human", p)
+        self.assertEqual("parked on the human", res["taken"][0]["outcome"])
 
     def test_unfinished_closes_the_instance_and_lost_stops_the_run(self):
         rows = [row("T-1", how="human", target="human", kind="decision", to="expert@t"),
