@@ -15,6 +15,8 @@ from ._base import (
 from ._config import instance_for_home, load_config
 from ._workspace import load_workspace
 from ._touched import claim_touches, drop_touches
+from ._manifest import (ManifestError, find_claim, load_pending, manifest_changed,
+                        manifest_targets, merge_manifest, release_claim, save_pending)
 from ._tickets import is_dead_route, relay_return_ready
 from ._store import FileBoardStore, as_store, board_dir, open_store, status_lookup
 
@@ -375,8 +377,6 @@ class inbox_core(object):
 
     @staticmethod
     def _ship_checkpoint(args, instance, board, r, role, out):
-        if r["unfinished"] or r["state"] not in inbox_core.SHIP_STATES:
-            return None
         try:
             ws = load_workspace(getattr(args, "workspace", None))
             if not _same_file(board_dir(board), ws["board"]):
@@ -386,6 +386,15 @@ class inbox_core(object):
         if ws.get("shipCheckpoint") is False:
             return None
         root = os.path.realpath(os.path.dirname(ws["_path"]))
+        # #101 part 1: a ticket the inbox snapshotted is shipped by its manifest, finished or not
+        try:
+            claim_file, claim = find_claim(root, r["id"])
+            pending = load_pending(root, r["id"])
+        except (ManifestError, OSError):
+            claim_file, claim, pending = None, None, None
+        by_manifest = bool(claim or pending)
+        if not by_manifest and (r["unfinished"] or r["state"] not in inbox_core.SHIP_STATES):
+            return None
         ship = inbox_core.ship_script(root)
         if not ship:
             return None
@@ -407,6 +416,9 @@ class inbox_core(object):
             sys.stderr.write("warning: ship.py checkpoint not run for %s: no role (%r)\n"
                              % (r["id"], role))
             return None
+        if by_manifest:
+            return inbox_core._ship_manifest(r, root, ws, ship, role, name, claim_file, claim,
+                                             pending, out)
         only, note = inbox_core._ship_scope(root, ws, name, role)
         # the files this ticket's role wrote in another role's home (the touch ledger)
         touched, by_sub, stray = inbox_core._touched_scope(root, r["id"], role, name, only)
@@ -471,6 +483,92 @@ class inbox_core(object):
                              "repo is dirty on main: start a branch first with py "
                              "scripts/ship.py start <sub> <topic>, then re-run: %s\n"
                              % (r["id"], p.returncode, by_hand))
+        return p.returncode
+
+    @staticmethod
+    def _manifest_target(targets, path):
+        """``(target, relative path)`` of the home among ``targets`` (``manifest_targets``)
+        holding ``path``, the longest match; ``(None, None)`` outside every home."""
+        full = os.path.normcase(os.path.realpath(path))
+        best = (None, None, -1)
+        for target, repo, prefix in targets:
+            base = os.path.normcase(os.path.realpath(os.path.join(repo, prefix) if prefix else repo))
+            if full.startswith(base.rstrip(os.sep) + os.sep) and len(base) > best[2]:
+                best = (target, os.path.relpath(full, base).replace(os.sep, "/"), len(base))
+        return best[0], best[1]
+
+    @staticmethod
+    def _ship_manifest(r, root, ws, ship, role, name, claim_file, claim, pending, out):
+        """The checkpoint of a ticket the inbox snapshotted (#101 part 1): its manifest is
+        the claim's snapshot diff (``_manifest.manifest_changed``), plus a pending manifest
+        a previous --check could not ship, plus the touch-ledger entries of the ticket; it
+        is saved as the pending manifest, the claim is released (the ticket's run is over),
+        and ``ship.py checkpoint --manifest`` commits exactly those paths in every home that
+        has any. A finished ticket's commit is ``<id>: checkpoint``; an unfinished,
+        blocked or problem one's is ``WIP: <id> unfinished (<outcome>)``. A target whose
+        line says pushed or unchanged leaves the pending manifest (and its touch entries
+        are dropped); the rest wait for the next --check of the ticket."""
+        tid = r["id"]
+        finished = not r["unfinished"] and r["state"] in inbox_core.SHIP_STATES
+        wip = None if finished else (r.get("problem") or r.get("status") or r.get("state") or "unfinished")
+        b = ws.get("board") or "board"
+        targets = manifest_targets(root, b)
+        touches, by_target = {}, {}
+        for f, rec in claim_touches(root, tid, role, name):
+            target, rel = inbox_core._manifest_target(targets, rec["path"])
+            if target:
+                touches.setdefault(target, []).append(rel)
+                by_target.setdefault(target, []).append(f)
+        changed = manifest_changed(root, claim) if claim else {}
+        repos = merge_manifest(changed, (pending or {}).get("repos"), touches)
+        path = save_pending(root, tid, repos)
+        if claim_file:
+            release_claim(claim_file)
+        if not repos:
+            drop_touches([f for fs in by_target.values() for f in fs])
+            return 0
+        by_hand = "py scripts/ship.py checkpoint --ticket %s --role %s --manifest %s%s" % (
+            tid, role, path, (' --wip "%s"' % wip) if wip else "")
+        if not inbox_core._session_inside(root):
+            sys.stderr.write("checkpoint not run: session is outside %s; run it by hand: %s\n"
+                             % (root, by_hand))
+            return None
+        sys.stderr.write("checkpoint for %s by its manifest%s: %s\n" % (
+            tid, " (WIP: %s)" % wip if wip else "",
+            " ".join("%s:%d" % (t, len(ps)) for t, ps in repos.items())))
+        import subprocess
+        cmd = [sys.executable, ship, "--workspace", root, "checkpoint", "--ticket", tid,
+               "--role", role, "--manifest", path] + (["--wip", wip] if wip else [])
+        with tempfile.TemporaryFile() as log:
+            try:
+                p = subprocess.run(cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=log,
+                                   stderr=subprocess.STDOUT, timeout=inbox_core.SHIP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                sys.stderr.write("warning: ship.py checkpoint for %s timed out after %ss; "
+                                 "run it by hand: %s\n" % (tid, inbox_core.SHIP_TIMEOUT, by_hand))
+                return None
+            except OSError as exc:
+                sys.stderr.write("warning: ship.py checkpoint for %s could not start: %s; "
+                                 "run it by hand: %s\n" % (tid, exc, by_hand))
+                return None
+            log.seek(0)
+            text = log.read().decode("utf-8", "replace")
+        if out is not None and text:
+            out.write(text if text.endswith("\n") else text + "\n")
+        done = set()
+        for line in text.splitlines():
+            m = inbox_core.SHIPPED_LINE.match(line)
+            if m:
+                done.add(m.group(1))
+        if p.returncode == 0:
+            done |= set(repos)
+        save_pending(root, tid, {t: ps for t, ps in repos.items() if t not in done})
+        drop_touches([f for t, fs in by_target.items() if t in done for f in fs])
+        if p.returncode != 0:
+            sys.stderr.write("warning: checkpoint for %s exited %d (see its output); its "
+                             "manifest is kept for the next --check. If a repo is dirty on "
+                             "main: start a branch first with py scripts/ship.py start <sub> "
+                             "<topic>, then re-run: %s\n" % (tid, p.returncode, by_hand))
         return p.returncode
 
     #: a ticket id, for the branches that name it (``ticket_branch_re``)
