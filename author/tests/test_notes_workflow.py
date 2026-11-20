@@ -21,7 +21,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -131,6 +131,19 @@ class NotesTests(unittest.TestCase):
         self.assertNotIn("ship", res)             # nothing written
         res, labels, calls = self.run_wf({"collect": [dict(INV, new=[])]}, referee_ticket="T-0700")
         self.assertIn("packets field of T-0700", next(c for c in calls if c["label"] == "collect")["prompt"])
+
+    def test_collect_without_detail_loses_nothing(self):
+        """#124 follow-up 2: INV asks for detail and does not require it."""
+        inv = dict(INV, new=[])
+        del inv["detail"]
+        res, _labels, calls = self.run_wf({"collect": [inv]})
+        schema = calls[0]["schema"]
+        self.assertIn("detail", schema["properties"])
+        self.assertNotIn("detail", schema["required"])
+        self.assertEqual(res["outcome"], "nothing-new")
+        res, _labels, _calls = self.run_wf({"collect": [dict(inv, ok=False)]})
+        self.assertEqual(res["outcome"], "not-started")
+        self.assertEqual(res["reason"], "no reason given")
 
 
 @unittest.skipUnless(NODE, "node is not installed")
