@@ -24,7 +24,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -94,6 +94,24 @@ class RefereeTests(unittest.TestCase):
         self.assertIn("vision, there is none", p)
         self.assertEqual(res["outcome"], "unlanded")
 
+    def test_clerk_stages_without_detail_or_stop_reason_lose_nothing(self):
+        """#124 follow-up 2: START, PDF and MOVE ask for their free text and do not require it."""
+        pdf = {k: v for k, v in PDF.items() if k != "stop_reason"}
+        res, labels, calls, err = run("referee.js", {
+            "start": [{"ok": True, "instance": "author@t", "acted_as": "expert@t"}], "pdf": [pdf], "referee": ["r"],
+            "find packet": [{"packet": "P-0500", "blocking": 0, "copy": "c"}],
+            "deliver": [{"ok": True, "status": "delivered"}]}, {"ticket": "T-0700"})
+        self.assertIsNone(err, err)
+        for label, field in (("start", "detail"), ("pdf", "stop_reason"), ("deliver", "detail")):
+            schema = next(c for c in calls if c["label"] == label)["schema"]
+            self.assertIn(field, schema["properties"], label)
+            self.assertNotIn(field, schema["required"], label)
+        self.assertTrue(res["ticket_delivered"])
+        res, _, _, err = run("referee.js", {"start": [{"ok": False, "instance": "", "acted_as": ""}]}, {"ticket": "T-0700"})
+        self.assertEqual(res["reason"], "no reason given")
+        res, _, _, err = run("referee.js", {"pdf": [dict(pdf, ok=False)]}, {"instance": "author@t"})
+        self.assertEqual(res["reason"], "no reason given")
+
 
 @unittest.skipUnless(NODE, "node is not installed")
 class RefereeMaxTierTests(unittest.TestCase):
@@ -137,6 +155,22 @@ class DomainTests(unittest.TestCase):
         self.assertEqual(res["anomalies"], [])
         self.assertIn("deliver: deliver: true", next(c for c in calls if c["label"] == "close")["prompt"])
         self.assertNotIn("packet", labels)
+
+    def test_clerk_stages_without_detail_lose_nothing(self):
+        """#124 follow-up 2: START and MOVE ask for detail and do not require it."""
+        start = {k: v for k, v in START.items() if k != "detail"}
+        res, labels, calls, err = run("domain.js", {
+            "start": [start], "librarian": [EDIT],
+            "diff": [{"changed": ["theorems/dynamics.md", "CHANGELOG.md"], "changelog_last": EDIT["changelog"]}],
+            "close": [{"ok": True, "status": "delivered"}]}, {"ticket": "T-0800"})
+        self.assertIsNone(err, err)
+        for label in ("start", "close"):
+            schema = next(c for c in calls if c["label"] == label)["schema"]
+            self.assertIn("detail", schema["properties"], label)
+            self.assertNotIn("detail", schema["required"], label)
+        self.assertEqual(res["outcome"], "edited")
+        res, _, _, err = run("domain.js", {"start": [dict(start, ok=False)]}, {"ticket": "T-0800"})
+        self.assertEqual((res["outcome"], res["reason"]), ("not-started", "no reason given"))
 
     def test_a_change_already_present_is_delivered_as_such(self):
         """#118 (T-0997): a re-run whose row was already present must not log a second line

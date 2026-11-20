@@ -72,7 +72,7 @@ const clerk = (stage, lines, schema, label, phase) => launch(`WORKFLOW STAGE ${s
 
 const ASK = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' },
   ref: { type: 'string' }, pinpoint: { type: 'string' }, relying: { type: 'string' }, bib: { type: 'string' }, instance: { type: 'string' } },
-  required: ['ok', 'detail', 'ref', 'pinpoint', 'relying', 'bib', 'instance'] }
+  required: ['ok', 'ref', 'pinpoint', 'relying', 'bib', 'instance'] }
 const CARD = { type: 'object', properties: {
   key: { type: 'string' }, pinpoint: { type: 'string' }, card: { type: 'string', description: 'the card path' },
   verdict: { type: 'string', description: 'match, or how the source differs from what the paper wants' },
@@ -81,7 +81,9 @@ const CARD = { type: 'object', properties: {
   required: ['key', 'pinpoint', 'card', 'verdict', 'cached', 'reachable', 'bib_changed', 'note'] }
 const CHECK = { type: 'object', properties: { ok: { type: 'boolean' }, errors: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'errors'] }
 const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'error'] }
-const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status', 'detail'] }
+// #124: the clerk stages ask for detail (and stop_reason) and never require them (a clerk that left one
+// out lost its run); a missing one reads 'no reason given'
+const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
 // workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
@@ -126,7 +128,7 @@ if (T) {
     'Move it to in-progress (open -> accepted -> in-progress, acting as its receiver; leave an in-progress ticket as it is), then return from its ask, ## Ask and refs:',
     'the reference (DOI, arXiv id, bib key or title), the pinpoint wanted, the sentence or claim id that relies on it, the target bibliography (<author instance>:references.bib), and the instance you acted as.'],
     ASK, 'start', 'Start')
-  if (!a || !a.ok) return Object.assign(out, { outcome: 'not-started', reason: a ? a.detail : 'the start stage returned nothing' })
+  if (!a || !a.ok) return Object.assign(out, { outcome: 'not-started', reason: a ? a.detail || 'no reason given' : 'the start stage returned nothing' })
   ask = { ok: true, ref: A.ref || a.ref, pinpoint: A.pinpoint || a.pinpoint, relying: A.relying || a.relying, bib: A.bib || a.bib, instance: a.instance }
 }
 if (!ask.ref) return Object.assign(out, { outcome: 'not-started', reason: 'the ask names no reference (DOI, arXiv id, key or title)' })

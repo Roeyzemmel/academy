@@ -72,7 +72,7 @@ const clerk = (stage, lines, schema, label, phase) => launch(`WORKFLOW STAGE ${s
 const START = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' }, pack: { type: 'string' },
   changes: { type: 'array', items: { type: 'string' }, description: 'the changes the ask requests, one line each (two unrelated ones are two entries)' },
   acted_as: { type: 'string' }, academy_root: { type: 'string' }, diff_before: { type: 'array', items: { type: 'string' }, description: 'git diff --name-only domains/<pack> before the edit' } },
-  required: ['ok', 'detail', 'pack', 'changes', 'acted_as', 'academy_root', 'diff_before'] }
+  required: ['ok', 'pack', 'changes', 'acted_as', 'academy_root', 'diff_before'] }
 const EDITED = { type: 'object', properties: { files: { type: 'array', items: { type: 'string' }, description: 'pack files changed, relative to the pack' },
   changelog: { type: 'string', description: 'the CHANGELOG.md line appended' }, card: { type: 'string', description: 'a card written for a theorem entry, or empty' },
   unverified: { type: 'boolean', description: 'an entry that could not be pinned went to theorems/unverified.md' },
@@ -85,7 +85,9 @@ const DIFF = { type: 'object', properties: { changed: { type: 'array', items: { 
   changelog_last: { type: 'string', description: 'the last line of the pack\'s CHANGELOG.md' },
   logged_before: { type: 'array', items: { type: 'string' }, description: 'the lines of the COMMITTED CHANGELOG.md (git show HEAD:...) that name the ticket' } }, required: ['changed', 'changelog_last'] }
 const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'error'] }
-const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status', 'detail'] }
+// #124: the clerk stages ask for detail (and stop_reason) and never require them (a clerk that left one
+// out lost its run); a missing one reads 'no reason given'
+const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
 // workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
@@ -128,7 +130,7 @@ const s = await clerk('start', [`ticket: ${T}`,
   'Move it to in-progress acting as its receiver (open -> accepted -> in-progress; leave it if in progress). Return the pack it names' +
   (A.pack ? ` (given: ${A.pack})` : '') + ', the changes it asks for (one line each; two unrelated changes are two entries), the instance you acted as, ' +
   'the academy repo root (the folder holding domains/), and git -C <academy> diff --name-only domains/<pack> as it is now.'], START, 'start', 'Start')
-if (!s || !s.ok) return Object.assign(out, { outcome: 'not-started', reason: s ? s.detail : 'the start stage returned nothing' })
+if (!s || !s.ok) return Object.assign(out, { outcome: 'not-started', reason: s ? s.detail || 'no reason given' : 'the start stage returned nothing' })
 const pack = A.pack || s.pack
 if (!pack || !s.changes.length) return Object.assign(out, { outcome: 'not-started', reason: 'the ticket names no pack or no change' })
 if (s.changes.length > 1) {
