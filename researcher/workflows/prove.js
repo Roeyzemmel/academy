@@ -1,7 +1,7 @@
 export const meta = {
   name: 'academy-prove',
   description: 'Take one notebook claim to a reviewable proof: falsifier and attack first, one prover attempt, the outcome read from the attempt file, a verify ticket to the Expert only for a complete attempt',
-  whenToUse: '/researcher:prove and every prove ticket (also nested from the inbox). args: {claim: "<ns:id>", ticket?: "T-NNNN", mode?: "repair", home: "<the Researcher home>", instance?: "researcher@<x>"}',
+  whenToUse: '/researcher:prove and every prove ticket (also nested from the inbox). args: {claim: "<ns:id>", ticket?: "T-NNNN", mode?: "repair", for_verify?: "T-NNNN" (a repair a verify pass asked for: no verify ticket), home: "<the Researcher home>", instance?: "researcher@<x>"}',
   phases: [
     { title: 'State', detail: 'status, inputs, earlier attempts, falsifier, attack' },
     { title: 'Attempt', detail: 'an attack-only run if none, then one proof attempt' },
@@ -85,7 +85,9 @@ const STATE = { type: 'object', properties: {
   inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs: depends_on, and the other-namespace inputs its record names as inputs (a registry resolves depends_on only in its own namespace), verbatim' },
   attack_exists: { type: 'boolean', description: 'proofs/<id>/attack.md exists' },
   repair: { type: 'boolean', description: 'the ticket asks to repair, polish, restyle or record an argument for the claim, or answers a negative review of it (GAP, a hypothesis to add): not a first proof' },
-  repair_ask: { type: 'string', description: 'what the ticket asks to repair, one line (empty if not a repair)' } },
+  repair_ask: { type: 'string', description: 'what the ticket asks to repair, one line (empty if not a repair)' },
+  for_verify: { type: 'string', description: 'the verify ticket T-NNNN when the ticket\'s ask carries the marker "amendment for verify T-NNNN pass <pass>" (a repair a verify pass asked for, the dependency amendment); else empty' },
+  for_verify_pass: { type: 'string', description: 'the pass that marker names; else empty' } },
   required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'attack_exists', 'repair'] }
 const PATH = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
 const OUTCOME = { type: 'object', properties: {
@@ -192,14 +194,28 @@ const st = await launch(STAGE('prove-state', [
   `Then return: the claim's status (claims_show), its unsettled inputs (depends_on and modulo that are not proved), earlier attempts ` +
   `(notebook.py ls / the object's proof: field), whether a falsifier counts and its source (#117: one that attacked this claim; or one recorded on a declared input, or on the parent lead or ` +
   `direction item, whose class or statement covers this claim, saying how; or the ticket thread records one; or the human waived it on the ticket or the claim: then quote that thread line verbatim), with the evidence, and the declared inputs, ` +
-  `whether proofs/<id>/attack.md exists, and whether the ticket asks for a repair (repair, polish, restyle or record an argument, or answer a negative review) rather than a first proof, with what it asks. Write nothing else.`,
+  `whether proofs/<id>/attack.md exists, and whether the ticket asks for a repair (repair, polish, restyle or record an argument, or answer a negative review) rather than a first proof, with what it asks, ` +
+  `and, when its ask carries the marker "amendment for verify T-NNNN pass <pass>", that verify ticket and pass (for_verify, for_verify_pass). Write nothing else.`,
 ]), { label: 'state', phase: 'State', agentType: CLERK, schema: STATE, effort: 'low' })
 if (!st) return Object.assign(out, { outcome: 'not-started', reason: 'the state stage returned nothing' })
 if (!st.ok) return Object.assign(out, { outcome: 'not-started', reason: st.stop_reason })
 // #85: a repair (args.mode 'repair', or a ticket that asks for one) goes on whatever the status; a
 // proved claim with no repair asked is handed back, never delivered (nothing was done)
-const repair = A.mode === 'repair' || !!st.repair
+// The dependency amendment (2026-11-20 review): a repair a verify pass asked for (the marker
+// "amendment for verify T-NNNN pass P" in the ask, or args.for_verify) files no verify ticket,
+// since run B of that pass, on the amended proof, is the second verdict; the falsifier
+// question belongs to that pass, so the gate below does not stop it
+const RE_TICKET = /^T-\d{4,}$/
+const forVerify = [A.for_verify, st.for_verify].map(x => String(x || '').trim()).find(x => RE_TICKET.test(x)) || ''
+for (const x of [A.for_verify, st.for_verify]) {
+  if (String(x || '').trim() && !RE_TICKET.test(String(x).trim())) out.notes.push(`for_verify ${JSON.stringify(x)} is not a ticket id: ignored`)
+}
+const repair = A.mode === 'repair' || !!st.repair || !!forVerify
 out.repair = repair
+if (forVerify) {
+  out.for_verify = forVerify
+  out.notes.push(`a repair for the verify pass of ${forVerify}${st.for_verify_pass ? ' (pass ' + st.for_verify_pass + ')' : ''}: no verify ticket is filed (run B of that pass is the second verdict), and the falsifier is that pass's question`)
+}
 if (/^proved$/.test(st.status) && !repair) {
   return Object.assign(out, { outcome: 'already-proved', already_proved: true,
     reason: `${A.claim} is proved and the ticket asks for no repair: nothing attempted, the ticket left as it was (rerun with mode repair, or deliver or cancel it)` })
@@ -232,7 +248,7 @@ if (counts && src === 'waived' && !/(^|\n)\s*-?\s*\d{4}-\d{2}-\d{2} human:/.test
   out.notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ...): not counted')
 }
 if (counts) out.falsifier = { source: src, on: st.falsifier_on || null, evidence: st.falsifier_evidence || '' }
-if (!counts && !(repair && reviewed)) return Object.assign(out, { outcome: 'needs-explore', needs_explore: true,
+if (!counts && !(repair && reviewed) && !forVerify) return Object.assign(out, { outcome: 'needs-explore', needs_explore: true,
   reason: `nobody has tried to break ${A.claim}: run /researcher:explore (its falsifier) first. What counts: an experiment or test ticket to the Scientist that ` +
     `tries to break it (a search over the class it quantifies over, its standard examples first) or a recorded attack on it; or one on a declared input or ` +
     `the parent lead whose class covers it; or the human's waiver on the ticket` })
@@ -268,6 +284,24 @@ const o = await launch(STAGE('attempt-outcome', [`Read the frontmatter of ${p.pa
   { label: 'outcome', phase: 'File', agentType: CLERK, schema: OUTCOME, effort: 'low' })
 if (!o || !o.exists) return Object.assign(out, { outcome: 'unfinished', reason: 'the attempt file is missing or unreadable' })
 out.gaps = o.gaps
+if (forVerify && (o.outcome !== 'complete' || (o.gaps || []).length)) {
+  // an incomplete amendment is not delivered: the verify pass would take a delivered repair
+  // for the amendment; the human decides
+  out.outcome = 'amendment-incomplete'
+  const gl = ((o.gaps || []).join('; ') || 'none listed').replace(/"/g, "'")
+  if (T) {
+    const m = await launch(STAGE('block', [`Block ${T}: tickets_update status blocked, waiting_on [human], reason "the amendment attempt ${p.path} for the verify pass of ${forVerify} is ${o.outcome || 'without outcome'} (gaps: ${gl}): ${forVerify} stays blocked on this repair; the human decides".`]),
+      { label: 'block', phase: 'File', agentType: CLERK, schema: MOVE, effort: 'low' })
+    out.ticket_blocked = !!(m && m.ok)
+  }
+  out.reason = `the amendment attempt ${p.path} is ${o.outcome || 'without outcome'} (gaps: ${gl}): not delivered, no verify ticket`
+  return await end()
+}
+if (forVerify) {
+  out.outcome = 'amendment-delivered'
+  await deliver(`complete attempt ${p.path}: the amendment for the verify pass of ${forVerify}${st.for_verify_pass ? ' (pass ' + st.for_verify_pass + ')' : ''}; no verify ticket filed (run B of that pass reviews this attempt)`)
+  return await end()
+}
 if (o.outcome !== 'complete' || (o.gaps || []).length) {
   out.outcome = 'attempt-incomplete'
   await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}; gaps: ${(o.gaps || []).join('; ') || 'none listed'}; nothing filed for review`)

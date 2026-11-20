@@ -189,6 +189,58 @@ class ProveTests(unittest.TestCase):
         self.assertEqual(res["outcome"], "needs-explore")
 
 
+    # ---- a repair a verify pass asked for (the dependency amendment, review fix 1) ----
+    AMEND = {"state": [state(status="sketch", falsified=False, falsifier_evidence="", repair=True,
+                             for_verify="T-0007", for_verify_pass="2026-11-20-T-0007",
+                             repair_ask="add bib:LMW16#Thm11 to the proof")],
+             "attempt path": [{"path": "proofs/GEO-3/attempt-3.md"}], "attempt": ["done"],
+             "outcome": [{"exists": True, "outcome": "complete", "gaps": [], "objects": []}],
+             "close": [MOVE]}
+
+    def test_a_repair_for_a_verify_pass_files_no_verify_ticket(self):
+        res, labels, calls = self.run_wf(self.AMEND)
+        self.assertEqual(labels, ["state", "attempt path", "attempt", "outcome", "close"])
+        self.assertEqual(res["outcome"], "amendment-delivered")
+        self.assertEqual(res["for_verify"], "T-0007")
+        self.assertNotIn("verify_ticket", res)
+        close = calls[-1]["prompt"]
+        self.assertIn("proofs/GEO-3/attempt-3.md", close)
+        self.assertIn("no verify ticket", close)
+        self.assertIn("T-0007", close)
+        self.assertTrue(any("no verify ticket" in n for n in res["notes"]), res["notes"])
+
+    def test_a_repair_for_a_verify_pass_is_not_stopped_by_the_falsifier_gate(self):
+        res, labels, _ = self.run_wf(self.AMEND)
+        self.assertNotEqual(res["outcome"], "needs-explore")
+        self.assertIn("attempt", labels)
+
+    def test_the_marker_can_come_as_an_argument(self):
+        plan = dict(self.AMEND, state=[state(status="sketch", falsified=False, falsifier_evidence="", repair=True)])
+        res, labels, _ = self.run_wf(plan, for_verify="T-0007")
+        self.assertEqual(res["outcome"], "amendment-delivered")
+        self.assertNotIn("file verify", labels)
+
+    def test_a_malformed_marker_is_ignored(self):
+        plan = dict(self.AMEND, state=[state(status="sketch", falsified=False, falsifier_evidence="",
+                                             repair=True, for_verify="see the ticket")])
+        res, _l, _ = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "needs-explore")
+
+    def test_an_incomplete_amendment_is_not_delivered(self):
+        plan = dict(self.AMEND, outcome=[{"exists": True, "outcome": "partial", "gaps": ["step 2"], "objects": []}],
+                    block=[MOVE])
+        plan.pop("close")
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "amendment-incomplete")
+        self.assertEqual(labels[-1], "block")
+        self.assertIn("blocked", calls[-1]["prompt"])
+        self.assertIn("human", calls[-1]["prompt"])
+
+    def test_the_state_stage_is_asked_for_the_marker(self):
+        _r, _l, calls = self.run_wf(self.COMPLETE)
+        self.assertIn("amendment for verify", calls[0]["prompt"])
+
+
 def shipped(t, line):
     return {"status": "nothing", "detail": "", "branches": [], "output": "%s: delivered (delivered)\n%s\n" % (t, line)}
 
