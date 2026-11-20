@@ -605,6 +605,64 @@ class TestOwnOptions(RulingCase):
         self.assertEqual("b", json.loads(out.getvalue())["choice"])
 
 
+class TestOptionParsing(RulingCase):
+    """Review of 54692a4, findings 2, 6, 7: what counts as a ticket's own options."""
+
+    def test_phantom_letters_are_no_options(self):
+        """Finding 2: '(a) and (b)' with no option text is no option list."""
+        self.assertEqual({}, rl._lettered(
+            "Rule on the inputs of lem:x, items 1 (a) and (b) both agreed; union or "
+            "intersection of modulo lists?"))
+        self.assertEqual({}, rl._lettered("Is lem 3 (a) true? See P-0230 D1 (a) 2026-11-01 "
+                                          "and (b) of Prop 2."))
+
+    def test_a_phantom_ask_keeps_the_generic_options(self):
+        tid = self.ruling(ask="Rule on the inputs of lem:x, items 1 (a) and (b) both agreed; "
+                              "union or intersection of modulo lists?")
+        out = self.record(tid, "a")
+        self.assertIn("(a) union", bd.get_ticket(self.board, tid)[1]["result"])
+        self.assertEqual("decision", self.tickets()[out["follow_up"]]["kind"])
+
+    def test_the_last_presented_run_wins_over_a_stray_earlier_letter(self):
+        own = rl._lettered("Rule on lem:x (the precedent: P-0230 D1 (a) 2026-11-01). "
+                           "Options: (a) take proved; (b) re-run; (c) wait.")
+        self.assertEqual({"a": "take proved", "b": "re-run", "c": "wait"}, own)
+
+    def test_incidental_letters_are_no_options(self):
+        """Finding 7: letters not presented as options (no 'Options:', 'Choose', '?', ':'
+        before them) are prose."""
+        self.assertEqual({}, rl._lettered("Rename the files? It touches (a) docs and (b) "
+                                          "scripts only."))
+        self.assertEqual(["a", "b", "c"], list(rl._lettered(OWN_ASK)))
+        self.assertEqual(["a", "b", "c"], list(rl._lettered(TestOwnOptions.T0981_ASK)))
+
+    def test_the_real_t0998_ask(self):
+        own = rl._lettered(
+            "Pass X on s1:GEO-61: run A CONFIRMED modulo none, run B CONFIRMED modulo "
+            "paper:lem:rigid (formal). Both runs agree that flat:PER-2 enters GEO-55 only at "
+            "item 4(a) and GEO-61 uses items 1-3. Options (P-0233 D1): (a) `proved`, the "
+            "modulo is formal (the precedent you set for s1:GEO-57, P-0230 D1 (a), "
+            "2026-11-01); (b) `proved-modulo [flat:PER-2]` by inheritance; (c) split GEO-55 "
+            "first, then `proved`. Recommendation: (a).")
+        self.assertEqual(["a", "b", "c"], list(own))
+        self.assertEqual(["accept", "accept", "split"], [rl.classify(v) for v in own.values()])
+
+    def test_negated_keywords_do_not_classify(self):
+        """Finding 6."""
+        self.assertEqual("rerun", rl.classify("don't take proved, re-run instead"))
+        self.assertEqual("rerun", rl.classify("do not accept, re-run"))
+        self.assertEqual("other", rl.classify("leave it open, not proved yet"))
+        self.assertEqual("other", rl.classify("take it, though not proved yet"))
+        self.assertEqual("accept", rl.classify("take proved"))
+
+    def test_a_negated_proved_option_files_nothing(self):
+        tid = self.ruling(ask="Rule on the modulo inputs: (a) re-run; (b) take proved-modulo; "
+                              "(c) leave it open, not proved yet.")
+        n = len(self.tickets())
+        out = self.record(tid, "c")
+        self.assertEqual((False, None, n), (out["filed"], out["follow_up"], len(self.tickets())))
+
+
 class TestGithubBackend(RulingCase):
     def test_record_on_the_github_store_finds_the_new_ticket_and_is_idempotent(self):
         import board_store as bs

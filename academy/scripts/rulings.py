@@ -411,21 +411,57 @@ def kind_of(which):
     return "accept" if which in ("union", "intersection") else which
 
 
-def _lettered(text):
-    text = " ".join(str(text or "").split())
-    seq, want = [], "a"
-    for m in RE_OWN_MARK.finditer(text):
+#: words that present a list of options just before its "(a)"
+RE_OPTION_CUE = re.compile(r"(?i)\b(?:options?|choose|choices?|rule|ruling|decide|pick|"
+                           r"either|one of)\b")
+#: words too slight to be an option's text on their own
+SLIGHT = {"and", "or", "the", "a", "an", "both", "of", "to", "in", "on"}
+
+
+def _substantial(t):
+    return any(len(w) >= 2 and w.lower() not in SLIGHT for w in re.findall(r"[A-Za-z][\w-]*", t))
+
+
+def _presented(prefix):
+    """True when the text before an "(a)" presents options: it ends with ':' or '?', or a
+    cue word (Options, Choose, Please rule ...) stands in its last 60 characters."""
+    p = prefix.rstrip().rstrip("`*_")
+    return p.endswith((":", "?")) or bool(RE_OPTION_CUE.search(p[-60:]))
+
+
+def _run(text, marks, i):
+    """The options of the run starting at ``marks[i]`` (an "(a)"), or {} when it is none."""
+    seq, want = [marks[i]], "b"
+    for m in marks[i + 1:]:
         if m.group(1) == want:
             seq.append(m)
             want = chr(ord(want) + 1)
     out = {}
-    for i, m in enumerate(seq):
-        last = i + 1 == len(seq)
-        t = text[m.end():len(text) if last else seq[i + 1].start()]
+    for j, m in enumerate(seq):
+        last = j + 1 == len(seq)
+        t = text[m.end():len(text) if last else seq[j + 1].start()]
         if last:
             t = re.split(r"\.\s", t, maxsplit=1)[0]     # the last option ends with its sentence
-        out[m.group(1)] = re.sub(r"[\s;,.]*(?:\b(?:or|and)\b)?[\s;,.]*$", "", t).strip()
+        t = re.sub(r"[\s;,.]*(?:\b(?:or|and)\b)?[\s;,.]*$", "", t).strip()
+        if not _substantial(t):
+            return {}
+        out[m.group(1)] = t
     return out if len(out) >= 2 else {}
+
+
+def _lettered(text):
+    """The options "(a) ...; (b) ...[; (c) ...]" a text presents, or {}: a full run from (a)
+    on, each option with real text, presented as options (``_presented``); the last such run
+    in the text wins (an earlier stray "(a)", a precedent's "D1 (a)", is prose)."""
+    text = " ".join(str(text or "").split())
+    marks = list(RE_OWN_MARK.finditer(text))
+    for i in reversed(range(len(marks))):
+        if marks[i].group(1) != "a" or not _presented(text[:marks[i].start()]):
+            continue
+        out = _run(text, marks, i)
+        if out:
+            return out
+    return {}
 
 
 def own_options(meta, body=None):
@@ -439,14 +475,33 @@ def own_options(meta, body=None):
     return _lettered(m.group(1)) if m else {}
 
 
+#: a negation within two words (one clause) before a keyword: "not proved", "don't take proved"
+RE_NEGATED = re.compile(r"(?i)\b(?:not|don't|dont|do not|never|without|no)\b"
+                        r"(?:[ \t`]+[\w'-]+){0,2}[ \t`]*$")        # within the clause
+RE_NOT_PROVED = re.compile(r"(?i)\b(?:not|don't|dont|do not|never|without|no)\b"
+                           r"(?:[ \t`]+[\w'-]+){0,2}?[ \t`]+proved\b")
+
+
+def _first(rx, text):
+    """The start of ``rx``'s first match in ``text`` that is not negated, or None."""
+    for m in rx.finditer(text):
+        if not RE_NEGATED.search(text[max(0, m.start() - 30):m.start()]):
+            return m.start()
+    return None
+
+
 def classify(text):
-    """The action an option's text names: rerun, split, wait, decline, accept or other."""
+    """The action an option's text names: rerun, split, wait, decline, accept or other.
+    The earliest keyword not negated wins; an accept whose text negates 'proved' ("not
+    proved yet") is other, so no status is proposed from it."""
+    text = str(text or "")
     best = None
     for name, rx in ACTION_WORDS:
-        m = rx.search(str(text or ""))
-        if m and (best is None or m.start() < best[0]):
-            best = (m.start(), name)
-    return best[1] if best else "other"
+        at = _first(rx, text)
+        if at is not None and (best is None or at < best[0]):
+            best = (at, name)
+    name = best[1] if best else "other"
+    return "other" if name == "accept" and RE_NOT_PROVED.search(text) else name
 
 
 def own_option_dicts(own):
