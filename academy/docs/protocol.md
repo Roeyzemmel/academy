@@ -579,10 +579,17 @@ ticket to the Expert with no `final_to` reads as `final_to: researcher`.
 
 **Hop limit.** A relay chain has at most `maxHops` (3) links. Only consecutive
 ancestors that carry `final_to` count; an ordinary `parent` link is not a relay hop.
-A relay within a relay can exceed it: a Scientist question with `final_to: author`
-filed with `parent` set to an experiment-spec child already sits under three relay
-links, and the check refuses the next hop. A new question starts a fresh chain: file
-it with no `parent` and name the earlier ticket in `refs`.
+Only ancestors travelling the same way along the chain as the new ticket count (its
+direction is from `from` toward `final_to`): a reply relayed back toward the origin
+(T-1722, researcher → expert → author under an author → expert → researcher chain)
+starts a fresh count. The cap is per same-direction run: any ancestor going the
+other way resets it, so a `parent` chain of mixed directions is not capped in total
+(an accepted trade-off). A relay within a relay going the same way can still exceed it:
+a Researcher note with `final_to: author` filed with `parent` set to the Expert's
+child to the Author of an earlier researcher → author relay (T-0961 under T-0808)
+already sits under three relay links, and the check refuses the next hop. A new
+request starts a fresh chain: file it with no `parent` and name the earlier ticket in
+`refs`.
 
 **Caller identity.** The MCP tool `tickets_create` is the enforced path: the server
 knows the calling agent. The CLI identity (`board.py new --as <instance> --agent
