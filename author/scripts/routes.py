@@ -135,9 +135,9 @@ def agenda_pass(meta):
 
 
 def decided_edit(meta, human=None):
-    """True when a ticket's title or ask says the human decided the edit (T-0085 "per Roey's
-    decision", T-1441 "per the human's word"): an ``apply`` in all but its kind. A choice
-    still open ("Decide the repair", "to be decided", a reviewer's decision table) is
+    """True when a ticket's title or ask says the human decided the edit (T-0085 "per
+    <name>'s decision", T-1441 "per the human's word"): an ``apply`` in all but its kind. A
+    choice still open ("Decide the repair", "to be decided", a reviewer's decision table) is
     not."""
     names = ["the human"] + [n for n in [human or _human()] if n and n != "the human"]
     who = "(?:%s)" % "|".join(re.escape(n) for n in names)

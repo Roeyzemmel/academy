@@ -157,8 +157,8 @@ T0085 = {
     "id": "T-0085", "kind": "question", "from": "human", "to": "author@t",
     "status": "accepted",
     "title": "fact:forgetful-props: replace item 2's openness with LMW16 Lemma 6 as stated "
-             "(Roey's decision)",
-    "ask": "Edit fact:forgetful-props (markings.tex:106-135) per Roey's decision on T-0081: "
+             "(Ada's decision)",
+    "ask": "Edit fact:forgetful-props (markings.tex:106-135) per Ada's decision on T-0081: "
            "replace the subspace-topology openness claim in item 2 and the Moreover clause "
            "with LMW16 Lemma 6 quoted as stated. Keep item 1 (ordering-independence) as "
            "written.",
@@ -169,12 +169,12 @@ T0068 = {
     "status": "accepted",
     "title": "thm:main-resolvable-4k is false as stated under the draft's inclusive "
              "convention: add K_M = C_4k",
-    "ask": "Roey's decision 2026-09-28. thm:main-resolvable-4k is refuted as written. THE "
+    "ask": "Ada's decision 2026-09-28. thm:main-resolvable-4k is refuted as written. THE "
            "REPAIR: add the hypothesis K_M = C_{4k} to the theorem.",
     "refs": ["paper:thm:main-resolvable-4k", "flat:resolvable-4k-blocking"],
 }
 T0351 = {
-    "id": "T-0351", "kind": "question", "from": "expert@ts", "to": "author@t",
+    "id": "T-0351", "kind": "question", "from": "expert@t", "to": "author@t",
     "status": "accepted",
     "title": "Wording items for landing FND-20's \"Paper text to land\" in "
              "rmk:unfolding-quotient (review T-0337)",
@@ -184,7 +184,7 @@ T0351 = {
     "refs": ["flat:FND-20", "paper:rmk:unfolding-quotient", "T-0337", "T-0348"],
 }
 T0086 = {
-    "id": "T-0086", "kind": "question", "from": "expert@ts", "to": "author@t",
+    "id": "T-0086", "kind": "question", "from": "expert@t", "to": "author@t",
     "status": "accepted",
     "title": "Repair proof of lem:marking-full-preimage (GAP, markings.tex:300)",
     "ask": "Repair the proof of lem:marking-full-preimage (sections/markings.tex) after run "
@@ -223,7 +223,7 @@ class UnroutedKindTests(unittest.TestCase):
     def route(self, meta, board=()):
         look = routes.TicketLookup(lambda: list(board))
         with unittest.mock.patch.object(routes, "_registry_status", return_value=None), \
-                unittest.mock.patch.object(routes, "_human", return_value="Roey"):
+                unittest.mock.patch.object(routes, "_human", return_value="Ada"):
             return routes.route(meta, ticket_of=look)
 
     def test_a_question_is_answered_by_the_writer(self):
@@ -243,7 +243,7 @@ class UnroutedKindTests(unittest.TestCase):
         for ask in ("Decide the repair: restrict the hypothesis, or recolour.",
                     "The wording is to be decided; see the reviewer's decision table.",
                     "Which reading is undecided."):
-            self.assertFalse(routes.decided_edit({"ask": ask}, human="Roey"), ask)
+            self.assertFalse(routes.decided_edit({"ask": ask}, human="Ada"), ask)
             self.assertEqual("math-writer", self.route(dict(T0351, ask=ask))["target"], ask)
 
     def test_a_question_needing_an_argument_goes_to_research(self):
