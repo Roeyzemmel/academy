@@ -449,6 +449,28 @@ class TestTickets(McpTestBase):
         self.assertEqual("rejected", res["status"])
         self.assertTrue(any("in-progress -> rejected" in ln for ln in res["thread"]), res["thread"])
 
+    def test_a_started_ticket_can_be_released_by_its_receiver(self):
+        # #123: inbox-clerk and review-clerk put back a ticket they started (20 refusals
+        # since 2026-11-14, "go one step at a time: in-progress -> blocked -> accepted")
+        author, expert, tid = self._deliver_ticket("in-progress")
+        before = self._ticket_file(tid)
+        err, msg = author.call("tickets_update", caller="author:math-writer", id=tid,
+                               status="accepted")
+        self.assertTrue(err)                                      # the receiver's move
+        self.assertIn("in-progress -> accepted is made by the receiver", msg)
+        self.assertIn("from in-progress you may move it to: cancelled", msg)
+        self.assertEqual(before, self._ticket_file(tid))
+        err, res = expert.call("tickets_update", caller="expert:review-chair", id=tid,
+                               status="accepted")
+        self.assertFalse(err, res)
+        self.assertEqual("accepted", res["status"])
+        self.assertEqual(["status in-progress -> accepted"],
+                         [ln for ln in res["thread"] if ln.startswith("status ")])
+        # and it can be taken again as before
+        err, res = expert.call("tickets_update", caller="expert:review-chair", id=tid,
+                               status="in-progress")
+        self.assertFalse(err, res)
+
     def test_deliver_from_accepted_and_in_progress(self):
         for upto, lines in (("accepted", ["status accepted -> in-progress",
                                           "status in-progress -> delivered"]),
@@ -547,7 +569,7 @@ class TestTickets(McpTestBase):
         self.assertEqual("delivered", res["status"])
         self.assertEqual(3, len([t for t in res["thread"] if t.startswith("status ")]))
 
-    def test_a_walk_is_only_for_the_party_of_every_hop_and_never_through_blocked(self):
+    def test_a_walk_is_only_for_the_party_of_every_hop_and_never_through_delivered(self):
         author, expert, tid = self._deliver_ticket()
         before = self._ticket_file(tid)
         err, msg = author.call("tickets_update", caller="author:math-writer", id=tid,
@@ -556,10 +578,14 @@ class TestTickets(McpTestBase):
         self.assertIn("is made by the receiver", msg)
         self.assertEqual(before, self._ticket_file(tid))
         _a, expert, tid = self._deliver_ticket("in-progress")
+        before = self._ticket_file(tid)
         err, msg = expert.call("tickets_update", caller="expert:review-chair", id=tid,
-                               status="accepted")
+                               status="closed", result="x")
         self.assertTrue(err)
-        self.assertIn("in-progress -> blocked -> accepted", msg)
+        self.assertIn("in-progress -> delivered -> closed", msg)
+        self.assertIn("from in-progress you may move it to: accepted, blocked, delivered, "
+                      "rejected", msg)
+        self.assertEqual(before, self._ticket_file(tid))
 
     def test_a_multi_line_result_keeps_its_first_line_and_fills_the_body(self):
         _a, expert, tid = self._deliver_ticket()
