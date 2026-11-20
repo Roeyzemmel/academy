@@ -145,7 +145,8 @@ const ROW = {
     title: { type: 'string', description: 'the ticket\'s title, verbatim (the verify route reads its claim from it, #89)' },
     refs: { type: 'array', items: { type: 'string' } },
     budget_runs: { type: 'number' },
-    route: { type: 'object', properties: { how: { type: 'string' }, target: { type: ['string', 'null'] }, why: { type: 'string' } }, required: ['how', 'target', 'why'] },
+    // #124: why is asked for, never required (a clerk that leaves it out would lose the list); read as 'no reason given'
+    route: { type: 'object', properties: { how: { type: 'string' }, target: { type: ['string', 'null'] }, why: { type: 'string' } }, required: ['how', 'target'] },
     return: { type: 'boolean' }, released: { type: 'boolean' }, over_budget: { type: ['string', 'null'] },
   },
   required: ['id', 'kind', 'status', 'from', 'to', 'final_to', 'refs', 'budget_runs', 'route', 'return', 'released', 'over_budget'],
@@ -487,19 +488,20 @@ async function leadResearcher(row, i) {
 
 async function handle(row, i) {
   const inst = i.name, rt = row.route || {}
+  const why = rt.why || 'no reason given'
   if (row.released) {
     const r = await move(row, inst, 'release: blocked -> accepted (everything it waited on is back)')
     if (!r || !r.ok) return { outcome: 'unfinished', detail: 'release failed' }
   }
   if (rt.how === 'reject') {
-    await move(row, inst, `reject: rejected, with reason "${rt.why}"`)
-    return { outcome: 'rejected', detail: rt.why }
+    await move(row, inst, `reject: rejected, with reason "${why}"`)
+    return { outcome: 'rejected', detail: why }
   }
   if (rt.how === 'human') {
     if (i.role === 'author' || i.role === 'scientist')
       return { for_main: { why: `the ${i.role} puts a ticket with no route to the human (AskUserQuestion)`, ticket: row.id, instance: inst } }
-    await move(row, inst, `block-human: blocked, waiting_on [human], reason "${rt.why}"`)
-    return { outcome: 'blocked on human', detail: rt.why }
+    await move(row, inst, `block-human: blocked, waiting_on [human], reason "${why}"`)
+    return { outcome: 'blocked on human', detail: why }
   }
   if (rt.how === 'research') {
     // a self-ticket that needs an argument: math-writer (an author -> expert liaison) files the research ticket,
