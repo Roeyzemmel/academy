@@ -197,12 +197,19 @@ class RefusalTests(Base):
 class PatternTests(unittest.TestCase):
     def test_names_that_name_the_ticket(self):
         hit = core.ticket_branch_re("T-0007")
-        for name in ("t-0007", "t0007", "T-0007-fix", "2026-11-19/t-0007/scientist",
-                     "2026-11-19/t7-x/scientist", "fix-t-07"):
+        for name in ("t-0007", "t0007", "T-0007-fix", "2026-11-19/t-0007/scientist"):
             self.assertTrue(hit.search(name), name)
+        # the board's four-digit form only: an academy issue branch (t7-x, t121-...) is not
+        # the board ticket of the same number (review of 9f53a6e: T-0121 was held by
+        # 2026-11-20/t121-ruling-followup/scientist)
         for name in ("t-0070", "t-00071", "t-1007", "at-0007", "main", "2026-11-19/x/human",
-                     "t-0007a1"):
+                     "t-0007a1", "2026-11-19/t7-x/scientist", "fix-t-07", "t-7"):
             self.assertFalse(hit.search(name), name)
+
+    def test_an_issue_branch_does_not_hold_the_board_ticket_of_its_number(self):
+        hit = core.ticket_branch_re("T-0121")
+        self.assertFalse(hit.search("2026-11-20/t121-ruling-followup/scientist"))
+        self.assertTrue(hit.search("2026-11-20/t-0121/expert"))
 
     def test_no_ticket_id_no_pattern(self):
         self.assertIsNone(core.ticket_branch_re("P-0001"))

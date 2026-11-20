@@ -482,12 +482,14 @@ class inbox_core(object):
     @staticmethod
     def ticket_branch_re(ticket):
         """The pattern of the branch names that name ticket ``ticket`` (``T-0007``):
-        ``t-0007``, ``t0007``, ``t-7``, any case, as a word of the name (not preceded by
-        a letter or digit, not followed by one); None for anything but a ticket id."""
+        ``t-0007``, ``t0007``, any case, the board's four-digit form only, as a word of the
+        name (not preceded by a letter or digit, not followed by one): an academy issue
+        branch such as ``t121-...`` must not hold board ticket T-0121 (review of 9f53a6e);
+        None for anything but a ticket id."""
         m = inbox_core.TICKET_ID.match(str(ticket or "").strip())
         if not m:
             return None
-        return re.compile(r"(?<![A-Za-z0-9])t-?0*%d(?![A-Za-z0-9])" % int(m.group(1)), re.I)
+        return re.compile(r"(?<![A-Za-z0-9])t-?%04d(?![A-Za-z0-9])" % int(m.group(1)), re.I)
 
     @staticmethod
     def _git(repo, *args):
