@@ -89,6 +89,10 @@ const CARD = { type: 'object', properties: {
   cached: { type: 'boolean' }, reachable: { type: 'boolean', description: 'false: paywalled, image-only, no text' },
   bib_changed: { type: 'boolean' }, note: { type: 'string' } },
   required: ['key', 'pinpoint', 'card', 'verdict', 'cached', 'reachable', 'bib_changed', 'note'] }
+// cards.py dups --json, parsed by the code; the counts are asked too, for an output that does not parse
+const DUPS = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
+  bib_key: { type: 'number' }, bib_id: { type: ['number', 'null'] }, cards: { type: 'number' },
+  output: { type: 'string', description: 'its whole stdout, verbatim' } }, required: ['exit'] }
 const CHECK = { type: 'object', properties: { ok: { type: 'boolean' }, errors: { type: 'array', items: { type: 'string' } } }, required: ['ok', 'errors'] }
 const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'error'] }
 // #124: the clerk stages ask for detail (and stop_reason) and never require them (a clerk that left one
@@ -161,13 +165,36 @@ const lost = async (reason) => {
 }
 const lib = (prompt, label) => safe(prompt, { label, phase: 'Cite', agentType: LIB, schema: CARD })
 let c = await lib(brief, 'librarian')
-if (c === null && !LAUNCH_LIMIT.stopped) {
+const retried = c === null && !LAUNCH_LIMIT.stopped
+if (retried) {
   out.notes.push('the librarian run returned no result; run once more')
   c = await lib(brief + '\n\nA first run on this reference ended without its result. What it wrote (the bib entry, the card, the index row) ' +
     'may already be on disk: look before writing, finish what is there, and never add a second entry or card for the same pinpoint.', 'librarian (retry)')
 }
 if (c === null) return await lost('the librarian returned no result twice (a limit, or a run that ended without its structured output): ' +
   'nothing further launched; any card or bib entry it wrote is unvalidated and uncommitted')
+// #94 review: two runs on one reference can leave two bib entries or two cards (cards.py new refuses only
+// the same card path): on the retry path cards.py dups counts them, and more than one loses the ticket
+if (retried) {
+  const q = x => '"' + String(x || '').replace(/"/g, "'") + '"'
+  const d = await clerk('duplicates', [`Run \`cards.py dups ${c.key} ${q(c.pinpoint || ask.pinpoint)}` + (ask.bib ? ` --bib ${q(ask.bib)}` : '') +
+    (ask.ref ? ` --ref ${q(ask.ref)}` : '') + ' --json; echo $?` once, from the library home. Return the exit code the shell printed, ' +
+    'its JSON line verbatim in output, and the counts bib_key, bib_id and cards from it.'], DUPS, 'duplicates', 'Cite')
+  if (!d) out.notes.push('the duplicate check returned nothing: look for a second bib entry or card of ' + c.key + ' by hand')
+  else {
+    let r = null
+    try { r = JSON.parse(String(d.output || '').trim().split(/\r?\n/).find(l => /^\{/.test(l)) || 'null') } catch (e) { r = null }
+    const n = r || d
+    const many = ['bib_key', 'bib_id', 'cards'].filter(k => typeof n[k] === 'number' && n[k] > 1)
+    if (many.length || (!r && d.exit === 1)) {
+      const what = r && Array.isArray(r.problems) && r.problems.length ? r.problems.join('; ')
+        : many.length ? many.map(k => `${n[k]} (${k})`).join(', ') : 'cards.py dups exited 1'
+      out.card = c.card
+      return await lost(`the librarian retry left a duplicate: ${what}; remove the extra one, then run the ticket again`)
+    }
+    if (r && Array.isArray(r.warnings) && r.warnings.length) out.notes.push('duplicate check: ' + r.warnings.join('; '))
+  }
+}
 // an unreachable source has no card to validate (live run 2026-10-31 validated the words "none written"): skip the check
 const noCard = !c.reachable && !/\.(md|ya?ml)$/i.test(String(c.card || '').trim())
 let v = noCard ? null : await clerk('validate', [`Run cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')

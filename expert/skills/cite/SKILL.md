@@ -24,7 +24,9 @@ docs/workflows.md):
    or fetch and add the entry; the card with a verbatim quote; the index row when newly
    cached. A run that returns no result (or ends without its structured output) is run
    once more, told to look for what the first one wrote; a second empty run is the
-   outcome `lost`, with a note on the ticket's thread (#94), and ends this ticket only;
+   outcome `lost`, with a note on the ticket's thread (#94), and ends this ticket only.
+   After a retry, `cards.py dups` counts the key's entries (and the DOI's or arXiv id's)
+   in the bibliography and the cards at the pinpoint: more than one is `lost` likewise;
 3. `cards.py validate`: a failing card goes back to the librarian once, and a second
    failure is reported;
 4. the `citation` packet, then the ticket delivered with
