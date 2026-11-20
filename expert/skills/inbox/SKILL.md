@@ -10,7 +10,10 @@ docs/workflows.md) takes at most `budget.itemsPerRun` tickets (never more than 3
 time, by the routes of `${CLAUDE_PLUGIN_ROOT}/scripts/routes.py`, with the `--check`
 checkpoint after each, and makes every relay leg and its conclusion: a relay ticket ready
 for its return leg (`blocked`, waiting only on tickets that are all `delivered` or terminal)
-is closed by the script without the relay. Run from the library home.
+is closed by the script without the relay. A blocked ticket that is no relay (a verify
+ticket waiting on its falsifier request) is released (`released: true`, moved
+`blocked -> accepted`, then routed) once all it waits on is back; a rejected or cancelled
+wait releases it to the human instead. Run from the library home.
 
 `$ARGUMENTS`: empty, `--n N`, `--all` (list only: `py ${CLAUDE_PLUGIN_ROOT}/scripts/inbox.py --all`
 and stop), or ticket ids.

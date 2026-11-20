@@ -21,9 +21,11 @@ tool with
     args: {models: <the JSON object that py "${CLAUDE_PLUGIN_ROOT}/../academy/scripts/models.py" launches prints>, root: "<the absolute path of ${CLAUDE_PLUGIN_ROOT}/..>", claim: "<ns:id>", ticket: "T-NNNN" or omitted, question: "<if not 'may it be raised to proved?'>",
            mode: "blind" | "reword", base_pass: "<reword only>", base_subject: "<renamed label only>"}
 
-The script runs the blind `rigor-reviewer` run A, launches B (A's brief byte for byte,
-`run: B`) only when `decision_table.py` says `launch_b` and the statement hash has not
-moved, relaunches a run that did not land once, stops on a lost run, and hands the landed
+The script runs the blind `rigor-reviewer` run A, then holds the claim's falsifier
+(the order is attempt, A, falsifier, B: the human's design, 2026-11-20), launches B (A's
+brief byte for byte, `run: B`) only when `decision_table.py` says `launch_b`, the statement
+hash has not moved and the falsifier on record found nothing, relaunches a run that did
+not land once, stops on a lost run, and hands the landed
 runs to a `review-chair` stage that writes the record, the evidence, the proposal, the
 follow-up tickets and the packet (`references/conclude.md`). The `land_verdict` hook files
 each verdict; a hand-launched `rigor-reviewer` is refused by the `review_launch_guard` hook.
@@ -44,6 +46,19 @@ ask) in its report instead of filing them; `claims_propose_status` still goes ou
 report says the pass ran by hand.
 
 ## 2. After the workflow returns
+
+- **`awaiting-falsifier`**: A was CONFIRMED and the claim had no falsifier on record
+  (`references/conclude.md` section 1a). The chair filed the falsifier request
+  (`falsifier_request`, a `research` ticket to the Researcher with `final_to: scientist`)
+  and blocked the verify ticket on it; the pass stays open. Once the request is back,
+  the Expert's inbox releases the ticket (`inbox.py`, a `released` row) and runs this skill
+  on it again (a rejected or cancelled request releases it to the human instead): the pass resumes (A is tabled, not
+  relaunched) and B launches only if the falsifier found nothing. A pass with no ticket
+  never waits: it could not be resumed (`reviews.py` resumes a ticket's own pass only),
+  so the falsifier stage is skipped with a note in the record and B runs as before.
+- **`falsifier-counterexample`**: the falsifier broke the claim. No B, no status; the
+  counterexample went to the human as a `decision` ticket (the one rule for a
+  counterexample, `references/conclude.md` section 4.3) and is in the packet.
 
 - `notes` and `anomalies` go into your report verbatim (a skipped B, a relaunch, a lost
   run, a run file the workflow did not launch).
