@@ -876,6 +876,8 @@ class HooksJsonTests(unittest.TestCase):
             "ticket_edit_check.py": [("PostToolUse", "Edit|Write|MultiEdit")],
             "touch_record.py": [("PostToolUse", "Edit|Write|MultiEdit|NotebookEdit")],
             "error_ledger.py": [("PostToolUseFailure", None)],
+            # opt-in ("stopCheck": true): uncommitted work no live inbox run claimed (#101)
+            "stop_check.py": [("Stop", None)],
         })
 
     def test_scripts_import_the_vendored_copy(self):

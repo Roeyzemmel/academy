@@ -1086,6 +1086,107 @@ class TestCheckpointTouched(CheckpointBase):
         self.assertEqual(self.remote_branches(self.other_remote), ["refs/heads/main"])
 
 
+class TestCheckpointManifest(CheckpointBase):
+    """``--manifest FILE`` (#101 part 1): the per-repo paths a ticket changed (the inbox's
+    snapshot diff); exactly those are committed, in every repo that has any, on the ticket's
+    branch; ``--wip OUTCOME`` marks an unfinished ticket's commit."""
+
+    def setUp(self):
+        super().setUp()
+        self.mine = self.branch("expert")
+        for repo in (self.sub, self.other):
+            run(repo, "switch", "-q", "-c", self.mine)
+
+    def manifest(self, repos):
+        path = os.path.join(self._tmp.name, "manifest.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"ticket": "T-0059", "repos": repos}, f)
+        return path
+
+    def test_commits_exactly_the_manifest_paths_across_two_repos(self):
+        self.write(self.sub, "reviews/p/A.md", "verdict\n")
+        self.write(self.sub, "loose.txt", "not the ticket's\n")
+        self.write(self.other, "claims/paper/lem-x.md", "evidence row\n")
+        self.write(self.other, "a.txt", "changed\n")
+        m = self.manifest({"sub": ["reviews/p/A.md"], "other": ["a.txt", "claims/paper/lem-x.md"]})
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert", "--manifest", m)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.files(self.sub), ["reviews/p/A.md"])
+        self.assertEqual(self.files(self.other), ["a.txt", "claims/paper/lem-x.md"])
+        self.assertEqual(run(self.sub, "status", "--porcelain"), "?? loose.txt")
+        for repo, remote in ((self.sub, self.remote), (self.other, self.other_remote)):
+            self.assertEqual(run(repo, "log", "-1", "--format=%s"), "T-0059: checkpoint")
+            self.assertEqual(run(remote, "rev-parse", "refs/heads/" + self.mine),
+                             run(repo, "rev-parse", "HEAD"))
+        self.assertRegex(out, r"(?m)^sub %s @ \S+ \(1 files\) pushed$" % self.mine)
+        self.assertRegex(out, r"(?m)^other %s @ \S+ \(2 files\) pushed$" % self.mine)
+        self.assert_main_untouched()
+
+    def test_a_repo_outside_the_manifest_is_not_looked_at(self):
+        self.write(self.sub, "x.md")
+        self.write(self.other, "y.md")
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert",
+                               "--manifest", self.manifest({"sub": ["x.md"]}))
+        self.assertEqual(rc, 0, out + err)
+        self.assertNotIn("other ", out)
+        self.assertEqual(run(self.other, "status", "--porcelain"), "?? y.md")
+
+    def test_a_deleted_path_and_a_path_no_longer_dirty(self):
+        os.remove(os.path.join(self.sub, "a.txt"))
+        m = self.manifest({"sub": ["a.txt", "gone.md"]})        # gone.md: made and removed
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert", "--manifest", m)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.files(self.sub), ["a.txt"])
+        self.assertFalse(os.path.exists(os.path.join(self.sub, "a.txt")))
+
+    def test_a_staged_deletion_and_a_staged_move_commit_both_sides(self):
+        # review of ee7def0: 'git add -A -- <path>' of a path in neither worktree nor index
+        # failed with "pathspec did not match" and refused the whole repo, at every retry
+        self.write(self.sub, "old.md", "o\n")
+        self.write(self.sub, "keep.md", "k\n")
+        run(self.sub, "add", "old.md", "keep.md")
+        run(self.sub, "commit", "-q", "-m", "two files")
+        run(self.sub, "rm", "-q", "a.txt")
+        run(self.sub, "mv", "old.md", "new.md")
+        m = self.manifest({"sub": ["a.txt", "new.md", "old.md"]})
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert", "--manifest", m)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(sorted(run(self.sub, "show", "--name-only", "--no-renames", "--format=",
+                                    "HEAD").splitlines()), ["a.txt", "new.md", "old.md"])
+        self.assertEqual(run(self.sub, "status", "--porcelain"), "")
+        self.assertEqual(sorted(run(self.sub, "ls-files").splitlines()), ["keep.md", "new.md"])
+
+    def test_wip_message_for_an_unfinished_ticket(self):
+        self.write(self.sub, "half.md")
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert", "--wip", "blocked",
+                               "--manifest", self.manifest({"sub": ["half.md"]}))
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(run(self.sub, "log", "-1", "--format=%s"), "WIP: T-0059 unfinished (blocked)")
+        self.assertEqual(run(self.remote, "rev-parse", "refs/heads/" + self.mine),
+                         run(self.sub, "rev-parse", "HEAD"))
+
+    def test_a_repo_on_main_is_refused_as_before(self):
+        run(self.other, "switch", "-q", "main")
+        self.write(self.other, "y.md")
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert",
+                               "--manifest", self.manifest({"other": ["y.md"]}))
+        self.assertEqual(rc, 1)
+        self.assertIn("REFUSED: dirty on main", out)
+        self.assertEqual(ship.current(self.other), "main")
+
+    def test_manifest_excludes_only_and_touched_and_checks_its_paths(self):
+        m = self.manifest({"sub": ["x.md"]})
+        rc, out, err = self.cp("--ticket", "T-0059", "--manifest", m, "--only", "sub")
+        self.assertEqual(rc, 1)
+        self.assertIn("--manifest", err)
+        for bad in ({"nope": ["x.md"]}, {"sub": ["../x.md"]}, {"sub": ["/x.md"]},
+                    {"workspace": ["x.md"]}):          # never part of a checkpoint
+            rc, out, err = self.cp("--ticket", "T-0059", "--manifest", self.manifest(bad))
+            self.assertEqual(rc, 1, bad)
+        rc, out, err = self.cp("--ticket", "T-0059", "--manifest", os.path.join(self._tmp.name, "none.json"))
+        self.assertEqual(rc, 1)
+
+
 class TestCheckpointUsage(CheckpointBase):
     """U5: before the board commit, content-free usage summaries land in board/.usage/ and
     are staged by the ordinary ``add -A -- board/`` like .errors/."""

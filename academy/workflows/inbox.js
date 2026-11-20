@@ -236,6 +236,19 @@ const RELAY_OUT = { type: 'object', properties: {
   notes: { type: 'array', items: { type: 'string' }, description: 'note tickets filed to the Author, if any' } },
   required: ['decision', 'result', 'result_detail', 'child', 'notes'] }
 
+// #101 part 1 (the human's design, 2026-11-20): before a ticket that launches any agent, the
+// clerk records every home's dirty set as this run's claim (manifest.py snapshot); the ticket's
+// --check then ships exactly what changed since, in every home, as WIP when it is unfinished,
+// and the claim keeps the opt-in stop check (stop_check.py) off the run's files meanwhile.
+// One claim file per run and ticket (<run>-<id>.json: concurrent runs never overwrite each
+// other's; stale ones are removed at each snapshot and check): run_id names the run, else
+// the instances it works. snapshot: false (args) runs without it, as before: --check then ships the ticket's
+// repos by --only.
+const SNAPSHOT = A.snapshot !== false
+const RUN_ID = ('inbox-' + String(A.run_id || ((A.only && A.only.length) ? A.only.join('+') : 'all')))
+  .replace(/[^A-Za-z0-9@+._-]/g, '-').slice(0, 100)
+const SNAP = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
+  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit'] }
 const withDetail = r => (r && typeof r === 'object' && typeof r.detail !== 'string') ? Object.assign({}, r, { detail: '' }) : r
 const clerk = async (stage, lines, schema, label) => {
   const r = await launch(
@@ -243,6 +256,17 @@ const clerk = async (stage, lines, schema, label) => {
     { label: label || stage, phase: stage === 'list' ? 'List' : (stage === 'close-self' ? 'Close' : 'Tickets'), agentType: CLERK, schema, effort: 'low' })
   return schema === MOVE || schema === CHECK ? withDetail(r) : r
 }
+// a stage that throws (no structured output) is a failed snapshot or check, never a failed run
+const tryClerk = async (stage, lines, schema, label) => { try { return await clerk(stage, lines, schema, label) } catch (e) { return null } }
+async function snapshot(row) {
+  const r = await tryClerk('snapshot', [`py ${ROOT}/academy/scripts/manifest.py snapshot --ticket ${row.id} --run ${RUN_ID}`,
+    'Run it once (python3 where there is no py). Return the exit code the shell printed and the output verbatim.'], SNAP, `snapshot ${row.id}`)
+  const ok = !!(r && r.exit === 0)
+  if (!ok) notes.push(`${row.id}: no snapshot before it (${r ? String(r.output || '').replace(/\s+/g, ' ').slice(0, 120) : 'the stage returned nothing'}); its checkpoint ships its repos by --only, as before`)
+  return ok
+}
+const checkCmd = (row, i) => [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`,
+  'Run it once. Return the exit code the shell printed (echo $?), the ticket status, and the whole output verbatim in output.']
 const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `act as: ${inst}`, what], MOVE, label || `${row.id} ${what.split(':')[0]}`)
 
 const notes = []
@@ -536,7 +560,7 @@ const LEAD_OUT = { type: 'object', properties: {
   report: { type: 'string', description: 'your report, status first' } },
   required: ['decision', 'claim', 'created', 'brief', 'falsifier', 'pending', 'report'] }
 const REG = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code as printed by the shell' },
-  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit', 'output'] }
+  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit'] }
 const oneLine = (x, n) => String(x || '').replace(/\s+/g, ' ').trim().replace(/"/g, "'").slice(0, n || 200)
 
 async function leadResearcher(row, i) {
@@ -792,6 +816,8 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
         continue
       }
       spent += need
+      // a route that is clerk moves only (cost 0) writes no file: no snapshot for it
+      const snapped = SNAPSHOT && need > 0 && !LAUNCH_LIMIT.stopped ? await snapshot(row) : false
       const res = await handle(row, i)
       if (LAUNCH_LIMIT.stopped) {         // #115: a limit, whatever this ticket's stages made of it
         taken.push({ instance: i.name, id: row.id, route: row.route, outcome: 'stopped (usage limit?)' })
@@ -816,10 +842,14 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
         out.stopped = `an agent on ${row.id} returned nothing (a limit or an API error): nothing further launched (budget.md rule 4)`
         if (LAUNCH_LIMIT.stopped) { out.stopped = `${row.id}: ` + LIMIT_WHY; break outer }
         await move(row, i.name, 'note: append to the thread "interrupted: the workflow agent returned nothing; what was recorded is above"', `${row.id} interrupted`)
+        // #101: what the lost ticket wrote is still its manifest: --check commits it as WIP
+        if (snapped && !LAUNCH_LIMIT.stopped) {
+          const lc = readCheck(await tryClerk('check', checkCmd(row, i), CHECK, `check ${row.id}`), row.id)
+          if (!lc || !lc.shipped) notes.push(`${row.id}: its work was not committed as WIP (see the check's output); commit by hand`)
+        }
         break outer
       }
-      const chk = readCheck(await clerk('check', [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`,
-        'Run it once. Return the exit code the shell printed (echo $?), the ticket status, and the whole output verbatim in output.'], CHECK, `check ${row.id}`), row.id)
+      const chk = readCheck(await clerk('check', checkCmd(row, i), CHECK, `check ${row.id}`), row.id)
       if (LAUNCH_LIMIT.stopped) { out.stopped = `${row.id} (its check): ` + LIMIT_WHY; break outer }
       if (chk && !chk.shipped) notes.push(`${row.id}: the checkpoint did not ship everything (see its output); commit by hand`)
       // a ticket that ends blocked is parked (on its child, on the human, on a dead route): --check's exit 3 is

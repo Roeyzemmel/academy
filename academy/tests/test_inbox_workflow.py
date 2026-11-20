@@ -79,7 +79,8 @@ def child(cid, parent, frm, to, kind, final_to):
 @unittest.skipUnless(NODE, "node is not installed")
 class InboxWorkflowTests(unittest.TestCase):
     def run_wf(self, plan, **args):
-        a = {"root": "/academy", "models": {}}   # as the skills pass it; models=None: not given
+        # as the skills pass it; models=None: not given; snapshot: the #101 tests turn it on
+        a = {"root": "/academy", "models": {}, "snapshot": False}
         a.update(args)
         plan = dict(plan, __args=a)
         d = tempfile.mkdtemp(prefix="acad-inwf-")
@@ -93,6 +94,43 @@ class InboxWorkflowTests(unittest.TestCase):
         out = json.loads(p.stdout.strip().splitlines()[-1])
         self.assertNotIn("error", out, out.get("error"))
         return out["result"], [c["label"] for c in out["calls"]], out["calls"]
+
+    def test_snapshot_before_each_ticket_that_launches_an_agent(self):
+        # #101 part 1: the run's claim is recorded before the ticket; a clerk-only route has none
+        rows = [row("T-1"), row("T-2", how="reject", target=None, kind="prove")]
+        snap = {"exit": 0, "output": "snapshot of T-1 (run inbox-all): 0 dirty path(s)"}
+        plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0 notes"],
+                "snapshot T-1": [snap], "T-1 start": [OK], "math-writer T-1": ["done"],
+                "check T-1": [DONE], "T-2 reject": [OK], "check T-2": [DONE], "close author@t": [OK]}
+        res, labels, calls = self.run_wf(plan, snapshot=True)
+        self.assertEqual(labels[labels.index("snapshot T-1") + 1], "T-1 start")
+        self.assertNotIn("snapshot T-2", labels)
+        prompt = next(c["prompt"] for c in calls if c["label"] == "snapshot T-1")
+        self.assertIn("/academy/academy/scripts/manifest.py snapshot --ticket T-1 --run inbox-all", prompt)
+        _, _, calls = self.run_wf(dict(plan, **{"snapshot T-1": [snap]}), snapshot=True,
+                                  only=["author@t"])
+        self.assertIn("--run inbox-author@t",
+                      next(c["prompt"] for c in calls if c["label"] == "snapshot T-1"))
+
+    def test_a_failed_snapshot_is_a_note_and_the_ticket_goes_on(self):
+        plan = {"list": [{"instances": [inst("author@t", [row("T-1")])]}], "sweep author@t": ["0 notes"],
+                "snapshot T-1": [{"__throw": "no structured output"}], "T-1 start": [OK],
+                "math-writer T-1": ["done"], "check T-1": [DONE], "close author@t": [OK]}
+        res, labels, _ = self.run_wf(plan, snapshot=True)
+        self.assertEqual(res["taken"][0]["outcome"], "worked")     # it went on
+        self.assertIn("check T-1", labels)
+        self.assertIn("T-1: no snapshot before it", " ".join(res["notes"]))
+
+    def test_a_lost_ticket_that_was_snapshotted_is_checked_for_its_wip_commit(self):
+        rows = [row("T-1", target="lead-researcher", kind="research", to="researcher@u")]
+        plan = {"list": [{"instances": [inst("researcher@u", rows)]}],
+                "snapshot T-1": [{"exit": 0, "output": "ok"}], "T-1 start": [OK],
+                "lead-researcher T-1": [None], "T-1 interrupted": [OK],
+                "check T-1": [{"exit": 3, "status": "in-progress",
+                               "output": "T-1: unfinished (in-progress)", "detail": ""}]}
+        res, labels, _ = self.run_wf(plan, snapshot=True)
+        self.assertEqual(labels[-2:], ["T-1 interrupted", "check T-1"])
+        self.assertIn("nothing further launched", res["stopped"])
 
     def test_order_cap_and_sweep_first(self):
         listed = {"instances": [
