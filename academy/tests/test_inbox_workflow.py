@@ -317,6 +317,29 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("wait on the human", res["for_main"]["why"])
         self.assertEqual(res["passes"], 2)                     # pass 2 moved nothing: quiet
 
+    def test_a_later_listing_that_returns_nothing_ends_the_run_cleanly(self):
+        """#114: the weekly limit hit during a loop; list 2 returned nothing and the
+        close-out crashed on 'insts.some' of null."""
+        rows = [row("T-2", how="reject", target=None, kind="write", to="author@t")]
+        plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
+                "T-2 reject": [OK], "check T-2": [DONE], "list 2": [None], "close author@t": [OK]}
+        res, labels, _ = self.run_wf(plan, loop=True)
+        self.assertIn("returned nothing", res["stopped"])
+        self.assertIn("check_paper.py", " ".join(res["notes"]))     # the close-out ran on the last listing
+
+    def test_three_launches_returning_nothing_stop_the_run(self):
+        """#115: under a usage limit every launch fails; after three in a row nothing more is
+        launched and the result says why."""
+        rows = [row("T-1", target="clerk", kind="lookup", to="expert@t"),
+                row("T-2", target="clerk", kind="lookup", to="expert@t")]
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}], "T-1 start": [None], "check T-1": [None],
+                "T-2 start": [None]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertTrue(res.get("usage_limit"), res)
+        self.assertIn("usage limit", res["stopped"])
+        self.assertEqual(labels, ["list", "T-1 start", "check T-1", "T-2 start"])   # nothing after the third
+        self.assertNotIn("check T-2", labels)
+
     def test_a_later_listing_with_an_empty_home_keeps_the_home_seen_before(self):
         """#94 (the fix of 26b28cd): pass 2's listing came back with home '' and the
         nested prove threw 'args.home must be the Researcher home', ending the run."""

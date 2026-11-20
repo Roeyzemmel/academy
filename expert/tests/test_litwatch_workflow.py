@@ -96,6 +96,16 @@ class LitwatchTests(unittest.TestCase):
         self.assertIn("stray.md", res["anomalies"][0])
         self.assertIn("Searches lost", calls[-1]["prompt"])
 
+    def test_three_lost_scouts_still_get_their_record(self):
+        """review of aeba1f4: three lost scouts of the fan-out trip the usage-limit stop;
+        the record stage (record: true) still runs, so the fourth scout's hit is written."""
+        res, calls = self.run_wf({
+            "plan": [PLAN], "search categories": [None], "search anchors": [None],
+            "search keywords 1": [None], "search keywords 2": [{"hits": [], "ran": ["q"]}],
+            "record": [{"file": "f", "files_after": ["_header.md", "watch-2026-10-24.md", "f"]}]}, groups=4)
+        self.assertIn("record", [c["label"] for c in calls])
+        self.assertEqual(res["file"], "f")
+
     def test_no_header_stops_and_a_statement_is_one_scout(self):
         res, calls = self.run_wf({"plan": [dict(PLAN, ok=False, stop_reason="no header")]})
         self.assertEqual(res["reason"], "no header")
