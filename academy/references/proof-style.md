@@ -66,6 +66,25 @@ that would create a second statement, proof or recollection of the same thing.
   that uses it: give it once, before the group of results, and cite it. An item that holds
   by definition is proved by the words "by definition", with the definition cited.
 - **Background is stated once**, then cited, never re-derived (rule 9 says where).
+- **A section holds few statements** (the human, 2026-11-20: "there are way too many
+  statements for a section; the most I have ever seen was about 20 in papers, so this
+  should bother us"). About **20 numbered statements per section** (definitions, lemmas,
+  propositions, corollaries, examples and remarks together) is the ceiling. Past it,
+  statements are being made of what the reader supplies: stop and re-plan the section
+  with the human; do not keep adding. Before adding a statement, ask whether the
+  narrative needs it or it contributes a technique; if neither, it is a sentence, an
+  appendix item, or nothing.
+- **Elementary properties are one sentence, not a lemma each** (the human, 2026-11-20).
+  Properties a structure inherits in an elementary way from a classical setting are named
+  together in one sentence near the definition ("the flat structures defined here inherit
+  many properties of …, including …; the proofs are elementary and omitted"). A statement
+  the human calls trivial is used without proof (rule 1, folklore). The less trivial of
+  these proofs may go to an appendix, as a proposal to the human (rule 9).
+- **General facts in general, special facts once** (the human, 2026-11-20). A property that
+  holds for a general construction (normal coverings) is stated once in that generality,
+  in the preliminaries or an appendix; the special case (the unfolding) gets only what is
+  not a special case of it, collected in one statement ("Properties of the unfolding")
+  that says which known discussions it generalises.
 
 ## 3. Short statements in a chain, not one long proof
 
@@ -73,7 +92,10 @@ that would create a second statement, proof or recollection of the same thing.
   can pose as lemmas"), even an easy one, even in a short proof. Extract the steps that hold
   without the main statement's special hypothesis, and keep the step that uses it in the
   main proof. Never cite a paragraph or step inside another proof: an argument used
-  elsewhere is a lemma.
+  elsewhere is a lemma. **Bounded by rule 2** (the human, 2026-11-20): a step a graduate
+  reader supplies at once is a clause (rule 7), not a lemma, and extraction never pushes a
+  section past its statement budget. Extracting easy steps one by one is how a section
+  fills with simple statements that repeat each other.
 - **A proof is short.** Most are 1–10 lines. Past about **15 lines of output** (the typeset
   PDF at the paper's text width, displays included; the rendered Markdown for a notebook
   attempt; never the source), something extractable has been missed. A proof that keeps
@@ -95,7 +117,12 @@ that would create a second statement, proof or recollection of the same thing.
   statement only when it is more general than an item, or treats a special case the item is
   then reduced to; the item's proof applies or reduces to it in one sentence ("Item (ii)
   follows from Lemma B applied to π."). A lemma that would state exactly what an item
-  states is not extracted: the item is proved in place.
+  states is not extracted: the item is proved in place. **An item another item implies**
+  is stated as its consequence (the human, 2026-11-20), not proved on its own.
+- **Lemmas about one construction are one proposition** (the human, 2026-11-20): several
+  lemmas on the same object or construction (the lifts of a map, say) are merged into a
+  single proposition with items, and the first item's proof carries what the others would
+  repeat, so the proof is shorter than the lemmas' together.
 - **A definition defines one notion** (the human, 2026-11-14), and the length limit applies to
   it too. Split a definition that introduces several objects into consecutive definitions,
   with short discussion between them (SW08's way). Define a property of an element in
@@ -189,6 +216,12 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
   routine's common name"). Write "by induction on the number of marked points", "by
   compactness", "WLOG *V* = *B(x, r)*", "passing to a subsequence": one clause, no further
   justification. A non-routine WLOG gets its reason, or a Remark before the statement.
+- **Folklore notation and routine are not spelled out** (the human, 2026-11-20: "the proof
+  uses many symbols … when the proof is generally simple"). A symbol from folklore is
+  defined explicitly only when the text uses it extensively; otherwise a sentence of
+  intuition stands for what working through the folklore routine shows. A routine
+  verification (a chart transition, say) is named, not written out. A simple proof with
+  many symbols is a defect even when correct.
 - **No "clearly" or "it is easy to see"** on a step that is not routine. On a routine step
   the reason (rule 8) is shorter and better.
 
@@ -222,6 +255,10 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 - **Credit the original** (the human, 2026-11-14): cite the original with the exact theorem,
   as well as the source it was read in. An analogue of a published result follows the
   original proof's lines, and says so with a pinpoint.
+- **A report of sources is short** (the human, 2026-11-20): one general pointer
+  ("definitions in more restricted settings are in [A], [B]"), less exact rather than
+  exhaustive. A source's own setting is explained only when it matters to the paper's
+  narrative, for instance a popular case the reader knows.
 - **Check the cited hypotheses in place**, one short clause each, just before applying the
   result (`citation-discipline`).
 - **Where background lives** (the human, 2026-11-14: "Facts should appear in the section by
@@ -235,6 +272,20 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 - **One working setting** (the human, 2026-11-14): fix the setting whose structure is
   nicest and state every result in it. Pass to another only where a result needs it, once,
   through one cited remark, not in each proof.
+- **Nested settings: reduce, do not restate** (the human, 2026-11-20). When the paper has a
+  base setting and wider or special ones (flat structures, dihedral flat structures,
+  billiard tables), the plan is: state the basic properties in the base setting; define
+  the wider setting together with a short list of its properties (about six) that make the
+  reductions between the classes; then state each shared property once, for the wider
+  setting, proved where needed in two steps inside one proof (the base case, then the
+  reduction), never as one lemma per setting, since the statements would be almost the
+  same. A special setting is given as an explicit example of the general one, and only
+  what does not follow from the general setting alone is stated for it; that list is
+  short, and the writer asks the human about each item on it.
+- **Conventions are not pathologies** (the human, 2026-11-20). A remark that lists
+  difficulties holds only real ones: a choice is a convention stated with the definition,
+  a phenomenon is an example, and items that are the same thing (marked mirror points,
+  sector points and cone points) are joined.
 - **Letter families by role** (the human, 2026-11-14): each kind of object has a fixed
   letter family, in a fixed order of precedence, set once in the home's notation decisions.
   A derived object is named by decorating its letter, never by a fresh letter or one
@@ -275,7 +326,8 @@ never change the verdict. The findings that matter most, in the rules' order:
 - a missing piece passed off as routine, a proof dropped as folklore without the human's
   word, or a statement resting on an unverified input without the unverified colour (rule 1);
 - a duplicate: an item copying a lemma, a statement another contains, a second proof, a
-  restated fact or a recalled definition (rule 2);
+  restated fact or a recalled definition; a section past about 20 statements, or an
+  elementary property given its own lemma (rule 2);
 - a step with its own conclusion left inside a long proof, or a proof over about 15 output
   lines (rule 3);
 - a statement out of dependency order, in the wrong environment for its role, or listing
