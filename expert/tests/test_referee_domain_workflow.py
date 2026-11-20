@@ -122,7 +122,8 @@ class RefereeMaxTierTests(unittest.TestCase):
 START = {"ok": True, "detail": "", "pack": "translation-surfaces", "changes": ["add the Veech dichotomy entry"],
          "acted_as": "expert@t", "academy_root": "/a", "diff_before": []}
 EDIT = {"files": ["theorems/dynamics.md"], "changelog": "- 2026-10-31 T-0800: theorems/dynamics.md Veech dichotomy",
-        "card": "cards/V89/thm-1.md", "unverified": False, "shared": False, "clash": ""}
+        "card": "cards/V89/thm-1.md", "unverified": False, "shared": False, "clash": "",
+        "already_present": False, "where": ""}
 
 
 @unittest.skipUnless(NODE, "node is not installed")
@@ -136,6 +137,39 @@ class DomainTests(unittest.TestCase):
         self.assertEqual(res["anomalies"], [])
         self.assertIn("deliver: deliver: true", next(c for c in calls if c["label"] == "close")["prompt"])
         self.assertNotIn("packet", labels)
+
+    def test_a_change_already_present_is_delivered_as_such(self):
+        """#118 (T-0997): a re-run whose row was already present must not log a second line
+        and block; nothing changed is delivered as 'already present'."""
+        same = dict(EDIT, files=[], changelog="", card="", already_present=True,
+                    where="notation.md row 'saddle connection'")
+        res, labels, calls, err = run("domain.js", {
+            "start": [START], "librarian": [same],
+            "diff": [{"changed": [], "changelog_last": "- 2026-10-31 T-0800: notation.md row",
+                      "logged_before": ["- 2026-10-31 T-0800: notation.md row"]}],
+            "close": [MOVE]}, {"ticket": "T-0800"})
+        self.assertIsNone(err, err)
+        self.assertEqual((res["outcome"], res["anomalies"]), ("already-present", []))
+        close = next(c for c in calls if c["label"] == "close")["prompt"]
+        self.assertIn("deliver: deliver: true", close)
+        self.assertIn("already present", close)
+        self.assertIn("edit nothing and append no line", next(c for c in calls if c["label"] == "librarian")["prompt"])
+        # reported present, but a line was appended anyway: the check catches it
+        res, labels, calls, err = run("domain.js", {
+            "start": [START], "librarian": [same],
+            "diff": [{"changed": ["CHANGELOG.md"], "changelog_last": "- 2026-10-31 T-0800: again",
+                      "logged_before": ["- 2026-10-31 T-0800: notation.md row"]}],
+            "close": [MOVE]}, {"ticket": "T-0800"})
+        self.assertEqual(res["outcome"], "blocked-on-check")
+        self.assertIn("CHANGELOG.md", " ".join(res["anomalies"]))
+        # never logged, or no place named: not taken on the librarian's word
+        for lib, logged in ((dict(same, where=""), ["x T-0800"]), (same, [])):
+            res, labels, calls, err = run("domain.js", {
+                "start": [START], "librarian": [dict(lib, shared=True)],
+                "diff": [{"changed": [], "changelog_last": "x", "logged_before": logged}],
+                "close": [MOVE]}, {"ticket": "T-0800"})
+            self.assertEqual(res["outcome"], "blocked-on-check")
+            self.assertNotIn("packet", labels)
 
     def test_an_extra_file_parks_the_ticket_on_the_human(self):
         res, labels, calls, err = run("domain.js", {

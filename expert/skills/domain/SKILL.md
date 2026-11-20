@@ -33,7 +33,11 @@ order is code (2026-10-31; docs/workflows.md):
    `theorems/unverified.md`;
 3. the check: `git diff` of `domains/<pack>` may list only the files the change names,
    plus `CHANGELOG.md`, and the last changelog line must name the ticket. A mismatch
-   parks the ticket on the human instead of delivering it;
+   parks the ticket on the human instead of delivering it. A change an earlier run of the
+   ticket already made is not made again (#118): the librarian edits nothing, appends no
+   line and says where it is; the script accepts that only when it names a place and the
+   committed `CHANGELOG.md` already has a line for the ticket, then delivers it as
+   "already present" (no second notation packet);
 4. a `notation` packet when the change alters a symbol or a statement other instances
    rely on (with a decision when it could clash with a project's), then the ticket.
 
