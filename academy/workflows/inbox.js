@@ -162,9 +162,11 @@ const LIST = {
   },
   required: ['instances'],
 }
-const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status', 'detail'] }
+// #124: detail is asked for and never required (23 clerk runs lost to 'must have required property
+// detail' in the ledger since 2026-11-14): clerk() fills in '' for it, and the code reads that
+const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status'] }
 const CHECK = { type: 'object', properties: { exit: { type: 'number', description: 'the process exit code as printed by the shell, never inferred' },
-  status: { type: 'string' }, output: { type: 'string', description: 'the command output, verbatim' }, detail: { type: 'string' } }, required: ['exit', 'status', 'output', 'detail'] }
+  status: { type: 'string' }, output: { type: 'string', description: 'the command output, verbatim' }, detail: { type: 'string' } }, required: ['exit', 'status', 'output'] }
 // the check's verdict is read from its own first line ("T-NNNN: <state> (<status>)"), not from the clerk's reading
 // of it (live run 2026-10-31: a refused checkpoint made the clerk report exit 3 for a delivered ticket)
 const FINISHED = /^(delivered|closed|rejected|cancelled)$/
@@ -189,9 +191,13 @@ const RELAY_OUT = { type: 'object', properties: {
   notes: { type: 'array', items: { type: 'string' }, description: 'note tickets filed to the Author, if any' } },
   required: ['decision', 'result', 'result_detail', 'child', 'notes'] }
 
-const clerk = (stage, lines, schema, label) => launch(
-  `WORKFLOW STAGE ${stage} of the academy-inbox workflow.\n` + lines.filter(Boolean).join('\n'),
-  { label: label || stage, phase: stage === 'list' ? 'List' : (stage === 'close-self' ? 'Close' : 'Tickets'), agentType: CLERK, schema, effort: 'low' })
+const withDetail = r => (r && typeof r === 'object' && typeof r.detail !== 'string') ? Object.assign({}, r, { detail: '' }) : r
+const clerk = async (stage, lines, schema, label) => {
+  const r = await launch(
+    `WORKFLOW STAGE ${stage} of the academy-inbox workflow.\n` + lines.filter(Boolean).join('\n'),
+    { label: label || stage, phase: stage === 'list' ? 'List' : (stage === 'close-self' ? 'Close' : 'Tickets'), agentType: CLERK, schema, effort: 'low' })
+  return schema === MOVE || schema === CHECK ? withDetail(r) : r
+}
 const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `act as: ${inst}`, what], MOVE, label || `${row.id} ${what.split(':')[0]}`)
 
 const notes = []
@@ -262,7 +268,7 @@ for (const i of insts.filter(i => i.role === 'author')) {
 async function relayForward(row, inst, r) {
   const final = row.final_to || r.final_default || ''
   const st = await move(row, inst, 'start: move it to in-progress (open -> accepted -> in-progress, or accepted -> in-progress); leave an in-progress ticket as it is')
-  if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
+  if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail || 'no reason given' : 'lost') }
   const rel = await launch(
     `WORKFLOW RELAY forward leg. Ticket ${row.id}, which you relay for ${inst}; it is in-progress. ` +
     `Decide per your agent definition: fail fast (return decision fail-fast with the reason and the ## Result text), ` +
@@ -426,7 +432,7 @@ const oneLine = (x, n) => String(x || '').replace(/\s+/g, ' ').trim().replace(/"
 async function leadResearcher(row, i) {
   const inst = i.name
   const st = await move(row, inst, 'start: move it to in-progress')
-  if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
+  if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail || 'no reason given' : 'lost') }
   const r = await launch(
     `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
     'Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ' +
@@ -609,11 +615,11 @@ async function handle(row, i) {
       return r === null ? { lost: true } : { outcome: 'landed', detail: String(r).split('\n')[0] }
     }
     const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py --home ' + i.home + '`; the statements to leave byte for byte)' : ''))
-    if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail : 'lost') }
+    if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail || 'no reason given' : 'lost') }
     const r = await launch(
       `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
       `Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ` +
-      (i.role === 'author' ? `Pinned statements, to leave byte for byte: ${st.detail}\n` +
+      (i.role === 'author' ? (st.detail ? `Pinned statements, to leave byte for byte: ${st.detail}\n` : `Pinned statements: the start stage returned none; run \`py ${ROOT}/author/scripts/pinned.py --home ${i.home}\` before editing and leave those byte for byte.\n`) +
         (taken.length ? `Earlier tickets of this run: ${JSON.stringify(taken.map(t => [t.id, t.outcome, t.detail]))}\n` : '') : '') +
       `Finish by delivering it (tickets_update deliver: true, result one line) or, if you cannot, blocked with waiting_on and the reason.`,
       { label: `${rt.target} ${row.id}`, phase: 'Tickets', agentType: type })
@@ -706,7 +712,7 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
           const why = String(res.detail || 'no result recorded').replace(/\s+/g, ' ').slice(0, 200)
           const m = await move(row, i.name, `block: it was in-progress before this run and is still unfinished after it. Move it to blocked with waiting_on ["human"] and the thread line "unfinished after two inbox runs (${why}): decide how it goes on"`, `${row.id} park`)
           if (m && m.ok) { outcome = 'parked on the human'; notes.push(`${row.id} was in-progress before the run and is still unfinished: parked on the human (/academy:decide)`) }
-          else notes.push(`${row.id} is unfinished for the second run and could not be parked: ${m ? m.detail : 'the move returned nothing'}`)
+          else notes.push(`${row.id} is unfinished for the second run and could not be parked: ${m ? m.detail || 'no reason given' : 'the move returned nothing'}`)
         } else {
           notes.push(`${row.id} is unfinished: it is left as it is and not taken again this run`)
         }

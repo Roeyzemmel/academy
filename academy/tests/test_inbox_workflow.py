@@ -30,7 +30,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -648,6 +648,41 @@ class InboxWorkflowTests(unittest.TestCase):
                                           "close author@t": [OK]})
         self.assertNotIn("cannot launch prover", next(c for c in calls if c["label"] == "math-writer T-1")["prompt"])
         self.assertEqual("worked", res["taken"][0]["outcome"])
+
+    # ---- #124: a clerk that leaves out 'detail' costs no run -----------------------------
+
+    def _author_one(self, start, check):
+        rows = [row("T-1", target="math-writer", kind="write")]
+        return self.run_wf({"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
+                            "T-1 start": [start], "math-writer T-1": ["done"], "check T-1": [check],
+                            "close author@t": [OK]})
+
+    def test_move_and_check_schemas_do_not_require_detail(self):
+        """#124: 23 inbox-clerk runs failed 'must have required property detail' (ledger since
+        2026-11-14): MOVE and CHECK keep the property but no longer require it."""
+        _res, _labels, calls = self._author_one(OK, DONE)
+        for label in ("T-1 start", "check T-1", "close author@t"):
+            schema = next(c for c in calls if c["label"] == label)["schema"]
+            self.assertIn("detail", schema["properties"], label)
+            self.assertNotIn("detail", schema["required"], label)
+        # what the code reads stays required
+        self.assertEqual(set(next(c for c in calls if c["label"] == "T-1 start")["schema"]["required"]), {"ok", "status"})
+        self.assertEqual(set(next(c for c in calls if c["label"] == "check T-1")["schema"]["required"]), {"exit", "status", "output"})
+
+    def test_a_move_and_a_check_without_detail_lose_nothing(self):
+        res, labels, calls = self._author_one({"ok": True, "status": "in-progress"},
+                                              {"exit": 0, "status": "delivered", "output": "T-1: delivered (delivered)"})
+        self.assertEqual(res["taken"][0]["outcome"], "worked")
+        prompt = next(c for c in calls if c["label"] == "math-writer T-1")["prompt"]
+        self.assertNotIn("undefined", prompt)
+        self.assertIn("pinned.py", prompt)              # the writer is told to read them itself
+        self.assertNotIn("undefined", json.dumps(res))
+
+    def test_a_failed_start_without_detail_says_so_plainly(self):
+        res, _labels, _calls = self._author_one({"ok": False, "status": "open"},
+                                                {"exit": 3, "status": "open", "output": "T-1: open (open)"})
+        self.assertEqual(res["taken"][0]["outcome"], "unfinished")
+        self.assertNotIn("undefined", json.dumps(res))
 
     def test_root_is_required(self):
         plan = {"__args": {}}
