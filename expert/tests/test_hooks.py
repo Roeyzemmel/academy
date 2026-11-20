@@ -217,6 +217,46 @@ class LandVerdictTests(unittest.TestCase):
         for k in ("mode", "base_pass", "base_hash", "reword_scope"):
             self.assertNotIn(k, meta)
 
+    def test_a_suggested_dependency_is_kept_in_the_record(self):
+        """2026-11-20: a CONFIRMED with add_dependency keeps the suggestion."""
+        text = REPORT.replace("modulo: none", "modulo: none\nadd_dependency: paper:lem:y, "
+                                              "bib:LMW16#Thm11")
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", text))
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(self.pass_dir(), "A.md"), encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertEqual(meta["add_dependency"], ["paper:lem:y", "bib:LMW16#Thm11"])
+        self.assertNotIn("mode", meta)
+
+    def test_a_record_without_a_suggestion_has_no_amend_fields(self):
+        fixtures.run_script("land_verdict.py", stop_event("expert:rigor-reviewer", REPORT))
+        with open(os.path.join(self.pass_dir(), "A.md"), encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        for k in ("add_dependency", "amended_with", "mode"):
+            self.assertNotIn(k, meta)
+
+    def test_an_amend_run_lands_as_B_in_the_same_pass_with_its_fields(self):
+        text = REPORT.replace("run: A", "run: B\nmode: amend\nbase_pass: 2026-09-28-T-0007\n"
+                                        "base_hash: 0123456789abcdef\n"
+                                        "amended_with: paper:lem:y")
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", text))
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(self.pass_dir(), "B.md"), encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertEqual((meta["run"], meta["mode"], meta["base_pass"], meta["base_hash"],
+                          meta["amended_with"]),
+                         ("B", "amend", "2026-09-28-T-0007", "0123456789abcdef",
+                          ["paper:lem:y"]))
+
+    def test_an_amend_block_without_its_base_blocks(self):
+        text = REPORT.replace("run: A", "run: B\nmode: amend\namended_with: paper:lem:y")
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", text))
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("base_pass", out["reason"])
+
     def test_a_reword_block_without_its_base_blocks_once(self):
         bad = self.REWORD.replace("base_hash: 0123456789abcdef", "base_hash: not in brief")
         code, out, err = fixtures.run_script("land_verdict.py",
