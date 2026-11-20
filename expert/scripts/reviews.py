@@ -245,8 +245,9 @@ def check_base_subject(subject, base_subject, supersedes_of=None):
 def open_pass(home, subject, ticket=None, now=None, reword_of=None, base_subject=None,
               supersedes_of=None):
     """Open a pass on ``subject`` and return its name; the same name again if that pass
-    is already open (a rerun of the same step). Raises Refused while another pass on
-    the subject is open. ``reword_of`` opens a reword pass on that base pass (T-0347);
+    is already open (a rerun of the same step), and the name of the subject's one open
+    pass when it was opened for the same ``ticket`` (a rerun on another day, #89).
+    Raises Refused while another pass on the subject is open. ``reword_of`` opens a reword pass on that base pass (T-0347);
     refused unless the base is CONFIRMED x2 (``base_decision``). ``base_subject``
     (T-0476) reads the base pass under that id instead, refused unless ``subject``'s
     record supersedes it (``check_base_subject``)."""
@@ -262,6 +263,12 @@ def open_pass(home, subject, ticket=None, now=None, reword_of=None, base_subject
         base_hash = a.get("statement_hash") or ""
         name += REWORD_SUFFIX
     others = [p for p in open_passes(home, subject) if p != name]
+    mine = [p for p in others if ticket and _pass_ticket(home, subject, p) == ticket
+            and p.endswith(REWORD_SUFFIX) == bool(reword_of)]
+    if ticket and others and others == mine and len(mine) == 1:
+        # #89: a rerun of this ticket on another day resumes its own open pass (the runs
+        # already landed there are concluded, not relaunched) instead of being refused
+        return mine[0]
     if others:
         raise Refused("%s already has an open pass %s (no decision.md): conclude it, or "
                       "close it with `reviews.py abandon %s %s --reason ...`, before "
@@ -278,6 +285,16 @@ def open_pass(home, subject, ticket=None, now=None, reword_of=None, base_subject
         if base_subject:
             fh.write("base_subject: %s\n" % base_subject)
     return name
+
+
+def _pass_ticket(home, subject, pass_name):
+    """The ticket a pass was opened for: its ``.open`` note's ``ticket:``, else the
+    ``T-NNNN`` its name ends with; '' when neither says."""
+    t = pass_note(home, subject, pass_name).get("ticket", "")
+    if t and t != "none":
+        return t
+    m = re.search(r"(T-\d{4,})(?:%s)?$" % re.escape(REWORD_SUFFIX), pass_name)
+    return m.group(1) if m else ""
 
 
 def pass_note(home, subject, pass_name):

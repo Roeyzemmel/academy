@@ -96,6 +96,42 @@ class GateTests(unittest.TestCase):
         self.assertNotIn("CONFIRMED", b["prompt"])        # B is told nothing of A
         self.assertEqual(out["result"]["anomalies"], [])
 
+    def test_a_resumed_pass_concludes_what_landed(self):
+        """#89: a rerun of the ticket resumes its open pass: A (GAP) landed on this
+        statement is tabled and concluded, not relaunched."""
+        prep = dict(PREP, landed=[{"run": "A", "statement_hash": "abcdef12"}])
+        out, labels, _ = self.run_wf({"prepare": prep, "table A": tab("GAP", "single-negative"),
+                                      "conclude": DONE})
+        self.assertEqual(labels, ["prepare", "table A", "conclude"])
+        self.assertIn("kept, not relaunched", " ".join(out["result"]["notes"]))
+
+    def test_a_landed_file_on_another_statement_is_never_concluded_on(self):
+        """#89 review: prepare listed nothing, but the table reads an older A.md: stop."""
+        t = dict(tab("GAP", "single-negative"), run_hash="00000000")
+        out, labels, _ = self.run_wf({"prepare": PREP, "run A": "r", "table A": t})
+        self.assertEqual(out["result"]["outcome"], "stale-pass")
+        self.assertNotIn("conclude", labels)
+        self.assertIn("reviews.py abandon", out["result"]["reason"])
+
+    def test_a_resumed_pass_with_b_but_no_a_is_not_resumed(self):
+        prep = dict(PREP, landed=[{"run": "B", "statement_hash": "abcdef12"}])
+        out, labels, _ = self.run_wf({"prepare": prep})
+        self.assertEqual((labels, out["result"]["outcome"]), (["prepare"], "not-started"))
+
+    def test_a_resumed_pass_keeps_its_earlier_files_without_an_anomaly(self):
+        prep = dict(PREP, landed=[{"run": "A", "statement_hash": "abcdef12"}])
+        done = dict(DONE, run_files=["A.md", "A-2.md", "A-noverdict.md", "decision.md"])
+        out, labels, _ = self.run_wf({"prepare": prep, "table A": tab("GAP", "single-negative"),
+                                      "conclude": done})
+        self.assertEqual(out["result"]["anomalies"], [])
+
+    def test_a_resumed_pass_on_another_statement_is_not_mixed(self):
+        prep = dict(PREP, landed=[{"run": "A.md", "statement_hash": "00000000"}])
+        out, labels, _ = self.run_wf({"prepare": prep})
+        self.assertEqual(labels, ["prepare"])
+        self.assertEqual(out["result"]["outcome"], "not-started")
+        self.assertIn("reviews.py abandon", out["result"]["reason"])
+
     def test_a_moved_statement_stops_b(self):
         out, labels, _ = self.run_wf({"prepare": PREP, "run A": "r",
                                       "table A": tab("CONFIRMED", "awaiting-b", True, "ffff0000"),

@@ -128,6 +128,7 @@ const ROW = {
     id: { type: 'string' }, kind: { type: 'string' }, status: { type: 'string' },
     from: { type: 'string' }, to: { type: 'string' }, final_to: { type: 'string' }, parent: { type: 'string', description: 'the parent ticket, or empty' },
     blocked: { type: 'string', description: 'the row\'s blocked state (e.g. pending), or empty' },
+    title: { type: 'string', description: 'the ticket\'s title, verbatim (the verify route reads its claim from it, #89)' },
     refs: { type: 'array', items: { type: 'string' } },
     budget_runs: { type: 'number' },
     route: { type: 'object', properties: { how: { type: 'string' }, target: { type: ['string', 'null'] }, why: { type: 'string' } }, required: ['how', 'target', 'why'] },
@@ -327,6 +328,42 @@ async function developerReviewed(row, i) {
 
 const firstRef = (row, re) => (row.refs || []).find(x => re.test(x)) || ''
 
+// #89: a verify ticket reviews the claim its title names, never the first namespaced ref
+// (often the parent). The claim refs are the namespaced ids of a registry statement (not
+// file:, bib:, check:, or lab:, whose results are reviewed as experiments). In order: the
+// claim ref the title names (with or without its namespace); else the one namespaced id the
+// title names (a lone ref is often the parent: the title wins, T-1500); else the only claim
+// ref; else '' (several, or none: back to the main session, never a guess).
+const ID_CH = "[\\p{L}\\p{N}_:\\-′']"
+const RE_QID = new RegExp(`^[a-z][a-z0-9]*:[\\p{L}]${ID_CH.replace(']', '.]')}*$`, 'u')
+const NOT_CLAIM = /^(file|bib|check|lab|https?|doi|arxiv):/
+const LABEL_NS = /^(lem|thm|defn?|cor|prop|fact|rmk|obs|ex|claim|conj|eq|sec|fig|tab):/
+const escRe = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// a whole id in the text: not inside a longer id (a '.' or ':' ends it unless a word follows)
+const namesId = (text, id) => new RegExp(`(?<![\\p{L}\\p{N}_.:\\-′'])${escRe(id)}(?![\\p{L}\\p{N}_\\-′']|[.:][\\p{L}\\p{N}_])`, 'u').test(text || '')
+function titleIds(title) {
+  const out = []
+  const re = new RegExp(`(?<![\\p{L}\\p{N}_.:\\-′'])([a-z][a-z0-9]*:\\p{L}[\\p{L}\\p{N}_.:\\-′']*)`, 'gu')
+  for (const m of String(title || '').matchAll(re)) {
+    const id = m[1].replace(/[.:]+$/, '')
+    if (!NOT_CLAIM.test(id) && !LABEL_NS.test(id) && !out.includes(id)) out.push(id)
+  }
+  return out
+}
+function verifyClaim(row) {
+  const ids = (row.refs || []).filter(x => RE_QID.test(x) && !NOT_CLAIM.test(x))
+  const title = row.title || ''
+  const inTitle = ids.filter(x => namesId(title, x) || namesId(title, x.slice(x.indexOf(':') + 1)))
+  if (inTitle.length === 1) return { claim: inTitle[0] }
+  if (inTitle.length > 1) return { claim: '', why: `the title names several refs (${inTitle.join(', ')})` }
+  const named = titleIds(title)
+  if (named.length === 1) return { claim: named[0], from_title: !ids.includes(named[0]) }
+  if (named.length > 1) return { claim: '', why: `the title names several ids (${named.join(', ')}) and none is a ref` }
+  if (ids.length === 1) return { claim: ids[0] }
+  if (ids.length > 1) return { claim: '', why: `several claim refs (${ids.join(', ')}) and the title names none of them` }
+  return { claim: '', why: 'neither its refs nor its title name a claim' }
+}
+
 // ---- the lead-researcher's proof work goes back to the main session (T-1271) -------------
 // Inside this run an agent has no Agent or Workflow tool, so the lead cannot launch prover
 // or /researcher:prove (live 2026-11-14/15: T-1257 blocked on the human, T-1264 left
@@ -523,8 +560,10 @@ async function handle(row, i) {
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:verify') {
-      const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/)
-      if (!claim) return { for_main: { why: 'a verify ticket whose refs name no claim', ticket: row.id, instance: inst } }
+      const vc = verifyClaim(row)
+      if (!vc.claim) return { for_main: { why: `a verify ticket naming no single claim (#89): ${vc.why}; ask its sender (${row.from || 'the sender'}) to put the claim in refs`, ticket: row.id, instance: inst } }
+      const claim = vc.claim
+      if (vc.from_title) notes.push(`${row.id}: the claim ${claim} was read from the title (no claim in refs)`)
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }

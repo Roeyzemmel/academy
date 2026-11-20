@@ -232,6 +232,32 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual([w["args"]["models"] for w in wfs], [{}, {}])   # no map given: an empty one
         self.assertNotIn("models", labels)
 
+    def test_verify_takes_the_claim_its_title_names(self):
+        """#89: the first namespaced ref is often the parent; the title decides, several
+        refs and none in the title go back to the main session, a title-only claim is used."""
+        def one(title, refs):
+            r = dict(row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=refs),
+                     title=title)
+            plan = {"list": [{"instances": [inst("expert@t", [r])]}],
+                    "workflow verify.js": [{"outcome": "x"}], "check T-1": [DONE]}
+            return self.run_wf(plan)
+        res, labels, calls = one("Verify lem:child after the restyle", ["T-0003", "paper:lem:parent", "paper:lem:child"])
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["claim"], "paper:lem:child")
+        res, labels, calls = one("Verify the lemma", ["paper:lem:parent", "paper:lem:child"])
+        self.assertNotIn("workflow verify.js", labels)
+        self.assertIn("naming no single claim", res["for_main"]["why"])
+        # a lone ref is often the parent: the id the title names wins (#89 review)
+        res, labels, calls = one("Verify s1:CHILD-2", ["s1:PARENT-1"])
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["claim"], "s1:CHILD-2")
+        res, labels, calls = one("Verify s1:CLASS-5: the lemma", ["s1:CLASS-1", "s1:CLASS-5", "lab:2026-11-01_x"])
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["claim"], "s1:CLASS-5")
+        self.assertFalse(any("read from the title" in n for n in res["notes"]))
+        res, labels, calls = one("Verify lem:strip-bound", [])
+        self.assertNotIn("workflow verify.js", labels)
+        res, labels, calls = one("Verify s1:GEO-3 (reword)", ["T-0003"])
+        self.assertEqual(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["claim"], "s1:GEO-3")
+        self.assertIn("read from the title", " ".join(res["notes"]))
+
     def test_the_inbox_passes_its_map_and_resolves_no_model_itself(self):
         """T-0350 with T-1682: the inbox runs no model stage; the map it was given goes to
         every nested workflow as it is, whose launchMax resolves a max-tier agent the map

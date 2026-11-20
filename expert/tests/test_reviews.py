@@ -100,6 +100,20 @@ class RewordPassTests(unittest.TestCase):
         code, out, err = self.run_cli("new-pass", SUBJ, "--ticket", "T-0400")
         self.assertEqual(code, 1)
 
+    def test_a_rerun_of_the_same_ticket_resumes_its_open_pass(self):
+        """#89: T-0895's pass opened one day is resumed by the same ticket the next day;
+        another ticket is still refused while it is open."""
+        import datetime
+        import reviews
+        day1, day2 = datetime.datetime(2026, 11, 19, 9), datetime.datetime(2026, 11, 20, 9)
+        p1 = reviews.open_pass(self.sb.lib, "paper:lem:fresh", "T-0895", now=day1)
+        self.assertEqual(p1, "2026-11-19-T-0895")
+        self.assertEqual(reviews.open_pass(self.sb.lib, "paper:lem:fresh", "T-0895", now=day2), p1)
+        with self.assertRaises(reviews.Refused):
+            reviews.open_pass(self.sb.lib, "paper:lem:fresh", "T-0900", now=day2)
+        with self.assertRaises(reviews.Refused):
+            reviews.open_pass(self.sb.lib, "paper:lem:fresh", None, now=day2)
+
     def test_reword_pass_refused_without_a_confirmed_base(self):
         code, out, err = self.run_cli("new-pass", SUBJ, "--reword-of", "2026-01-01-none")
         self.assertEqual(code, 1)
