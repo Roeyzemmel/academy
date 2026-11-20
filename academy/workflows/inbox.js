@@ -195,7 +195,8 @@ const ROW = {
     budget_runs: { type: 'number' },
     // #124: why is asked for, never required (a clerk that leaves it out would lose the list); read as 'no reason given'
     route: { type: 'object', properties: { how: { type: 'string' }, target: { type: ['string', 'null'] }, why: { type: 'string' } }, required: ['how', 'target'] },
-    return: { type: 'boolean' }, released: { type: 'boolean' }, over_budget: { type: ['string', 'null'] },
+    return: { type: 'boolean' }, released: { type: 'boolean' },
+    partial: { type: 'boolean', description: 'a partial ticket this instance sent, back with it (#100); false when absent' }, over_budget: { type: ['string', 'null'] },
   },
   required: ['id', 'kind', 'status', 'from', 'to', 'final_to', 'refs', 'budget_runs', 'route', 'return', 'released', 'over_budget'],
 }
@@ -299,7 +300,7 @@ async function listAll(pass) {
     // (live runs 2026-10-31: 304 rows, four instances lost): --ids filters in the script (the ids and their children)
     `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.ids && A.ids.length ? ' --ids ' + [...new Set([...A.ids, ...(A.follow ? [...followed, ...children] : [])])].join(',') : ''}${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
     'Return every instance (one entry each, even with no rows) with its "home" copied verbatim from the script\'s JSON (never a path you know otherwise: the workspace\'s checkout, #116), ' +
-    'and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
+    'and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent; partial false when absent), and "waiting".',
   ]
   let listed = await clerk('list', lines, LIST, label)
   if (!listed) return null
@@ -631,6 +632,14 @@ async function handle(row, i) {
     const r = await move(row, inst, 'release: blocked -> accepted (everything it waited on is back)')
     if (!r || !r.ok) return { outcome: 'unfinished', detail: 'release failed' }
   }
+  if (row.partial) {
+    // review of dd0fcd1, point 6: a partial ticket this instance sent is back with it, the sender
+    const r = await launch(`WORKFLOW INBOX: the ticket ${row.id} that ${inst} sent to ${row.to} came back partial (the work done, the deliverable not met): ${why}. ` +
+      `Read it (tickets_get) and decide as its sender (instance=${inst}): reopen it for the receiver (tickets_update status in-progress with a reason saying what is still wanted), ` +
+      'close it as it stands (status closed), or cancel it (status cancelled, with a reason). Make exactly one of these moves; return the move and why in one line.',
+      { label: `${rt.target} ${row.id} (partial)`, phase: 'Tickets', agentType: `${i.role}:${rt.target}` })
+    return r === null ? { lost: true } : { outcome: 'partial decided', detail: String(r).split('\n')[0] }
+  }
   if (rt.how === 'reject' && !rt.why) {      // a terminal move needs its reason: without one the human decides (review of 0da42c3)
     return { for_main: { why: `${row.id}: the route says reject but gives no reason; reject it with one, or route it`, ticket: row.id, instance: inst } }
   }
@@ -754,14 +763,6 @@ async function handle(row, i) {
       return { outcome: st ? st.outcome : 'unfinished', detail: st ? (st.notes || []).join('; ') : 'lost', nested: st }
     }
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.notes || []).join('; ') : 'lost', nested: r }
-  }
-  if (row.partial) {
-    // review of dd0fcd1, point 6: a partial ticket this instance sent is back with it, the sender
-    const r = await launch(`WORKFLOW INBOX: the ticket ${row.id} that ${inst} sent to ${row.to} came back partial (the work done, the deliverable not met): ${why}. ` +
-      `Read it (tickets_get) and decide as its sender (instance=${inst}): reopen it for the receiver (tickets_update status in-progress with a reason saying what is still wanted), ` +
-      'close it as it stands (status closed), or cancel it (status cancelled, with a reason). Make exactly one of these moves; return the move and why in one line.',
-      { label: `${rt.target} ${row.id} (partial)`, phase: 'Tickets', agentType: `${i.role}:${rt.target}` })
-    return r === null ? { lost: true } : { outcome: 'partial decided', detail: String(r).split('\n')[0] }
   }
   if (rt.how === 'skill') return { for_main: { why: `the skill ${rt.target} runs in the main session`, ticket: row.id, instance: inst, skill: rt.target } }
   if (rt.how === 'agent' && i.role === 'researcher' && rt.target === 'lead-researcher' && !row.return) return leadResearcher(row, i)

@@ -392,8 +392,54 @@ permissions.json). **The human may make any transition**, including re-opening
 | partial | in-progress | sender | reason in thread ("finish it") |
 | partial | closed | sender | (what was done is taken as it stands) |
 | partial | cancelled | sender | reason in thread |
+| delivered | partial | `--check`, as the receiver | the artefact missing (below); thread line `no artefact: <why>` |
 
 Terminal states: `closed`, `rejected`, `cancelled`.
+
+### Delivery artefacts and `partial`
+
+A `delivered` ticket must leave an artefact a script can check (#100 part 1, the human's
+ruling of 2026-11-20). `inbox.py --check` checks it after the checkpoint, only for tickets
+of the workspace's own board (`ARTEFACTS` in `academy_common/_artefacts.py`):
+
+| Kind | Artefact |
+|---|---|
+| `prove` | a proof attempt `proofs/<ID>/attempt-<n>.md` (or `<claim>, attempt-<n>`) named in the result, refs or `## Result`, present, its `outcome:` not `incomplete`, `failed` or `in-progress` |
+| `verify` | a pass folder `reviews/<ns>/<claim>/<date>-T-NNNN[-...]/` with `decision.md` in an Expert library |
+| `cite` | a card `cards/<key>/<slug>.md` named, or a card file in `cards/<key>/` of a key the refs (`bib:<key>`) or the result name |
+| `experiment`, `test` | an `experiments/*.py` header or a `results/*.json` named; a report packet `P-NNNN` named that exists; or an `experiments/*.py` whose header names the ticket |
+| `code`, `build`, `write`, `apply`, `figure`, `copy` | a commit whose message names the ticket (its checkpoint), or a 7-40 hex hash in the result that is a commit in a workspace repo or a home |
+| any other kind | none (the result suffices) |
+
+A ticket to the human and a relay parent (its child carries the artefact) are not checked.
+
+**No artefact on purpose.** A result that opens with a marker passes, and `--check` prints a
+`WARN:` line naming it: `no change`, `no tex change`, `no edits made`, `nothing applied`,
+`nothing changed`, `nothing to attempt`, `nothing to do`, `not applied`, `declined` (also
+`both edits declined`, `all edits declined`), `already proved`, `already in the file`,
+`already done`, `already landed`, `already recorded`, `superseded`, `dropped`, `not needed`,
+`no search`, `no search run`, `no computation`, `no attempt`, any case, optionally after
+`<id> is ` (`s1:GEO-67 is already proved: ...`). The human's decision quoted in the result
+counts too (`(<human name>, <date>: ...` or a result opening with the human's name). Write
+`<marker>: <why>`.
+
+**The automatic move.** A delivery without its artefact and without a marker is moved by
+`--check` itself, as the ticket's receiver, `delivered -> partial`: a thread line
+`<receiver>/inbox-check: no artefact: <what is missing>`, the status line
+`T-NNNN: partial (partial); no artefact: ...`, exit 0. If the move fails the line reads
+`T-NNNN: unfinished (delivered, no artefact)` and the exit is 3. The inbox workflow puts
+the reason in the run's notes and never counts either as the instance's unfinished work.
+
+**Back with the sender.** A `partial` ticket an instance sent comes back to that
+instance's inbox as a return row (`partial: true`): its decider (`math-writer`,
+`lead-researcher`, `research-intake`, `experimenter`) reopens it (`partial -> in-progress`
+with a reason), closes it or cancels it; a reopened one is the receiver's in-progress work,
+not unfinished. A partial ticket the human sent stays with the human (the desk,
+`/academy:decide`; on GitHub the issue is assigned to the human, label `status:partial`,
+created at the first partial write).
+
+**Switch-off.** `"artefactCheck": false` in workspace.json turns the check (and the move)
+off.
 
 **`partial`** (#100 part 1, the human's ruling of 2026-11-20): the work was done but the
 deliverable was not met (a proof attempt that is incomplete or failed, a falsifier after an
@@ -537,19 +583,7 @@ line reads `T-NNNN: unfinished (delivered, unpushed); work of T-NNNN is not on a
 one line per branch says how to push it (`py scripts/ship.py push <sub> --repo
 <worktree>`), and the exit is 3: the ticket is not reported delivered until that work is
 pushed and `--check` is run again. `"unpushedCheck": false` in workspace.json switches
-this off. **A delivery needs its artefact** (#100 part 1): after the checkpoint, `--check`
-of a `delivered` ticket of the workspace's board checks the artefact its kind needs
-(`ARTEFACTS` in `academy_common/_artefacts.py`): `prove` a proof attempt
-`proofs/<ID>/attempt-<n>.md` named in the result, refs or `## Result`, present and not
-`incomplete`, `failed` or `in-progress`; `verify` a pass folder `reviews/<ns>/<claim>/<date>-T-NNNN/`
-with `decision.md` in an Expert library; `cite` a card `cards/<key>/<slug>.md` named and
-present; `experiment` and `test` an `experiments/*.py` header or a `results/*.json` named and
-present; `code`, `build`, `write`, `apply`, `figure`, `copy` a commit naming the ticket (its
-checkpoint) or named by its hash. Other kinds, a ticket to the human and a relay parent (its
-child carries the artefact) pass. Without it the line reads `T-NNNN: unfinished (delivered,
-no artefact); no <what> for this <kind> ticket: <why>`, the next line says to finish the work
-or re-mark it `partial`, and the exit is 3. `"artefactCheck": false` in workspace.json
-switches this off. Selection, ordering, return legs and the
+this off. **A delivery needs its artefact**: see "Delivery artefacts and `partial`" in section 4 above. Selection, ordering, return legs and the
 checkpoint live once, in the academy library (`inbox_core` in `academy_common`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
