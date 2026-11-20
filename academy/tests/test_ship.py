@@ -1078,6 +1078,24 @@ class TestSyncLegacyBump(MergeBase):
         self.assertFalse(ship.merge_in_progress(self.sub))
         self.assertEqual(len(run(self.sub, "rev-list", "--parents", "-n", "1", "HEAD").split()), 3)
 
+    def test_a_stacked_branch_syncs_with_its_recorded_base(self):
+        """Found on the live academy (2026-11-20): --from defaulted to main, so a stacked
+        branch never synced with the branch it was started on."""
+        rc, out, err = self.ship("start", "sub", "upper", "--role", "human")
+        self.assertEqual(rc, 0, err)
+        upper = ship.current(self.sub)
+        self.assertEqual(ship.base_of(self.sub, upper), self.branch)
+        run(self.sub, "switch", "-q", self.branch)
+        self.write("base-fix.txt", "fix\n")
+        run(self.sub, "add", "base-fix.txt")
+        run(self.sub, "commit", "-q", "-m", "a fix on the base")
+        run(self.sub, "push", "-q", "origin", "HEAD:refs/heads/" + self.branch)
+        run(self.sub, "switch", "-q", upper)
+        rc, out, err = self.ship("sync", "sub")
+        self.assertEqual(rc, 0, err)
+        self.assertIn("origin/" + self.branch, out)
+        self.assertTrue(os.path.exists(os.path.join(self.sub, "base-fix.txt")))
+
     def test_bump_moves_a_pointer_to_a_published_main_only(self):
         tip = self.main_moves({"p.txt": "p\n"})
         run(self.sub, "fetch", "-q", "origin")

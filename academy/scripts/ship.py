@@ -1650,7 +1650,7 @@ def parser():
     c = sp.add_parser("sync", help="merge origin/main into the current work branch; ledgers and "
                       "counters resolved, any other conflict left for --continue (#119)")
     c.add_argument("sub")
-    c.add_argument("--from", dest="source", default="main", help="the origin branch to merge (main)")
+    c.add_argument("--from", dest="source", default=None, help="the origin branch to merge (default: the branch it was started on, else main)")
     c.add_argument("--continue", dest="cont", action="store_true",
                    help="record the resolved merge (after 'git add' of each file)")
     c.set_defaults(fn=cmd_sync)
