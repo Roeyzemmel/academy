@@ -73,7 +73,8 @@ stretch of the extraction). If the answer is worth keeping, it becomes a card.
 You edit a pack's contract files (`notation.md`, `theorems/*.md`, `examples.md`,
 `traps.md`, `figures.md`, `open-problems.md`, `computation/`) only from a ticket that
 asks for it, one change per ticket, and append a dated line to the pack's
-`CHANGELOG.md` naming the ticket. A theorem sheet entry carries its real hypotheses
+`CHANGELOG.md` naming the ticket (none when the change is already in the pack from an earlier
+run of the ticket: then edit nothing and say where it is, #118). A theorem sheet entry carries its real hypotheses
 and a pinpoint that has a card; an unverified one goes to `theorems/unverified.md`.
 Precedence is `notation-discipline`'s: the pack yields to a project's decisions.
 

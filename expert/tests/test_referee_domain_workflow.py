@@ -145,7 +145,8 @@ class DomainTests(unittest.TestCase):
                     where="notation.md row 'saddle connection'")
         res, labels, calls, err = run("domain.js", {
             "start": [START], "librarian": [same],
-            "diff": [{"changed": [], "changelog_last": "- 2026-10-31 T-0800: notation.md row"}],
+            "diff": [{"changed": [], "changelog_last": "- 2026-10-31 T-0800: notation.md row",
+                      "logged_before": ["- 2026-10-31 T-0800: notation.md row"]}],
             "close": [MOVE]}, {"ticket": "T-0800"})
         self.assertIsNone(err, err)
         self.assertEqual((res["outcome"], res["anomalies"]), ("already-present", []))
@@ -156,10 +157,19 @@ class DomainTests(unittest.TestCase):
         # reported present, but a line was appended anyway: the check catches it
         res, labels, calls, err = run("domain.js", {
             "start": [START], "librarian": [same],
-            "diff": [{"changed": ["CHANGELOG.md"], "changelog_last": "- 2026-10-31 T-0800: again"}],
+            "diff": [{"changed": ["CHANGELOG.md"], "changelog_last": "- 2026-10-31 T-0800: again",
+                      "logged_before": ["- 2026-10-31 T-0800: notation.md row"]}],
             "close": [MOVE]}, {"ticket": "T-0800"})
         self.assertEqual(res["outcome"], "blocked-on-check")
         self.assertIn("CHANGELOG.md", " ".join(res["anomalies"]))
+        # never logged, or no place named: not taken on the librarian's word
+        for lib, logged in ((dict(same, where=""), ["x T-0800"]), (same, [])):
+            res, labels, calls, err = run("domain.js", {
+                "start": [START], "librarian": [dict(lib, shared=True)],
+                "diff": [{"changed": [], "changelog_last": "x", "logged_before": logged}],
+                "close": [MOVE]}, {"ticket": "T-0800"})
+            self.assertEqual(res["outcome"], "blocked-on-check")
+            self.assertNotIn("packet", labels)
 
     def test_an_extra_file_parks_the_ticket_on_the_human(self):
         res, labels, calls, err = run("domain.js", {

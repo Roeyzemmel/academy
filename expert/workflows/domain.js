@@ -68,7 +68,8 @@ const EDITED = { type: 'object', properties: { files: { type: 'array', items: { 
   where: { type: 'string', description: 'when already present: the file and the row or entry that already carries it' } },
   required: ['files', 'changelog', 'card', 'unverified', 'shared', 'clash', 'already_present', 'where'] }
 const DIFF = { type: 'object', properties: { changed: { type: 'array', items: { type: 'string' }, description: 'git diff --name-only domains/<pack>, relative to the pack' },
-  changelog_last: { type: 'string', description: 'the last line of the pack\'s CHANGELOG.md' } }, required: ['changed', 'changelog_last'] }
+  changelog_last: { type: 'string', description: 'the last line of the pack\'s CHANGELOG.md' },
+  logged_before: { type: 'array', items: { type: 'string' }, description: 'the lines of the COMMITTED CHANGELOG.md (git show HEAD:...) that name the ticket' } }, required: ['changed', 'changelog_last'] }
 const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'error'] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status', 'detail'] }
 
@@ -136,7 +137,7 @@ if (e.unverified) out.notes.push('the entry could not be pinned to a card: it we
 
 // ---- Check: the diff, not the word ---------------------------------------------------------
 phase('Check')
-const d = await clerk('diff', [`Return git -C ${s.academy_root} diff --name-only -- domains/${pack} (paths relative to domains/${pack}/, untracked new files included via git status --porcelain) and the last line of domains/${pack}/CHANGELOG.md. Change nothing.`],
+const d = await clerk('diff', [`Return git -C ${s.academy_root} diff --name-only -- domains/${pack} (paths relative to domains/${pack}/, untracked new files included via git status --porcelain) and the last line of domains/${pack}/CHANGELOG.md, and in logged_before the lines of the committed CHANGELOG.md (git show HEAD:domains/${pack}/CHANGELOG.md) that name ${T}. Change nothing.`],
   DIFF, 'diff', 'Check')
 const before = new Set((s.diff_before || []).map(x => x.replace(new RegExp('^domains/' + pack + '/'), '')))
 const changed = (d ? d.changed : []).map(x => x.replace(new RegExp('^domains/' + pack + '/'), '')).filter(x => !before.has(x))
@@ -146,6 +147,10 @@ if (!d) out.anomalies.push('the diff stage returned nothing')
 else if (e.already_present) {
   // #118: nothing to change is delivered as such; a line or edit made anyway is the anomaly
   out.already_present = e.where || true
+  // the librarian's word is not enough (review of 1d7dcf6): it names where, and an earlier run
+  // of this ticket logged it
+  if (!String(e.where || '').trim()) out.anomalies.push('the change was reported already present without saying where')
+  if (!(d.logged_before || []).length) out.anomalies.push(`the change was reported already present, but the committed CHANGELOG has no line naming ${T}`)
   if (changed.length) out.anomalies.push(`the change was reported already present (${e.where || 'no place named'}), yet the run changed ${changed.join(', ')}`)
 } else {
   if (!changed.includes('CHANGELOG.md')) out.anomalies.push('CHANGELOG.md has no new line')
@@ -157,7 +162,7 @@ out.changed = changed
 
 // ---- Land -----------------------------------------------------------------------------------
 phase('Land')
-if (e.shared) {
+if (e.shared && !out.already_present) {     // an earlier run announced it already
   const p = await launch(`File a notation packet for ${T} (packets_create kind notation, ticket ${T}): the ${pack} pack changed (${e.changelog}); it alters a symbol or a ` +
     'statement other instances rely on.' + (e.clash ? ` It could clash with a project decision (${e.clash}): put that to the human as one decision with a recommendation.` : ' ## Decisions needed: None.') +
     ' Return the packet id.', { label: 'packet', phase: 'Land', agentType: LIB, schema: PACKET, effort: 'low' })
