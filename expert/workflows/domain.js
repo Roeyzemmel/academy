@@ -63,8 +63,10 @@ const EDITED = { type: 'object', properties: { files: { type: 'array', items: { 
   changelog: { type: 'string', description: 'the CHANGELOG.md line appended' }, card: { type: 'string', description: 'a card written for a theorem entry, or empty' },
   unverified: { type: 'boolean', description: 'an entry that could not be pinned went to theorems/unverified.md' },
   shared: { type: 'boolean', description: 'the change alters a symbol or a statement other instances rely on' },
-  clash: { type: 'string', description: 'a project decision it could clash with, or empty' } },
-  required: ['files', 'changelog', 'card', 'unverified', 'shared', 'clash'] }
+  clash: { type: 'string', description: 'a project decision it could clash with, or empty' },
+  already_present: { type: 'boolean', description: 'the change was already in the pack (an earlier run made it): nothing edited and no CHANGELOG line appended' },
+  where: { type: 'string', description: 'when already present: the file and the row or entry that already carries it' } },
+  required: ['files', 'changelog', 'card', 'unverified', 'shared', 'clash', 'already_present', 'where'] }
 const DIFF = { type: 'object', properties: { changed: { type: 'array', items: { type: 'string' }, description: 'git diff --name-only domains/<pack>, relative to the pack' },
   changelog_last: { type: 'string', description: 'the last line of the pack\'s CHANGELOG.md' } }, required: ['changed', 'changelog_last'] }
 const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error: { type: 'string' } }, required: ['packet', 'error'] }
@@ -124,7 +126,8 @@ if ((s.diff_before || []).length) out.notes.push('the pack already had uncommitt
 phase('Edit')
 const e = await launch(`Edit the ${pack} domain pack for ${T}: ${s.changes[0]}. Read the current file with domain_get first. A theorem entry carries its real ` +
   'hypotheses and a pinpoint that has a card (write the card first if it has none; an entry you cannot pin goes to theorems/unverified.md). Change one thing, ' +
-  `keep the file's structure, and append "- <date> ${T}: <one line naming the file(s) changed>" to CHANGELOG.md. Say whether the change alters a symbol or a ` +
+  `keep the file's structure, and append "- <date> ${T}: <one line naming the file(s) changed>" to CHANGELOG.md. If the pack already carries the change (an earlier run of ${T} made it), ` +
+  'edit nothing and append no line: say already_present with where it is (#118: a second line for a row already there blocked the ticket). Say whether the change alters a symbol or a ' +
   'statement other instances rely on, and any project decision it could clash with. Commit nothing.',
   { label: 'librarian', phase: 'Edit', agentType: LIB, schema: EDITED })
 if (e === null) return Object.assign(out, { outcome: 'lost', reason: 'the librarian run returned nothing (a limit?): nothing further launched' })
@@ -140,7 +143,11 @@ const changed = (d ? d.changed : []).map(x => x.replace(new RegExp('^domains/' +
 const named = new Set(['CHANGELOG.md'].concat(e.files || []))
 const extra = changed.filter(x => !named.has(x))
 if (!d) out.anomalies.push('the diff stage returned nothing')
-else {
+else if (e.already_present) {
+  // #118: nothing to change is delivered as such; a line or edit made anyway is the anomaly
+  out.already_present = e.where || true
+  if (changed.length) out.anomalies.push(`the change was reported already present (${e.where || 'no place named'}), yet the run changed ${changed.join(', ')}`)
+} else {
   if (!changed.includes('CHANGELOG.md')) out.anomalies.push('CHANGELOG.md has no new line')
   if (!(d.changelog_last || '').includes(T)) out.anomalies.push(`the last CHANGELOG line does not name ${T}`)
   if (extra.length) out.anomalies.push('files changed that the change does not name: ' + extra.join(', '))
@@ -157,13 +164,15 @@ if (e.shared) {
   out.packet = p && p.packet ? p.packet : null
   if (!out.packet) out.notes.push('the notation packet was not filed: ' + (p ? p.error : 'no answer'))
 }
-const result = `${pack}: ${(e.files || []).join(', ')}; ${e.changelog}` + (out.packet ? `; packet ${out.packet}` : '') + (out.anomalies.length ? '; CHECK: ' + out.anomalies.join('; ') : '')
+const result = (out.already_present && !out.anomalies.length
+  ? `${pack}: already present (${e.where || 'an earlier run'}); no change, no CHANGELOG line`
+  : `${pack}: ${(e.files || []).join(', ')}; ${e.changelog}`) + (out.packet ? `; packet ${out.packet}` : '') + (out.anomalies.length ? '; CHECK: ' + out.anomalies.join('; ') : '')
 const m = await clerk('move', [`ticket: ${T}`, `act as: ${s.acted_as}`,
   out.anomalies.length
     ? `block-human: blocked, waiting_on [human], reason "the pack diff does not match the change: ${out.anomalies.join('; ').replace(/"/g, "'").slice(0, 200)}"`
     : `deliver: deliver: true with result "${result.replace(/"/g, "'").slice(0, 240)}"` + (out.packet ? ` and fields.packets [${out.packet}]` : '')], MOVE, 'close', 'Land')
 out.ticket_status = m ? m.status : 'unknown'
-out.outcome = out.anomalies.length ? 'blocked-on-check' : 'edited'
+out.outcome = out.anomalies.length ? 'blocked-on-check' : out.already_present ? 'already-present' : 'edited'
 // the pack itself is in the academy repo, outside the checkpoint's scope: the human commits it
 if (!A.nested) out.ship = await ship({ role: 'expert', ticket: T, done: !out.anomalies.length && /^(delivered|closed)$/.test(out.ticket_status), instance: s.acted_as,
   topic: T, only: 'library board', agentType: CLERK, phase: 'Land', notes: out.notes })
