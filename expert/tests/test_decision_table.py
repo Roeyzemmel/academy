@@ -1084,5 +1084,63 @@ class AmendTableTests(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class ResearcherForTests(unittest.TestCase):
+    """Review V1 #5: the Researcher a claim's falsifier request goes to, computed, not
+    guessed: the Researcher owning the claim's namespace; else the one Researcher the
+    claim's bears_on names; else the one Researcher in the ticket's parent chain; else
+    (none, or more than one at a step) the human decides."""
+    WS = {"instances": {
+        "researcher@a": {"role": "researcher", "ns": "a"},
+        "researcher@b": {"role": "researcher", "ns": "b"},
+        "author@main": {"role": "author", "ns": "paper"},
+        "scientist@main": {"role": "scientist", "ns": "lab"},
+        "expert@main": {"role": "expert"}}}
+
+    def who(self, subject, **kw):
+        return dt.researcher_for(subject, self.WS, **kw)[0]
+
+    def test_several_owners_of_one_namespace_stop_at_the_human(self):
+        ws = {"instances": dict(self.WS["instances"], **{"researcher@a2": {"role": "researcher", "ns": "a"}})}
+        who, why = dt.researcher_for("a:GEO-1", ws, bears_on=["b:X"])
+        self.assertEqual(who, "human")
+        self.assertIn("several Researchers", why)
+
+    def test_the_namespace_owner_wins(self):
+        self.assertEqual(self.who("a:GEO-1", bears_on=["b:X"], parties=["researcher@b"]),
+                         "researcher@a")
+
+    def test_bears_on_then_the_parent_chain(self):
+        self.assertEqual(self.who("paper:lem:x", bears_on=["b:GEO-9", "paper:lem:y"]), "researcher@b")
+        self.assertEqual(self.who("lab:x-search", bears_on=["a:CLASS-1"],
+                                  parties=["researcher@b"]), "researcher@a")
+        self.assertEqual(self.who("paper:lem:x", parties=["author@main", "expert@main",
+                                                          "researcher@a", "researcher@a"]),
+                         "researcher@a")
+
+    def test_none_or_several_is_the_humans_call(self):
+        self.assertEqual(self.who("paper:lem:x"), "human")
+        inst, why = dt.researcher_for("paper:lem:x", self.WS, bears_on=["a:X", "b:Y"],
+                                      parties=["researcher@a"])
+        self.assertEqual(inst, "human")
+        self.assertIn("researcher@a, researcher@b", why)
+        self.assertEqual(self.who("lab:x", parties=["researcher@a", "researcher@b"]), "human")
+        self.assertEqual(self.who("zz:unknown"), "human")
+
+    def test_the_cli_answers_in_json(self):
+        sb = fixtures.Sandbox()
+        self.addCleanup(sb.close)
+        with open(sb.ws_path, encoding="utf-8") as fh:
+            ws = json.load(fh)
+        ws["instances"]["researcher@a"] = {"role": "researcher", "ns": "a", "home": sb.root.replace("\\", "/"),
+                                          "domains": ["translation-surfaces"]}
+        with open(sb.ws_path, "w", encoding="utf-8") as fh:
+            json.dump(ws, fh)
+        code, out, err = fixtures.run_script("reviews.py", args=[
+            "researcher-for", "paper:lem:x", "--party", "author@main", "--party", "researcher@a"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["instance"], "researcher@a")
+        self.assertTrue(out["why"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -629,6 +629,43 @@ def producer_role_for(subject, override=None, workspace=None):
     return ""
 
 
+def researcher_for(subject, workspace, bears_on=(), parties=()):
+    """``(instance, why)``: the Researcher a claim's falsifier request goes to (review V1
+    #5), or ``("human", why)`` when the rule names none or several. In order: the
+    Researcher instance owning ``subject``'s namespace; else the one Researcher instance
+    owning the namespace of an id in the claim's ``bears_on``; else the one Researcher
+    instance among ``parties`` (the verify ticket's and its parent chain's ``from`` and
+    ``to``). A step naming several stops at the human: nobody guesses between them."""
+    insts = (workspace or {}).get("instances", {}) or {}
+
+    def researcher_of_ns(ns):
+        return sorted(n for n, i in insts.items()
+                      if i.get("ns") == ns and i.get("role") == "researcher")
+
+    ns = str(subject or "").split(":", 1)[0].strip()
+    own = researcher_of_ns(ns) if ns else []
+    if len(own) == 1:
+        return own[0], "the Researcher owning the namespace %s" % ns
+    if len(own) > 1:
+        return "human", ("several Researchers own the namespace %s (%s): the human decides"
+                         % (ns, ", ".join(own)))
+    steps = (
+        ("bears_on", sorted({r for b in bears_on or ()
+                             for r in researcher_of_ns(str(b).split(":", 1)[0].strip())
+                             if ":" in str(b)})),
+        ("the ticket's parent chain", sorted({str(p) for p in parties or ()
+                                              if (insts.get(str(p)) or {}).get("role")
+                                              == "researcher"})))
+    for name, found in steps:
+        if len(found) == 1:
+            return found[0], "the one Researcher named by %s of %s" % (name, subject)
+        if len(found) > 1:
+            return "human", ("%s of %s names several Researchers (%s): the human decides"
+                             % (name, subject, ", ".join(found)))
+    return "human", ("no Researcher owns %s's namespace, and neither its bears_on nor the "
+                     "ticket's parent chain names one: the human decides" % subject)
+
+
 def _grounds(recs, modulo, note, producer_role=""):
     rows = [{"verdict": r["_eff"], "run_id": r.get("run_id") or "",
              "statement_hash": r.get("statement_hash") or "",

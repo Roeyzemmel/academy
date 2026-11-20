@@ -345,5 +345,76 @@ class ReturnLegTests(unittest.TestCase):
         self.assertFalse(row["return"])
 
 
+class ReleaseTests(unittest.TestCase):
+    """Review V1 #1: a blocked ticket of the Expert with no relay (a verify ticket waiting on
+    its falsifier request) is released once everything it waits on is back, as the Author's
+    inbox releases its own (``released: true``; inbox.js moves it blocked -> accepted). A wait
+    that was rejected or cancelled releases it to the human, never silently into run B."""
+    put = ReturnLegTests.put
+
+    def setUp(self):
+        self.sb = fixtures.Sandbox()
+        self.addCleanup(self.sb.close)
+
+    def verify_waiting(self, child_status, waiting=None):
+        self.put("T-0002", "expert@main", "researcher@s1", child_status, final_to="scientist",
+                 parent="T-0001")
+        self.put("T-0001", "researcher@s1", "expert@main", "blocked", kind="verify",
+                 waiting_on=waiting or ["T-0002"])
+
+    def take(self, *extra):
+        code, out, err = fixtures.run_script("inbox.py", None, ["--instance", "expert@main",
+                                                                "--json"] + list(extra))
+        self.assertIn(code, (0, 1), err)
+        return out["take"]
+
+    def test_a_verify_ticket_whose_falsifier_is_back_is_released(self):
+        for st in ("delivered", "closed"):
+            self.verify_waiting(st)
+            rows = self.take()
+            self.assertEqual([r["id"] for r in rows], ["T-0001"], st)
+            r = rows[0]
+            self.assertTrue(r["released"])
+            self.assertFalse(r["return"])
+            self.assertEqual(r["route"]["target"], "expert:verify")
+            self.assertIn("released", r["route"]["why"])
+            self.assertEqual([x["id"] for x in inbox.plan(self.sb.board, "expert@main", 3)["take"]],
+                             ["T-0001"])
+
+    def test_a_wait_still_out_or_on_the_human_is_not_released(self):
+        self.verify_waiting("in-progress")
+        self.assertEqual(self.take(), [])
+        self.verify_waiting("delivered", waiting=["T-0002", "human"])
+        self.assertEqual(self.take(), [])
+
+    def test_a_rejected_or_cancelled_wait_releases_to_the_human(self):
+        for st in ("rejected", "cancelled"):
+            self.verify_waiting(st)
+            rows = self.take()
+            self.assertEqual([r["id"] for r in rows], ["T-0001"], st)
+            r = rows[0]
+            self.assertTrue(r["released"])
+            self.assertEqual((r["route"]["how"], r["route"]["target"]), ("human", "human"))
+            self.assertIn("T-0002 was %s" % st, r["route"]["why"])
+            self.assertEqual(r["dead_waits"], ["T-0002"])
+
+    def test_ids_takes_it_once_and_all_lists_it_once(self):
+        self.verify_waiting("delivered")
+        rows = self.take("--ids", "T-0001")
+        self.assertEqual([(r["id"], r.get("released")) for r in rows], [("T-0001", True)])
+        rows = self.take("--all")
+        self.assertEqual([r["id"] for r in rows].count("T-0001"), 1)
+
+    def test_a_relay_parent_stays_a_return_leg(self):
+        self.put("T-0002", "expert@main", "researcher@s1", "delivered", final_to="researcher",
+                 parent="T-0001")
+        self.put("T-0001", "author@main", "expert@main", "blocked", final_to="researcher",
+                 waiting_on=["T-0002"])
+        rows = self.take()
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["return"])
+        self.assertFalse(rows[0].get("released", False))
+
+
 if __name__ == "__main__":
     unittest.main()

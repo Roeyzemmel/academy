@@ -63,8 +63,9 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   the ticket's thread (the falsifier request this ticket waited on, once it is back, with
   its result); or the human's waiver on the ticket or the claim (quote the thread line
   `- YYYY-MM-DD human: ...` verbatim). Say what it found (nothing, or a counterexample),
-  any falsifier request the ticket already filed with its status, and the claim's declared
-  inputs. A ticket blocked by an earlier run of this pass (awaiting its falsifier) is taken
+  the statement hash it attacked when its record says it (a request this workflow filed
+  names it in its ask), any falsifier request the ticket already filed with its status, and
+  the claim's declared inputs. A ticket blocked by an earlier run of this pass (awaiting its falsifier) is taken
   `blocked -> in-progress`.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
   reviewer reads the files, `budget.md` rule 9):
@@ -110,6 +111,10 @@ model the table reads as PLAUSIBLE, so nothing is proposed on it.
 
 ## 1a. The falsifier, between A and B
 
+A falsifier counts only on this statement's hash. Most falsifiers recorded before this
+rule (2026-11-20) name no hash, so they do not count: such a claim gets a new falsifier
+request (only the human's waiver counts without a hash).
+
 The human's design (2026-11-20): the order is **attempt, run A, the falsifier, run B**. A
 falsifier (an experiment or test that tries to break the claim) is spent only on a proof
 that survived A. It runs only after a CONFIRMED A with `launch_b` and an unchanged hash;
@@ -117,10 +122,23 @@ a negative A concludes on A alone, and a reword pass has no falsifier stage.
 
 - **On record and found nothing** (section 0's sources, checked by the script as
   prove.js checks them: evidence given, an input that is a declared input, a waiver
-  quoting the human's thread line): B is launched at once.
+  quoting the human's thread line): B is launched at once. What counts is checked in code:
+  a falsifier counts only when it found `nothing` (or a `counterexample`, below; an empty
+  or other answer does not count), a falsifier request only once it is `delivered` or
+  `closed`, and only on the statement hash the pass reviews: one recorded on another hash
+  never counts, one whose hash is unknown counts only as the human's waiver (with a note).
+  The request this stage files names the hash in its ask, so its result carries it.
+- **No verify ticket** (`/expert:verify` by hand with none): the pass cannot wait, since
+  nothing could resume it (`reviews.py` resumes a ticket's own pass only). The falsifier
+  stage is skipped, the record's process notes say so, and B runs as before.
 - **None on record**: launch no B. File one falsifier request: `tickets_create` kind
-  `research` to the Researcher that owns the claim's namespace (a `paper:` or `lab:`
-  claim: the Researcher of the claim's domain, as in section 4.3), `final_to: scientist`
+  `research` to the Researcher that `py $E/reviews.py researcher-for <id> --party <instance>...`
+  names (the prepare stage runs it, a `--party` for the `from` and `to` of the ticket and of
+  each ticket up its parent chain). The rule, in code (`decision_table.researcher_for`): the
+  Researcher owning the claim's namespace; else (a `paper:` or `lab:` claim) the one
+  Researcher owning a namespace of the claim's `bears_on`; else the one Researcher in the
+  ticket's parent chain; none, or several at one step, is the human's call: file nothing and
+  block the ticket `waiting_on: [human]` with the script's reason. `final_to: scientist`
   (the Expert is no neighbour of the Scientist; the Researcher's `experiment-spec` relays
   it; review-chair is an expert->researcher liaison), `parent` and `refs` the verify
   ticket and the claim. It asks for an experiment or test that tries to break the claim
@@ -132,15 +150,18 @@ a negative A concludes on A alone, and a reword pass has no falsifier stage.
 - **A request already filed** by an earlier run of this pass: file nothing. Still out:
   block the ticket on it again. Back with no falsifier that counts: block the ticket
   `waiting_on: [human]` (another falsifier, or a waiver, is the human's call).
-- **The rerun.** Once the request is back the verify ticket is released and run again:
+- **The rerun.** Once the request is back the Expert's inbox releases the verify ticket
+  (`inbox.py`: a `released` row, `blocked -> accepted`; a request that was rejected or
+  cancelled releases it to the human instead, never into B) and it is run again:
   `new-pass` returns the same open pass (#89), A is tabled, not relaunched, and the
   falsifier is read from the request's result (source `ticket`).
 - **A counterexample.** B is not launched and no status changes: never
   `claims_propose_status`. Write the record (A's table, the falsifier and its evidence,
-  the process notes), the evidence row for A, and route the counterexample as a finding
-  to the claim's producer: one `prove` ticket (gap class `statement`) to the Researcher of
-  the claim's domain (a `lab:` claim: to the Researcher with `final_to: scientist`), with
-  the counterexample and where it is recorded. The packet puts the counterexample in
+  the process notes), the evidence row for A, and route the counterexample as every
+  counterexample is routed (section 4.3; `decision_table.follow_up`, kind
+  `counterexample`): one `decision` ticket to the human, at once, with the counterexample
+  and where it is recorded. What becomes of the claim (a weaker statement, a repair through
+  the Researcher) is the human's call. The packet puts the counterexample in
   `## Decisions needed`; the ticket is delivered. The outcome is
   `falsifier-counterexample`.
 
@@ -249,7 +270,9 @@ LF, Markdown, written by you:
    - a `lab:` claim: to the Researcher with `final_to: scientist`, since the
      Scientist is not a neighbour of the Expert;
    - an input that is itself a proof to review: kind `verify`, back to the Expert;
-   - a counterexample, or runs that disagree on the inputs: to the human;
+   - a counterexample, from a DISPROVED run or from the falsifier of section 1a, or runs
+     that disagree on the inputs: a `decision` ticket to the human (the one rule for a
+     counterexample; never a `prove` ticket);
    - a missing card: kind `cite`.
 
    Each ticket says where the defect lives, what exactly is missing, the repair both

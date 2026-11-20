@@ -196,6 +196,21 @@ def registry_supersedes(subject):
     return [str(sup).strip()] if sup else []
 
 
+def registry_bears_on(subject):
+    """The ids ``subject``'s registry record lists in ``bears_on`` (a list; empty when the
+    engine, the home or the record cannot be read). Raises nothing."""
+    ns, name = split_subject(subject)
+    st = _registry_store(ns) if ns else None
+    try:
+        rec = st.get(name) if st is not None else None
+    except Exception:
+        return []
+    val = rec.fields.get("bears_on") if rec is not None else None
+    if isinstance(val, (list, tuple)):
+        return [str(x).strip() for x in val if str(x or "").strip()]
+    return [str(val).strip()] if val else []
+
+
 def registry_statement(subject):
     """``(text, hash)`` of ``subject``'s statement as the registry engine gives it -- the
     text ``py -m registry statement <ns:id>`` prints and ``claims_set_status`` checks a
@@ -570,7 +585,26 @@ def main(argv=None):
     ls.add_argument("subject")
     ls.add_argument("--home")
     ls.add_argument("--json", action="store_true")
+    rf = sub.add_parser("researcher-for", help="the Researcher a falsifier request on "
+                        "SUBJECT goes to, or human (decision_table.researcher_for)")
+    rf.add_argument("subject")
+    rf.add_argument("--bears-on", action="append", default=[],
+                    help="an id the claim's record lists in bears_on (repeatable); the "
+                         "registry record's own bears_on is added when it can be read")
+    rf.add_argument("--party", action="append", default=[],
+                    help="an instance of the verify ticket or its parent chain (from, to; "
+                         "repeatable)")
     args = ap.parse_args(argv)
+    if args.cmd == "researcher-for":
+        try:
+            ws = ex.ac.load_workspace()
+        except ex.ac.AcademyError as exc:
+            sys.stderr.write("reviews: refused: workspace.json cannot be read (%s)\n" % exc)
+            return 1
+        bears = list(args.bears_on) + registry_bears_on(args.subject)
+        inst, why = dt.researcher_for(args.subject, ws, bears, args.party)
+        print(json.dumps({"instance": inst, "why": why}))
+        return 0
     if args.cmd == "hash":
         if args.claim:
             if not split_subject(args.claim)[0]:

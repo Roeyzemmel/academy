@@ -50,13 +50,14 @@ body(Object.assign({ nested: true, models: { 'expert:rigor-reviewer': 'fable', '
 
 # the claim's falsifier as the prepare stage reports it (2026-11-20): on record, found nothing
 FALS = {"source": "claim", "on": "", "evidence": "lab:x-search (results/x.json): nothing found",
-        "found": "nothing", "request": "", "request_status": ""}
+        "found": "nothing", "request": "", "request_status": "", "statement_hash": "abcdef12"}
 NO_FALS = {"source": "none", "on": "", "evidence": "", "found": "", "request": "",
-           "request_status": ""}
+           "request_status": "", "statement_hash": ""}
 PREP = {"ok": True, "stop_reason": "", "pass": "2026-10-31-T-0001",
         "pass_dir": "/lib/reviews/paper/x/2026-10-31-T-0001", "statement_hash": "abcdef12",
         "location": "sections/a.tex:lem:x", "bundle": "", "ticket": "T-0001",
-        "falsifier": FALS, "inputs": []}
+        "falsifier": FALS, "inputs": [],
+        "researcher": "researcher@main", "researcher_why": "the Researcher owning the namespace"}
 
 
 def tab(verdict, outcome, launch_b=False, hash_now="abcdef12", landed=True, run="A"):
@@ -257,7 +258,8 @@ class FalsifierAfterATests(unittest.TestCase):
 
     def test_a_rerun_after_a_clean_falsifier_resumes_the_pass_and_launches_b(self):
         f = {"source": "ticket", "on": "T-0002", "evidence": "T-0002 delivered: lab:x-search, nothing found",
-             "found": "nothing", "request": "T-0002", "request_status": "delivered"}
+             "found": "nothing", "request": "T-0002", "request_status": "delivered",
+             "statement_hash": "abcdef12"}
         prep = dict(PREP, falsifier=f, landed=[{"run": "A", "statement_hash": "abcdef12"}])
         done = dict(DONE, run_files=["A.md", "B.md", "decision.md"])
         out, labels, calls = self.run_wf({"prepare": prep, "table A": self.A_OK, "run B": "r",
@@ -271,7 +273,8 @@ class FalsifierAfterATests(unittest.TestCase):
 
     def test_a_counterexample_concludes_without_b_or_a_status(self):
         f = {"source": "ticket", "on": "T-0002", "evidence": "T-0002 delivered: lab:x-search found EX-L3",
-             "found": "counterexample", "request": "T-0002", "request_status": "delivered"}
+             "found": "counterexample", "request": "T-0002", "request_status": "delivered",
+             "statement_hash": "abcdef12"}
         prep = dict(PREP, falsifier=f, landed=[{"run": "A", "statement_hash": "abcdef12"}])
         out, labels, calls = self.run_wf({"prepare": prep, "table A": self.A_OK,
                                           "conclude": dict(DONE, outcome="falsifier-counterexample")})
@@ -281,7 +284,11 @@ class FalsifierAfterATests(unittest.TestCase):
         p = calls[-1]["prompt"]
         self.assertIn("found EX-L3", p)                    # the counterexample reaches the record
         self.assertIn("never claims_propose_status", p)
-        self.assertIn("kind prove", p)                     # a finding routed to the producer
+        # review V1 #6: one rule for a counterexample, the decision table's (follow_up kind
+        # counterexample): a decision ticket to the human at once, never a prove ticket
+        self.assertIn("kind decision", p)
+        self.assertIn("to human", p)
+        self.assertNotIn("kind prove", p)
         self.assertIn("run B not launched", " ".join(r["notes"]))
 
     def test_a_status_proposed_on_a_counterexample_is_an_anomaly(self):
@@ -310,6 +317,81 @@ class FalsifierAfterATests(unittest.TestCase):
                                            "table A": self.A_OK, "falsifier": self.FILED})
             self.assertEqual(labels, ["prepare", "run A", "table A", "falsifier"], f)
             self.assertEqual(out["result"]["outcome"], "awaiting-falsifier")
+
+    def test_a_falsifier_that_did_not_come_back_clean_does_not_count(self):
+        """Review V1 #2: only found 'nothing' lets B run (a waiver aside), and a falsifier
+        request counts only once it is delivered or closed."""
+        for f in (dict(FALS, found=""), dict(FALS, found="unknown"),
+                  dict(FALS, source="ticket", on="T-0002", request="T-0002",
+                       request_status="in-progress"),
+                  dict(FALS, source="ticket", on="T-0002", request="T-0002",
+                       request_status="cancelled")):
+            out, labels, _c = self.run_wf({"prepare": dict(PREP, falsifier=f), "run A": "r",
+                                           "table A": self.A_OK, "falsifier": self.FILED})
+            self.assertEqual(labels, ["prepare", "run A", "table A", "falsifier"], f)
+            self.assertEqual(out["result"]["outcome"], "awaiting-falsifier", f)
+            self.assertIn("not counted", " ".join(out["result"]["notes"]), f)
+        for st in ("delivered", "closed"):
+            f = dict(FALS, source="ticket", on="T-0002", request="T-0002", request_status=st)
+            _o, labels, _c = self.run_wf({"prepare": dict(PREP, falsifier=f), "run A": "r",
+                                          "table A": self.A_OK, "run B": "r",
+                                          "table B": tab("CONFIRMED", "confirmed", run="B"), "conclude": DONE})
+            self.assertIn("run B", labels, st)
+
+    def test_a_falsifier_on_another_wording_does_not_count(self):
+        """Review V1 #3: a falsifier recorded on another statement hash never counts; one
+        whose hash is unknown counts only as a waiver, with a note."""
+        for f, note in ((dict(FALS, statement_hash="00000000"), "another wording"),
+                        (dict(FALS, statement_hash=""), "statement hash is unknown"),
+                        (dict(FALS, source="waived", found="", statement_hash="00000000",
+                              evidence="- 2026-11-20 human: no falsifier needed"), "another wording")):
+            out, labels, _c = self.run_wf({"prepare": dict(PREP, falsifier=f), "run A": "r",
+                                           "table A": self.A_OK, "falsifier": self.FILED})
+            self.assertEqual(labels, ["prepare", "run A", "table A", "falsifier"], f)
+            self.assertIn(note, " ".join(out["result"]["notes"]), f)
+        f = dict(FALS, source="waived", found="", statement_hash="",
+                 evidence="- 2026-11-20 human: no falsifier needed")
+        out, labels, _c = self.run_wf({"prepare": dict(PREP, falsifier=f), "run A": "r",
+                                       "table A": self.A_OK, "run B": "r",
+                                       "table B": tab("CONFIRMED", "confirmed", run="B"), "conclude": DONE})
+        self.assertIn("run B", labels)
+        self.assertIn("statement hash is unknown", " ".join(out["result"]["notes"]))
+
+    def test_the_request_records_the_statement_hash_and_prepare_reports_it(self):
+        _o, _l, calls = self.run_wf({"prepare": dict(PREP, falsifier=NO_FALS), "run A": "r",
+                                     "table A": self.A_OK, "falsifier": self.FILED})
+        self.assertIn("statement hash abcdef12", calls[-1]["prompt"])
+        self.assertIn("statement_hash", calls[0]["prompt"])
+
+    def test_without_a_ticket_the_falsifier_stage_is_skipped_and_b_runs(self):
+        """Review V1 #4: a pass with no ticket could not be resumed (reviews.py resumes a
+        ticket's own pass only), so it waits for no falsifier: B runs, with a note."""
+        prep = dict(PREP, ticket="none", falsifier=NO_FALS)
+        done = dict(DONE, run_files=["A.md", "B.md", "decision.md"])
+        out, labels, _c = self.run_wf({"prepare": prep, "run A": "r", "table A": self.A_OK,
+                                       "run B": "r", "table B": tab("CONFIRMED", "confirmed", run="B"),
+                                       "conclude": done}, ticket=None)
+        self.assertEqual(labels, ["prepare", "run A", "table A", "run B", "table B", "conclude"])
+        self.assertNotEqual(out["result"]["outcome"], "awaiting-falsifier")
+        self.assertIn("no verify ticket", " ".join(out["result"]["notes"]))
+
+    def test_the_request_goes_to_the_researcher_the_rule_names(self):
+        """Review V1 #5: the addressee is reviews.py researcher-for's answer, not a guess."""
+        out, labels, calls = self.run_wf({"prepare": dict(PREP, falsifier=NO_FALS), "run A": "r",
+                                          "table A": self.A_OK, "falsifier": self.FILED})
+        self.assertIn("to researcher@main", calls[-1]["prompt"])
+        self.assertIn("reviews.py researcher-for", calls[0]["prompt"])
+        for who in ("human", ""):
+            prep = dict(PREP, falsifier=NO_FALS, researcher=who,
+                        researcher_why="bears_on names several Researchers")
+            out, labels, calls = self.run_wf({"prepare": prep, "run A": "r", "table A": self.A_OK,
+                                              "falsifier": {"request": "", "blocked": True,
+                                                            "waiting_on": ["human"], "refusal": ""}})
+            p = calls[-1]["prompt"]
+            self.assertNotIn("tickets_create", p, who)
+            self.assertIn("waiting_on [human]", p, who)
+            self.assertEqual(out["result"]["outcome"], "awaiting-falsifier")
+            self.assertIn("no Researcher to ask", " ".join(out["result"]["notes"]), who)
 
     def test_a_negative_a_or_a_reword_pass_spends_no_falsifier(self):
         out, labels, _ = self.run_wf({"prepare": dict(PREP, falsifier=NO_FALS), "run A": "r",
