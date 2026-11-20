@@ -22,7 +22,8 @@ entry is seen; a deleted state is reported when the thread shows an unreopened d
 Limits, honestly: GitHub identity is one account, so a forged ``reopened:`` thread comment
 or ``**human**`` speaker passes (the server checks the state, not the person); the human's
 own moves are exempt when the workflow knows the actor (``ACADEMY_HUMAN_LOGINS``) or the new
-last thread entry is spoken by ``human``. Problems are posted in one comment that is edited
+last thread entry is spoken by ``human`` or ``human (via main session)`` (the session acting
+for the human, #100). Problems are posted in one comment that is edited
 to a "resolved" line when they clear. Offline:
 
     py board_sync.py --issue issue.json [--comments c.json] [--previous prev.json]

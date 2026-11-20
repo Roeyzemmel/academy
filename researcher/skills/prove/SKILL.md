@@ -26,7 +26,10 @@ The inbox runs the same script for a `prove` ticket. The script:
    is on record: a falsifier is triggered by a failed attempt (step 5) or a GAP verdict of
    the Expert's review, never a gate before an attempt or between A and B. A falsifier counts as on
    record when it attacked this claim, or is recorded on a declared input (`depends_on`) or
-   the parent lead whose class covers it, or the human waived it on the ticket (#117); the
+   the parent lead whose class covers it, or the human waived it on the ticket (#117: a
+   `- YYYY-MM-DD human: ...` line; a session recording the human's waiver through the MCP
+   tools passes `via: "human"` with the human's quote, since a `human (via main session):`
+   line is bookkeeping and does not count); the
    script checks an input's id against the declared inputs and a waiver for the human's
    line, and the result (`falsifier_on_record`, `falsifier_source`, `falsifier`) and the
    verify ticket's ask say which, or that none is on record. A statement nobody attacked on

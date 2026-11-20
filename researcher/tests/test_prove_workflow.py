@@ -500,6 +500,8 @@ class ProveTests(unittest.TestCase):
                    {"falsifier_source": "waived", "falsifier_evidence": "the lead thinks it is fine", "inputs": []},
                    {"falsifier_source": "none", "falsified": False, "inputs": []},
                    {"falsifier_source": "waived", "falsifier_evidence": "the lead says no human has waived this", "inputs": []},
+                   # #100: the session's bookkeeping line is not the human's waiver
+                   {"falsifier_source": "waived", "falsifier_evidence": "- 2026-11-18 human (via main session): waive the experiment", "inputs": []},
                    {"falsifier_source": "ticket", "falsifier_evidence": "", "inputs": []},
                    {"falsifier_source": "whatever", "inputs": []},
                    {"falsifier_source": "parent", "falsifier_on": "", "inputs": []}):

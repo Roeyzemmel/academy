@@ -44,6 +44,10 @@ phrases the questions. Neither one asks the human or records on its own.
    `open`, `accepted`/`cancelled` from `blocked`, with the comment as the reason for a
    decline). Do this before moving to the next batch, so an interrupted run loses
    nothing already answered.
+   These lines read plain `human`: they carry the human's own answer, so pass their
+   free text verbatim as the `--comment`. Any other move this skill makes on a ticket
+   (a note, a block) is the session's: `board.py ... --via session`, written
+   `human (via main session)` (#100).
    A **ruling** (an item with `ruling`: an Expert's question on the inputs of a pass
    with two CONFIRMED runs) has the options (a) union, (b) intersection, (c) re-run,
    (d) decline, and takes one of those letters, never a bare `proceed`. Its record

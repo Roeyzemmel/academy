@@ -8,15 +8,18 @@ description: 'List, show, file, move and sync tickets on the academy board as th
 `$ARGUMENTS` is a subcommand and its arguments, or empty (= `list`). Scripts: `$S` as
 in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. The ticket format and lifecycle are
 `docs/protocol.md` sections 3–4; the main session acts as `human`, who may make any
-transition.
+transition. Its own moves are written `human (via main session)` (#100): every write below
+passes `--via session`. Plain `human` (no `--via`) is only for a line that records the
+human's own words, quoted in the `--text` or `--reason` (an answer they gave in
+AskUserQuestion, a reason they dictated), never for the session's bookkeeping.
 
 | Request | Run |
 |---|---|
 | `list [filters]` | `py $S/board.py list [--to X] [--from X] [--status S] [--kind K] [--text "words"] [--all] [--limit N]` (50 rows unless `--limit`; `--text` searches titles, asks and bodies) |
 | `show T-NNNN` | `py $S/board.py show T-NNNN` |
-| `new ...` | Draft it, show the draft, confirm with `AskUserQuestion`, then `py $S/board.py new --as human ...` |
-| `close` / `cancel` / `reopen` / any status | `py $S/board.py transition T-NNNN <status> [--reason R] [--result R] [--waiting-on a,b]` |
-| `note T-NNNN <text>` | `py $S/board.py append T-NNNN --text "<text>"` |
+| `new ...` | Draft it, show the draft, confirm with `AskUserQuestion`, then `py $S/board.py new --as human --via session ...` |
+| `close` / `cancel` / `reopen` / any status | `py $S/board.py transition T-NNNN <status> --via session [--reason R] [--result R] [--waiting-on a,b]` |
+| `note T-NNNN <text>` | `py $S/board.py append T-NNNN --via session --text "<text>"` |
 | `sync` | Commit pending board changes (below) |
 
 Rules:

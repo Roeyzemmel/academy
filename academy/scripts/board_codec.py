@@ -57,7 +57,8 @@ ROUTE_DEAD = "%s:dead" % ROUTE_PREFIX
 NOT_IN_META = ("id", "title") + tuple(f for f, _p in LABEL_FIELDS)
 RE_TITLE = re.compile(r"^(T-\d{4,}): (.*)$", re.S)
 RE_META = re.compile(r"^<!-- academy:meta (.*) -->$")
-RE_COMMENT = re.compile(r"^<!-- academy:thread -->\n\*\*(\S+)\*\* (\d{4}-\d{2}-\d{2})\n\n(.*)$", re.S)
+RE_COMMENT = re.compile(r"^<!-- academy:thread -->\n\*\*(human \(via [^)]*\)|\S+)\*\* "
+                        r"(\d{4}-\d{2}-\d{2})\n\n(.*)$", re.S)
 MAX_BODY = 65000
 #: footers appended to what a session posts (the github MCP's attribution on comments; a
 #: session's REST creates get it on the issue body too); bodies and thread entries are read
@@ -444,7 +445,7 @@ def check_reopen(previous, current, body=None, human=False):
         ``reopened: <the new mechanism>`` thread entry, or by cancellation (the server
         cannot tell whose); the **human** may leave it by any transition, so the check is
         skipped when ``human`` is set or when the new last thread entry is spoken by
-        ``human`` (a *speaker name*, which any commenter can write: GitHub identity is one
+        ``human`` or ``human (via main session)`` (a *speaker name*, which any commenter can write: GitHub identity is one
         account, so this is a convention the server cannot verify);
       * a dead route may not turn pending or plain (``blocked_by`` / ``reopen_if`` cleared
         while still blocked) without that entry either;
@@ -497,8 +498,9 @@ def check_reopen(previous, current, body=None, human=False):
 
 def _human_spoke(entries, since):
     """True when a thread entry after the first ``since`` entries is spoken by ``human``
-    (the last one: a human move is recorded by the human's own entry)."""
-    return bool(entries) and len(entries) > since and entries[-1][1] == ac.HUMAN
+    (the last one: a human move is recorded by the human's own entry), or by ``human (via
+    main session)``, which moves with the human's authority (#100)."""
+    return bool(entries) and len(entries) > since and ac.is_human_speaker(entries[-1][1])
 
 
 def check_transition(old, new, party, human=False):

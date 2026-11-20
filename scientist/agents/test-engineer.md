@@ -5,7 +5,7 @@ model: sonnet
 tier: medium
 effort: high
 fallback: opus
-maxTurns: 30
+maxTurns: 60
 tools: Read, Grep, Glob, Bash, PowerShell, Edit, Write, Skill, mcp__plugin_academy_academy__domain_get, mcp__plugin_academy_academy__config_get, mcp__plugin_academy_academy__workspace_get, mcp__plugin_academy_academy__tickets_list, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__packets_get, mcp__plugin_academy_academy__queue_status, mcp__plugin_academy_academy__queue_log, mcp__plugin_academy_academy__env_list, mcp__plugin_academy_academy__env_check, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__tickets_update, mcp__academy__domain_get, mcp__academy__config_get, mcp__academy__workspace_get, mcp__academy__tickets_list, mcp__academy__tickets_get, mcp__academy__packets_get, mcp__academy__queue_status, mcp__academy__queue_log, mcp__academy__env_list, mcp__academy__env_check, mcp__academy__tickets_create, mcp__academy__tickets_update
 skills: [scientist:experiment-method, academy:honest-reporting, superpowers:test-driven-development, superpowers:systematic-debugging, superpowers:verification-before-completion, superpowers:requesting-code-review, superpowers:receiving-code-review, superpowers:using-git-worktrees]
 color: yellow
@@ -44,6 +44,13 @@ input, and how bad it is; say plainly when there are none. When the stage asks f
 `findings`; the caller never reads the verdict from your prose. You do not fix the code
 you review: findings go back to the developer through the ticket thread
 (`tickets_update`). You may add a failing test that demonstrates a finding.
+
+**Report first** (#99): a stop at the turn cap must still leave a usable report. Before
+the first test or the first file of a review, post a running status as a thread note on
+the ticket (`tickets_update` note): the job and the branch. After every green step,
+commit the tests on your branch (in a workspace, `py scripts/ship.py commit <sub> -m ...
+--paths ... --repo <worktree>`; a raw `git commit` is denied there) and add one status
+line (what is done, the last commit sha, what is next); in a review, post each finding as you find it, not only at the end.
 
 ## Limits
 

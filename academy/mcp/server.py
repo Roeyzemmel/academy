@@ -129,8 +129,10 @@ def call_tool(name, args, cwd=None, caller=None):
         requested = args.pop("instance", None)
     elif name in TARGET_INSTANCE_TOOLS:
         requested = args.get("instance")
+    # every caller of this server is a Claude session: a main-thread write as the human
+    # is the session's, ``human (via main session)``, unless it passes via: "human" (#100)
     ctx = Context(cwd=cwd, agent=agent, agent_ns=ns, verified=verified,
-                  requested_instance=requested)
+                  requested_instance=requested, via=ac.VIA_SESSION)
     try:
         if tool.write and agent:
             ok, why = ac.may_call(ctx.perms, name, agent)

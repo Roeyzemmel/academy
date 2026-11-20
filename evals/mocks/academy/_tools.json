@@ -429,7 +429,7 @@
   },
   {
    "name": "tickets_list",
-   "description": "List board tickets, filtered by to / from / instance (either side) / status.",
+   "description": "List board tickets, filtered by to / from / instance (either side) / status / kind / parent (a ticket's children) / campaign / cowork / text (words in the id, title, ask, agenda or body: the way to ask whether a ticket on something exists already). At most limit rows (default 50, 0 = all) from offset; a cut listing says truncated, with the counts by status.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -451,8 +451,29 @@
        "type": "string"
       }
      },
+     "kind": {
+      "type": "string"
+     },
+     "parent": {
+      "type": "string"
+     },
+     "campaign": {
+      "type": "string"
+     },
+     "cowork": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     },
      "include_terminal": {
       "type": "boolean"
+     },
+     "limit": {
+      "type": "integer"
+     },
+     "offset": {
+      "type": "integer"
      }
     },
     "additionalProperties": false
@@ -480,7 +501,7 @@
   },
   {
    "name": "tickets_create",
-   "description": "File a ticket from the caller's instance (the human files as 'human'). The server allocates the id and dates; status is open. A ticket must pass the chain (docs/protocol.md section 5): to a neighbouring role, by a liaison; final_to names the role a relay forwards it to. campaign / cowork tag the ticket for a workplan (academy/lib/workplan.py): a campaign's target id or a cowork's slug.",
+   "description": "File a ticket from the caller's instance (the human files as 'human'). The server allocates the id and dates; status is open. ask is one line: a longer ask keeps its first line and goes whole to the ## Ask body. A ticket must pass the chain (docs/protocol.md section 5): to a neighbouring role, by a liaison; final_to names the role a relay forwards it to. campaign / cowork tag the ticket for a workplan (academy/lib/workplan.py): a campaign's target id or a cowork's slug.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -568,6 +589,14 @@
      "as_human": {
       "type": "boolean"
      },
+     "via": {
+      "type": "string",
+      "enum": [
+       "session",
+       "human"
+      ],
+      "description": "main session only: who writes this call's human lines (#100). Omitted, they read 'human (via main session)'; pass 'human' only to record the human's own words (a quoted answer, given in the note or reason)"
+     },
      "instance": {
       "type": "string",
       "description": "The instance you act for (workspace.json), e.g. researcher@flat. Needed only when the server cannot tell (a cloud session, whose server runs outside the homes); default: the ticket's party of your role, the server's home, or the only instance of your role. A role agent can never act as 'human'."
@@ -585,7 +614,7 @@
   },
   {
    "name": "tickets_update",
-   "description": "Change a ticket: a status transition (with reason where the protocol needs one), owned fields, ## Ask / ## Result detail, and/or a thread note. Field ownership and transitions per docs/protocol.md. deliver: true (the receiver or the human, ticket open/accepted/in-progress, fields.result required) walks open -> accepted -> in-progress -> delivered in one call, writing the usual thread line per step; every hop must be allowed; not with another status. result is an alias of fields.result.",
+   "description": "Change a ticket: a status transition (with reason where the protocol needs one), owned fields, ## Ask / ## Result detail, and/or a thread note. Field ownership and transitions per docs/protocol.md. deliver: true (the receiver or the human, ticket open/accepted/in-progress, fields.result required) walks open -> accepted -> in-progress -> delivered in one call, writing the usual thread line per step; every hop must be allowed; not with another status. status in-progress from open likewise passes through accepted. result, waiting_on, blocked_by and reopen_if are aliases of the fields of that name; a multi-line result keeps its first line and goes whole to ## Result. blocked needs waiting_on (pending), or blocked_by + reopen_if + reason (a dead route). A call that changes nothing answers changed: false.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -629,6 +658,29 @@
      "result": {
       "type": "string"
      },
+     "waiting_on": {
+      "type": [
+       "array",
+       "string"
+      ],
+      "items": {
+       "type": "string"
+      }
+     },
+     "blocked_by": {
+      "type": "string"
+     },
+     "reopen_if": {
+      "type": "string"
+     },
+     "via": {
+      "type": "string",
+      "enum": [
+       "session",
+       "human"
+      ],
+      "description": "main session only: who writes this call's human lines (#100). Omitted, they read 'human (via main session)'; pass 'human' only to record the human's own words (a quoted answer, given in the note or reason)"
+     },
      "instance": {
       "type": "string",
       "description": "The instance you act for (workspace.json), e.g. researcher@flat. Needed only when the server cannot tell (a cloud session, whose server runs outside the homes); default: the ticket's party of your role, the server's home, or the only instance of your role. A role agent can never act as 'human'."
@@ -642,7 +694,7 @@
   },
   {
    "name": "packets_list",
-   "description": "List review packets, filtered by instance / state / ticket, with their pending decisions.",
+   "description": "List review packets, newest first, filtered by instance / state / ticket / kind / pending (only those with a decision still to make), with their pending decisions; path is relative to board. At most limit rows (default 50, 0 = all) from offset; a cut listing says truncated, with the counts by state.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -659,6 +711,18 @@
      },
      "ticket": {
       "type": "string"
+     },
+     "kind": {
+      "type": "string"
+     },
+     "pending": {
+      "type": "boolean"
+     },
+     "limit": {
+      "type": "integer"
+     },
+     "offset": {
+      "type": "integer"
      }
     },
     "additionalProperties": false

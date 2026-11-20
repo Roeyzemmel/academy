@@ -164,7 +164,8 @@ def _check_party(name, workspace, what):
 def create_ticket(board, to, title, ask, deliverable, kind="other", priority="normal",
                   refs=None, agenda=None, domain=None, parent=None, budget=None,
                   detail="", as_instance=None, agent="", workspace=None, date=None,
-                  final_to=None, perms=None, campaign=None, cowork=None, return_meta=False):
+                  final_to=None, perms=None, campaign=None, cowork=None, return_meta=False,
+                  via=None):
     """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path
     (with ``return_meta``, ``(path, meta)``: the stored frontmatter, its id included, so a
     caller on the GitHub store need not list the board to learn it).
@@ -172,7 +173,8 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     ``campaign`` (a registry id, the campaign's target) tags the ticket so
     ``inbox.py --campaign <target>`` selects it; ``cowork`` (a slug, the plan
     ``board/cowork/<slug>.md``) the same way for ``inbox.py --cowork <slug>``
-    (academy/lib/workplan.py). Omitted, the field is not written.
+    (academy/lib/workplan.py). Omitted, the field is not written. ``via`` (``"session"``
+    or ``"human"``) says who wrote a human line (``ac.format_who``; #100).
     """
     ws = workspace if workspace is not None else _workspace_or_none()
     if not as_instance:
@@ -211,23 +213,25 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
         raise ac.AcademyError("invalid ticket: " + "; ".join(probs))
     text = ac.new_ticket(meta, detail)
     fm, body = ac.read_frontmatter(text)
-    body = ac.append_thread(body, ac.format_who(as_instance, who), "opened", date)
+    body = ac.append_thread(body, ac.format_who(as_instance, who, via), "opened", date)
     path, stored = store.create(fm, body)
     return (path, stored) if return_meta else path
 
 
-def append_to_ticket(board, tid, text, as_instance=ac.HUMAN, agent="", date=None):
-    """Append one entry to the ticket's thread. Returns the path."""
+def append_to_ticket(board, tid, text, as_instance=ac.HUMAN, agent="", date=None, via=None):
+    """Append one entry to the ticket's thread. Returns the path. ``via="session"`` marks a
+    human line the main session wrote (``human (via main session)``; #100)."""
     store = ac.as_store(board)
     path, meta, body = store.get(tid)
     date = date or ac.today()
-    body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent)), text, date)
+    body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent), via), text,
+                            date)
     meta["updated"] = date
     return store.save(meta, body, path)
 
 
 def reassign_ticket(board, tid, new_to, reason, as_instance=ac.HUMAN, agent="",
-                    workspace=None, date=None):
+                    workspace=None, date=None, via=None):
     """Re-address ticket ``tid`` to ``new_to``: rewrite ``to``, move it to its new
     addressee (``board/<new_to>/`` on the file board; the store relocates it on either
     backend) and log it, as one step. Human only (``to`` is a human-only field); the
@@ -249,7 +253,7 @@ def reassign_ticket(board, tid, new_to, reason, as_instance=ac.HUMAN, agent="",
     date = date or ac.today()
     meta["to"] = new_to
     meta["updated"] = date
-    body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent)),
+    body = ac.append_thread(body, ac.format_who(as_instance, bare_agent(agent), via),
                             "reassigned %s -> %s: %s" % (old_to, new_to, reason.strip()), date)
     probs = ac.validate_ticket(meta, body, ws)
     if probs:
@@ -259,7 +263,7 @@ def reassign_ticket(board, tid, new_to, reason, as_instance=ac.HUMAN, agent="",
 
 def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
                       as_instance=ac.HUMAN, agent="", date=None, blocked_by=None,
-                      reopen_if=None, reopen=None, workspace=None):
+                      reopen_if=None, reopen=None, workspace=None, via=None):
     """Move a ticket to ``new`` under the lifecycle rules. Returns the path.
 
     Raises AcademyError when the caller may not make the move or a requirement
@@ -287,7 +291,7 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
             raise ac.AcademyError("%s: %s" % (tid, ac.REOPEN_ONLY))
         return path
     old_meta = dict(meta)
-    who = ac.format_who(as_instance, bare_agent(agent))
+    who = ac.format_who(as_instance, bare_agent(agent), via)
     if result is not None and str(result).strip():
         meta["result"] = " ".join(str(result).split())
         body = ac.append_thread(body, who, "set result: %s" % meta["result"], date)
@@ -371,6 +375,9 @@ def main(argv=None):
     wp.add_argument("--cowork", help="the cowork's slug (inbox --cowork selects it; "
                                      "/academy:cowork)")
     p.add_argument("--agent", default="")
+    p.add_argument("--via", choices=ac.VIAS,
+                   help="who wrote a human line: session (the main Claude session: 'human "
+                        "(via main session)') or human (the default)")
 
     p = sub.add_parser("show", help="print one ticket")
     p.add_argument("id"); p.add_argument("--json", action="store_true")
@@ -387,17 +394,26 @@ def main(argv=None):
                                     "mechanism (required for one)")
     p.add_argument("--as", dest="as_instance", default=ac.HUMAN)
     p.add_argument("--agent", default="")
+    p.add_argument("--via", choices=ac.VIAS,
+                   help="who wrote a human line: session (the main Claude session: 'human "
+                        "(via main session)') or human (the default)")
 
     p = sub.add_parser("reassign", help="re-address a ticket to another instance (human only)")
     p.add_argument("id"); p.add_argument("--to", required=True)
     p.add_argument("--reason", required=True)
     p.add_argument("--as", dest="as_instance", default=ac.HUMAN)
     p.add_argument("--agent", default="")
+    p.add_argument("--via", choices=ac.VIAS,
+                   help="who wrote a human line: session (the main Claude session: 'human "
+                        "(via main session)') or human (the default)")
 
     p = sub.add_parser("append", help="append a line to a ticket's thread")
     p.add_argument("id"); p.add_argument("--text", required=True)
     p.add_argument("--as", dest="as_instance", default=ac.HUMAN)
     p.add_argument("--agent", default="")
+    p.add_argument("--via", choices=ac.VIAS,
+                   help="who wrote a human line: session (the main Claude session: 'human "
+                        "(via main session)') or human (the default)")
 
     a = ap.parse_args(argv)
     _utf8_stdout()
@@ -428,7 +444,7 @@ def main(argv=None):
                                  a.priority, _split(a.refs), a.agenda, a.domain, a.parent,
                                  budget, a.detail, a.as_instance, a.agent, ws,
                                  final_to=a.final_to, campaign=a.campaign,
-                                 cowork=a.cowork)
+                                 cowork=a.cowork, via=a.via)
             print(path)
         elif a.cmd == "show":
             path, meta, body = get_ticket(board, a.id)
@@ -448,14 +464,15 @@ def main(argv=None):
                 if probs:
                     print("\n# problems: " + "; ".join(probs))
         elif a.cmd == "reassign":
-            print(reassign_ticket(board, a.id, a.to, a.reason, a.as_instance, a.agent, ws))
+            print(reassign_ticket(board, a.id, a.to, a.reason, a.as_instance, a.agent, ws,
+                                  via=a.via))
         elif a.cmd == "transition":
             print(transition_ticket(board, a.id, a.status, a.reason, a.result,
                                     _split(a.waiting_on), a.as_instance, a.agent,
                                     blocked_by=a.blocked_by, reopen_if=a.reopen_if,
-                                    reopen=a.reopen, workspace=ws))
+                                    reopen=a.reopen, workspace=ws, via=a.via))
         elif a.cmd == "append":
-            print(append_to_ticket(board, a.id, a.text, a.as_instance, a.agent))
+            print(append_to_ticket(board, a.id, a.text, a.as_instance, a.agent, via=a.via))
     except ac.AcademyError as e:
         print("error: %s" % e, file=sys.stderr)
         return 1
