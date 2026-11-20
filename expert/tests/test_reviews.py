@@ -456,5 +456,79 @@ class RewordStatusTests(unittest.TestCase):
         self.assertEqual(expert_status.review_state(sb.lib)["undecided"], [])
 
 
+
+class AmendBriefTests(unittest.TestCase):
+    """2026-11-20: run B of a pass whose run A is CONFIRMED with add_dependency reviews the
+    amended proof, informed of the suggestion only (never of A's report)."""
+
+    PASS = "2026-11-20-T-0900"
+
+    def setUp(self):
+        import decision_table as dt
+        self.dt = dt
+        self.sb = fixtures.Sandbox()
+        self.addCleanup(self.sb.close)
+        self.h = dt.statement_hash(OLD)
+        self.pdir = os.path.join(self.sb.lib, "reviews", "paper", "lem-strip-bound", self.PASS)
+        os.makedirs(self.pdir)
+        self.write_a("CONFIRMED", "[paper:lem:lift, 'bib:LMW16#Thm11']")
+
+    def write_a(self, verdict, add):
+        with open(os.path.join(self.pdir, "A.md"), "w", encoding="utf-8") as fh:
+            fh.write("---\nsubject: %s\npass: %s\nrun: A\nrun_id: rv-A\nverdict: %s\n"
+                     "modulo: []\nadd_dependency: %s\nmodel: claude-opus-5-5\n"
+                     "statement_hash: %s\n---\n\nRun A report: SECRET-FINDING in step 2.\n"
+                     % (SUBJ, self.PASS, verdict, add, self.h))
+
+    def brief(self, **kw):
+        import reviews
+        kw.setdefault("current", lambda s: (OLD, self.h))
+        return reviews.amend_brief(self.sb.lib, SUBJ, self.PASS, **kw)
+
+    def test_the_bundle_gives_the_suggestion_and_the_amended_attempt_only(self):
+        att = self.sb.write("scratch/attempt-3.md", "Proof. By lem:lift and [LMW16, Thm 11] ...")
+        b = self.brief(attempt=att, ticket="T-0900")
+        for want in ("run: B", "mode: amend", "pass: %s" % self.PASS,
+                     "base_pass: %s" % self.PASS, "base_hash: %s" % self.h,
+                     "statement_hash: %s" % self.h,
+                     "amended_with: paper:lem:lift, bib:LMW16#Thm11", "ticket: T-0900",
+                     "By lem:lift and [LMW16, Thm 11]"):
+            self.assertIn(want, b)
+        self.assertNotIn("SECRET-FINDING", b)       # never A's report
+        self.assertNotIn("CONFIRMED", b)            # nor A's verdict
+
+    def test_the_cli_writes_the_bundle(self):
+        out_path = self.sb.path("scratch/amend.md")
+        code, out, err = fixtures.run_script(
+            "reviews.py", args=["amend-brief", SUBJ, self.PASS, "--attempt",
+                                "proofs/lem-strip-bound/attempt-3.md", "--out", out_path,
+                                "--home", self.sb.lib])
+        # the sandbox registry has no such record: the statement is not re-checked, and
+        # an attempt that is no file is given as the pointer it is
+        self.assertEqual(code, 0, err)
+        with open(out_path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("mode: amend", text)
+        self.assertIn("proofs/lem-strip-bound/attempt-3.md", text)
+
+    def test_refused_without_a_suggestion_or_on_a_moved_statement(self):
+        import reviews
+        with self.assertRaises(reviews.Refused):
+            self.brief(current=lambda s: (NEW, self.dt.statement_hash(NEW)))
+        self.write_a("CONFIRMED", "none")
+        with self.assertRaises(reviews.Refused):
+            self.brief()
+        self.write_a("GAP", "[paper:lem:lift]")
+        with self.assertRaises(reviews.Refused):
+            self.brief()
+
+    def test_refused_once_b_has_landed(self):
+        import reviews
+        with open(os.path.join(self.pdir, "B.md"), "w", encoding="utf-8") as fh:
+            fh.write("---\nrun: B\n---\n")
+        with self.assertRaises(reviews.Refused):
+            self.brief()
+
+
 if __name__ == "__main__":
     unittest.main()

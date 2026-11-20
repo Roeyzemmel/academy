@@ -15,6 +15,10 @@
                                                       the same, on a renamed record whose
                                                       base pass is filed under OLD_ID, an
                                                       id SUBJECT's record supersedes (T-0476)
+    py reviews.py amend-brief SUBJECT PASS [--attempt F] [--ticket T] [--out FILE]
+                                                      run B's bundle in amend mode: run A's
+                                                      suggested dependencies and the amended
+                                                      proof, never A's report (2026-11-20)
     py reviews.py reword-brief SUBJECT PASS (--old-file F | --old-text T)
                   [--new-file F | --new-text T] [--findings F_OR_TEXT ...]
                   [--ticket T] [--out FILE]           the reword run's brief bundle
@@ -419,6 +423,68 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
     return "\n".join(out).rstrip() + "\n"
 
 
+def amend_brief(home, subject, pass_name, attempt=None, ticket=None, current=None):
+    """Run B's bundle in amend mode (the human's design, 2026-11-20): the pass's run A is
+    CONFIRMED with ``add_dependency``; the producer added those to the proof and to
+    ``depends_on``; run B reviews the amended proof, told the suggestion only. Never A's
+    report, verdict or findings: B stays blind to everything but what was added.
+
+    ``attempt`` is the amended proof: a file (inlined) or a pointer (given as is).
+    ``current`` (subject -> ``(text, hash)``, the CLI's is :func:`registry_statement`):
+    when it reads the statement, its hash must still be run A's (an amendment never
+    rewords the statement). Raises Refused when run A is missing, is not CONFIRMED with a
+    suggestion, run B has landed, or the statement moved."""
+    d = pass_dir(home, subject, pass_name)
+    a_path = os.path.join(d, "A.md")
+    if not os.path.isfile(a_path):
+        raise Refused("the pass %s of %s has no run A" % (pass_name, subject))
+    if any(f == "B.md" or f.startswith("B-") for f in os.listdir(d)):
+        raise Refused("run B of %s has already landed: no amend run to brief" % pass_name)
+    a = dt.read_record(a_path)
+    res = dt.decide(a)
+    if res["outcome"] != "awaiting-amendment":
+        raise Refused("run A of %s is not CONFIRMED with a suggested dependency (its table "
+                      "gives %s): an amend run has no base" % (pass_name, res["outcome"]))
+    deps = res["add_dependency"]
+    h = a.get("statement_hash") or ""
+    note = ""
+    if current is not None:
+        _text, cur_h = current(subject)
+        if cur_h is None:
+            note = ("(the registry's statement of %s could not be read here: its hash was "
+                    "not re-checked against run A's)" % subject)
+        elif cur_h != h:
+            raise Refused("the statement of %s hashes to %s now, not run A's %s: an "
+                          "amendment adds dependencies, it never rewords the statement; "
+                          "the pass cannot carry it" % (subject, cur_h, h))
+    if ticket is None:
+        t = pass_note(home, subject, pass_name).get("ticket") or _pass_ticket(home, subject,
+                                                                             pass_name)
+        ticket = t if t and t != "none" else None
+    out = ["# Amend review bundle: %s" % subject, "",
+           "You are run B of this pass, in amend mode (rigor-reviewer, \"Amend mode\"). "
+           "The first review of this proof found it complete given dependencies it did not "
+           "list; the producer has added exactly those to the proof and to the claim's "
+           "depends_on. That suggestion is all you are told of the first review. Review the "
+           "amended proof in full.", "",
+           "Copy these into your VERDICT block unchanged:", "", "```",
+           "subject: %s" % subject, "pass: %s" % pass_name, "run: B", "mode: amend",
+           "base_pass: %s" % pass_name, "base_hash: %s" % h,
+           "amended_with: %s" % ", ".join(deps), "statement_hash: %s" % h,
+           "ticket: %s" % (ticket or "none"), "```", ""]
+    if note:
+        out += [note, ""]
+    out += ["## The dependencies added", ""] + ["- %s" % x for x in deps] + [""]
+    out += ["## The amended proof", ""]
+    if attempt and os.path.isfile(attempt):
+        out += ["### `%s`" % attempt.replace("\\", "/"), "", _read(attempt).strip(), ""]
+    elif attempt:
+        out += ["It is at `%s` (read it there)." % str(attempt).replace("\\", "/"), ""]
+    else:
+        out += ["(where the brief says the proof lives)", ""]
+    return "\n".join(out).rstrip() + "\n"
+
+
 def abandon_pass(home, subject, pass_name, reason, now=None):
     if pass_name not in open_passes(home, subject):
         raise Refused("%s has no open pass %r" % (subject, pass_name))
@@ -486,6 +552,15 @@ def main(argv=None):
     rb.add_argument("--out", help="write the bundle here (outside reviews/) instead of "
                                   "printing it")
     rb.add_argument("--home")
+    am = sub.add_parser("amend-brief")
+    am.add_argument("subject")
+    am.add_argument("pass_name")
+    am.add_argument("--attempt", help="the amended proof: a file (inlined) or where it "
+                                      "lives (given as is)")
+    am.add_argument("--ticket")
+    am.add_argument("--out", help="write the bundle here (outside reviews/) instead of "
+                                  "printing it")
+    am.add_argument("--home")
     ab = sub.add_parser("abandon")
     ab.add_argument("subject")
     ab.add_argument("pass_name")
@@ -536,6 +611,21 @@ def main(argv=None):
         try:
             text = reword_brief(home, args.subject, args.pass_name, old, new,
                                 args.findings, args.ticket, current=registry_statement)
+        except Refused as exc:
+            sys.stderr.write("reviews: refused: %s\n" % exc)
+            return 1
+        if args.out:
+            os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+            with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+            print(args.out.replace("\\", "/"))
+        else:
+            print(text, end="")
+        return 0
+    if args.cmd == "amend-brief":
+        try:
+            text = amend_brief(home, args.subject, args.pass_name, args.attempt, args.ticket,
+                               current=registry_statement)
         except Refused as exc:
             sys.stderr.write("reviews: refused: %s\n" % exc)
             return 1
