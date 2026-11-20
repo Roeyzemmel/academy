@@ -142,11 +142,25 @@ def _board():
     return board
 
 
-def _open_titles(bd):
-    """{title: ticket id} of the board's non-terminal verify tickets (raises when the
+def _open_verify(bd):
+    """The board's non-terminal verify tickets (metas) and the store (raises when the
     board cannot be read)."""
     store = bd.resolve_store()
-    return {m.get("title"): m.get("id") for m in bd.list_tickets(store, kind="verify")}, store
+    return list(bd.list_tickets(store, kind="verify")), store
+
+
+def _covering(tickets, qid, title):
+    """The open verify ticket already covering ``qid``: the one titled ``title``, else
+    one whose title or refs name the claim (a blind verify on it); None when none."""
+    for m in tickets:
+        if m.get("title") == title:
+            return m
+    for m in tickets:
+        refs = m.get("refs") or []
+        if qid in str(m.get("title") or "").split() or \
+                qid in [str(r).strip() for r in (refs if isinstance(refs, list) else [refs])]:
+            return m
+    return None
 
 
 def _stale_cmd(repo, a):
@@ -173,12 +187,12 @@ def _stale_cmd(repo, a):
     if a.section:
         items = [i for i in items if i["section"] == a.section]
     expert = stale.expert_instance()
-    titles, store, board_note = {}, None, ""
+    tickets, store, board_note = [], None, ""
     bd = None
     if items:
         try:
             bd = _board()
-            titles, store = _open_titles(bd)
+            tickets, store = _open_verify(bd)
         except Exception as exc:        # noqa: BLE001 -- the board's error, said as is
             board_note = f"the board could not be read ({exc})"
             if a.file_reword:
@@ -187,7 +201,8 @@ def _stale_cmd(repo, a):
     as_inst = a.as_instance or expert
     for it in items:
         it["title_to_file"] = stale.ticket_title(it["qid"], it["base_pass"])
-        it["open_ticket"] = titles.get(it["title_to_file"])
+        cov = _covering(tickets, it["qid"], it["title_to_file"])
+        it["open_ticket"] = f"{cov.get('id')} {cov.get('title')}" if cov else None
         it["filed"] = None
         if it["hold"] or it["open_ticket"] or not a.file_reword:
             continue
@@ -202,7 +217,7 @@ def _stale_cmd(repo, a):
                 as_instance=as_inst, agent="" if as_inst == "human" else "review-chair",
                 return_meta=True)
             it["filed"] = meta.get("id")
-            titles[it["title_to_file"]] = it["filed"]
+            tickets.append(dict(meta))
         except Exception as exc:        # noqa: BLE001 -- a refusal, reported per claim
             it["refused"] = str(exc)
     if a.json:
@@ -222,7 +237,8 @@ def _stale_cmd(repo, a):
         if it["hold"]:
             print(f"    held, not filed: {it['hold']}")
         elif it["open_ticket"]:
-            print(f"    already open: {it['open_ticket']} {it['title_to_file']}")
+            print(f"    already open: {it['open_ticket']} (covers it; not filed: "
+                  f"{it['title_to_file']})")
         elif it["filed"]:
             print(f"    filed: {it['filed']} {it['title_to_file']}")
         elif it.get("refused"):

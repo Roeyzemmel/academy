@@ -39,10 +39,10 @@ RUN = """---
 subject: paper:{label}
 pass: {pass_}
 run: {run}
-run_id: rv-{pass_}-{run}
+run_id: {run_id}
 verdict: {verdict}
-modulo: []
-model: claude-opus-5-5
+modulo: {modulo}
+model: {model}
 statement_hash: {hash}
 {extra}agent: expert:rigor-reviewer
 landed: 2026-11-01
@@ -89,10 +89,13 @@ class StaleHomes(Homes):
         registry.clear_cache()
         return federation.store("paper", self.bi).statement_hash(label)
 
-    def run_record(self, label, pass_, run, hash_, verdict="CONFIRMED", extra=""):
+    def run_record(self, label, pass_, run, hash_, verdict="CONFIRMED", extra="",
+                   modulo="[]", model="claude-opus-5-5", fname=None, run_id=None):
         d = self.lib / "reviews" / "paper" / label.replace(":", "-") / pass_
-        write(d / (run + ".md"), RUN.format(label=label, pass_=pass_, run=run,
-                                            verdict=verdict, hash=hash_, extra=extra))
+        write(d / ((fname or run) + ".md"), RUN.format(
+            label=label, pass_=pass_, run=run, verdict=verdict, hash=hash_, extra=extra,
+            modulo=modulo, model=model,
+            run_id=run_id or "rv-20261101-0000%02d-%s" % (ord(run) - 64, run.lower())))
         return d
 
     def blind_pass(self, label, pass_, hash_, verdicts=("CONFIRMED", "CONFIRMED"),
@@ -204,6 +207,7 @@ class TestFind(StaleHomes):
         # inbox reads passes no base_subject, so no ticket is filed for it
         self.claim("prop:foo")
         h0 = self.hash_of("prop:foo")
+        self.blind_pass("prop:old", "2026-11-01-T-0001", h0)     # under the old id
         self.reword_text("prop:foo", "Every $x$ is very fine.")
         h1 = self.hash_of("prop:foo")
         d = self.reword_pass("prop:foo", "2026-11-03-T-0005-reword", "2026-11-01-T-0001", h0, h1)
@@ -241,6 +245,62 @@ class TestFind(StaleHomes):
         self.assertEqual(len(self.found()), 1)
         st = federation.store("paper", copy)
         self.assertEqual(stale.find(st, stale.reviews_root(copy)), [])
+
+    # -- review of b773f2f -------------------------------------------------------
+    def test_relaunch_records_count(self):
+        """Finding 1: a relaunched run lands as A-2.md; the pass stands on the latest
+        record of each run (cor-full-preimage-locus T-1680's shape)."""
+        self.claim("prop:foo")
+        h0 = self.hash_of("prop:foo")
+        self.run_record("prop:foo", "2026-11-01-T-0001", "A", "96a9a03a4d33eccc",
+                        run_id="rv-20261101-000001-a")
+        self.run_record("prop:foo", "2026-11-01-T-0001", "A", h0, fname="A-2",
+                        run_id="rv-20261101-000002-a")
+        d = self.run_record("prop:foo", "2026-11-01-T-0001", "B", h0,
+                            run_id="rv-20261101-000003-b")
+        write(d / "decision.md", "- outcome: `confirmed`\n")
+        self.assertEqual(self.found(), [])          # positive, on h0: not stale
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        items = self.found()
+        self.assertEqual([(i["pass"], i["pass_hash"]) for i in items],
+                         [("2026-11-01-T-0001", h0)])
+        # ... but the reword route reads A.md and B.md (reviews.base_decision): held
+        self.assertIn("reviews.base_decision", items[0]["hold"])
+        self.assertIn("invalid-pair", items[0]["hold"])
+
+    def test_positive_is_what_the_decision_table_says(self):
+        """Finding 2/3: two CONFIRMED runs whose modulo lists differ are not a confirmed
+        pass for the decision table (reviews.base_decision refuses them as a reword
+        base), whatever decision.md's wording."""
+        self.claim("prop:foo")
+        h0 = self.hash_of("prop:foo")
+        self.run_record("prop:foo", "2026-11-01-T-0001", "A", h0, modulo="[paper:lem:bar]")
+        d = self.run_record("prop:foo", "2026-11-01-T-0001", "B", h0, modulo="[]")
+        write(d / "decision.md", "## Outcome\n\n`disagreement`; no status change\n")
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        self.assertEqual(self.found(), [])
+
+    def test_non_primary_model_pair_is_not_positive(self):
+        self.claim("prop:foo")
+        h0 = self.hash_of("prop:foo")
+        for run in "AB":
+            d = self.run_record("prop:foo", "2026-11-01-T-0001", run, h0,
+                                model="some-small-model")
+        write(d / "decision.md", "- outcome: `confirmed`\n")
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        self.assertEqual(self.found(), [])
+
+    def test_an_abandoned_later_pass_does_not_hold(self):
+        """Finding 5."""
+        self.claim("prop:foo")
+        self.blind_pass("prop:foo", "2026-11-01-T-0001", self.hash_of("prop:foo"))
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        d = self.blind_pass("prop:foo", "2026-11-05-T-0002", self.hash_of("prop:foo"),
+                            ("GAP", "CONFIRMED"), decided=False)
+        write(d / "abandoned.md", "---\nabandoned: 2026-11-05\n---\nlost\n")
+        items = self.found()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["hold"], "")
 
     def test_no_library_means_nothing_flagged(self):
         self.claim("prop:foo")
@@ -301,7 +361,8 @@ class TestCheckAndViews(StaleHomes):
         for run in "AB":
             write(d / (run + ".md"), RUN.replace("paper:{label}", "s1:CRIT-2").format(
                 label="", pass_="2026-11-01-T-0009", run=run, verdict="CONFIRMED",
-                hash=h0, extra=""))
+                hash=h0, extra="", modulo="[]", model="claude-opus-5-5",
+                run_id="rv-20261101-00000%d-x" % " AB".index(run)))
         write(d / "decision.md", "- outcome: `confirmed`\n")
         self.assertEqual(self.found("s1"), [])
         p = self.s1 / "claims" / "CRIT-2.md"
@@ -366,6 +427,22 @@ class TestFileReword(StaleHomes):
         titles = [t["title"] for t in self.tickets()]
         self.assertEqual(titles.count("Verify paper:prop:foo (reword of 2026-11-01-T-0001)"), 1)
         self.assertIn("Verify paper:lem:bar (reword of 2026-11-01-T-0004)", titles)
+
+    def test_any_open_verify_ticket_on_the_claim_covers_it(self):
+        """Finding 4: a blind verify ticket on the claim (title or refs) is already
+        open: no reword ticket beside it, and the listing names it."""
+        self.make_stale()
+        _p, meta = board_mod.create_ticket(
+            str(self.tmp / "board"), "expert@t", "Verify the foo proposition", "blind",
+            "a packet", kind="verify", refs=["paper:prop:foo"], as_instance="human",
+            return_meta=True)
+        _p, meta2 = board_mod.create_ticket(
+            str(self.tmp / "board"), "expert@t", "Verify paper:lem:bar", "blind",
+            "a packet", kind="verify", refs=[], as_instance="human", return_meta=True)
+        _rc, out = self.cli("stale", "--ns", "paper", "--file-reword")
+        self.assertEqual(len(self.tickets()), 2, out)
+        self.assertIn("already open: %s" % meta["id"], out)
+        self.assertIn("already open: %s" % meta2["id"], out)
 
     def test_section_filter(self):
         self.make_stale()
