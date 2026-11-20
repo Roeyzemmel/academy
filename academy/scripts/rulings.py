@@ -790,6 +790,7 @@ def _answers(body):
     """``(letter, which)`` of this code's earlier answer lines on a ruling, in order."""
     out = []
     for _d, w, t in ac.thread_lines(body):
+        # the human's own answer only: `human (via ...)` or `human/decisions` is bookkeeping
         m = RE_ANSWER_LINE.match(t) if w == ac.HUMAN else None
         if m and (m.group(1), m.group(2)) not in out:
             out.append((m.group(1), m.group(2)))
@@ -799,6 +800,7 @@ def _answers(body):
 def _legacy(body):
     """True when the thread holds a human answer this code cannot read (no ``(x) <which>``,
     not a decline): a bare ``proceed`` from before #121, as on T-0979."""
+    # the human's own answer only: `human (via ...)` or `human/decisions` is bookkeeping
     return any(w == ac.HUMAN and t.startswith("human decision:")
                and not RE_ANSWER_LINE.match(t) and not t.startswith("human decision: decline")
                for _d, w, t in ac.thread_lines(body))
@@ -824,12 +826,14 @@ def _dead_follow_ups(board, body):
 def _answered(body, letter, which):
     """True when the thread already holds this code's answer line for this answer."""
     want = "human decision: (%s) %s" % (letter, which)
+    # the human's own answer only: `human (via ...)` or `human/decisions` is bookkeeping
     return any(w == ac.HUMAN and (t == want or t.startswith(want + " "))
                for _d, w, t in ac.thread_lines(body))
 
 
 def _earlier(body):
     """The last human answer on the ruling, as ``<date> "<line>"``, or None."""
+    # the human's own answer only: `human (via ...)` or `human/decisions` is bookkeeping
     rows = [(d, t) for d, w, t in ac.thread_lines(body)
             if w == ac.HUMAN and t.startswith("human decision:")]
     if not rows:
@@ -991,6 +995,7 @@ def stalled(board, workspace=None):
                 or m.get("status") not in ("open", "accepted", "in-progress")):
             continue
         t = boardlib.get_ticket(board, m["id"])
+        # the human's own answer only: `human (via ...)` or `human/decisions` is bookkeeping
         answers = [x for _d, w, x in ac.thread_lines(t[2]) if w == ac.HUMAN and _is_answer(x)]
         if not answers:
             continue
