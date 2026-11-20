@@ -158,6 +158,7 @@ const TABLE = {
     hash_now: { type: 'string', description: 'reviews.py hash of the statement as it stands now' },
     run_hash: { type: 'string', description: 'the statement_hash in the landed run file\'s own frontmatter (empty when not landed)' },
     add_dependency: { type: 'array', items: { type: 'string' }, description: 'decision_table.py add_dependency: the dependencies the run suggests adding (empty when none)' },
+    declare_dependencies: { type: 'array', items: { type: 'string' }, description: 'decision_table.py declare_dependencies (a confirmed-union, #121: the inputs one run lists that the proof does not declare; empty when none)' },
     blocking_step: { type: 'string', description: 'for a GAP verdict: the blocking step the run file names (where it is and, in one line, what fails), as the run states it; else empty' },
   },
   required: ['landed', 'run_file', 'verdict', 'outcome', 'launch_b', 'hash_now', 'run_hash'],
@@ -314,10 +315,10 @@ let amending = false      // run A suggested a dependency: B is an amend run (20
 const table = (run) => launch(STAGE('table', [
   `pass_dir: ${prep.pass_dir}`, `run: ${run}`, `claim: ${A.claim}`,
   `Check that ${run}.md landed in the pass folder; run ` +
-  (run === 'B' && amending
-    ? `\`decision_table.py "<pass_dir>/A.md" "<pass_dir>/B.md" --json\` (an amend run B is tabled against A, mode amend)`
+  (run === 'B'
+    ? `\`decision_table.py "<pass_dir>/A.md" "<pass_dir>/B.md" --json\` (run B is tabled against A: ${amending ? 'an amend run, mode amend' : 'the blind pair'})`
     : `\`decision_table.py "<pass_dir>/${run}.md" --json\` (no B argument)`) +
-  ` and report its outcome, launch_b and add_dependency (empty when none), for a GAP verdict the blocking step the run names (blocking_step), and the statement_hash of the run file's own frontmatter (run_hash); re-hash the statement as it stands now ` +
+  ` and report its outcome, launch_b, add_dependency and declare_dependencies (each empty when none), for a GAP verdict the blocking step the run names (blocking_step), and the statement_hash of the run file's own frontmatter (run_hash); re-hash the statement as it stands now ` +
   `exactly as the prepare stage hashed it, through the registry engine (\`reviews.py hash --claim ${A.claim}\`; never \`hash\` on a copied extract). Write nothing.`,
 ].join('\n')), { label: `table ${run}`, phase: 'Review', agentType: CHAIR, schema: TABLE, effort: 'low' })
 
@@ -594,6 +595,39 @@ const counterexample = !!(falsifier && falsifier.counts && falsifier.found === '
 // a GAP verdict (A single-negative, or B after a CONFIRMED A) files the falsifier request
 const gapRun = MODE === 'blind' && !counterexample ? [...runs].reverse().find(r => !r.lost && !r.stale && GAP.test(String(r.verdict || '')) && r.hash_now && r.hash_now === prep.statement_hash) : null
 const falsifierRequest = gapRun && !runs.some(r => r.stale) ? await requestFalsifier(gapRun) : null
+// #121: CONFIRMED x2 on differing modulo lists is the union, routed like confirmed-modulo; the
+// inputs the proof does not declare get the amendment's repair, but nothing waits on it
+const unionRun = MODE === 'blind' && !counterexample && !runs.some(r => r.stale)
+  ? runs.find(r => r.run === 'B' && !r.lost && r.outcome === 'confirmed-union') : null
+const union = !!unionRun
+const toDeclare = union && Array.isArray(unionRun.declare_dependencies) ? unionRun.declare_dependencies.filter(x => String(x || '').trim()) : []
+const declareRequest = toDeclare.length ? await requestDeclaration(toDeclare) : null
+async function requestDeclaration(deps) {
+  const list = deps.join(', ')
+  const earlier = String((prep.amendment || {}).request || '').trim()
+  if (earlier) { notes.push(`no declaration repair: this pass already filed ${earlier} (${(prep.amendment || {}).request_status || 'status unknown'})`); return earlier }
+  const to = researcherTo()
+  if (!to.instance) { notes.push(`no declaration repair filed for ${list}: no Researcher to ask (${to.why}); the conclude stage files the declare-dependency item as routed`); return null }
+  const T = ticket === 'none' ? '' : ticket
+  const reviewed = String((prep.amendment || {}).attempt || '').trim()
+  const req = await launch(STAGE('declaration', [
+    `claim: ${A.claim}`, `ticket: ${ticket}`, `pass: ${prep.pass}`, `inputs to declare (the table's declare_dependencies, confirmed-union): ${list}`,
+    `conclude.md section 2, "Differing inputs" (the repair of section 1b, but nothing waits on it). File one repair with tickets_create: kind prove, to ${to.instance} (${to.why}; reviews.py researcher-for), ` +
+      `refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; title "Repair: declare dependencies of ${A.claim}"; ` +
+      `ask (mode repair, researcher prove.js): add exactly these dependencies to the proof of ${A.claim} (cite them where the argument relies on them) and to the claim's depends_on (a bib: key to its cites, cited in the proof at its pinpoint): ${list}; change nothing else, not the statement; write the amended proof as a new attempt. ` +
+      (T ? `The ask's first line ends with the marker "amendment for verify ${T} pass ${prep.pass}"${reviewed ? ` and its detail says "run A reviewed ${reviewed}"` : ''}: this repair files no verify ticket (both runs of ${T}'s pass already reviewed the proof with these inputs in view) and delivers with the new attempt's path. ` : '') +
+      `deliverable: the amended proof attempt and the record's depends_on. The ask names the dependencies only: never a run's verdict, report or findings. ` +
+      `It blocks nothing: never block ${T || 'any ticket'} or wait on the repair; the conclude stage proposes proved-modulo at once. If tickets_create refuses, return the refusal verbatim.`,
+    'Write nothing in the pass folder and no claims_propose_status; return the request id (blocked false, waiting_on empty).',
+  ].join('\n')), { label: 'declaration', phase: 'Review', agentType: CHAIR, schema: AMEND_OUT, effort: 'low' })
+  const id = req && /^T-\d{4,}$/.test(String(req.request || '').trim()) ? req.request.trim() : ''
+  if (!req) notes.push('the declaration stage returned nothing: no repair is known to be filed')
+  else if (req.refusal) notes.push(`the declaration repair was refused (${req.refusal})`)
+  else if (!id) notes.push('the declaration stage returned no ticket id: no repair is known to be filed')
+  if (req && req.blocked) notes.push(`ANOMALY: ${ticket} was blocked on the declaration repair (nothing waits on it)`)
+  if (id) notes.push(`declaration repair ${id} to ${to.instance}: declare ${list} (confirmed-union, #121); it blocks nothing`)
+  return id || null
+}
 log(runs.map(r => `${r.run}: ${r.lost ? 'lost' : r.verdict + ' -> ' + r.outcome}`).join('; '))
 if (runs.some(r => r.stale)) {     // #89 review: a run file on another statement is never concluded on
   return { claim: A.claim, outcome: 'stale-pass', pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
@@ -622,6 +656,15 @@ const done = await launch(STAGE('conclude', [
       : (amending && runs.some(r => r.run === 'B' && !r.lost)
           ? 'An amend pass (conclude.md section 1b): run B reviewed the proof amended with A\'s suggested dependencies; decision_table.py A.md B.md decides it (mode amend), the added dependencies in its modulo until established. Then: '
           : '') +
+        (union
+          ? 'The table on B says confirmed-union (#121; conclude.md section 2, "Differing inputs"): the runs are CONFIRMED x2 and differ only in the inputs they list, so route it like confirmed-modulo: ' +
+            'propose proved-modulo on the table\'s modulo (the union, normalised) through claims_propose_status to the keeper, record both runs\' lists (modulo_lists) and what the union dropped (union_dropped) in decision.md, ' +
+            'file the verify-input items as routed and no decision ticket to the human on the inputs. ' +
+            (declareRequest
+              ? `The declaration repair ${declareRequest} (the declare-dependency item: ${toDeclare.join(', ')}) is filed by the workflow: do not file it again; name it in the record, the packet and the ticket result. `
+              : toDeclare.length ? `No declaration repair was filed by the workflow: file the declare-dependency item (${toDeclare.join(', ')}) as the script routes it, blocking nothing. ` : '') +
+            'Then: '
+          : '') +
         'conclude.md sections 2-6: the input-by-input status, the final decision_table.py over the landed runs with --established, the record decision.md, evidence rows, the proposal (only the script\'s proposed_status), follow-up tickets exactly as the script routes them, the packet, the ticket result and delivery, the blast radius, the report.',
   'Then list the run files in the pass folder (run_files).',
 ].filter(s => s !== '').join('\n')), { label: 'conclude', phase: 'Conclude', agentType: CHAIR, schema: DONE })
@@ -639,10 +682,14 @@ if (extra.length) notes.push('ANOMALY: run files the workflow did not launch: ' 
 if (counterexample && done.proposed_status && done.proposed_status !== 'none') {
   notes.push(`ANOMALY: the concluder proposed ${done.proposed_status} on a falsifier's counterexample (no status may change)`)
 }
+if (union && (done.outcome !== 'confirmed-union' || done.proposed_status !== 'proved-modulo')) {
+  notes.push(`ANOMALY: the table gives confirmed-union (#121: proved-modulo the union, to the keeper), but the concluder returned outcome ${done.outcome}, proposed_status ${done.proposed_status}`)
+}
 if (counterexample && done.outcome !== 'falsifier-counterexample') notes.push(`the concluder returned outcome ${done.outcome}: the pass is falsifier-counterexample`)
 const res = { claim: A.claim, pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
          outcome: counterexample ? 'falsifier-counterexample' : done.outcome, proposed_status: done.proposed_status, record: done.record,
          packet: done.packet, tickets: done.tickets, report: done.report, anomalies: extra, falsifier_request: falsifierRequest,
+         declaration_request: declareRequest, declare_dependencies: toDeclare,
          launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
 if (falsifier && falsifier.counts) res.falsifier = { source: falsifier.source, on: falsifier.on || null, evidence: falsifier.evidence, found: falsifier.found }
 // the ticket's state is read by inbox.py --check itself (the concluder delivers it)

@@ -117,11 +117,13 @@ class TableTests(unittest.TestCase):
         self.assertEqual(r["pending_inputs"], [])
         self.assertEqual(r["proposed_status"], "proved-modulo")
 
-    def test_modulo_different_inputs_is_disagreement(self):
+    def test_modulo_different_inputs_is_the_union(self):
+        # #121: two CONFIRMED runs that differ only in the inputs they list agree on the union
         r = dt.decide(rec("CONFIRMED", modulo="paper:lem:a"),
                       rec("CONFIRMED", run="B", modulo="paper:lem:b"))
-        self.assertEqual(r["outcome"], "disagreement")
-        self.assertIsNone(r["proposed_status"])
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["proposed_status"], "proved-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:a", "paper:lem:b"])
 
     # T-0148 (the human's decision, 2026-10-09): a definition used only as notation is
     # not an input; two CONFIRMED runs differing only in definitions agree
@@ -145,26 +147,30 @@ class TableTests(unittest.TestCase):
         self.assertEqual(r["proposed_status"], "proved")
         self.assertEqual(r["dropped_definitions"], ["paper:defn:affine-in-charts"])
 
-    def test_lemma_difference_is_still_disagreement(self):
+    def test_lemma_difference_is_the_union_without_the_definition(self):
+        # #121 with T-0148: the lemma one run lists is in the union, the definition one run
+        # lists is not an input
         kinds = {"paper:defn:d": "definition", "paper:lem:b": "claim"}
         r = dt.decide(rec("CONFIRMED", modulo="paper:defn:d, paper:lem:b"),
                       rec("CONFIRMED", run="B"), kind_of=kinds.get)
-        self.assertEqual(r["outcome"], "disagreement")
-        self.assertIsNone(r["proposed_status"])
-        self.assertEqual(r["dropped_definitions"], [])
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["proposed_status"], "proved-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:b"])
+        self.assertEqual(r["dropped_definitions"], ["paper:defn:d"])
         self.assertIn("paper:lem:b", r["summary"])
-        self.assertNotIn("paper:defn:d", r["summary"])
 
-    def test_citation_difference_is_still_disagreement(self):
+    def test_citation_difference_is_the_union(self):
         r = dt.decide(rec("CONFIRMED", modulo="paper:defn:d, bib:Ha02#1.3"),
                       rec("CONFIRMED", run="B"), kind_of=lambda q: None)
-        self.assertEqual(r["outcome"], "disagreement")
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["modulo"], ["bib:Ha02#1.3"])
 
     def test_registry_kind_beats_the_label(self):
         # an id that looks like a definition but is a lemma in the registry is an input
         r = dt.decide(rec("CONFIRMED", modulo="s1:DEF-1"), rec("CONFIRMED", run="B"),
                       kind_of={"s1:DEF-1": "lemma"}.get)
-        self.assertEqual(r["outcome"], "disagreement")
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["modulo"], ["s1:DEF-1"])
         self.assertTrue(dt.is_definition("s1:DEF-2", {"s1:DEF-2": "def"}.get))
         self.assertTrue(dt.is_definition("s1:DEF-9", lambda q: None))
         self.assertTrue(dt.is_definition("paper:defn:x", lambda q: None))
@@ -179,9 +185,10 @@ class TableTests(unittest.TestCase):
         self.assertEqual(r["outcome"], "confirmed-modulo")
         self.assertEqual(r["dropped_definitions"], ["paper:defn:x"])
 
-    def test_one_modulo_one_clean_is_disagreement(self):
+    def test_one_modulo_one_clean_is_the_union(self):
         r = dt.decide(rec("CONFIRMED"), rec("CONFIRMED", run="B", modulo="paper:lem:b"))
-        self.assertEqual(r["outcome"], "disagreement")
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["modulo"], ["paper:lem:b"])
 
     def test_proved_then_gap_is_disagreement(self):
         r = dt.decide(rec("CONFIRMED"), rec("GAP", run="B", blocking="step 4"))
@@ -837,14 +844,18 @@ class ModuloNormalisationTests(unittest.TestCase):
         r = rec("CONFIRMED", "A", modulo="lem:y (the lifting lemma, for covers), bib:LMW16")
         self.assertEqual(r["modulo"], ["lem:y (the lifting lemma, for covers)", "bib:LMW16"])
         res = self.decide("lem:y (first clause only), bib:LMW16", "bib:LMW16; paper:lem:y")
-        self.assertEqual(res["outcome"], "disagreement")     # the pointer may restrict it
+        # the pointer may restrict it; and a pointer phrase is no dependency to declare
+        # (#121: dependency_ok), so the pair stays a disagreement
+        self.assertEqual(res["outcome"], "disagreement")
 
     def test_review_of_96a9cab_false_agreements(self):
         # pointer text and bracketed pinpoints are not dropped
         self.assertEqual(self.decide("bib:LMW16 [Thm 11]", "bib:LMW16 [Thm 12]")["outcome"],
                          "disagreement")
-        self.assertEqual(self.decide("flat:MOD-1#(I0) charts", "flat:MOD-1#(I1) charts")["outcome"],
-                         "disagreement")
+        # (#121: two existing results with their pinpoints: the union keeps both, never one)
+        res = self.decide("flat:MOD-1#(I0) charts", "flat:MOD-1#(I1) charts")
+        self.assertEqual(res["outcome"], "confirmed-union")
+        self.assertEqual(res["modulo"], ["flat:MOD-1#(I0) charts", "flat:MOD-1#(I1) charts"])
         self.assertEqual(dt.canon_input("check:T-1033#Fix(j_Y)", "paper:lem:x", lambda q: None),
                          "check:T-1033#Fix(j_Y)")
         # an unclosed bracket does not swallow the inputs after it
@@ -894,7 +905,10 @@ class ModuloNormalisationTests(unittest.TestCase):
         self.assertEqual(dt.canon_input("LMW16", "s1:GEO-1", known), "LMW16")
 
     def test_a_real_difference_offers_union_and_intersection(self):
-        res = self.decide("lem:y, lem:z", "paper:lem:y")
+        # only a disagreement that remains (a CONFIRMED run naming a blocking step) asks
+        res = dt.decide(rec("CONFIRMED", "A", modulo="lem:y, lem:z", blocking="step 4 is thin"),
+                        rec("CONFIRMED", "B", modulo="paper:lem:y"),
+                        kind_of=lambda q: None, canon=self.canon)
         self.assertEqual(res["outcome"], "disagreement")
         opts = {o["label"]: o["modulo"] for o in res["modulo_options"]}
         self.assertEqual(opts["union"], ["paper:lem:y", "paper:lem:z"])
@@ -917,6 +931,184 @@ class ModuloNormalisationTests(unittest.TestCase):
         self.assertEqual(res["pending_inputs"], [])
         self.assertTrue(res["recolour"])
 
+
+
+class ConfirmedUnionTests(unittest.TestCase):
+    """#121 (the human's ruling, T-0613 and 2026-11-20): two CONFIRMED runs with no blocking
+    step that differ only in the inputs they list are resolved as the union of their modulo
+    lists, normalised, and proposed as proved-modulo; nothing is parked on the human."""
+
+    # the subject declares paper:lem:a, paper:lem:b (depends_on), paper:lem:m (modulo) and
+    # cites Mo06; paper:lem:y rests on paper:lem:x2, which rests on paper:lem:w; flat:PER-2
+    # cites AW21
+    LINKS = {"paper:lem:x": {"depends_on": ["paper:lem:a", "paper:lem:b"],
+                             "modulo": ["paper:lem:m"], "cites": ["Mo06"]},
+             "paper:lem:y": {"depends_on": ["paper:lem:x2"], "cites": []},
+             "paper:lem:x2": {"depends_on": ["paper:lem:w"], "cites": ["SW08"]},
+             "paper:lem:w": {"depends_on": [], "cites": []},
+             "flat:PER-2": {"depends_on": [], "cites": ["AW21"]},
+             "paper:lem:c1": {"depends_on": ["paper:lem:c2"], "cites": []},
+             "paper:lem:c2": {"depends_on": ["paper:lem:c1"], "cites": []}}
+
+    def decide(self, ma, mb, links=True, established=(), ba="none", bb="none", vb="CONFIRMED",
+               exists=None):
+        return dt.decide(rec("CONFIRMED", "A", modulo=ma, blocking=ba),
+                         rec(vb, "B", modulo=mb, blocking=bb), established=established,
+                         kind_of=lambda q: None, canon=lambda q: None, exists=exists,
+                         links_of=self.LINKS.get if links else None)
+
+    def test_differing_lists_give_the_union_and_propose_proved_modulo(self):
+        r = self.decide("paper:lem:a, bib:LMW16#Thm11", "paper:lem:a, paper:lem:b")
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertIn(r["outcome"], dt.OUTCOMES)
+        self.assertEqual(r["proposed_status"], "proved-modulo")
+        self.assertFalse(r["needs_human"])
+        self.assertEqual(r["modulo"], ["bib:LMW16#Thm11", "paper:lem:a", "paper:lem:b"])
+        self.assertEqual(r["grounds"]["modulo"], r["modulo"])
+        self.assertEqual(r["modulo_options"], [])
+        # both raw lists are recorded
+        self.assertEqual(r["modulo_lists"], {"A": ["paper:lem:a", "bib:LMW16#Thm11"],
+                                             "B": ["paper:lem:a", "paper:lem:b"]})
+        # the inputs are followed up as for confirmed-modulo, never a ruling ticket
+        vi = [i for i in r["file_items"] if i["kind"] == "verify-input"]
+        self.assertEqual(sorted(i["text"] for i in vi), r["modulo"])
+        self.assertNotIn("inputs", {i["kind"] for i in r["file_items"]})
+        self.assertNotIn("human", {i["route"]["to_role"] for i in r["file_items"]})
+        # the input the proof does not declare is declared, as an amendment is (no B waits)
+        self.assertEqual(r["declare_dependencies"], ["bib:LMW16#Thm11"])
+        decl = [i for i in r["file_items"] if i["kind"] == "declare-dependency"]
+        self.assertEqual([i["text"] for i in decl], ["bib:LMW16#Thm11"])
+        self.assertEqual((decl[0]["route"]["kind"], decl[0]["route"]["to_role"],
+                          decl[0]["route"]["mode"]), ("prove", "researcher", "repair"))
+        self.assertIn("does not wait", decl[0]["route"]["why"])
+        self.assertFalse(r["recolour"])
+        self.assertIn("#121", r["grounds"]["note"])
+        txt = dt._text(r)
+        self.assertIn("outcome: confirmed-union", txt)
+        self.assertIn("run A listed: paper:lem:a, bib:LMW16#Thm11", txt)
+
+    def test_inputs_the_proof_declares_need_no_declaration(self):
+        r = self.decide("paper:lem:a, bib:Mo06#Thm2.6", "paper:lem:b, paper:lem:m#item2")
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["declare_dependencies"], [])
+        self.assertNotIn("declare-dependency", {i["kind"] for i in r["file_items"]})
+
+    def test_an_undeclared_input_that_is_no_existing_result_stays_a_disagreement(self):
+        # a lemma in words, or a pointer phrase: what an add_dependency suggestion may not be
+        r = self.decide("paper:lem:a", "paper:lem:a, uncited Hausdorffness of T (T-0508)")
+        self.assertEqual(r["outcome"], "disagreement")
+        self.assertIsNone(r["proposed_status"])
+        self.assertTrue(any("not an existing result" in a and "#121" in a
+                            for a in r["anomalies"]), r["anomalies"])
+        self.assertEqual(len(r["modulo_options"]), 2)
+        # a registry id the registry lacks, as dependency_ok reads it
+        r = self.decide("paper:lem:a", "paper:lem:nowhere",
+                        exists=lambda q: q != "paper:lem:nowhere")
+        self.assertEqual(r["outcome"], "disagreement")
+        # declared already: no check, the union stands
+        r = self.decide("paper:lem:a", "paper:lem:b", exists=lambda q: False)
+        self.assertEqual(r["outcome"], "confirmed-union")
+
+    def test_unreadable_declarations_declare_every_single_run_input(self):
+        r = self.decide("paper:lem:a", "paper:lem:b", links=False)
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["declare_dependencies"], ["paper:lem:a", "paper:lem:b"])
+        self.assertTrue(any("could not be read" in a for a in r["anomalies"]))
+
+    def test_the_grounds_pass_the_servers_check(self):
+        r = self.decide("paper:lem:a", "paper:lem:b")
+        claims = ex.mcp_module("claims")
+        ok, why = claims.check_grounds("proved-modulo", r["grounds"], "abc123")
+        self.assertTrue(ok, why)
+
+    def test_recolour_when_every_union_input_is_established(self):
+        r = self.decide("paper:lem:a", "paper:lem:b", established=["paper:lem:a", "paper:lem:b"])
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertTrue(r["recolour"])
+        self.assertEqual(r["pending_inputs"], [])
+        self.assertEqual(r["proposed_status"], "proved-modulo")
+
+    def test_an_input_reached_through_another_listed_input_is_dropped(self):
+        # T-1428's shape: A names paper:lem:w directly, B reaches it through paper:lem:y
+        r = self.decide("paper:lem:y, paper:lem:w", "paper:lem:y")
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["modulo"], ["paper:lem:y"])
+        self.assertEqual(r["union_dropped"], [{"input": "paper:lem:w", "via": "paper:lem:y",
+                                               "how": "depends_on"}])
+        self.assertEqual(r["modulo_lists"]["A"], ["paper:lem:y", "paper:lem:w"])
+        self.assertIn("paper:lem:w", r["grounds"]["note"])
+
+    def test_a_card_pinpoint_maps_to_the_listed_lemma_that_cites_it(self):
+        # T-1427's shape: A cites the card section, B the lemma that cites it
+        r = self.decide("flat:PER-2, bib:AW21#Theorem3.6", "flat:PER-2")
+        self.assertEqual(r["modulo"], ["flat:PER-2"])
+        self.assertEqual(r["union_dropped"], [{"input": "bib:AW21#Theorem3.6",
+                                               "via": "flat:PER-2", "how": "cites"}])
+        # through the depends_on chain too: paper:lem:y -> paper:lem:x2 cites SW08
+        r = self.decide("paper:lem:y", "bib:SW08#Sect2")
+        self.assertEqual(r["modulo"], ["paper:lem:y"])
+
+    def test_only_the_mechanical_cases_are_normalised(self):
+        # no listed record cites the key: kept
+        self.assertEqual(self.decide("flat:PER-2", "bib:LMW16#S2.2")["modulo"],
+                         ["bib:LMW16#S2.2", "flat:PER-2"])
+        # the reaching input is pinpointed or restricted by pointer text: kept
+        self.assertEqual(self.decide("paper:lem:y#item2", "paper:lem:w")["modulo"],
+                         ["paper:lem:w", "paper:lem:y#item2"])
+        self.assertEqual(self.decide("paper:lem:y (first clause)", "paper:lem:w")["modulo"],
+                         ["paper:lem:w", "paper:lem:y (first clause)"])
+        # an input both runs list is never dropped
+        r = self.decide("paper:lem:y, paper:lem:w", "paper:lem:y, paper:lem:w")
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:w", "paper:lem:y"])
+        # a cycle in depends_on drops neither
+        self.assertEqual(self.decide("paper:lem:c1", "paper:lem:c2")["modulo"],
+                         ["paper:lem:c1", "paper:lem:c2"])
+        # without the registry nothing is dropped: the raw union
+        r = self.decide("paper:lem:y, paper:lem:w", "paper:lem:y", links=False)
+        self.assertEqual(r["modulo"], ["paper:lem:w", "paper:lem:y"])
+        self.assertEqual(r["union_dropped"], [])
+
+    def test_a_blocking_step_or_differing_verdicts_stay_a_disagreement(self):
+        r = self.decide("paper:lem:a", "paper:lem:b", bb="step 3 is unclear")
+        self.assertEqual(r["outcome"], "disagreement")
+        self.assertIsNone(r["proposed_status"])
+        self.assertEqual([i["kind"] for i in r["file_items"]], ["inputs"])
+        self.assertEqual(len(r["modulo_options"]), 2)
+        r = self.decide("paper:lem:a", "paper:lem:b", vb="GAP", bb="step 3")
+        self.assertEqual(r["outcome"], "disagreement")
+        self.assertIsNone(r["proposed_status"])
+
+    def test_the_amend_route_is_unchanged(self):
+        # a suggested dependency still goes to the amend table, never the union
+        a = rec("CONFIRMED", "A", modulo="paper:lem:a")
+        a["add_dependency"] = ["paper:lem:x2"]
+        r = dt.decide(a, None, kind_of=lambda q: None, canon=lambda q: None,
+                      links_of=self.LINKS.get)
+        self.assertEqual(r["outcome"], "awaiting-amendment")
+
+    def test_registry_links_reads_depends_on_and_cites(self):
+        class Rec:
+            links = [("depends_on", "paper:lem:x2"), ("depends_on", "lem:w"),
+                     ("bears_on", "flat:FND-1"), ("modulo", "paper:lem:m")]
+            fields = {"cites": ["SW08", "bib:AW21"]}
+
+        class Store:
+            def lookup(self, name):
+                return (name, True) if name == "lem:y" else (None, False)
+
+            def get(self, name):
+                return Rec() if name == "lem:y" else None
+        import unittest.mock as um
+        from registry.core import federation, workspace as rws
+        with um.patch.object(rws, "namespaces", return_value={"paper": {"home": os.getcwd()}}), \
+                um.patch.object(federation, "store", return_value=Store()), \
+                um.patch.object(dt, "registry_canonical", side_effect=lambda q: None):
+            got = dt.registry_links("paper:lem:y")
+            self.assertEqual(got, {"depends_on": ["paper:lem:x2", "paper:lem:w"],
+                                   "modulo": ["paper:lem:m"], "cites": ["SW08", "AW21"]})
+            self.assertIsNone(dt.registry_links("paper:lem:nowhere"))
+        self.assertIsNone(dt.registry_links("bib:AW21"))
 
 
 def arec(verdict="CONFIRMED", add="paper:lem:x2", modulo="none", run_id="rv-A",
