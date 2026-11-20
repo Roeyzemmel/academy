@@ -181,10 +181,10 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     _check_party(as_instance, ws, "from")
     who = bare_agent(agent) or (ac.MAIN_AGENT if as_instance != ac.HUMAN else "")
     store = ac.as_store(board)
-    depth = ac.relay_depth(store, parent) if final_to and parent else 0
-    ok, why = ac.ticket_edge_allowed(as_instance, to, who,
-                                     perms if perms is not None else ac.load_permissions(),
-                                     ws, final_to, depth)
+    perms = perms if perms is not None else ac.load_permissions()
+    depth = ac.relay_depth(store, parent, as_instance, to, final_to,
+                           ac.ticket_edges(perms)["chain"], ws) if final_to and parent else 0
+    ok, why = ac.ticket_edge_allowed(as_instance, to, who, perms, ws, final_to, depth)
     if not ok:
         raise ac.AcademyError("refused: " + why)
     if kind not in ac.TICKET_KINDS:

@@ -163,7 +163,9 @@ def create_ticket(ctx, a, clerical=False):
     parent = a.get("parent") or None
     if parent and not ctx.store.find(parent):
         raise ToolError("parent %s is not on the board" % parent)
-    depth = ac.relay_depth(ctx.store, parent) if final_to and parent else 0
+    depth = ac.relay_depth(ctx.store, parent, sender, to, final_to,
+                           ac.ticket_edges(ctx.perms)["chain"], ctx.workspace) \
+        if final_to and parent else 0
     ok, why = ac.ticket_edge_allowed(sender, to, agent, ctx.perms, ctx.workspace,
                                      final_to, depth, clerical=clerical)
     if not ok:

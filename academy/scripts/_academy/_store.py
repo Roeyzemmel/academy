@@ -12,7 +12,7 @@ import sys
 from ._base import AcademyError, ConfigError, FrontmatterError, RE_TICKET_ID, _PKG_DIR
 from ._workspace import load_workspace
 from ._files import allocate_id, atomic_write, read_frontmatter, write_frontmatter
-from ._tickets import TICKET_KEY_ORDER, find_ticket, ticket_filename
+from ._tickets import TICKET_KEY_ORDER, find_ticket, relay_direction, ticket_filename
 
 # ----------------------------------------------------------------------------
 # The board store (docs/github-board.md): tickets behind one seam
@@ -341,12 +341,20 @@ def _import_board_store():
 # Ticket rules that read other tickets through a store (docs/protocol.md)
 
 
-def relay_depth(board, parent):
-    """How many consecutive ancestors, starting at ``parent``, carry ``final_to``.
+def relay_depth(board, parent, frm=None, to=None, final_to=None, chain=None,
+                workspace=None):
+    """How many consecutive ancestors, starting at ``parent``, carry ``final_to`` and
+    travel the same way along ``chain`` as the ticket being filed.
 
     Only relay links count toward the hop limit; an ordinary ``parent`` (a review
     ticket filed against the ticket that commissioned the experiment) stops the count.
+    ``frm``, ``to`` and ``final_to`` are the new ticket's: when they give its direction
+    (``relay_direction``), the count also stops at the first ancestor going the other
+    way, since a reply travelling back toward the origin starts a fresh chain. An
+    ancestor whose direction cannot be told still counts. Without them every relay
+    ancestor counts.
     """
+    want = relay_direction(frm, to, final_to, chain, workspace)
     n, seen, tid = 0, set(), parent
     store = as_store(board)
     while tid and tid not in seen:
@@ -356,6 +364,11 @@ def relay_depth(board, parent):
         meta = store.get(tid)[1]
         if not meta.get("final_to"):
             break
+        if want:
+            went = relay_direction(meta.get("from"), meta.get("to"), meta.get("final_to"),
+                                   chain, workspace)
+            if went and went != want:
+                break
         n += 1
         tid = meta.get("parent")
     return n

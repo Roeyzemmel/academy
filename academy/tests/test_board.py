@@ -172,6 +172,21 @@ class TestTickets(BoardCase):
         self.assertEqual(meta["final_to"], "researcher")
         self.assertIn("author@main/main: opened", body)
 
+    def test_a_reply_back_toward_the_origin_starts_a_fresh_hop_count(self):
+        # the T-1722 shape: two hops out (author -> expert -> researcher, final_to
+        # researcher), then a reply relayed back (researcher -> expert -> author); the
+        # Expert's child to the Author was refused as a 4th hop
+        def new(to, frm, agent, parent, final_to):
+            return bd.read_ticket(bd.create_ticket(
+                self.board, to, "T", "a", "d", kind="research", as_instance=frm,
+                agent=agent, workspace=self.ws, parent=parent, final_to=final_to,
+                date=DATE))[0]["id"]
+        t1 = new("expert@main", "author@main", "main", None, "researcher")
+        t2 = new("researcher@r1", "expert@main", "research-intake", t1, "researcher")
+        t3 = new("expert@main", "researcher@r1", "lead-researcher", t2, "author")
+        t4 = new("author@main", "expert@main", "paper-liaison", t3, "author")
+        self.assertEqual(bd.read_ticket(ac.find_ticket(self.board, t4))[0]["parent"], t3)
+
     def test_namespaced_agent_is_written_bare(self):
         # agents carry plugin-namespaced names; the speaker is the bare one (protocol 1)
         p = self.new(agent="author:math-writer")
