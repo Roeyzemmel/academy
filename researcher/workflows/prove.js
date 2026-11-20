@@ -106,7 +106,8 @@ const STATE = { type: 'object', properties: {
   required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'repair'] }
 // #124: attack_exists is asked for, named in the stage, and not required (22 clerk runs lost to
 // 'must have required property attack_exists' in the ledger since 2026-11-14); a missing or
-// non-boolean one is unknown, never false: no attack-only run that could overwrite an attack.md
+// non-boolean one is unknown, never false and never a skip: the attack-only run goes ahead once,
+// told to read an existing attack.md first and stop if one is present (nothing overwritten)
 const PATH = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
 const FOR_VERIFY = { type: 'object', properties: { found: { type: 'boolean' }, kind: { type: 'string' },
   refs: { type: 'array', items: { type: 'string' } }, status: { type: 'string' },
@@ -408,9 +409,10 @@ const modulo = (st.unsettled_inputs || []).length ? `It rests on unsettled input
 phase('Attempt')
 let attacked = false
 const attackKnown = typeof st.attack_exists === 'boolean'
-if (!attackKnown) out.notes.push('the state stage did not say whether proofs/<id>/attack.md exists (attack_exists missing): unknown, so no attack-only run was launched; the prover was told to read it if it exists')
-if (attackKnown && !st.attack_exists) {
+if (!attackKnown) out.notes.push('the state stage did not say whether proofs/<id>/attack.md exists (attack_exists missing): unknown, so the attack-only run went ahead once, told to read an existing attack.md and stop if one is present')
+if (!attackKnown || !st.attack_exists) {
   const atk = await launchMax(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
+    (attackKnown ? '' : 'If proofs/<id>/attack.md already exists, read it first and stop there: write nothing and return (the state stage could not say whether one exists). ') +
     `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why; its frontmatter carries statement_hash: ${hashNow || '<the claim\'s statement hash>'}.`,
     { label: 'attack', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
   if (atk === null) return Object.assign(out, { outcome: 'lost', reason: 'the attack run returned nothing (a limit?): nothing further launched' })
@@ -426,7 +428,7 @@ const proved = await launchMax(`Prove ${A.claim} (home ${A.home}) in the attempt
   'State the dependencies as part of the proof: the frontmatter\'s dependencies: lists every registry id and bib:<key>#<pinpoint> the proof relies on, ' +
   'the same items as Inputs and their status (an attempt without it is not complete and is not filed for review). ' + relatedBrief +
   (st.attempts.length ? `Earlier attempts: ${st.attempts.join(', ')} (a repair is this new attempt; the old ones stay). ` : '') +
-  (attacked ? 'Read proofs/<id>/attack.md first. ' : (attackKnown ? '' : 'If proofs/<id>/attack.md exists, read it first. ')) +
+  (attacked ? 'Read proofs/<id>/attack.md first. ' : '') +
   (repair ? `This is a repair of a ${st.status} claim${T ? ' (ticket ' + T + ': tickets_get it)' : ''}: ${st.repair_ask || 'what the ticket asks'}. Fix exactly that in this new attempt, and make the record edits the ticket asks (the statement only if it asks). ` : '') +
   modulo + ' Set no status.',
   { label: 'attempt', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
