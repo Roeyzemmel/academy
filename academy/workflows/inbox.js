@@ -206,7 +206,8 @@ async function listAll(pass) {
     // with ids the per-instance cut (itemsPerRun) would hide the named tickets, and --all is too long to transcribe
     // (live runs 2026-10-31: 304 rows, four instances lost): --ids filters in the script (the ids and their children)
     `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.ids && A.ids.length ? ' --ids ' + [...new Set([...A.ids, ...(A.follow ? [...followed, ...children] : [])])].join(',') : ''}${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
-    'Return every instance (one entry each, even with no rows) and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
+    'Return every instance (one entry each, even with no rows) with its "home" copied verbatim from the script\'s JSON (never a path you know otherwise: the workspace\'s checkout, #116), ' +
+    'and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
   ], LIST, pass > 1 ? `list ${pass}` : 'list')
   if (!listed) return null
   const xs = listed.instances.filter(i => !A.only || A.only.includes(i.name))

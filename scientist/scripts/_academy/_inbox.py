@@ -561,7 +561,8 @@ class inbox_core(object):
             outside = inbox_core.outside_campaign(board, instance, plan, field)
             unfinished = unfinished + [t for t in outside if t not in unfinished]
         if args.json:
-            doc = {"instance": instance, "limit": limit, "waiting": total,
+            doc = {"instance": instance, "home": inbox_core.home_of(instance, args),
+                   "limit": limit, "waiting": total,
                    "take": rows, "remaining": left, "unfinished": unfinished}
             if plan:
                 doc["outside_campaign"] = outside
@@ -637,6 +638,20 @@ class inbox_core(object):
         if not inst:
             raise AcademyError("not in a %s home; give --instance" % role)
         return inst, cfg
+
+    @staticmethod
+    def home_of(instance, args=None):
+        """The instance's home as workspace.json gives it (the checkout this workspace uses),
+        '' when it cannot be read. The inbox workflow hands it back verbatim (#116: a clerk
+        that filled the home itself named an attached checkout outside the workspace)."""
+        given = getattr(args, "home", None)
+        fallback = os.path.abspath(given).replace("\\", "/") if given else ""
+        try:
+            ws = load_workspace(getattr(args, "workspace", None))
+        except (AcademyError, OSError):
+            return fallback
+        # an instance workspace.json does not list: the --home the script was given
+        return str(((ws or {}).get("instances") or {}).get(instance, {}).get("home") or fallback)
 
     @staticmethod
     def open_inbox_store(args):
