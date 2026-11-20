@@ -39,7 +39,8 @@ async function agent(prompt, opts) {
 }
 // the workflow's Models block (launch()) comes first, as in the file: ship() launches through it
 const body = new Function('agent', 'A', 'AR', 'ROOT', 's', block + '\nreturn ship(s)')
-body(agent, plan.args || {}, '/acad', '/acad', plan.s).then(r => console.log(JSON.stringify({ result: r, calls, notes: plan.s.notes })),
+// as the skills pass it (models.py launches prints {} under the default map); null: not given (#83)
+body(agent, Object.assign({ models: {} }, plan.args || {}), '/acad', '/acad', plan.s).then(r => console.log(JSON.stringify({ result: r, calls, notes: plan.s.notes })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
 

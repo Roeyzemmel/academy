@@ -196,9 +196,14 @@ class GateTests(unittest.TestCase):
                 "claim-keeper evidence": ["rows"], "close": [OK]}
         res, calls = self.run_wf(dict(plan))
         self.assertEqual(next(c for c in calls if c["label"] == "run A")["model"], "fable")
-        res, calls = self.run_wf(dict(plan, **{"model researcher:experiment-reviewer": [{"output": "opus"}]}), models=None)
+        res, calls = self.run_wf(dict(plan, **{"model researcher:experiment-reviewer": [{"output": "opus"}]}),
+                                 models={"researcher:experiment-reviewer": "claude-opus-5-5"})
         self.assertEqual(self.labels(calls)[:3], ["prepare", "model researcher:experiment-reviewer", "run A"])
         self.assertEqual(next(c for c in calls if c["label"] == "run A")["model"], "opus")
+        # no map given (#83): the Models block resolves it once, first
+        res, calls = self.run_wf(dict(plan, models=[{"output": '{"researcher:experiment-reviewer": "fable"}'}]), models=None)
+        self.assertEqual(self.labels(calls)[:3], ["models", "prepare", "run A"])
+        self.assertEqual(next(c for c in calls if c["label"] == "run A")["model"], "fable")
         res, calls = self.run_wf(dict(plan, **{"run A": [None], "run A (opus fallback)": ["a"]}))
         self.assertEqual(res["model_fallbacks"], ["run A: fable -> opus"])
         self.assertIn("model fallback: run A: fable -> opus", next(c for c in calls if c["label"] == "close")["prompt"])
