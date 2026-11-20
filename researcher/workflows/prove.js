@@ -159,7 +159,7 @@ const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { 
 // "shipCheckpoint": false); anything else is not-run, with the command for the session.
 const SHIP = { type: 'object', properties: { status: { type: 'string', enum: ['pushed', 'nothing', 'refused', 'not-run'] }, detail: { type: 'string' },
   branches: { type: 'array', items: { type: 'string' } }, output: { type: 'string', description: 'the whole output, stdout and stderr, verbatim' } },
-  required: ['status', 'detail', 'branches', 'output'] }
+  required: ['status', 'output'] }     // detail and branches: asked, defaulted below (#124: no free-text field required)
 async function ship(s) {   // {role, ticket, done, instance, topic, only, agentType, phase, notes}
   if (!s.ticket) return { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
     command: `py scripts/ship.py checkpoint --ticket ${String(s.topic).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role ${s.role} --only ${s.only}` }
@@ -180,7 +180,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
     : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
     : rows.length ? { status: 'nothing', detail: 'nothing to commit or push' }
     : m ? { status: 'not-run', detail: 'no checkpoint ran ("shipCheckpoint": false, another board, or no ship script)' }
-    : { status: r.status, detail: r.detail }
+    : { status: r.status || 'not-run', detail: r.detail || 'no detail given' }
   if (!/^(pushed|nothing)$/.test(res.status)) res.command = check
   if (res.status === 'refused' && s.notes) s.notes.push(`the ship stage was refused (${res.detail}); fix the cause, then run \`${check}\` once by hand`)
   return res
