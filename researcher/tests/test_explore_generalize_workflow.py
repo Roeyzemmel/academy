@@ -18,7 +18,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -49,18 +49,27 @@ def run(name, plan, args):
 DIR = {"exists": True, "lifecycle": "active", "title": "t", "items": 5}
 NEXT = {"items": [{"ref": "flat:KDC-6", "kind": "claim", "status": "conjectured"},
                   {"ref": "flat:KDC-7", "kind": "claim", "status": "open"}], "remaining": 3}
-JOURNAL = {"exists": True, "path": "journal/2026-10-31.md", "mentions": ["flat:KDC-6", "flat:KDC-7"]}
+JOURNAL = {"exists": True, "path": "journal/2026-10-31.md", "mentions": ["flat:KDC-6", "flat:KDC-7"], "found": []}
 H = {"home": "/h/nb", "instance": "researcher@u"}
+OK = {"ok": True, "detail": ""}
+FAILED = {"exists": True, "kind": "attempt", "outcome": "failed", "gaps": 1, "verdict": ""}
+GOOD_FALSIFIER = {"found": True, "to": "scientist@lab", "kind": "experiment", "refs": ["flat:KDC-6", "Q"]}
+
+
+def item(ref, step, tickets=(), objects=(), updated=(), claim="", after=""):
+    return {"item": ref, "step": step, "tickets": list(tickets), "objects": list(objects), "updated": list(updated),
+            "claim": claim, "after": after, "note": ""}
 
 
 @unittest.skipUnless(NODE, "node is not installed")
 class ExploreTests(unittest.TestCase):
     def test_lead_briefed_with_ids_and_steps_checked(self):
-        lead = {"items": [{"item": "flat:KDC-6", "step": "falsify", "tickets": ["T-0500"], "objects": [], "note": ""},
-                          {"item": "flat:KDC-7", "step": "prove", "tickets": [], "objects": [], "note": ""}],
+        lead = {"items": [item("flat:KDC-6", "falsify", tickets=["T-0500"], after="proofs/KDC-6/attempt-1.md"),
+                          item("flat:KDC-7", "prior-art", tickets=["T-0501"])],
                 "report": "r", "next_picks": ["flat:KDC-8"]}
         res, labels, calls, err = run("explore.js", {
             "direction": [DIR], "next": [NEXT], "lead": [lead],
+            "trigger flat:KDC-6": [FAILED],
             "get T-0500": [{"found": True, "to": "expert@t", "kind": "experiment", "refs": ["flat:KDC-6"]}],
             "journal": [JOURNAL]},
             dict(H, direction="DIR-1"))
@@ -69,14 +78,173 @@ class ExploreTests(unittest.TestCase):
         self.assertIn("items flat:KDC-6, flat:KDC-7", lp)
         anomalies = " ".join(res["anomalies"])
         self.assertIn("not an experiment ticket to the Scientist", anomalies)   # wrong receiver
-        # 2026-11-20: a prove step does not wait for a falsifier (a failed attempt or a GAP
-        # verdict triggers one): no check stage, no anomaly, and the lead is told so
         self.assertNotIn("flat:KDC-7", anomalies)
         self.assertFalse([c for c in labels if c.startswith("falsified")])
         self.assertIn("does not wait for a falsifier", lp)
         self.assertNotIn("survived falsification", lp)
         self.assertEqual(res["remaining"], 3)
 
+    def test_the_order_is_prove_s_prior_art_then_prove_falsify_only_after_an_attempt(self):
+        """#87, the human's ruling of 2026-11-20: explore uses prove's order. No stage text
+        or meta line puts a falsifier before an attempt."""
+        res, labels, calls, err = run("explore.js", {"direction": [DIR], "next": [NEXT], "journal": [JOURNAL],
+                                                     "lead": [{"items": [], "report": "r", "next_picks": []}]}, dict(H, direction="DIR-1"))
+        self.assertIsNone(err, err)
+        lp = next(c for c in calls if c["label"] == "lead")["prompt"]
+        order = lp[lp.index("ONE step"):]
+        self.assertLess(order.index("prior art first"), order.index("then prove"))
+        self.assertLess(order.index("then prove"), order.index("Only then falsify"))
+        self.assertIn("never file a falsifier for an item with no failed or incomplete attempt and no GAP verdict", lp)
+        with open(os.path.join(WF, "explore.js"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertNotIn("falsify, prior art", src)
+        self.assertNotIn("in this order: falsify", src)
+        for c in calls:                       # every stage text: a falsifier comes after an attempt
+            t = c["prompt"]
+            if "falsif" in t:
+                first = [i for i in (t.find("prove"), t.find("attempt")) if i >= 0]
+                self.assertTrue(first, c["label"])
+                self.assertLess(min(first), t.find("falsif"), c["label"])
+
+    def test_a_falsify_step_before_an_attempt_is_an_anomaly_and_no_artefact(self):
+        lead = {"items": [item("Q", "falsify", tickets=["T-1"])], "report": "r", "next_picks": []}
+        res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
+                                                 "get T-1": [GOOD_FALSIFIER], "note": [OK]}, dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertIn("before an attempt", " ".join(res["anomalies"]))
+        self.assertNotIn("trigger Q", labels)                   # nothing named: nothing to read
+        self.assertNotIn("close", labels)                       # a premature falsifier is no artefact to deliver on
+        self.assertFalse(res["ticket_delivered"])
+        # a named trigger the clerk reads as a complete attempt with no gaps does not count either
+        lead = {"items": [item("Q", "falsify", tickets=["T-1"], after="proofs/Q/attempt-2.md")], "report": "r", "next_picks": []}
+        res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
+                                                 "trigger Q": [dict(FAILED, outcome="complete", gaps=0)], "get T-1": [GOOD_FALSIFIER], "note": [OK]},
+                                  dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertIn("before an attempt", " ".join(res["anomalies"]))
+        # a GAP verdict does
+        lead = {"items": [item("Q", "falsify", tickets=["T-1"], after="T-0900")], "report": "r", "next_picks": []}
+        res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
+                                                 "trigger Q": [{"exists": True, "kind": "verdict", "outcome": "", "gaps": 0, "verdict": "GAP"}],
+                                                 "get T-1": [GOOD_FALSIFIER], "close": [OK]}, dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertEqual(res["anomalies"], [])
+        self.assertTrue(res["ticket_delivered"])
+
+    def test_a_prove_step_is_handed_back_never_delivered(self):
+        """#87: the lead cannot launch prover inside the run; the prove step comes back as
+        /researcher:prove with its args, the way the inbox hands back a lead (T-1271)."""
+        lead = {"items": [item("Q", "prove", claim="s1:CEX-9")], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "claim s1:CEX-9": [{"exit": 0, "output": "CEX-9: ..."}],
+                                                     "journal": [dict(JOURNAL, mentions=["Q"])]}, dict(H, ticket="T-0600", root="/r"))
+        self.assertIsNone(err, err)
+        self.assertNotIn("close", labels)
+        self.assertFalse(res["ticket_delivered"])
+        self.assertEqual(res["outcome"], "handed-back")
+        fm = res["for_main"]
+        self.assertEqual((fm["skill"], fm["handback"], fm["ticket"]), ("researcher:prove", "lead-researcher", "T-0600"))
+        self.assertEqual(fm["args"], {"claim": "s1:CEX-9", "ticket": "T-0600", "home": "/h/nb", "instance": "researcher@u", "root": "/r"})
+        self.assertIn("/researcher:prove s1:CEX-9 with ticket T-0600", fm["why"])
+        self.assertIn("registry.py statement s1:CEX-9", next(c for c in calls if c["label"] == "claim s1:CEX-9")["prompt"])
+        lp = next(c for c in calls if c["label"] == "lead")["prompt"]
+        self.assertIn("cannot launch prover", lp)
+
+    def test_two_prove_items_of_a_direction_hand_back_two_runs(self):
+        lead = {"items": [item("flat:KDC-6", "prove", claim="flat:KDC-6"), item("flat:KDC-7", "prove", claim="flat:KDC-7")],
+                "report": "r", "next_picks": []}
+        res, labels, _, err = run("explore.js", {"direction": [DIR], "next": [NEXT], "lead": [lead],
+                                                 "claim flat:KDC-6": [{"exit": 0, "output": "x"}], "claim flat:KDC-7": [{"exit": 0, "output": "x"}],
+                                                 "journal": [JOURNAL]}, dict(H, direction="DIR-1"))
+        self.assertIsNone(err, err)
+        fm = res["for_main"]
+        self.assertEqual([r["claim"] for r in fm["runs"]], ["flat:KDC-6", "flat:KDC-7"])
+        self.assertEqual(fm["args"], fm["runs"][0]["args"])
+        self.assertNotIn("ticket", fm["runs"][1]["args"])
+
+    def test_a_prove_claim_that_does_not_resolve_comes_back_without_args(self):
+        lead = {"items": [item("Q", "prove", claim="s1:NOPE-1")], "report": "r", "next_picks": []}
+        res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead],
+                                                 "claim s1:NOPE-1": [{"exit": 1, "output": "s1:NOPE-1 does not resolve"}],
+                                                 "journal": [dict(JOURNAL, mentions=["Q"])]}, dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertNotIn("args", res["for_main"])
+        self.assertIn("claims_new", res["for_main"]["why"])
+        self.assertNotIn("close", labels)
+        lead = {"items": [item("Q", "prove", claim="")], "report": "r", "next_picks": []}       # no claim named at all
+        res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"])]}, dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertNotIn("args", res["for_main"])
+        self.assertIn("names no registry claim", " ".join(res["anomalies"]))
+
+    def test_a_ticket_with_no_artefact_is_not_delivered(self):
+        """#87: T-1668 was delivered with nothing behind it. Every artefact-less ending
+        (no items, step none, a prior-art step that filed nothing, artefacts the clerk cannot find)."""
+        for items, found in (([], []), ([item("Q", "none")], []), ([item("Q", "prior-art")], []),
+                             ([item("Q", "prior-art", tickets=["T-77"])], [])):
+            res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [{"items": items, "report": "r", "next_picks": []}],
+                                                         "journal": [dict(JOURNAL, mentions=["Q"], found=found)], "note": [OK]},
+                                          dict(H, ticket="T-0600"))
+            self.assertIsNone(err, err)
+            self.assertNotIn("close", labels, items)
+            self.assertFalse(res["ticket_delivered"])
+            self.assertEqual(res["outcome"], "no-artefact")
+            self.assertIn("not delivered", next(c for c in calls if c["label"] == "note")["prompt"])
+
+    def test_the_ticket_itself_is_no_artefact_and_the_check_asks_for_change(self):
+        """Review of 1bbcc77: a lead naming the question ticket itself, or a file that merely
+        exists, could deliver it with nothing behind it."""
+        lead = {"items": [item("Q", "prior-art", tickets=["T-0600"])], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "note": [OK],
+                                                     "journal": [dict(JOURNAL, mentions=["Q"], found=[])]},
+                                      dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertNotIn("close", labels)
+        self.assertIn("the ticket itself", " ".join(res["notes"]))
+        lead = {"items": [item("Q", "prior-art", updated=["objects/direction/DIR-2.md"])], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "note": [OK],
+                                                     "journal": [dict(JOURNAL, mentions=["Q"], found=[])]},
+                                      dict(H, ticket="T-0600"))
+        self.assertIn("changed today", next(c for c in calls if c["label"] == "journal")["prompt"])
+
+    def test_a_lost_check_is_lost_not_no_artefact(self):
+        lead = {"items": [item("Q", "prior-art", tickets=["T-77"])], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [None]},
+                                      dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertEqual("lost", res["outcome"])
+        self.assertNotIn("note", labels)
+
+    def test_a_delivered_ticket_names_its_artefacts(self):
+        lead = {"items": [item("Q", "prior-art", tickets=["T-77"], updated=["objects/direction/DIR-2.md"])], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "close": [OK],
+                                                     "journal": [dict(JOURNAL, mentions=["Q"], found=["T-77", "objects/direction/DIR-2.md"])]},
+                                      dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        jp = next(c for c in calls if c["label"] == "journal")["prompt"]
+        self.assertIn("T-77", jp)
+        cp = next(c for c in calls if c["label"] == "close")["prompt"]
+        self.assertIn("T-77", cp)
+        self.assertIn("objects/direction/DIR-2.md", cp)
+        self.assertEqual(res["artefacts"], ["T-77", "objects/direction/DIR-2.md"])
+        self.assertTrue(res["ticket_delivered"])
+
+    def test_clerk_schemas_require_no_free_text_and_a_bare_refusal_has_a_default(self):
+        lead = {"items": [item("flat:KDC-6", "falsify", tickets=["T-0500"], after="proofs/KDC-6/attempt-1.md"),
+                          item("flat:KDC-7", "prove", claim="flat:KDC-7")], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "direction": [DIR], "next": [NEXT], "lead": [lead],
+                                                     "trigger flat:KDC-6": [FAILED], "get T-0500": [GOOD_FALSIFIER],
+                                                     "claim flat:KDC-7": [{"exit": 0, "output": "x"}], "journal": [JOURNAL]},
+                                      dict(H, direction="DIR-1", ticket="T-0600"))
+        self.assertIsNone(err, err)
+        clerks = [c for c in calls if c["agentType"] == "researcher:review-clerk"]
+        self.assertGreaterEqual(len({c["label"] for c in clerks}), 6)
+        for c in clerks:
+            req = set((c["schema"] or {}).get("required", []))
+            self.assertFalse(req & {"detail", "why", "error", "reason"}, c["label"])
+        res, labels, _, err = run("explore.js", {"start": [{"ok": False}]}, dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertEqual(res["outcome"], "not-started")
+        self.assertTrue(res["reason"])
     def test_a_missing_direction_is_filled_first(self):
         res, labels, _, err = run("explore.js", {
             "direction": [dict(DIR, exists=False)], "fill direction": ["made it"], "direction again": [DIR],
@@ -87,14 +255,13 @@ class ExploreTests(unittest.TestCase):
 
     def test_a_question_ticket_is_one_item_and_delivered(self):
         res, labels, _, err = run("explore.js", {
-            "start": [{"ok": True, "detail": ""}],
-            "lead": [{"items": [{"item": "Q", "step": "prior-art", "tickets": ["T-1"], "objects": [], "note": ""}], "report": "r", "next_picks": []}],
-            "journal": [dict(JOURNAL, mentions=["Q"])], "close": [{"ok": True, "detail": ""}]},
+            "start": [OK],
+            "lead": [{"items": [item("Q", "prior-art", tickets=["T-1"])], "report": "r", "next_picks": []}],
+            "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])], "close": [OK]},
             dict(H, ticket="T-0600"))
         self.assertIsNone(err, err)
         self.assertEqual(labels, ["start", "lead", "journal", "close"])
         self.assertTrue(res["ticket_delivered"])
-
 
 SRC = {"ok": True, "refusal": "", "lab_claim": "lab:ew-check", "report": "P-0009", "max": 3}
 GOOD = {"ok": True, "problems": [], "failing": [], "proposals": 2}
@@ -160,8 +327,8 @@ def shipped(t, line):
 @unittest.skipUnless(NODE, "node is not installed")
 class ShipTests(unittest.TestCase):
     """docs/workflows.md, "Shipping is a step of the workflow": standalone ships once; nested never."""
-    Q = {"start": [{"ok": True, "detail": ""}], "journal": [dict(JOURNAL, mentions=["Q"])], "close": [{"ok": True, "detail": ""}],
-         "lead": [{"items": [{"item": "Q", "step": "prior-art", "tickets": ["T-1"], "objects": [], "note": ""}], "report": "r", "next_picks": []}]}
+    Q = {"start": [OK], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])], "close": [OK],
+         "lead": [{"items": [item("Q", "prior-art", tickets=["T-1"])], "report": "r", "next_picks": []}]}
     LINE = "Slope 2026-11-13/t-0600/researcher @ a (1 files) pushed"
 
     def test_explore_standalone_ships_once_nested_never_refusal_once(self):
