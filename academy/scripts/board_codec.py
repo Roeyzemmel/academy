@@ -240,10 +240,13 @@ HUMAN_LIVE = ("open", "accepted", "in-progress", "blocked")
 
 def wants_human(meta):
     """Whether the ticket needs the human now, so the issue is assigned to them: addressed
-    to ``human`` and still live, or blocked with ``human`` in ``waiting_on`` (the two ticket
-    cases of decisions.py). Instances are not GitHub users; the human is the only assignee."""
+    to ``human`` and still live, blocked with ``human`` in ``waiting_on``, or ``partial`` and
+    sent by the human, whose move it now is (the three ticket cases of decisions.py; #100).
+    Instances are not GitHub users; the human is the only assignee."""
     status = meta.get("status")
     if meta.get("to") == ac.HUMAN and status in HUMAN_LIVE:
+        return True
+    if status == ac.PARTIAL and meta.get("from") == ac.HUMAN:
         return True
     return status == "blocked" and ac.HUMAN in [str(w) for w in meta.get("waiting_on") or []]
 

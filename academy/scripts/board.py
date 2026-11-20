@@ -247,7 +247,7 @@ def reassign_ticket(board, tid, new_to, reason, as_instance=ac.HUMAN, agent="",
     old_to = meta.get("to")
     if old_to == new_to:
         return path
-    if meta.get("status") in ("delivered", "closed", "rejected", "cancelled"):
+    if meta.get("status") in ("delivered", "closed", "rejected", "cancelled", ac.PARTIAL):
         raise ac.AcademyError("%s is %s; a finished ticket is not re-addressed"
                               % (tid, meta["status"]))
     date = date or ac.today()
@@ -302,7 +302,7 @@ def transition_ticket(board, tid, new, reason="", result=None, waiting_on=None,
         raise ac.AcademyError("%s: %s" % (tid, exc))
     for text in entries:
         body = ac.append_thread(body, who, text, date)
-    if new in ("delivered", "closed") and not meta.get("result"):
+    if new in ("delivered", "closed", ac.PARTIAL) and not meta.get("result"):
         raise ac.AcademyError("%s: %s needs a result (--result)" % (tid, new))
     meta["status"] = new
     meta["updated"] = date
