@@ -14,6 +14,7 @@ ones); callers never import a part, they use ``ac.<name>`` on the package:
     _config     a home's academy.json, an Author home's tex conventions, path sets
     _workspace  workspace.json, the workspace's environment, model tiers, agent files
     _touched    the touch ledger: files a role wrote in another role's home
+    _manifest   the checkpoint manifest: a ticket's files, by a snapshot diff (#101)
     _agents     agent identity, permissions, the caller handshake
     _files      the frontmatter subset, atomic writes, ids
     _tickets    ticket vocabulary, transitions, edges, blocking, validation, the thread
@@ -80,11 +81,11 @@ Shell commands (which repository a ``git commit`` runs in)
 import sys
 import types
 
-from . import (_base, _config, _workspace, _touched, _agents, _files, _tickets, _store,
+from . import (_base, _config, _workspace, _touched, _manifest, _agents, _files, _tickets, _store,
                _inbox, _packets, _hooks)
 
 #: the parts, in import order
-_PARTS = (_base, _config, _workspace, _touched, _agents, _files, _tickets, _store,
+_PARTS = (_base, _config, _workspace, _touched, _manifest, _agents, _files, _tickets, _store,
           _inbox, _packets, _hooks)
 
 #: names a part rebinds while running (a ``global`` statement): the package holds no
