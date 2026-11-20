@@ -38,7 +38,9 @@ Pass no `model` override.
 decided `confirmed` / `confirmed-modulo`, and the proof is unchanged or changed only in
 wording. One informed run R replaces the blind pair. Find the base with
 `py ${CLAUDE_PLUGIN_ROOT}/scripts/reviews.py list <id>`; for a renamed label, give the old
-id as `base_subject` (T-0476). A rewording that answers a hypothesis, statement or proof
+id as `base_subject` (T-0476). A verify ticket titled `Verify <claim> (reword of <pass>)`
+(the one `/researcher:prove` files when a repair reworded a reviewed statement, #85) is run
+in reword mode with that `base_pass`; the inbox does this from the title. A rewording that answers a hypothesis, statement or proof
 finding, or a changed proof, takes the blind pass.
 
 **By hand**, only when the Workflow tool cannot run: the human sets
