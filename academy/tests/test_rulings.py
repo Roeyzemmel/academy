@@ -275,6 +275,20 @@ class TestRecordRuling(RulingCase):
         self.assertEqual(n, len(self.tickets()))
 
 
+class TestGithubBackend(RulingCase):
+    def test_record_on_the_github_store_finds_the_new_ticket_and_is_idempotent(self):
+        import board_store as bs
+        tid = self.ruling()
+        store = bs.GithubBoardStore(bs.from_file_board(self.board), repo="o/r")
+        out = dc.record(store, tid, "a", workspace=self.ws, date=DATE)
+        self.assertTrue(out["filed"])
+        k = store.get(out["follow_up"])[1]
+        self.assertEqual(("researcher@r1", tid), (k["to"], k["parent"]))
+        self.assertIn("keeper follow-up: %s" % out["follow_up"],
+                      "\n".join(t for _d, _w, t in ac.thread_lines(store.get(tid)[2])))
+        self.assertFalse(dc.record(store, tid, "a", workspace=self.ws, date=DATE)["filed"])
+
+
 class TestStalled(RulingCase):
     def test_stalled_lists_answered_rulings_without_a_follow_up(self):
         tid = self.ruling()
