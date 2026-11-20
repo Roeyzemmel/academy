@@ -3,10 +3,12 @@
 The workflow runtime cannot import across files, so every workflow that launches a max-tier
 agent (the prover and the graders) carries the same block (``launchModel`` / ``launchMax``).
 This pins that the block is identical in each, that no workflow launches a max-tier agent
-around it or hard-codes its model, and runs the block under node: the launch value from
-``args.models``, else from one clerk stage running ``models.py agent <name> --launch``
-(once per agent and run), an unusable value launching on the agent file's model, and a run
-that returns nothing relaunched once on opus, noted. The per-workflow runs are in each
+around it or hard-codes its model, and runs the block under node: the launch value from the
+Models block's map (``args.models``, or the map that block resolved once by ``models.py
+launches`` when none was given, #83), a value that is no alias resolved by one clerk stage
+running ``models.py agent <name> --launch`` (once per agent and run), an unusable value
+launching on the agent file's model, and a run that returns nothing relaunched once on opus,
+noted. The per-workflow runs are in each
 plugin's workflow tests; the inbox's one resolution per run in test_inbox_workflow.py.
 """
 import json
@@ -44,7 +46,9 @@ async function launch(prompt, opts) {
   if (o.exactModel) { o.model = o.exactModel; delete o.exactModel }
   return agent(prompt, o)
 }
-const body = new Function('agent', 'launch', 'A', 'AR', 'ROOT', 'plan', 'return (async () => {' + block + `
+// the Models block's map (a stub: the real block runs in WithTheModelsBlock)
+const prelude = 'const TIER_MODELS = Object.assign({}, A.models || {}); const modelsMap = async () => TIER_MODELS;'
+const body = new Function('agent', 'launch', 'A', 'AR', 'ROOT', 'plan', 'return (async () => {' + (plan.real ? '' : prelude) + block + `
   const s = { agentType: 'x:clerk', phase: 'P', notes: [] }
   const results = []
   for (const l of plan.launches) results.push(await launchMax('brief', { label: l.label, agentType: l.agentType, phase: 'P' }, s))
@@ -152,19 +156,25 @@ class TheBlock(unittest.TestCase):
         self.assertEqual(res["results"], ["v"])
         self.assertEqual(res["notes"], [])
 
-    def test_without_args_one_clerk_stage_resolves_it_once(self):
+    def test_a_value_that_is_no_alias_is_resolved_once_by_a_clerk_stage(self):
         res, calls = self.run_block(
             [("run A", "expert:rigor-reviewer"), ("run B", "expert:rigor-reviewer")],
-            {"model expert:rigor-reviewer": [{"output": "fable\n"}], "run A": ["a"], "run B": ["b"]})
+            {"model expert:rigor-reviewer": [{"output": "fable\n"}], "run A": ["a"], "run B": ["b"]},
+            {"expert:rigor-reviewer": "claude-fable-5-2"})
         self.assertEqual([(c["label"], c.get("model")) for c in calls],
                          [("model expert:rigor-reviewer", None), ("run A", "fable"), ("run B", "fable")])
         self.assertEqual(calls[0]["agentType"], "x:clerk")
         self.assertIn("py /acad/academy/scripts/models.py agent expert:rigor-reviewer --launch", calls[0]["prompt"])
 
+    def test_an_agent_the_map_leaves_out_runs_on_its_file_model_with_no_stage(self):
+        res, calls = self.run_block([("attempt", "researcher:prover")], {"attempt": ["x"]}, {})
+        self.assertEqual([(c["label"], c.get("model")) for c in calls], [("attempt", None)])
+        self.assertEqual(res["notes"], [])
+
     def test_an_unusable_value_launches_on_the_file_model_and_is_noted(self):
         res, calls = self.run_block([("attempt", "researcher:prover")],
                                     {"model researcher:prover": [{"output": "models: workspace.json not found"}],
-                                     "attempt": ["x"]})
+                                     "attempt": ["x"]}, {"researcher:prover": "fable-ish"})
         self.assertNotIn("model", calls[-1])
         self.assertIn("was not resolved", " ".join(res["notes"]))
         # a full id in args.models is no alias: resolved by the stage instead
@@ -215,17 +225,32 @@ class WithTheModelsBlock(unittest.TestCase):
         both = MODELS_BLOCK.search(src).group(0) + block_of(LAUNCHING[0])
         harness = HARNESS.replace("const body = new Function('agent', 'launch', ",
                                   "const body = new Function('agent', 'launch_unused', ")
+        assert harness != HARNESS
         with open(h, "w", encoding="utf-8") as fh:
             fh.write(harness)
         with open(b, "w", encoding="utf-8") as fh:
             fh.write(both)
-        plan = {"A": {"models": models} if models is not None else {},
+        plan = {"A": {"models": models} if models is not None else {}, "real": True,
                 "launches": [{"label": l, "agentType": t} for l, t in launches], "answers": answers}
         p = subprocess.run([NODE, h, b, json.dumps(plan)], capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
         out = json.loads(p.stdout.strip().splitlines()[-1])
         self.assertNotIn("error", out, out.get("error"))
         return out["result"], out["calls"]
+
+    def test_without_a_map_the_models_block_resolves_it_once_and_no_agent_stage_runs(self):
+        """#83: no args.models used to mean one models.py agent stage per max-tier agent, and
+        an inbox passed {} down instead, which launched the graders on their file's opus."""
+        printed = json.dumps({"expert:rigor-reviewer": "fable", "researcher:prover": "fable", "tier:max": "fable"})
+        res, calls = self.run_both([("run A", "expert:rigor-reviewer"), ("attempt", "researcher:prover"),
+                                    ("run B", "expert:rigor-reviewer")],
+                                   {"models": [{"output": printed}], "run A": ["a"], "attempt": ["p"], "run B": ["b"]},
+                                   None)
+        self.assertEqual([(c["label"], c["model"]) for c in calls],
+                         [("models", "haiku"), ("run A", "fable"), ("attempt", "fable"), ("run B", "fable")])
+        self.assertIn("models.py launches", calls[0]["prompt"])
+        self.assertEqual(res["results"], ["a", "p", "b"])
+        self.assertEqual(res["notes"], [])
 
     def test_a_resolved_value_wins_over_a_raw_map_entry(self):
         res, calls = self.run_both([("run A", "expert:rigor-reviewer")],

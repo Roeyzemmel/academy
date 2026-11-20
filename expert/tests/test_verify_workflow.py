@@ -751,10 +751,24 @@ class MaxTierModelTests(unittest.TestCase):
         _o, _l, calls = self.run_wf(dict(self.PLAN))
         self.assertEqual([c.get("model") for c in calls if c["label"].startswith("run ")], ["fable", "fable"])
 
-    def test_without_args_one_chair_stage_resolves_it(self):
+    def test_without_args_the_models_block_resolves_the_map_once(self):
+        """#83: a run without args.models launched both graders on their file's opus."""
+        printed = '{"expert:rigor-reviewer": "fable", "tier:max": "fable"}\n'
+        out, labels, calls = self.run_wf(dict(self.PLAN, models={"output": printed}), models=None)
+        self.assertEqual(labels, ["models", "prepare", "run A", "table A", "run B", "table B", "conclude"])
+        self.assertEqual(calls[0]["agentType"], "general-purpose")
+        self.assertIn("models.py launches", calls[0]["prompt"])
+        self.assertEqual([c.get("model") for c in calls if c["label"].startswith("run ")], ["fable", "fable"])
+        self.assertEqual(out["result"]["launch_models"], {"expert:rigor-reviewer": "fable"})
+        # given as {}: no override, no stage, the file's model
+        out, labels, calls = self.run_wf(dict(self.PLAN), models={})
+        self.assertEqual(labels, ["prepare", "run A", "table A", "run B", "table B", "conclude"])
+        self.assertEqual([c.get("model") for c in calls if c["label"].startswith("run ")], [None, None])
+
+    def test_a_value_that_is_no_alias_one_chair_stage_resolves_it(self):
         for said, want in (("fable\n", "fable"), ("opus", "opus")):
             out, labels, calls = self.run_wf(dict(self.PLAN, **{"model expert:rigor-reviewer": {"output": said}}),
-                                             models=None)
+                                             models={"expert:rigor-reviewer": "claude-fable-5-2"})
             self.assertEqual(labels, ["prepare", "model expert:rigor-reviewer", "run A", "table A",
                                       "run B", "table B", "conclude"])
             stage = calls[1]

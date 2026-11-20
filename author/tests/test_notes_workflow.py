@@ -27,7 +27,8 @@ async function agent(prompt, opts) {
   return q.shift()
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}).then(
+// as the skills pass it (models.py launches prints {} under the default map); null: not given (#83)
+body(Object.assign({ models: {} }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """

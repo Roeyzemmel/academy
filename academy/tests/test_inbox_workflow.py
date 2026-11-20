@@ -79,7 +79,7 @@ def child(cid, parent, frm, to, kind, final_to):
 @unittest.skipUnless(NODE, "node is not installed")
 class InboxWorkflowTests(unittest.TestCase):
     def run_wf(self, plan, **args):
-        a = {"root": "/academy"}
+        a = {"root": "/academy", "models": {}}   # as the skills pass it; models=None: not given
         a.update(args)
         plan = dict(plan, __args=a)
         d = tempfile.mkdtemp(prefix="acad-inwf-")
@@ -231,8 +231,58 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(wfs[0]["args"]["subject"], "lab:x")
         self.assertEqual(wfs[0]["args"]["report"], "P-0009")
         self.assertEqual(wfs[1]["args"]["mode"], "settle-audit")        # settle chained, no hand-back
-        self.assertEqual([w["args"]["models"] for w in wfs], [{}, {}])   # no map given: an empty one
+        self.assertEqual([w["args"]["models"] for w in wfs], [{}, {}])   # {} given: no override, passed on
         self.assertNotIn("models", labels)
+
+    def test_a_run_without_the_map_resolves_it_once_and_passes_it_down(self):
+        """#83: the 2026-11-20 run was started without args.models; the inbox passed {} down
+        and verify.js took it for the workspace's map, so the graders ran on opus."""
+        rows = [row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t",
+                    refs=["paper:lem:x"]),
+                row("T-2", how="skill", target="researcher:review-experiment",
+                    kind="review-experiment", to="researcher@u", refs=["lab:x", "P-0009"])]
+        res, labels, calls = self.run_wf({
+            "models": [{"output": json.dumps(MAXMAP) + "\n"}],
+            "list": [{"instances": [inst("expert@t", rows[:1]), inst("researcher@u", rows[1:])]}],
+            "workflow verify.js": [{"outcome": "confirmed", "proposed_status": "proved"}],
+            "workflow review-experiment.js": [{"outcome": "cleared", "notes": []}],
+            "check T-1": [DONE], "check T-2": [DONE]}, models=None)
+        self.assertEqual(labels[0], "models")                        # before anything else
+        self.assertEqual(labels.count("models"), 1)                  # once per run
+        stage = calls[0]
+        self.assertEqual(stage["agentType"], "general-purpose")
+        self.assertIn("py /academy/academy/scripts/models.py launches", stage["prompt"])
+        wfs = [c for c in calls if c["label"].startswith("workflow ")]
+        self.assertEqual(len(wfs), 2)
+        self.assertEqual([w["args"]["models"] for w in wfs], [MAXMAP, MAXMAP])   # the resolved map
+
+    def test_a_run_whose_map_cannot_be_resolved_is_refused(self):
+        p = os.path.join(tempfile.mkdtemp(prefix="acad-inwf-"), "h.js")
+        self.addCleanup(shutil.rmtree, os.path.dirname(p), True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(HARNESS)
+        plan = {"models": [{"output": "Traceback: workspace.json not found"}],
+                "list": [{"instances": []}], "__args": {"root": "/academy"}}
+        out = subprocess.run([NODE, p, SCRIPT, json.dumps(plan)], capture_output=True, text=True, timeout=60)
+        res = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertIn("args.models was not given", res.get("error", ""))
+        self.assertIn("py /academy/academy/scripts/models.py launches", res["error"])
+        self.assertEqual([c["label"] for c in res["calls"]], ["models"])   # nothing else ran
+
+    def test_a_usage_limit_at_the_map_lookup_returns_stopped(self):
+        """Review of abf478f: no map and a usage limit at the start (the lookup returns
+        nothing) ends the run as a usage limit does (stopped, usage_limit), not a throw."""
+        p = os.path.join(tempfile.mkdtemp(prefix="acad-inwf-"), "h.js")
+        self.addCleanup(shutil.rmtree, os.path.dirname(p), True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(HARNESS)
+        plan = {"models": [None], "__args": {"root": "/academy"}}
+        out = subprocess.run([NODE, p, SCRIPT, json.dumps(plan)], capture_output=True, text=True, timeout=60)
+        res = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertNotIn("error", res, res.get("error"))
+        self.assertIn("usage limit", res["result"]["stopped"])
+        self.assertTrue(res["result"]["usage_limit"])
+        self.assertEqual([c["label"] for c in res["calls"]], ["models"])
 
     def test_a_nested_explore_hand_back_reaches_the_main_session(self):
         """#87: explore hands its prove step back as for_main; the inbox passes it on with
@@ -274,6 +324,41 @@ class InboxWorkflowTests(unittest.TestCase):
         res, labels, calls = one("Verify s1:GEO-3 (reword)", ["T-0003"])
         self.assertEqual(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["claim"], "s1:GEO-3")
         self.assertIn("read from the title", " ".join(res["notes"]))
+
+    def test_a_reword_verify_ticket_runs_verify_in_reword_mode(self):
+        """#85: prove.js files a repair's reword verify titled "Verify <claim> (reword of
+        <pass>)"; the inbox passes mode reword and that base pass. Any other title is blind."""
+        def args(title, refs=("s1:GEO-3", "T-0003")):
+            r = dict(row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=list(refs)),
+                     title=title)
+            res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r])]}],
+                                              "workflow verify.js": [{"outcome": "x"}], "check T-1": [DONE]})
+            return res, next(c for c in calls if c["label"] == "workflow verify.js")["args"]
+        res, a = args("Verify s1:GEO-3 (reword of 2026-11-01-T-0007)")
+        self.assertEqual((a["claim"], a.get("mode"), a.get("base_pass")), ("s1:GEO-3", "reword", "2026-11-01-T-0007"))
+        self.assertIn("reword", " ".join(res["notes"]))
+        for title in ("Verify s1:GEO-3", "Verify s1:GEO-3 (reword)", "Verify s1:GEO-3 (reword of the old text)",
+                      "Verify s1:GEO-3 (reword of 2026-11-01-T-0007-reword)"):
+            _res, a = args(title)
+            self.assertNotIn("mode", a, title)
+            self.assertNotIn("base_pass", a, title)
+
+    def test_a_reword_pass_that_does_not_start_says_a_blind_verify_is_needed(self):
+        """Review of 62be9fa: new-pass --reword-of refuses a base that is not CONFIRMED x2."""
+        r = dict(row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=["s1:GEO-3"]),
+                 title="Verify s1:GEO-3 (reword of 2026-11-01-T-0007)")
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r])]}],
+                                          "workflow verify.js": [{"outcome": "not-started", "reason": "base pass not confirmed x2"}],
+                                          "check T-1": [DONE]})
+        notes = " ".join(res["notes"])
+        self.assertIn("not CONFIRMED x2 needs a blind verify instead", notes)
+        self.assertIn("base pass not confirmed x2", notes)
+        # a blind verify that does not start gets no such line
+        r = dict(r, title="Verify s1:GEO-3")
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r])]}],
+                                          "workflow verify.js": [{"outcome": "not-started", "reason": "an open pass"}],
+                                          "check T-1": [DONE]})
+        self.assertNotIn("blind verify instead", " ".join(res["notes"]))
 
     def test_the_inbox_passes_its_map_and_resolves_no_model_itself(self):
         """T-0350 with T-1682: the inbox runs no model stage; the map it was given goes to

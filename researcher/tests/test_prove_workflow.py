@@ -47,6 +47,9 @@ def state(**kw):
 
 
 MOVE = {"ok": True, "detail": ""}
+# #85: a repair records, before its attempt, the proof its status was reviewed on
+REPAIR_BEFORE = {"confirmed_pass": "2026-11-01-T-0007", "reviewed_proof": "proofs/GEO-3/attempt-1.md",
+                 "reviewed_proof_hash": "aaaa1111bbbb", "proof": "proofs/GEO-3/attempt-1.md"}
 RELATED_NONE = {"related": [], "queries": ["registry.py find GEO"]}
 
 
@@ -409,19 +412,26 @@ class ProveTests(unittest.TestCase):
         res, labels, calls = self.run_wf(dict(self.COMPLETE))
         self.assertEqual([(c["label"], c.get("model")) for c in calls if c["agentType"] == "researcher:prover"],
                          [("attack", "fable"), ("attempt", "fable"), ("file verify", "fable")])
-        res, labels, calls = self.run_wf(dict(self.COMPLETE, **{"model researcher:prover": [{"output": "fable"}]}), models=None)
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, **{"model researcher:prover": [{"output": "fable"}]}),
+                                         models={"researcher:prover": "claude-fable-5-2"})
         self.assertEqual(labels.count("model researcher:prover"), 1)          # resolved once per run
         self.assertEqual(calls[labels.index("model researcher:prover")]["agentType"], "researcher:review-clerk")
+        self.assertEqual({c.get("model") for c in calls if c["agentType"] == "researcher:prover"}, {"fable"})
+        # no map given (#83): resolved once by the Models block, first; no per-agent stage
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, models=[{"output": '{"researcher:prover": "fable"}'}]), models=None)
+        self.assertEqual((labels[0], labels.count("models")), ("models", 1))
+        self.assertNotIn("model researcher:prover", labels)
         self.assertEqual({c.get("model") for c in calls if c["agentType"] == "researcher:prover"}, {"fable"})
 
     def test_the_attack_line_follows_the_attack_run_not_the_notes(self):
         """The attempt is told to read attack.md only when this run made it, whatever notes the
         model block added (an unresolved model adds one)."""
         bad = {"model researcher:prover": [{"output": "models: workspace.json not found"}]}
-        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists=True)], **bad), models=None)
+        odd = {"researcher:prover": "fable-ish"}
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists=True)], **bad), models=odd)
         self.assertIn("was not resolved", " ".join(res["notes"]))
         self.assertNotIn("attack.md first", next(c for c in calls if c["label"] == "attempt")["prompt"])
-        res, labels, calls = self.run_wf(dict(self.COMPLETE, **bad), models=None)
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, **bad), models=odd)
         self.assertIn("Read proofs/<id>/attack.md first.", next(c for c in calls if c["label"] == "attempt")["prompt"])
 
     def test_a_lost_attempt_falls_back_to_opus_and_the_ticket_says_so(self):
@@ -459,7 +469,8 @@ class ProveTests(unittest.TestCase):
         """#85: a repair ticket on a proved claim (here proved on the human's word, with an
         open GAP and no falsifier on record) gets a new attempt and a verify ticket."""
         plan = dict(self.COMPLETE, state=[state(status="proved", falsified=False, repair=True,
-                                                repair_ask="close the GAP in step 3 (T-1243)")])
+                                                repair_ask="close the GAP in step 3 (T-1243)")],
+                    **{"repair before": [REPAIR_BEFORE]})
         res, labels, calls = self.run_wf(plan)
         self.assertEqual(res["outcome"], "verify-filed")
         self.assertTrue(res["repair"])
@@ -500,12 +511,14 @@ class ProveTests(unittest.TestCase):
             self.assertIn("no falsifier on record", next(c for c in calls if c["label"] == "file verify")["prompt"])
 
     def test_mode_repair_forces_a_repair(self):
-        res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[state(status="proved", repair=False)]), mode="repair")
+        res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[state(status="proved", repair=False)],
+                                          **{"repair before": [REPAIR_BEFORE]}), mode="repair")
         self.assertEqual(res["outcome"], "verify-filed")
 
     def test_a_repair_of_an_unreviewed_claim_needs_no_falsifier_first(self):
         """Was ..._still_needs_a_falsifier: no attempt waits for a falsifier any more (2026-11-20)."""
-        res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[state(status="sketch", falsified=False, repair=True)]))
+        res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[state(status="sketch", falsified=False, repair=True)],
+                                          **{"repair before": [REPAIR_BEFORE]}))
         self.assertEqual(res["outcome"], "verify-filed")
         self.assertFalse(res["falsifier_on_record"])
 
@@ -553,7 +566,7 @@ class ProveTests(unittest.TestCase):
                     dict(good, waiting_on=["human"], this_parent="T-0007"),      # a child, not its repair
                     dict(good, status="in-progress"),
                     dict(good, refs=["flat:GEO-4"]), dict(good, kind="prove"), dict(good, found=False)):
-            plan = dict(self.AMEND, **{"check for-verify": [bad],
+            plan = dict(self.AMEND, **{"check for-verify": [bad], "repair before": [REPAIR_BEFORE],
                                        "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
                                        "check verify": [{"found": True, "to": "expert@t", "kind": "verify",
                                                          "refs": ["flat:GEO-3", "bib:LMW16#Thm11"]}]})
@@ -565,7 +578,7 @@ class ProveTests(unittest.TestCase):
     def test_a_malformed_marker_is_ignored(self):
         plan = dict(self.AMEND, state=[state(status="sketch", falsified=False, falsifier_evidence="",
                                              repair=True, for_verify="see the ticket")])
-        plan.update({"file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
+        plan.update({"repair before": [REPAIR_BEFORE], "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
                      "check verify": [{"found": True, "to": "expert@t", "kind": "verify",
                                        "refs": ["flat:GEO-3", "bib:LMW16#Thm11"]}]})
         res, labels, _ = self.run_wf(plan)
@@ -586,6 +599,206 @@ class ProveTests(unittest.TestCase):
     def test_the_state_stage_is_asked_for_the_marker(self):
         _r, _l, calls = self.run_wf(self.COMPLETE)
         self.assertIn("amendment for verify", calls[0]["prompt"])
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class RepairRecordTests(unittest.TestCase):
+    """#85, the rest (audit of 2026-11-20): a repair that edits the claim's record (its
+    statement, or the proof its status was reviewed on) re-checks the status on the new text:
+    a reword verify when only the statement moved over a CONFIRMED x2 pass, else a blind one;
+    or the result names why none is needed. The dependency amendment is unchanged."""
+    run_wf = ProveTests.run_wf
+    PASS = "2026-11-01-T-0007"
+    BEFORE = REPAIR_BEFORE
+    SAME = {"statement_hash": "0123456789abcdef", "reviewed_proof_hash": "aaaa1111bbbb",
+            "proof": "proofs/GEO-3/attempt-1.md"}
+    FILED = {"ticket": "T-0040", "proposal": "", "refusal": ""}
+    CHECK = {"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3"],
+             "title": "Verify flat:GEO-3 (reword of 2026-11-01-T-0007)"}
+
+    def plan(self, after=None, before=None, outcome=None, st=None, **extra):
+        p = {"state": [state(**dict(dict(status="proved", repair=True, repair_ask="restate with g >= 2 (T-1626)"), **(st or {})))],
+             "repair before": [self.BEFORE if before is None else before],
+             "attempt path": [{"path": "proofs/GEO-3/attempt-2.md"}], "attempt": ["done"],
+             "outcome": [outcome or done(outcome="partial", gaps=["step 2"])],
+             "repair after": [self.SAME if after is None else after], "close": [MOVE]}
+        p.update(extra)
+        return p
+
+    def test_a_reworded_statement_files_a_reword_verify(self):
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        res, labels, calls = self.run_wf(self.plan(after, **{"file record verify": [self.FILED], "check record verify": [self.CHECK]}))
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        self.assertLess(labels.index("repair before"), labels.index("attempt"))
+        self.assertEqual(labels[-4:], ["repair after", "file record verify", "check record verify", "close"])
+        before = calls[labels.index("repair before")]
+        self.assertEqual(before["agentType"], "researcher:review-clerk")
+        self.assertIn("reviews.py list", before["prompt"])
+        self.assertIn("reviews.py hash --file", before["prompt"])
+        aft = calls[labels.index("repair after")]
+        self.assertIn("reviews.py hash --claim flat:GEO-3", aft["prompt"])
+        self.assertIn("proofs/GEO-3/attempt-1.md", aft["prompt"])                       # the same file hashed again
+        f = calls[labels.index("file record verify")]
+        self.assertEqual(f["agentType"], "researcher:lead-researcher")                  # a researcher->expert liaison
+        for s in ("kind verify", "Verify flat:GEO-3 (reword of 2026-11-01-T-0007)", "mode reword",
+                  "base_pass 2026-11-01-T-0007", "0123456789abcdef", "fedcba9876543210", "parent T-0010"):
+            self.assertIn(s, f["prompt"])
+        self.assertEqual(res["record_verify"], {"ticket": "T-0040", "mode": "reword", "base_pass": self.PASS})
+        self.assertEqual(res["record_change"]["statement"], "changed")
+        self.assertEqual(res["record_change"]["proof"], "same")
+        close = calls[-1]["prompt"]
+        self.assertIn("reword verify ticket T-0040", close)
+        self.assertIn("the attempt is filed for no review", close)                      # consistent with the ticket filed
+        self.assertNotIn("nothing filed for review", close)
+        self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+
+    def test_a_changed_reviewed_proof_files_no_verify_and_says_the_status_is_stale(self):
+        """Review of 62be9fa, point 2: after an incomplete attempt a changed proof would send an
+        attempt the prover reported incomplete to a blind pass (a GAP, nothing gained). No
+        ticket: the result and a thread note say the status no longer stands on the reviewed
+        text and that a verify follows the next complete attempt."""
+        for after in (dict(self.SAME, reviewed_proof_hash="cccc2222dddd"),                # the reviewed file edited
+                      dict(self.SAME, proof="proofs/GEO-3/attempt-2.md"),                 # the record's proof moved
+                      dict(self.SAME, statement_hash="fedcba9876543210", proof="proofs/GEO-3/attempt-2.md")):
+            res, labels, calls = self.run_wf(self.plan(after))
+            self.assertNotIn("file record verify", labels, after)
+            self.assertIsNone(res["record_verify"], after)
+            self.assertEqual(res["record_change"]["proof"], "changed", after)
+            self.assertTrue(res["record_stale"], after)
+            for s in ("no longer stands on the reviewed text", "a verify follows the next complete attempt"):
+                self.assertIn(s, res["record_verify_why"], after)
+            close = calls[-1]["prompt"]
+            self.assertIn("no longer stands on the reviewed text", close)                   # the result
+            self.assertIn('note "', close)                                                   # and a thread note
+            self.assertIn("nothing filed for review", close)
+
+    def test_an_untouched_record_writes_no_thread_note(self):
+        res, labels, calls = self.run_wf(self.plan())
+        self.assertNotIn('note "', calls[-1]["prompt"])
+        self.assertFalse(res.get("record_stale"))
+
+    def test_a_confirmed_pass_that_names_no_reviewed_proof_never_files_a_reword(self):
+        """Review of 62be9fa, point 1: nothing compared is unknown, not untouched."""
+        after = dict(self.SAME, statement_hash="fedcba9876543210", proof="")
+        before = dict(self.BEFORE, reviewed_proof="", reviewed_proof_hash="", proof="")
+        res, labels, calls = self.run_wf(self.plan(after, before=before, **{"file record verify": [self.FILED],
+                                                   "check record verify": [dict(self.CHECK, title="Verify flat:GEO-3")]}))
+        self.assertEqual(res["record_change"]["proof"], "unknown")
+        f = calls[labels.index("file record verify")]["prompt"]
+        self.assertNotIn("(reword of", f)
+        self.assertNotIn("untouched", f)
+        self.assertEqual(res["record_verify"]["mode"], "blind")
+        # the statement unchanged: nothing compared is the hand check, no ticket
+        res, labels, calls = self.run_wf(self.plan(dict(self.SAME, proof=""), before=before))
+        self.assertNotIn("file record verify", labels)
+        self.assertIn("could not be compared", res["record_verify_why"])
+
+    def test_the_result_line_matches_what_was_filed_on_undeclared_dependencies(self):
+        """Review of 62be9fa, point 3: a complete attempt with undeclared dependencies takes the
+        incomplete path; its line must not say "nothing filed for review" next to a ticket."""
+        undeclared = done(dependencies_declared=False)
+        extra = {"fix dependencies": ["fixed"], "outcome (after fix)": [undeclared]}
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        res, labels, calls = self.run_wf(self.plan(after, outcome=undeclared, **dict(extra, **{
+            "file record verify": [self.FILED], "check record verify": [self.CHECK]})))
+        close = calls[-1]["prompt"]
+        self.assertNotIn("nothing filed for review", close)
+        self.assertIn("the attempt is filed for no review", close)
+        self.assertIn("reword verify ticket T-0040", close)
+        # a proof change there files nothing, and the line says nothing was filed
+        res, labels, calls = self.run_wf(self.plan(dict(self.SAME, proof="proofs/GEO-3/attempt-2.md"), outcome=undeclared, **extra))
+        self.assertNotIn("file record verify", labels)
+        self.assertIn("nothing filed for review", calls[-1]["prompt"])
+        self.assertNotIn("verify ticket T-", calls[-1]["prompt"])
+
+    def test_no_confirmed_pass_files_a_blind_verify_on_a_proved_claim(self):
+        """T-1626: proved on the human's word, no CONFIRMED x2 pass to reword from."""
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        res, labels, calls = self.run_wf(self.plan(after, before=dict(self.BEFORE, confirmed_pass=""),
+                                                   **{"file record verify": [self.FILED],
+                                                      "check record verify": [dict(self.CHECK, title="Verify flat:GEO-3")]}))
+        f = calls[labels.index("file record verify")]["prompt"]
+        self.assertNotIn("(reword of", f)
+        self.assertIn("no confirmed pass", f)
+        self.assertEqual(res["record_verify"]["mode"], "blind")
+
+    def test_an_untouched_record_files_none_and_says_why(self):
+        res, labels, calls = self.run_wf(self.plan())
+        self.assertNotIn("file record verify", labels)
+        self.assertIsNone(res["record_verify"])
+        why = res["record_verify_why"]
+        self.assertIn("statement hash 0123456789abcdef unchanged", why)
+        self.assertIn("proofs/GEO-3/attempt-1.md untouched", why)
+        self.assertIn("no verify ticket needed", calls[-1]["prompt"])
+        self.assertIn("statement hash 0123456789abcdef unchanged", calls[-1]["prompt"])
+
+    def test_a_record_no_review_stands_on_files_none(self):
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        res, labels, calls = self.run_wf(self.plan(after, before=dict(self.BEFORE, confirmed_pass=""), st={"status": "sketch"}))
+        self.assertNotIn("file record verify", labels)
+        self.assertIsNone(res["record_verify"])
+        self.assertIn("no review stands on the old text", res["record_verify_why"])
+        self.assertIn("no review stands on the old text", calls[-1]["prompt"])
+
+    def test_a_reword_over_a_confirmed_pass_of_a_sketch_claim_is_filed(self):
+        """A CONFIRMED x2 pass whose status is not yet set still stands on the old text."""
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        res, labels, _c = self.run_wf(self.plan(after, st={"status": "sketch"},
+                                                **{"file record verify": [self.FILED], "check record verify": [self.CHECK]}))
+        self.assertEqual(res["record_verify"]["mode"], "reword")
+
+    def test_an_unknown_comparison_files_none_and_names_the_check(self):
+        for after, before in ((dict(self.SAME, statement_hash=""), None),               # hash not reported
+                              (None, dict(self.BEFORE, reviewed_proof_hash=""))):        # proof hash not reported
+            res, labels, calls = self.run_wf(self.plan(after, before=before))
+            self.assertNotIn("file record verify", labels)
+            self.assertIn("could not be compared", res["record_verify_why"])
+            self.assertIn("reviews.py hash --claim flat:GEO-3", calls[-1]["prompt"])
+        # a lost after stage, or a lost before stage: no ticket, and the result says how to check
+        res, labels, calls = self.run_wf(self.plan(**{"repair after": [None]}))
+        self.assertNotIn("file record verify", labels)
+        self.assertIn("record check", res["record_verify_why"])
+        res, labels, calls = self.run_wf(self.plan(**{"repair before": [None]}))
+        self.assertNotIn("repair after", labels)
+        self.assertIn("record check", res["record_verify_why"])
+        self.assertIn("0123456789abcdef", calls[-1]["prompt"])
+
+    def test_a_bad_record_verify_ticket_is_an_anomaly_and_a_refusal_a_note(self):
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        res, _l, _c = self.run_wf(self.plan(after, **{"file record verify": [self.FILED],
+                                                      "check record verify": [dict(self.CHECK, title="Verify flat:GEO-3")]}))
+        self.assertIn("ANOMALY", " ".join(res["notes"]))                                 # the marker the inbox reads is gone
+        res, labels, calls = self.run_wf(self.plan(after, **{"file record verify": [{"ticket": "", "proposal": "", "refusal": "chain: no"}]}))
+        self.assertIsNone(res["record_verify"])
+        self.assertIn("chain: no", " ".join(res["notes"]))
+        self.assertNotIn("check record verify", labels)
+        self.assertIn("not filed", calls[-1]["prompt"])
+
+    def test_a_complete_repair_files_its_blind_verify_only(self):
+        """The complete attempt's verify ticket re-checks the new text: no second ticket, no after stage."""
+        plan = dict(ProveTests.COMPLETE, state=[state(status="proved", repair=True)], **{"repair before": [self.BEFORE]})
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertNotIn("repair after", labels)
+        self.assertNotIn("file record verify", labels)
+        self.assertIn("the verify ticket T-0020 reviews the new attempt", res["record_verify_why"])
+
+    def test_not_a_repair_runs_no_record_check(self):
+        res, labels, _c = self.run_wf(dict(ProveTests.COMPLETE))
+        self.assertNotIn("repair before", labels)
+        self.assertNotIn("record_verify", res)
+
+    def test_the_dependency_amendment_runs_no_record_check(self):
+        res, labels, _c = self.run_wf(ProveTests.AMEND)
+        self.assertNotIn("repair before", labels)
+        self.assertNotIn("record_verify", res)
+        plan = dict(ProveTests.AMEND, outcome=[done(outcome="partial", gaps=["step 2"])], block=[MOVE],
+                    **{"file falsifier": [FalsifierOnFailureTests.FILED_F], "check falsifier": [FalsifierOnFailureTests.CHECK_F]})
+        plan.pop("close")
+        res, labels, _c = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "amendment-incomplete")
+        self.assertNotIn("repair after", labels)
+        self.assertNotIn("file record verify", labels)
 
 
 def shipped(t, line):
