@@ -83,8 +83,6 @@ CHOICES = {"a": "union", "union": "union",
 LETTER = {"union": "a", "intersection": "b", "rerun": "c", "decline": "d"}
 #: the kinds a ruling's follow-up has: the keeper's status decision, or a verify re-run
 FOLLOW_UP_KINDS = ("decision", "verify")
-#: how a human's answer line reads (decisions.py, before and after this change)
-RE_ANSWER = re.compile(r"^human decision: (?!decline|\(d\))")
 #: the settler's stops that leave no status to give (settle_deps.py): 12 different readings,
 #: 11 circular, 7 a hidden step with no existing result
 NO_STATUS_CASES = (12, 11, 7)
@@ -766,6 +764,31 @@ def _answers(body):
     return out
 
 
+def _legacy(body):
+    """True when the thread holds a human answer this code cannot read (no ``(x) <which>``,
+    not a decline): a bare ``proceed`` from before #121, as on T-0979."""
+    return any(w == ac.HUMAN and t.startswith("human decision:")
+               and not RE_ANSWER_LINE.match(t) and not t.startswith("human decision: decline")
+               for _d, w, t in ac.thread_lines(body))
+
+
+def _is_answer(text):
+    """A human answer line that is not a decline, by its recorded class, not its letter."""
+    if not text.startswith("human decision:"):
+        return False
+    m = RE_ANSWER_LINE.match(text)
+    return m.group(2) != "decline" if m else not text.startswith("human decision: decline")
+
+
+def _dead_follow_ups(board, body):
+    """The ``keeper follow-up:`` tickets of a thread that are cancelled or rejected."""
+    ids = [m.group(1) for _d, _w, t in ac.thread_lines(body) for m in [RE_FOLLOW_UP.search(t)]
+           if m]
+    metas = {m.get("id"): m for m in boardlib.list_tickets(board, include_terminal=True)}
+    return [i for i in dict.fromkeys(ids)
+            if (metas.get(i) or {}).get("status") in ("cancelled", "rejected")]
+
+
 def _answered(body, letter, which):
     """True when the thread already holds this code's answer line for this answer."""
     want = "human decision: (%s) %s" % (letter, which)
@@ -822,11 +845,22 @@ def record(board, r, choice, comment="", workspace=None, date=None, ticket=None,
     cls = kind_of(which)
     status = meta.get("status")
     fus = follow_ups(board, tid, body)
-    clash = cls == "accept" and any(kind_of(w) == "accept" and w != which
-                                    for _l, w in _answers(body))
+    answered = _answered(body, letter, which)
+    # an earlier accept that differs: another list by letter, or an answer with no letter
+    # this code can read (a bare "proceed", before #121) that was acted on (review 3)
+    clash = cls == "accept" and (
+        any(kind_of(w) == "accept" and w != which for _l, w in _answers(body))
+        or (not answered and _legacy(body) and any(f[2] == "accept" for f in fus)))
     match = [] if clash else [f for f in fus if f[2] == cls]
     differing = [f for f in fus if f not in match]
-    if status == "delivered" and (match or _answered(body, letter, which)):
+    if status == "delivered" and (match or answered):
+        if not match and cls in ("accept", "rerun"):
+            gone = _dead_follow_ups(board, body)
+            raise ac.AcademyError(
+                "%s is delivered on (%s) %s, but its follow-up %s is no longer live (cancelled "
+                "or rejected); a delivered ruling is not answered again: file the follow-up "
+                "by hand, or ask the Expert for a new ruling" % (
+                    tid, letter, which, ", ".join(gone) or "(none found)"))
         f = _best(match)
         return {"ref": tid, "status": status, "choice": letter,
                 "follow_up": f[0] if f else None, "filed": False}
@@ -850,14 +884,20 @@ def record(board, r, choice, comment="", workspace=None, date=None, ticket=None,
                 "choice": letter, "follow_up": have[0] if have else None, "filed": False}
     over = differing and not match
     if over and cls != "rerun" and not force:
+        tickets = [f[0] for f in differing if f[1] != "keeper"]
+        if any(f[1] == "keeper" for f in differing):
+            # the keeper's action is no ticket: nothing here undoes it (review 4)
+            advice = "; the claim-keeper's status change is undone only by the claim-keeper"
+        else:
+            advice = "; or, as the human, cancel %s first, then record again" % ", ".join(tickets)
         raise ac.AcademyError(
             "%s was answered before (%s) and that answer was acted on: %s. (%s) %s is not "
-            "recorded over it: a re-run is (the earlier status stands until the new pass "
-            "decides); for this answer pass --force (what was done stays done), or cancel the "
-            "follow-up ticket first, then record again."
-            % (tid, _earlier(body) or "the keeper acted on the ruling", _acted(differing),
-               letter, which))
-    if not _answered(body, letter, which):
+            "recorded over it (a re-run would be: the earlier status stands until the new "
+            "pass decides). To record it anyway, pass --force: what was done on the earlier "
+            "answer stays done%s." % (
+                tid, _earlier(body) or "the keeper acted on the ruling", _acted(differing),
+                letter, which, advice))
+    if not answered:
         boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
     filed, new, how, to = False, None, None, ""
     if match:
@@ -886,7 +926,8 @@ def record(board, r, choice, comment="", workspace=None, date=None, ticket=None,
                      "the earlier one is not undone." % (letter, which)),
             as_instance=ac.HUMAN, agent="decisions", date=date)
     if how == "keeper":
-        result = "Ruling (%s) %s: the claim-keeper acted on it (%s)" % (letter, which, new)
+        result = ("Ruling (%s) %s: nothing filed; the claim-keeper had already set the status "
+                  "(%s) before this answer" % (letter, which, new))
     elif new:
         result = "Ruling (%s) %s: follow-up %s%s" % (
             letter, which, new, " (the earlier ruling's status stands until it decides)"
@@ -918,7 +959,7 @@ def stalled(board, workspace=None):
                 or m.get("status") not in ("open", "accepted", "in-progress")):
             continue
         t = boardlib.get_ticket(board, m["id"])
-        answers = [x for _d, w, x in ac.thread_lines(t[2]) if w == ac.HUMAN and RE_ANSWER.match(x)]
+        answers = [x for _d, w, x in ac.thread_lines(t[2]) if w == ac.HUMAN and _is_answer(x)]
         if not answers:
             continue
         r = find_ruling(board, m["id"], ws, ticket=t)

@@ -705,6 +705,88 @@ class TestListingMatchesRecord(RulingCase):
         self.assertEqual("accepted", self.record("T-0004", "proceed")["status"])
 
 
+class TestEarlierAnswers(RulingCase):
+    """Review of 54692a4, findings 3, 4, 8."""
+
+    def legacy(self, tid):
+        """An earlier answer without a letter this code can read, and the keeper's action."""
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date="2026-11-01")
+        bd.append_to_ticket(self.board, tid, "human decision: proceed -- ruling (a)",
+                            date="2026-11-13")
+        bd.transition_ticket(self.board, tid, "accepted", as_instance="human", date="2026-11-13")
+
+    def test_an_accept_over_a_legacy_answer_acted_on_needs_force(self):
+        """Finding 3: the earlier answer is unknown, so it may differ."""
+        for ask in (OWN_ASK, None):
+            tid = self.ruling(**({"ask": ask} if ask else {}))
+            self.legacy(tid)
+            thread = self.thread(tid)
+            with self.assertRaises(ac.AcademyError) as cm:
+                self.record(tid, "a")
+            self.assertIn("--force", str(cm.exception))
+            self.assertIn("proceed -- ruling (a)", str(cm.exception))
+            self.assertEqual(thread, self.thread(tid))
+        out = self.record(tid, "a", force=True)
+        self.assertTrue(out["filed"])
+        result = bd.get_ticket(self.board, tid)[1]["result"]
+        self.assertIn(out["follow_up"], result)
+        self.assertNotIn("acted on it", result)
+
+    def test_the_keeper_s_earlier_action_is_not_claimed_for_the_new_answer(self):
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date=DATE)
+        self.record(tid, "a")
+        result = bd.get_ticket(self.board, tid)[1]["result"]
+        self.assertNotIn("acted on it", result)
+        self.assertIn("before this answer", result)
+
+    def test_the_refusal_s_advice_works(self):
+        """Finding 4: cancelling the follow-up ticket, then recording again, records."""
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
+        self.ticket(to="researcher@r1", as_instance="human", kind="decision", parent=tid,
+                    title="Status of paper:lem:x -> proved-modulo (ruling %s)" % tid,
+                    ask="Set it.")
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "b")
+        self.assertIn("cancel T-0003", str(cm.exception))
+        bd.transition_ticket(self.board, "T-0003", "cancelled", reason="changed", as_instance="human",
+                             date=DATE)
+        out = self.record(tid, "b")
+        self.assertEqual((True, "delivered"), (out["filed"], out["status"]))
+
+    def test_a_keeper_action_is_not_advised_to_be_cancelled(self):
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date=DATE)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "b")
+        self.assertNotIn("cancel", str(cm.exception))
+        self.assertIn("claim-keeper", str(cm.exception))
+
+    def test_a_delivered_ruling_whose_follow_up_was_cancelled_says_so(self):
+        tid = self.ruling()
+        out = self.record(tid, "c")
+        bd.transition_ticket(self.board, out["follow_up"], "cancelled", reason="mistake",
+                             as_instance="human", date=DATE)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "c")
+        self.assertIn(out["follow_up"], str(cm.exception))
+        self.assertIn("cancelled", str(cm.exception))
+
+    def test_stalled_skips_an_own_letter_decline(self):
+        """Finding 8: the recorded class, not the letter, says it was a decline."""
+        tid = self.ruling(ask=OWN_ASK)
+        bd.append_to_ticket(self.board, tid, "human decision: (b) decline [the ticket's own "
+                            "(b): drop it]", date=DATE)
+        self.assertEqual([], rl.stalled(self.board, self.ws))
+        bd.append_to_ticket(self.board, tid, "human decision: (d) union", date=DATE)
+        self.assertEqual([tid], [x["id"] for x in rl.stalled(self.board, self.ws)])
+
+
 class TestGithubBackend(RulingCase):
     def test_record_on_the_github_store_finds_the_new_ticket_and_is_idempotent(self):
         import board_store as bs
