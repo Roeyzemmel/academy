@@ -260,6 +260,46 @@ class StageOrderTests(unittest.TestCase):
         self.assertEqual(stages, sorted(stages))
 
 
+class GroundsTests(unittest.TestCase):
+    """Part 3: apply completes the table's grounds_template, so the concluder proposes the
+    status with grounds made in code, as for confirmed-modulo."""
+    TEMPLATE = {"basis": "proof", "note": "", "producer_role": "researcher",
+                "statement_hash": "abcdef12",
+                "verdicts": [{"verdict": "CONFIRMED", "run_id": "a", "grader_role": "expert",
+                              "statement_hash": "abcdef12", "ref": "A.md"},
+                             {"verdict": "CONFIRMED", "run_id": "b", "grader_role": "expert",
+                              "statement_hash": "abcdef12", "ref": "B.md"}]}
+
+    def t(self, *facts, modulo=()):
+        return dict(table(*facts, modulo=modulo), grounds_template=self.TEMPLATE)
+
+    def test_proved_modulo_carries_the_kept_inputs(self):
+        t = self.t(fact("paper:lem:a"), fact("paper:lem:b", run="B"), modulo=["bib:K#1"])
+        r = rec(entry("paper:lem:a", 6, line="l.3"),
+                entry("paper:lem:b", 1, chosen="paper:lem:b"))
+        self.assertEqual([], sd.check(r, t))
+        out = sd.apply(r, t)
+        self.assertEqual(out["proposed_status"], "proved-modulo")
+        g = out["grounds"]
+        self.assertEqual(g["modulo"], ["bib:K#1", "paper:lem:b"])
+        self.assertEqual(g["verdicts"], self.TEMPLATE["verdicts"])
+        self.assertIn("settled", g["note"])
+        self.assertNotIn("modulo", self.TEMPLATE)          # the template is not mutated
+
+    def test_proved_has_no_modulo_and_a_stop_has_no_grounds(self):
+        t = self.t(fact("paper:lem:a"))
+        out = sd.apply(rec(entry("paper:lem:a", 14, line="l.1")), t)
+        self.assertEqual(out["proposed_status"], "proved")
+        self.assertNotIn("modulo", out["grounds"])
+        t = self.t(fact("paper:lem:a", cycle=True, shape="cycle"))
+        out = sd.apply(rec(entry("paper:lem:a", 11)), t)
+        self.assertIsNone(out["grounds"])
+
+    def test_without_a_template_there_are_no_grounds(self):
+        out = sd.apply(rec(entry("paper:lem:a", 14, line="l.1")), table(fact("paper:lem:a")))
+        self.assertIsNone(out["grounds"])
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, action, r, t):
         with tempfile.TemporaryDirectory() as d:
