@@ -75,8 +75,8 @@ it.
    decision `prove` with the claim id, the falsifier on record and the falsifier
    tickets still pending: the workflow hands `/researcher:prove <claim>` with the
    ticket to the main session. With no falsifier on record it still hands back
-   decision `prove` (falsifier empty): the attempt does not wait for one, and the
-   a failed attempt or a GAP verdict triggers one; file no new falsifier ticket for the
+   decision `prove` (falsifier empty): the attempt does not wait for one, and a failed
+   attempt or a GAP verdict triggers one; file no new falsifier ticket for the
    attempt, and name any still-open one in pending. A ticket
    may come to you again after such a run: read its thread, the tickets filed for it
    (`tickets_list` with `parent`) and the journal first, and never file a falsifier,

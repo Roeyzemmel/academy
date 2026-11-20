@@ -106,7 +106,7 @@ const PREP = {
         found: { type: 'string', enum: ['nothing', 'counterexample', ''], description: 'what the falsifier found: nothing (it ran and did not break the claim), a counterexample, or empty (none, or a waiver)' },
         request: { type: 'string', description: 'a falsifier request an earlier run of this pass filed (the verify ticket\'s waiting_on or its thread), or empty' },
         request_status: { type: 'string', description: 'that request\'s status, or empty' },
-        statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, when the record says it: a lab claim\'s falsifies: entry <ns:id>@<hash> for this claim, an attack.md frontmatter statement_hash:, else for a request this workflow filed the hash its ask names, for a waiver the hash it names; else empty' } },
+        statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, when the record says it: a lab claim\'s falsifies: entry <ns:id>@<hash> for this claim, else for a request this workflow filed the hash its ask names, for a waiver the hash it names; else empty' } },
       required: ['source', 'on', 'evidence', 'found', 'request', 'request_status', 'statement_hash'] },
     inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs (depends_on, its cites as bib:<key>, and the other-namespace inputs its record names), as the registry reads them now, namespaces and #pinpoints kept (a bib: key the current attempt cites at a pinpoint also as bib:<key>#<pinpoint>), in canonical spelling (`decision_table.py canon --subject <claim> <input>...`)' },
     amendment: { type: 'object', description: 'a dependency amendment this pass asked for (2026-11-20; blind mode)',
@@ -273,7 +273,7 @@ const prep = await launch(STAGE('prepare', [
       'Say what it found (nothing, or a counterexample), any falsifier request on this claim that is filed and not back (a ticket titled "Falsifier for ' + A.claim + '": tickets_list text ' + A.claim + ') with its status in falsifier.request and request_status, and the claim\'s declared inputs (inputs: depends_on, its cites as bib:<key>, read from the registry now). ' +
       'Report the dependency amendment (amendment; conclude.md section 1b): a repair ticket an earlier run of this pass filed to add run A\'s suggested dependencies, with its status, the claim\'s current proof attempt, and the attempt run A reviewed as this pass recorded it ("run A reviewed <attempt>" in the repair\'s ask or the ticket\'s block note); a ticket blocked on it is taken blocked -> in-progress.',
       'Run `reviews.py researcher-for ' + A.claim + ' --party <instance>` once, with a --party for the from and the to of the ticket and of each ticket up its parent chain (tickets_get), and report its instance and why as researcher and researcher_why. ' +
-      'Report in falsifier.statement_hash (not the pass\'s own statement_hash) the statement hash the falsifier attacked, read first from the structured fields: a lab claim\'s frontmatter falsifies: ["' + A.claim + '@<hash>", ...] entry for this claim, or the frontmatter statement_hash: of proofs/<id>/attack.md; then, for a request this workflow filed, the "statement hash <h>" its ask names; else leave it empty: a falsifier of unknown or another wording does not count (a waiver aside).',
+      'Report in falsifier.statement_hash (not the pass\'s own statement_hash) the statement hash the falsifier attacked, read first from the structured fields: a lab claim\'s frontmatter falsifies: ["' + A.claim + '@<hash>", ...] entry for this claim (proofs/<id>/attack.md, the prover\'s own attack step, is not a falsifier); then, for a request this workflow filed, the "statement hash <h>" its ask names; else leave it empty: a falsifier of unknown or another wording does not count (a waiver aside).',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {
@@ -592,7 +592,7 @@ if (MODE === 'reword') {
 }
 const counterexample = !!(falsifier && falsifier.counts && falsifier.found === 'counterexample')
 // a GAP verdict (A single-negative, or B after a CONFIRMED A) files the falsifier request
-const gapRun = MODE === 'blind' && !counterexample ? [...runs].reverse().find(r => !r.lost && !r.stale && GAP.test(String(r.verdict || '')) && (!r.hash_now || r.hash_now === prep.statement_hash)) : null
+const gapRun = MODE === 'blind' && !counterexample ? [...runs].reverse().find(r => !r.lost && !r.stale && GAP.test(String(r.verdict || '')) && r.hash_now && r.hash_now === prep.statement_hash) : null
 const falsifierRequest = gapRun && !runs.some(r => r.stale) ? await requestFalsifier(gapRun) : null
 log(runs.map(r => `${r.run}: ${r.lost ? 'lost' : r.verdict + ' -> ' + r.outcome}`).join('; '))
 if (runs.some(r => r.stale)) {     // #89 review: a run file on another statement is never concluded on

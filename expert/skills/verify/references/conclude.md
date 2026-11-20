@@ -59,15 +59,14 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   and a counterexample on record stops B). The
   sources are the ones `researcher/workflows/prove.js` accepts (#117): a falsifier that
   attacked this claim (an experiment or test ticket to the Scientist that tried to break
-  it, or a recorded attack); one recorded on a declared input, or on the parent lead or
+  it; the prover's own `proofs/<id>/attack.md` is the attack step, not a falsifier); one recorded on a declared input, or on the parent lead or
   direction item, whose class or statement covers the claim (say how, and name the id);
   the ticket's thread (a falsifier request on this claim, once it is back, with its
   result); or the human's waiver on the ticket or the claim (quote the thread line
   `- YYYY-MM-DD human: ...` verbatim). Say what it found (nothing, or a counterexample),
   the statement hash it attacked when its record says it: first the structured fields (a
   lab claim's frontmatter `falsifies: ["<ns:id>@<16-hex hash>", ...]`, one entry per
-  target it attacked, the target's hash when the experiment ran; a
-  `proofs/<id>/attack.md` frontmatter `statement_hash: <16-hex>`), then, for a request this
+  target it attacked, the target's hash when the experiment ran), then, for a request this
   workflow filed, the `statement hash <h>` its ask names, any falsifier request on this claim that is filed and not back
   (a ticket titled `Falsifier for <id>`) with its status, and the claim's declared inputs.
 - **The brief** (identical for A and B except `run`; paste nothing else — the

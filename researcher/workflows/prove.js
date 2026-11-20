@@ -100,7 +100,7 @@ const STATE = { type: 'object', properties: {
   for_verify: { type: 'string', description: 'the verify ticket T-NNNN when the ticket\'s ask carries the marker "amendment for verify T-NNNN pass <pass>" (a repair a verify pass asked for, the dependency amendment); else empty' },
   for_verify_pass: { type: 'string', description: 'the pass that marker names; else empty' },
   statement_hash: { type: 'string', description: 'the claim\'s statement hash now, the registry engine\'s (reviews.py hash --claim <id>)' },
-  falsifier_statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, read first from a lab claim\'s frontmatter falsifies: entry <ns:id>@<hash> for this claim or the attack.md frontmatter statement_hash:, then the "statement hash <h>" a request\'s ask names; a waiver, the hash it names; else empty' },
+  falsifier_statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, read first from a lab claim\'s frontmatter falsifies: entry <ns:id>@<hash> for this claim, then the "statement hash <h>" a request\'s ask names; a waiver, the hash it names; else empty' },
   falsifier_pending: { type: 'string', description: 'a falsifier on this claim filed and not back (an experiment or test ticket to the Scientist, or a falsifier request, open, accepted, in progress or blocked): its id; else empty' },
   falsifier_pending_status: { type: 'string', description: 'that ticket\'s status; else empty' } },
   required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'attack_exists', 'repair'] }
@@ -232,10 +232,10 @@ phase('State')
 const st = await launch(STAGE('prove-state', [
   T ? `First take ${T}: open -> accepted -> in-progress (leave it if it is in progress already).` : '',
   `Then return: the claim's status (claims_show), its unsettled inputs (depends_on and modulo that are not proved), earlier attempts ` +
-  `(notebook.py ls / the object's proof: field), whether a falsifier counts and its source (#117: one that attacked this claim; or one recorded on a declared input, or on the parent lead or ` +
+  `(notebook.py ls / the object's proof: field), whether a falsifier counts and its source (#117: one that attacked this claim, an experiment or test of the Scientist (proofs/<id>/attack.md, the prover's own attack step, is not a falsifier); or one recorded on a declared input, or on the parent lead or ` +
   `direction item, whose class or statement covers this claim, saying how; or the ticket thread records one; or the human waived it on the ticket or the claim: then quote that thread line verbatim), with the evidence, and the declared inputs, ` +
   `the claim's statement hash now (statement_hash: \`py ${AR}/expert/scripts/reviews.py hash --claim ${A.claim}\`, the registry engine's), ` +
-  `the statement hash the falsifier attacked (falsifier_statement_hash: first a lab claim's frontmatter falsifies: ["${A.claim}@<hash>", ...] entry, or the frontmatter statement_hash: of proofs/<id>/attack.md; then the "statement hash <h>" its request's ask names; else empty), ` +
+  `the statement hash the falsifier attacked (falsifier_statement_hash: first a lab claim's frontmatter falsifies: ["${A.claim}@<hash>", ...] entry; then the "statement hash <h>" its request's ask names; else empty), ` +
   `any falsifier on this claim filed and not back (an experiment or test ticket to the Scientist, or a "Falsifier for ${A.claim}" request: tickets_list text ${A.claim}) with its status (falsifier_pending, falsifier_pending_status), ` +
   `whether proofs/<id>/attack.md exists, and whether the ticket asks for a repair (repair, polish, restyle or record an argument, or answer a negative review) rather than a first proof, with what it asks, ` +
   `and, when its ask carries the marker "amendment for verify T-NNNN pass <pass>", that verify ticket and pass (for_verify, for_verify_pass). Write nothing else.`,
@@ -334,8 +334,7 @@ const pending = String(st.falsifier_pending || '').trim()
 const falsifierPending = /^T-\d{4,}$/.test(pending) && !PENDING_DONE.test(String(st.falsifier_pending_status || '').trim()) ? pending : ''
 if (pending && !falsifierPending) out.notes.push(`the falsifier ${pending} reported pending is ${st.falsifier_pending_status || 'not a ticket id'}: not pending`)
 if (!counts) out.notes.push(`no falsifier on record for ${A.claim}${falsifierPending ? ` (${falsifierPending} is pending)` : ''}: the attempt goes ahead; a failed or incomplete attempt files one, and the verify ask says none is on record. ` +
-  `What counts: an experiment or test ticket to the Scientist that tries to break it (a search over the class it quantifies over, its standard examples first) ` +
-  `or a recorded attack on it; or one on a declared input or the parent lead whose class covers it; or the human's waiver on the ticket`)
+  `What counts: an experiment or test ticket to the Scientist that tries to break it (a search over the class it quantifies over, its standard examples first); or one on a declared input or the parent lead whose class covers it; or the human's waiver on the ticket`)
 const oneLine = (x, n) => String(x || '').replace(/\s+/g, ' ').trim().replace(/"/g, "'").slice(0, n || 200)
 const falsifierLine = counts
   ? `falsifier on record: ${src}${out.falsifier.on ? ' ' + out.falsifier.on : ''} (${oneLine(out.falsifier.evidence, 160)})`

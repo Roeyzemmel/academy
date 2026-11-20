@@ -31,7 +31,8 @@ The inbox runs the same script for a `prove` ticket. The script:
    line, and the result (`falsifier_on_record`, `falsifier_source`, `falsifier`) and the
    verify ticket's ask say which, or that none is on record. A statement nobody attacked on
    paper first gets one attack-only `prover` run (`academy/skills/rigor/references/attack-brief.md`,
-   writing `proofs/<id>/attack.md`).
+   writing `proofs/<id>/attack.md`); that attack is the prover's own step, not a falsifier,
+   so a failed attempt after it still files one.
 3. **Related statements.** A clerk stage searches the registries (the paper's and the
    notebooks', `registry.py find` / `grep`) for statements related to the claim; a second
    clerk stage confirms each listed id with `claims_show` (one it cannot confirm is dropped,
