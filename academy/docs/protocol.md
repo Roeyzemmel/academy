@@ -573,7 +573,9 @@ ancestors that carry `final_to` count; an ordinary `parent` link is not a relay 
 Only ancestors travelling the same way along the chain as the new ticket count (its
 direction is from `from` toward `final_to`): a reply relayed back toward the origin
 (T-1722, researcher → expert → author under an author → expert → researcher chain)
-starts a fresh count. A relay within a relay going the same way can still exceed it:
+starts a fresh count. The cap is per same-direction run: any ancestor going the
+other way resets it, so a `parent` chain of mixed directions is not capped in total
+(an accepted trade-off). A relay within a relay going the same way can still exceed it:
 a Researcher note with `final_to: author` filed with `parent` set to the Expert's
 child to the Author of an earlier researcher → author relay (T-0961 under T-0808)
 already sits under three relay links, and the check refuses the next hop. A new
