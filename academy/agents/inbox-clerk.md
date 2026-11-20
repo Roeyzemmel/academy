@@ -30,6 +30,7 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
     `rejected`: it moved since the listing), make no move and return `ok: false` with
     `detail` "status <s>: not started" (#92);
   - `deliver`: `deliver: true` with the `result` (one line) and `result_detail` given;
+  - `partial`: `status: partial` with the `result` given (#100: work done, deliverable not met);
   - `block-human` / `block-on`: `blocked` with the `waiting_on` and reason given;
   - `reject`: `rejected` with the reason given;
   - `release`: `blocked -> accepted`;

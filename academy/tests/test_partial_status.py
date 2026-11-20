@@ -2,9 +2,7 @@
 CLI, the MCP tool, the GitHub codec, the desk and /academy:decide."""
 
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))

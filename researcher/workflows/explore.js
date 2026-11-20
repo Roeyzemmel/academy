@@ -181,7 +181,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   const skipped = lines.find(l => /checkpoint not run/.test(l))
   const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
   const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
-    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : m && !/^(delivered|rejected|partial)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
     : bad ? { status: 'refused', detail: bad.trim() }
     : skipped ? { status: 'not-run', detail: skipped.trim() }
     : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
@@ -258,6 +258,7 @@ const add = (k, x) => {
   if (x && !art[k].includes(x)) art[k].push(x)
 }
 const prove = []                      // {claim} | {claim, why}: the prove steps to hand back
+const incomplete = []                 // #100: items whose falsifier followed an attempt not complete
 for (const it of moved) {
   seen[it.item] = (seen[it.item] || 0) + 1
   if (seen[it.item] > 1) out.anomalies.push(`${it.item} was moved more than one step`)
@@ -299,6 +300,7 @@ for (const it of moved) {
       continue
     }
     if (!it.tickets.length) { out.anomalies.push(`${it.item}: a falsify step without an experiment ticket`); continue }
+    if (tr.kind === 'attempt') incomplete.push(`${it.item} (${trig} ${tr.outcome || 'without outcome'})`)
     for (const tid of it.tickets) {
       const t = await clerk('get', [`tickets_get ${tid} and return its to, kind and refs.`], TICKET, `get ${tid}`, 'Check')
       const short = it.item.split(':').pop()
@@ -346,8 +348,18 @@ if (prove.length) {
   if (out.artefacts.length) {
     const steps = moved.map(i => `${i.item}: ${i.step}`).join('; ')
     const result = `${steps || 'answered'}; artefacts: ${out.artefacts.join(', ')}`.replace(/"/g, "'").slice(0, 240)
-    const m = await clerk('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result}".`], MOVE, 'close', 'Check')
-    out.ticket_delivered = !!(m && m.ok)
+    if (incomplete.length) {
+      // #100 part 1: the attempt behind the falsifier is not complete: the work is done and
+      // the deliverable is not met, so the ticket goes partial (its sender decides), never delivered
+      const pr = `partial: attempt not complete for ${incomplete.join(', ')}; ${result}`.replace(/"/g, "'").slice(0, 240)
+      const m = await clerk('close', [`Mark ${T} partial (tickets_update status partial, never deliver: true) with result "${pr}".`], MOVE, 'close', 'Check')
+      out.ticket_partial = !!(m && m.ok)
+      out.ticket_delivered = false
+      out.outcome = 'partial'
+    } else {
+      const m = await clerk('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result}".`], MOVE, 'close', 'Check')
+      out.ticket_delivered = !!(m && m.ok)
+    }
   } else {
     await clerk('note', [`Leave ${T} in-progress (make no status move) and append to its thread the note "explore: no artefact (no ticket filed, no direction item or object updated, ` +
       `no attempt): not delivered; ${oneLine(String(lead.report || '').split('\n')[0], 160)}".`], MOVE, 'note', 'Check')
@@ -357,6 +369,6 @@ if (prove.length) {
   }
 }
 if (!out.outcome) out.outcome = out.anomalies.length ? 'moved (with anomalies)' : 'moved'
-if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!out.ticket_delivered, instance: A.instance, topic: 'explore-' + (A.direction || ''),
+if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!(out.ticket_delivered || out.ticket_partial), instance: A.instance, topic: 'explore-' + (A.direction || ''),
   only: '<home submodule> board', agentType: CLERK, phase: 'Check', notes: out.notes })
 return out

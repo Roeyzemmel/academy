@@ -214,7 +214,7 @@ const CHECK = { type: 'object', properties: { exit: { type: 'number', descriptio
   status: { type: 'string' }, output: { type: 'string', description: 'the command output, verbatim' }, detail: { type: 'string' } }, required: ['exit', 'status', 'output'] }
 // the check's verdict is read from its own first line ("T-NNNN: <state> (<status>)"), not from the clerk's reading
 // of it (live run 2026-10-31: a refused checkpoint made the clerk report exit 3 for a delivered ticket)
-const FINISHED = /^(delivered|closed|rejected|cancelled)$/
+const FINISHED = /^(delivered|partial|closed|rejected|cancelled)$/
 function readCheck(chk, id) {
   if (!chk) return null
   const m = new RegExp('^' + id + ': (\\S+) \\(([^)]+)\\)', 'm').exec(String(chk.output || ''))
@@ -404,7 +404,8 @@ async function relayReturn(row, inst) {
   // mechanical: no relay agent. The child is closed by its sender (this instance), the
   // parent goes blocked -> in-progress -> delivered (blocked -> delivered is no transition)
   const m = await move(row, inst,
-    'return-leg: tickets_get the ticket; its child is the id in waiting_on. tickets_get the child. If the child is delivered, ' +
+    'return-leg: tickets_get the ticket; its child is the id in waiting_on. tickets_get the child. If the child is partial (#100: work done, deliverable not met), ' +
+    'move it closed (act as the child\'s from), then move this ticket blocked -> in-progress -> partial (status partial, act as its receiver) with result "partial: <the child id>: <the child\'s result>" and stop. If the child is delivered, ' +
     'move it closed (act as the child\'s from). Then move this ticket blocked -> in-progress -> delivered (deliver: true) with result ' +
     '"child <id> <its status>[; packets <ids>]"; a rejected or cancelled child is named as such.', `${row.id} return leg`)
   return { outcome: m && m.ok ? 'delivered (return leg)' : 'unfinished', detail: m ? m.detail : 'lost' }

@@ -265,7 +265,7 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 | `blocks` | list of ticket ids | no | sender (server mirrors) | Tickets waiting on this one |
 | `waiting_on` | list of ticket ids, instances or `human` | iff `blocked` | receiver | What the receiver waits for |
 | `budget` | map `{runs: int >= 1}`, optionally `max_model: fable\|opus\|sonnet\|haiku` | yes | sender | A note from the sender on how much the ticket is expected to take; it gates nothing (the run's budget does, `references/budget.md` rule 7). Default `runs` from `academy.json` `budget.ticketDefault`. The model is not the sender's: an agent runs on its agent file's `model:`. `max_model`, if given, is an advisory note and never blocks a route |
-| `result` | str, one line | iff `delivered`/`closed` | receiver | The answer in one line; detail in `## Result` |
+| `result` | str, one line | iff `delivered`/`closed`/`partial` | receiver | The answer in one line; detail in `## Result` |
 | `packets` | list of packet ids | no | receiver | Packets produced for this ticket |
 | `created` | `YYYY-MM-DD` | yes | system | |
 | `updated` | `YYYY-MM-DD` | yes | system | Set on every write |
@@ -387,8 +387,21 @@ permissions.json). **The human may make any transition**, including re-opening
 | blocked | cancelled | sender | reason in thread |
 | delivered | closed | sender | |
 | delivered | in-progress | sender | reason in thread ("returned") |
+| in-progress | partial | receiver | `result` non-empty: what was done and what is missing (#100) |
+| delivered | partial | receiver | `result` non-empty (a delivery `--check` refused for want of its artefact, re-marked) |
+| partial | in-progress | sender | reason in thread ("finish it") |
+| partial | closed | sender | (what was done is taken as it stands) |
+| partial | cancelled | sender | reason in thread |
 
 Terminal states: `closed`, `rejected`, `cancelled`.
+
+**`partial`** (#100 part 1, the human's ruling of 2026-11-20): the work was done but the
+deliverable was not met (a proof attempt that is incomplete or failed, a falsifier after an
+incomplete attempt). It is not terminal, but no inbox takes it: the next move is the
+sender's (reopen, close or cancel), and the desk and `/academy:decide` show it to the human
+when the human sent it (on GitHub such an issue is assigned to the human, label
+`status:partial`). A waiter and a relay's return leg treat a partial child as back, like a
+delivered one, and the return leg marks the parent partial too, naming the child.
 
 **One call to deliver (MCP `tickets_update` only).** `deliver: true`, by the receiver of an
 `open`, `accepted` or `in-progress` ticket with `fields.result` set, walks the legal chain to
@@ -524,7 +537,19 @@ line reads `T-NNNN: unfinished (delivered, unpushed); work of T-NNNN is not on a
 one line per branch says how to push it (`py scripts/ship.py push <sub> --repo
 <worktree>`), and the exit is 3: the ticket is not reported delivered until that work is
 pushed and `--check` is run again. `"unpushedCheck": false` in workspace.json switches
-this off. Selection, ordering, return legs and the
+this off. **A delivery needs its artefact** (#100 part 1): after the checkpoint, `--check`
+of a `delivered` ticket of the workspace's board checks the artefact its kind needs
+(`ARTEFACTS` in `academy_common/_artefacts.py`): `prove` a proof attempt
+`proofs/<ID>/attempt-<n>.md` named in the result, refs or `## Result`, present and not
+`incomplete`, `failed` or `in-progress`; `verify` a pass folder `reviews/<ns>/<claim>/<date>-T-NNNN/`
+with `decision.md` in an Expert library; `cite` a card `cards/<key>/<slug>.md` named and
+present; `experiment` and `test` an `experiments/*.py` header or a `results/*.json` named and
+present; `code`, `build`, `write`, `apply`, `figure`, `copy` a commit naming the ticket (its
+checkpoint) or named by its hash. Other kinds, a ticket to the human and a relay parent (its
+child carries the artefact) pass. Without it the line reads `T-NNNN: unfinished (delivered,
+no artefact); no <what> for this <kind> ticket: <why>`, the next line says to finish the work
+or re-mark it `partial`, and the exit is 3. `"artefactCheck": false` in workspace.json
+switches this off. Selection, ordering, return legs and the
 checkpoint live once, in the academy library (`inbox_core` in `academy_common`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,

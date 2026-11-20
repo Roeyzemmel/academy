@@ -449,6 +449,29 @@ class ProveTests(unittest.TestCase):
         self.assertEqual(res["outcome"], "attempt-incomplete")
         self.assertNotIn("file verify", labels)
 
+    def test_an_incomplete_attempt_marks_the_ticket_partial_never_delivered(self):
+        """#100 part 1: the work done, the deliverable not met."""
+        res, labels, calls = self.run_wf({
+            "state": [state()], "attempt path": [{"path": "p.md"}], "attempt": ["x"],
+            "outcome": [{"exists": True, "outcome": "incomplete", "gaps": ["step 3"], "objects": []}],
+            "close": [MOVE]})
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        p = next(c for c in calls if c["label"] == "close")["prompt"]
+        self.assertIn("status partial", p)
+        self.assertIn("never deliver: true", p)
+        self.assertIn("partial: attempt p.md incomplete", p)
+        self.assertTrue(res["ticket_partial"])
+        self.assertFalse(res["ticket_delivered"])
+        # a complete attempt is still delivered
+        res, labels, calls = self.run_wf({
+            "state": [state()], "attempt path": [{"path": "p.md"}], "attempt": ["x"],
+            "outcome": [done()], "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
+            "check verify": [{"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3"]}],
+            "close": [MOVE]})
+        p = next(c for c in calls if c["label"] == "close")["prompt"]
+        self.assertIn("deliver: true", p)
+        self.assertNotIn("status partial", p)
+
     def test_already_proved_and_a_bad_verify_ticket(self):
         res, labels, _ = self.run_wf({"state": [state(status="proved", repair=False)]})
         self.assertEqual(res["outcome"], "already-proved")

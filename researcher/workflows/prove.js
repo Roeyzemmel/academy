@@ -235,7 +235,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   const skipped = lines.find(l => /checkpoint not run/.test(l))
   const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
   const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
-    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : m && !/^(delivered|rejected|partial)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
     : bad ? { status: 'refused', detail: bad.trim() }
     : skipped ? { status: 'not-run', detail: skipped.trim() }
     : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
@@ -294,9 +294,20 @@ const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_F
 const out = { claim: A.claim, ticket: T || null, notes: [], launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
 const MODEL_STAGE = { agentType: CLERK, phase: 'Attempt', notes: out.notes }
 const end = async () => {
-  if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!out.ticket_delivered, instance: A.instance, topic: 'prove-' + A.claim,
+  if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!(out.ticket_delivered || out.ticket_partial), instance: A.instance, topic: 'prove-' + A.claim,
     only: '<home submodule> board', agentType: CLERK, phase: 'File', notes: out.notes })
   return out
+}
+// #100 part 1 (the human's ruling, 2026-11-20): an attempt that is not complete is the work
+// done with the deliverable not met: the ticket goes partial (its sender reopens, closes or
+// cancels it), never delivered
+const markPartial = async (result, note) => {
+  if (!T) return
+  const m = await launch(STAGE('partial', [`Mark ${T} partial (tickets_update status partial, never deliver: true) with result "${('partial: ' + result + fallbackLine()).replace(/"/g, "'")}"` +
+    (note ? ` and, in the same call, note "${String(note).replace(/"/g, "'")}"` : '') + '.']),
+    { label: 'close', phase: 'File', agentType: CLERK, schema: MOVE, effort: 'low' })
+  out.ticket_partial = !!(m && m.ok)
+  out.ticket_delivered = false
 }
 const deliver = async (result, note) => {
   if (!T) return
@@ -726,7 +737,7 @@ if (!completeNoGaps(o) || depGaps.length) {
   const fid = await fileFalsifier(gl)
   const rec = recordCheck ? await recheckRecord() : { clause: '' }
   // review of 62be9fa, point 3: the line says what was filed (the attempt itself never is)
-  await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}${o.outcome === 'complete' && depGaps.length ? ' but its dependencies are not declared' + (fixed ? ' after one fix round' : '') : ''}; ` +
+  await markPartial(`attempt ${p.path} ${o.outcome || 'without outcome'}${o.outcome === 'complete' && depGaps.length ? ' but its dependencies are not declared' + (fixed ? ' after one fix round' : '') : ''}; ` +
     `gaps: ${gl.join('; ') || 'none listed'}; ${rec.ticket ? 'the attempt is filed for no review' : 'nothing filed for review'}${falsLine(fid)}${rec.clause}`, rec.note)
   return await end()
 }

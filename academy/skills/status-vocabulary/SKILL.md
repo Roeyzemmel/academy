@@ -100,6 +100,7 @@ approval of something else, silence, or a paraphrase, and never writes one on it
 | Not settled | `open`, `conjectured` or `sketch`, by kind and proof state |
 | blue / red / brown / black | sketch / conjectural / meta / established |
 
-Ticket lifecycle words (`open`, `accepted`, `in-progress`, `delivered`, `closed`, …)
+Ticket lifecycle words (`open`, `accepted`, `in-progress`, `delivered`, `partial`, `closed`, …;
+`partial` is work done with the deliverable not met, #100)
 belong to tickets, not to claims: `docs/protocol.md` section 4. A ticket that is
 `open` says nothing about a claim that is `open`.
