@@ -15,9 +15,9 @@ The table (from the old /paper:verify, in the academy's verdict words):
 | CONFIRMED | not yet run | ``awaiting-b``: launch B with the identical brief |
 | CONFIRMED | CONFIRMED, no inputs on either | ``confirmed``: propose ``proved``; recolour earned |
 | CONFIRMED modulo X | CONFIRMED modulo X (same set) | ``confirmed-modulo``: propose ``proved-modulo``; recolour only if every input in X is established |
-| CONFIRMED (modulo X) | CONFIRMED modulo Y, X and Y differ only in definitions | as if both said modulo X & Y (the intersection); the dropped definitions are flagged (``dropped_definitions``) |
-| CONFIRMED (modulo X) | CONFIRMED modulo Y, Y != X otherwise, no blocking step on either, every input the proof does not declare an existing result | ``confirmed-union``: propose ``proved-modulo`` on the union of X and Y, normalised; the undeclared inputs are declared (``declare_dependencies``, a repair nothing waits on) (#121) |
-| CONFIRMED (modulo X) | CONFIRMED modulo Y, Y != X, a run naming a blocking step, or an undeclared input that names no existing result | ``disagreement`` |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, X and Y differ only in notation-only definitions (the registry tag) | as if both said modulo X & Y; the dropped definitions are flagged (``dropped_definitions``) |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, still different after the mechanical reduction, no blocking step | ``settle-dependencies``: no status yet; the dependency-settler classifies each differing input (``differing_inputs``), ``settle_deps.py`` checks and applies it (#121) |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, a run naming a blocking step | ``disagreement`` |
 | CONFIRMED | GAP | ``disagreement``: no status; file the weaker run's blocking step |
 | DISPROVED (either run) | any | ``disproved``: no status; the counterexample goes to the human at once |
 | GAP | not run | ``single-negative``: no status; A's blocking step is the repair item; B skipped by design |
@@ -69,25 +69,20 @@ Mechanical rules applied before the table:
   resolved to its record id, and a pinpoint's punctuation between word and number
   removed (``#Thm-2.6`` = ``#Thm2.6``). A ``disagreement`` that remains carries
   ``modulo_options``: the union and the intersection, the ruling's two options.
-* Differing inputs are not a conflict (#121; the human's ruling, T-0613 and 2026-11-20,
-  nine times in the markings section), built on the dependency amendment: two CONFIRMED
-  runs, neither naming a blocking step, whose modulo lists still differ give
-  ``confirmed-union``: ``proved-modulo`` the union of the two lists, routed like
-  ``confirmed-modulo`` (the keeper, never a ruling ticket). The union is normalised
-  mechanically, and only where the registry shows it (``links_of``, qid ->
-  ``{depends_on, cites, modulo}``; the CLI passes ``registry_links``): a definition only
-  one run lists is dropped (T-0148); an input only one run lists is dropped when another
-  listed input, a bare registry id, reaches it through the registry's ``depends_on``
-  (transitively; never across a cycle); a card pinpoint ``bib:KEY[#PIN]`` only one run
-  lists is dropped when such a listed input, or a record it reaches, ``cites`` KEY. Each
-  input left that only one run lists and the proof does not declare (the subject's
-  ``depends_on``, ``modulo`` and ``cites``, by id or bibkey) is treated as an
-  ``add_dependency`` suggestion: it must pass ``dependency_ok`` (an existing result), and
-  then it is declared (``declare_dependencies``, a ``declare-dependency`` item: the
-  amendment's repair, but nothing waits on it, since both runs already reviewed the proof
-  with it in view); one that fails keeps the pair a ``disagreement``, with an anomaly.
-  Both runs' lists are kept in ``modulo_lists`` and every input dropped, with what
-  reaches it, in ``union_dropped``.
+* Differing inputs are not a conflict (#121; the human's design of 2026-11-20): two
+  CONFIRMED runs, neither naming a blocking step, whose modulo lists differ are first
+  reduced mechanically, stage 1 of the human's fixed order, only where the registry shows
+  it (``links_of``, qid -> ``{depends_on, cites, modulo}``; the CLI passes
+  ``registry_links``): a definition is an input unless its registry record is tagged
+  ``notation-only`` (the definition rule, replacing T-0148; a reviewer's own mark is not
+  trusted); case 13, a shared input that is itself proved-modulo carries its modulo; case
+  4, an input only one run lists is dropped when another listed input reaches it through
+  ``depends_on`` (transitively, never through the subject) or, for a card
+  ``bib:KEY[#PIN]``, ``cites`` KEY. What still differs gives ``settle-dependencies``:
+  ``differing_inputs`` each with its admissibility facts (``input_facts``: an open
+  [CHECK], registry existence with an unknown namespace counted as not shown, a cycle
+  back to the subject), both runs' lists in ``modulo_lists``, the drops in
+  ``dropped_inputs``. The settler and ``settle_deps.py`` take it from there.
 * B present after a non-CONFIRMED A is a process anomaly (B should not have run);
   it is reported, and the outcome is taken from A alone.
 
@@ -457,7 +452,7 @@ def is_definition(qid, kind_of=None):
 
 # The definition rule (the human's decision of 2026-11-20, #121, replacing T-0148's drop):
 # a definition listed in a modulo stays an input unless it is marked notation-only, on the
-# reviewer's entry or on the registry record. T-0148 dropped every definition one run
+# registry record (a reviewer's own mark is not trusted). T-0148 dropped every definition one run
 # listed, which turned a pair that differed on a definition the argument relies on into a
 # wrong ``proved`` (T-1475, #103's third comment).
 
@@ -494,18 +489,18 @@ def registry_tags(qid):
 
 def notation_only(item, kind_of=None, tags_of=None):
     """The definition id ``item`` names when it is marked notation-only, else None: the
-    entry ends with ``(notation only)``, or the registry record's ``tags`` (``tags_of``,
-    default ``registry_tags``) include ``notation-only``; either way it must be a
-    definition (``is_definition``). Anything else stays an input."""
+    registry record's ``tags`` (``tags_of``, default ``registry_tags``) include
+    ``notation-only``, and it is a definition (``is_definition``). A reviewer's
+    ``(notation only)`` on the entry is read past, never trusted on its own. Anything
+    else stays an input."""
     s = str(item or "").strip()
     head = RE_NOTATION_MARK.sub("", s)
-    marked = head != s
-    if not marked and not _bare_id(head):
+    if not _bare_id(head):
         return None
     if not is_definition(head, kind_of):
         return None
-    if marked:
-        return head
+    # the reviewer's own mark is not trusted (review of e9a0272: a run could mark a
+    # definition the argument relies on): only the registry record's tag drops it
     tags = (tags_of or registry_tags)(head) or ()
     return head if NOTATION_TAG in [str(t).strip().lower() for t in tags] else None
 
@@ -778,13 +773,14 @@ def _bare_id(item):
     return not s.startswith("bib:") and bool(RE_DEP_ID.match(s))
 
 
-def _closure(qid, links_of, memo):
+def _closure(qid, links_of, memo, stop=None):
     """``(ids, keys)``: every record ``qid`` reaches through its registry links, as
     ``{id: how}`` (``depends_on``, transitively; ``modulo`` once the path has crossed a
     ``modulo`` link: a carried modulo, #121 case 13), and every bibkey ``qid`` or one of
     those records ``cites``."""
-    if qid in memo:
-        return memo[qid]
+    key = (qid, stop)
+    if key in memo:
+        return memo[key]
     ids, keys, todo, seen = {}, set(), [(qid, "depends_on")], {qid}
     while todo and len(seen) <= CLOSURE_CAP:
         node, how = todo.pop(0)
@@ -794,14 +790,14 @@ def _closure(qid, links_of, memo):
             step = "modulo" if rel == "modulo" else how
             for d in got.get(rel) or ():
                 ids.setdefault(d, step)
-                if d not in seen:
+                if d not in seen and d != stop:      # never walk through the subject
                     seen.add(d)
                     todo.append((d, step))
-    memo[qid] = (ids, keys)
-    return memo[qid]
+    memo[key] = (ids, keys)
+    return memo[key]
 
 
-def reduce_differing(ma, mb, links_of=None, declared=None):
+def reduce_differing(ma, mb, links_of=None, declared=None, subject=""):
     """The mechanical stage of two CONFIRMED runs' differing modulo lists (#121, stage 1):
     ``{dropped, differing, agreed}``. ``dropped``: ``[{"input", "via", "how", "case"}]``,
     an input only one run lists that ``via`` reaches through the registry (``links_of``):
@@ -827,7 +823,9 @@ def reduce_differing(ma, mb, links_of=None, declared=None):
             vias = heads + sorted(y for y in other if _bare_id(y) and is_declared(y, declared))
             card = RE_CARD.match(x)
             for y in vias:
-                ids, keys = _closure(y, links_of, memo)
+                ids, keys = _closure(y, links_of, memo, subject or None)
+                if subject and (y == subject or subject in ids):
+                    continue      # a via that is circular through the subject drops nothing
                 if _bare_id(x) and x in ids and y not in _closure(x, links_of, memo)[0]:
                     how = ids[x]
                     dropped.append({"input": x, "via": y, "how": how,
@@ -1299,7 +1297,7 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
         if ma != mb and not (rec_a.get("blocking") or rec_b.get("blocking")):
             subject = rec_a.get("subject") or ""
             declared = links_of(subject) if links_of is not None and subject else None
-            red = reduce_differing(ma, mb, links_of, declared)
+            red = reduce_differing(ma, mb, links_of, declared, subject)
             res["modulo_lists"] = {"A": list(rec_a["modulo"]), "B": list(rec_b["modulo"])}
             res["dropped_inputs"] = red["dropped"]
             if red["differing"]:
