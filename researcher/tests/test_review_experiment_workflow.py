@@ -152,7 +152,12 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.labels(calls), ["prepare", "run A", "decide"])
         self.assertEqual(res["outcome"], "unlanded")
         self.assertIn("no Verdict line", res["reason"])
-        self.assertIn("written after", next(c for c in calls if c["label"] == "decide")["prompt"])
+        # a copy that was there at prepare is an earlier run's: relaunched as before
+        old = dict(prep(), unparsed_before=["2026-11-19-ag-1.md"])
+        res, calls = self.run_wf({"prepare": [old], "run A": ["a"], "run A (relaunch)": ["a"],
+                                  "decide": [stuck, dec("not-cleared", ["GAP"])],
+                                  "claim-keeper evidence": ["rows"], "close": [OK]})
+        self.assertIn("run A (relaunch)", self.labels(calls))
 
     def test_the_reviewer_launches_on_the_max_model(self):
         """T-1682: the args' model, or one clerk stage; a lost run falls back to opus once, noted in the result."""
