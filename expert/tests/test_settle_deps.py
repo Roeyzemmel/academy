@@ -125,7 +125,9 @@ class CaseTests(unittest.TestCase):
         t = table(fact("bib:KS00#Thm1", shape="card", exists=None, run="B"))
         out = self.ok(rec(entry("bib:KS00#Thm1", 1, chosen="bib:KS00#Thm1")), t)
         self.assertIn("bib:KS00#Thm1", out["modulo"])
+        self.assertEqual("bib:KS00#Thm1", out["declarations"][0]["dependency"])
         self.bad(rec(entry("bib:KS00#Thm1", 1, chosen="bib:OTHER")), t, "case 1")
+        self.bad(rec(entry("bib:KS00#Thm1", 1)), t, "case 1")
 
     def test_case_2_routine_names_all_sources_and_keeps_one(self):
         t = table(fact("bib:A#1", shape="card", exists=None),
@@ -139,7 +141,7 @@ class CaseTests(unittest.TestCase):
                      entry("bib:B#2", 2, chosen="bib:A#1", sources=srcs)), t, "at least two")
         self.bad(rec(entry("bib:A#1", 2, chosen="bib:A#1", sources=srcs),
                      entry("bib:B#2", 2, chosen="bib:B#2", sources=srcs)), t,
-                 "keep different inputs")
+                 "keep one")
 
     def test_case_3_needs_a_remark(self):
         t = table(fact("bib:A#1", shape="card", exists=None),
@@ -163,6 +165,61 @@ class CaseTests(unittest.TestCase):
         self.bad(rec(entry("bib:BIG#Thm", 8, chosen="bib:BIG#Thm"),
                      entry("paper:lem:small", 5, chosen="paper:lem:small", line="s")),
                  t, "case 8")
+
+
+class ReviewOf09eda00Tests(unittest.TestCase):
+    """The review of 09eda00: what the checker accepted and should not."""
+    A = fact("paper:lem:a")
+    B = fact("paper:lem:b", run="B")
+
+    def probs(self, *entries, t=None):
+        return sd.check(rec(*entries), t or table(self.A, self.B))
+
+    def test_sources_and_chosen_must_be_listed(self):
+        p = self.probs(entry("paper:lem:a", 2, chosen="paper:lem:ghost",
+                             sources=["paper:lem:ghost", "paper:lem:ghost2"]),
+                       entry("paper:lem:b", 6, line="l"))
+        self.assertTrue(any("no run lists" in x for x in p), p)
+        self.assertTrue(any("include the input itself" in x for x in p), p)
+        p = self.probs(entry("paper:lem:a", 8, chosen="made up free text"),
+                       entry("paper:lem:b", 6, line="l"))
+        self.assertTrue(any("case 8" in x for x in p), p)
+
+    def test_one_step_keeps_one_source_across_cases(self):
+        srcs = ["paper:lem:a", "paper:lem:b"]
+        for b in (entry("paper:lem:b", 5, chosen="paper:lem:b", line="l"),
+                  entry("paper:lem:b", 3, chosen="paper:lem:b", sources=srcs, remark="r")):
+            p = self.probs(entry("paper:lem:a", 2, chosen="paper:lem:a", sources=srcs), b)
+            self.assertTrue(any("keep one" in x for x in p), (b, p))
+
+    def test_nothing_kept_is_dropped_elsewhere(self):
+        p = self.probs(entry("paper:lem:a", 8, chosen="paper:lem:b"),
+                       entry("paper:lem:b", 6, line="l"))
+        self.assertTrue(any("another entry drops" in x for x in p), p)
+
+    def test_case_5_keeps_one_route(self):
+        p = self.probs(entry("paper:lem:a", 5, line="l"), entry("paper:lem:b", 5, line="l"))
+        self.assertTrue(any("keeps the route" in x for x in p), p)
+
+    def test_case_10_on_a_shown_result_is_refused(self):
+        p = sd.check(rec(entry("paper:lem:a", 10)), table(self.A))
+        self.assertTrue(any("not a missing source" in x for x in p), p)
+
+    def test_malformed_fields_are_problems_not_crashes(self):
+        for bad in ({"sources": 5}, {"sources": "ab"}, {"line": ["x"]}, {"chosen": 0}):
+            e = dict(entry("paper:lem:a", 6, line="l"), **bad)
+            p = sd.check(rec(e), table(self.A))
+            self.assertTrue(p, bad)
+        for t in ([1, 2], {"outcome": "settle-dependencies", "differing_inputs": [5, "x"]},
+                  {"outcome": "settle-dependencies", "modulo": 5, "differing_inputs": []}):
+            sd.check(rec(), t)                    # no exception
+
+    def test_only_cases_7_1_8_declare(self):
+        srcs = ["paper:lem:a", "paper:lem:b"]
+        out = sd.apply(rec(entry("paper:lem:a", 2, chosen="paper:lem:a", sources=srcs),
+                           entry("paper:lem:b", 2, chosen="paper:lem:a", sources=srcs)),
+                       table(self.A, self.B))
+        self.assertEqual([], out["declarations"])
 
 
 class RecordShapeTests(unittest.TestCase):

@@ -19,7 +19,8 @@ The cases, in the order they apply (the first that can apply wins):
   identification, a step true by definition) -> dropped; 6 spurious (unused) -> dropped;
   5 different internal routes -> keep the input of the route the proof writes.
 * stage 4, what kind: 7 hidden non-routine step -> enters the declared dependencies (no
-  existing result -> a gap, stop); 1 folklore -> the dependency the other run names.
+  existing result -> a gap, stop); 1 folklore (one run took the step as folklore and
+  listed nothing, the other named it) -> keep the named dependency and declare it.
 * stage 5, among valid sources for one step: 2 multi-source, same statement -> 'routine',
   every source named in the proof, one modulo input; 3 different settings, all
   applicable -> the best fit, a remark names the rest; 8 stronger than needed -> the
@@ -52,6 +53,9 @@ MECHANICAL = (13, 4)
 #: cases whose input is dropped; cases that keep a dependency
 DROPPED = (14, 6)
 STOPS = (11, 9)
+#: cases whose dependency the proof does not state yet, so the repair declares it:
+#: a hidden step (7), the dependency folklore stood for (1), the weaker result (8)
+DECLARING = (7, 1, 8)
 NAMES = {1: "folklore", 2: "multi-source (routine)", 3: "different settings (best fit)",
          4: "granularity", 5: "different internal routes", 6: "spurious",
          7: "hidden step", 8: "stronger than needed", 9: "hypotheses not verified",
@@ -59,8 +63,13 @@ NAMES = {1: "folklore", 2: "multi-source (routine)", 3: "different settings (bes
          13: "carried modulo", 14: "formal input"}
 
 
+def _list(v):
+    return list(v) if isinstance(v, (list, tuple)) else []
+
+
 def _facts(table):
-    return {str(d.get("input")): d for d in table.get("differing_inputs") or ()}
+    return {str(d.get("input")): d for d in _list(table.get("differing_inputs"))
+            if isinstance(d, dict)}
 
 
 def _exists(fact):
@@ -73,8 +82,8 @@ def _exists(fact):
 def _known_results(table):
     """Results the record may choose: the agreed modulo and every differing input's
     result."""
-    out = set(str(x) for x in table.get("modulo") or ())
-    for d in table.get("differing_inputs") or ():
+    out = set(str(x) for x in _list(table.get("modulo")))
+    for d in _facts(table).values():
         if d.get("result"):
             out.add(str(d["result"]))
         out.add(str(d.get("input")))
@@ -97,9 +106,11 @@ def check(record, table):
     """The problems of ``record`` against ``table`` (a ``settle-dependencies`` result);
     [] when it is valid."""
     probs = []
-    if (table or {}).get("outcome") != "settle-dependencies":
+    if not isinstance(table, dict):
+        return ["the table is not a JSON object"]
+    if table.get("outcome") != "settle-dependencies":
         return ["the table's outcome is %r, not settle-dependencies: nothing to settle"
-                % (table or {}).get("outcome")]
+                % table.get("outcome")]
     if not isinstance(record, dict):
         return ["the record is not a JSON object"]
     readings = record.get("readings") or {}
@@ -131,7 +142,8 @@ def check(record, table):
     for name in facts:
         if name not in seen:
             probs.append("%r is not classified (one record per differing input)" % name)
-    probs += _check_groups(seen)
+    if not probs:
+        probs += _check_groups(seen, facts)
     return probs
 
 
@@ -163,9 +175,20 @@ def _check_entry(name, e, fact, table):
         probs.append("%r: its result is not shown to exist (%s), so case 10 (missing "
                      "source) applies before case %d (the fixed order)"
                      % (name, fact.get("shape") or "?", case))
+    for field in ("chosen", "line", "remark", "evidence"):
+        if e.get(field) is not None and not isinstance(e.get(field), str):
+            probs.append("%r: %s must be a string" % (name, field))
+    if e.get("sources") is not None and not isinstance(e.get("sources"), list):
+        probs.append("%r: sources must be a list" % name)
+    if probs:
+        return probs
     chosen = str(e.get("chosen") or "")
-    sources = [str(s) for s in e.get("sources") or ()]
+    sources = [str(x) for x in e.get("sources") or ()]
     known = _known_results(table)
+    own = {name, str(fact.get("result") or "")} - {""}
+    if case == 10 and fact.get("exists") is True:
+        probs.append("%r: the registry shows its result, so it is not a missing source "
+                     "(case 10)" % name)
     if case in DROPPED and chosen:
         probs.append("%r: case %d drops the input; chosen must be empty" % (name, case))
     if case in (14, 6, 5) and not str(e.get("line") or "").strip():
@@ -174,10 +197,17 @@ def _check_entry(name, e, fact, table):
         probs.append("%r: case 5 keeps the input (chosen = it) or drops it (empty)" % name)
     if case == 7 and chosen and chosen not in known:
         probs.append("%r: case 7 chose %r, which no run lists" % (name, chosen))
-    if case == 1 and (not chosen or chosen not in known):
-        probs.append("%r: case 1 (folklore) takes the dependency a run names; chosen %r "
-                     "is not one" % (name, chosen))
+    if case == 1 and chosen not in own:
+        probs.append("%r: case 1 (folklore: one run took the step as folklore and named "
+                     "nothing, this run named it) keeps this input; chosen %r is not it"
+                     % (name, chosen))
     if case in (2, 3):
+        if not own & set(sources):
+            probs.append("%r: case %d's sources include the input itself" % (name, case))
+        unknown = [x for x in sources if x not in known]
+        if unknown:
+            probs.append("%r: case %d names sources no run lists: %s"
+                         % (name, case, ", ".join(unknown)))
         if len(sources) < 2:
             probs.append("%r: case %d names every source (sources, at least two)"
                          % (name, case))
@@ -189,34 +219,61 @@ def _check_entry(name, e, fact, table):
                          % (name, case))
     if case == 3 and not str(e.get("remark") or "").strip():
         probs.append("%r: case 3 needs the remark naming the other sources" % name)
-    if case == 8 and (not chosen or chosen in (name, fact.get("result"))):
-        probs.append("%r: case 8 chooses the weaker sufficient result, not the input "
-                     "itself" % name)
+    if case == 8 and (not chosen or chosen in own or chosen not in known):
+        probs.append("%r: case 8 chooses another listed result, the weaker sufficient "
+                     "one, not the input itself (chosen %r)" % (name, chosen))
     if case == 10 and chosen:
         probs.append("%r: case 10 chooses nothing (a cite ticket; the input stays "
                      "pending)" % name)
     return probs
 
 
-def _check_groups(seen):
-    """Inputs classified 2 or 3 for one step name each other as sources and keep the same
-    chosen source."""
+def _check_groups(seen, facts):
+    """Checks across entries: inputs that are sources of one step (case 2/3, any input
+    another entry names among its sources) keep one source between them; nothing kept by
+    one entry is dropped by another; case 5 keeps at least one route."""
     probs = []
-    for case in (2, 3):
-        group = {n: e for n, e in seen.items() if e.get("case") == case}
-        for n, e in group.items():
-            srcs = set(str(s) for s in e.get("sources") or ())
-            for m, f in group.items():
-                if m != n and m in srcs and str(f.get("chosen") or "") != str(e.get("chosen") or ""):
-                    probs.append("%r and %r are case %d sources of one step but keep "
-                                 "different inputs" % (n, m, case))
+    kept, dropped = {}, {}
+    for n, e in seen.items():
+        c, ch = e.get("case"), str(e.get("chosen") or "")
+        if c in DROPPED or (c == 5 and not ch):
+            dropped[n] = c
+            res = str(facts.get(n, {}).get("result") or "")
+            if res:
+                dropped[res] = c
+        elif c not in STOPS and c != 10 and not (c == 7 and not ch):
+            kept[n] = ch or str(facts.get(n, {}).get("result") or n)
+    for n, dep in kept.items():
+        if dep in dropped and dep != n:
+            probs.append("%r keeps %r, which another entry drops (case %s)"
+                         % (n, dep, dropped[dep]))
+    # one step's sources keep one source
+    steps = []
+    for n, e in seen.items():
+        if e.get("case") in (2, 3):
+            steps.append(set(str(x) for x in e.get("sources") or ()) | {n})
+    groups = []
+    for st in steps:                    # merge the steps that share a source
+        for g in [g for g in groups if g & st]:
+            st |= g
+            groups.remove(g)
+        groups.append(st)
+    for group in groups:
+        chosen = {kept[m] for m in group if m in kept}
+        if len(chosen) > 1:
+            probs.append("the sources %s are one step but keep %s: keep one"
+                         % (", ".join(sorted(group)), ", ".join(sorted(chosen))))
+    routes = [n for n, e in seen.items() if e.get("case") == 5]
+    if routes and not any(str(seen[n].get("chosen") or "") for n in routes):
+        probs.append("case 5 keeps the route the proof writes; every case-5 entry drops "
+                     "its input (%s)" % ", ".join(routes))
     return probs
 
 
 def apply(record, table):
     """The outcome of a valid ``record`` (call ``check`` first): ``{outcome,
     proposed_status, modulo, declarations, dropped, notes, cite, stops, summary}``."""
-    agreed = [str(x) for x in table.get("modulo") or ()]
+    agreed = [str(x) for x in _list(table.get("modulo"))]
     out = {"outcome": "", "proposed_status": None, "modulo": [], "declarations": [],
            "dropped": [], "notes": [], "cite": [], "stops": [], "summary": ""}
     readings = record.get("readings") or {}
@@ -250,7 +307,7 @@ def apply(record, table):
             continue
         dep = chosen or fact.get("result") or name
         keep(dep)
-        if dep not in agreed:
+        if dep not in agreed and case in DECLARING:
             out["declarations"].append({"dependency": dep, "case": case,
                                         "from": name})
         if case == 2:
