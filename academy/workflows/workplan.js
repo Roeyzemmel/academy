@@ -26,8 +26,51 @@ const A = args || {}
 // such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
 // names gets its workspace model; an agent with no academy file (general-purpose) is
 // given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
-// model. Nested workflows get the same map.
-const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+// model. Nested workflows get the same map (models: await modelsMap()).
+// Given and not given differ (#83). Given (a JSON object, or its JSON text), the map stands,
+// {} included: {} is what models.py launches prints when the workspace maps nothing away, so
+// it means "no override". Not given (absent or null), the run's first launch() resolves it
+// first: one general-purpose stage at tier base runs models.py launches, once per run.
+// Anything else given, or a stage that returns no JSON object, throws, naming the command.
+const TIER_MODELS = {}
+const MODELS = { source: null, ready: null }   // source: 'args' | 'resolved'
+const MODELS_PY = `${A.root ? String(A.root).replace(/[\\/]+$/, '') : '<academy repo>'}/academy/scripts/models.py launches`
+const MODELS_CMD = `py ${MODELS_PY}`   // python3 where there is no py (the stage is told)
+const MODELS_OUT = { type: 'object', properties: { output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
+const modelsRefused = why => new Error(`args.models ${why}: rerun with args.models = the JSON object \`${MODELS_CMD}\` prints` +
+  ' ({} when it prints {}: no override)' + (A.root ? '' : '; <academy repo> is academy.root of the MCP tool workspace_get'))
+const modelsRead = (v, loose) => {   // a JSON object (or its text) into TIER_MODELS; null when it is none
+  if (typeof v === 'string') {
+    // loose: the stage's output may sit in a code fence, nothing else: a paraphrase or a map
+    // inside prose is refused, never guessed (review of abf478f)
+    const t = loose ? v.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '') : v
+    try { v = JSON.parse(t) } catch (e) { return null }
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  for (const k of Object.keys(v)) if (typeof v[k] === 'string') TIER_MODELS[k] = v[k]
+  return TIER_MODELS
+}
+if (A.models !== undefined && A.models !== null) {
+  if (!modelsRead(A.models, false)) throw modelsRefused(`is no JSON object (${String(JSON.stringify(A.models)).slice(0, 80)})`)
+  MODELS.source = 'args'
+}
+const modelsMap = () => MODELS.ready || (MODELS.ready = (async () => {
+  if (MODELS.source) return TIER_MODELS
+  const r = await launchOnce(`WORKFLOW STAGE models. Run \`${MODELS_CMD}\` once (\`python3 ${MODELS_PY}\` where there is no py)` +
+    (A.root ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+    '. Fix nothing, whatever it prints: return its whole output verbatim.',
+  { label: 'models', agentType: 'general-purpose', tier: 'base', schema: MODELS_OUT, effort: 'low' })
+  if (r === null) {     // a usage limit at the start: the run stops as on three null launches (#115), it does not throw
+    LAUNCH_LIMIT.nulls = 3
+    LAUNCH_LIMIT.stopped = true
+    MODELS.ready = null
+    return null
+  }
+  const w = String((r && r.output) || '').trim()
+  if (!modelsRead(w, true)) throw modelsRefused('was not given, and the models stage ' + (r ? `printed no JSON object (${JSON.stringify(w.slice(0, 160))})` : 'returned nothing'))
+  MODELS.source = 'resolved'
+  return TIER_MODELS
+})())
 const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
 // Three launches in a row that return nothing (a usage limit: every launch fails until the
 // reset, #115; two can be one lost run and its fallback, whose record still runs) stop the run: launch() then launches nothing and returns null at once, so
@@ -39,6 +82,7 @@ const launch = async (prompt, opts) => {
   const rec = !!(opts && opts.record)
   if (rec) { opts = Object.assign({}, opts); delete opts.record }
   if (LAUNCH_LIMIT.stopped && !rec) return null
+  if (!MODELS.source && !(await modelsMap())) return null   // the lookup returned nothing: stopped
   const r = await launchOnce(prompt, opts)
   if (r === null) { if (++LAUNCH_LIMIT.nulls >= 3) LAUNCH_LIMIT.stopped = true } else LAUNCH_LIMIT.nulls = 0
   return r
@@ -104,9 +148,11 @@ const LEAD = { type: 'object', properties: { updates: { type: 'array', items: { 
   tickets_filed: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } }, required: ['updates', 'tickets_filed', 'notes'] }
 
 // ---- Max-tier model (docs/config.md, "How the map takes effect"; T-1682): the same block in every
-// workflow that launches a max-tier agent (the prover and the graders). The launch value is
-// args.models["<plugin:agent>"] (the inbox resolves the map once per run and passes it down), else
-// one clerk stage runs models.py; a value that is no Agent-tool alias launches on the agent file's
+// workflow that launches a max-tier agent (the prover and the graders). The launch value is the
+// Models block's map entry for "<plugin:agent>" (args.models, or the map that block resolved once
+// for the run when none was given, #83; nested runs get it); an agent the map leaves out runs on its
+// file's model:, which is then the workspace's. A value that is no Agent-tool alias is resolved by
+// one clerk stage running models.py agent; one still unusable launches on the agent file's
 // model:. A run that returns nothing (a usage limit) is relaunched once on FALLBACK_MODEL, the next
 // tier down, and the fallback is noted (MODEL_FALLBACKS, for the record and the ticket).
 const MODEL_ALIAS = /^(haiku|sonnet|opus|fable)$/
@@ -116,11 +162,11 @@ const LAUNCH_MODELS = {}
 const MODEL_FALLBACKS = []
 async function launchModel(name, s) {   // s: {agentType (a clerk with a shell), phase, notes}
   if (Object.prototype.hasOwnProperty.call(LAUNCH_MODELS, name)) return LAUNCH_MODELS[name]
-  const given = (A.models && typeof A.models === 'object') ? A.models[name] : undefined
+  const map = await modelsMap()   // given, or resolved once for the run: never a stand-in {}
+  const given = Object.prototype.hasOwnProperty.call(map, name) ? map[name] : undefined
   let m = null
-  const passed = A.models && typeof A.models === 'object' && !Array.isArray(A.models)   // even {}: the skill passed the map
   if (MODEL_ALIAS.test(String(given || ''))) m = given
-  else if (passed && !given) m = null   // the passed map leaves it out: its file's model is the workspace's
+  else if (!given) m = null   // the map leaves it out: its file's model is the workspace's
   else {
     if (given) s.notes.push(`args.models gave ${JSON.stringify(given)} for ${name}, which is no launch alias: resolved here`)
     const r = await launch(`WORKFLOW STAGE model. Run \`py ${AR}/academy/scripts/models.py agent ${name} --launch\` once, from the home` +
@@ -172,7 +218,7 @@ async function nextActor(receivers, cap) {
   const only = (receivers || []).filter(r => r && r !== 'human')
   if (!only.length) return { count: 0 }
   const r = await workflow({ scriptPath: ROOT + '/academy/workflows/inbox.js' },
-    Object.assign({ models: TIER_MODELS, root: ROOT, only, cap, nested: true }, KIND === 'campaign' ? { campaign: TAG } : { cowork: TAG }))
+    Object.assign({ models: await modelsMap(), root: ROOT, only, cap, nested: true }, KIND === 'campaign' ? { campaign: TAG } : { cowork: TAG }))
   if (!r) return { lost: true }
   out.taken.push(...(r.taken || []))
   if (r.for_main) out.for_main.push(r.for_main)

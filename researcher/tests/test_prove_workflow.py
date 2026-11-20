@@ -412,19 +412,26 @@ class ProveTests(unittest.TestCase):
         res, labels, calls = self.run_wf(dict(self.COMPLETE))
         self.assertEqual([(c["label"], c.get("model")) for c in calls if c["agentType"] == "researcher:prover"],
                          [("attack", "fable"), ("attempt", "fable"), ("file verify", "fable")])
-        res, labels, calls = self.run_wf(dict(self.COMPLETE, **{"model researcher:prover": [{"output": "fable"}]}), models=None)
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, **{"model researcher:prover": [{"output": "fable"}]}),
+                                         models={"researcher:prover": "claude-fable-5-2"})
         self.assertEqual(labels.count("model researcher:prover"), 1)          # resolved once per run
         self.assertEqual(calls[labels.index("model researcher:prover")]["agentType"], "researcher:review-clerk")
+        self.assertEqual({c.get("model") for c in calls if c["agentType"] == "researcher:prover"}, {"fable"})
+        # no map given (#83): resolved once by the Models block, first; no per-agent stage
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, models=[{"output": '{"researcher:prover": "fable"}'}]), models=None)
+        self.assertEqual((labels[0], labels.count("models")), ("models", 1))
+        self.assertNotIn("model researcher:prover", labels)
         self.assertEqual({c.get("model") for c in calls if c["agentType"] == "researcher:prover"}, {"fable"})
 
     def test_the_attack_line_follows_the_attack_run_not_the_notes(self):
         """The attempt is told to read attack.md only when this run made it, whatever notes the
         model block added (an unresolved model adds one)."""
         bad = {"model researcher:prover": [{"output": "models: workspace.json not found"}]}
-        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists=True)], **bad), models=None)
+        odd = {"researcher:prover": "fable-ish"}
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists=True)], **bad), models=odd)
         self.assertIn("was not resolved", " ".join(res["notes"]))
         self.assertNotIn("attack.md first", next(c for c in calls if c["label"] == "attempt")["prompt"])
-        res, labels, calls = self.run_wf(dict(self.COMPLETE, **bad), models=None)
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, **bad), models=odd)
         self.assertIn("Read proofs/<id>/attack.md first.", next(c for c in calls if c["label"] == "attempt")["prompt"])
 
     def test_a_lost_attempt_falls_back_to_opus_and_the_ticket_says_so(self):

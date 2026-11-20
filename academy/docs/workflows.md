@@ -99,8 +99,20 @@ script cannot read workspace.json, so the map comes in its arguments:
   `args`, the JSON object `py <academy repo>/academy/scripts/models.py launches` prints:
   `{"<plugin:name>": <launch>}` for every agent whose tier the workspace maps away from its
   file's `model:`, and `{"tier:<tier>": <launch>}` for every such tier (`{}` with the
-  default map). A missing or malformed `args.models` is read as `{}`: every agent then runs
-  on its file's model, as before.
+  default map).
+- **Given or not given (#83).** A map that is given stands, `{}` included: `{}` is what
+  `models.py launches` prints when the workspace maps nothing away, so it means
+  *no override* (every agent on its file's model), never *not given*. The map may also be
+  passed as its JSON text. Not given (`args.models` absent or `null`), the run's first
+  `launch()` resolves it first: one `general-purpose` stage at tier `base` runs
+  `models.py launches` (from `args.root`, else the academy repo `workspace_get` names), once
+  per run, and its JSON object is the map (`MODELS.source` is then `resolved`, else
+  `args`). Anything else given (an array, a number, text that is no JSON object), or a
+  stage that returns no JSON object, **throws** before any agent is launched, naming the
+  command to rerun with. (Until 2026-11-20 a missing map was read as `{}` and passed down
+  as given: an inbox started without it launched the max-tier graders on their file's
+  `opus`.)
+  A lookup that returns nothing (a usage limit at the start) stops the run as three null launches do, never a throw; its output must be the JSON object alone (a code fence allowed), never a map read out of prose. The lookup runs `py <academy>/academy/scripts/models.py launches` (python3 where there is no py), which no permission template allowlists today: a scheduled or unattended run passes `args.models` itself, or the human allowlists that command.
 - **`launch()`.** Every workflow carries the same block, between `// ---- Models` and
   `// ---- end Models` (pinned identical by `academy/tests/test_workflow_models.py`), and
   launches every agent through its `launch(prompt, opts)`, never `agent()` directly. An
@@ -113,7 +125,9 @@ script cannot read workspace.json, so the map comes in its arguments:
   `TIER_DEFAULTS`, pinned to `DEFAULT_MODEL_TIERS`); an unknown tier throws before anything
   is launched. Both rules are tests.
 - **Nested workflows** get the same map: every `workflow(...)` call passes
-  `models: TIER_MODELS` (the inbox to its routes, the workplan to the inbox).
+  `models: await modelsMap()` (the inbox to its routes, the workplan to the inbox), the
+  map given or resolved once for the run, so a nested run never resolves it again and
+  never receives a stand-in `{}`.
 
 The launch value is an alias (`claude-opus-5-5` launches as `opus`): the per-call `model`
 takes no full id. The id still decides the grading floor, read by the graders' own report
