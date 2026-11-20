@@ -645,6 +645,18 @@ class SettleDependenciesTests(unittest.TestCase):
         self.assertEqual(r["settle"]["attempts"], 2)
         self.assertFalse(any("ANOMALY" in n for n in r["notes"]), r["notes"])
 
+    def test_a_settler_that_returns_nothing_is_not_relaunched(self):
+        """Review of 39de757: a null run (a limit or an API error) launches nothing further;
+        the pass concludes as a disagreement saying the settler returned nothing."""
+        plan = self.plan(done={"outcome": "disagreement", "proposed_status": ""})
+        plan["settler"] = None
+        out, labels, calls = self.run_wf(plan)
+        self.assertNotIn("settler (retry)", labels)
+        self.assertNotIn("settle", labels)
+        r = out["result"]
+        self.assertIn("returned nothing", " ".join(r["notes"]))
+        self.assertFalse(any("failed settle_deps.py check" in n for n in r["notes"]), r["notes"])
+
     def test_a_report_without_a_record_is_retried_without_a_stage(self):
         plan = self.plan(settler="no json here")
         plan["settler (retry)"] = self.REPORT

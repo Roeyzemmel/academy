@@ -62,14 +62,17 @@ case 13 or 4, and never drop a definition because it "is only notation": the tag
 
 **Stage 2, admissibility.**
 - **11, circular.** The table's `cycle` is true: the input reaches the subject. A stop
-  (a gap). Use it only when `cycle` is true; the table's cycle forces it.
+  (a gap). Use it only when `cycle` is true; the table's cycle forces it, also when the
+  input carries an open `[CHECK]` as well (11 comes before 9).
 - **9, hypotheses not verified, or an open `[CHECK]`.** The table's `open_check` forces
   it; otherwise the proof applies the result without checking a hypothesis of it (say
   which, with the line, in `evidence`). A stop.
 - **10, missing source.** No existing result is shown: free text, an uncited "well
   known", an unreadable or uncached source. A cite ticket is filed; the input stays a
   pending modulo input. `chosen` empty. Not for an input the registry shows (`exists`
-  true).
+  true). A cite ticket is for a source the proof needs: an input with no shown source
+  that the proof uses only formally (14) or not at all (6) is classified so, not 10 (the
+  checker accepts 14 and 6 there, and nothing else after 10).
 
 **Stage 3, is the input used.**
 - **14, formal input.** Used only formally: a convention, a notational identification, a

@@ -545,6 +545,30 @@ class BlindGuardTests(unittest.TestCase):
                 d, "A.md"))), "deny", closer)
             os.remove(os.path.join(d, closer))
 
+    def test_the_settler_reads_no_other_subjects_open_pass_and_no_symlink(self):
+        """Review of 39de757: an open pass of another subject (no S-table.json: nothing is
+        being settled there), a pass folder outside reviews/<ns>/<subject>/, and a symlink
+        named like a verdict all stay closed."""
+        S = "expert:dependency-settler"
+        other = os.path.join(self.reviews, "s1", "b", "2026-11-19-T-0002")
+        os.makedirs(other, exist_ok=True)
+        with open(os.path.join(other, "A.md"), "w", encoding="utf-8") as fh:
+            fh.write("x\n")
+        self.assertEqual(self.decision(self.ev("Read", agent=S, file_path=os.path.join(other, "A.md"))), "deny")
+        shallow = os.path.join(self.reviews, "2026-11-20")
+        os.makedirs(shallow, exist_ok=True)
+        for f in ("A.md", "S-table.json"):
+            with open(os.path.join(shallow, f), "w", encoding="utf-8") as fh:
+                fh.write("x\n")
+        self.assertEqual(self.decision(self.ev("Read", agent=S, file_path=os.path.join(shallow, "A.md"))), "deny")
+        d = self._pass()
+        os.remove(os.path.join(d, "B.md"))
+        try:
+            os.symlink(os.path.join(other, "A.md"), os.path.join(d, "B.md"))
+        except (OSError, NotImplementedError):
+            self.skipTest("no symlinks here")
+        self.assertEqual(self.decision(self.ev("Read", agent=S, file_path=os.path.join(d, "B.md"))), "deny")
+
     def test_the_settler_reads_the_library_outside_reviews(self):
         self.assertIsNone(self.decision(self.ev("Read", agent="expert:dependency-settler",
                                                 file_path=os.path.join(self.sb.lib,

@@ -687,7 +687,11 @@ async function settleDependencies(b) {
   for (let attempt = 1; attempt <= 2; attempt++) {
     const label = attempt === 1 ? 'settler' : 'settler (retry)'
     const out = await launchMax(brief(prev), { label, phase: 'Review', agentType: SETTLER }, { agentType: CHAIR, phase: 'Review', notes })
-    let got = out === null ? { problems: ['the settler returned nothing (a limit or an API error)'] } : recordOf(out)
+    if (out === null) {     // a limit or an API error: launch nothing further (the role rule; review of 39de757)
+      notes.push(`${label} returned nothing (a limit or an API error): not relaunched, concluded as a disagreement`)
+      return disagree('the dependency-settler returned nothing', { problems: ['the settler returned nothing'], attempts: attempt })
+    }
+    let got = recordOf(out)
     if (got.record) {
       const r = await launch(STAGE('settle', [
         `pass_dir: ${pd}`, `claim: ${A.claim}`,

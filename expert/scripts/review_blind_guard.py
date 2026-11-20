@@ -73,8 +73,20 @@ def settler_may_read(path, is_search):
     """True for a settler's Read of one of ``SETTLER_FILES`` in an open pass folder."""
     if is_search or os.path.basename(path) not in SETTLER_FILES:
         return False
-    d = os.path.dirname(os.path.abspath(path))
+    real = os.path.realpath(path)
+    if os.path.normcase(real) != os.path.normcase(os.path.abspath(path)):
+        return False                     # a symlink could point anywhere (review of 39de757)
+    d = os.path.dirname(real)
     if not RE_PASS.match(os.path.basename(d)):
+        return False
+    # the pass being settled: open, laid out reviews/<ns>/<subject>/<pass>, and holding
+    # the table the workflow writes just before it launches the settler (S-table.json);
+    # another subject's open pass holds none (review of 39de757)
+    subject_dir = os.path.dirname(d)
+    ns_dir = os.path.dirname(subject_dir)
+    if os.path.basename(os.path.dirname(ns_dir)) != "reviews":
+        return False
+    if not os.path.exists(os.path.join(d, "S-table.json")):
         return False
     return not any(os.path.exists(os.path.join(d, c)) for c in CLOSERS)
 
