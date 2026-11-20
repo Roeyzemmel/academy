@@ -464,7 +464,7 @@ function falsifierOnRecord(f) {
   if (counts && (src === 'input' || src === 'parent') && !f.on) { counts = false; notes.push(`a ${src} falsifier was reported with no id it is recorded on: not counted`) }
   if (counts && src === 'waived' && !/(^|\n)\s*-?\s*\d{4}-\d{2}-\d{2} human:/.test(f.evidence || '')) {
     counts = false
-    notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ...): not counted')
+    notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ..., the human\'s quoted words; a line "human (via main session):" is the session\'s bookkeeping, and a waiver recorded through the MCP tools needs via: "human" with the quote): not counted')
   }
   // review V1 #2: a falsifier counts only once it came back clean or with a counterexample
   // (found nothing / counterexample); a request only once it is delivered or closed

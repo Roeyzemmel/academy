@@ -63,7 +63,9 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   direction item, whose class or statement covers the claim (say how, and name the id);
   the ticket's thread (a falsifier request on this claim, once it is back, with its
   result); or the human's waiver on the ticket or the claim (quote the thread line
-  `- YYYY-MM-DD human: ...` verbatim). Say what it found (nothing, or a counterexample),
+  `- YYYY-MM-DD human: ...` verbatim; a `human (via main session):` line is the session's
+  bookkeeping and does not count, so a session recording the human's waiver through the MCP
+  tools passes `via: "human"` with the human's quote). Say what it found (nothing, or a counterexample),
   the statement hash it attacked when its record says it: first the structured fields (a
   lab claim's frontmatter `falsifies: ["<ns:id>@<16-hex hash>", ...]`, one entry per
   target it attacked, the target's hash when the experiment ran), then, for a request this
@@ -123,7 +125,7 @@ always (section 4.3); a reword pass files no falsifier.
 
 - **What is on record** (section 0's sources, checked in code as prove.js checks them:
   evidence given, an input that is a declared input, a waiver quoting the human's thread
-  line). A falsifier counts only when it found `nothing` or a `counterexample` (an empty or
+  line `human:`, never `human (via main session):`). A falsifier counts only when it found `nothing` or a `counterexample` (an empty or
   other answer does not count), a falsifier request only once it is `delivered` or
   `closed`, and only on the statement hash the pass reviews: one recorded on another hash
   never counts, one whose hash is unknown counts only as the human's waiver (with a note).

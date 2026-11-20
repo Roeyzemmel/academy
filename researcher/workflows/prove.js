@@ -391,7 +391,7 @@ if (counts && src === 'input' && !(st.inputs || []).map(bare).includes(bare(st.f
 if (counts && (src === 'input' || src === 'parent') && !st.falsifier_on) counts = false
 if (counts && src === 'waived' && !/(^|\n)\s*-?\s*\d{4}-\d{2}-\d{2} human:/.test(st.falsifier_evidence || '')) {
   counts = false
-  out.notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ...): not counted')
+  out.notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ..., the human\'s quoted words; a line "human (via main session):" is the session\'s bookkeeping, and a waiver recorded through the MCP tools needs via: "human" with the quote): not counted')
 }
 // the same rule as verify.js (2026-11-20): a falsifier counts only on the statement hash it
 // attacked, which must be the claim's current one; with the hash unknown only a waiver counts

@@ -290,6 +290,21 @@ class FalsifierOnGapTests(unittest.TestCase):
                                            "conclude": DONE})
             self.assertEqual(labels, ["prepare", "run A", "table A", "falsifier", "conclude"], f)
 
+    def test_only_the_humans_own_waiver_line_counts(self):
+        """#100: a waiver quoting "- date human: ..." counts; the session's bookkeeping line
+        "- date human (via main session): ..." does not, and a falsifier is requested."""
+        waiver = dict(NO_FALS, source="waived", statement_hash="abcdef12")
+        own = dict(waiver, evidence="- 2026-11-18 human: waive the experiment")
+        out, labels, _c = self.run_wf({"prepare": dict(PREP, falsifier=own), "run A": "r",
+                                       "table A": self.A_GAP, "conclude": DONE})
+        self.assertEqual(labels, ["prepare", "run A", "table A", "conclude"])
+        session = dict(waiver, evidence="- 2026-11-18 human (via main session): waive it")
+        out, labels, _c = self.run_wf({"prepare": dict(PREP, falsifier=session), "run A": "r",
+                                       "table A": self.A_GAP, "falsifier": self.FILED,
+                                       "conclude": DONE})
+        self.assertEqual(labels, ["prepare", "run A", "table A", "falsifier", "conclude"])
+        self.assertIn('via: "human"', " ".join(out["result"]["notes"]))
+
     def test_a_b_gap_after_a_confirmed_a_files_the_request(self):
         done = dict(DONE, run_files=["A.md", "B.md", "decision.md"])
         out, labels, calls = self.run_wf({"prepare": dict(PREP, falsifier=NO_FALS), "run A": "r",
