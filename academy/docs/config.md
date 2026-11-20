@@ -103,7 +103,8 @@ it (`--strict` then exits 1).
 
 The tiers of the agents: `base` for the clerical agents (clerk, paper-liaison, claim-keeper,
 lit-request, review-clerk, inbox-clerk, usage-analyst), `max` for the graders and the prover (rigor-reviewer, referee,
-experiment-reviewer, prover: the four that ran on Fable before), `large` for explainer,
+experiment-reviewer, prover: the four that ran on Fable before) and the dependency-settler
+(#121: it reads the proof as closely as a grader, though it grades nothing), `large` for explainer,
 math-writer and developer, `medium` for the rest. `py academy/scripts/models.py list` shows
 them all.
 

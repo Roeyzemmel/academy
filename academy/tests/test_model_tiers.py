@@ -36,6 +36,8 @@ def write(path, text):
 #: sonnet -> medium, opus -> large; the four that ran on Fable until f9d490a -> max
 FORMER_FABLE = ("expert:rigor-reviewer", "expert:referee", "researcher:experiment-reviewer",
                 "researcher:prover")
+#: every max-tier agent: the four, and the dependency-settler (#121, added 2026-11-20)
+MAX_TIER = FORMER_FABLE + ("expert:dependency-settler",)
 
 
 class Tmp(unittest.TestCase):
@@ -244,7 +246,7 @@ class TestResolver(Tmp):
         got = json.loads(out.getvalue())
         # the agents whose file the map overrides, and the tier itself, for an agent with
         # no academy file that a workflow launches by tier (docs/workflows.md, "Models")
-        self.assertEqual(sorted(got), sorted(FORMER_FABLE + ("tier:max",)))
+        self.assertEqual(sorted(got), sorted(MAX_TIER + ("tier:max",)))
         self.assertEqual(set(got.values()), {"fable"})
         self.assertEqual({k: v for k, v in got.items() if not k.startswith("tier:")},
                          {r["agent"]: r["launch"]
@@ -279,7 +281,7 @@ class TestResolver(Tmp):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(models.main(["launch", "--tier", "max", "--workspace", fable]), 0)
-        self.assertEqual(json.loads(out.getvalue()), {a: "fable" for a in FORMER_FABLE})
+        self.assertEqual(json.loads(out.getvalue()), {a: "fable" for a in MAX_TIER})
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(models.main(["launch", "expert:rigor-reviewer", "rigor-reviewer",

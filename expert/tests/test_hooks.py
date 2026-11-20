@@ -508,6 +508,48 @@ class BlindGuardTests(unittest.TestCase):
         for agent in ("expert:review-chair", "", "author:math-writer"):
             self.assertIsNone(self.decision(self.ev("Read", agent=agent, file_path=p)))
 
+    def _pass(self, closer=None):
+        d = os.path.join(self.reviews, "paper", "lem-x", "2026-11-20-T-0001")
+        os.makedirs(d, exist_ok=True)
+        for f in ("A.md", "B.md", "S-table.json") + ((closer,) if closer else ()):
+            with open(os.path.join(d, f), "w", encoding="utf-8") as fh:
+                fh.write("x\n")
+        return d
+
+    def test_the_settler_reads_the_two_verdicts_and_the_table_of_an_open_pass(self):
+        """#121: the dependency-settler reads A.md, B.md and S-table.json of the pass it
+        settles, and nothing else under reviews/."""
+        d, S = self._pass(), "expert:dependency-settler"
+        for f in ("A.md", "B.md", "S-table.json"):
+            self.assertIsNone(self.decision(self.ev("Read", agent=S,
+                                                    file_path=os.path.join(d, f))), f)
+        self.assertEqual(self.decision(self.ev("Read", agent=S, file_path=os.path.join(
+            d, "decision.md"))), "deny")
+        self.assertEqual(self.decision(self.ev("Read", agent=S, file_path=os.path.join(
+            d, "S.md"))), "deny")
+        self.assertEqual(self.decision(self.ev("Grep", agent=S, pattern="x", path=d)), "deny")
+        self.assertEqual(self.decision(self.ev("Glob", agent=S, pattern="*", path=self.sb.lib)),
+                         "deny")
+        # a folder that is no pass (no date) stays closed
+        self.assertEqual(self.decision(self.ev("Read", agent=S, file_path=os.path.join(
+            self.reviews, "paper", "x", "p", "A.md"))), "deny")
+        # the rigor-reviewer gets no such opening
+        self.assertEqual(self.decision(self.ev("Read", file_path=os.path.join(d, "A.md"))),
+                         "deny")
+
+    def test_the_settler_never_reads_a_closed_pass(self):
+        S = "expert:dependency-settler"
+        for closer in ("decision.md", "abandoned.md"):
+            d = self._pass(closer)
+            self.assertEqual(self.decision(self.ev("Read", agent=S, file_path=os.path.join(
+                d, "A.md"))), "deny", closer)
+            os.remove(os.path.join(d, closer))
+
+    def test_the_settler_reads_the_library_outside_reviews(self):
+        self.assertIsNone(self.decision(self.ev("Read", agent="expert:dependency-settler",
+                                                file_path=os.path.join(self.sb.lib,
+                                                                       "ABC21.txt"))))
+
 
 class LibraryEditCheckTests(unittest.TestCase):
     def setUp(self):

@@ -23,7 +23,7 @@ NODE = shutil.which("node")
 LAUNCHING = ["expert/workflows/verify.js", "expert/workflows/referee.js",
              "researcher/workflows/prove.js", "researcher/workflows/review-experiment.js",
              "researcher/workflows/generalize.js", "academy/workflows/workplan.js"]
-MAX_TIER = ("expert:rigor-reviewer", "expert:referee", "researcher:experiment-reviewer",
+MAX_TIER = ("expert:rigor-reviewer", "expert:dependency-settler", "expert:referee", "researcher:experiment-reviewer",
             "researcher:prover")
 BLOCK = re.compile(r"^// ---- Max-tier model \(docs/config\.md.*?^const fallbackLine = [^\n]*\n",
                    re.M | re.S)
