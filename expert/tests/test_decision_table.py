@@ -148,22 +148,33 @@ class TableTests(unittest.TestCase):
         self.assertEqual(r["outcome"], "settle-dependencies")
         self.assertIsNone(r["proposed_status"])
 
-    def test_a_definition_marked_notation_only_on_the_entry_is_dropped(self):
+    def test_the_reviewers_own_mark_is_not_trusted(self):
+        """Review of e9a0272: a run could mark a definition the argument relies on; only
+        the registry record's notation-only tag drops it."""
         kinds = {"paper:defn:affine-in-charts": "definition", "paper:lem:a": "claim"}
         r = dt.decide(rec("CONFIRMED", modulo="paper:lem:a, paper:defn:affine-in-charts "
                                               "(Notation-Only)"),
                       rec("CONFIRMED", run="B", modulo="paper:lem:a"),
                       kind_of=kinds.get, tags_of=lambda q: None)
-        self.assertEqual(r["outcome"], "confirmed-modulo")
-        self.assertEqual(r["modulo"], ["paper:lem:a"])
-        self.assertEqual(r["proposed_status"], "proved-modulo")
-        self.assertEqual(r["dropped_definitions"], ["paper:defn:affine-in-charts"])
-        self.assertIn("notation-only", r["grounds"]["note"])
-        self.assertEqual(r["grounds"]["modulo"], ["paper:lem:a"])
-        self.assertIn("dropped definitions", dt._text(r))
+        self.assertEqual(r["outcome"], "settle-dependencies")
         r = dt.decide(rec("CONFIRMED", modulo="paper:defn:affine-in-charts (notation only)"),
                       rec("CONFIRMED", run="B"), kind_of=lambda q: None, tags_of=lambda q: None)
-        self.assertEqual((r["outcome"], r["proposed_status"]), ("confirmed", "proved"))
+        self.assertIsNone(r["proposed_status"])
+        # with the registry tag the marked entry is dropped
+        r = dt.decide(rec("CONFIRMED", modulo="paper:lem:a, paper:defn:affine-in-charts "
+                                              "(notation only)"),
+                      rec("CONFIRMED", run="B", modulo="paper:lem:a"), kind_of=kinds.get,
+                      tags_of={"paper:defn:affine-in-charts": ["notation-only"]}.get)
+        self.assertEqual((r["outcome"], r["dropped_definitions"]),
+                         ("confirmed-modulo", ["paper:defn:affine-in-charts"]))
+
+    def test_no_drop_through_a_via_that_is_circular_through_the_subject(self):
+        links = {"paper:lem:y": {"depends_on": ["paper:lem:S"]},
+                 "paper:lem:S": {"depends_on": ["paper:lem:x"]}}.get
+        got = dt.reduce_differing(["paper:lem:y", "paper:lem:x"], ["paper:lem:y"], links,
+                                  subject="paper:lem:S")
+        self.assertEqual([], got["dropped"])
+        self.assertEqual(["paper:lem:x"], got["differing"])
 
     def test_a_definition_tagged_notation_only_in_the_registry_is_dropped(self):
         tags = {"paper:defn:d": ["notation-only"], "paper:defn:e": ["setup"]}.get
@@ -191,7 +202,9 @@ class TableTests(unittest.TestCase):
         self.assertIsNone(dt.notation_only("bib:Ha02#Def1 (notation only)", lambda q: None,
                                            lambda q: ["notation-only"]))
         self.assertEqual(dt.notation_only("paper:defn:d ( notation  only )", lambda q: None,
-                                          lambda q: None), "paper:defn:d")
+                                          lambda q: ["notation-only"]), "paper:defn:d")
+        self.assertIsNone(dt.notation_only("paper:defn:d ( notation  only )", lambda q: None,
+                                           lambda q: None))
         self.assertEqual(dt.notation_only("s1:DEF-1", lambda q: None,
                                           {"s1:DEF-1": ["Notation-Only"]}.get), "s1:DEF-1")
         # pointer text other than the mark: no record to read the tag of
@@ -206,7 +219,8 @@ class TableTests(unittest.TestCase):
         # run lists is the settler's
         kinds = {"paper:defn:d": "definition", "paper:lem:b": "claim"}
         r = dt.decide(rec("CONFIRMED", modulo="paper:defn:d (notation only), paper:lem:b"),
-                      rec("CONFIRMED", run="B"), kind_of=kinds.get, tags_of=lambda q: None)
+                      rec("CONFIRMED", run="B"), kind_of=kinds.get,
+                      tags_of={"paper:defn:d": ["notation-only"]}.get)
         self.assertEqual(r["outcome"], "settle-dependencies")
         self.assertIsNone(r["proposed_status"])
         self.assertEqual([d["input"] for d in r["differing_inputs"]], ["paper:lem:b"])
@@ -239,10 +253,10 @@ class TableTests(unittest.TestCase):
         # the module's workspace names a home that does not exist: no registry, label rule
         self.assertIsNone(dt.registry_kind("paper:defn:x"))
         self.assertIsNone(dt.registry_tags("paper:defn:x"))
+        # without a registry no record carries the tag: a marked definition stays an input
         r = dt.decide(rec("CONFIRMED", modulo="paper:lem:a, paper:defn:x (notation only)"),
                       rec("CONFIRMED", run="B", modulo="paper:lem:a"))
-        self.assertEqual(r["outcome"], "confirmed-modulo")
-        self.assertEqual(r["dropped_definitions"], ["paper:defn:x"])
+        self.assertEqual(r["outcome"], "settle-dependencies")
         r = dt.decide(rec("CONFIRMED", modulo="paper:lem:a, paper:defn:x"),
                       rec("CONFIRMED", run="B", modulo="paper:lem:a"))
         self.assertEqual(r["outcome"], "settle-dependencies")
