@@ -687,6 +687,19 @@ result. A second record files nothing new and completes an interrupted one
 (`academy/scripts/rulings.py`; #121 item 4). The lists are the decision table's reduced
 ones when the pass holds `S-table.json`; a dependency-settler stop that leaves no status
 (`S.json`: case 12, 11, or 7 with no existing result) offers only (c) and (d).
+A ruling whose ask carries its own lettered options is read by them (#125): `record
+--choice <letter>` takes the ticket's own option, classified by keyword (re-run, accept,
+wait, split, decline), and `--action <what>` names the answer by what it does (refused
+when it disagrees with the letter). A re-run is filed even over an earlier ruling the
+keeper acted on (its status stands until the new pass decides, noted in the thread);
+another answer over such an earlier, different one (or over an unlettered `proceed` that
+was acted on) needs `--force`; a wait or split files nothing; an own accept option takes
+the list it names (`proved-modulo [..]` or plain `proved`), and one naming none is refused;
+plain `proved` while both runs list inputs needs `--action intersection` or `--force`. An
+own option the keyword reading cannot class is refused on a ruling until `--action` names it.
+A decline is always recorded and rejects the ruling; it undoes nothing already done. The
+listing reads a ruling's options with its body and a plain ticket's from its ask line,
+as `record` does; a plain ticket still takes `proceed` / `decline`.
 
 ### 6.4 A research request from the Author
 

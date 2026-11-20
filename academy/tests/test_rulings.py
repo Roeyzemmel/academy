@@ -294,14 +294,44 @@ class TestRecordRuling(RulingCase):
         self.assertEqual("delivered", bd.get_ticket(self.board, tid)[1]["status"])
 
     def test_another_letter_over_a_keeper_who_acted_is_refused(self):
+        """A non-rerun answer over an earlier, different one the keeper acted on (#125)."""
         tid = self.ruling()
         bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
         bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
                             as_instance="researcher@r1", agent="claim-keeper", date=DATE)
+        thread = self.thread(tid)
         with self.assertRaises(ac.AcademyError) as cm:
-            self.record(tid, "c")
+            self.record(tid, "b")
         self.assertIn("claim-keeper", str(cm.exception))
+        self.assertIn("--force", str(cm.exception))
+        self.assertEqual(thread, self.thread(tid))                     # nothing written
         self.assertEqual("delivered", self.record(tid, "a")["status"])
+
+    def test_a_forced_other_letter_over_a_keeper_who_acted_files_and_notes(self):
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date=DATE)
+        out = self.record(tid, "b", force=True)
+        self.assertTrue(out["filed"])
+        self.assertEqual("decision", self.tickets()[out["follow_up"]]["kind"])
+        self.assertTrue(any("earlier ruling" in t and "(a) union" in t for t in self.thread(tid)))
+
+    def test_a_rerun_over_a_keeper_who_acted_files_the_rerun(self):
+        """#125 item 2: the keeper acted on an earlier ruling; a new re-run is filed, not
+        swallowed by the earlier action."""
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date=DATE)
+        out = self.record(tid, "c")
+        self.assertTrue(out["filed"])
+        k = self.tickets()[out["follow_up"]]
+        self.assertEqual(("verify", "expert@main"), (k["kind"], k["to"]))
+        meta = bd.get_ticket(self.board, tid)[1]
+        self.assertIn(out["follow_up"], meta["result"])
+        self.assertIn("rerun", meta["result"])
+        self.assertNotIn("acted on it", meta["result"])
 
     def test_a_ticket_naming_the_ruling_only_in_its_refs_is_not_its_follow_up(self):
         """Point 2 of the review: an unrelated verify ticket listing the ruling in its refs
@@ -384,6 +414,491 @@ class TestRecordRuling(RulingCase):
         out = self.record("T-0002", "proceed")
         self.assertEqual("accepted", out["status"])
         self.assertEqual(n, len(self.tickets()))
+
+
+#: a T-0979-shaped ask: the ticket's own letters, where (c) is "wait", not a re-run
+OWN_ASK = ("Run A (CONFIRMED) lists modulo paper:lem:rigid, paper:cor:locus and a notation "
+           "entry; run B (CONFIRMED) lists paper:lem:rigid, lem:locus2, paper:cor:locus. The "
+           "table returns 'disagreement' on the inputs. Please rule: (a) accept that A's "
+           "notation entry is superseded by the card, so the keeper may take proved-modulo "
+           "[paper:lem:rigid, paper:cor:locus]; (b) re-run A (and B) against the current "
+           "library; (c) wait until paper:lem:rigid is proved. Recommendation: (a). See "
+           "packet P-0007.")
+
+
+class TestOwnOptions(RulingCase):
+    """#125 item 1: a ticket's own lettered options win over the tool's generic ones."""
+
+    def own(self, **kw):
+        return self.ruling(ask=OWN_ASK, **kw)
+
+    def acted_on_earlier(self, tid):
+        """T-0979's history: the human ruled (a) on 2026-11-13 as a bare proceed, the keeper set
+        the status, the ruling stayed accepted."""
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): on the human's "
+                            "ruling (a), set proved-modulo", as_instance="researcher@r1",
+                            agent="claim-keeper", date="2026-11-01")
+        bd.append_to_ticket(self.board, tid, "human decision: proceed -- ruling (a): the "
+                            "keeper takes proved-modulo", date="2026-11-13")
+        bd.transition_ticket(self.board, tid, "accepted", as_instance="human", date="2026-11-13")
+
+    def test_the_own_options_are_parsed_and_classified(self):
+        tid = self.own()
+        _p, meta, body = bd.get_ticket(self.board, tid)
+        own = rl.own_options(meta, body)
+        self.assertEqual(["a", "b", "c"], list(own))           # "Recommendation: (a)." is none
+        self.assertTrue(own["b"].startswith("re-run A (and B)"))
+        self.assertEqual("wait until paper:lem:rigid is proved", own["c"])
+        self.assertEqual(["accept", "rerun", "wait"], [rl.classify(own[k]) for k in own])
+        self.assertEqual({}, rl.own_options({"ask": "Rule on the modulo inputs?"}, ""))
+
+    def test_own_c_is_wait_and_files_nothing(self):
+        tid = self.own()
+        n = len(self.tickets())
+        out = self.record(tid, "c", comment="wait")
+        self.assertEqual((False, None), (out["filed"], out["follow_up"]))
+        self.assertEqual(n, len(self.tickets()))
+        self.assertTrue(any(t.startswith("human decision: (c) wait") for t in self.thread(tid)))
+        self.assertFalse(any("rerun" in t for t in self.thread(tid)))
+        meta = bd.get_ticket(self.board, tid)[1]
+        self.assertEqual("delivered", meta["status"])
+        self.assertIn("wait", meta["result"])
+        self.assertNotIn("rerun", meta["result"])
+
+    def test_a_letter_and_an_action_that_disagree_are_refused_naming_the_own_options(self):
+        tid = self.own()
+        thread = self.thread(tid)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "c", action="rerun")
+        msg = str(cm.exception)
+        self.assertIn("(b) re-run A (and B)", msg)
+        self.assertIn("(c) wait until", msg)
+        self.assertEqual(thread, self.thread(tid))
+        self.assertEqual("open", bd.get_ticket(self.board, tid)[1]["status"])
+
+    def test_own_b_is_the_rerun_and_files_it(self):
+        tid = self.own()
+        out = self.record(tid, "b")
+        k = self.tickets()[out["follow_up"]]
+        self.assertEqual(("verify", "expert@main", tid), (k["kind"], k["to"], k["parent"]))
+        self.assertEqual("Re-run the blind pass on %s (ruling %s)" % (SUBJECT, tid), k["title"])
+        self.assertTrue(any(t.startswith("human decision: (b) rerun") for t in self.thread(tid)))
+
+    def test_an_action_alone_picks_the_own_option(self):
+        tid = self.own()
+        out = self.record(tid, None, action="rerun")
+        self.assertEqual("b", out["choice"])
+        self.assertEqual("verify", self.tickets()[out["follow_up"]]["kind"])
+
+    def test_own_accept_takes_the_list_its_text_names(self):
+        tid = self.own()
+        out = self.record(tid, "a")
+        body = bd.get_ticket(self.board, out["follow_up"])[2]
+        self.assertEqual(["paper:lem:rigid", "paper:cor:locus"], rl.grounds_in(body)["modulo"])
+
+    def test_pending_decisions_show_the_own_options(self):
+        tid = self.own()
+        item = [i for i in dc.pending_decisions(self.board, workspace=self.ws)
+                if i["id"] == tid][0]
+        self.assertEqual(["(a) Accept", "(b) Re-run", "(c) Wait"],
+                         [o["label"] for o in item["options"]])
+        self.assertIn("wait until paper:lem:rigid", item["options"][2]["description"])
+
+    def test_a_rerun_after_an_acted_on_earlier_ruling_files_and_notes(self):
+        """#125 item 2, T-0979 exactly: the keeper acted on (a); the new (b) re-run is filed,
+        the result names it, and a note says the earlier status stands."""
+        tid = self.own()
+        self.acted_on_earlier(tid)
+        before = set(self.tickets())
+        out = self.record(tid, "b", comment="2026-11-20: re-run")
+        self.assertTrue(out["filed"])
+        self.assertEqual([out["follow_up"]], sorted(set(self.tickets()) - before))
+        meta = bd.get_ticket(self.board, tid)[1]
+        self.assertEqual("delivered", meta["status"])
+        self.assertIn("(b) rerun", meta["result"])
+        self.assertIn(out["follow_up"], meta["result"])
+        self.assertNotIn("acted on it", meta["result"])
+        notes = [t for t in self.thread(tid) if t.startswith("earlier ruling")]
+        self.assertEqual(1, len(notes))
+        self.assertIn("proceed -- ruling (a)", notes[0])
+        self.assertIn("stands until", notes[0])
+        again = self.record(tid, "b")                               # idempotent
+        self.assertEqual((out["follow_up"], False), (again["follow_up"], again["filed"]))
+        self.assertEqual(len(before) + 1, len(self.tickets()))
+
+    def test_a_wait_after_an_acted_on_earlier_ruling_needs_force(self):
+        tid = self.own()
+        self.acted_on_earlier(tid)
+        thread = self.thread(tid)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "c")
+        self.assertIn("--force", str(cm.exception))
+        self.assertIn("claim-keeper", str(cm.exception))
+        self.assertEqual(thread, self.thread(tid))
+        out = self.record(tid, "c", force=True)
+        self.assertEqual(("delivered", False), (out["status"], out["filed"]))
+        self.assertTrue(any("earlier ruling" in t for t in self.thread(tid)))
+
+    def test_a_plain_ticket_s_own_letter_is_its_own_option(self):
+        """Not a ruling: (b) is a re-run of the checks, not a decline."""
+        self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
+                    ask="Redeploy fsq.sh? (a) redeploy now; (b) re-run the checks first; "
+                        "(c) drop it.", refs=[])
+        out = self.record("T-0002", "b")
+        self.assertEqual("accepted", out["status"])
+        self.assertTrue(any(t.startswith("human decision: (b) rerun")
+                            for t in self.thread("T-0002")))
+        item = [i for i in dc.pending_decisions(self.board, workspace=self.ws)
+                if i["id"] == "T-0002"]
+        self.assertEqual([], item)                                     # answered
+        self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
+                    ask="Redeploy fsq.sh? (a) redeploy now; (b) re-run the checks first; "
+                        "(c) drop it.", refs=[])
+        self.assertEqual("rejected", self.record("T-0003", "c")["status"])
+
+    T0981_ASK = ("Run A lists modulo paper:lem:rigid and run B none, so the table proposes "
+                 "nothing on the inputs. Choose: (a) take proved (modulo formal); (b) take "
+                 "proved-modulo [paper:lem:other] by inheritance; (c) split lem:rigid items "
+                 "1-3 / item 4(a) first, then proved. Recommendation: (a).")
+
+    def t0981(self):
+        self.write_pass(a=record_text("A", modulo="paper:lem:rigid"),
+                        b=record_text("B", modulo="none"))
+        return self.ruling(ask=self.T0981_ASK)
+
+    def test_a_rerun_the_own_options_lack_is_still_filed(self):
+        """T-0981: no own option is a re-run; --action rerun files the generic re-run and
+        the answer line carries no letter that could be misread."""
+        tid = self.t0981()
+        self.assertEqual(["accept", "accept", "split"],
+                         [rl.classify(v) for v in rl.own_options(
+                             bd.get_ticket(self.board, tid)[1]).values()])
+        out = self.record(tid, None, action="rerun")
+        self.assertEqual("verify", self.tickets()[out["follow_up"]]["kind"])
+        self.assertTrue(any(t.startswith("human decision: (-) rerun") for t in self.thread(tid)))
+        with self.assertRaises(ac.AcademyError):
+            self.record(self.t0981(), "c", action="rerun")
+
+    def test_own_split_files_nothing_and_bare_proved_is_the_empty_intersection(self):
+        tid = self.t0981()
+        out = self.record(tid, "c")
+        self.assertEqual((False, None), (out["filed"], out["follow_up"]))
+        self.assertIn("split", bd.get_ticket(self.board, tid)[1]["result"])
+        tid = self.t0981()
+        out = self.record(tid, "a")
+        self.assertIn("-> proved ", self.tickets()[out["follow_up"]]["title"])
+        tid = self.t0981()                                        # a third list, named: taken
+        out = self.record(tid, "b")
+        k = bd.get_ticket(self.board, out["follow_up"])
+        self.assertIn("-> proved-modulo", k[1]["title"])
+        grounds = rl.grounds_in(k[2])
+        self.assertEqual(["paper:lem:other"], grounds["modulo"])
+        self.assertTrue(check_grounds("proved-modulo", grounds, HASH)[0])
+        self.assertIn("(b)", grounds["note"])
+        self.assertIn("neither run's list", k[2])
+
+    def test_cli_takes_an_action_and_refuses_a_disagreement(self):
+        tid = self.own()
+        base = ["--board", self.board, "--workspace", self.ws_path]
+        err = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(err):
+            self.assertEqual(1, dc.main(base + ["record", tid, "--choice", "c",
+                                                "--action", "rerun"]))
+        self.assertIn("(b) re-run", err.getvalue())
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            self.assertEqual(0, dc.main(base + ["record", tid, "--action", "rerun"]))
+        self.assertEqual("b", json.loads(out.getvalue())["choice"])
+
+
+class TestOptionParsing(RulingCase):
+    """Review of 54692a4, findings 2, 6, 7: what counts as a ticket's own options."""
+
+    def test_phantom_letters_are_no_options(self):
+        """Finding 2: '(a) and (b)' with no option text is no option list."""
+        self.assertEqual({}, rl._lettered(
+            "Rule on the inputs of lem:x, items 1 (a) and (b) both agreed; union or "
+            "intersection of modulo lists?"))
+        self.assertEqual({}, rl._lettered("Is lem 3 (a) true? See P-0230 D1 (a) 2026-11-01 "
+                                          "and (b) of Prop 2."))
+
+    def test_a_phantom_ask_keeps_the_generic_options(self):
+        tid = self.ruling(ask="Rule on the inputs of lem:x, items 1 (a) and (b) both agreed; "
+                              "union or intersection of modulo lists?")
+        out = self.record(tid, "a")
+        self.assertIn("(a) union", bd.get_ticket(self.board, tid)[1]["result"])
+        self.assertEqual("decision", self.tickets()[out["follow_up"]]["kind"])
+
+    def test_the_last_presented_run_wins_over_a_stray_earlier_letter(self):
+        own = rl._lettered("Rule on lem:x (the precedent: P-0230 D1 (a) 2026-11-01). "
+                           "Options: (a) take proved; (b) re-run; (c) wait.")
+        self.assertEqual({"a": "take proved", "b": "re-run", "c": "wait"}, own)
+
+    def test_incidental_letters_are_no_options(self):
+        """Finding 7: letters not presented as options (no 'Options:', 'Choose', '?', ':'
+        before them) are prose."""
+        self.assertEqual({}, rl._lettered("Rename the files? It touches (a) docs and (b) "
+                                          "scripts only."))
+        self.assertEqual(["a", "b", "c"], list(rl._lettered(OWN_ASK)))
+        self.assertEqual(["a", "b", "c"], list(rl._lettered(TestOwnOptions.T0981_ASK)))
+
+    def test_the_real_t0998_ask(self):
+        own = rl._lettered(
+            "Pass X on s1:GEO-61: run A CONFIRMED modulo none, run B CONFIRMED modulo "
+            "paper:lem:rigid (formal). Both runs agree that flat:PER-2 enters GEO-55 only at "
+            "item 4(a) and GEO-61 uses items 1-3. Options (P-0233 D1): (a) `proved`, the "
+            "modulo is formal (the precedent you set for s1:GEO-57, P-0230 D1 (a), "
+            "2026-11-01); (b) `proved-modulo [flat:PER-2]` by inheritance; (c) split GEO-55 "
+            "first, then `proved`. Recommendation: (a).")
+        self.assertEqual(["a", "b", "c"], list(own))
+        self.assertEqual(["accept", "accept", "split"], [rl.classify(v) for v in own.values()])
+
+    def test_negated_keywords_do_not_classify(self):
+        """Finding 6."""
+        self.assertEqual("rerun", rl.classify("don't take proved, re-run instead"))
+        self.assertEqual("rerun", rl.classify("do not accept, re-run"))
+        self.assertEqual("other", rl.classify("leave it open, not proved yet"))
+        self.assertEqual("other", rl.classify("take it, though not proved yet"))
+        self.assertEqual("accept", rl.classify("take proved"))
+
+    def test_a_negated_proved_option_files_nothing(self):
+        tid = self.ruling(ask="Rule on the modulo inputs: (a) re-run; (b) take proved-modulo; "
+                              "(c) leave it open, not proved yet.")
+        n = len(self.tickets())
+        with self.assertRaises(ac.AcademyError):              # other: needs --action (re-review 1)
+            self.record(tid, "c")
+        out = self.record(tid, "c", action="wait")
+        self.assertEqual((False, None, n), (out["filed"], out["follow_up"], len(self.tickets())))
+
+
+class TestListingMatchesRecord(RulingCase):
+    """Review of 54692a4, findings 1 and 7: the letters listed are the letters recorded."""
+
+    BODY_OPTIONS = ("Options below.\n\n(a) accept the union\n(b) re-run the pass\n"
+                    "(c) wait until lem:y is proved\n\nRecord: "
+                    "library/reviews/paper/lem-x/%s/decision.md." % PASS)
+
+    def test_a_ruling_s_options_in_its_body_are_listed_and_recorded(self):
+        tid = self.ruling(ask="Rule on the modulo inputs of lem:x; options below.",
+                          detail=self.BODY_OPTIONS)
+        own = rl.own_options(*bd.get_ticket(self.board, tid)[1:])
+        self.assertEqual("wait until lem:y is proved", own["c"])        # ends with its paragraph
+        item = [i for i in dc.pending_decisions(self.board, workspace=self.ws)
+                if i["id"] == tid][0]
+        self.assertEqual(["(a) Accept", "(b) Re-run", "(c) Wait"],
+                         [o["label"] for o in item["options"]])
+        out = self.record(tid, "b")
+        self.assertEqual("verify", self.tickets()[out["follow_up"]]["kind"])
+
+    def test_a_plain_ticket_reads_its_ask_line_only_in_both(self):
+        self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
+                    ask="Redeploy fsq.sh?", detail="Choose: (a) redeploy now; (b) re-run the "
+                    "checks first; (c) drop it.", refs=[])
+        item = [i for i in dc.pending_decisions(self.board, workspace=self.ws)
+                if i["id"] == "T-0002"][0]
+        self.assertEqual(["(a) Proceed", "(b) Decline"], [o["label"] for o in item["options"]])
+        self.assertEqual("rejected", self.record("T-0002", "b")["status"])
+
+    def test_proceed_and_decline_stay_valid_on_a_plain_ticket_with_options(self):
+        """Finding 7: the generic words still work next to the ticket's own letters."""
+        ask = "Redeploy fsq.sh? (a) redeploy now; (b) re-run the checks first; (c) drop it."
+        self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
+                    ask=ask, refs=[])
+        self.assertEqual("accepted", self.record("T-0002", "proceed")["status"])
+        self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
+                    ask=ask, refs=[])
+        self.assertEqual("rejected", self.record("T-0003", "decline")["status"])
+        self.ticket(to="human", as_instance="author@main", kind="question", title="Rename?",
+                    ask="Rename the files? It touches (a) docs and (b) scripts only.", refs=[])
+        self.assertEqual("accepted", self.record("T-0004", "proceed")["status"])
+
+
+class TestEarlierAnswers(RulingCase):
+    """Review of 54692a4, findings 3, 4, 8."""
+
+    def legacy(self, tid):
+        """An earlier answer without a letter this code can read, and the keeper's action."""
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date="2026-11-01")
+        bd.append_to_ticket(self.board, tid, "human decision: proceed -- ruling (a)",
+                            date="2026-11-13")
+        bd.transition_ticket(self.board, tid, "accepted", as_instance="human", date="2026-11-13")
+
+    def test_an_accept_over_a_legacy_answer_acted_on_needs_force(self):
+        """Finding 3: the earlier answer is unknown, so it may differ."""
+        for ask in (OWN_ASK, None):
+            tid = self.ruling(**({"ask": ask} if ask else {}))
+            self.legacy(tid)
+            thread = self.thread(tid)
+            with self.assertRaises(ac.AcademyError) as cm:
+                self.record(tid, "a")
+            self.assertIn("--force", str(cm.exception))
+            self.assertIn("proceed -- ruling (a)", str(cm.exception))
+            self.assertEqual(thread, self.thread(tid))
+        out = self.record(tid, "a", force=True)
+        self.assertTrue(out["filed"])
+        result = bd.get_ticket(self.board, tid)[1]["result"]
+        self.assertIn(out["follow_up"], result)
+        self.assertNotIn("acted on it", result)
+
+    def test_the_keeper_s_earlier_action_is_not_claimed_for_the_new_answer(self):
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date=DATE)
+        self.record(tid, "a")
+        result = bd.get_ticket(self.board, tid)[1]["result"]
+        self.assertNotIn("acted on it", result)
+        self.assertIn("before this answer", result)
+
+    def test_the_refusal_s_advice_works(self):
+        """Finding 4: cancelling the follow-up ticket, then recording again, records."""
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
+        self.ticket(to="researcher@r1", as_instance="human", kind="decision", parent=tid,
+                    title="Status of paper:lem:x -> proved-modulo (ruling %s)" % tid,
+                    ask="Set it.")
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "b")
+        self.assertIn("cancel T-0003", str(cm.exception))
+        bd.transition_ticket(self.board, "T-0003", "cancelled", reason="changed", as_instance="human",
+                             date=DATE)
+        out = self.record(tid, "b")
+        self.assertEqual((True, "delivered"), (out["filed"], out["status"]))
+
+    def test_a_keeper_action_is_not_advised_to_be_cancelled(self):
+        tid = self.ruling()
+        bd.append_to_ticket(self.board, tid, "human decision: (a) union", date=DATE)
+        bd.append_to_ticket(self.board, tid, "claim-keeper (researcher@r1): set proved-modulo",
+                            as_instance="researcher@r1", agent="claim-keeper", date=DATE)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "b")
+        self.assertNotIn("cancel", str(cm.exception))
+        self.assertIn("claim-keeper", str(cm.exception))
+
+    def test_a_delivered_ruling_whose_follow_up_was_cancelled_says_so(self):
+        tid = self.ruling()
+        out = self.record(tid, "c")
+        bd.transition_ticket(self.board, out["follow_up"], "cancelled", reason="mistake",
+                             as_instance="human", date=DATE)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "c")
+        self.assertIn(out["follow_up"], str(cm.exception))
+        self.assertIn("cancelled", str(cm.exception))
+
+    def test_stalled_skips_an_own_letter_decline(self):
+        """Finding 8: the recorded class, not the letter, says it was a decline."""
+        tid = self.ruling(ask=OWN_ASK)
+        bd.append_to_ticket(self.board, tid, "human decision: (b) decline [the ticket's own "
+                            "(b): drop it]", date=DATE)
+        self.assertEqual([], rl.stalled(self.board, self.ws))
+        bd.append_to_ticket(self.board, tid, "human decision: (d) union", date=DATE)
+        self.assertEqual([tid], [x["id"] for x in rl.stalled(self.board, self.ws)])
+
+
+class TestOwnAcceptLists(RulingCase):
+    """Review of 54692a4, finding 5: the list an own accept option names."""
+
+    def test_an_option_naming_no_list_is_refused_without_advising_a_list(self):
+        tid = self.ruling(ask="Rule on the modulo inputs. Choose: (a) accept the card's "
+                              "reading; (b) re-run the pass.")
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "a")
+        msg = str(cm.exception)
+        self.assertIn("state the list", msg)
+        self.assertNotIn("--action", msg)
+        self.assertEqual("open", bd.get_ticket(self.board, tid)[1]["status"])
+
+    def test_bare_proved_with_a_nonempty_intersection_proposes_proved_only_forced(self):
+        tid = self.ruling(ask="Rule on the modulo inputs. Choose: (a) take proved, the modulo "
+                              "is formal; (b) re-run the pass.")
+        with self.assertRaises(ac.AcademyError):              # re-review 2
+            self.record(tid, "a")
+        out = self.record(tid, "a", force=True)
+        k = bd.get_ticket(self.board, out["follow_up"])
+        self.assertIn("-> proved ", k[1]["title"])
+        self.assertNotIn("modulo", rl.grounds_in(k[2]))
+
+    def test_a_named_list_equal_to_a_run_list_keeps_its_name(self):
+        tid = self.ruling(ask=OWN_ASK)                    # (a) names the intersection exactly
+        self.record(tid, "a")
+        self.assertIn("(a) intersection", bd.get_ticket(self.board, tid)[1]["result"])
+
+
+T0769_ASK = (
+    "Pass 2026-10-27-T-0765 on flat:CLASS-23 (the bridge from loci to STAR-1 components). Run "
+    "A: CONFIRMED, modulo flat:CHASE-4 (it was `open` when A ran). Run B: CONFIRMED, modulo "
+    "none (CHASE-4 had been proved in the meantime, T-0767). decision_table.py reports "
+    "'disagreement on inputs' -> human. Neither run found a gap. Options: (a) recommended: "
+    "treat A's modulo as discharged and let the keeper set `proved`; (b) run a fresh blind "
+    "pair; (c) set proved-modulo CHASE-4 (immediately discharged). CLASS-23 unlocks the locus "
+    "form (your reading (a)) of CLASS-15 part 3 and CLASS-16, and of CLASS-25 against CLASS-4.")
+
+
+class TestReReview(RulingCase):
+    """Re-review of 7177423: three findings."""
+
+    def test_t0769_s_fresh_blind_pair_is_a_rerun(self):
+        """Finding 1: the real T-0769 ask; its (b) files the re-run."""
+        tid = self.ruling(ask=T0769_ASK)
+        own = rl.own_options(*bd.get_ticket(self.board, tid)[1:])
+        self.assertEqual(["accept", "rerun", "accept"], [rl.classify(v) for v in own.values()])
+        out = self.record(tid, "b")
+        self.assertEqual("verify", self.tickets()[out["follow_up"]]["kind"])
+        for text in ("run them again", "a fresh pair of runs", "two blind runs", "rerun it"):
+            self.assertEqual("rerun", rl.classify(text), text)
+
+    def test_an_other_option_on_a_ruling_needs_an_action(self):
+        tid = self.ruling(ask="Rule on the modulo inputs. Choose: (a) take proved-modulo "
+                              "[paper:lem:rigid, paper:cor:locus]; (b) consult the authors "
+                              "first; (c) re-run.")
+        thread = self.thread(tid)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "b")
+        self.assertIn("consult the authors first", str(cm.exception))
+        self.assertIn("--action", str(cm.exception))
+        self.assertEqual(thread, self.thread(tid))
+        out = self.record(tid, "b", action="wait")
+        self.assertEqual((False, None), (out["filed"], out["follow_up"]))
+        self.assertTrue(any(t.startswith("human decision: (b) wait") for t in self.thread(tid)))
+
+    def test_plain_proved_over_a_nonempty_intersection_is_refused(self):
+        """Finding 2: plain proved would drop inputs both runs list."""
+        tid = self.ruling(ask="Rule on the inputs: (a) take proved (the rest is formal); "
+                              "(b) re-run; (c) wait.")
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "a")
+        msg = str(cm.exception)
+        self.assertIn("paper:lem:rigid", msg)
+        self.assertIn("--action intersection", msg)
+        self.assertIn("--force", msg)
+        self.assertEqual("open", bd.get_ticket(self.board, tid)[1]["status"])
+        out = self.record(tid, "a", force=True)
+        k = bd.get_ticket(self.board, out["follow_up"])
+        self.assertIn("-> proved ", k[1]["title"])
+        self.assertIn("neither run's list", k[2])
+
+    def test_an_empty_intersection_keeps_plain_proved(self):
+        self.write_pass(a=record_text("A", modulo="paper:lem:rigid"),
+                        b=record_text("B", modulo="none"))
+        tid = self.ruling(ask="Rule on the inputs: (a) take proved; (b) re-run.")
+        out = self.record(tid, "a")
+        self.assertIn("-> proved ", self.tickets()[out["follow_up"]]["title"])
+
+    def test_wider_negation(self):
+        """Finding 3: a negation reaches its clause's next keyword, across commas; a 'but'
+        or the first keyword after it ends its reach."""
+        cases = {
+            "do not, under any circumstances, take proved but re-run": "rerun",
+            "no wait, re-run": "rerun",
+            "don't accept it, re-run the pass": "rerun",
+            "do not wait: take proved": "accept",
+            "accept nothing: re-run": "rerun",
+            "there is no need to wait, decline": "decline",
+            "leave it open, not proved yet": "other",
+            "take proved": "accept",
+        }
+        for text, want in cases.items():
+            self.assertEqual(want, rl.classify(text), text)
 
 
 class TestGithubBackend(RulingCase):
