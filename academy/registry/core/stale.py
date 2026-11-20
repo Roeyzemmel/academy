@@ -270,7 +270,7 @@ def positive(d):
             res = dt.decide(rec, None, base=(ba, bb), base_notes=notes)
             ok = _outcome(res).startswith("confirmed")
             if not ok and _outcome(res) == "invalid-base" and rec.get("base_pass"):
-                # a settled base (cor:covering-systole 0687 over 0670): the table does not
+                # a settled base (a reword over a settle-dependencies pass): the table does not
                 # read settlements, so the base is judged here
                 bs = str(rec.get("base_subject") or "").strip()
                 base_dir = (d.parent.parent.parent / bs.split(":", 1)[0] /
