@@ -38,16 +38,27 @@ HARNESS = r"""
 const block = require('fs').readFileSync(process.argv[2], 'utf8')
 const plan = JSON.parse(process.argv[3])
 const calls = []
-async function agent(prompt, opts) { calls.push(opts); return 'ok' }
-const body = new Function('A', 'agent', block + '\nreturn { launch, TIER_MODELS, TIER_DEFAULTS }')
+const prompts = []
+let answers = {}
+async function agent(prompt, opts) {
+  calls.push(opts); prompts.push(prompt)
+  return Object.prototype.hasOwnProperty.call(answers, opts.label) ? answers[opts.label] : 'ok'
+}
+const body = new Function('A', 'agent', block + '\nreturn { launch, TIER_MODELS, TIER_DEFAULTS, MODELS, LAUNCH_LIMIT }')
 const out = []
 ;(async () => {
   for (const c of plan.cases) {
-    const { launch, TIER_MODELS, TIER_DEFAULTS } = body(c.args, agent)
-    calls.length = 0
+    calls.length = 0; prompts.length = 0; answers = c.answers || {}
     try {
-      await launch('p', c.opts)
-      out.push({ opts: calls[0], map: TIER_MODELS, defaults: TIER_DEFAULTS, same: calls[0] === c.opts })
+      const { launch, TIER_MODELS, TIER_DEFAULTS, MODELS, LAUNCH_LIMIT } = body(c.args, agent)
+      const n = c.times || 1
+      let results = []
+      if (c.parallel) results = await Promise.all(Array.from({ length: n }, () => launch('p', c.opts)))
+      else for (let i = 0; i < n; i++) results.push(await launch('p', c.opts))
+      const last = calls[calls.length - 1]
+      out.push({ opts: last, first: calls[0], labels: calls.map(x => x.label), prompts: prompts.slice(),
+                 map: TIER_MODELS, defaults: TIER_DEFAULTS, same: last === c.opts, source: MODELS.source,
+                 results, stopped: LAUNCH_LIMIT.stopped })
     } catch (e) { out.push({ error: String(e), calls: calls.length }) }
   }
   console.log(JSON.stringify(out))
@@ -106,7 +117,8 @@ class TheBlock(unittest.TestCase):
         docs = (REPO / "academy" / "docs" / "workflows.md").read_text(encoding="utf-8")
         self.assertRegex(docs, r"(?m)^## Models\b")
         section = re.search(r"(?ms)^## Models\b.*?(?=^## )", docs).group(0)
-        for needle in ("args.models", "models.py launches", "launch(", "tier:", "nested"):
+        for needle in ("args.models", "models.py launches", "launch(", "tier:", "nested", "not given",
+                       "no override", "modelsMap()"):
             self.assertIn(needle.lower(), section.lower())
         config = (REPO / "academy" / "docs" / "config.md").read_text(encoding="utf-8")
         self.assertIn("models.py launches", config)
@@ -119,7 +131,7 @@ class TheBlock(unittest.TestCase):
             for m in NESTED.finditer(src):
                 seen += 1
                 call = src[m.start():m.start() + 260]
-                self.assertIn("models: TIER_MODELS", call, "%s: %s" % (rel, call))
+                self.assertIn("models: await modelsMap()", call, "%s: %s" % (rel, call))
         self.assertGreaterEqual(seen, 11)          # inbox.js's routes and workplan.js's inbox
 
 
@@ -161,36 +173,108 @@ class LaunchUnderNode(unittest.TestCase):
         self.assertTrue(out[2]["same"])
         self.assertNotIn("model", out[3]["opts"])
 
-    def test_no_map_or_a_malformed_one_changes_nothing(self):
+    def test_bad_entries_of_a_given_map_change_nothing(self):
         opts = {"label": "run A", "agentType": "expert:rigor-reviewer", "model": "opus"}
         out = self.run_cases([
-            {"args": {}, "opts": opts},
-            {"args": {"models": None}, "opts": opts},
-            {"args": {"models": ["fable"]}, "opts": opts},
-            {"args": {"models": "fable"}, "opts": opts},
             {"args": {"models": {"expert:rigor-reviewer": 3}}, "opts": opts},
             {"args": {"models": {"expert:rigor-reviewer": ""}}, "opts": opts},
             {"args": {"models": {"constructor": "fable"}},
              "opts": {"label": "x", "agentType": "constructor"}},
             {"args": {"models": {"toString": "fable"}}, "opts": {"label": "y", "agentType": "hasOwnProperty"}},
         ])
-        for o in out[:6]:
+        for o in out[:2]:
             self.assertEqual(o["opts"]["model"], "opus")
             self.assertTrue(o["same"])
-        self.assertEqual(out[2]["map"], {})
-        self.assertEqual(out[3]["map"], {})
-        self.assertEqual(out[6]["opts"]["model"], "fable")   # an own key is a key
-        self.assertNotIn("model", out[7]["opts"])            # an inherited name is not
+            self.assertEqual(o["labels"], ["run A"])        # a given map: no stage
+        self.assertEqual(out[2]["opts"]["model"], "fable")   # an own key is a key
+        self.assertNotIn("model", out[3]["opts"])            # an inherited name is not
 
+    def test_an_empty_map_given_is_no_override_and_runs_no_stage(self):
+        """#83: {} is what models.py launches prints when the workspace maps nothing away;
+        given, it is the map, not a missing one."""
+        opts = {"label": "run A", "agentType": "expert:rigor-reviewer", "model": "opus"}
+        out = self.run_cases([{"args": {"models": {}}, "opts": opts, "times": 2}])
+        self.assertEqual(out[0]["labels"], ["run A", "run A"])
+        self.assertTrue(out[0]["same"])
+        self.assertEqual((out[0]["map"], out[0]["source"]), ({}, "args"))
+
+    def test_a_map_not_given_is_resolved_once_by_models_py_launches(self):
+        """#83: a run started without args.models (the 2026-11-20 inbox run) resolved
+        nothing and launched the max-tier agents on their file's opus."""
+        printed = '{"expert:rigor-reviewer": "fable", "tier:max": "fable"}\n'
+        opts = {"label": "run A", "agentType": "expert:rigor-reviewer"}
+        out = self.run_cases([
+            {"args": {"root": "/acad/"}, "opts": opts, "times": 2, "answers": {"models": {"output": printed}}},
+            {"args": {"models": None}, "opts": opts, "answers": {"models": {"output": "```json\n" + printed + "```"}}},
+            {"args": {}, "opts": opts, "times": 3, "parallel": True, "answers": {"models": {"output": printed}}},
+        ])
+        for o in out:
+            self.assertNotIn("error", o, o.get("error"))
+            self.assertEqual(o["labels"][0], "models")
+            self.assertEqual(o["labels"].count("models"), 1)          # once per run
+            self.assertEqual(o["opts"]["model"], "fable")
+            self.assertEqual(o["map"], {"expert:rigor-reviewer": "fable", "tier:max": "fable"})
+            self.assertEqual(o["source"], "resolved")
+            stage = o["first"]
+            self.assertEqual((stage["agentType"], stage["model"]), ("general-purpose", "haiku"))
+            self.assertNotIn("tier", stage)
+        self.assertEqual(out[0]["labels"], ["models", "run A", "run A"])
+        self.assertIn("`py /acad/academy/scripts/models.py launches`", out[0]["prompts"][0])
+        self.assertIn("<academy repo>/academy/scripts/models.py launches", out[1]["prompts"][0])
+        self.assertIn("workspace_get", out[1]["prompts"][0])
+
+    def test_a_map_that_cannot_be_resolved_is_refused_loudly(self):
+        opts = {"label": "run A", "agentType": "expert:rigor-reviewer"}
+        out = self.run_cases([
+            {"args": {"root": "/acad"}, "opts": opts,
+             "answers": {"models": {"output": "models: workspace.json not found"}}},
+            {"args": {"root": "/acad"}, "opts": opts, "answers": {"models": {"output": "[1, 2]"}}},
+            # a map inside prose is refused, never guessed (review of abf478f)
+            {"args": {"root": "/acad"}, "opts": opts,
+             "answers": {"models": {"output": 'The map is {"expert:rigor-reviewer": "fable"} I think'}}},
+        ])
+        for o in out:
+            self.assertIn("args.models was not given", o.get("error", ""))
+            self.assertIn("rerun with args.models", o["error"])
+            self.assertIn("py /acad/academy/scripts/models.py launches", o["error"])
+            self.assertEqual(o["calls"], 1)                         # the stage only: nothing launched
+        self.assertIn("workspace.json not found", out[0]["error"])
+
+    def test_a_lookup_that_returns_nothing_stops_the_run_like_a_usage_limit(self):
+        """Review of abf478f: a null lookup (a usage limit at the start) must stop the run the
+        way three null launches do (#115), not throw: the inbox then returns stopped."""
+        opts = {"label": "run A", "agentType": "expert:rigor-reviewer"}
+        out = self.run_cases([{"args": {"root": "/acad"}, "opts": opts, "times": 2,
+                               "answers": {"models": None}}])
+        o = out[0]
+        self.assertNotIn("error", o, o.get("error"))
+        self.assertEqual([None, None], o["results"])
+        self.assertTrue(o["stopped"])
+        self.assertNotIn("run A", o["labels"])                    # nothing launched after it
+        self.assertIn("python3 /acad/academy/scripts/models.py launches", o["prompts"][0])
+
+    def test_a_malformed_map_is_refused_before_anything_is_launched(self):
+        opts = {"label": "run A", "agentType": "expert:rigor-reviewer"}
+        out = self.run_cases([{"args": {"models": bad}, "opts": opts}
+                              for bad in (["fable"], "fable", 3, True, "[1]")])
+        for o in out:
+            self.assertIn("args.models is no JSON object", o.get("error", ""))
+            self.assertIn("models.py launches", o["error"])
+            self.assertEqual(o["calls"], 0)
+
+    def test_a_map_given_as_json_text_is_read(self):
+        out = self.run_cases([{"args": {"models": '{"expert:rigor-reviewer": "fable"}'},
+                               "opts": {"label": "run A", "agentType": "expert:rigor-reviewer"}}])
+        self.assertEqual((out[0]["labels"], out[0]["opts"]["model"], out[0]["source"]), (["run A"], "fable", "args"))
 
     def test_an_agent_with_no_file_is_launched_by_tier(self):
         gp = {"label": "file", "agentType": "general-purpose", "tier": "medium"}
         out = self.run_cases([
-            {"args": {}, "opts": gp},
+            {"args": {"models": {}}, "opts": gp},
             {"args": {"models": {"tier:medium": "opus"}}, "opts": gp},
             {"args": {"models": {"tier:max": "fable"}}, "opts": gp},
-            {"args": {}, "opts": {"label": "x", "agentType": "general-purpose", "tier": "huge"}},
-            {"args": {}, "opts": {"label": "x", "agentType": "general-purpose", "tier": "constructor"}},
+            {"args": {"models": {}}, "opts": {"label": "x", "agentType": "general-purpose", "tier": "huge"}},
+            {"args": {"models": {}}, "opts": {"label": "x", "agentType": "general-purpose", "tier": "constructor"}},
         ])
         self.assertEqual(out[0]["opts"], {"label": "file", "agentType": "general-purpose", "model": "sonnet"})
         self.assertEqual(out[1]["opts"]["model"], "opus")
@@ -200,7 +284,7 @@ class LaunchUnderNode(unittest.TestCase):
             self.assertEqual(o["calls"], 0)                    # nothing launched
 
     def test_the_tier_defaults_are_the_academy_default_map(self):
-        out = self.run_cases([{"args": {}, "opts": {"label": "x"}}])
+        out = self.run_cases([{"args": {"models": {}}, "opts": {"label": "x"}}])
         self.assertEqual(out[0]["defaults"],
                          {t: ac.launch_model(ac.DEFAULT_MODEL_TIERS[t]) for t in ac.TIERS})
 

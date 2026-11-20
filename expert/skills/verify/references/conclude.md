@@ -341,7 +341,13 @@ LF, Markdown, written by you:
    - a counterexample, from a DISPROVED run or from the falsifier of section 1a, or runs
      that still disagree on the inputs (a `disagreement`, never a `confirmed-settled`): a
      `decision` ticket to the human (the one rule for a counterexample; never a `prove`
-     ticket);
+     ticket). For runs that disagree on the inputs (a **ruling**), set `parent` to the
+     verify ticket and name the pass record in `refs`
+     (`file:<expert instance>/reviews/<ns>/<id-slug>/<pass>/decision.md`): the human's
+     answer is recorded by `decisions.py record`, which reads the pass from there, offers
+     (a) union, (b) intersection, (c) re-run, (d) decline, and files the keeper's
+     `decision` ticket (or the re-run's `verify` ticket) itself (#121 item 4). Do not
+     file the keeper ticket for a ruling yourself;
    - a missing card: kind `cite`.
 
    Each ticket says where the defect lives, what exactly is missing, the repair both

@@ -138,5 +138,89 @@ class CardTests(unittest.TestCase):
         self.assertEqual(out["cards"][0]["quote"], "verified")
 
 
+BIB = """@article{ABC21,
+  author = {Able, A.},
+  title = {A paper},
+  eprint = {2101.00001},
+  archivePrefix = {arXiv},
+}
+
+@article{XY20,
+  author = {Ex, X.},
+  doi = {10.1000/XYZ},
+}
+"""
+
+
+class DuplicateTests(unittest.TestCase):
+    """#94 review: after a librarian retry, nothing checked for a second bib entry or card.
+    cards.py dups counts the entries of the key (and of the same DOI / arXiv id) in the
+    bibliography and the cards of the key and pinpoint; more than one is a duplicate."""
+
+    def setUp(self):
+        self.sb = fixtures.Sandbox()
+        self.home = self.sb.lib
+        self.bib = self.sb.write("paperhome/references.bib", BIB)
+        self.sb.write("papers/cards/ABC21/lemma-2-1.md", fixtures.card_text())
+
+    def tearDown(self):
+        self.sb.close()
+
+    def test_one_entry_and_one_card_is_clean(self):
+        r = cards.duplicates(self.home, "ABC21", "Lemma 2.1", bib=self.bib, ref="arXiv:2101.00001v2")
+        self.assertEqual((r["bib_key"], r["bib_id"], r["cards"]), (1, 1, 1))
+        self.assertEqual(r["problems"], [])
+
+    def test_a_second_entry_of_the_key_is_a_duplicate(self):
+        self.sb.write("paperhome/references.bib", BIB + "\n@misc{ABC21,\n  title = {again},\n}\n")
+        r = cards.duplicates(self.home, "ABC21", "Lemma 2.1", bib=self.bib)
+        self.assertEqual(r["bib_key"], 2)
+        self.assertTrue(r["problems"])
+
+    def test_the_same_arxiv_id_under_another_key_is_a_duplicate(self):
+        self.sb.write("paperhome/references.bib", BIB + "\n@article{Able21,\n  url = {https://arxiv.org/abs/2101.00001v1},\n}\n")
+        r = cards.duplicates(self.home, "ABC21", "Lemma 2.1", bib=self.bib, ref="2101.00001")
+        self.assertEqual((r["bib_key"], r["bib_id"]), (1, 2))
+        self.assertIn("2101.00001", " ".join(r["problems"]))
+
+    def test_the_same_doi_any_case_and_prefix_is_a_duplicate(self):
+        self.sb.write("paperhome/references.bib", BIB + '\n@article{XY20b,\n  doi = "https://doi.org/10.1000/xyz",\n}\n')
+        r = cards.duplicates(self.home, "XY20", "Theorem 3", bib=self.bib, ref="doi:10.1000/xyz")
+        self.assertEqual(r["bib_id"], 2)
+        self.assertTrue(r["problems"])
+
+    def test_a_ref_that_is_a_key_or_title_has_no_id_check(self):
+        r = cards.duplicates(self.home, "ABC21", "Lemma 2.1", bib=self.bib, ref="A paper")
+        self.assertIsNone(r["bib_id"])
+
+    def test_a_second_card_for_the_same_pinpoint_is_a_duplicate(self):
+        self.sb.write("papers/cards/ABC21/lem-2-1.md", fixtures.card_text(pinpoint="lemma  2.1"))
+        self.sb.write("papers/cards/ABC21/theorem-3-4.md", fixtures.card_text(pinpoint="Theorem 3.4"))
+        r = cards.duplicates(self.home, "ABC21", "Lemma 2.1", bib=self.bib)
+        self.assertEqual(r["cards"], 2)
+        self.assertTrue(r["problems"])
+
+    def test_the_bib_named_as_instance_and_path(self):
+        r = cards.duplicates(self.home, "ABC21", "Lemma 2.1", bib="author@main:references.bib")
+        self.assertEqual(r["bib_key"], 1)
+        self.assertEqual(r["bib"].replace("\\", "/"), self.bib.replace("\\", "/"))
+
+    def test_an_unreadable_bib_is_said_not_counted(self):
+        r = cards.duplicates(self.home, "ABC21", "Lemma 2.1", bib="nobody@x:references.bib")
+        self.assertIsNone(r["bib_key"])
+        self.assertIn("not found", " ".join(r["warnings"]))
+        self.assertEqual(r["problems"], [])
+
+    def test_the_cli_exits_1_on_a_duplicate_and_prints_json(self):
+        args = ["dups", "ABC21", "Lemma 2.1", "--home", self.home, "--bib", self.bib, "--ref", "2101.00001", "--json"]
+        code, out, err = fixtures.run_script("cards.py", None, args)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["cards"], 1)
+        self.sb.write("paperhome/references.bib", BIB + "\n@misc{ABC21,\n}\n")
+        code, out, err = fixtures.run_script("cards.py", None, args)
+        self.assertEqual(code, 1, err)
+        self.assertEqual(out["bib_key"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -39,7 +39,9 @@ output.
 **Reviewing a diff** (`superpowers:requesting-code-review` is the developer's side;
 yours is the review). Read the ticket, then the tests, then the code. Report
 findings as a numbered list, each with the file and line, what goes wrong on which
-input, and how bad it is; say plainly when there are none. You do not fix the code
+input, and how bad it is; say plainly when there are none. When the stage asks for a structured answer, its
+`verdict` field (`approved` or `findings`) is the verdict, and each finding goes in
+`findings`; the caller never reads the verdict from your prose. You do not fix the code
 you review: findings go back to the developer through the ticket thread
 (`tickets_update`). You may add a failing test that demonstrates a finding.
 

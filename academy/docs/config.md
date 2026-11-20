@@ -140,9 +140,12 @@ per-workspace map, and the choice:
   launched by tier, and no script names a model (docs/workflows.md, "Models").
 - **Max-tier launches** (T-1682): every launch of a max-tier agent (the prover, the three
   graders) goes through one block shared by the workflows that make them (`launchMax`;
-  a test pins it identical): the value is `args.models["<plugin:agent>"]`, else one clerk
-  stage runs `models.py agent <name> --launch` (only when no map was passed at all; an
-  agent a passed map, even `{}`, leaves out runs on its file's model). It launches through
+  a test pins it identical): the value is the Models block's map entry for
+  `"<plugin:agent>"`, the map `args.models` gave or, when none was given, the one that
+  block resolved once for the run by `models.py launches` (#83; docs/workflows.md,
+  "Models"); an agent the map leaves out runs on its file's model (which is then the
+  workspace's), and a value that is no launch alias is resolved by one clerk stage
+  running `models.py agent <name> --launch`. It launches through
   `launch()` with `exactModel`, which wins over the map (so a value resolved here, or the
   fallback below, is the model the run gets), and nested workflows get the same
   `args.models` as every other agent.

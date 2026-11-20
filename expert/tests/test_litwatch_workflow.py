@@ -26,7 +26,8 @@ async function agent(prompt, opts) {
 }
 async function parallel(thunks) { const out = []; for (const t of thunks) { try { out.push(await t()) } catch (e) { out.push(null) } } return out }
 const body = new Function('args', 'agent', 'phase', 'log', 'parallel', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, () => {}, parallel).then(
+// as the skills pass it (models.py launches prints {} under the default map); null: not given (#83)
+body(Object.assign({ models: {} }, plan.__args), agent, () => {}, () => {}, parallel).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """

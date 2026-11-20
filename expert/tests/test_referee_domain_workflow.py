@@ -123,11 +123,18 @@ class RefereeMaxTierTests(unittest.TestCase):
         res, labels, calls, err = run("referee.js", dict(self.BASE, referee=["r"]), {"ticket": "T-0700"})
         self.assertIsNone(err, err)
         self.assertEqual(next(c for c in calls if c["label"] == "referee")["model"], "fable")
+        # a map value that is no alias: one clerk stage resolves it
         res, labels, calls, err = run("referee.js", dict(self.BASE, referee=["r"], **{"model expert:referee": [{"output": "opus"}]}),
-                                      {"ticket": "T-0700", "models": None})
+                                      {"ticket": "T-0700", "models": {"expert:referee": "claude-opus-5-5"}})
         self.assertIsNone(err, err)
         self.assertEqual(labels, ["start", "pdf", "model expert:referee", "referee", "find packet", "deliver"])
         self.assertEqual(next(c for c in calls if c["label"] == "referee")["model"], "opus")
+        # no map given (#83): the Models block resolves it once, before anything else, by models.py launches
+        res, labels, calls, err = run("referee.js", dict(self.BASE, referee=["r"], models=[{"output": '{"expert:referee": "fable"}'}]),
+                                      {"ticket": "T-0700", "models": None})
+        self.assertIsNone(err, err)
+        self.assertEqual(labels, ["models", "start", "pdf", "referee", "find packet", "deliver"])
+        self.assertEqual(next(c for c in calls if c["label"] == "referee")["model"], "fable")
 
     def test_a_lost_run_falls_back_and_the_ticket_says_so(self):
         res, labels, calls, err = run("referee.js", dict(self.BASE, referee=[None], **{"referee (opus fallback)": ["r"]}),

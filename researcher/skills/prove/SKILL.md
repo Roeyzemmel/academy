@@ -64,6 +64,23 @@ The inbox runs the same script for a `prove` ticket. The script:
      gaps), checked by the clerk; the delivery is unchanged and names it
      (`falsifier_ticket`). An incomplete repair for a verify pass is blocked on the human
      and files one too. A run lost to a limit files nothing.
+   - **A repair that changed the record** (#85; not the dependency amendment). Before the
+     attempt a clerk stage records what the status rests on: the last confirmed pass
+     (`reviews.py list`), the proof it reviewed (else the record's `proof:` field) and that
+     proof's `reviews.py hash --file`. After an incomplete repair attempt a second clerk
+     stage hashes the statement (`reviews.py hash --claim`) and that proof again. Changed,
+     with a review standing on the old text (status `proved` / `proved-modulo`, or a
+     confirmed pass): `lead-researcher` files a verify ticket to the Expert, checked by the
+     clerk: **reword** mode, titled `Verify <claim> (reword of <pass>)` (the inbox reads that
+     title), when only the statement moved over a confirmed pass; a blind one, saying why,
+     when the statement moved with no confirmed pass or with the proof not comparable (a
+     confirmed pass naming no reviewed proof is not comparable). A changed proof files
+     nothing (a blind pass on an attempt reported incomplete adds nothing): the result and a
+     thread note say the status no longer stands on the reviewed text and that a verify
+     follows the next complete attempt (`record_stale`). Unchanged, the result says why no
+     ticket is needed; a comparison that could not be made files nothing and says how to
+     check. The result line says "nothing filed for review" only when nothing was. A complete repair's own verify ticket reviews the new text: no second ticket.
+     The result: `record_change`, `record_verify`, `record_verify_why`.
 
    On a ticket, the result line names the verify ticket and the dependencies, or the gaps
    and the falsifier ticket filed.

@@ -164,8 +164,10 @@ def _check_party(name, workspace, what):
 def create_ticket(board, to, title, ask, deliverable, kind="other", priority="normal",
                   refs=None, agenda=None, domain=None, parent=None, budget=None,
                   detail="", as_instance=None, agent="", workspace=None, date=None,
-                  final_to=None, perms=None, campaign=None, cowork=None):
-    """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path.
+                  final_to=None, perms=None, campaign=None, cowork=None, return_meta=False):
+    """Allocate an id and write a new ``open`` ticket in ``board/<to>/``. Returns its path
+    (with ``return_meta``, ``(path, meta)``: the stored frontmatter, its id included, so a
+    caller on the GitHub store need not list the board to learn it).
 
     ``campaign`` (a registry id, the campaign's target) tags the ticket so
     ``inbox.py --campaign <target>`` selects it; ``cowork`` (a slug, the plan
@@ -181,10 +183,10 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     _check_party(as_instance, ws, "from")
     who = bare_agent(agent) or (ac.MAIN_AGENT if as_instance != ac.HUMAN else "")
     store = ac.as_store(board)
-    depth = ac.relay_depth(store, parent) if final_to and parent else 0
-    ok, why = ac.ticket_edge_allowed(as_instance, to, who,
-                                     perms if perms is not None else ac.load_permissions(),
-                                     ws, final_to, depth)
+    perms = perms if perms is not None else ac.load_permissions()
+    depth = ac.relay_depth(store, parent, as_instance, to, final_to,
+                           ac.ticket_edges(perms)["chain"], ws) if final_to and parent else 0
+    ok, why = ac.ticket_edge_allowed(as_instance, to, who, perms, ws, final_to, depth)
     if not ok:
         raise ac.AcademyError("refused: " + why)
     if kind not in ac.TICKET_KINDS:
@@ -210,8 +212,8 @@ def create_ticket(board, to, title, ask, deliverable, kind="other", priority="no
     text = ac.new_ticket(meta, detail)
     fm, body = ac.read_frontmatter(text)
     body = ac.append_thread(body, ac.format_who(as_instance, who), "opened", date)
-    path, _fm = store.create(fm, body)
-    return path
+    path, stored = store.create(fm, body)
+    return (path, stored) if return_meta else path
 
 
 def append_to_ticket(board, tid, text, as_instance=ac.HUMAN, agent="", date=None):

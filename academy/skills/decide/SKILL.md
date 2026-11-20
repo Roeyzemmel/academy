@@ -44,6 +44,20 @@ phrases the questions. Neither one asks the human or records on its own.
    `open`, `accepted`/`cancelled` from `blocked`, with the comment as the reason for a
    decline). Do this before moving to the next batch, so an interrupted run loses
    nothing already answered.
+   A **ruling** (an item with `ruling`: an Expert's question on the inputs of a pass
+   with two CONFIRMED runs) has the options (a) union, (b) intersection, (c) re-run,
+   (d) decline, and takes one of those letters, never a bare `proceed`. Its record
+   files the follow-up in the same step (the claim-keeper's `decision` ticket with the
+   chosen modulo and the pass's verdicts as grounds, or a `verify` re-run to the
+   Expert) and delivers the ruling naming it; report the ticket id `record` returns
+   (`follow_up`). Recording it again files nothing new, and completes a record that was
+   interrupted. When the dependency-settler stopped on a case that leaves no status
+   (12, 11, or 7 with no existing result), only (c) and (d) are offered. A free-text
+   answer that picks none of the offered options is not recorded: put the question
+   again, quoting the answer, until the human picks one or skips it.
+   `decisions.py stalled-rulings` lists rulings answered but not delivered (no
+   follow-up yet, or a record interrupted); `record <id> --choice <a-c>` files or
+   completes theirs.
 5. **Offer the mechanical shortcut.** After a batch, if every remaining pending
    decision (`py $S/decisions.py list --json`) is `"kind": "mechanical"`, add one more
    option to the next `AskUserQuestion` call: "Accept all remaining recommendations

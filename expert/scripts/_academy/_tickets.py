@@ -112,6 +112,29 @@ def ticket_edges(perms):
             "exempt": list(e.get("exempt") or [])}
 
 
+def relay_direction(frm, to, final_to, chain=None, workspace=None):
+    """Which way a relay ticket travels along ``chain``: +1 down (toward its last role),
+    -1 up (toward its first), 0 when it cannot be told.
+
+    Read from ``frm`` to ``final_to``; failing that (a party without a chain role, such
+    as 'human', or the same role at both ends) from ``frm`` to ``to``, then from ``to``
+    to ``final_to``. A party is a chain role or an instance.
+    """
+    chain = list(chain or CHAIN_DEFAULT)
+
+    def place(party):
+        if not party:
+            return None
+        role = party if party in chain else role_of(party, workspace)
+        return chain.index(role) if role in chain else None
+
+    f, t, F = place(frm), place(to), place(final_to)
+    for a, b in ((f, F), (f, t), (t, F)):
+        if a is not None and b is not None and a != b:
+            return 1 if b > a else -1
+    return 0
+
+
 def relay_return_ready(meta, status_of, workspace=None):
     """Whether a blocked relay parent is ready for its return leg (protocol section 5.2).
 
@@ -157,7 +180,8 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
     ticket or an exempt agent is allowed; the same role is allowed; otherwise the roles
     must be adjacent in the chain and ``agent`` a liaison of that direction.
     ``final_to`` (a role or instance) must lie beyond ``to`` as seen from ``frm``, and
-    ``depth`` (relay_depth of the parent) + 1 may not exceed maxHops.
+    ``depth`` (relay_depth of the parent, counted in the direction of this ticket) + 1
+    may not exceed maxHops.
     Returns ``(allowed, reason)``.
     """
     edges = ticket_edges(perms)

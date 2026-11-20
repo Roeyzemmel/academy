@@ -2050,6 +2050,21 @@ class TestChainGate(McpTestBase):
         err, g = self.server().call("tickets_get", id=t["id"])
         self.assertEqual(g["meta"]["final_to"], "researcher")
 
+    def test_a_reply_back_toward_the_origin_starts_a_fresh_hop_count(self):
+        # the T-1722 shape: out author -> expert -> researcher, back researcher ->
+        # expert -> author; the last child was refused as a 4th hop
+        steps = [("author@t", None, "expert@t", "researcher"),
+                 ("expert@t", "expert:research-intake", "researcher@t", "researcher"),
+                 ("researcher@t", "researcher:lead-researcher", "expert@t", "author"),
+                 ("expert@t", "expert:paper-liaison", "author@t", "author")]
+        parent = None
+        for home, caller, to, final_to in steps:
+            kw = {"parent": parent} if parent else {}
+            err, t = self.create(self.server(home), caller=caller, to=to, kind="research",
+                                 final_to=final_to, **kw)
+            self.assertFalse(err, (caller, t))
+            parent = t["id"]
+
     def test_propose_status_is_clerical(self):
         # author@t -> researcher@t is not a neighbour edge; a proposal is clerical
         err, res = self.server("author@t").call(

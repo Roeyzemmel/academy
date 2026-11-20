@@ -33,7 +33,9 @@ async function agent(prompt, opts) {
   calls.push({ label: opts.label, agentType: opts.agentType, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
-  return q.shift()
+  const v = q.shift()
+  if (v && v.__throw) throw new Error(v.__throw)     // a run that ended without its structured output
+  return v
 }
 async function workflow(ref, a) {
   const name = ref.scriptPath.split('/').pop()
@@ -77,7 +79,7 @@ def child(cid, parent, frm, to, kind, final_to):
 @unittest.skipUnless(NODE, "node is not installed")
 class InboxWorkflowTests(unittest.TestCase):
     def run_wf(self, plan, **args):
-        a = {"root": "/academy"}
+        a = {"root": "/academy", "models": {}}   # as the skills pass it; models=None: not given
         a.update(args)
         plan = dict(plan, __args=a)
         d = tempfile.mkdtemp(prefix="acad-inwf-")
@@ -229,8 +231,58 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(wfs[0]["args"]["subject"], "lab:x")
         self.assertEqual(wfs[0]["args"]["report"], "P-0009")
         self.assertEqual(wfs[1]["args"]["mode"], "settle-audit")        # settle chained, no hand-back
-        self.assertEqual([w["args"]["models"] for w in wfs], [{}, {}])   # no map given: an empty one
+        self.assertEqual([w["args"]["models"] for w in wfs], [{}, {}])   # {} given: no override, passed on
         self.assertNotIn("models", labels)
+
+    def test_a_run_without_the_map_resolves_it_once_and_passes_it_down(self):
+        """#83: the 2026-11-20 run was started without args.models; the inbox passed {} down
+        and verify.js took it for the workspace's map, so the graders ran on opus."""
+        rows = [row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t",
+                    refs=["paper:lem:x"]),
+                row("T-2", how="skill", target="researcher:review-experiment",
+                    kind="review-experiment", to="researcher@u", refs=["lab:x", "P-0009"])]
+        res, labels, calls = self.run_wf({
+            "models": [{"output": json.dumps(MAXMAP) + "\n"}],
+            "list": [{"instances": [inst("expert@t", rows[:1]), inst("researcher@u", rows[1:])]}],
+            "workflow verify.js": [{"outcome": "confirmed", "proposed_status": "proved"}],
+            "workflow review-experiment.js": [{"outcome": "cleared", "notes": []}],
+            "check T-1": [DONE], "check T-2": [DONE]}, models=None)
+        self.assertEqual(labels[0], "models")                        # before anything else
+        self.assertEqual(labels.count("models"), 1)                  # once per run
+        stage = calls[0]
+        self.assertEqual(stage["agentType"], "general-purpose")
+        self.assertIn("py /academy/academy/scripts/models.py launches", stage["prompt"])
+        wfs = [c for c in calls if c["label"].startswith("workflow ")]
+        self.assertEqual(len(wfs), 2)
+        self.assertEqual([w["args"]["models"] for w in wfs], [MAXMAP, MAXMAP])   # the resolved map
+
+    def test_a_run_whose_map_cannot_be_resolved_is_refused(self):
+        p = os.path.join(tempfile.mkdtemp(prefix="acad-inwf-"), "h.js")
+        self.addCleanup(shutil.rmtree, os.path.dirname(p), True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(HARNESS)
+        plan = {"models": [{"output": "Traceback: workspace.json not found"}],
+                "list": [{"instances": []}], "__args": {"root": "/academy"}}
+        out = subprocess.run([NODE, p, SCRIPT, json.dumps(plan)], capture_output=True, text=True, timeout=60)
+        res = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertIn("args.models was not given", res.get("error", ""))
+        self.assertIn("py /academy/academy/scripts/models.py launches", res["error"])
+        self.assertEqual([c["label"] for c in res["calls"]], ["models"])   # nothing else ran
+
+    def test_a_usage_limit_at_the_map_lookup_returns_stopped(self):
+        """Review of abf478f: no map and a usage limit at the start (the lookup returns
+        nothing) ends the run as a usage limit does (stopped, usage_limit), not a throw."""
+        p = os.path.join(tempfile.mkdtemp(prefix="acad-inwf-"), "h.js")
+        self.addCleanup(shutil.rmtree, os.path.dirname(p), True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(HARNESS)
+        plan = {"models": [None], "__args": {"root": "/academy"}}
+        out = subprocess.run([NODE, p, SCRIPT, json.dumps(plan)], capture_output=True, text=True, timeout=60)
+        res = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertNotIn("error", res, res.get("error"))
+        self.assertIn("usage limit", res["result"]["stopped"])
+        self.assertTrue(res["result"]["usage_limit"])
+        self.assertEqual([c["label"] for c in res["calls"]], ["models"])
 
     def test_a_nested_explore_hand_back_reaches_the_main_session(self):
         """#87: explore hands its prove step back as for_main; the inbox passes it on with
@@ -273,6 +325,41 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(next(c for c in calls if c["label"] == "workflow verify.js")["args"]["claim"], "s1:GEO-3")
         self.assertIn("read from the title", " ".join(res["notes"]))
 
+    def test_a_reword_verify_ticket_runs_verify_in_reword_mode(self):
+        """#85: prove.js files a repair's reword verify titled "Verify <claim> (reword of
+        <pass>)"; the inbox passes mode reword and that base pass. Any other title is blind."""
+        def args(title, refs=("s1:GEO-3", "T-0003")):
+            r = dict(row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=list(refs)),
+                     title=title)
+            res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r])]}],
+                                              "workflow verify.js": [{"outcome": "x"}], "check T-1": [DONE]})
+            return res, next(c for c in calls if c["label"] == "workflow verify.js")["args"]
+        res, a = args("Verify s1:GEO-3 (reword of 2026-11-01-T-0007)")
+        self.assertEqual((a["claim"], a.get("mode"), a.get("base_pass")), ("s1:GEO-3", "reword", "2026-11-01-T-0007"))
+        self.assertIn("reword", " ".join(res["notes"]))
+        for title in ("Verify s1:GEO-3", "Verify s1:GEO-3 (reword)", "Verify s1:GEO-3 (reword of the old text)",
+                      "Verify s1:GEO-3 (reword of 2026-11-01-T-0007-reword)"):
+            _res, a = args(title)
+            self.assertNotIn("mode", a, title)
+            self.assertNotIn("base_pass", a, title)
+
+    def test_a_reword_pass_that_does_not_start_says_a_blind_verify_is_needed(self):
+        """Review of 62be9fa: new-pass --reword-of refuses a base that is not CONFIRMED x2."""
+        r = dict(row("T-1", how="skill", target="expert:verify", kind="verify", to="expert@t", refs=["s1:GEO-3"]),
+                 title="Verify s1:GEO-3 (reword of 2026-11-01-T-0007)")
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r])]}],
+                                          "workflow verify.js": [{"outcome": "not-started", "reason": "base pass not confirmed x2"}],
+                                          "check T-1": [DONE]})
+        notes = " ".join(res["notes"])
+        self.assertIn("not CONFIRMED x2 needs a blind verify instead", notes)
+        self.assertIn("base pass not confirmed x2", notes)
+        # a blind verify that does not start gets no such line
+        r = dict(r, title="Verify s1:GEO-3")
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("expert@t", [r])]}],
+                                          "workflow verify.js": [{"outcome": "not-started", "reason": "an open pass"}],
+                                          "check T-1": [DONE]})
+        self.assertNotIn("blind verify instead", " ".join(res["notes"]))
+
     def test_the_inbox_passes_its_map_and_resolves_no_model_itself(self):
         """T-0350 with T-1682: the inbox runs no model stage; the map it was given goes to
         every nested workflow as it is, whose launchMax resolves a max-tier agent the map
@@ -295,13 +382,116 @@ class InboxWorkflowTests(unittest.TestCase):
         rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
         plan = {"list": [{"instances": [inst("scientist@t", rows)]}],
                 "T-1 start": [OK],
-                "developer T-1": ["diff 1"], "test-engineer T-1": ["FINDINGS: x", "APPROVED"],
+                "developer T-1": ["diff 1"],
+                "test-engineer T-1": [{"verdict": "findings", "findings": ["cite.js:12 crashes on an empty ref"]},
+                                      {"verdict": "approved", "findings": []}],
                 "developer T-1 (round 2)": ["diff 2"],
                 "T-1 review note": [OK, OK], "T-1 deliver": [OK], "check T-1": [DONE]}
-        res, labels, _ = self.run_wf(plan)
+        res, labels, calls = self.run_wf(plan)
         self.assertEqual([l for l in labels if l.startswith(("developer", "test-engineer"))],
                          ["developer T-1", "test-engineer T-1", "developer T-1 (round 2)",
                           "test-engineer T-1"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+        # the findings go back to the developer from the structured list
+        self.assertIn("cite.js:12 crashes on an empty ref",
+                      next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+
+    # #94 (2026-11-19, T-0181): the review's text mentioned settings.json, the harness
+    # neutralised it, and the prose check /^APPROVED/ read an approval as findings three times.
+    # The verdict is a structured field; the text never decides it.
+    def test_the_review_verdict_is_a_structured_field(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        neutralised = {"verdict": "approved", "findings": [],
+                       "summary": "[content neutralised: instruction-shaped text (settings-json)]"}
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "test-engineer T-1": [neutralised],
+                "T-1 review note": [OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        te = next(c for c in calls if c["label"] == "test-engineer T-1")
+        self.assertEqual(te["schema"]["properties"]["verdict"]["enum"], ["approved", "findings"])
+        self.assertEqual(te["schema"]["required"], ["verdict"])          # #124: no free text required
+        self.assertNotIn("begin your answer with", te["prompt"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+        self.assertNotIn("T-1 block-human", labels)
+        note = next(c for c in calls if c["label"] == "T-1 review note")["prompt"]
+        self.assertIn("test-engineer: approved", note)
+
+    def test_prose_that_begins_with_approved_is_not_an_approval(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "developer T-1 (round 2)": ["diff 2"],
+                "test-engineer T-1": [{"verdict": "findings", "findings": [], "summary": "APPROVED? no: two findings"},
+                                      {"verdict": "findings", "findings": ["x.py:3 wrong"]}],
+                "T-1 review note": [OK, OK], "T-1 block-human": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertNotIn("T-1 deliver", labels)
+        self.assertEqual(res["taken"][0]["outcome"], "blocked on human (review)")
+        self.assertIn("x.py:3 wrong", res["taken"][0]["detail"])
+        # findings with no list still go back with the summary the reviewer gave
+        self.assertIn("two findings", next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+
+    def test_a_review_with_no_verdict_is_asked_once_more_before_a_developer_round(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "developer T-1 (round 2)": ["diff 2"],
+                "test-engineer T-1": ["APPROVED", {"verdict": "approved"}],
+                "test-engineer T-1 (again)": ["still prose"],
+                "T-1 review note": [OK, OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual([l for l in labels if l.startswith(("developer", "test-engineer"))],
+                         ["developer T-1", "test-engineer T-1", "test-engineer T-1 (again)",
+                          "developer T-1 (round 2)", "test-engineer T-1"])
+        self.assertIn("no verdict", next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+
+    # #94 review: a reviewer that ends without its structured output throws (T-1614); the
+    # throw must not end the inbox run: it is no verdict, asked once more
+    def test_a_review_that_throws_is_asked_once_more_and_then_approves(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        boom = {"__throw": "agent({schema}): subagent completed without calling StructuredOutput (after in-conversation nudge)"}
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "test-engineer T-1": [boom],
+                "test-engineer T-1 (again)": [{"verdict": "approved", "findings": []}],
+                "T-1 review note": [OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertNotIn("developer T-1 (round 2)", labels)
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+        self.assertIsNone(res.get("stopped"))
+
+    def test_a_review_that_throws_twice_is_no_verdict_not_the_end_of_the_run(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        boom = {"__throw": "subagent completed without calling StructuredOutput"}
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "developer T-1 (round 2)": ["diff 2"],
+                "test-engineer T-1": [boom, {"verdict": "approved"}], "test-engineer T-1 (again)": [boom],
+                "T-1 review note": [OK, OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertIn("developer T-1 (round 2)", labels)
+        self.assertIn("no verdict", next(c for c in calls if c["label"] == "developer T-1 (round 2)")["prompt"])
+        self.assertEqual(res["taken"][0]["outcome"], "delivered")
+
+    def test_a_review_that_returns_nothing_is_still_lost(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"], "test-engineer T-1": [None], "T-1 interrupted": [OK]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual(res["taken"][0]["outcome"], "lost")
+        self.assertNotIn("test-engineer T-1 (again)", labels)
+
+    # #94 review: an approval with minor findings kept them only in the agent's answer
+    def test_an_approval_with_findings_writes_them_into_the_thread_note(self):
+        rows = [row("T-1", target="developer", kind="code", to="scientist@t", runs=4)]
+        long = "b.py:9 " + "x" * 300
+        plan = {"list": [{"instances": [inst("scientist@t", rows)]}], "T-1 start": [OK],
+                "developer T-1": ["diff 1"],
+                "test-engineer T-1": [{"verdict": "approved", "findings": ["a.py:3 a \"minor\" thing", long]}],
+                "T-1 review note": [OK], "T-1 deliver": [OK], "check T-1": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        note = next(c for c in calls if c["label"] == "T-1 review note")["prompt"]
+        self.assertIn("test-engineer: approved", note)
+        self.assertIn("a.py:3 a 'minor' thing", note)
+        self.assertIn("b.py:9 xxx", note)
+        self.assertNotIn("x" * 200, note)                     # shortened, one line each
         self.assertEqual(res["taken"][0]["outcome"], "delivered")
 
     def test_an_experiment_runs_its_design_leg_and_stops_at_the_header_gate(self):
@@ -369,6 +559,72 @@ class InboxWorkflowTests(unittest.TestCase):
         res, labels, calls = self.run_wf(plan, loop=True)
         wf = next(c for c in calls if c["label"] == "workflow prove.js")
         self.assertEqual(wf["args"]["home"], "/h/researcher@u")
+
+    # #94 (2026-11-19 21:17): the list stage returned {"instances": []} and the run did
+    # nothing, while inbox.py listed 24 waiting tickets for the Author a minute later. Every
+    # instance is one entry of the listing, and waiting > 0 means rows: an empty listing is a
+    # failed stage, listed once more, and said so in the result, never "nothing to do".
+    def test_an_empty_listing_is_listed_once_more(self):
+        rows = [row("T-2", how="reject", target=None, kind="prove", to="scientist@t")]
+        plan = {"list": [{"instances": []}], "list (retry)": [{"instances": [inst("scientist@t", rows, waiting=1)]}],
+                "T-2 reject": [OK], "check T-2": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[:2], ["list", "list (retry)"])
+        self.assertIn("no instance", next(c for c in calls if c["label"] == "list (retry)")["prompt"])
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
+        self.assertIn("listed once more", " ".join(res["notes"]))
+
+    def test_an_empty_listing_twice_is_a_failed_stage_not_nothing_to_do(self):
+        plan = {"list": [{"instances": []}], "list (retry)": [{"instances": []}]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual(labels, ["list", "list (retry)"])
+        self.assertTrue(res.get("list_failed"))
+        self.assertIn("failed stage", res["stopped"])
+        self.assertEqual(res["taken"], [])
+
+    def test_waiting_tickets_with_no_rows_are_listed_once_more(self):
+        rows = [row("T-2", how="reject", target=None, kind="prove", to="author@t")]
+        plan = {"list": [{"instances": [inst("author@t", [], waiting=24), inst("expert@t", [])]}],
+                "list (retry)": [{"instances": [inst("author@t", rows, waiting=24), inst("expert@t", [])]}],
+                "sweep author@t": ["0"], "T-2 reject": [OK], "check T-2": [DONE], "close author@t": [OK]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[:2], ["list", "list (retry)"])
+        self.assertIn("author@t: 24 waiting, no rows", next(c for c in calls if c["label"] == "list (retry)")["prompt"])
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
+
+    def test_waiting_with_no_rows_twice_is_an_anomaly_and_the_others_go_on(self):
+        rows = [row("T-3", how="reject", target=None, kind="prove", to="expert@t")]
+        listed = {"instances": [inst("author@t", [], waiting=24), inst("expert@t", rows, waiting=1)]}
+        plan = {"list": [listed], "list (retry)": [listed], "sweep author@t": ["0"],
+                "T-3 reject": [OK], "check T-3": [DONE]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-3"])
+        self.assertIn("ANOMALY: author@t", " ".join(res["notes"]))
+
+    def test_only_with_none_of_its_instances_listed_twice_is_a_failed_stage(self):
+        listed = {"instances": [inst("expert@t", [])]}
+        res, labels, _ = self.run_wf({"list": [listed], "list (retry)": [listed]}, only=["author@t"])
+        self.assertEqual(labels, ["list", "list (retry)"])
+        self.assertTrue(res.get("list_failed"))
+
+    def test_a_quiet_listing_is_not_retried(self):
+        res, labels, _ = self.run_wf({"list": [{"instances": [inst("expert@t", []), inst("scientist@t", [])]}]})
+        self.assertEqual(labels, ["list"])
+        self.assertNotIn("list_failed", res)
+
+    def test_with_ids_waiting_without_rows_is_not_retried(self):
+        # --ids filters the rows in the script while waiting counts the whole inbox
+        res, labels, _ = self.run_wf({"list": [{"instances": [inst("expert@t", [], waiting=5)]}]}, ids=["T-9"])
+        self.assertEqual(labels, ["list"])
+
+    def test_a_later_empty_listing_is_retried_and_then_a_failed_stage(self):
+        rows = [row("T-2", how="reject", target=None, kind="prove", to="scientist@t")]
+        plan = {"list": [{"instances": [inst("scientist@t", rows, waiting=1)]}], "T-2 reject": [OK], "check T-2": [DONE],
+                "list 2": [{"instances": []}], "list 2 (retry)": [{"instances": []}]}
+        res, labels, _ = self.run_wf(plan, loop=True)
+        self.assertEqual(labels[-2:], ["list 2", "list 2 (retry)"])
+        self.assertIn("failed stage", res["stopped"])
+        self.assertTrue(res.get("list_failed"))
 
     def test_an_author_research_route_is_filed_by_math_writer_and_checked(self):
         rows = [row("T-5", how="research", target="expert", kind="write", to="author@t")]

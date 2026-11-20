@@ -1024,6 +1024,103 @@ EDGE_PERMS = {
         "exempt": ["claim-keeper", "usage-analyst", "concierge"]}}}
 
 
+class RelayTurnaroundTests(unittest.TestCase):
+    """The hop limit counts only the ancestors travelling the same way along the chain
+    as the ticket being filed: a reply going back toward the origin starts a fresh
+    count. The shapes are the real refusals of T-1722 and T-1595 (and T-0961)."""
+
+    CHAIN = EDGE_PERMS["tickets"]["edges"]["chain"]
+
+    def setUp(self):
+        self.board = tempfile.mkdtemp(prefix="turnaround-")
+        self.addCleanup(shutil.rmtree, self.board, True)
+
+    def put(self, tid, frm, to, parent, final_to):
+        meta = {"id": tid, "title": "t", "kind": "research", "from": frm, "to": to,
+                "status": "open", "ask": "a", "deliverable": "d", "priority": "normal",
+                "budget": {"runs": 1}, "created": "2026-11-20", "updated": "2026-11-20",
+                "parent": parent, "final_to": final_to}
+        os.makedirs(os.path.join(self.board, to), exist_ok=True)
+        ac.atomic_write(os.path.join(self.board, to, ac.ticket_filename(tid, "t")),
+                        ac.new_ticket(meta))
+
+    def depth(self, parent, frm, to, final_to):
+        return ac.relay_depth(self.board, parent, frm=frm, to=to, final_to=final_to,
+                              chain=self.CHAIN)
+
+    def allowed(self, parent, frm, to, agent, final_to):
+        return ac.ticket_edge_allowed(frm, to, agent, EDGE_PERMS, final_to=final_to,
+                                      depth=self.depth(parent, frm, to, final_to))
+
+    def test_relay_direction(self):
+        d = ac.relay_direction
+        self.assertEqual(d("author@main", "expert@main", "researcher"), 1)
+        self.assertEqual(d("expert@main", "researcher@s1", "researcher"), 1)
+        self.assertEqual(d("researcher@s1", "expert@main", "author"), -1)
+        self.assertEqual(d("expert@main", "author@main", "author@main"), -1)   # an instance
+        self.assertEqual(d("human", "expert@main", "researcher"), 1)       # to -> final_to
+        self.assertEqual(d("human", "expert@main", "expert"), 0)           # unknown
+        self.assertEqual(d("researcher@s1", "scientist@main", "scientist", self.CHAIN), 1)
+
+    def test_t1722_reply_under_an_outbound_chain_is_a_fresh_count(self):
+        # T-1239 author->expert, T-1240 expert->researcher (both final_to researcher),
+        # T-1722 researcher->expert final_to author: the Expert's child to the Author
+        # was the 4th hop under the old count
+        self.put("T-1239", "author@main", "expert@main", None, "researcher")
+        self.put("T-1240", "expert@main", "researcher@s1", "T-1239", "researcher")
+        self.put("T-1722", "researcher@s1", "expert@main", "T-1240", "author")
+        self.assertEqual(self.depth("T-1240", "researcher@s1", "expert@main", "author"), 0)
+        self.assertEqual(self.depth("T-1722", "expert@main", "author@main", "author"), 1)
+        ok, why = self.allowed("T-1722", "expert@main", "author@main", "paper-liaison", "author")
+        self.assertTrue(ok, why)
+        # a caller that does not say which way the new ticket goes counts as before
+        self.assertEqual(ac.relay_depth(self.board, "T-1722"), 3)
+
+    def test_t1595_shape_with_instance_final_to(self):
+        self.put("T-1442", "author@main", "expert@main", None, "researcher@s1")
+        self.put("T-1544", "expert@main", "researcher@s1", "T-1442", "researcher@s1")
+        self.put("T-1595", "researcher@s1", "expert@main", "T-1544", "author@main")
+        self.assertEqual(self.depth("T-1595", "expert@main", "author@main", "author@main"), 1)
+        ok, why = self.allowed("T-1595", "expert@main", "author@main", "paper-liaison",
+                               "author@main")
+        self.assertTrue(ok, why)
+
+    def test_a_forward_chain_is_still_capped_at_three(self):
+        self.put("T-0001", "author@main", "expert@main", None, "scientist")
+        self.put("T-0002", "expert@main", "researcher@s1", "T-0001", "scientist")
+        self.assertEqual(self.depth("T-0002", "researcher@s1", "scientist@main", "scientist"),
+                         2)
+        self.assertTrue(self.allowed("T-0002", "researcher@s1", "scientist@main",
+                                     "experiment-spec", "scientist")[0])
+        self.put("T-0003", "researcher@s1", "scientist@main", "T-0002", "scientist")
+        self.assertEqual(self.depth("T-0003", "researcher@s1", "scientist@main", "scientist"),
+                         3)
+        ok, why = self.allowed("T-0003", "researcher@s1", "scientist@main", "experiment-spec",
+                               "scientist")
+        self.assertFalse(ok)
+        self.assertIn("exceed 3 hops", why)
+
+    def test_a_backward_chain_of_four_same_direction_hops_is_refused(self):
+        # the T-0961 shape: T-0807 researcher->expert and T-0808 expert->author (both
+        # final_to author), T-0961 researcher->expert final_to author under T-0808. All
+        # four legs go up the chain, so the turnaround rule does not shorten the count.
+        self.put("T-0807", "researcher@s2", "expert@main", None, "author")
+        self.put("T-0808", "expert@main", "author@main", "T-0807", "author")
+        self.put("T-0961", "researcher@s1", "expert@main", "T-0808", "author")
+        self.assertEqual(self.depth("T-0961", "expert@main", "author@main", "author"), 3)
+        self.assertFalse(self.allowed("T-0961", "expert@main", "author@main", "paper-liaison",
+                                      "author")[0])
+
+    def test_an_ancestor_without_final_to_still_stops_the_count(self):
+        self.put("T-0001", "author@main", "expert@main", None, "scientist")
+        self.put("T-0002", "expert@main", "researcher@s1", "T-0001", None)
+        self.put("T-0003", "researcher@s1", "scientist@main", "T-0002", "scientist")
+        self.assertEqual(self.depth("T-0003", "researcher@s1", "scientist@main", "scientist"),
+                         1)
+        self.put("T-0004", "researcher@s1", "expert@main", "T-0002", "author")
+        self.assertEqual(self.depth("T-0004", "expert@main", "author@main", "author"), 1)
+
+
 class TicketEdgeTests(unittest.TestCase):
     def ok(self, frm, to, agent, **kw):
         return ac.ticket_edge_allowed(frm, to, agent, EDGE_PERMS, **kw)[0]

@@ -502,7 +502,16 @@ is outside the workspace root or in a worktree under it (a `.claude/worktrees` p
 segment); one stderr line then gives the command to run by hand, always with the same
 `--only` (the unscoped manual run is for the session that owns the checkout). Never
 fatal: anything that goes wrong is one warning line on stderr, and the exit code is
-`--check`'s, unchanged. Selection, ordering, return legs and the
+`--check`'s, unchanged. **Unpushed work holds delivery back** (#101): after the checkpoint,
+`--check` of a `delivered` or `closed` ticket looks in every checked-out submodule and the
+superproject for a local branch whose name names the ticket (`t-1673`, `t1673`, `T-1673`
+as a word of the name; never `main`) with commits on no remote-tracking branch, or a
+linked worktree on such a branch with uncommitted changes. If there is one, the status
+line reads `T-NNNN: unfinished (delivered, unpushed); work of T-NNNN is not on a remote`,
+one line per branch says how to push it (`py scripts/ship.py push <sub> --repo
+<worktree>`), and the exit is 3: the ticket is not reported delivered until that work is
+pushed and `--check` is run again. `"unpushedCheck": false` in workspace.json switches
+this off. Selection, ordering, return legs and the
 checkpoint live once, in the academy library (`inbox_core` in `academy_common`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
@@ -602,10 +611,17 @@ ticket to the Expert with no `final_to` reads as `final_to: researcher`.
 
 **Hop limit.** A relay chain has at most `maxHops` (3) links. Only consecutive
 ancestors that carry `final_to` count; an ordinary `parent` link is not a relay hop.
-A relay within a relay can exceed it: a Scientist question with `final_to: author`
-filed with `parent` set to an experiment-spec child already sits under three relay
-links, and the check refuses the next hop. A new question starts a fresh chain: file
-it with no `parent` and name the earlier ticket in `refs`.
+Only ancestors travelling the same way along the chain as the new ticket count (its
+direction is from `from` toward `final_to`): a reply relayed back toward the origin
+(T-1722, researcher → expert → author under an author → expert → researcher chain)
+starts a fresh count. The cap is per same-direction run: any ancestor going the
+other way resets it, so a `parent` chain of mixed directions is not capped in total
+(an accepted trade-off). A relay within a relay going the same way can still exceed it:
+a Researcher note with `final_to: author` filed with `parent` set to the Expert's
+child to the Author of an earlier researcher → author relay (T-0961 under T-0808)
+already sits under three relay links, and the check refuses the next hop. A new
+request starts a fresh chain: file it with no `parent` and name the earlier ticket in
+`refs`.
 
 **Caller identity.** The MCP tool `tickets_create` is the enforced path: the server
 knows the calling agent. The CLI identity (`board.py new --as <instance> --agent
@@ -656,6 +672,18 @@ confirms).
 A packet's decisions are answered by the human in `/academy:review`. The answers are
 written into the packet (`docs/packet-template.md`), and one thread line goes into
 the packet's ticket: `- <date> human: decision on P-NNNN D<k>: (<letter>) <option>`.
+
+A **ruling** (an Expert's `decision` ticket to the human on the inputs of a review pass
+whose two runs are CONFIRMED) is answered with `decisions.py record` (`/academy:decide`):
+(a) union or (b) intersection of the two modulo lists, (c) re-run, (d) decline. The
+record files the follow-up in the same step: a `decision` ticket from the human to the
+claim-keeper's instance (`parent` the ruling; the claim, the chosen modulo, the pass's
+two verdict files as `Grounds (JSON):`), or for (c) a `verify` ticket to the Expert;
+the ruling gets a `keeper follow-up: T-NNNN` thread line and is delivered with it in its
+result. A second record files nothing new and completes an interrupted one
+(`academy/scripts/rulings.py`; #121 item 4). The lists are the decision table's reduced
+ones when the pass holds `S-table.json`; a dependency-settler stop that leaves no status
+(`S.json`: case 12, 11, or 7 with no existing result) offers only (c) and (d).
 
 ### 6.4 A research request from the Author
 
