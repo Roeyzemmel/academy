@@ -36,13 +36,22 @@ ticket ids (at most three).
    - A returned referee packet (skill `author:notes`) runs the notes workflow nested; its
      points become tickets.
    - An `apply` ticket is never sent to research (its edit is decided), and a self-ticket
-     whose refs or waiting_on name a delivered `research`/`prove` ticket lands it (#92).
+     whose refs or waiting_on name a delivered `research`/`prove` ticket, or whose child
+     (a ticket with `parent` this one) is one, lands it: the return leg (#92).
+   - A `question` or `other` ticket goes to `math-writer`, which answers it from the paper,
+     the registry and the library (an edit it settles is made; an argument is asked as
+     below; a choice only the human can make is blocked `waiting_on: [human]` with the
+     options, for `/academy:decide`); one that says the human decided the edit
+     (`routes.decided_edit`) goes to `math-editor` as an `apply` would (#92).
+   - An agenda pass (`routes.agenda_pass`, any writer kind) comes back as `for_main` with
+     the skill `author:agenda`: run it for the ticket's ask, then deliver the ticket with
+     what it changed.
    - A self-ticket that needs an argument nobody has delivered (`research`,
      `routes.needs_argument`): `math-writer`, an author -> expert liaison, files the
      `research` ticket to the Expert with `final_to: researcher`, and the script checks
      it. This ticket is parked on it, and what returns is landed. Nobody here writes the
      argument.
-   - **The gate:** a ticket with no Author route (`human`). Show it (`board.py show
+   - **The gate:** a `decision` ticket, or a kind with no Author route (`human`). Show it (`board.py show
      T-NNNN`) and ask the human with `AskUserQuestion` (accept and file a work ticket,
      reject with a reason, forward). Never guess a route.
 

@@ -48,6 +48,12 @@ its lines). Read anything else with `offset` and `limit` from those numbers.
 - **Landing** a `research` ticket you filed that came back (a proof or an experiment): write the delivered
   proof or result into the draft at the colour its status allows, then close the
   ticket (`tickets_update` status `closed`; you file as this instance, the sender).
+- **`question` and `other`** (routed here when no rule claims them): answer from the
+  paper, the registry (`claims_show`) and the library (`library_lookup`). An edit the
+  answer settles that is yours, make it; an argument nobody has delivered is the
+  `research` ticket below; a choice only the human can make (which repair, which reading)
+  is `blocked`, `waiting_on: [human]`, the options in the reason (it reaches
+  `/academy:decide`). Deliver with the answer as the one-line result.
 - A ticket asking for an illustration is not yours: report it for `figure-maker`.
 
 **Rules that override everything else**

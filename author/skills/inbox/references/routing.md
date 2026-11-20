@@ -27,8 +27,22 @@ Tickets addressed to the Author, by kind:
 | `notation` | agent | `notation-auditor` | a notation decision or clash |
 | `sweep` | agent | `note-sweeper` | the machine-note sweep |
 | `note` | agent | `math-writer` | fold the literature result into the paper |
-| any other kind | human | `human` | asked, never guessed |
+| `question` | agent | `math-writer` | answer it from the paper, the registry and the library; an edit it settles is made, research asked, a choice only the human can make blocked on the human |
+| `other` | agent | `math-writer` | the fallback: triaged as a question (done, asked onward or blocked on the human with the reason) |
+| any other kind | human | `human` | a `decision` (the human's by definition), or a kind with no Author route (an Expert's kind sent here): asked, never guessed |
 <!-- /routes:kinds -->
+
+Before the kind, `route` applies these rules, in order (the first that matches wins):
+
+<!-- routes:rules -->
+| rule, before the kind | kinds | how | target | why |
+|---|---|---|---|---|
+| another role's kind (`BELONGS`) | prove, generalize, review-experiment, experiment, test, code | reject | - | the Author only lands: ask through a `research` ticket to the Expert |
+| an agenda pass (`agenda_pass`) | write, apply, copy, note, question, other | skill | `author:agenda` | runs in the main session; deliver the ticket with what it changed |
+| the human's decided edit (`decided_edit`) | question, other | agent | `math-editor` | the edit is already decided, as an `apply` ticket |
+| a missing argument, delivered (`delivered_argument`, `proved_source`) | write, copy, note, question, other | agent | (the kind's) | land it: a ref, a wait or a child delivered it |
+| a missing argument, not delivered (`needs_argument`) | write, copy, note, question, other | research | `expert` | file `research` to the Expert, final_to researcher; park on it |
+<!-- /routes:rules -->
 
 The asks the Author files (`agenda.py gaps --file`):
 
@@ -62,7 +76,11 @@ How the work is filed: a work item for the Author itself (kinds `write`, `apply`
 Researcher or the Scientist by `final_to` (`lead`: the Researcher's `prove` flow;
 `experiment`: the Researcher's experiment-spec files it to the Scientist). A blocked
 ticket to the Author whose `waiting_on` tickets are all `delivered` is offered again as a
-released row (move `blocked -> accepted`, then route by kind). `figure-maker` runs on opus
+released row (move `blocked -> accepted`, then route by kind). The return leg: a ticket
+whose argument came back (a delivered `research`/`prove` ticket in its refs, its
+`waiting_on`, or among its children by `parent`; the release empties `waiting_on`) is
+landed by its kind's agent, never sent to research again (#92, T-1494, T-1385). The
+relay hop limit (T-0961) waits for the human's ruling and is unchanged. `figure-maker` runs on opus
 when the picture carries data.
 
 Where several instances of a role share the domain, `agenda.py gaps --file` takes the

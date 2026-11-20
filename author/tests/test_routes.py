@@ -151,13 +151,180 @@ class DeliveredArgumentTests(unittest.TestCase):
                 {"kind": "write", "to": "author@t", "refs": ["flat:FND-14"]}))
 
 
+#: #92 remainder (2026-11-20 audit): the Author's kinds without a route went to the human
+#: even after the human had accepted the ticket. The metas are the live tickets' fields.
+T0085 = {
+    "id": "T-0085", "kind": "question", "from": "human", "to": "author@t",
+    "status": "accepted",
+    "title": "fact:forgetful-props: replace item 2's openness with LMW16 Lemma 6 as stated "
+             "(Roey's decision)",
+    "ask": "Edit fact:forgetful-props (markings.tex:106-135) per Roey's decision on T-0081: "
+           "replace the subspace-topology openness claim in item 2 and the Moreover clause "
+           "with LMW16 Lemma 6 quoted as stated. Keep item 1 (ordering-independence) as "
+           "written.",
+    "refs": ["paper:fact:forgetful-props", "bib:LMW16#Lemma 6"],
+}
+T0068 = {
+    "id": "T-0068", "kind": "other", "from": "researcher@flat", "to": "author@t",
+    "status": "accepted",
+    "title": "thm:main-resolvable-4k is false as stated under the draft's inclusive "
+             "convention: add K_M = C_4k",
+    "ask": "Roey's decision 2026-09-28. thm:main-resolvable-4k is refuted as written. THE "
+           "REPAIR: add the hypothesis K_M = C_{4k} to the theorem.",
+    "refs": ["paper:thm:main-resolvable-4k", "flat:resolvable-4k-blocking"],
+}
+T0351 = {
+    "id": "T-0351", "kind": "question", "from": "expert@ts", "to": "author@t",
+    "status": "accepted",
+    "title": "Wording items for landing FND-20's \"Paper text to land\" in "
+             "rmk:unfolding-quotient (review T-0337)",
+    "ask": "When landing flat:FND-20's \"Paper text to land\" as the proof of "
+           "paper:rmk:unfolding-quotient, apply these wording items from the two CONFIRMED "
+           "reviews. None changes the mathematics.",
+    "refs": ["flat:FND-20", "paper:rmk:unfolding-quotient", "T-0337", "T-0348"],
+}
+T0086 = {
+    "id": "T-0086", "kind": "question", "from": "expert@ts", "to": "author@t",
+    "status": "accepted",
+    "title": "Repair proof of lem:marking-full-preimage (GAP, markings.tex:300)",
+    "ask": "Repair the proof of lem:marking-full-preimage (sections/markings.tex) after run "
+           "A's GAP; the statement itself was not faulted.",
+    "refs": ["paper:lem:marking-full-preimage", "paper:lem:covering-moduli-proper"],
+}
+T0051 = {
+    "id": "T-0051", "kind": "write", "from": "human", "to": "author@t", "status": "accepted",
+    "title": "Agenda pass: lower required for sketch-kept results, add first milestone "
+             "(P-0006 D2)",
+    "ask": "Run an /author:agenda pass that lowers required to sketch for results the paper "
+           "keeps as sketches and adds a first milestone.",
+    "refs": ["P-0006", "file:author@t/Drafts/agenda.md"],
+}
+#: T-1494: the parent of research ticket T-1664 (by its parent field only: the refs name
+#: the verify T-1368, and waiting_on was emptied when it was released)
+T1494 = {
+    "id": "T-1494", "kind": "write", "from": "author@t", "to": "author@t",
+    "status": "accepted",
+    "title": "Add the missing clause and convention found in the review of "
+             "cor:full-preimage-locus (T-1368)",
+    "ask": "Add the hypothesis/convention: H^{*0}=H for E empty (Notation), and Y marked at "
+           "Sigma containing the zeros of omega_Y at t_0.",
+    "refs": ["T-1368", "P-0369"], "waiting_on": [],
+}
+BOARD_1494 = [
+    {"id": "T-1368", "kind": "verify", "status": "closed", "parent": "T-0628"},
+    {"id": "T-1664", "kind": "research", "status": "closed", "final_to": "researcher",
+     "parent": "T-1494"},
+]
+
+
+class UnroutedKindTests(unittest.TestCase):
+    """question and other have Author routes; decision stays the human's."""
+
+    def route(self, meta, board=()):
+        look = routes.TicketLookup(lambda: list(board))
+        with unittest.mock.patch.object(routes, "_registry_status", return_value=None), \
+                unittest.mock.patch.object(routes, "_human", return_value="Roey"):
+            return routes.route(meta, ticket_of=look)
+
+    def test_a_question_is_answered_by_the_writer(self):
+        r = self.route(T0351)
+        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
+        self.assertIn("answer", r["why"])
+
+    def test_a_question_or_other_naming_a_decided_edit_goes_to_the_editor(self):
+        for meta in (T0085, T0068):
+            r = self.route(meta)
+            self.assertEqual(("agent", "math-editor"), (r["how"], r["target"]), meta["id"])
+        # the human's word, unnamed, counts too (T-1441's phrase)
+        r = self.route(dict(T0351, ask="Reword item 2 per the human's word of 2026-11-15."))
+        self.assertEqual("math-editor", r["target"])
+
+    def test_a_choice_still_open_is_not_a_decided_edit(self):
+        for ask in ("Decide the repair: restrict the hypothesis, or recolour.",
+                    "The wording is to be decided; see the reviewer's decision table.",
+                    "Which reading is undecided."):
+            self.assertFalse(routes.decided_edit({"ask": ask}, human="Roey"), ask)
+            self.assertEqual("math-writer", self.route(dict(T0351, ask=ask))["target"], ask)
+
+    def test_a_question_needing_an_argument_goes_to_research(self):
+        r = self.route(T0086)
+        self.assertEqual(("research", "expert"), (r["how"], r["target"]))
+
+    def test_other_and_a_missing_kind_take_the_defined_fallback(self):
+        for kind in ("other", None):
+            r = self.route(dict(T0351, kind=kind))
+            self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]), kind)
+
+    def test_a_decision_ticket_is_the_humans(self):
+        r = self.route({"kind": "decision", "title": "Status of paper:thm:x -> proved-modulo"})
+        self.assertEqual(("human", "human"), (r["how"], r["target"]))
+
+    def test_an_agenda_pass_routes_to_the_agenda_skill(self):
+        for kind in ("write", "question", "other", "apply"):
+            r = self.route(dict(T0051, kind=kind))
+            self.assertEqual(("skill", "author:agenda"), (r["how"], r["target"]), kind)
+        r = self.route({"kind": "question", "title": "Refresh the agenda before the round"})
+        self.assertEqual("author:agenda", r["target"])
+        # a ticket that only mentions the agenda field is not a pass
+        r = self.route({"kind": "write", "title": "Write up lem:x", "ask": "its agenda entry is "
+                        "paper:lem:x"})
+        self.assertEqual("math-writer", r["target"])
+        # another role's kind is still rejected
+        self.assertEqual("reject", self.route(dict(T0051, kind="prove"))["how"])
+
+
+class ReturnLegTests(unittest.TestCase):
+    """A parent whose research child came back lands it, found by the child's parent field
+    (T-1494 / T-1664: the router sent it down the research route again)."""
+
+    def route(self, meta, board):
+        with unittest.mock.patch.object(routes, "_registry_status", return_value=None):
+            return routes.route(meta, ticket_of=routes.TicketLookup(lambda: list(board)))
+
+    def test_t1494_lands_the_delivered_child(self):
+        self.assertTrue(routes.needs_argument(T1494))
+        r = self.route(T1494, BOARD_1494)
+        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
+        self.assertIn("T-1664", r["why"])
+
+    def test_a_child_not_back_or_an_experiment_child_does_not_count(self):
+        for status, final_to in (("in-progress", "researcher"), ("cancelled", "researcher"),
+                                 ("delivered", "scientist")):
+            board = [BOARD_1494[0], dict(BOARD_1494[1], status=status, final_to=final_to)]
+            r = self.route(T1494, board)
+            self.assertEqual(("research", "expert"), (r["how"], r["target"]),
+                             (status, final_to))
+
+    def test_a_question_parent_lands_its_child_too(self):
+        board = [{"id": "T-0090", "kind": "research", "status": "delivered",
+                  "final_to": "researcher", "parent": "T-0086"}]
+        r = self.route(T0086, board)
+        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
+        self.assertIn("T-0090", r["why"])
+
+    def test_the_lookup_reads_one_listing_and_a_plain_callable_has_no_children(self):
+        calls = []
+
+        def metas():
+            calls.append(1)
+            return BOARD_1494
+        look = routes.TicketLookup(metas)
+        self.assertEqual(["T-1664"], [m["id"] for m in look.children("T-1494")])
+        self.assertEqual([], look.children("T-01368"))
+        self.assertEqual("verify", look("T-1368")["kind"])
+        self.assertEqual(1, len(calls))
+        # a plain id -> meta callable (the older ticket_of) still works, without children
+        self.assertEqual("", routes.delivered_argument(T1494, {}.get))
+
+
 def write_ticket(board, tid, to, status, kind, frm="author@t", refs=(), ask="x",
-                 final_to=None):
+                 final_to=None, parent=None):
     text = ("---\nid: %s\ntitle: %s ticket\nkind: %s\nfrom: %s\nto: %s\nstatus: %s\n"
             "priority: normal\nask: %s\ndeliverable: y\nrefs: [%s]\n%s---\n\n"
             "## Ask\n\n## Result\n\n## Thread\n"
             % (tid, kind, kind, frm, to, status, ask, ", ".join(refs),
-               ("final_to: %s\n" % final_to) if final_to else ""))
+               (("final_to: %s\n" % final_to) if final_to else "")
+               + (("parent: %s\n" % parent) if parent else "")))
     Sandbox.write(os.path.join(board, to, "%s-%s-ticket.md" % (tid, kind)), text)
 
 
@@ -173,6 +340,12 @@ class BoardLookupTests(unittest.TestCase):
                      ask="Repair the proof of lem:x: a missing step")
         write_ticket(b, "T-0003", "author@t", "accepted", "apply",
                      ask="add the hypothesis that Q is compact, per the human's word")
+        write_ticket(b, "T-0004", "author@t", "accepted", "write", refs=["paper:lem:y"],
+                     ask="Repair the proof of lem:y: a missing step")
+        write_ticket(b, "T-0005", "expert@t", "delivered", "research",
+                     final_to="researcher", parent="T-0004")
+        write_ticket(b, "T-0006", "author@t", "accepted", "question",
+                     ask="where does the paper state the convention for E empty")
 
     def tearDown(self):
         self.sb.cleanup()
@@ -194,12 +367,15 @@ class BoardLookupTests(unittest.TestCase):
         ws["board"] = other
         Sandbox.write(self.sb.workspace, json.dumps(ws))
         res = subprocess.run([sys.executable, os.path.join(SCRIPTS, "inbox.py"), "--json",
-                              "--home", self.sb.home, "--board", self.sb.board],
+                              "--all", "--home", self.sb.home, "--board", self.sb.board],
                              capture_output=True, env=dict(self.sb.env))
         rows = {r["id"]: r["route"] for r in json.loads(res.stdout.decode("utf-8"))["take"]}
         self.assertEqual("math-writer", rows["T-0002"]["target"], rows["T-0002"])
         self.assertIn("T-0001", rows["T-0002"]["why"])
         self.assertEqual("math-editor", rows["T-0003"]["target"])
+        self.assertEqual("math-writer", rows["T-0004"]["target"], rows["T-0004"])
+        self.assertIn("T-0005", rows["T-0004"]["why"])
+        self.assertEqual("math-writer", rows["T-0006"]["target"], rows["T-0006"])
 
 
 if __name__ == "__main__":
