@@ -222,6 +222,42 @@ class MaintainWorkflow(unittest.TestCase):
         self.assertIn("--on 2026-11-13/earlier/human", self.prompt(calls, "develop bbb"))
         self.assertIn("eee: after nope", " ".join(r["dropped"]))
 
+    def test_a_throw_in_a_lanes_second_task_keeps_the_first_tasks_record(self):
+        """Review of eed6eba: a malformed review of the second task threw inside one() and
+        took the pushed first task's record with it."""
+        plan = {"develop aaa": [done("aaa")], "review aaa": [review()], "push aaa": [pushed()],
+                "develop bbb": [done("bbb")], "review bbb": [{"examined": "x"}]}
+        r, calls = self.run_wf(plan, tasks=[task("aaa", ["a.py"]), task("bbb", ["a.py"])])
+        by = {t["slug"]: t for t in r["tasks"]}
+        self.assertTrue(by["aaa"]["pushed"])
+        self.assertIn("no findings list", by["bbb"]["reason"])
+
+    def test_a_lost_union_stage_still_returns_the_round(self):
+        plan = {}
+        for s in ("aaa", "bbb"):
+            plan.update({"develop " + s: [done(s)], "review " + s: [review()], "push " + s: [pushed()]})
+        r, calls = self.run_wf(plan, tasks=[task("aaa", ["a.py"]), task("bbb", ["b.py"])])
+        self.assertFalse(r["ok"])
+        self.assertEqual("the union stage returned nothing", r["union"]["conflict"])
+        self.assertEqual(2, len(r["pull_requests"]))
+
+    def test_after_chains_cycles_and_on_are_validated(self):
+        tasks = [task("aaa", ["a.py"], after="bbb"), task("bbb", ["b.py"], after="nope"),
+                 task("ccc", ["c.py"], after="ddd"), task("ddd", ["d.py"], after="ccc"),
+                 task("eee", ["e.py"], after="fff", on="2026-11-13/x/human"), task("fff", ["f.py"]),
+                 task("ggg", ["f.py"], on="2026-11-13/y/human")]
+        plan = {}
+        for s in ("fff", "ggg"):
+            plan.update({"develop " + s: [done(s)], "review " + s: [review()], "push " + s: [pushed()]})
+        r, calls = self.run_wf(plan, tasks=tasks, cap=8)
+        dropped = " ".join(r["dropped"])
+        self.assertIn("bbb: after nope", dropped)
+        self.assertIn("aaa: after bbb", dropped)            # its target was dropped
+        self.assertIn("a cycle", dropped)
+        self.assertIn("eee: both after fff and on", dropped)
+        self.assertIn("ggg: on 2026-11-13/y/human ignored", dropped)
+        self.assertEqual([["fff", "ggg"]], r["lanes"])
+
     def test_the_develop_brief_asks_for_early_commits(self):
         plan = {"develop aaa": [done("aaa")], "review aaa": [review()], "push aaa": [pushed()]}
         r, calls = self.run_wf(plan, tasks=[task("aaa", ["x.py"])])
