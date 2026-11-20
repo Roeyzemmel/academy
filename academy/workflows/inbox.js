@@ -247,7 +247,7 @@ const SNAPSHOT = A.snapshot !== false
 const RUN_ID = ('inbox-' + String(A.run_id || ((A.only && A.only.length) ? A.only.join('+') : 'all')))
   .replace(/[^A-Za-z0-9@+._-]/g, '-').slice(0, 100)
 const SNAP = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
-  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit', 'output'] }
+  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit'] }
 const withDetail = r => (r && typeof r === 'object' && typeof r.detail !== 'string') ? Object.assign({}, r, { detail: '' }) : r
 const clerk = async (stage, lines, schema, label) => {
   const r = await launch(
@@ -559,7 +559,7 @@ const LEAD_OUT = { type: 'object', properties: {
   report: { type: 'string', description: 'your report, status first' } },
   required: ['decision', 'claim', 'created', 'brief', 'falsifier', 'pending', 'report'] }
 const REG = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code as printed by the shell' },
-  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit', 'output'] }
+  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit'] }
 const oneLine = (x, n) => String(x || '').replace(/\s+/g, ' ').trim().replace(/"/g, "'").slice(0, n || 200)
 
 async function leadResearcher(row, i) {
