@@ -68,6 +68,13 @@ phrases the questions. Neither one asks the human or records on its own.
    and the human states the list. A decline is always recorded (the ruling is rejected)
    and undoes nothing already done. Options count only when presented as such (after
    "Options", "Choose", "Please rule", a ':' or a '?'), each with its own text.
+   Reading an option is a **keyword heuristic** (re-run, fresh/blind pair, run again;
+   accept, proved; wait; split; decline; a negation reaches the next keyword of its
+   clause): an option it cannot read is refused on a ruling until you name its action
+   with `--action`, and a plain `proved` while both runs list inputs is refused until
+   the human states the list (`--action intersection`, or `--force` for plain `proved`).
+   When in doubt, pass `--action` with the letter: a disagreement is refused, never
+   guessed.
    `decisions.py stalled-rulings` lists rulings answered but not delivered (no
    follow-up yet, or a record interrupted); `record <id> --choice <a-c>` files or
    completes theirs.

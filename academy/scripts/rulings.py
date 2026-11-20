@@ -393,7 +393,9 @@ def parse_choice(choice, r=None):
 RE_OWN_MARK = re.compile(r"(?:^|(?<=[\s:;,]))\(([a-h])\)\s+(?=\S)")
 #: the action an option's text names, by keyword; the earliest keyword in the text wins
 ACTION_WORDS = (
-    ("rerun", re.compile(r"(?i)\bre-?run\b|\bfresh (?:blind )?pass\b|\bre-?verif")),
+    ("rerun", re.compile(r"(?i)\bre-?run\b|\bre-?verif|\brun\s+(?:it\s+|them\s+|both\s+)?"
+                         r"again\b|\bfresh\b(?:\s+[\w-]+){0,3}?\s+(?:pairs?|runs?|pass(?:es)?|"
+                         r"reviews?)\b|\bblind\s+(?:pairs?|runs?|pass(?:es)?)\b")),
     ("split", re.compile(r"(?i)\bsplit\b")),
     ("wait", re.compile(r"(?i)\bwait\b|\bpostpone\b|\bdefer\b")),
     ("decline", re.compile(r"(?i)\bdecline\b|\breject\b|\bdrop\b")),
@@ -483,33 +485,39 @@ def own_options(meta, body=None):
     return _lettered(m.group(1)) if m else {}
 
 
-#: a negation within two words (one clause) before a keyword: "not proved", "don't take proved"
-RE_NEGATED = re.compile(r"(?i)\b(?:not|don't|dont|do not|never|without|no)\b"
-                        r"(?:[ \t`]+[\w'-]+){0,2}[ \t`]*$")        # within the clause
-RE_NOT_PROVED = re.compile(r"(?i)\b(?:not|don't|dont|do not|never|without|no)\b"
-                           r"(?:[ \t`]+[\w'-]+){0,2}?[ \t`]+proved\b")
-
-
-def _first(rx, text):
-    """The start of ``rx``'s first match in ``text`` that is not negated, or None."""
-    for m in rx.finditer(text):
-        if not RE_NEGATED.search(text[max(0, m.start() - 30):m.start()]):
-            return m.start()
-    return None
+#: a negation; it reaches the first keyword after it in its clause ("do not, under any
+#: circumstances, take proved but re-run": proved), and no further ("no wait, re-run": wait)
+RE_NEG = re.compile(r"(?i)\b(?:not|don't|dont|never|without|no)\b")
+#: what ends a negation's reach before any keyword: a clause end, or a turn ("but")
+RE_NEG_END = re.compile(r"(?i)[;:]|\bbut\b|\binstead\b|\brather\b")
+#: a negation after its keyword: "accept nothing", "accept none"
+RE_NEG_AFTER = re.compile(r"(?i)^[\s`]*(?:nothing|none)\b")
 
 
 def classify(text):
     """The action an option's text names: rerun, split, wait, decline, accept or other.
-    The earliest keyword not negated wins; an accept whose text negates 'proved' ("not
-    proved yet") is other, so no status is proposed from it."""
+    The earliest keyword that is not negated wins (``RE_NEG``, ``RE_NEG_AFTER``); an accept
+    whose text negates 'proved' ("not proved yet") is other, so no status is proposed from
+    it. A keyword heuristic: an option it cannot read is other, and a ruling then needs
+    ``--action``."""
     text = str(text or "")
-    best = None
-    for name, rx in ACTION_WORDS:
-        at = _first(rx, text)
-        if at is not None and (best is None or at < best[0]):
-            best = (at, name)
-    name = best[1] if best else "other"
-    return "other" if name == "accept" and RE_NOT_PROVED.search(text) else name
+    hits = sorted((m.start(), m.end(), name) for name, rx in ACTION_WORDS
+                  for m in rx.finditer(text))
+    negated = set()
+    for n in RE_NEG.finditer(text):
+        for h in hits:
+            if h[0] < n.end():
+                continue
+            if not RE_NEG_END.search(text[n.end():h[0]]):
+                negated.add(h)
+            break
+    negated.update(h for h in hits if RE_NEG_AFTER.match(text[h[1]:]))
+    live = [h for h in hits if h not in negated]
+    name = live[0][2] if live else "other"
+    if name == "accept" and any(h in negated and text[h[0]:h[1]].lower() == "proved"
+                                for h in hits):
+        return "other"
+    return name
 
 
 def own_option_dicts(own):
@@ -548,6 +556,8 @@ def pick_own(own, choice, action, tid):
                 "--action rerun|accept|wait|decline" % (tid, names))
     if c:
         cls = classify(own[c])
+        if cls == "other" and act:
+            return c, kind_of(act), own[c], act       # the action reads what the text does not
         if act and kind_of(act) != cls:
             raise ac.AcademyError(
                 "%s: --choice %s is the ticket's own (%s) %r, a %s, but --action %s says "
@@ -568,7 +578,7 @@ def pick_own(own, choice, action, tid):
 RE_LISTED = re.compile(r"(?i)\bmodulo\b[\s`]*\[([^\]]*)\]")
 
 
-def _accept_list(r, text):
+def _accept_list(r, text, force=False):
     """``(which, modulo)``: the list an own 'accept' option takes. An explicit "modulo
     [...]" list is taken as written (named union / intersection when it is one of them,
     else ``listed``); else the words union / intersection; else a run list all of whose
@@ -591,14 +601,22 @@ def _accept_list(r, text):
     if r["intersection"] and all(x in text for x in r["intersection"]):
         return "intersection", list(r["intersection"])
     if re.search(r"\bproved\b(?!-)", low):          # "take proved": no modulo
-        return ("intersection", []) if not r["intersection"] else ("listed", [])
+        if not r["intersection"]:
+            return "intersection", []
+        if not force:                      # plain proved would drop what both runs list
+            raise ac.AcademyError(
+                "%s: the ticket's own option %r says proved, but both runs list %s; nothing "
+                "is recorded: state the list (--action intersection for proved-modulo %s, or "
+                "--force to take plain proved)" % (r["id"], text, _fmt(r["intersection"]),
+                                                   _fmt(r["intersection"])))
+        return "listed", []
     raise ac.AcademyError(
         "%s: the ticket's own option %r names no modulo list and no plain 'proved'; nothing "
         "is recorded: the human must state the list (the runs' lists, for reference: union "
         "%s, intersection %s)" % (r["id"], text, _fmt(r["union"]), _fmt(r["intersection"])))
 
 
-def resolve(r, meta, body, choice, action=None):
+def resolve(r, meta, body, choice, action=None, force=False):
     """The answer ``choice`` / ``action`` names on ruling ``r``: ``{"letter", "which",
     "option"}``. ``which`` is union, intersection, rerun, decline, or (an own option only)
     wait, split or other; ``option`` the ticket's own option text, else None. With its own
@@ -612,9 +630,14 @@ def resolve(r, meta, body, choice, action=None):
         return {"letter": "-", "which": act, "option": None, "modulo": None}
     if own:
         letter, cls, text, act = pick_own(own, choice, action, r["id"])
+        if cls == "other":
+            raise ac.AcademyError(
+                "%s: the ticket's own (%s) %r names no action this tool reads; nothing is "
+                "recorded. Say what it does with --action rerun|accept|wait|split|decline "
+                "(with or without the letter)" % (r["id"], letter, text))
         if cls == "accept":
             which, modulo = ((act, list(r[act])) if act in ("union", "intersection")
-                             else _accept_list(r, text))
+                             else _accept_list(r, text, force))
         else:
             which, modulo = cls, None
     else:
@@ -757,6 +780,10 @@ def plan(r, which, comment="", modulo=None, letter=None):
                 "A lists %s; B lists %s." % (r["pass_dir"], r["expert"], r["statement_hash"],
                                             _fmt(r["modulo_lists"]["A"]),
                                             _fmt(r["modulo_lists"]["B"])),
+                ("The list %s is the ruling's own option's, neither run's list nor their "
+                 "union or intersection (both list %s): check it before setting the status."
+                 % (_fmt(g.get("modulo") or []), _fmt(r["intersection"])))
+                if which == "listed" else "",
                 ("The lists are the decision table's reduced ones (S-table.json): agreed %s; "
                  "differing %s; dropped mechanically %s." % (
                      _fmt(r["intersection"]), _fmt([x for x in r["union"]
@@ -876,7 +903,7 @@ def record(board, r, choice, comment="", workspace=None, date=None, ticket=None,
     date = date or ac.today()
     tid = r["id"]
     _path, meta, body = ticket or boardlib.get_ticket(board, tid)
-    pick = resolve(r, meta, body, choice, action)
+    pick = resolve(r, meta, body, choice, action, force)
     which, letter, own = pick["which"], pick["letter"], pick["option"]
     cls = kind_of(which)
     status = meta.get("status")

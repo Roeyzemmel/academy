@@ -694,7 +694,9 @@ when it disagrees with the letter). A re-run is filed even over an earlier rulin
 keeper acted on (its status stands until the new pass decides, noted in the thread);
 another answer over such an earlier, different one (or over an unlettered `proceed` that
 was acted on) needs `--force`; a wait or split files nothing; an own accept option takes
-the list it names (`proved-modulo [..]` or plain `proved`), and one naming none is refused.
+the list it names (`proved-modulo [..]` or plain `proved`), and one naming none is refused;
+plain `proved` while both runs list inputs needs `--action intersection` or `--force`. An
+own option the keyword reading cannot class is refused on a ruling until `--action` names it.
 A decline is always recorded and rejects the ruling; it undoes nothing already done. The
 listing reads a ruling's options with its body and a plain ticket's from its ask line,
 as `record` does; a plain ticket still takes `proceed` / `decline`.

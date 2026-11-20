@@ -595,6 +595,7 @@ class TestOwnOptions(RulingCase):
         self.assertEqual(["paper:lem:other"], grounds["modulo"])
         self.assertTrue(check_grounds("proved-modulo", grounds, HASH)[0])
         self.assertIn("(b)", grounds["note"])
+        self.assertIn("neither run's list", k[2])
 
     def test_cli_takes_an_action_and_refuses_a_disagreement(self):
         tid = self.own()
@@ -664,7 +665,9 @@ class TestOptionParsing(RulingCase):
         tid = self.ruling(ask="Rule on the modulo inputs: (a) re-run; (b) take proved-modulo; "
                               "(c) leave it open, not proved yet.")
         n = len(self.tickets())
-        out = self.record(tid, "c")
+        with self.assertRaises(ac.AcademyError):              # other: needs --action (re-review 1)
+            self.record(tid, "c")
+        out = self.record(tid, "c", action="wait")
         self.assertEqual((False, None, n), (out["filed"], out["follow_up"], len(self.tickets())))
 
 
@@ -805,10 +808,12 @@ class TestOwnAcceptLists(RulingCase):
         self.assertNotIn("--action", msg)
         self.assertEqual("open", bd.get_ticket(self.board, tid)[1]["status"])
 
-    def test_bare_proved_with_a_nonempty_intersection_proposes_proved(self):
+    def test_bare_proved_with_a_nonempty_intersection_proposes_proved_only_forced(self):
         tid = self.ruling(ask="Rule on the modulo inputs. Choose: (a) take proved, the modulo "
                               "is formal; (b) re-run the pass.")
-        out = self.record(tid, "a")
+        with self.assertRaises(ac.AcademyError):              # re-review 2
+            self.record(tid, "a")
+        out = self.record(tid, "a", force=True)
         k = bd.get_ticket(self.board, out["follow_up"])
         self.assertIn("-> proved ", k[1]["title"])
         self.assertNotIn("modulo", rl.grounds_in(k[2]))
@@ -817,6 +822,83 @@ class TestOwnAcceptLists(RulingCase):
         tid = self.ruling(ask=OWN_ASK)                    # (a) names the intersection exactly
         self.record(tid, "a")
         self.assertIn("(a) intersection", bd.get_ticket(self.board, tid)[1]["result"])
+
+
+T0769_ASK = (
+    "Pass 2026-10-27-T-0765 on flat:CLASS-23 (the bridge from loci to STAR-1 components). Run "
+    "A: CONFIRMED, modulo flat:CHASE-4 (it was `open` when A ran). Run B: CONFIRMED, modulo "
+    "none (CHASE-4 had been proved in the meantime, T-0767). decision_table.py reports "
+    "'disagreement on inputs' -> human. Neither run found a gap. Options: (a) recommended: "
+    "treat A's modulo as discharged and let the keeper set `proved`; (b) run a fresh blind "
+    "pair; (c) set proved-modulo CHASE-4 (immediately discharged). CLASS-23 unlocks the locus "
+    "form (your reading (a)) of CLASS-15 part 3 and CLASS-16, and of CLASS-25 against CLASS-4.")
+
+
+class TestReReview(RulingCase):
+    """Re-review of 7177423: three findings."""
+
+    def test_t0769_s_fresh_blind_pair_is_a_rerun(self):
+        """Finding 1: the real T-0769 ask; its (b) files the re-run."""
+        tid = self.ruling(ask=T0769_ASK)
+        own = rl.own_options(*bd.get_ticket(self.board, tid)[1:])
+        self.assertEqual(["accept", "rerun", "accept"], [rl.classify(v) for v in own.values()])
+        out = self.record(tid, "b")
+        self.assertEqual("verify", self.tickets()[out["follow_up"]]["kind"])
+        for text in ("run them again", "a fresh pair of runs", "two blind runs", "rerun it"):
+            self.assertEqual("rerun", rl.classify(text), text)
+
+    def test_an_other_option_on_a_ruling_needs_an_action(self):
+        tid = self.ruling(ask="Rule on the modulo inputs. Choose: (a) take proved-modulo "
+                              "[paper:lem:rigid, paper:cor:locus]; (b) consult the authors "
+                              "first; (c) re-run.")
+        thread = self.thread(tid)
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "b")
+        self.assertIn("consult the authors first", str(cm.exception))
+        self.assertIn("--action", str(cm.exception))
+        self.assertEqual(thread, self.thread(tid))
+        out = self.record(tid, "b", action="wait")
+        self.assertEqual((False, None), (out["filed"], out["follow_up"]))
+        self.assertTrue(any(t.startswith("human decision: (b) wait") for t in self.thread(tid)))
+
+    def test_plain_proved_over_a_nonempty_intersection_is_refused(self):
+        """Finding 2: plain proved would drop inputs both runs list."""
+        tid = self.ruling(ask="Rule on the inputs: (a) take proved (the rest is formal); "
+                              "(b) re-run; (c) wait.")
+        with self.assertRaises(ac.AcademyError) as cm:
+            self.record(tid, "a")
+        msg = str(cm.exception)
+        self.assertIn("paper:lem:rigid", msg)
+        self.assertIn("--action intersection", msg)
+        self.assertIn("--force", msg)
+        self.assertEqual("open", bd.get_ticket(self.board, tid)[1]["status"])
+        out = self.record(tid, "a", force=True)
+        k = bd.get_ticket(self.board, out["follow_up"])
+        self.assertIn("-> proved ", k[1]["title"])
+        self.assertIn("neither run's list", k[2])
+
+    def test_an_empty_intersection_keeps_plain_proved(self):
+        self.write_pass(a=record_text("A", modulo="paper:lem:rigid"),
+                        b=record_text("B", modulo="none"))
+        tid = self.ruling(ask="Rule on the inputs: (a) take proved; (b) re-run.")
+        out = self.record(tid, "a")
+        self.assertIn("-> proved ", self.tickets()[out["follow_up"]]["title"])
+
+    def test_wider_negation(self):
+        """Finding 3: a negation reaches its clause's next keyword, across commas; a 'but'
+        or the first keyword after it ends its reach."""
+        cases = {
+            "do not, under any circumstances, take proved but re-run": "rerun",
+            "no wait, re-run": "rerun",
+            "don't accept it, re-run the pass": "rerun",
+            "do not wait: take proved": "accept",
+            "accept nothing: re-run": "rerun",
+            "there is no need to wait, decline": "decline",
+            "leave it open, not proved yet": "other",
+            "take proved": "accept",
+        }
+        for text, want in cases.items():
+            self.assertEqual(want, rl.classify(text), text)
 
 
 class TestGithubBackend(RulingCase):
