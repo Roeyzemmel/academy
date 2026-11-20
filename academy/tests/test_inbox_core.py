@@ -455,6 +455,8 @@ class HomeFromWorkspaceTests(unittest.TestCase):
         args = core.parser("d").parse_args(["--workspace", path])
         self.assertEqual(core.home_of(INST, args), d + "/ws/nb")
         self.assertEqual(core.home_of("expert@none", args), "")
+        args2 = core.parser("d").parse_args(["--workspace", path, "--home", d + "/elsewhere"])
+        self.assertEqual(core.home_of("expert@none", args2), d.replace("\\", "/") + "/elsewhere")
         bad = core.parser("d").parse_args(["--workspace", os.path.join(d, "missing.json")])
         self.assertEqual(core.home_of(INST, bad), "")
 

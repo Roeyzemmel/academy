@@ -644,11 +644,14 @@ class inbox_core(object):
         """The instance's home as workspace.json gives it (the checkout this workspace uses),
         '' when it cannot be read. The inbox workflow hands it back verbatim (#116: a clerk
         that filled the home itself named an attached checkout outside the workspace)."""
+        given = getattr(args, "home", None)
+        fallback = os.path.abspath(given).replace("\\", "/") if given else ""
         try:
             ws = load_workspace(getattr(args, "workspace", None))
         except (AcademyError, OSError):
-            return ""
-        return str(((ws or {}).get("instances") or {}).get(instance, {}).get("home") or "")
+            return fallback
+        # an instance workspace.json does not list: the --home the script was given
+        return str(((ws or {}).get("instances") or {}).get(instance, {}).get("home") or fallback)
 
     @staticmethod
     def open_inbox_store(args):
