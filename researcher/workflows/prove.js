@@ -243,7 +243,7 @@ for (const x of [A.for_verify, st.for_verify]) {
 }
 // The marker is checked against the verify ticket it names (second look at 7044d82: on its
 // shape alone, any prove ticket quoting it would skip its own verify ticket): it must be a
-// verify ticket on this claim, blocked and waiting on this very ticket (or its parent).
+// verify ticket on this claim, blocked and waiting on this very ticket.
 if (forVerify) {
   const vt = T ? await launch(STAGE('for-verify', [`tickets_get ${forVerify} and return whether it was found, its kind, refs, status and waiting_on; and tickets_get ${T} and return its parent. Write nothing.`]),
     { label: 'check for-verify', phase: 'State', agentType: CLERK, schema: FOR_VERIFY, effort: 'low' }) : null
@@ -253,7 +253,10 @@ if (forVerify) {
     : !vt.found ? `${forVerify} was not found`
     : vt.kind !== 'verify' ? `${forVerify} is a ${vt.kind || '?'} ticket, not verify`
     : !(vt.refs || []).some(same) ? `${forVerify} does not name ${A.claim}`
-    : vt.status !== 'blocked' || !((vt.waiting_on || []).includes(T) || String(vt.this_parent || '').trim() === forVerify)
+    // the wait alone ties the repair to the pass: verify.js blocks the verify ticket on the
+    // repair it files (a child ticket of a verify ticket that waits on something else is
+    // not its repair; third look at 3759900)
+    : vt.status !== 'blocked' || !(vt.waiting_on || []).includes(T)
       ? `${forVerify} is ${vt.status || '?'} and does not wait on ${T}`
       : ''
   if (why) {

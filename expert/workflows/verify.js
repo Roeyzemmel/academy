@@ -470,7 +470,7 @@ function amendmentIn(deps) {
   // 'differed' from the current attempt, so an untouched proof passed)
   const rec = String(am.reviewed_attempt || '').trim()
   if (am.request && !open && (!rec || NO_ATTEMPT.test(rec))) why.push('the pass did not record the attempt run A reviewed')
-  else if (am.request && !open && (!String(am.attempt || '').trim() || am.attempt.trim() === am.reviewed_attempt.trim())) {
+  else if (am.request && !open && (!String(am.attempt || '').trim() || NO_ATTEMPT.test(am.attempt.trim()) || am.attempt.trim() === am.reviewed_attempt.trim())) {
     why.push(`the claim's current attempt (${am.attempt || 'none reported'}) is the one run A reviewed: the proof was not amended`)
   }
   if (am.request && !open && missing.length) why.push(`the declared inputs of ${A.claim} lack ${missing.join(', ')} (namespace and pinpoint as suggested)`)

@@ -447,7 +447,9 @@ class ProveTests(unittest.TestCase):
         would skip its own verify ticket. Not waiting on this ticket, another claim, not a
         verify ticket, not found: the marker is ignored and the verify ticket is filed."""
         good = self.AMEND["check for-verify"][0]
-        for bad in (dict(good, waiting_on=["T-0999"], this_parent=""), dict(good, status="in-progress"),
+        for bad in (dict(good, waiting_on=["T-0999"], this_parent=""),
+                    dict(good, waiting_on=["human"], this_parent="T-0007"),      # a child, not its repair
+                    dict(good, status="in-progress"),
                     dict(good, refs=["flat:GEO-4"]), dict(good, kind="prove"), dict(good, found=False)):
             plan = dict(self.AMEND, **{"check for-verify": [bad],
                                        "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
