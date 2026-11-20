@@ -314,23 +314,45 @@ class ProveTests(unittest.TestCase):
         self.assertNotIn("attack_exists", c["schema"]["required"])
         self.assertIn("attack_exists", c["prompt"])                     # named explicitly in the stage
 
-    def test_a_missing_attack_exists_launches_no_attack_over_an_existing_one(self):
-        """Missing is unknown, never false: no attack-only run (it could overwrite an attack.md),
-        a note says so, and the prover is told to read attack.md if it exists."""
+    UNKNOWN_ATTACK = "If proofs/<id>/attack.md already exists, read it first and stop there"
+
+    def test_a_missing_attack_exists_still_gets_the_attack_run_once(self):
+        """#124 follow-up (review of 0881c94): missing is unknown, never false, and never a
+        silent skip: the header makes the attack the first step for an unattacked statement. The
+        attack-only run goes ahead once, told to read an existing proofs/<id>/attack.md first and
+        stop if one is present (nothing overwritten); a note says the state was unknown."""
         s = state()
         del s["attack_exists"]
         res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[s]))
-        self.assertNotIn("attack", labels)
+        self.assertEqual(labels.count("attack"), 1)
+        self.assertEqual(labels.index("attack") + 1, labels.index("attempt path"))
         self.assertEqual(res["outcome"], "verify-filed")
-        self.assertIn("attack_exists", " ".join(res["notes"]))
-        prompt = next(c for c in calls if c["label"] == "attempt")["prompt"]
-        self.assertIn("If proofs/<id>/attack.md exists, read it first", prompt)
+        atk = next(c for c in calls if c["label"] == "attack")["prompt"]
+        self.assertIn(self.UNKNOWN_ATTACK, atk)
+        self.assertIn("statement_hash: 0123456789abcdef", atk)
+        notes = " ".join(res["notes"])
+        self.assertIn("attack_exists", notes)
+        self.assertIn("unknown", notes)
+        self.assertIn("Read proofs/<id>/attack.md first.", next(c for c in calls if c["label"] == "attempt")["prompt"])
         # a non-boolean is unknown too
-        res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists="unknown")]))
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists="unknown")]))
+        self.assertEqual(labels.count("attack"), 1)
+        self.assertIn(self.UNKNOWN_ATTACK, next(c for c in calls if c["label"] == "attack")["prompt"])
+        # a lost unknown-state attack run launches nothing further, as a lost one always did
+        res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[s], attack=[None], **{"attack (opus fallback)": [None]}))
+        self.assertEqual(res["outcome"], "lost")
+        self.assertNotIn("attempt", labels)
+
+    def test_a_known_attack_exists_is_read_as_before(self):
+        """true: no attack run; false: one attack run, without the unknown-state clause or note."""
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists=True)]))
         self.assertNotIn("attack", labels)
-        # false still launches the attack-only run
-        res, labels, _ = self.run_wf(dict(self.COMPLETE))
-        self.assertIn("attack", labels)
+        self.assertNotIn("attack_exists", " ".join(res["notes"]))
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists=False)]))
+        self.assertEqual(labels.count("attack"), 1)
+        self.assertNotIn(self.UNKNOWN_ATTACK, next(c for c in calls if c["label"] == "attack")["prompt"])
+        self.assertNotIn("attack_exists", " ".join(res["notes"]))
+        self.assertIn("Read proofs/<id>/attack.md first.", next(c for c in calls if c["label"] == "attempt")["prompt"])
 
     def test_every_prover_launch_is_on_the_max_model(self):
         """T-1682: attack, attempt and filing launch on the args' model, or one clerk stage resolves it."""
