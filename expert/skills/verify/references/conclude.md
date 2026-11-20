@@ -3,10 +3,11 @@
 The procedure for the concluder: the `review-chair` agent in the stages of the
 `academy-verify` workflow (`workflows/verify.js`), or the main session when
 `/expert:verify` runs by hand. In the workflow, **the script launches the runs and holds
-sections 1, 1a and 7.5** (A, then the falsifier, B only on `launch_b` with an unchanged
-hash and a falsifier that found nothing, the identical brief, one relaunch, a lost run
-stops the pass); the chair's stages are *prepare* (section 0, or 7.1-7.4), *table* (the
-`decision_table.py <run>.md --json` check of section 1), *falsifier* (section 1a) and
+sections 1, 1a, 1b and 7.5** (A, then the falsifier, B only on `launch_b` with an unchanged
+hash and a falsifier that found nothing, the identical brief, or in amend mode once a
+suggested dependency is in, one relaunch, a lost run stops the pass); the chair's stages
+are *prepare* (section 0, or 7.1-7.4), *table* (the `decision_table.py <run>.md --json`
+check of section 1), *falsifier* (section 1a), *amendment* and *amend-brief* (section 1b) and
 *conclude* (sections 2-6, or 7.6-7.7). Section 1 below is the by-hand
 route. A review fails loudly, in a verdict; a conclusion fails
 silently, by leaving a finding in a transcript nothing will read again. This file is
@@ -91,6 +92,8 @@ returns, the `land_verdict` hook has written `<pass dir>/A.md`. Then
   that and conclude nothing. Otherwise the falsifier comes first (section 1a); once it is on
   record and found nothing, launch run B with the identical brief and `run: B`, telling it
   nothing of A.
+- `awaiting-amendment` (A CONFIRMED with `add_dependency`): the falsifier first (section
+  1a), then the amendment (section 1b); B runs in amend mode.
 - Otherwise conclude on A alone (`single-negative`, `degraded`, `disproved`,
   `incomplete`) and say in the record that B was **skipped by design**, not lost.
 
@@ -140,6 +143,45 @@ a negative A concludes on A alone, and a reword pass has no falsifier stage.
   the counterexample and where it is recorded. The packet puts the counterexample in
   `## Decisions needed`; the ticket is delivered. The outcome is
   `falsifier-counterexample`.
+
+## 1b. A suggested dependency: the amend pass
+
+The human's design (2026-11-20). A reviewer whose only objection is an input the proof
+relies on but does not list says CONFIRMED with `add_dependency: <ids or
+bib:key#pinpoint>` (a missing argument is still GAP). On run A alone the table then gives
+`awaiting-amendment` (no `launch_b`), with an `add-dependency` item routed as a `prove`
+ticket in mode `repair`. The falsifier (section 1a) still comes first: a counterexample
+spends no amendment.
+
+- **The amendment** (stage *amendment*): launch no B. File one repair: `tickets_create`
+  kind `prove` to the Researcher that owns the claim's namespace (a `paper:` or `lab:`
+  claim: the Researcher of the claim's domain, as in section 4.3; a `lab:` claim with
+  `final_to: scientist`), `parent` and `refs` the verify ticket and the claim, asking (mode
+  repair) to add **exactly** those dependencies to the proof and to the claim's
+  `depends_on` (a `bib:` key to its `cites`), and nothing else. It names the dependencies
+  only, never A's verdict or report. Block the verify ticket `waiting_on` it; a refusal
+  blocks it on the human. The pass stays open; the workflow returns `awaiting-amendment`.
+  A repair already filed and still out: file nothing, block on it again; one that ended
+  without adding them: block on the human.
+- **The rerun.** The pass resumes (A tabled, not relaunched). The amendment counts once
+  every suggested dependency is among the claim's declared inputs as the registry reads
+  them now and the repair has ended. Then (stage *amend-brief*) write run B's bundle,
+  outside `reviews/`:
+
+      py $E/reviews.py amend-brief <id> <pass> --attempt <the amended attempt> --ticket <T> --out <file>
+
+  It refuses unless A is CONFIRMED with a suggestion, B has not landed and the statement
+  has not moved (an amendment never rewords the statement). B reads the bundle: the
+  suggestion and the amended proof, never A's report.
+- **The table.** B's record says `mode: amend`, `base_pass` (this pass), `base_hash` (A's
+  statement hash) and `amended_with` (exactly A's suggestion). Decide the pair with
+  `decision_table.py "<pass dir>/A.md" "<pass dir>/B.md" --established ... --json`:
+  B CONFIRMED gives `confirmed-modulo` on the union of both modulo lists and the added
+  dependencies (`confirmed`, propose proved, when every one is established), grounds
+  naming both runs (`mode: amend`); B GAP is a `disagreement` (no status; B's blocking
+  step is filed); a B on another pass, hash, statement or set of dependencies, or a B
+  whose A suggested nothing, is `invalid-amend` (no status). The added dependencies enter
+  `depends_on`, so an unestablished one is a pending input (section 2).
 
 ## 2. The table, input by input
 

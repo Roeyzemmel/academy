@@ -21,7 +21,15 @@ the ticket protocol is `docs/protocol.md`.
    workflow enforces this in code (docs/workflows.md). The order of a proof's review is
    **attempt, run A, the falsifier, run B** (the human's design, 2026-11-20): a falsifier
    is spent only on a proof that survived A, and B runs only once the claim's falsifier
-   is on record and found nothing; a counterexample ends the pass with no status change. A definition used only as notation is
+   is on record and found nothing; a counterexample ends the pass with no status change.
+   **A suggested dependency** (the human's design, 2026-11-20): a reviewer whose only
+   objection is an input the proof relies on but does not list says CONFIRMED with
+   `add_dependency` (a missing argument is still GAP). The producer then adds exactly that
+   to the proof and to `depends_on` (a `prove` repair), and run B reviews the amended
+   proof in amend mode, told the suggestion only, never A's report; A and that B **are the
+   two agreeing verdicts** (as a reword run is over a CONFIRMED x2 pass), and the claim is
+   proved-modulo the added dependency until it is established. When A suggests nothing,
+   the blind pair is unchanged. A definition used only as notation is
    not an input in a verdict's `modulo` list; only a definition whose content the
    argument relies on counts (the human's decision, 2026-10-09, T-0148). So two
    CONFIRMED runs whose `modulo` lists differ only in definitions agree, on the
