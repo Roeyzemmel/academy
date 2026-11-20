@@ -96,6 +96,10 @@ const STATE = { type: 'object', properties: {
   for_verify_pass: { type: 'string', description: 'the pass that marker names; else empty' } },
   required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'attack_exists', 'repair'] }
 const PATH = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
+const FOR_VERIFY = { type: 'object', properties: { found: { type: 'boolean' }, kind: { type: 'string' },
+  refs: { type: 'array', items: { type: 'string' } }, status: { type: 'string' },
+  waiting_on: { type: 'array', items: { type: 'string' } }, this_parent: { type: 'string', description: 'the parent of the prove ticket itself, or empty' } },
+  required: ['found', 'kind', 'refs', 'status', 'waiting_on', 'this_parent'] }
 const OUTCOME = { type: 'object', properties: {
   exists: { type: 'boolean' }, outcome: { type: 'string', description: 'the attempt frontmatter\'s outcome: field, verbatim' },
   gaps: { type: 'array', items: { type: 'string' } }, objects: { type: 'array', items: { type: 'string' }, description: 'claims the attempt names (partial results)' },
@@ -233,9 +237,29 @@ if (!st.ok) return Object.assign(out, { outcome: 'not-started', reason: st.stop_
 // since run B of that pass, on the amended proof, is the second verdict; the falsifier
 // question belongs to that pass, so the gate below does not stop it
 const RE_TICKET = /^T-\d{4,}$/
-const forVerify = [A.for_verify, st.for_verify].map(x => String(x || '').trim()).find(x => RE_TICKET.test(x)) || ''
+let forVerify = [A.for_verify, st.for_verify].map(x => String(x || '').trim()).find(x => RE_TICKET.test(x)) || ''
 for (const x of [A.for_verify, st.for_verify]) {
   if (String(x || '').trim() && !RE_TICKET.test(String(x).trim())) out.notes.push(`for_verify ${JSON.stringify(x)} is not a ticket id: ignored`)
+}
+// The marker is checked against the verify ticket it names (second look at 7044d82: on its
+// shape alone, any prove ticket quoting it would skip its own verify ticket): it must be a
+// verify ticket on this claim, blocked and waiting on this very ticket (or its parent).
+if (forVerify) {
+  const vt = T ? await launch(STAGE('for-verify', [`tickets_get ${forVerify} and return whether it was found, its kind, refs, status and waiting_on; and tickets_get ${T} and return its parent. Write nothing.`]),
+    { label: 'check for-verify', phase: 'State', agentType: CLERK, schema: FOR_VERIFY, effort: 'low' }) : null
+  const same = r => { const x = String(r || '').trim(), c = String(A.claim).trim(); return x === c || x.endsWith(':' + c) || c.endsWith(':' + x) }
+  const why = !T ? 'it has no ticket of its own to be waited on'
+    : !vt ? 'the check stage returned nothing'
+    : !vt.found ? `${forVerify} was not found`
+    : vt.kind !== 'verify' ? `${forVerify} is a ${vt.kind || '?'} ticket, not verify`
+    : !(vt.refs || []).some(same) ? `${forVerify} does not name ${A.claim}`
+    : vt.status !== 'blocked' || !((vt.waiting_on || []).includes(T) || String(vt.this_parent || '').trim() === forVerify)
+      ? `${forVerify} is ${vt.status || '?'} and does not wait on ${T}`
+      : ''
+  if (why) {
+    out.notes.push(`the marker names ${forVerify}, but ${why}: not a repair for a verify pass (its verify ticket is filed as usual)`)
+    forVerify = ''
+  }
 }
 const repair = A.mode === 'repair' || !!st.repair || !!forVerify
 out.repair = repair

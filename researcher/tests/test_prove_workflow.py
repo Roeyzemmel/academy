@@ -414,11 +414,13 @@ class ProveTests(unittest.TestCase):
                              repair_ask="add bib:LMW16#Thm11 to the proof")],
              "attempt path": [{"path": "proofs/GEO-3/attempt-3.md"}], "attempt": ["done"],
              "outcome": [done(dependencies=["bib:LMW16#Thm11"], inputs_listed=["bib:LMW16#Thm11"])],
+             "check for-verify": [{"found": True, "kind": "verify", "refs": ["flat:GEO-3", "T-0001"],
+                                   "status": "blocked", "waiting_on": ["T-0010"], "this_parent": "T-0007"}],
              "close": [MOVE]}
 
     def test_a_repair_for_a_verify_pass_files_no_verify_ticket(self):
         res, labels, calls = self.run_wf(self.AMEND)
-        self.assertEqual(labels, ["state", "related", "attempt path", "attempt", "outcome", "close"])
+        self.assertEqual(labels, ["state", "check for-verify", "related", "attempt path", "attempt", "outcome", "close"])
         self.assertEqual(res["outcome"], "amendment-delivered")
         self.assertEqual(res["for_verify"], "T-0007")
         self.assertNotIn("verify_ticket", res)
@@ -439,6 +441,22 @@ class ProveTests(unittest.TestCase):
         res, labels, _ = self.run_wf(plan, for_verify="T-0007")
         self.assertEqual(res["outcome"], "amendment-delivered")
         self.assertNotIn("file verify", labels)
+
+    def test_a_marker_the_named_verify_ticket_does_not_back_is_ignored(self):
+        """Second look at 7044d82: on its shape alone, any prove ticket quoting the marker
+        would skip its own verify ticket. Not waiting on this ticket, another claim, not a
+        verify ticket, not found: the marker is ignored and the verify ticket is filed."""
+        good = self.AMEND["check for-verify"][0]
+        for bad in (dict(good, waiting_on=["T-0999"], this_parent=""), dict(good, status="in-progress"),
+                    dict(good, refs=["flat:GEO-4"]), dict(good, kind="prove"), dict(good, found=False)):
+            plan = dict(self.AMEND, **{"check for-verify": [bad],
+                                       "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
+                                       "check verify": [{"found": True, "to": "expert@t", "kind": "verify",
+                                                         "refs": ["flat:GEO-3", "bib:LMW16#Thm11"]}]})
+            res, labels, _ = self.run_wf(plan)
+            self.assertNotIn("for_verify", res, bad)
+            self.assertIn("file verify", labels, bad)
+            self.assertTrue(any("the marker names T-0007, but" in n for n in res["notes"]), res["notes"])
 
     def test_a_malformed_marker_is_ignored(self):
         plan = dict(self.AMEND, state=[state(status="sketch", falsified=False, falsifier_evidence="",

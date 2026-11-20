@@ -435,9 +435,11 @@ class AmendAfterATests(unittest.TestCase):
     BUNDLE = {"bundle": "/lib/scratch/amend-T-0001.md", "refusal": ""}
 
     def test_a_suggestion_files_the_repair_and_blocks_the_ticket_instead_of_b(self):
-        out, labels, calls = self.run_wf({"prepare": dict(PREP, amendment=self.NO_AM), "run A": "r",
+        am = dict(self.NO_AM, attempt="proofs/lem-x/attempt-2.md")     # the attempt A reviews
+        out, labels, calls = self.run_wf({"prepare": dict(PREP, amendment=am), "run A": "r",
                                           "table A": self.A_SUG, "amendment": self.FILED})
         self.assertEqual(labels, ["prepare", "run A", "table A", "amendment"])
+        self.assertIn("run A reviewed proofs/lem-x/attempt-2.md", calls[-1]["prompt"])
         r = out["result"]
         self.assertEqual(r["outcome"], "awaiting-amendment")
         self.assertEqual(r["amendment_request"], "T-0003")
@@ -449,6 +451,22 @@ class AmendAfterATests(unittest.TestCase):
                      "depends_on", "blocked", "waiting_on", "T-0001"):
             self.assertIn(want, stage["prompt"])
         self.assertNotIn("run B", labels)
+
+    def test_a_placeholder_attempt_is_no_record_and_no_attempt_files_no_repair(self):
+        """Second look at 7044d82: '(no attempt reported)' always 'differed' from the current
+        attempt; and a repair asked for with no attempt on record cannot be checked."""
+        am = dict(self.DONE_AM, reviewed_attempt="(no attempt reported)")
+        prep = dict(PREP, amendment=am, landed=self.LANDED_A, inputs=["paper:lem:lift"])
+        out, labels, calls = self.run_wf({"prepare": prep, "table A": self.A_SUG,
+                                          "amendment": [{"request": "", "blocked": True, "waiting_on": ["human"], "refusal": ""}]})
+        self.assertNotIn("run B", labels)
+        self.assertIn("did not record the attempt run A reviewed", " ".join(out["result"]["notes"]) + out["result"].get("reason", ""))
+        prep = dict(PREP, amendment=dict(self.NO_AM, attempt=""))
+        out, labels, calls = self.run_wf({"prepare": prep, "run A": "r", "table A": self.A_SUG,
+                                          "amendment": [{"request": "", "blocked": True, "waiting_on": ["human"], "refusal": ""}]})
+        amend = next(c for c in calls if c["label"] == "amendment")["prompt"]
+        self.assertIn("file nothing", amend)
+        self.assertIn("is not on record", amend)
 
     def test_a_pending_amendment_is_waited_on_not_filed_again(self):
         am = dict(self.NO_AM, request="T-0003", request_status="open")

@@ -457,6 +457,7 @@ function depKey(x) {
   return i < 0 ? t : t.slice(0, i) + '#' + t.slice(i + 1).trim().replace(PIN_GLUE, '$1')
 }
 const REPAIR_DONE = /^(delivered|closed)$/
+const NO_ATTEMPT = /^\(?\s*(none|no attempt( reported)?|unknown|n\/a)\s*\)?$/i
 function amendmentIn(deps) {
   const am = prep.amendment || {}
   const have = new Set((prep.inputs || []).map(depKey))
@@ -465,7 +466,10 @@ function amendmentIn(deps) {
   const open = !!am.request && !DONE_TICKET.test(status)
   const why = []
   if (am.request && !open && !REPAIR_DONE.test(status)) why.push(`the repair ${am.request} ended ${status}, not delivered or closed`)
-  if (am.request && !open && !String(am.reviewed_attempt || '').trim()) why.push('the pass did not record the attempt run A reviewed')
+  // a placeholder is no record (second look at 7044d82: '(no attempt reported)' always
+  // 'differed' from the current attempt, so an untouched proof passed)
+  const rec = String(am.reviewed_attempt || '').trim()
+  if (am.request && !open && (!rec || NO_ATTEMPT.test(rec))) why.push('the pass did not record the attempt run A reviewed')
   else if (am.request && !open && (!String(am.attempt || '').trim() || am.attempt.trim() === am.reviewed_attempt.trim())) {
     why.push(`the claim's current attempt (${am.attempt || 'none reported'}) is the one run A reviewed: the proof was not amended`)
   }
@@ -476,8 +480,12 @@ function amendmentIn(deps) {
 async function requestAmendment(deps, st) {
   const T = ticket === 'none' ? '' : ticket
   const list = deps.join(', ')
-  const reviewed = String((prep.amendment || {}).attempt || '').trim() || '(no attempt reported)'
-  const how = st.open
+  const reviewed = String((prep.amendment || {}).attempt || '').trim()
+  // no repair without the attempt A reviewed on record: the human decides instead
+  const how = !st.open && !st.request && !reviewed
+    ? [`The prepare stage reported no proof attempt for ${A.claim}, so the attempt run A reviewed cannot be recorded and an amendment could not be checked: file nothing. ` +
+       (T ? `Block ${T}: tickets_update status blocked, waiting_on [human], reason "run A suggests adding ${list} to ${A.claim}, but the attempt it reviewed is not on record: the human decides (record it and rerun, or a fresh pass)".` : 'There is no verify ticket to block.')]
+    : st.open
     ? [`An earlier run of this pass filed the repair ${st.request} (${st.status || 'status unknown'}), which is not back: file nothing. ` +
        (T ? `Block ${T}: tickets_update status blocked, waiting_on [${st.request}], note "amendment ${st.request} not back; the pass ${prep.pass} stays open".` : 'There is no verify ticket to block.')]
     : st.request
