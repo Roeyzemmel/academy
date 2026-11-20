@@ -349,7 +349,9 @@ LF, Markdown, written by you:
      keep it as an input), **at most once per definition id** (`route.once`): first
      `tickets_list {text: <route.title>, include_terminal: true}`, and when a ticket with
      exactly that title exists, open or closed, file nothing and name it in the record
-     and the packet. Never a `verify` ticket on a definition;
+     and the packet. Never a `verify` ticket on a definition. A `definition-check` item
+     (a definition with an open `[CHECK]` both runs list) is filed the same way, once
+     per its `route.title`: the human resolves the check;
    - a counterexample, from a DISPROVED run or from the falsifier of section 1a, or runs
      that still disagree on the inputs (a `disagreement`, never a `confirmed-settled`): a
      `decision` ticket to the human (the one rule for a counterexample; never a `prove`

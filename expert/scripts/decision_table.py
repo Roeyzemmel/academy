@@ -66,7 +66,10 @@ Mechanical rules applied before the table:
   An entry with an open ``[CHECK]`` is not kept: it is held to the settler's case 9 like
   any input. A pending kept definition is a ``definition-input`` item, never a
   ``verify-input``: a ``decision`` to the human, filed at most once per definition id
-  (``route.once``, ``route.title``), whether to tag it notation-only. The same rule
+  (``route.once``, ``route.title``), whether to tag it notation-only; a definition with
+  an open ``[CHECK]`` both runs list is a ``definition-check`` decision, filed the same
+  way. The tag is read on the head (``d (item 2)`` tagged is dropped); an entry with an
+  open ``[CHECK]`` is never dropped. The same rule
   applies to a reword run's and an amend pass's modulo. Both lists are named in the
   grounds' note. An id is a definition when the registry kind of its head token
   (``definition_head``: pointer text and a ``#`` pinpoint removed) is a definition
@@ -398,6 +401,18 @@ def follow_up(item, subject="", producer_role="", rec=None):
                         % (d, subject or "the claim")),
                 "why": "a definition kept as an input (the definition rule, #103): filed "
                        "at most once per definition id, across passes and claims"}
+    if kind == "definition-check":
+        # re-review of e800543, R2: a definition with an open [CHECK] that both runs list
+        # has no status to verify; the human resolves the check, once per entry
+        d = item.get("definition") or ""
+        e = " ".join(str(item.get("text") or "").split())
+        return {"kind": "decision", "to_role": "human", "final_to": None, "gap_class": gc,
+                "once": True, "title": "Definition check: %s" % e,
+                "ask": ("%s is an input of %s with an open check (%s): resolve the check, "
+                        "or tag %s notation-only; the claim stays proved-modulo it until "
+                        "then" % (d, subject or "the claim", e, d)),
+                "why": "an open [CHECK] on a definition both runs list (case 9's mark): a "
+                       "definition is never a verify ticket"}
     if kind == "inputs":
         return {"kind": "decision", "to_role": "human", "final_to": None, "gap_class": gc,
                 "why": "the runs disagree on the inputs: a ruling or a re-run"}
@@ -532,8 +547,8 @@ def notation_only(item, kind_of=None, tags_of=None):
     ``(notation only)`` on the entry is read past, never trusted on its own. Anything
     else stays an input."""
     s = str(item or "").strip()
-    head = RE_NOTATION_MARK.sub("", s)
-    if not _bare_id(head):
+    head = definition_head(s)       # the tag is the record's: read on the head (R1)
+    if not head or has_open_check(s):
         return None
     if not is_definition(head, kind_of):
         return None
@@ -581,15 +596,23 @@ def apply_definition_rule(lists, kind_of=None, tags_of=None):
     return rest, sorted(dropped), merge_kept(kept)
 
 
-def _input_items(pending, run, kept):
+def _input_items(pending, run, kept, kind_of=None):
     """The items a pending input becomes: a ``verify-input``, or, for a kept definition
     (``kept``), a ``definition-input`` naming the definition's id (review of 47ab60e,
     finding 3: a definition has no status to verify; the human decides once whether it is
-    notation-only)."""
-    kept = set(kept or ())
-    return [{"run": run, "kind": "definition-input", "text": i,
-             "definition": definition_head(i) or i} if i in kept
-            else {"run": run, "kind": "verify-input", "text": i} for i in pending]
+    notation-only), or, for a definition with an open ``[CHECK]`` both runs list, a
+    ``definition-check`` (re-review, R2: the human resolves the check; no verify)."""
+    kept, out = set(kept or ()), []
+    for i in pending:
+        if i in kept:
+            out.append({"run": run, "kind": "definition-input", "text": i,
+                        "definition": definition_head(i) or i})
+        elif has_open_check(i) and is_definition(i, kind_of):
+            out.append({"run": run, "kind": "definition-check", "text": i,
+                        "definition": definition_head(i) or i})
+        else:
+            out.append({"run": run, "kind": "verify-input", "text": i})
+    return out
 
 
 # ----------------------------------------------------------------------------
@@ -1452,7 +1475,7 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
         res["recolour"] = not res["pending_inputs"]
         res["grounds"] = _grounds(recs, sorted(ma), "two CONFIRMED verdicts modulo %s"
                                   % ", ".join(sorted(ma)) + dnote, prod_role)
-        res["file_items"] = _input_items(res["pending_inputs"], "A+B", kept)
+        res["file_items"] = _input_items(res["pending_inputs"], "A+B", kept, kind_of)
         res["summary"] = ("CONFIRMED x2 modulo %s: propose proved-modulo; %s"
                           % (", ".join(sorted(ma)),
                              "recolour earned (every input established)" if res["recolour"]
@@ -1739,7 +1762,7 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
     res["recolour"] = not res["pending_inputs"]
     res["grounds"] = _reword_grounds(rec_r, base_recs, mod, "%s, modulo %s"
                                      % (how, ", ".join(mod)), prod_role)
-    res["file_items"] = _input_items(res["pending_inputs"], "R", kept)
+    res["file_items"] = _input_items(res["pending_inputs"], "R", kept, kind_of)
     res["summary"] = ("%s, modulo %s: propose proved-modulo; %s"
                       % (how, ", ".join(mod), "recolour earned (every input established)"
                          if res["recolour"] else "stays sketch until %s are established"
@@ -1941,7 +1964,7 @@ def decide_amend(rec_a, rec_b=None, established=(), primary=None, producer_role=
     res["proposed_status"] = "proved-modulo"
     res["grounds"] = _amend_grounds(rec_a, rec_b, mod, added, "%s, modulo %s"
                                     % (how, ", ".join(mod)), prod_role)
-    res["file_items"] = _input_items(res["pending_inputs"], "A+B", kept)
+    res["file_items"] = _input_items(res["pending_inputs"], "A+B", kept, kind_of)
     res["summary"] = ("%s: propose proved-modulo %s; stays sketch until %s are established"
                       % (how, ", ".join(mod), ", ".join(res["pending_inputs"])))
     return res

@@ -254,8 +254,11 @@ class TableTests(unittest.TestCase):
                                            lambda q: None))
         self.assertEqual(dt.notation_only("s1:DEF-1", lambda q: None,
                                           {"s1:DEF-1": ["Notation-Only"]}.get), "s1:DEF-1")
-        # pointer text other than the mark: no record to read the tag of
-        self.assertIsNone(dt.notation_only("paper:defn:d (item 2)", lambda q: None,
+        # pointer text other than the mark: the tag is read on the head (updated for the
+        # re-review of e800543, R1; it pinned None here); an open [CHECK] is never dropped
+        self.assertEqual(dt.notation_only("paper:defn:d (item 2)", lambda q: None,
+                                          lambda q: ["notation-only"]), "paper:defn:d")
+        self.assertIsNone(dt.notation_only("paper:defn:d [CHECK]", lambda q: None,
                                            lambda q: ["notation-only"]))
         r = dt.decide(rec("CONFIRMED", modulo="paper:lem:b (notation only)"),
                       rec("CONFIRMED", run="B"), kind_of=lambda q: None, tags_of=lambda q: None)
@@ -1799,3 +1802,28 @@ class DefinitionRuleReviewTests(unittest.TestCase):
         (f,) = r["differing_inputs"]
         self.assertEqual((f["input"], f["open_check"], f["definition"]),
                          (self.D + " [CHECK]", True, True))
+
+    # residual R1 (re-review of e800543): the tag is read on the definition's head
+    def test_a_tagged_definition_with_pointer_text_is_dropped(self):
+        tags = {self.D: ["notation-only"]}
+        r = self.run_(self.D + " (item 2)", "none", tags=tags)
+        self.assertEqual((r["outcome"], r["proposed_status"]), ("confirmed", "proved"))
+        self.assertEqual((r["dropped_definitions"], r["kept_definitions"]), ([self.D], []))
+        self.assertEqual(r["file_items"], [])
+
+    # residual R2: a shared definition with an open [CHECK] is no verify ticket
+    def test_a_shared_definition_with_an_open_check_is_a_decision_not_a_verify(self):
+        r = self.run_(self.D + " [CHECK T-9]", self.D + " [CHECK T-9]")
+        self.assertEqual((r["outcome"], r["proposed_status"]),
+                         ("confirmed-modulo", "proved-modulo"))
+        (it,) = r["file_items"]
+        self.assertEqual((it["kind"], it["definition"]), ("definition-check", self.D))
+        route = it["route"]
+        self.assertEqual((route["kind"], route["to_role"], route["once"]),
+                         ("decision", "human", True))
+        self.assertEqual(route["title"], "Definition check: %s [CHECK T-9]" % self.D)
+        self.assertIn("[CHECK", route["ask"])
+        self.assertFalse(r["recolour"])
+        # a lemma with the same mark is still a verify-input
+        r = self.run_("paper:lem:a [CHECK]", "paper:lem:a [CHECK]")
+        self.assertEqual([i["kind"] for i in r["file_items"]], ["verify-input"])
