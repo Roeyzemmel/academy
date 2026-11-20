@@ -26,7 +26,8 @@ async function agent(prompt, opts) {
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'return (async () => {' + src + '})()')
 // the stage-order tests run nested, as from the inbox (no ship stage); the ship tests pass nested: false
-body(Object.assign({ nested: true }, plan.__args), agent, () => {}, () => {}).then(
+// as the skills pass it (models.py launches prints {} under the default map); null: not given (#83)
+body(Object.assign({ nested: true, models: {} }, plan.__args), agent, () => {}, () => {}).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """

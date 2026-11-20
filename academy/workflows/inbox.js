@@ -43,8 +43,51 @@ const A = args || {}
 // such tier as "tier:<tier>". Every agent is launched through launch(): an agent the map
 // names gets its workspace model; an agent with no academy file (general-purpose) is
 // given a tier, never a model (launch(p, {agentType, tier: 'medium'})). Scripts name no
-// model. Nested workflows get the same map.
-const TIER_MODELS = (A.models && typeof A.models === 'object' && !Array.isArray(A.models)) ? A.models : {}
+// model. Nested workflows get the same map (models: await modelsMap()).
+// Given and not given differ (#83). Given (a JSON object, or its JSON text), the map stands,
+// {} included: {} is what models.py launches prints when the workspace maps nothing away, so
+// it means "no override". Not given (absent or null), the run's first launch() resolves it
+// first: one general-purpose stage at tier base runs models.py launches, once per run.
+// Anything else given, or a stage that returns no JSON object, throws, naming the command.
+const TIER_MODELS = {}
+const MODELS = { source: null, ready: null }   // source: 'args' | 'resolved'
+const MODELS_PY = `${A.root ? String(A.root).replace(/[\\/]+$/, '') : '<academy repo>'}/academy/scripts/models.py launches`
+const MODELS_CMD = `py ${MODELS_PY}`   // python3 where there is no py (the stage is told)
+const MODELS_OUT = { type: 'object', properties: { output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
+const modelsRefused = why => new Error(`args.models ${why}: rerun with args.models = the JSON object \`${MODELS_CMD}\` prints` +
+  ' ({} when it prints {}: no override)' + (A.root ? '' : '; <academy repo> is academy.root of the MCP tool workspace_get'))
+const modelsRead = (v, loose) => {   // a JSON object (or its text) into TIER_MODELS; null when it is none
+  if (typeof v === 'string') {
+    // loose: the stage's output may sit in a code fence, nothing else: a paraphrase or a map
+    // inside prose is refused, never guessed (review of abf478f)
+    const t = loose ? v.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '') : v
+    try { v = JSON.parse(t) } catch (e) { return null }
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  for (const k of Object.keys(v)) if (typeof v[k] === 'string') TIER_MODELS[k] = v[k]
+  return TIER_MODELS
+}
+if (A.models !== undefined && A.models !== null) {
+  if (!modelsRead(A.models, false)) throw modelsRefused(`is no JSON object (${String(JSON.stringify(A.models)).slice(0, 80)})`)
+  MODELS.source = 'args'
+}
+const modelsMap = () => MODELS.ready || (MODELS.ready = (async () => {
+  if (MODELS.source) return TIER_MODELS
+  const r = await launchOnce(`WORKFLOW STAGE models. Run \`${MODELS_CMD}\` once (\`python3 ${MODELS_PY}\` where there is no py)` +
+    (A.root ? '' : ' (<academy repo> is academy.root of the MCP tool workspace_get)') +
+    '. Fix nothing, whatever it prints: return its whole output verbatim.',
+  { label: 'models', agentType: 'general-purpose', tier: 'base', schema: MODELS_OUT, effort: 'low' })
+  if (r === null) {     // a usage limit at the start: the run stops as on three null launches (#115), it does not throw
+    LAUNCH_LIMIT.nulls = 3
+    LAUNCH_LIMIT.stopped = true
+    MODELS.ready = null
+    return null
+  }
+  const w = String((r && r.output) || '').trim()
+  if (!modelsRead(w, true)) throw modelsRefused('was not given, and the models stage ' + (r ? `printed no JSON object (${JSON.stringify(w.slice(0, 160))})` : 'returned nothing'))
+  MODELS.source = 'resolved'
+  return TIER_MODELS
+})())
 const TIER_DEFAULTS = { base: 'haiku', medium: 'sonnet', large: 'opus', max: 'opus' }
 // Three launches in a row that return nothing (a usage limit: every launch fails until the
 // reset, #115; two can be one lost run and its fallback, whose record still runs) stop the run: launch() then launches nothing and returns null at once, so
@@ -56,6 +99,7 @@ const launch = async (prompt, opts) => {
   const rec = !!(opts && opts.record)
   if (rec) { opts = Object.assign({}, opts); delete opts.record }
   if (LAUNCH_LIMIT.stopped && !rec) return null
+  if (!MODELS.source && !(await modelsMap())) return null   // the lookup returned nothing: stopped
   const r = await launchOnce(prompt, opts)
   if (r === null) { if (++LAUNCH_LIMIT.nulls >= 3) LAUNCH_LIMIT.stopped = true } else LAUNCH_LIMIT.nulls = 0
   return r
@@ -543,7 +587,7 @@ async function handle(row, i) {
   if (i.role === 'scientist' && rt.target === 'experimenter') {
     // the experiment's design leg runs here; its header gate goes to the human (no body before approval)
     if (!NESTED_OK) return { for_main: { why: 'an experiment ticket: /scientist:experiment (design, then the header gate)', ticket: row.id, instance: inst, skill: 'scientist:experiment' } }
-    const r = await workflow({ scriptPath: NESTED['scientist:experiment'] }, { models: TIER_MODELS, nested: true, root: ROOT, mode: 'design', ticket: row.id, kind: row.kind })
+    const r = await workflow({ scriptPath: NESTED['scientist:experiment'] }, { models: await modelsMap(), nested: true, root: ROOT, mode: 'design', ticket: row.id, kind: row.kind })
     if (r && r.for_main) return { for_main: Object.assign({ skill: 'scientist:experiment', instance: inst }, r.for_main, { ticket: row.id }) }
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.argument || r.reason || '') : 'lost', nested: r }
   }
@@ -553,23 +597,23 @@ async function handle(row, i) {
   if (rt.how === 'skill' && NESTED[rt.target]) {
     if (rt.target === 'author:notes') {
       // a returned referee ticket: its packet (the ticket's packets field) is landed as tickets, then the ticket is closed by its sender
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, home: i.home, instance: inst, root: ROOT, referee_ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, home: i.home, instance: inst, root: ROOT, referee_ticket: row.id })
       if (r && r.outcome !== 'lost' && r.outcome !== 'not-started')
         await move(row, inst, `close: move it delivered -> closed (you are its sender), with a thread note "${(r.filed || []).length} ticket(s) filed from ${r.packet || 'the packet'}; ${(r.unfiled || []).length} unfiled"`, `${row.id} close`)
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.unfiled || []).join('; ') : 'lost', nested: r }
     }
     if (rt.target === 'expert:referee' || rt.target === 'expert:domain') {
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, root: ROOT, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.packet || r.reason || (r.anomalies || []).join('; ') || '') : 'lost', nested: r }
     }
     if (rt.target === 'expert:cite') {
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, root: ROOT, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? [r.key, r.pinpoint, r.verdict].filter(Boolean).join(', ') || (r.reason || '') : 'lost', nested: r,
         parked: !!(r && r.gate), gate: r && r.gate ? Object.assign({ skill: 'expert:cite' }, r.gate) : null }
     }
     if (rt.target === 'researcher:explore') {
       const direction = firstRef(row, /^([a-z][a-z0-9]*:)?DIR-\d+$/)
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ models: TIER_MODELS, nested: true, root: ROOT, ticket: row.id, home: i.home, instance: inst, n: 1 },
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ models: await modelsMap(), nested: true, root: ROOT, ticket: row.id, home: i.home, instance: inst, n: 1 },
         direction ? { direction: direction.split(':').pop() } : {}))
       // explore's prove step comes back as for_main (#87, 2026-11-20): pass it on to the main
       // session with this ticket, as the prove route does; the ticket stays in-progress
@@ -579,7 +623,7 @@ async function handle(row, i) {
     if (rt.target === 'researcher:generalize') {
       const ref = firstRef(row, /^P-\d{4,}$/) || firstRef(row, /^lab:\S+$/)
       if (!ref) return { for_main: { why: 'a generalize ticket whose refs name no report or lab claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, ref, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, root: ROOT, ref, ticket: row.id, home: i.home, instance: inst })
       if (r && r.to_file && r.to_file.length)
         return { for_main: { why: 'generalize: the falsifier tests are left to file (the lead could not file them)', ticket: row.id, instance: inst, to_file: r.to_file } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.reason || '') : 'lost', nested: r }
@@ -587,7 +631,7 @@ async function handle(row, i) {
     if (rt.target === 'researcher:prove') {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
       if (r && r.already_proved) return { for_main: { why: `${claim} is proved and the ticket was not read as a repair (#85): if it asks for one, run prove.js with these args (mode repair); else deliver or cancel ${row.id} (still in-progress)`,
         ticket: row.id, instance: inst, skill: 'researcher:prove', claim, mode: 'repair', handback: 'prove',
         args: { claim, ticket: row.id, home: i.home, instance: inst, root: ROOT, mode: 'repair' } } }
@@ -598,16 +642,16 @@ async function handle(row, i) {
       if (!vc.claim) return { for_main: { why: `a verify ticket naming no single claim (#89): ${vc.why}; ask its sender (${row.from || 'the sender'}) to put the claim in refs`, ticket: row.id, instance: inst } }
       const claim = vc.claim
       if (vc.from_title) notes.push(`${row.id}: the claim ${claim} was read from the title (no claim in refs)`)
-      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id })
+      const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, root: ROOT, claim, ticket: row.id })
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
     const subject = firstRef(row, /^lab:\S+$/)
     if (!subject) return { for_main: { why: 'a review-experiment ticket whose refs name no lab claim', ticket: row.id, instance: inst } }
-    const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
+    const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'review' })
     if (r && r.outcome === 'needs-settle') {
       // settle in the same handle (sequential, still one nesting level): the audit, then the candidates' re-derivations
       const slug = subject.replace(/[^A-Za-z0-9._-]+/g, '-')
-      const st = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
+      const st = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, root: ROOT, subject, ticket: row.id, report: firstRef(row, /^P-\d+$/), mode: 'settle-audit',
         candidates: `${i.home}/.academy/settle-${slug}.json` })
       return { outcome: st ? st.outcome : 'unfinished', detail: st ? (st.notes || []).join('; ') : 'lost', nested: st }
     }

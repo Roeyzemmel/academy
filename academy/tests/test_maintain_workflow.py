@@ -38,7 +38,8 @@ async function pipeline(items, ...stages) {
   }))
 }
 const body = new Function('args', 'agent', 'phase', 'log', 'pipeline', 'return (async () => {' + src + '})()')
-body(plan.__args, agent, () => {}, m => logs.push(m), pipeline).then(
+// as the skills pass it (models.py launches prints {} under the default map); null: not given (#83)
+body(Object.assign({ models: {} }, plan.__args), agent, () => {}, m => logs.push(m), pipeline).then(
   r => console.log(JSON.stringify({ result: r, calls, logs })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """
