@@ -14,11 +14,13 @@ labels); this file is the judgement about what the paper should look like.
    in the arc; a section the arc does not need is an appendix or a different paper.
 2. **Economy of statements.** Prefer the clean general statement over a list of cases,
    one good definition over three patched ones, a hypothesis that is used over one that
-   is carried along. A statement holds assumptions and a conclusion, not discussion.
+   is carried along. A statement holds assumptions and a conclusion, not discussion. A
+   section holds about 30 numbered statements at most, examples and remarks included,
+   and is split when more must stay (proof-style.md, rule 2).
 3. **Notation that earns its place.** A symbol is introduced only when it is used again,
    once, before its first use, and never for two objects (`academy:notation-discipline`).
 4. **Proofs at the right level.** Short proofs for the paper's reader; routine details
-   omitted or moved to a lemma or an appendix; a long proof is a sign the plan needs a
+   named, not written out (proof-style.md, rule 7); a long proof is a sign the plan needs a
    supporting lemma or a better definition, not more text. The rules are
    `academy/references/proof-style.md` in the base plugin.
 5. **Examples and figures where they carry the idea.** An example right after a

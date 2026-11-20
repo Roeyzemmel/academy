@@ -23,17 +23,23 @@ half-proved statements."
 - **No "Proof sketch" in the paper.** A sketch is a notebook status (`sketch`) and a draft
   colour, never a heading.
 - **Nothing is left to the reader wholesale** (AW21's and SW08's way, not LMW16's): no
-  whole case, lemma or direction. What may be skipped is listed in rule 7, and only with a
-  pointer.
+  whole case or direction of the text's own arguments. What may be skipped is listed in
+  rule 7, and only with a pointer. The two exceptions are the human's word, never a
+  writer's judgement: folklore (below), and elementary properties named together in one
+  sentence with their proofs omitted (rule 2; the human, 2026-11-20). The bar "no
+  half-proved statements" is for the paper's own content, not for what a graduate reader
+  supplies at once.
 - **Never left out:** the construction, the key estimate, why a map is well defined, and
   each use of a cited or deep result. A missing idea or hypothesis is a gap, not an
   omission.
 - **Folklore is the human's call** (the human, 2026-11-14: "folklore statements may be subtly
   assumed or stated as a fact, decision on my word for what I find folklore as it may be in
   the paper's direct topic or in more classical theory"). Folklore, in the text's own topic
-  or in classical theory, may be used silently or stated as an unproved Fact. Easy steps of
-  the text's own arguments are not folklore: they are short lemmas (rule 3). A writer who
-  thinks a statement is folklore asks the human; it never drops a proof on its own judgement.
+  or in classical theory, may be used silently or stated as an unproved Fact; a statement
+  the human calls trivial is used without proof. Easy steps of the text's own arguments
+  are not folklore: they are clauses of the proof that uses them (rules 3 and 7). A writer
+  who thinks a statement is folklore or trivial asks the human; it never drops a proof on
+  its own judgement.
 - **Uncertainty is marked, never written around.** In the paper, the draft colour or a
   `\Claude{…}` note; in the notebook, the attempt's *Gaps* list. A speculation ("the bound
   can likely be improved by …") is a Remark marked as unverified.
@@ -67,35 +73,34 @@ that would create a second statement, proof or recollection of the same thing.
   by definition is proved by the words "by definition", with the definition cited.
 - **Background is stated once**, then cited, never re-derived (rule 9 says where).
 - **A section holds few statements** (the human, 2026-11-20: "there are way too many
-  statements for a section; the most I have ever seen was about 20 in papers, so this
-  should bother us"). About **20 numbered statements per section** (definitions, lemmas,
-  propositions, corollaries, examples and remarks together) is the ceiling. Past it,
-  statements are being made of what the reader supplies: stop and re-plan the section
-  with the human; do not keep adding. Before adding a statement, ask whether the
-  narrative needs it or it contributes a technique; if neither, it is a sentence, an
-  appendix item, or nothing.
+  statements for a section … this should bother us"). About **30 numbered statements per
+  section**, examples and remarks included, is the ceiling (the human, 2026-11-20). Before
+  adding a statement, ask whether the narrative needs it or it contributes a technique;
+  if neither, it is a sentence, an appendix item, or nothing. Past the ceiling, stop and
+  re-plan with the human; do not keep adding. When every statement is interesting and
+  must stay, the remedy is to **split the section**, not to keep it long.
 - **Elementary properties are one sentence, not a lemma each** (the human, 2026-11-20).
   Properties a structure inherits in an elementary way from a classical setting are named
   together in one sentence near the definition ("the flat structures defined here inherit
-  many properties of …, including …; the proofs are elementary and omitted"). A statement
-  the human calls trivial is used without proof (rule 1, folklore). The less trivial of
-  these proofs may go to an appendix, as a proposal to the human (rule 9).
+  many properties of …, including …; the proofs are elementary and omitted"), on the
+  human's word (rule 1). The less trivial of these proofs may go to an appendix (rule 9).
 - **General facts in general, special facts once** (the human, 2026-11-20). A property that
-  holds for a general construction (normal coverings) is stated once in that generality,
-  in the preliminaries or an appendix; the special case (the unfolding) gets only what is
-  not a special case of it, collected in one statement ("Properties of the unfolding")
-  that says which known discussions it generalises.
+  holds for a general construction (normal coverings) is stated once in that generality
+  (where: rule 9); the special case (the unfolding) gets only what is not a special case of
+  it, collected in one statement ("Properties of the unfolding") that says which known
+  discussions it generalises.
 
 ## 3. Short statements in a chain, not one long proof
 
-- **Extract every step that has its own conclusion** (the human, 2026-11-14: "easy steps that
-  can pose as lemmas"), even an easy one, even in a short proof. Extract the steps that hold
-  without the main statement's special hypothesis, and keep the step that uses it in the
-  main proof. Never cite a paragraph or step inside another proof: an argument used
-  elsewhere is a lemma. **Bounded by rule 2** (the human, 2026-11-20): a step a graduate
-  reader supplies at once is a clause (rule 7), not a lemma, and extraction never pushes a
-  section past its statement budget. Extracting easy steps one by one is how a section
-  fills with simple statements that repeat each other.
+- **Extract a step only when it earns a statement** (the human, 2026-11-20, narrowing
+  2026-11-14's "easy steps that can pose as lemmas"): when it is used elsewhere (never cite
+  a paragraph or step inside another proof: an argument used elsewhere is a lemma); when
+  it is a more general phenomenon, or a special case the main statement is reduced to (it
+  holds without the main statement's special hypothesis, which stays in the main proof);
+  or when the proof would otherwise pass the length limit below. A step a graduate reader
+  supplies at once is a clause (rule 7), never a lemma, and extraction never pushes a
+  section past its statement ceiling (rule 2). Extracting easy steps one by one is how a
+  section fills with simple statements that repeat each other.
 - **A proof is short.** Most are 1–10 lines. Past about **15 lines of output** (the typeset
   PDF at the paper's text width, displays included; the rendered Markdown for a notebook
   attempt; never the source), something extractable has been missed. A proof that keeps
@@ -200,6 +205,10 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
   results it explains.
 - **Sharpness examples and asides** go in a Remark or Example after the proof (alternative
   proofs do not: rule 2).
+- **Remarks are scattered side stories** (the human, 2026-11-20: "having two or more
+  remarks in a row is weird"). A remark enriches the narrative where it stands; two
+  remarks in a row are a defect. Scatter them to where each belongs, turn some into a
+  discussion paragraph, or join one with another statement (another remark included).
 - **A paragraph, remark or example carries one discussion** (the human, 2026-11-14). Separate
   an example's configurations from a general analysis of them, and give the analysis its own
   short remark by the shortest route (a structural fact or a citation). Compact a long
@@ -232,13 +241,15 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 - **Open directly**: the first deduction, a construction ("Let … and define …"), the goal
   ("We need to show …") or a reduction ("It suffices to …, since …"). No restating the
   statement. A plan only for a composite proof (rule 5).
-- **Fix objects explicitly**: "Let … be …", "Take …", "Denote …", "Fix …". Justify a choice
+- **Fix objects explicitly**, the ones the argument uses again (a symbol used once is a
+  word; rule 7): "Let … be …", "Take …", "Denote …", "Fix …". Justify a choice
   where it is made ("Let *r* > 0 be smaller than half the shortest saddle connection; then
   …"). No "Normalise …; this is harmless, since …" paragraph, and no side remark that only
   reassures.
 - **Display the computation that carries the proof**: the chain of (in)equalities, the
-  formula for a map, the case-defined function; every formula that defines a map or a lift,
-  and every identity the argument turns on, even in a short proof. A display is part of a
+  formula for a map, the case-defined function; every formula that defines a map or a lift
+  the argument uses, and every identity the argument turns on, even in a short proof. A
+  routine verification (a chart transition) is named, not displayed (rule 7). A display is part of a
   sentence. After a displayed chain, the reason for each non-immediate link is given by
   position ("the second equality by …, the last since …"). An equality of sets is proved as
   two stated inclusions.
@@ -252,8 +263,9 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 - **Pinpoint every specific result**: "by [EFW18, Theorem 1.5]". A bare key only for a whole
   theory. When a step follows from a cited construction, name that result with a pinpoint;
   never "it follows".
-- **Credit the original** (the human, 2026-11-14): cite the original with the exact theorem,
-  as well as the source it was read in. An analogue of a published result follows the
+- **Credit the original** (the human, 2026-11-14): for a result the text uses, cite the
+  original with the exact theorem, as well as the source it was read in. Background and
+  history get the short report below, not pinpoints. An analogue of a published result follows the
   original proof's lines, and says so with a pinpoint.
 - **A report of sources is short** (the human, 2026-11-20): one general pointer
   ("definitions in more restricted settings are in [A], [B]"), less exact rather than
@@ -262,26 +274,31 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 - **Check the cited hypotheses in place**, one short clause each, just before applying the
   result (`citation-discipline`).
 - **Where background lives** (the human, 2026-11-14: "Facts should appear in the section by
-  default"). A Fact, or a heavily used external theorem restated with attribution, appears
-  once, in the section that first needs it (in the preliminaries when several sections do),
-  and is then cited by its internal number. Moving it to an appendix is the human's
-  decision; a writer may propose it in a note.
+  default"; 2026-11-20 for general theory). A Fact, or a heavily used external theorem
+  restated with attribution, about the paper's own objects appears once, in the section
+  that first needs it (in the preliminaries when several sections do), and is then cited
+  by its internal number. General theory that is not specific to the paper's objects (the
+  properties of normal coverings, say) goes to an appendix by default, and the section
+  keeps only its setting-specific consequences (rule 2). Moving one of the paper's own
+  statements or proofs to an appendix is the human's decision; a writer may propose it
+  in a note.
 
 ## 10. Settings and symbols
 
 - **One working setting** (the human, 2026-11-14): fix the setting whose structure is
-  nicest and state every result in it. Pass to another only where a result needs it, once,
-  through one cited remark, not in each proof.
+  nicest and prove in it. Pass to another only where a result needs it, through the
+  reductions below, never re-derived in each proof.
 - **Nested settings: reduce, do not restate** (the human, 2026-11-20). When the paper has a
   base setting and wider or special ones (flat structures, dihedral flat structures,
   billiard tables), the plan is: state the basic properties in the base setting; define
   the wider setting together with a short list of its properties (about six) that make the
-  reductions between the classes; then state each shared property once, for the wider
-  setting, proved where needed in two steps inside one proof (the base case, then the
-  reduction), never as one lemma per setting, since the statements would be almost the
-  same. A special setting is given as an explicit example of the general one, and only
-  what does not follow from the general setting alone is stated for it; that list is
-  short, and the writer asks the human about each item on it.
+  reductions between the classes, once; then state each shared property once, for the
+  wider setting. Where the list makes the reduction, the proof is the base case plus one
+  sentence citing the list; where it does not, the proof has two steps inside one proof
+  (the base case, then the reduction). Never one lemma per setting, since the statements
+  would be almost the same. A special setting is given as an explicit example of the
+  general one, and only what does not follow from the general setting alone is stated for
+  it; that list is short, and the writer asks the human about each item on it.
 - **Conventions are not pathologies** (the human, 2026-11-20). A remark that lists
   difficulties holds only real ones: a choice is a convention stated with the definition,
   a phenomenon is an example, and items that are the same thing (marked mirror points,
@@ -326,13 +343,14 @@ never change the verdict. The findings that matter most, in the rules' order:
 - a missing piece passed off as routine, a proof dropped as folklore without the human's
   word, or a statement resting on an unverified input without the unverified colour (rule 1);
 - a duplicate: an item copying a lemma, a statement another contains, a second proof, a
-  restated fact or a recalled definition; a section past about 20 statements, or an
-  elementary property given its own lemma (rule 2);
-- a step with its own conclusion left inside a long proof, or a proof over about 15 output
-  lines (rule 3);
+  restated fact or a recalled definition; a section past about 30 statements (examples
+  and remarks included), or an elementary property given its own lemma (rule 2);
+- a step used elsewhere left inside another proof, a lemma a graduate reader supplies at
+  once, or a proof over about 15 output lines (rule 3);
 - a statement out of dependency order, in the wrong environment for its role, or listing
   properties of different objects (rule 4);
 - a composite proof or a chain with no plan or intuition (rule 5);
-- discussion inside a statement, or inside a proof outside rule 5 (rule 6);
+- discussion inside a statement, or inside a proof outside rule 5; two remarks in a row
+  (rule 6);
 - an omission without a pointer, or a routine step left unnamed (rule 7);
 - an inference without its reason (rule 8).

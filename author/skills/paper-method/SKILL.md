@@ -45,9 +45,10 @@ Researcher (`final_to: researcher`), and a statement pinned by a review
    reproduces a textbook chapter signals that the author never decided what the paper
    needs. Cite instead, stating precisely the form used.
 4. **Body**: one idea per section, each opening with what it will produce. A section
-   holds about 20 numbered statements at most (the human, 2026-11-20); more means
-   elementary properties got lemmas of their own, and the section is re-planned with the
-   human (proof-style.md, rule 2). Nested settings are reduced to one another rather than
+   holds about 30 numbered statements at most, examples and remarks included (the human,
+   2026-11-20); more means elementary properties got statements of their own, and the
+   section is re-planned with the human, or split when every statement must stay
+   (proof-style.md, rule 2). Nested settings are reduced to one another rather than
    restated (rule 10).
 5. **Appendices**: long computations and routine verifications a reader skips but a
    referee needs, and the less trivial proofs of elementary properties the body names in
