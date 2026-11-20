@@ -1,7 +1,8 @@
 """board_gh.py -- a board_store transport over the GitHub REST API, through the gh CLI.
 
 ``GhTransport(repo)`` implements the transport of ``board_store`` (list/get/create/update
-issues, list/add comments, the id reservations ``matching_refs`` / ``create_ref``) plus what the migration needs: ``last_number``, labels
+issues, list/add comments, the id reservations ``list_milestones`` / ``create_milestone``)
+plus what the migration needs: ``last_number``, labels
 (``list_labels``, ``create_label``), native relations (``set_parent``, ``get_parent``,
 ``add_dependency``, ``remove_dependency``, ``list_dependencies``; read exactly for
 ``board_relations.py`` by ``relations_available``, ``parent_ref``, ``blocker_refs``) and assignees on
@@ -38,9 +39,21 @@ TRANSIENT = ("HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 429",
 
 
 class GhError(RuntimeError):
-    def __init__(self, msg, status=None):
+    """A failed call; ``status`` is the HTTP status, ``body`` what gh printed on stdout (the
+    response body, where a 422 names its error codes; the message is on stderr)."""
+
+    def __init__(self, msg, status=None, body=""):
         RuntimeError.__init__(self, msg)
         self.status = status
+        self.body = body
+
+    def error_codes(self):
+        """The ``code`` of each entry of the body's ``errors`` (a 422's reason), or []."""
+        try:
+            errors = json.loads(self.body).get("errors") or []
+        except (ValueError, AttributeError):
+            return []
+        return [e.get("code") for e in errors if isinstance(e, dict)]
 
 
 GH_MISSING = ("gh is not installed: the board is on GitHub (board.backend github) and its "
@@ -76,7 +89,6 @@ class GhTransport(object):
         self.write_interval = write_interval
         self._last_write = None
         self._ids = {}
-        self._head = None
         #: list_issues takes ``since`` (board_store's incremental listing)
         self.since = True
 
@@ -109,7 +121,7 @@ class GhTransport(object):
                 self.sleep(RETRY_DELAYS[transient])
                 transient += 1
                 continue
-            raise GhError("%s %s: %s" % (method, path, (err or out).strip()), status)
+            raise GhError("%s %s: %s" % (method, path, (err or out).strip()), status, out)
 
     def _space(self):
         now = self.clock()
@@ -168,28 +180,26 @@ class GhTransport(object):
         return rows[0]["number"] if rows else 0
 
     # -- id reservations (board_store.GithubBoardStore.reserve_id) -------------
-    def matching_refs(self, prefix):
-        """The names of the refs under ``refs/<prefix>`` (``git/matching-refs``, a prefix
-        match; ``prefix`` has no trailing slash, which the API refuses)."""
+    def list_milestones(self, state="all"):
+        """Every milestone of ``state`` ('all', 'open', 'closed'), every page."""
         out, page = [], 1
-        while True:      # paginated like every list endpoint (review of 612f3d0)
-            chunk = self.api("GET", "git/matching-refs/%s?per_page=100&page=%d" % (prefix, page)) or []
-            out += [r["ref"] for r in chunk]
+        while True:
+            chunk = self.api("GET", "milestones?state=%s&per_page=100&page=%d"
+                             % (state, page)) or []
+            out += chunk
             if len(chunk) < 100:
                 return out
             page += 1
 
-    def create_ref(self, ref):
-        """Create ``ref`` (``refs/...``) at the default branch's head: True when created,
-        False when it exists (GitHub answers 422 "Reference already exists"); any other
+    def create_milestone(self, title, state="closed"):
+        """Create the milestone ``title``: True when created, False when a milestone of that
+        title exists (GitHub answers 422 with the error code ``already_exists``); any other
         failure raises. A retried POST whose first try did reach GitHub answers False too:
         the number is then skipped, never shared."""
-        if self._head is None:
-            self._head = self.api("GET", "commits/HEAD")["sha"]
         try:
-            self.api("POST", "git/refs", {"ref": ref, "sha": self._head})
+            self.api("POST", "milestones", {"title": title, "state": state})
         except GhError as exc:
-            if exc.status == 422 and "already exists" in str(exc).lower():
+            if exc.status == 422 and "already_exists" in exc.error_codes():
                 return False
             raise
         return True

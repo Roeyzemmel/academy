@@ -165,17 +165,20 @@ collide). What prevents it is an authority every branch shares, consulted at all
    past it (never lowered).
 
 - **The GitHub board** (`backend` `github`) is that authority. A ticket id already is
-  GitHub's issue number. A packet id is reserved as a ref of the board's repository,
-  `refs/academy/ids/P-0471` (`board_store.GithubBoardStore.reserve_id`; the transport's
-  `matching_refs` / `create_ref`, `POST git/refs` at the default branch's head). The
-  start is past the highest number reserved there; GitHub refuses to create a ref that
-  exists (HTTP 422), so a number taken in the meantime by another branch is skipped and
+  GitHub's issue number. A packet id is reserved as a milestone of the board's
+  repository, created closed and titled `id:P-0471`
+  (`board_store.GithubBoardStore.reserve_id`; the transport's `list_milestones` /
+  `create_milestone`, `POST milestones`). The start is past the highest number reserved
+  there (every milestone, open or closed, every page, whose title is exactly `id:P-`
+  and digits); GitHub refuses a second milestone of one title (HTTP 422, error code
+  `already_exists`), so a number taken in the meantime by another branch is skipped and
   the next tried. Two allocators can therefore never hold one number, whatever their
-  branches hold. A failed reservation (network, permissions) fails the packet's
-  creation, with nothing written; a transport without the two methods is refused, never
-  skipped. A retried request whose first try reached GitHub only skips a number. The
-  refs are outside `refs/heads` and `refs/tags`: no branch or tag lists them and a plain
-  `git fetch` does not fetch them.
+  branches hold. A failed reservation (network, a token without issues: write) fails
+  the packet's creation, with nothing written; a transport without the two methods is
+  refused, never skipped. A retried request whose first try reached GitHub only skips a
+  number. Closed milestones stay out of GitHub's default milestone views, and their
+  `id:` titles keep them apart from any milestone of the paper. They are milestones and
+  not git refs because the cloud sessions' GitHub proxy refuses writes to `git/refs`.
 - **The file board** has no such authority: `FileBoardStore.reserve_id` returns `n`,
   and its ids are unique within one checkout only. A file board shared by several
   branches must be moved to the GitHub backend for this guarantee.

@@ -23,8 +23,8 @@ may be names or ``{"name": ...}``; ``number`` is the issue number):
 
 and, for the ids kept in files (packets; ``GithubBoardStore.reserve_id``):
 
-    matching_refs(prefix)                 -> [ref name]   (the refs under refs/<prefix>)
-    create_ref(ref)                       -> bool         (False: the ref exists already)
+    list_milestones(state="all")          -> [milestone]  ({"title": ..., ...}; every page)
+    create_milestone(title, state="closed") -> bool       (False: that title exists already)
 
 **Pagination.** ``list_issues`` and ``list_comments`` return at most ``per_page`` items of
 page ``page`` (1-based) and an empty list past the last page; a transport may return fewer
@@ -91,10 +91,12 @@ KEEP = ("number", "id", "node_id", "title", "body", "state", "state_reason", "up
         "created_at", "closed_at", "comments", "parent_issue_url", "sub_issues_summary",
         "issue_dependencies_summary")
 CACHE_VERSION = 2          # 2: the cache holds asked_at (when its last read began)
-#: where ids kept in files (packets) are reserved on GitHub: one ref per id,
-#: ``refs/academy/ids/P-0471``; the server refuses to create a ref that exists, so no two
-#: branches or clones ever hold one number (docs/protocol.md, "Id allocation")
-ID_REFS = "academy/ids"
+#: where ids kept in files (packets) are reserved on GitHub: one closed milestone per id,
+#: titled ``id:P-0471``; the server refuses a second milestone of one title (HTTP 422
+#: ``already_exists``), so no two branches or clones ever hold one number
+#: (docs/protocol.md, "Id allocation"). Not git refs: the cloud sessions' GitHub proxy
+#: refuses writes to ``git/refs``.
+ID_MILESTONE = "id:"
 #: numbers tried, one after the other, before reserve_id gives up
 RESERVE_TRIES = 100
 
@@ -450,29 +452,30 @@ class GithubBoardStore(ac.BoardStore):
         and return it (``allocate_id``'s ``reserve``; docs/protocol.md, "Id allocation").
 
         The packets are files on the branch that wrote them, so their counter diverges
-        between branches (academy#90). The reservation is a ref, ``refs/academy/ids/P-0471``,
-        in the board's repository, which every branch and clone shares: the start is past
-        the highest number reserved there, and a ref another allocator created in the
-        meantime is refused by the server, so the next number is tried. A transport that
-        cannot create refs is refused rather than skipped: the id would be unique in this
-        checkout only, which is the defect."""
+        between branches (academy#90). The reservation is a closed milestone titled
+        ``id:P-0471`` in the board's repository, which every branch and clone shares: the
+        start is past the highest number reserved there (every milestone, open or closed,
+        every page), and a title another allocator created in the meantime is refused by
+        the server, so the next number is tried. A transport that cannot create milestones
+        is refused rather than skipped: the id would be unique in this checkout only, which
+        is the defect."""
         t = self.t
         lib = self.lib
-        if not (callable(getattr(t, "matching_refs", None))
-                and callable(getattr(t, "create_ref", None))):
+        if not (callable(getattr(t, "list_milestones", None))
+                and callable(getattr(t, "create_milestone", None))):
             raise lib.ConfigError(
-                "the board's transport cannot reserve ids (it has no matching_refs / "
-                "create_ref): an id taken from this checkout alone can collide with one "
-                "on another branch")
-        rx = re.compile(r"^refs/%s/%s-(\d+)$" % (re.escape(ID_REFS), re.escape(prefix)))
+                "the board's transport cannot reserve ids (it has no list_milestones / "
+                "create_milestone): an id taken from this checkout alone can collide with "
+                "one on another branch")
+        rx = re.compile(r"^%s%s-(\d+)$" % (re.escape(ID_MILESTONE), re.escape(prefix)))
         n = int(n)
         try:
-            for name in t.matching_refs("%s/%s-" % (ID_REFS, prefix)) or ():
-                m = rx.match(str(name))
+            for ms in t.list_milestones("all") or ():
+                m = rx.match(str((ms or {}).get("title") or ""))
                 if m:
                     n = max(n, int(m.group(1)) + 1)
             for _ in range(RESERVE_TRIES):
-                if t.create_ref("refs/%s/%s" % (ID_REFS, lib.format_id(prefix, n))):
+                if t.create_milestone(ID_MILESTONE + lib.format_id(prefix, n), state="closed"):
                     return n
                 n += 1
         except lib.AcademyError:
@@ -514,8 +517,8 @@ class MemoryTransport(object):
         self.unavailable = set()
         self.summaries = False
         self.labels = {}
-        #: ``{ref name: sha}``: the id reservations (``create_ref``, ``matching_refs``)
-        self.refs = {}
+        #: ``{title: milestone}``: the id reservations (``create_milestone``, ``list_milestones``)
+        self.milestones = {}
         self.calls = []
         self.max_page = max_page
         self._failures = {}
@@ -708,18 +711,20 @@ class MemoryTransport(object):
         self._tick("last_number")
         return max(self.issues, default=0)
 
-    def matching_refs(self, prefix):
-        """The names of the refs under ``refs/<prefix>`` (a prefix match, as GitHub's
-        ``git/matching-refs``)."""
-        self._tick("matching_refs", prefix)
-        return sorted(r for r in self.refs if r.startswith("refs/" + prefix))
+    def list_milestones(self, state="all"):
+        """Every milestone of ``state`` ('all', 'open', 'closed')."""
+        self._tick("list_milestones", state)
+        return [dict(m) for _t, m in sorted(self.milestones.items())
+                if state == "all" or m["state"] == state]
 
-    def create_ref(self, ref):
-        """Create ``ref``; False when it exists (GitHub's 422), True when created."""
-        self._tick("create_ref", ref)
-        if ref in self.refs:
+    def create_milestone(self, title, state="closed"):
+        """Create milestone ``title``; False when that title exists (GitHub's 422
+        ``already_exists``), True when created."""
+        self._tick("create_milestone", title)
+        if title in self.milestones:
             return False
-        self.refs[ref] = "0" * 40
+        self.milestones[title] = {"number": len(self.milestones) + 1, "title": title,
+                                  "state": state}
         return True
 
     def list_labels(self):
