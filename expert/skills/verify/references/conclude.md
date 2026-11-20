@@ -238,6 +238,29 @@ else a `defn:` / `DEF-` label), it reads them as agreeing on the intersection an
 the dropped ids in `dropped_definitions`. Copy that list into the record; do not list a
 dropped definition among the inputs.
 
+**Differing inputs** (#121; the human's ruling, T-0613 and again 2026-11-20), built on
+the dependency amendment of section 1b: when both runs are CONFIRMED, neither names a
+blocking step, and their modulo lists (in canonical spelling, #103) still differ, the
+script gives `confirmed-union`, not `disagreement`. Its `modulo` is the union of the two
+lists, normalised only where the registry shows it: a definition one run lists is dropped
+(as above); an input one run lists is dropped when another listed registry id reaches it
+through `depends_on`, and a card pinpoint `bib:<key>#...` when such a listed id (or a
+record it reaches) `cites` the key (`union_dropped` names each with what reaches it).
+Each input left that one run lists and the proof does not declare (the claim's
+`depends_on`, `modulo`, `cites`) is read as an `add_dependency` suggestion: it must name
+an existing result (`dependency_ok`), and it is listed in `declare_dependencies`. Conclude
+it like `confirmed-modulo`: propose `proved-modulo` on the script's `modulo` to the keeper
+(section 4.2) and file its `verify-input` items as routed; no `decision` ticket goes to
+the human on the inputs. The `declare-dependency` item is section 1b's repair (a `prove`
+ticket, mode repair, to the Researcher `reviews.py researcher-for` names, marked
+`amendment for verify T-NNNN pass P`, so it files no verify ticket), but **nothing waits
+on it**: no run B follows (both runs reviewed the proof with those inputs in view) and the
+verify ticket is not blocked. The workflow files it; by hand, file it as routed. Copy both
+runs' lists (`modulo_lists`), `union_dropped` and `declare_dependencies` into the record.
+A `disagreement` remains when the verdicts differ, a run names a blocking step, or an
+undeclared input names no existing result (the anomaly says which): those go to the
+human with the union and intersection as options.
+
 **Check by hand only what one grep or one definition settles**, and say in the record
 which lines you checked. Where the runs differ, do not average them: say which is
 sharper and why. A disagreement is reported as a finding.
@@ -250,7 +273,9 @@ LF, Markdown, written by you:
   or the proof attempt); if an older pass exists (`py $E/reviews.py list <id>`), a
   line saying which pass this one supersedes;
 - the outcome, verbatim from the script (`outcome`, `summary`, `proposed_status`,
-  `recolour`, `modulo`, `pending_inputs`, `dropped_definitions`, `anomalies`);
+  `recolour`, `modulo`, `pending_inputs`, `dropped_definitions`, `anomalies`; for a
+  `confirmed-union`, also both runs' lists `modulo_lists`, `union_dropped` and the
+  `declare_dependencies` with the repair filed for them);
 - both verdicts side by side: verdict, model, run id, blocking step;
 - the findings **both** runs reached independently, numbered, then what they
   disagreed about and which was right;
@@ -284,8 +309,9 @@ LF, Markdown, written by you:
      Scientist is not a neighbour of the Expert;
    - an input that is itself a proof to review: kind `verify`, back to the Expert;
    - a counterexample, from a DISPROVED run or from the falsifier of section 1a, or runs
-     that disagree on the inputs: a `decision` ticket to the human (the one rule for a
-     counterexample; never a `prove` ticket);
+     that still disagree on the inputs (a `disagreement`, never a `confirmed-union`): a
+     `decision` ticket to the human (the one rule for a counterexample; never a `prove`
+     ticket);
    - a missing card: kind `cite`.
 
    Each ticket says where the defect lives, what exactly is missing, the repair both
@@ -298,7 +324,8 @@ LF, Markdown, written by you:
    `## Established vs assumed` names every input with its status; `## Evidence` the
    two records, run ids and the statement hash; `## Decisions needed` asks the human only
    what the table leaves to them (a DISPROVED counterexample; a disagreement's next
-   step; a modulo input nobody owns) — otherwise `None.`.
+   step; a modulo input nobody owns) — otherwise `None.` (a `confirmed-union` asks
+   nothing: the union is the ruling).
 5. **The ticket**: `result` one line (e.g. `CONFIRMED x2; proved proposed; recolour
    earned`), `packets` set, then `in-progress -> delivered`.
 

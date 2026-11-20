@@ -15,8 +15,9 @@ The table (from the old /paper:verify, in the academy's verdict words):
 | CONFIRMED | not yet run | ``awaiting-b``: launch B with the identical brief |
 | CONFIRMED | CONFIRMED, no inputs on either | ``confirmed``: propose ``proved``; recolour earned |
 | CONFIRMED modulo X | CONFIRMED modulo X (same set) | ``confirmed-modulo``: propose ``proved-modulo``; recolour only if every input in X is established |
-| CONFIRMED (modulo X) | CONFIRMED modulo Y, X and Y differ only in definitions | as if both said modulo X & Y (the intersection); the dropped definitions are flagged (``dropped_definitions``) |
-| CONFIRMED (modulo X) | CONFIRMED modulo Y, Y != X otherwise | ``disagreement`` |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, X and Y differ only in notation-only definitions (the registry tag) | as if both said modulo X & Y; the dropped definitions are flagged (``dropped_definitions``) |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, still different after the mechanical reduction, no blocking step | ``settle-dependencies``: no status yet; the dependency-settler classifies each differing input (``differing_inputs``), ``settle_deps.py`` checks and applies it (#121) |
+| CONFIRMED (modulo X) | CONFIRMED modulo Y, a run naming a blocking step | ``disagreement`` |
 | CONFIRMED | GAP | ``disagreement``: no status; file the weaker run's blocking step |
 | DISPROVED (either run) | any | ``disproved``: no status; the counterexample goes to the human at once |
 | GAP | not run | ``single-negative``: no status; A's blocking step is the repair item; B skipped by design |
@@ -68,6 +69,20 @@ Mechanical rules applied before the table:
   resolved to its record id, and a pinpoint's punctuation between word and number
   removed (``#Thm-2.6`` = ``#Thm2.6``). A ``disagreement`` that remains carries
   ``modulo_options``: the union and the intersection, the ruling's two options.
+* Differing inputs are not a conflict (#121; the human's design of 2026-11-20): two
+  CONFIRMED runs, neither naming a blocking step, whose modulo lists differ are first
+  reduced mechanically, stage 1 of the human's fixed order, only where the registry shows
+  it (``links_of``, qid -> ``{depends_on, cites, modulo}``; the CLI passes
+  ``registry_links``): a definition is an input unless its registry record is tagged
+  ``notation-only`` (the definition rule, replacing T-0148; a reviewer's own mark is not
+  trusted); case 13, a shared input that is itself proved-modulo carries its modulo; case
+  4, an input only one run lists is dropped when another listed input reaches it through
+  ``depends_on`` (transitively, never through the subject) or, for a card
+  ``bib:KEY[#PIN]``, ``cites`` KEY. What still differs gives ``settle-dependencies``:
+  ``differing_inputs`` each with its admissibility facts (``input_facts``: an open
+  [CHECK], registry existence with an unknown namespace counted as not shown, a cycle
+  back to the subject), both runs' lists in ``modulo_lists``, the drops in
+  ``dropped_inputs``. The settler and ``settle_deps.py`` take it from there.
 * B present after a non-CONFIRMED A is a process anomaly (B should not have run);
   it is reported, and the outcome is taken from A alone.
 
@@ -124,7 +139,7 @@ RE_NS = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
             "single-negative", "degraded", "invalid-pair", "no-change", "incomplete",
             "full-pass-needed", "invalid-base", "awaiting-amendment", "invalid-amend",
-            "new-pass-after-amendment")
+            "new-pass-after-amendment", "settle-dependencies")
 
 
 # ----------------------------------------------------------------------------
@@ -174,7 +189,8 @@ def _split_list(v):
         s = str(v or "").strip()
         if s.lower() in NONE_WORDS:
             return []
-        s = s.strip("[]")
+        if s.startswith("[") and s.endswith("]"):     # a flow list [a, b], not a pinpoint "x [Thm 11]"
+            s = s[1:-1]
         items = _split_top(s)
     out = []
     for it in items:
@@ -434,6 +450,61 @@ def is_definition(qid, kind_of=None):
     return bool(RE_DEF_LABEL.match(name or q))
 
 
+# The definition rule (the human's decision of 2026-11-20, #121, replacing T-0148's drop):
+# a definition listed in a modulo stays an input unless it is marked notation-only, on the
+# registry record (a reviewer's own mark is not trusted). T-0148 dropped every definition one run
+# listed, which turned a pair that differed on a definition the argument relies on into a
+# wrong ``proved`` (T-1475, #103's third comment).
+
+#: the reviewer's mark: the modulo entry ends with ``(notation only)`` (any case, a hyphen
+#: or a space between the words)
+RE_NOTATION_MARK = re.compile(r"(?i)\s*\(\s*notation[\s-]+only\s*\)\s*$")
+#: the registry's mark: the definition record's ``tags`` include this tag
+NOTATION_TAG = "notation-only"
+
+
+def registry_tags(qid):
+    """The ``tags`` of the record ``qid`` (``ns:id``), lower-cased; None when the registry,
+    the home or the record cannot be found."""
+    ns, _, name = str(qid or "").partition(":")
+    if not name or ns == "bib":
+        return None
+    try:
+        plugin = os.path.join(ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import federation, workspace as rws
+        info = rws.namespaces().get(ns)
+        home = info and info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return None
+        rec = federation.store(ns, home).get(name)
+    except Exception:        # an unreadable registry marks nothing
+        return None
+    if rec is None:
+        return None
+    raw = (getattr(rec, "fields", None) or {}).get("tags") or []
+    return [str(t).strip().lower() for t in ([raw] if isinstance(raw, str) else raw)]
+
+
+def notation_only(item, kind_of=None, tags_of=None):
+    """The definition id ``item`` names when it is marked notation-only, else None: the
+    registry record's ``tags`` (``tags_of``, default ``registry_tags``) include
+    ``notation-only``, and it is a definition (``is_definition``). A reviewer's
+    ``(notation only)`` on the entry is read past, never trusted on its own. Anything
+    else stays an input."""
+    s = str(item or "").strip()
+    head = RE_NOTATION_MARK.sub("", s)
+    if not _bare_id(head):
+        return None
+    if not is_definition(head, kind_of):
+        return None
+    # the reviewer's own mark is not trusted (review of e9a0272: a run could mark a
+    # definition the argument relies on): only the registry record's tag drops it
+    tags = (tags_of or registry_tags)(head) or ()
+    return head if NOTATION_TAG in [str(t).strip().lower() for t in tags] else None
+
+
 # ----------------------------------------------------------------------------
 # One spelling per input (#103): the runs' modulo lists are compared canonically
 # ----------------------------------------------------------------------------
@@ -455,7 +526,12 @@ def _registry_lookup(qid):
         if plugin not in sys.path:
             sys.path.insert(0, plugin)
         from registry.core import federation, workspace as rws
-        info = rws.namespaces().get(ns)
+        spaces = rws.namespaces()
+        if spaces and ns not in spaces:
+            # no registry namespace of the workspace (check:, tex:, uncited:): read, and no
+            # record (#121: not shown to exist, never "may exist")
+            return True, None
+        info = spaces.get(ns)
         home = info and info.get("home")
         if not home or not os.path.isdir(str(home)):
             return False, None
@@ -477,26 +553,64 @@ def registry_canonical(qid):
 
 
 def registry_exists(qid):
-    """True / False: the registry (readable) has / lacks the record ``qid``; None when it
-    cannot be read."""
+    """True / False: the registry (readable) has / lacks the record ``qid`` (False too for
+    a namespace the workspace has none of: ``check:``, ``tex:``, ``uncited:``); None when
+    it cannot be read. For a differing input None is "not shown to exist", like False
+    (``input_facts``); only an add_dependency suggestion reads it as "may exist"."""
     readable, rid = _registry_lookup(qid)
     return (rid is not None) if readable else None
 
 
 RE_DEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]*:[^\s()\[\]{}<>,;#]+$")
 RE_DEP_BIB = re.compile(r"^bib:[A-Za-z0-9][A-Za-z0-9_:.+/-]*$")
+#: an open check mark (``[CHECK]``, ``[CHECK T-1144]``, any case): what it marks is not
+#: verified, so it is never a dependency (#121, case 9)
+RE_OPEN_CHECK = re.compile(r"(?i)\[\s*check\b")
+#: one word of a pinpoint: a slug with a digit (``Thm2.6``, ``2-3``, ``Lem4.2-reading``),
+#: a section sign, or a pinpoint word (``Assumption 3.2``, ``§2.3 Example``)
+RE_PIN_TOKEN = re.compile(r"^(?:[\w.'+/:§-]*\d[\w.'+/:§-]*|§[\w.'+/:§-]*)$")
+PIN_WORDS = {
+    "thm", "thms", "theorem", "theorems", "lem", "lemma", "lemmas", "prop", "props",
+    "proposition", "propositions", "cor", "corollary", "corollaries", "def", "defn",
+    "definition", "definitions", "rmk", "rem", "remark", "remarks", "sec", "sect",
+    "section", "sections", "item", "items", "p", "p.", "pp", "pp.", "page", "pages", "ex",
+    "example", "examples", "exercise", "eq", "equation", "fig", "figure", "tab", "table",
+    "claim", "step", "fact", "obs", "observation", "ch", "chapter", "app", "appendix",
+    "assumption", "assumptions", "part", "case", "line", "lines", "para", "paragraph",
+    "conj", "conjecture", "notation", "construction", "proof", "statement"}
+RE_PIN_SLUG = re.compile(r"^[\w.'+/:§-]+$")
+
+
+def has_open_check(item):
+    """True when ``item`` carries an open check mark (``[CHECK ...]``)."""
+    return bool(RE_OPEN_CHECK.search(str(item or "")))
+
+
+def pinpoint_ok(pin):
+    """True when ``pin`` (the text after ``#``) is a pinpoint, not free text: one slug
+    with no brackets (``Thm2.6``, ``labelled-points``), or a few words each a pinpoint
+    word or carrying a number (``Assumption 3.2``, ``§2.3 Example``, ``items 2-3``)."""
+    words = str(pin or "").split()
+    if not words:
+        return False
+    if len(words) == 1:
+        return bool(RE_PIN_SLUG.match(words[0]))
+    return all(RE_PIN_TOKEN.match(w) or w.lower() in PIN_WORDS for w in words)
 
 
 def dependency_ok(item, exists=None):
     """True when ``item`` (in canonical spelling) names an existing result, as a suggested
     dependency must (2026-11-20 review): a registry id ``ns:id`` (known to the registry
     when ``exists``, qid -> True / False / None for unreadable, can tell) or a
-    ``bib:KEY``, either with an optional ``#pinpoint``. A statement in words, a bare
-    unqualified id or a pointer phrase is not a dependency: a lemma that remains to be
-    proved is a GAP."""
+    ``bib:KEY``, either with an optional ``#pinpoint`` (``pinpoint_ok``: a pinpoint, never
+    free text after it). A statement in words, a bare unqualified id, a pointer phrase or
+    anything carrying an open ``[CHECK ...]`` is not a dependency: a lemma that remains to
+    be proved is a GAP (#121: the 93e5325 report)."""
     s = " ".join(str(item or "").split()).strip("`'\"")
+    if has_open_check(s):
+        return False
     head, hash_, pin = s.partition("#")
-    if hash_ and not pin.strip():
+    if hash_ and not pinpoint_ok(pin):
         return False
     if head.startswith("bib:"):
         return bool(RE_DEP_BIB.match(head))
@@ -584,6 +698,218 @@ def normalise_modulo(items, subject="", canon=None):
         if c and c not in out:
             out.append(c)
     return out
+
+
+# ----------------------------------------------------------------------------
+# Two CONFIRMED runs' differing inputs (#121): the mechanical part, through the registry
+# ----------------------------------------------------------------------------
+
+#: a card pinpoint as one mechanical input: ``bib:KEY`` or ``bib:KEY#PIN``, the pinpoint
+#: with no pointer text (no space, no bracket) that could restrict it
+RE_CARD = re.compile(r"^bib:([A-Za-z0-9][A-Za-z0-9_:.+/-]*)(?:#[^\s()\[\]{}]+)?$")
+#: the most records one closure walks (a guard, never reached by a real registry)
+CLOSURE_CAP = 5000
+
+
+def registry_links(qid):
+    """``{"depends_on": [qid...], "modulo": [qid...], "cites": [KEY...]}`` of the record
+    ``qid`` (``ns:name``), read through the registry engine: its ``depends_on`` and
+    ``modulo`` links qualified (with the record's namespace when they name none) and
+    resolved to record ids, its ``cites`` bibkeys bare; None when the registry, the home
+    or the record cannot be found."""
+    ns, _, name = str(qid or "").partition(":")
+    if not name or ns == "bib":
+        return None
+    try:
+        plugin = os.path.join(ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import federation, workspace as rws
+        spaces = rws.namespaces()
+        info = spaces.get(ns)
+        home = info and info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return None
+        rec = federation.store(ns, home).get(name)
+    except Exception:        # an unreadable registry normalises nothing
+        return None
+    if rec is None:
+        return None
+    got = {"depends_on": [], "modulo": []}
+    for rel, tgt in getattr(rec, "links", None) or ():
+        t = str(tgt or "").strip()
+        if rel not in got or not t:
+            continue
+        if t.partition(":")[0] not in spaces or not t.partition(":")[2]:
+            t = "%s:%s" % (ns, t)
+        t = registry_canonical(t) or t
+        if t not in got[rel]:
+            got[rel].append(t)
+    cites = []
+    raw = (getattr(rec, "fields", None) or {}).get("cites") or []
+    for k in ([raw] if isinstance(raw, str) else raw):
+        k = str(k).strip()
+        k = (k[4:] if k.startswith("bib:") else k).partition("#")[0].strip()
+        if k and k not in cites:
+            cites.append(k)
+    return {"depends_on": got["depends_on"], "modulo": got["modulo"], "cites": cites}
+
+
+def is_declared(item, declared):
+    """True when the proof declares ``item``: ``declared`` is the subject's
+    ``registry_links``; an id (its ``#pinpoint`` or pointer text aside) in its
+    ``depends_on`` or ``modulo``, a ``bib:KEY[#PIN]`` whose KEY it ``cites``."""
+    if not declared:
+        return False
+    head = re.split(r"[\s#(\[{]", str(item or ""), maxsplit=1)[0]
+    if head.startswith("bib:"):
+        return head[4:] in (declared.get("cites") or ())
+    return head in (declared.get("depends_on") or ()) or head in (declared.get("modulo") or ())
+
+
+def _bare_id(item):
+    """A registry id with no pinpoint and no pointer text (``ns:id``), not a ``bib:``."""
+    s = str(item or "")
+    return not s.startswith("bib:") and bool(RE_DEP_ID.match(s))
+
+
+def _closure(qid, links_of, memo, stop=None):
+    """``(ids, keys)``: every record ``qid`` reaches through its registry links, as
+    ``{id: how}`` (``depends_on``, transitively; ``modulo`` once the path has crossed a
+    ``modulo`` link: a carried modulo, #121 case 13), and every bibkey ``qid`` or one of
+    those records ``cites``."""
+    key = (qid, stop)
+    if key in memo:
+        return memo[key]
+    ids, keys, todo, seen = {}, set(), [(qid, "depends_on")], {qid}
+    while todo and len(seen) <= CLOSURE_CAP:
+        node, how = todo.pop(0)
+        got = links_of(node) or {}
+        keys.update(got.get("cites") or ())
+        for rel in ("depends_on", "modulo"):
+            step = "modulo" if rel == "modulo" else how
+            for d in got.get(rel) or ():
+                ids.setdefault(d, step)
+                if d not in seen and d != stop:      # never walk through the subject
+                    seen.add(d)
+                    todo.append((d, step))
+    memo[key] = (ids, keys)
+    return memo[key]
+
+
+def reduce_differing(ma, mb, links_of=None, declared=None, subject=""):
+    """The mechanical stage of two CONFIRMED runs' differing modulo lists (#121, stage 1):
+    ``{dropped, differing, agreed}``. ``dropped``: ``[{"input", "via", "how", "case"}]``,
+    an input only one run lists that ``via`` reaches through the registry (``links_of``):
+    ``how`` ``modulo`` (``via`` carries it as a modulo, at any depth: case 13),
+    ``depends_on`` (transitively) or ``cites`` (a card pinpoint ``bib:KEY[#PIN]`` whose
+    KEY ``via`` or a record it reaches cites): case 4, granularity. ``via`` is a bare
+    registry id both runs list, or one only the other run lists that the proof declares
+    (``declared``, the subject's ``registry_links``: the more direct input); two inputs
+    that reach each other drop neither. ``differing``: what is left for the
+    dependency-settler, sorted. ``agreed``: what both runs list plus each declared input
+    that covers the other run's (sorted). Without the registry nothing is dropped. The
+    notation-only definitions are dropped before this (``notation_only``)."""
+    ma, mb = set(ma), set(mb)
+    shared = ma & mb
+    only_a, only_b = ma - mb, mb - ma
+    dropped, memo = [], {}
+    if links_of is not None:
+        heads = sorted(y for y in shared if _bare_id(y))
+        for x in sorted(only_a | only_b):
+            if has_open_check(x):
+                continue          # an open [CHECK] is held to case 9, never case 4
+            other = only_b if x in only_a else only_a
+            vias = heads + sorted(y for y in other if _bare_id(y) and is_declared(y, declared))
+            card = RE_CARD.match(x)
+            for y in vias:
+                ids, keys = _closure(y, links_of, memo, subject or None)
+                if subject and (y == subject or subject in ids):
+                    continue      # a via that is circular through the subject drops nothing
+                if _bare_id(x) and x in ids and y not in _closure(x, links_of, memo)[0]:
+                    how = ids[x]
+                    dropped.append({"input": x, "via": y, "how": how,
+                                    "case": 13 if how == "modulo" else 4})
+                    break
+                if card and card.group(1) in keys:
+                    dropped.append({"input": x, "via": y, "how": "cites", "case": 4})
+                    break
+    gone = {d["input"] for d in dropped}
+    covering = {d["via"] for d in dropped} - shared - gone
+    differing = sorted((only_a | only_b) - gone - covering)
+    return {"dropped": dropped, "differing": differing, "agreed": sorted(shared | covering)}
+
+
+def _result_head(item, subject="", canon=None):
+    """``(head, pointer)``: the existing-result part of an input, in canonical spelling, and
+    whether pointer text follows it. ``lem:y (first clause)`` under ``paper:lem:x`` ->
+    ``("paper:lem:y", True)`` (a pointer restricts an existing result: its id is
+    normalised, #103, before anything is looked up); ``bib:LMW16#§2.3 Example`` is whole
+    (a pinpoint of words); free text gives ``("", False)``. The open-check mark is not
+    looked at here (``has_open_check``)."""
+    s = " ".join(str(item or "").split()).strip("`'\"")
+    if dependency_ok(s):
+        return s, False
+    tok = re.split(r"\s|\(|\[", s, maxsplit=1)[0]
+    if tok and tok != s and dependency_ok(tok):
+        return canon_input(tok, subject, canon), True
+    if ":" not in tok and tok and tok != s:
+        # an unqualified paper label with pointer text (``lem:y`` has its colon; ``OBS-3``
+        # with pointer text is qualified only when the registry knows it)
+        got = canon_input(tok, subject, canon)
+        if got != tok and dependency_ok(got):
+            return got, True
+    return "", False
+
+
+def input_facts(item, run, subject="", exists=None, links_of=None, canon=None):
+    """The admissibility facts of one differing input (#121), what the dependency-settler
+    needs and cannot work out itself: ``{input, run, shape, result, pointer, open_check,
+    exists, cycle}``.
+
+    * ``open_check``: the input carries an open ``[CHECK ...]``; it never passes
+      ``dependency_ok`` and is held to case 9 (``shape`` ``check`` whatever else it is).
+    * ``result``: the existing result it names (``_result_head``: a registry id or a
+      ``bib:`` card pinpoint, normalised, pointer text after it allowed, ``pointer`` then
+      True), or ``""`` for free text (``shape`` ``text``).
+    * ``exists`` (a registry id only): True when the registry (``exists``) shows the
+      record; False when it does not show it: a record it lacks, a namespace the
+      workspace has none of (``check:``, ``tex:``, ``uncited:``), or a registry that
+      cannot be read (``shape`` ``unshown``). Never "may exist". None when the caller
+      gave no registry check, and for a card (the library is not read here); False for
+      free text.
+    * ``cycle``: the result is the subject, or its registry links (``depends_on`` and
+      ``modulo``, transitively) reach the subject: circular, case 11 (``shape``
+      ``cycle``).
+    ``shape`` is the first of ``check``, ``text``, ``card``, ``unshown``, ``cycle``,
+    ``id`` that holds."""
+    s = str(item or "")
+    check = has_open_check(s)
+    head, pointer = _result_head(s, subject, canon)
+    rid = head.partition("#")[0]
+    is_card = head.startswith("bib:")
+    known = None
+    if not head:
+        known = False
+    elif not is_card and exists is not None:
+        known = exists(rid) is True
+    cycle = bool(head) and not is_card and bool(subject) and (
+        rid == subject or (links_of is not None
+                           and subject in _closure(rid, links_of, {})[0]))
+    if check:
+        shape = "check"
+    elif not head:
+        shape = "text"
+    elif is_card:
+        shape = "card"
+    elif known is False:
+        shape = "unshown"
+    elif cycle:
+        shape = "cycle"
+    else:
+        shape = "id"
+    return {"input": s, "run": run, "shape": shape, "result": head, "pointer": pointer,
+            "open_check": check, "exists": known, "cycle": cycle}
 
 
 def missing_verdict(path, a, b):
@@ -759,10 +1085,12 @@ def _canon_rec(rec, canon):
 
 
 def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
-           kind_of=None, base=None, base_notes=(), canon=None, exists=None):
+           kind_of=None, base=None, base_notes=(), canon=None, exists=None, links_of=None,
+           tags_of=None):
     """Apply the table (``_decide``) and give every item to file its ``route``
     (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
-    lookup that decides which inputs are definitions.
+    lookup that decides which inputs are definitions, ``tags_of`` (qid -> the record's
+    tags or None) the one that reads a definition's ``notation-only`` tag.
 
     A reword run's record as ``rec_a`` goes to :func:`decide_reword`, with ``base`` the
     base pass's ``(A, B)`` records (``base_records`` finds them) and ``base_notes`` what
@@ -775,20 +1103,26 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
     A suggested dependency (``add_dependency``) must name an existing result
     (``dependency_ok``; ``exists``, qid -> True / False / None, checks a registry id: the
     CLI passes ``registry_exists``); a run whose suggestion does not is GAP-equivalent
-    for the amend route, with an anomaly."""
+    for the amend route, with an anomaly.
+
+    ``links_of`` (qid -> ``{depends_on, modulo, cites}`` or None; the CLI passes
+    ``registry_links``) is the registry's reach for two CONFIRMED runs' differing inputs
+    (#121): ``reduce_differing`` drops what it shows mechanically, and ``input_facts``
+    gives what is left its admissibility facts (``exists`` reads existence there, and a
+    None from it is "not shown"); without it nothing is dropped."""
     rec_a = _canon_rec(rec_a, canon)
     rec_b = _canon_rec(rec_b, canon)
     dep_notes = []
     rec_a = _check_deps(rec_a, exists, dep_notes)
     rec_b = _check_deps(rec_b, exists, dep_notes)
     res = _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
-                        base_notes, canon)
+                        base_notes, canon, links_of, exists, tags_of)
     res["anomalies"] = dep_notes + list(res.get("anomalies") or [])
     return res
 
 
 def _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
-                  base_notes, canon):
+                  base_notes, canon, links_of=None, exists=None, tags_of=None):
     if base:
         base = tuple(_canon_rec(r, canon) for r in base)
     subj = (rec_a or {}).get("subject") or ""
@@ -806,7 +1140,8 @@ def _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, ba
         res = decide_amend(rec_a, rec_b, established, primary, producer_role, kind_of)
         _route_items(res, rec_a, rec_b, producer_role)
         return res
-    res = _decide(rec_a, rec_b, established, primary, producer_role, kind_of)
+    res = _decide(rec_a, rec_b, established, primary, producer_role, kind_of, links_of,
+                  exists, canon, tags_of)
     for r in (rec_a, rec_b):
         if r and r.get("add_dependency"):
             res["anomalies"].append("run %s suggests add_dependency %s on a %s verdict: "
@@ -846,7 +1181,7 @@ def _new_result():
 
 
 def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
-            kind_of=None):
+            kind_of=None, links_of=None, exists=None, canon=None, tags_of=None):
     """Apply the table. ``rec_a`` / ``rec_b`` come from ``parse_record``; ``rec_b``
     may be None (not launched). ``established`` lists the modulo inputs known to be
     established (registry ``proved`` or a verified citation card). ``producer_role``
@@ -950,33 +1285,49 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
             res["outcome"] = "invalid-pair"
             res["summary"] = "the two runs are not independent reviews of one statement"
             return res
-        ma, mb = set(rec_a["modulo"]), set(rec_b["modulo"])
-        dropped = []
-        if ma != mb and all(is_definition(i, kind_of) for i in ma ^ mb):
-            # T-0148: a definition used only as notation is not an input
-            dropped = sorted(ma ^ mb)
-            res["dropped_definitions"] = dropped
-            ma = mb = ma & mb
-        dnote = ("; definitions dropped from the modulo lists (not inputs, the human's "
-                 "decision 2026-10-09, T-0148): %s" % ", ".join(dropped)) if dropped else ""
+        # the definition rule (#121): a notation-only definition is no input, in either list
+        defs = sorted({h for h in (notation_only(i, kind_of, tags_of)
+                                   for i in rec_a["modulo"] + rec_b["modulo"]) if h})
+        res["dropped_definitions"] = defs
+        la = [i for i in rec_a["modulo"] if not notation_only(i, kind_of, tags_of)]
+        lb = [i for i in rec_b["modulo"] if not notation_only(i, kind_of, tags_of)]
+        ma, mb = set(la), set(lb)
+        dnote = ("; notation-only definitions dropped from the modulo lists (not inputs, "
+                 "the definition rule, #121): %s" % ", ".join(defs)) if defs else ""
+        if ma != mb and not (rec_a.get("blocking") or rec_b.get("blocking")):
+            subject = rec_a.get("subject") or ""
+            declared = links_of(subject) if links_of is not None and subject else None
+            red = reduce_differing(ma, mb, links_of, declared, subject)
+            res["modulo_lists"] = {"A": list(rec_a["modulo"]), "B": list(rec_b["modulo"])}
+            res["dropped_inputs"] = red["dropped"]
+            if red["differing"]:
+                _settle_dependencies(res, red, ma, subject, exists, links_of, canon, dnote)
+                return res
+            ma = mb = set(red["agreed"])
+            dnote += ("; the runs' lists (A %s, B %s) differ only mechanically (#121, stage "
+                      "1), dropped: %s" % (
+                          ", ".join(rec_a["modulo"]) or "none",
+                          ", ".join(rec_b["modulo"]) or "none",
+                          ", ".join("%s (reached through %s, registry %s, case %d)"
+                                    % (d["input"], d["via"], d["how"], d["case"])
+                                    for d in red["dropped"])))
         if ma != mb:
             res["outcome"] = "disagreement"
             res["modulo"] = sorted(ma | mb)
-            beyond = sorted(i for i in ma ^ mb if not is_definition(i, kind_of))
             res["file_items"] = [{"run": "A+B", "kind": "inputs",
                                   "text": "the runs name different inputs: A %s, B %s "
-                                          "(not definitions: %s)"
+                                          "(differing: %s)"
                                           % (sorted(ma) or "none", sorted(mb) or "none",
-                                             ", ".join(beyond))}]
+                                             ", ".join(sorted(ma ^ mb)))}]
             # the ruling's two real options (#103)
             res["modulo_options"] = [
                 {"label": "union", "modulo": sorted(ma | mb),
                  "means": "proved-modulo every input either run named"},
                 {"label": "intersection", "modulo": sorted(ma & mb),
                  "means": "proved-modulo only the inputs both runs named"}]
-            res["summary"] = ("both CONFIRMED but on different inputs beyond definitions "
-                              "(%s): no status change; the ruling is union or "
-                              "intersection" % ", ".join(beyond))
+            res["summary"] = ("both CONFIRMED but on different inputs (%s), with a blocking "
+                              "step named: no status change; the ruling is union or "
+                              "intersection" % ", ".join(sorted(ma ^ mb)))
             return res
         if not ma:
             res["outcome"] = "confirmed"
@@ -1014,6 +1365,33 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
     res["file_items"] = [{"run": r.get("run"), "kind": "repair", "text": r.get("blocking")}
                          for r in recs if r.get("blocking")]
     res["summary"] = "no status change; report the union of the findings"
+    return res
+
+
+def _settle_dependencies(res, red, ma, subject, exists, links_of, canon, dnote=""):
+    """#121: two CONFIRMED runs, no blocking step, whose modulo lists still differ after
+    the mechanical reduction (``red``, from ``reduce_differing``): ``res`` filled as
+    ``settle-dependencies``. No status and no ticket: the dependency-settler classifies
+    each differing input. ``modulo`` is what the runs agree on; ``differing_inputs`` each
+    differing input with its run and its admissibility facts (``input_facts``); both
+    runs' lists stay in ``modulo_lists``."""
+    res["outcome"] = "settle-dependencies"
+    res["modulo"] = list(red["agreed"])
+    res["differing_inputs"] = [input_facts(x, "A" if x in ma else "B", subject, exists,
+                                           links_of, canon) for x in red["differing"]]
+    lists = res.get("modulo_lists") or {}
+    gone = ("; dropped mechanically: %s" % ", ".join(
+        "%s (reached through %s, case %d)" % (d["input"], d["via"], d["case"])
+        for d in red["dropped"])) if red["dropped"] else ""
+    res["summary"] = (
+        "CONFIRMED x2 on differing modulo lists (A %s, B %s): after the mechanical "
+        "reduction (#121, stage 1) %s still differ%s: no status yet; the "
+        "dependency-settler classifies each differing input%s%s"
+        % (", ".join(lists.get("A") or []) or "none",
+           ", ".join(lists.get("B") or []) or "none",
+           ", ".join("%s (run %s, %s)" % (d["input"], d["run"], d["shape"])
+                     for d in res["differing_inputs"]),
+           "s" if len(res["differing_inputs"]) == 1 else "", gone, dnote))
     return res
 
 
@@ -1514,8 +1892,24 @@ def _text(res):
     for opt in res.get("modulo_options") or ():
         out.append("option %s: modulo %s" % (opt["label"],
                                              ", ".join(opt["modulo"]) or "none"))
+    for run, lst in sorted((res.get("modulo_lists") or {}).items()):
+        out.append("run %s listed: %s" % (run, ", ".join(lst) or "none"))
+    for g in res.get("dropped_inputs") or ():
+        out.append("dropped: %s (reached through %s, registry %s, case %d)"
+                   % (g["input"], g["via"], g["how"], g["case"]))
+    for d in res.get("differing_inputs") or ():
+        facts = ["result %s%s" % (d["result"], " with pointer text" if d["pointer"] else "")
+                 if d["result"] else "no existing result named"]
+        if d["open_check"]:
+            facts.append("open [CHECK]")
+        if d["exists"] is not None and d["result"]:
+            facts.append("in the registry" if d["exists"] else "not shown to exist")
+        if d["cycle"]:
+            facts.append("reaches the subject")
+        out.append("differing input (run %s, %s): %s  [%s]"
+                   % (d["run"], d["shape"], d["input"], "; ".join(facts)))
     if res.get("dropped_definitions"):
-        out.append("dropped definitions (not inputs, T-0148): %s"
+        out.append("dropped definitions (notation only, not inputs): %s"
                    % ", ".join(res["dropped_definitions"]))
     for it in res["file_items"]:
         r = it.get("route") or {}
@@ -1578,7 +1972,8 @@ def main(argv=None):
         sys.stderr.write("decision_table: %s\n" % exc)
         return 2
     res = decide(ra, rb, _split_list(args.established), args.primary, args.producer_role,
-                 base=base, base_notes=notes, exists=registry_exists)
+                 base=base, base_notes=notes, exists=registry_exists,
+                 links_of=registry_links)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):

@@ -537,6 +537,99 @@ class AmendAfterATests(unittest.TestCase):
 
 
 @unittest.skipUnless(NODE, "node is not installed")
+class ConfirmedUnionTests(unittest.TestCase):
+    """#121: a CONFIRMED x2 pass whose runs list different inputs is concluded like a
+    confirmed one: proved-modulo the union to the keeper, never a ruling for the human."""
+    run_wf = GateTests.run_wf
+
+    FILED = {"request": "T-0004", "blocked": False, "waiting_on": [], "refusal": ""}
+
+    def plan(self, b_outcome, done, declare=(), prep=PREP):
+        return {"prepare": prep, "run A": "r", "table A": tab("CONFIRMED", "awaiting-b", True),
+                "run B": "r",
+                "table B": dict(tab("CONFIRMED", b_outcome, run="B"),
+                                declare_dependencies=list(declare)),
+                "declaration": self.FILED,
+                "conclude": dict(DONE, run_files=["A.md", "B.md"], **done)}
+
+    UNION = {"outcome": "confirmed-union", "proposed_status": "proved-modulo"}
+
+    def test_the_blind_b_is_tabled_against_a(self):
+        _o, _l, calls = self.run_wf(self.plan("confirmed-union", self.UNION))
+        p = next(c for c in calls if c["label"] == "table B")["prompt"]
+        self.assertIn('"<pass_dir>/A.md" "<pass_dir>/B.md"', p)
+        self.assertIn("declare_dependencies", p)
+
+    def test_undeclared_inputs_get_the_amendment_repair_and_nothing_waits(self):
+        out, labels, calls = self.run_wf(self.plan("confirmed-union", self.UNION,
+                                                   declare=["paper:lem:b"]))
+        self.assertEqual(labels, ["prepare", "run A", "table A", "run B", "table B",
+                                  "declaration", "conclude"])
+        st = next(c for c in calls if c["label"] == "declaration")
+        self.assertEqual(st["agentType"], "expert:review-chair")
+        for want in ("tickets_create", "kind prove", "mode repair", "researcher@main",
+                     "paper:lem:b", "depends_on", "amendment for verify T-0001 pass "
+                     "2026-10-31-T-0001", "files no verify ticket", "blocks nothing"):
+            self.assertIn(want, st["prompt"])
+        conclude = calls[-1]["prompt"]
+        self.assertIn("T-0004", conclude)
+        self.assertIn("do not file it again", conclude)
+        r = out["result"]
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertEqual(r["declaration_request"], "T-0004")
+        self.assertEqual(r["declare_dependencies"], ["paper:lem:b"])
+        self.assertNotIn("awaiting-amendment", r["outcome"])
+        self.assertFalse(any("ANOMALY" in n for n in r["notes"]), r["notes"])
+
+    def test_a_declaration_that_blocked_the_ticket_is_an_anomaly(self):
+        plan = self.plan("confirmed-union", self.UNION, declare=["paper:lem:b"])
+        plan["declaration"] = dict(self.FILED, blocked=True, waiting_on=["T-0004"])
+        out, _l, _c = self.run_wf(plan)
+        self.assertTrue(any("ANOMALY" in n and "declaration" in n
+                            for n in out["result"]["notes"]))
+
+    def test_nothing_to_declare_or_an_earlier_repair_files_none(self):
+        _o, labels, _c = self.run_wf(self.plan("confirmed-union", self.UNION))
+        self.assertNotIn("declaration", labels)
+        prep = dict(PREP, amendment={"request": "T-0009", "request_status": "open"})
+        out, labels, _c = self.run_wf(self.plan("confirmed-union", self.UNION,
+                                                declare=["paper:lem:b"], prep=prep))
+        self.assertNotIn("declaration", labels)
+        self.assertEqual(out["result"]["declaration_request"], "T-0009")
+
+    def test_no_researcher_leaves_the_item_to_the_concluder(self):
+        prep = dict(PREP, researcher="human", researcher_why="several Researchers")
+        out, labels, calls = self.run_wf(self.plan("confirmed-union", self.UNION,
+                                                   declare=["paper:lem:b"], prep=prep))
+        self.assertNotIn("declaration", labels)
+        self.assertIn("file the declare-dependency item", calls[-1]["prompt"])
+
+    def test_a_union_is_proposed_to_the_keeper(self):
+        out, labels, calls = self.run_wf(self.plan(
+            "confirmed-union", {"outcome": "confirmed-union", "proposed_status": "proved-modulo"}))
+        self.assertEqual(labels, ["prepare", "run A", "table A", "run B", "table B", "conclude"])
+        p = calls[-1]["prompt"]
+        for want in ("confirmed-union", "proved-modulo", "claims_propose_status",
+                     "modulo_lists", "union_dropped", "no decision ticket"):
+            self.assertIn(want, p)
+        r = out["result"]
+        self.assertEqual(r["outcome"], "confirmed-union")
+        self.assertFalse(any("ANOMALY" in n for n in r["notes"]), r["notes"])
+
+    def test_a_union_parked_on_the_human_is_an_anomaly(self):
+        out, _l, _c = self.run_wf(self.plan(
+            "confirmed-union", {"outcome": "disagreement", "proposed_status": "none"}))
+        notes = " ".join(out["result"]["notes"])
+        self.assertIn("ANOMALY", notes)
+        self.assertIn("confirmed-union", notes)
+
+    def test_a_real_disagreement_is_concluded_as_before(self):
+        out, _l, calls = self.run_wf(self.plan(
+            "disagreement", {"outcome": "disagreement", "proposed_status": "none"}))
+        self.assertNotIn("confirmed-union", calls[-1]["prompt"])
+        self.assertFalse(any("ANOMALY" in n for n in out["result"]["notes"]))
+
+
 class MaxTierModelTests(unittest.TestCase):
     """T-1682: the reviewers launch on the workspace's max tier, never a hard-coded opus."""
     run_wf = GateTests.run_wf
