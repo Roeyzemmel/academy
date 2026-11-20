@@ -67,7 +67,9 @@ the run.
   - `skill: researcher:prove` with `args`: run the Workflow `researcher/workflows/prove.js`
     with `for_main.args` (it takes the ticket, still `in-progress`, and delivers it). The
     falsifier the lead reported (`falsifier`) is on the ticket's thread, where prove.js's
-    state stage reads it.
+    state stage reads it. With none on record the hand-back is the same (2026-11-20): the
+    attempt does not wait for a falsifier, the verify workflow runs one after review A, and
+    `why` says none is on record (`pending` names falsifier tickets still open).
   - `skill: researcher:prove` with `mode: repair` and `handback: prove` (#85): prove.js found
     the claim `proved` and did not read the ticket as a repair, and delivered nothing. Read
     the ticket: if it asks for a repair, polish or record, run prove.js with `for_main.args`
@@ -78,14 +80,8 @@ the run.
     then run prove.js as above. A registry check that failed (an exit code, not "does not
     resolve"): run `registry.py statement <claim>` yourself; register only if it reports the
     claim missing.
-  - `skill: researcher:explore` (no falsifier on record and none pending): run
-    `/researcher:explore` with the ticket; prove.js would attempt nothing.
-  - prove.js answering `needs-explore` anyway: the same, `/researcher:explore` with the
-    ticket, before the inbox again.
 
-  A lead with no falsifier yet but one filed does not come back: the script parks the
-  ticket on that falsifier ticket, and it is released when it is delivered. Then call the
-  inbox again.
+  Then call the inbox again.
 
   Ask with `AskUserQuestion`, carry the answer out (the next mode of the workflow named,
   or the ticket move), then call the workflow again with `cap` lowered by `count`.

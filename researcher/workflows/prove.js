@@ -1,20 +1,26 @@
 export const meta = {
   name: 'academy-prove',
-  description: 'Take one notebook claim to a reviewable proof: falsifier and attack first, one prover attempt, the outcome read from the attempt file, a verify ticket to the Expert only for a complete attempt',
+  description: 'Take one notebook claim to a reviewable proof: an attack first, the related registry statements in the brief, one prover attempt declaring its dependencies, the outcome read from the attempt file, a verify ticket to the Expert only for a complete attempt (saying whether a falsifier is on record)',
   whenToUse: '/researcher:prove and every prove ticket (also nested from the inbox). args: {claim: "<ns:id>", ticket?: "T-NNNN", mode?: "repair", home: "<the Researcher home>", instance?: "researcher@<x>"}',
   phases: [
-    { title: 'State', detail: 'status, inputs, earlier attempts, falsifier, attack' },
+    { title: 'State', detail: 'status, inputs, earlier attempts, falsifier on record, attack, related statements' },
     { title: 'Attempt', detail: 'an attack-only run if none, then one proof attempt' },
     { title: 'File', detail: 'by the attempt file\'s outcome: the verify ticket and the sketch proposal, or the gaps' },
   ],
 }
 
-// The order of /researcher:prove in code (2026-10-31; docs/workflows.md): nothing is
-// attempted on a claim nobody tried to break (needs_explore goes back to the caller), an
-// unattacked statement gets one attack-only run first, the outcome is read from the
-// attempt's frontmatter by the clerk (never from the prover's summary), and only a
-// complete attempt files a verify ticket (by the prover, a liaison toward the Expert;
-// the script checks the ticket) and proposes sketch. Nothing is set above sketch.
+// The order of /researcher:prove in code (2026-10-31; docs/workflows.md): an unattacked
+// statement gets one attack-only run first, the outcome is read from the attempt's
+// frontmatter by the clerk (never from the prover's summary), and only a complete attempt
+// files a verify ticket (by the prover, a liaison toward the Expert; the script checks the
+// ticket) and proposes sketch. Nothing is set above sketch.
+// 2026-11-20 (the human's design): the attempt no longer waits for a falsifier (it runs after
+// review A, in the verify workflow); the state stage still says whether one is on record, and
+// the result and the verify ask carry that. A clerk stage lists the related registry
+// statements (the paper's and the notebooks') for the prover's brief: cite, never reprove. The
+// attempt declares its dependencies in its frontmatter; a complete attempt without them, or
+// with an input its Inputs section names left out, is not complete, and the verify ticket
+// names them (refs and ask).
 
 const A = args || {}
 
@@ -90,8 +96,19 @@ const STATE = { type: 'object', properties: {
 const PATH = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
 const OUTCOME = { type: 'object', properties: {
   exists: { type: 'boolean' }, outcome: { type: 'string', description: 'the attempt frontmatter\'s outcome: field, verbatim' },
-  gaps: { type: 'array', items: { type: 'string' } }, objects: { type: 'array', items: { type: 'string' }, description: 'claims the attempt names (partial results)' } },
-  required: ['exists', 'outcome', 'gaps', 'objects'] }
+  gaps: { type: 'array', items: { type: 'string' } }, objects: { type: 'array', items: { type: 'string' }, description: 'claims the attempt names (partial results)' },
+  dependencies_declared: { type: 'boolean', description: 'the frontmatter has a dependencies: key (an empty list counts as declared)' },
+  dependencies: { type: 'array', items: { type: 'string' }, description: 'the frontmatter\'s dependencies: items, verbatim, in order' },
+  inputs_listed: { type: 'array', items: { type: 'string' }, description: 'the registry ids and bib:<key>#<pinpoint> citations named in its "## Inputs and their status" section, verbatim' } },
+  required: ['exists', 'outcome', 'gaps', 'objects', 'dependencies_declared', 'dependencies', 'inputs_listed'] }
+const RELATED = { type: 'object', properties: {
+  related: { type: 'array', items: { type: 'object', properties: {
+    id: { type: 'string', description: 'the registry id with its namespace (paper:lem:x, flat:GEO-2)' },
+    status: { type: 'string', description: 'its registry status, verbatim (- for a definition)' },
+    statement: { type: 'string', description: 'its statement, one line' } }, required: ['id', 'status', 'statement'] } },
+  queries: { type: 'array', items: { type: 'string' }, description: 'every command or tool call run, verbatim' } },
+  required: ['related', 'queries'] }
+const RELATED_CAP = 12
 const FILED = { type: 'object', properties: { ticket: { type: 'string' }, proposal: { type: 'string', description: 'the decision ticket of the sketch proposal, or empty' }, refusal: { type: 'string' } }, required: ['ticket', 'proposal', 'refusal'] }
 const TICKET = { type: 'object', properties: { found: { type: 'boolean' }, to: { type: 'string' }, kind: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } }, required: ['found', 'to', 'kind', 'refs'] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok', 'detail'] }
@@ -204,9 +221,9 @@ if (/^proved$/.test(st.status) && !repair) {
   return Object.assign(out, { outcome: 'already-proved', already_proved: true,
     reason: `${A.claim} is proved and the ticket asks for no repair: nothing attempted, the ticket left as it was (rerun with mode repair, or deliver or cancel it)` })
 }
-const reviewed = /^proved(-modulo)?$/.test(st.status)   // it survived a review once: a repair needs no new falsifier
 // #117: a falsifier on a declared input or the parent lead counts when it covers the claim, and
-// so does the human's waiver; checked in code against what the stage reported
+// so does the human's waiver; checked in code against what the stage reported. Since 2026-11-20
+// it decides only what the result and the verify ask say is on record: nothing waits for it
 // What the code holds (review of 7ecda27): a known source with evidence; an input that is
 // one of the declared inputs (namespace prefixes ignored); a waiver that quotes a thread line
 // of the human ("- YYYY-MM-DD human: ..."). That the falsifier covers the claim is the stage's
@@ -232,10 +249,46 @@ if (counts && src === 'waived' && !/(^|\n)\s*-?\s*\d{4}-\d{2}-\d{2} human:/.test
   out.notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ...): not counted')
 }
 if (counts) out.falsifier = { source: src, on: st.falsifier_on || null, evidence: st.falsifier_evidence || '' }
-if (!counts && !(repair && reviewed)) return Object.assign(out, { outcome: 'needs-explore', needs_explore: true,
-  reason: `nobody has tried to break ${A.claim}: run /researcher:explore (its falsifier) first. What counts: an experiment or test ticket to the Scientist that ` +
-    `tries to break it (a search over the class it quantifies over, its standard examples first) or a recorded attack on it; or one on a declared input or ` +
-    `the parent lead whose class covers it; or the human's waiver on the ticket` })
+out.falsifier_on_record = counts
+out.falsifier_source = counts ? src : 'none'
+if (!counts) out.notes.push(`no falsifier on record for ${A.claim}: the attempt goes ahead and the verify ask says so (the verify workflow runs one after review A). ` +
+  `What counts: an experiment or test ticket to the Scientist that tries to break it (a search over the class it quantifies over, its standard examples first) ` +
+  `or a recorded attack on it; or one on a declared input or the parent lead whose class covers it; or the human's waiver on the ticket`)
+const oneLine = (x, n) => String(x || '').replace(/\s+/g, ' ').trim().replace(/"/g, "'").slice(0, n || 200)
+const falsifierLine = counts
+  ? `falsifier on record: ${src}${out.falsifier.on ? ' ' + out.falsifier.on : ''} (${oneLine(out.falsifier.evidence, 160)})`
+  : 'no falsifier on record (run it after review A)'
+
+// The related statements (2026-11-20): what the registry already holds, so the prover cites
+// instead of reproving. The clerk searches; the code drops the claim itself and duplicates,
+// puts proved and proved-modulo first and keeps at most RELATED_CAP.
+const rel = await launch(STAGE('related', [
+  `Find the registry statements related to ${A.claim}: read it (claims_show), take the terms and objects of its statement, and search every registry of the workspace ` +
+  'with them, the paper (paper:) and the notebooks (and the lab): `py ' + AR + '/academy/scripts/registry.py federation` (from the home) names each namespace\'s home; ' +
+  'then `registry.py --repo <home> find <term>` in a notebook, `registry.py --repo <home> grep <term>` in the paper or the lab (python3 where there is no py), ' +
+  `and claims_show for a match's status. Return the best matches (at most ${RELATED_CAP}; proved and proved-modulo first), each with its id (with its namespace), its status and its statement in one line, ` +
+  'and every query run, verbatim. Write nothing.',
+]), { label: 'related', phase: 'State', agentType: CLERK, schema: RELATED, effort: 'low' })
+const RANK = s => /^proved$/.test(s) ? 0 : /^proved-modulo$/.test(s) ? 1 : 2
+const seen = new Set([bare(A.claim)])
+const related = []
+if (!rel) out.notes.push('the related-statements stage returned nothing: the prover searches the registry itself')
+for (const r of (rel && rel.related) || []) {
+  const id = String(r && r.id || '').trim()
+  if (!id || seen.has(bare(id))) continue
+  seen.add(bare(id))
+  related.push({ id, status: oneLine(r.status, 40) || '?', statement: oneLine(r.statement, 240) })
+}
+related.sort((x, y) => RANK(x.status) - RANK(y.status))   // stable: the clerk's order within a rank
+out.related = related.slice(0, RELATED_CAP)
+if (related.length > RELATED_CAP) out.notes.push(`the related-statements stage returned ${related.length} statements: the first ${RELATED_CAP} go to the prover`)
+const relatedBrief = out.related.length
+  ? 'Related statements already in the registry (the clerk\'s search; ' + ((rel && rel.queries) || []).length + ' queries):\n' +
+    out.related.map(r => `- ${r.id} (${r.status}): ${r.statement}`).join('\n') + '\n' +
+    'Cite (use as an input) each one that does the work, and never reprove a proved statement: a cited one goes in dependencies: and in Inputs and their status. ' +
+    'Under ## Related statements of the attempt, say for each one listed here either "used as input" or why not. '
+  : 'The clerk found no related statement in the registry' + (rel ? '' : ' (its stage returned nothing)') +
+    ': search it yourself (claims_list, claims_query) before proving anything; never reprove a proved statement. '
 const modulo = (st.unsettled_inputs || []).length ? `It rests on unsettled inputs (${st.unsettled_inputs.join(', ')}): it can be proved at most proved-modulo them; say so in the attempt.` : ''
 
 // ---- Attempt ---------------------------------------------------------------------------
@@ -255,6 +308,8 @@ if (!p || !p.path) return Object.assign(out, { outcome: 'not-started', reason: '
 out.attempt = p.path
 const proved = await launchMax(`Prove ${A.claim} (home ${A.home}) in the attempt file ${p.path}, per your agent definition: scout prior art first (cite before reproving), ` +
   `then the statement as attempted, the strategy, the proof, the inputs with their statuses, and the gaps; set outcome: in its frontmatter. ` +
+  'State the dependencies as part of the proof: the frontmatter\'s dependencies: lists every registry id and bib:<key>#<pinpoint> the proof relies on, ' +
+  'the same items as Inputs and their status (an attempt without it is not complete and is not filed for review). ' + relatedBrief +
   (st.attempts.length ? `Earlier attempts: ${st.attempts.join(', ')} (a repair is this new attempt; the old ones stay). ` : '') +
   (attacked ? 'Read proofs/<id>/attack.md first. ' : '') +
   (repair ? `This is a repair of a ${st.status} claim${T ? ' (ticket ' + T + ': tickets_get it)' : ''}: ${st.repair_ask || 'what the ticket asks'}. Fix exactly that in this new attempt, and make the record edits the ticket asks (the statement only if it asks). ` : '') +
@@ -264,18 +319,33 @@ if (proved === null) return Object.assign(out, { outcome: 'lost', reason: 'the p
 
 // ---- File: by the file, not by the summary ------------------------------------------------
 phase('File')
-const o = await launch(STAGE('attempt-outcome', [`Read the frontmatter of ${p.path}: return its outcome: field verbatim, its gaps, and the claims it names. Write nothing.`]),
+const o = await launch(STAGE('attempt-outcome', [`Read ${p.path}: return its frontmatter's outcome: field verbatim, its gaps, the claims it names, ` +
+  'whether the frontmatter has a dependencies: key and its items verbatim, and the registry ids and bib:<key>#<pinpoint> citations its "## Inputs and their status" section names. Write nothing.']),
   { label: 'outcome', phase: 'File', agentType: CLERK, schema: OUTCOME, effort: 'low' })
 if (!o || !o.exists) return Object.assign(out, { outcome: 'unfinished', reason: 'the attempt file is missing or unreadable' })
 out.gaps = o.gaps
-if (o.outcome !== 'complete' || (o.gaps || []).length) {
+// the declared dependencies: a list in the frontmatter, holding every input the Inputs section
+// names (one ref matches another written with or without its namespace)
+const clean = xs => [...new Set((xs || []).map(x => String(x || '').trim()).filter(Boolean))]
+const deps = clean(o.dependencies)
+const sameRef = (a, b) => a === b || a.endsWith(':' + b) || b.endsWith(':' + a)
+const undeclared = o.dependencies_declared ? clean(o.inputs_listed).filter(x => !deps.some(d => sameRef(d, x))) : []
+out.dependencies = deps
+const depGaps = !o.dependencies_declared ? ['the frontmatter declares no dependencies: list']
+  : undeclared.length ? [`inputs not in its dependencies: ${undeclared.join(', ')}`] : []
+if (o.outcome !== 'complete' || (o.gaps || []).length || depGaps.length) {
   out.outcome = 'attempt-incomplete'
-  await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}; gaps: ${(o.gaps || []).join('; ') || 'none listed'}; nothing filed for review`)
+  if (depGaps.length) out.dependency_gaps = depGaps
+  const gl = (o.gaps || []).concat(o.outcome === 'complete' ? depGaps : [])
+  await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}${o.outcome === 'complete' && depGaps.length ? ' but its dependencies are not declared' : ''}; ` +
+    `gaps: ${gl.join('; ') || 'none listed'}; nothing filed for review`)
   return await end()
 }
+const depAsk = deps.length ? `dependencies: ${deps.join('; ')}` : 'dependencies: none declared'
 const f = await launchMax(`Your attempt ${p.path} on ${A.claim} is complete. File exactly one verify ticket to the Expert instance (tickets_create: kind verify, ` +
-  `title "Verify ${A.claim}", ask "Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?${repair ? ' (a repair of the ' + st.status + ' claim)' : ''}", deliverable "A verification packet with two verdicts, or one negative verdict.", ` +
-  `refs [${A.claim}, file:<instance>/${p.path}]${T ? ', parent ' + T : ''}). ` +
+  `title "Verify ${A.claim}", ask "${oneLine(`Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?${repair ? ' (a repair of the ' + st.status + ' claim)' : ''} ` +
+    `${depAsk}. ${falsifierLine}.`, 4000)}", deliverable "A verification packet with two verdicts, or one negative verdict.", ` +
+  `refs [${[A.claim, 'file:<instance>/' + p.path].concat(deps).join(', ')}]${T ? ', parent ' + T : ''}). ` +
   (/^open$/.test(st.status) ? `Then propose sketch (claims_propose_status, grounds note "complete attempt ${p.path}"). ` : '') +
   'Return the ticket id and the proposal ticket; a refusal verbatim.',
   { label: 'file verify', phase: 'File', agentType: PROVER, schema: FILED, effort: 'low' }, MODEL_STAGE)
@@ -287,9 +357,12 @@ if (!f || !f.ticket) {
 const chk = await launch(STAGE('get', [`tickets_get ${f.ticket} and return its to, kind and refs.`]), { label: 'check verify', phase: 'File', agentType: CLERK, schema: TICKET, effort: 'low' })
 const bad = !chk || !chk.found || !/^expert@/.test(chk.to) || chk.kind !== 'verify' || !(chk.refs || []).includes(A.claim)
 if (bad) out.notes.push(`ANOMALY: the verify ticket ${f.ticket} is not a verify ticket to the Expert naming ${A.claim}`)
+const missingRefs = chk && chk.found ? deps.filter(d => !(chk.refs || []).some(r => sameRef(String(r).trim(), d))) : []
+if (missingRefs.length) out.notes.push(`ANOMALY: the verify ticket ${f.ticket} does not name the dependencies ${missingRefs.join(', ')} in its refs`)
 out.verify_ticket = f.ticket
 out.proposal = f.proposal || null
 out.outcome = 'verify-filed'
 const fal = out.falsifier && out.falsifier.source !== 'claim' ? `; falsifier accepted: ${out.falsifier.source}${out.falsifier.on ? ' ' + out.falsifier.on : ''}` : ''
-await deliver(`complete attempt ${p.path}; verify ticket ${f.ticket}${f.proposal ? '; sketch proposed (' + f.proposal + ')' : ''}${fal}`)
+await deliver(`complete attempt ${p.path}; verify ticket ${f.ticket}${f.proposal ? '; sketch proposed (' + f.proposal + ')' : ''}${fal}` +
+  `${counts ? '' : '; no falsifier on record (the verify workflow runs it after review A)'}; ${depAsk}`)
 return await end()

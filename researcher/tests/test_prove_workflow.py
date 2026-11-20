@@ -1,6 +1,10 @@
-"""The prove workflow (workflows/prove.js), 2026-10-31: no attempt without a falsifier, an
-attack-only run first when none exists, the outcome read from the attempt file, a verify
-ticket only for a complete attempt (filed by the prover, checked), nothing above sketch.
+"""The prove workflow (workflows/prove.js), 2026-10-31: an attack-only run first when none
+exists, the outcome read from the attempt file, a verify ticket only for a complete attempt
+(filed by the prover, checked), nothing above sketch. Since 2026-11-20 (the human's design):
+the attempt goes ahead with no falsifier on record (the verify workflow runs it after review
+A; the result and the verify ask say whether one is on record), a clerk stage lists the
+related registry statements for the prover's brief (cite, never reprove), and the attempt
+declares its dependencies in its frontmatter: a complete attempt without them is not filed.
 Under node with a fake agent(); skipped without node."""
 
 import json
@@ -42,6 +46,15 @@ def state(**kw):
 
 
 MOVE = {"ok": True, "detail": ""}
+RELATED_NONE = {"related": [], "queries": ["registry.py find GEO"]}
+
+
+def done(**kw):
+    """The outcome stage's answer for a complete attempt that declares its dependencies."""
+    o = {"exists": True, "outcome": "complete", "gaps": [], "objects": [],
+         "dependencies_declared": True, "dependencies": [], "inputs_listed": []}
+    o.update(kw)
+    return o
 
 
 @unittest.skipUnless(NODE, "node is not installed")
@@ -50,6 +63,9 @@ class ProveTests(unittest.TestCase):
         a = {"claim": "flat:GEO-3", "home": "/h/nb", "ticket": "T-0010"}
         a.update(args)
         plan = dict(plan, __args=a)
+        # 2026-11-20: every run past the state stage has the related-statements clerk stage;
+        # a plan that does not care gets an empty answer
+        plan.setdefault("related", [RELATED_NONE])
         d = tempfile.mkdtemp(prefix="acad-pv-")
         self.addCleanup(shutil.rmtree, d, True)
         h = os.path.join(d, "h.js")
@@ -61,20 +77,105 @@ class ProveTests(unittest.TestCase):
         self.assertNotIn("error", out, out.get("error"))
         return out["result"], [c["label"] for c in out["calls"]], out["calls"]
 
-    def test_no_falsifier_means_explore_first(self):
-        res, labels, _ = self.run_wf({"state": [state(falsified=False)]})
-        self.assertTrue(res["needs_explore"])
-        self.assertEqual(labels, ["state"])
+    # ---- 2026-11-20: attempt first, related statements, declared dependencies ----------------
+
+    def test_no_falsifier_on_record_still_gets_an_attempt(self):
+        """Was test_no_falsifier_means_explore_first (needs-explore, nothing attempted): the
+        falsifier now runs after review A, in the verify workflow; the attempt goes ahead and the
+        result and the verify ask say that none is on record."""
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(falsified=False, falsifier_source="none")]))
+        self.assertNotIn("needs_explore", res)
+        self.assertIn("attempt", labels)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertFalse(res["falsifier_on_record"])
+        self.assertEqual(res["falsifier_source"], "none")
+        filed = next(c for c in calls if c["label"] == "file verify")["prompt"]
+        self.assertIn("no falsifier on record", filed)
+        self.assertIn("no falsifier on record", calls[-1]["prompt"])          # the delivered result line
+
+    def test_a_falsifier_on_record_is_named_in_the_verify_ask(self):
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(falsifier_source="claim", falsifier_evidence="T-0099 delivered: none up to 12")]))
+        self.assertTrue(res["falsifier_on_record"])
+        filed = next(c for c in calls if c["label"] == "file verify")["prompt"]
+        self.assertIn("falsifier on record: claim", filed)
+        self.assertIn("T-0099 delivered", filed)
+
+    RELATED = {"related": [
+        {"id": "flat:GEO-7", "status": "open", "statement": "an open neighbour"},
+        {"id": "paper:lem:unfold", "status": "proved", "statement": "the unfolding is a translation surface"},
+        {"id": "flat:GEO-3", "status": "open", "statement": "the claim itself"},
+        {"id": "flat:GEO-5", "status": "proved-modulo", "statement": "a modulo result"},
+        {"id": "paper:lem:unfold", "status": "proved", "statement": "a duplicate row"}],
+        "queries": ["registry.py find unfolding", "registry.py --repo paper grep unfolding"]}
+
+    def test_the_prover_brief_carries_the_related_statements(self):
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[self.RELATED]))
+        self.assertLess(labels.index("related"), labels.index("attempt"))
+        rel = calls[labels.index("related")]
+        self.assertEqual(rel["agentType"], "researcher:review-clerk")
+        self.assertIn("paper:", rel["prompt"])
+        prompt = next(c for c in calls if c["label"] == "attempt")["prompt"]
+        self.assertIn("paper:lem:unfold (proved): the unfolding is a translation surface", prompt)
+        self.assertIn("flat:GEO-5 (proved-modulo)", prompt)
+        self.assertNotIn("the claim itself", prompt)                     # the claim is not its own input
+        self.assertEqual(prompt.count("paper:lem:unfold (proved)"), 1)    # deduplicated
+        # proved and proved-modulo first
+        self.assertLess(prompt.index("paper:lem:unfold"), prompt.index("flat:GEO-7"))
+        self.assertLess(prompt.index("flat:GEO-5"), prompt.index("flat:GEO-7"))
+        for duty in ("never reprove", "used as input", "or why not"):
+            self.assertIn(duty, prompt)
+        self.assertEqual([r["id"] for r in res["related"]], ["paper:lem:unfold", "flat:GEO-5", "flat:GEO-7"])
+
+    def test_the_related_list_is_capped_and_a_lost_stage_is_noted(self):
+        many = {"related": [{"id": "flat:X-%d" % i, "status": "proved", "statement": "s%d" % i} for i in range(20)], "queries": []}
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[many]))
+        self.assertEqual(len(res["related"]), 12)
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, related=[None]))
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertIn("related-statements stage returned nothing", " ".join(res["notes"]))
+
+    def test_the_declared_dependencies_go_to_the_result_and_the_verify_ticket(self):
+        deps = ["paper:lem:unfold", "bib:LMW16#Theorem 11"]
+        plan = dict(self.COMPLETE, outcome=[done(dependencies=deps, inputs_listed=["lem:unfold", "bib:LMW16#Theorem 11"])],
+                    **{"check verify": [{"found": True, "to": "expert@t", "kind": "verify",
+                                         "refs": ["flat:GEO-3", "file:x", "paper:lem:unfold", "bib:LMW16#Theorem 11"]}]})
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertEqual(res["dependencies"], deps)
+        o = next(c for c in calls if c["label"] == "outcome")["prompt"]
+        self.assertIn("dependencies:", o)
+        filed = next(c for c in calls if c["label"] == "file verify")["prompt"]
+        self.assertIn("paper:lem:unfold, bib:LMW16#Theorem 11]", filed)     # in refs
+        self.assertIn("dependencies: paper:lem:unfold; bib:LMW16#Theorem 11", filed)   # in the ask
+        self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+        # a filed ticket that drops a dependency from its refs is an anomaly
+        plan["check verify"] = [{"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3", "file:x"]}]
+        res, labels, calls = self.run_wf(plan)
+        self.assertIn("ANOMALY", " ".join(res["notes"]))
+        self.assertIn("bib:LMW16#Theorem 11", " ".join(res["notes"]))
+
+    def test_an_attempt_without_declared_dependencies_is_not_complete(self):
+        for o in (done(dependencies_declared=False),                                   # no dependencies: in the frontmatter
+                  done(dependencies=["flat:GEO-2"], inputs_listed=["flat:GEO-2", "bib:K#1"])):   # an input left out of it
+            plan = dict(self.COMPLETE, outcome=[o])
+            res, labels, calls = self.run_wf(plan)
+            self.assertEqual(res["outcome"], "attempt-incomplete", o)
+            self.assertNotIn("file verify", labels)
+            self.assertIn("dependencies", calls[-1]["prompt"])                         # the delivered result says why
+        # the attempt prompt asks for the list
+        prompt = next(c for c in calls if c["label"] == "attempt")["prompt"]
+        self.assertIn("dependencies:", prompt)
 
     def test_a_complete_attempt_files_a_checked_verify_ticket(self):
         res, labels, calls = self.run_wf({
             "state": [state(attack_exists=False)], "attack": ["no counterexample"],
             "attempt path": [{"path": "proofs/GEO-3/attempt-2.md"}], "attempt": ["done, complete"],
-            "outcome": [{"exists": True, "outcome": "complete", "gaps": [], "objects": []}],
+            "outcome": [done()],
             "file verify": [{"ticket": "T-0020", "proposal": "T-0021", "refusal": ""}],
             "check verify": [{"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3", "file:x"]}],
             "close": [MOVE]})
-        self.assertEqual(labels, ["state", "attack", "attempt path", "attempt", "outcome", "file verify",
+        # 2026-11-20: the related-statements clerk stage runs after the state stage
+        self.assertEqual(labels, ["state", "related", "attack", "attempt path", "attempt", "outcome", "file verify",
                                   "check verify", "close"])
         self.assertEqual(res["outcome"], "verify-filed")
         f = next(c for c in calls if c["label"] == "file verify")
@@ -84,7 +185,7 @@ class ProveTests(unittest.TestCase):
 
     COMPLETE = {"state": [state(attack_exists=False)], "attack": ["none"],
                 "attempt path": [{"path": "proofs/GEO-3/attempt-2.md"}], "attempt": ["done"],
-                "outcome": [{"exists": True, "outcome": "complete", "gaps": [], "objects": []}],
+                "outcome": [done()],
                 "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
                 "check verify": [{"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3"]}],
                 "close": [MOVE]}
@@ -133,7 +234,7 @@ class ProveTests(unittest.TestCase):
         self.assertFalse(res.get("ticket_delivered"))
         res, labels, _ = self.run_wf({
             "state": [state(status="sketch")], "attempt path": [{"path": "p.md"}], "attempt": ["x"],
-            "outcome": [{"exists": True, "outcome": "complete", "gaps": [], "objects": []}],
+            "outcome": [done()],
             "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
             "check verify": [{"found": True, "to": "author@t", "kind": "write", "refs": []}],
             "close": [MOVE]})
@@ -167,7 +268,9 @@ class ProveTests(unittest.TestCase):
             self.assertEqual(res["falsifier"]["source"], kw["falsifier_source"])
             self.assertIn("falsifier accepted: " + kw["falsifier_source"], calls[-1]["prompt"])
 
-    def test_a_falsifier_that_does_not_count_is_refused_with_what_would(self):
+    def test_a_falsifier_that_does_not_count_is_not_on_record(self):
+        """Was ..._is_refused_with_what_would (needs-explore): a source that does not count is
+        still checked as before (#117), but now the attempt goes ahead with none on record."""
         for kw in ({"falsifier_source": "input", "falsifier_on": "flat:GEO-9", "inputs": ["flat:GEO-2"]},
                    {"falsifier_source": "waived", "falsifier_evidence": "the lead thinks it is fine", "inputs": []},
                    {"falsifier_source": "none", "falsified": False, "inputs": []},
@@ -175,18 +278,22 @@ class ProveTests(unittest.TestCase):
                    {"falsifier_source": "ticket", "falsifier_evidence": "", "inputs": []},
                    {"falsifier_source": "whatever", "inputs": []},
                    {"falsifier_source": "parent", "falsifier_on": "", "inputs": []}):
-            res, labels, _ = self.run_wf({"state": [state(**dict({"falsified": True}, **kw))]})
-            self.assertEqual(res["outcome"], "needs-explore", kw)
-            self.assertIn("What counts", res["reason"])
-            self.assertNotIn("attempt", labels)
+            res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[state(**dict({"falsified": True}, **kw))]))
+            self.assertEqual(res["outcome"], "verify-filed", kw)
+            self.assertFalse(res["falsifier_on_record"], kw)
+            self.assertNotIn("falsifier", res)
+            self.assertIn("What counts", " ".join(res["notes"]))
+            self.assertIn("no falsifier on record", next(c for c in calls if c["label"] == "file verify")["prompt"])
 
     def test_mode_repair_forces_a_repair(self):
         res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[state(status="proved", repair=False)]), mode="repair")
         self.assertEqual(res["outcome"], "verify-filed")
 
-    def test_a_repair_of_an_unreviewed_claim_still_needs_a_falsifier(self):
-        res, labels, _ = self.run_wf({"state": [state(status="sketch", falsified=False, repair=True)]})
-        self.assertEqual(res["outcome"], "needs-explore")
+    def test_a_repair_of_an_unreviewed_claim_needs_no_falsifier_first(self):
+        """Was ..._still_needs_a_falsifier: no attempt waits for a falsifier any more (2026-11-20)."""
+        res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[state(status="sketch", falsified=False, repair=True)]))
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertFalse(res["falsifier_on_record"])
 
 
 def shipped(t, line):

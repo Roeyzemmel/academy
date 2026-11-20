@@ -393,15 +393,14 @@ function verifyClaim(row) {
 // ---- the lead-researcher's proof work goes back to the main session (T-1271) -------------
 // Inside this run an agent has no Agent or Workflow tool, so the lead cannot launch prover
 // or /researcher:prove (live 2026-11-14/15: T-1257 blocked on the human, T-1264 left
-// in-progress twice, nothing proved). It does what it can here (falsifier and prior-art
-// tickets, the prover brief in the journal; for a ticket that names no registry claim it
-// registers the statement with claims_new first) and returns decision prove. The script
-// then checks, in this order:
-//  * a falsifier on record: prove.js delivers nothing without one (needs-explore). None yet
-//    and one pending (filed by the lead): the ticket waits on it (blocked, released when it is
-//    back, and the lead runs again); none at all: /researcher:explore goes to the session;
-//  * the falsifier goes on the ticket's thread (prove.js's state stage reads "the ticket says
-//    so"; a claim the lead just registered is named by no report);
+// in-progress twice, nothing proved). It does what it can here (prior-art tickets, the
+// prover brief in the journal; for a ticket that names no registry claim it registers the
+// statement with claims_new first) and returns decision prove. No falsifier is needed before
+// the hand-back (2026-11-20: prove.js attempts without one and the verify workflow runs it
+// after review A). The script then checks, in this order:
+//  * a falsifier the lead reports on record goes on the ticket's thread (prove.js's state
+//    stage reads "the ticket says so", and the verify ask names it; a claim the lead just
+//    registered is named by no report); none: no note, and the hand-back says so;
 //  * the claim resolves (registry.py statement), then /researcher:prove goes to the main
 //    session as for_main, with its args. The ticket stays in-progress: prove.js takes it and
 //    delivers it. Every hand-back carries handback: 'lead-researcher' (workplan.js ends a
@@ -414,7 +413,7 @@ const LEAD_OUT = { type: 'object', properties: {
   created: { type: 'boolean', description: 'decision prove: true when you registered the claim with claims_new in this run' },
   brief: { type: 'string', description: 'decision prove: where the prover brief is (journal file and heading); else empty' },
   falsifier: { type: 'string', description: 'decision prove: the falsifier on record for this statement (a delivered experiment or test ticket and its outcome, a report, a direction item; or that the pack has no computational handle on it); empty when none has run yet' },
-  pending: { type: 'array', items: { type: 'string' }, description: 'decision prove: the ids of the falsifier tickets still open (filed in this run or an earlier one) that the proof attempt must wait for; else empty' },
+  pending: { type: 'array', items: { type: 'string' }, description: 'decision prove: the ids of falsifier tickets still open (filed in an earlier run); the proof attempt does not wait for them; else empty' },
   report: { type: 'string', description: 'your report, status first' } },
   required: ['decision', 'claim', 'created', 'brief', 'falsifier', 'pending', 'report'] }
 const REG = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code as printed by the shell' },
@@ -433,11 +432,11 @@ async function leadResearcher(row, i) {
     'You run inside a workflow: the Agent and Workflow tools are not available here, so you cannot launch prover or run /researcher:prove, ' +
     'and you never block the ticket for that. When the item needs a proof attempt: ' +
     'make sure the statement to prove is a registry claim of this instance (if the ticket names none, register it first with claims_new, status open, ' +
-    'the statement as the ticket asks it); a proof attempt needs a falsifier on record (prove.js attempts nothing without one): ' +
-    `if none has run, file it (experiment or test ticket to the Scientist, parent ${row.id}) unless it is filed already, and name the open ones in pending; ` +
+    'the statement as the ticket asks it); a proof attempt does not wait for a falsifier (the verify workflow runs one after review A): ' +
+    'report the falsifier on record if there is one (empty if none), name any open falsifier tickets in pending, and file no new one for the attempt; ' +
     `write the prover brief in today's journal (\`py ${ROOT}/researcher/scripts/notebook.py --home ${i.home} journal --create\`), make no status move on the ticket, ` +
     `and return decision prove with the claim id (<ns>:<id>), where the brief is, the falsifier on record (empty if none yet) and pending: ` +
-    `with a falsifier the workflow hands /researcher:prove <claim> with ticket ${row.id} to the main session; with none it parks the ticket on pending. ` +
+    `the workflow hands /researcher:prove <claim> with ticket ${row.id} to the main session. ` +
     'Otherwise finish by delivering it (tickets_update deliver: true, result one line; decision delivered) or, if you cannot, ' +
     'blocked with waiting_on and the reason (decision blocked).',
     { label: `lead-researcher ${row.id}`, phase: 'Tickets', agentType: 'researcher:lead-researcher', schema: LEAD_OUT })
@@ -448,21 +447,13 @@ async function leadResearcher(row, i) {
   const falsifier = oneLine(r.falsifier)
   const pending = [...new Set((r.pending || []).map(x => String(x).trim()).filter(x => TICKET_ID.test(x)))]
   const base = { ticket: row.id, instance: inst, handback: 'lead-researcher', brief: r.brief || '', created: !!r.created }
-  if (!falsifier) {
-    // prove.js would answer needs-explore and deliver nothing; handing it back would bring the lead here again
-    if (pending.length) {
-      const m = await move(row, inst, `block-on: blocked, waiting_on [${pending.join(', ')}], reason "a proof attempt on ${claim || 'its statement'} waits for its falsifier (${pending.join(', ')})"`)
-      if (!m) return { lost: true }
-      return { outcome: m.ok ? `waits on ${pending.join(', ')} (its falsifier)` : 'unfinished', detail: report, parked: !!m.ok }
-    }
-    notes.push(`ANOMALY: ${row.id}: the lead asked for a proof attempt with no falsifier on record and none pending`)
-    return { for_main: Object.assign(base, { skill: 'researcher:explore' }, CLAIM_ID.test(claim) ? { claim } : {}, {
-      why: `${row.id} needs a proof attempt${claim ? ' on ' + claim : ''}, but no falsifier is on record and none is pending (prove.js would attempt nothing): ` +
-        `run /researcher:explore with ticket ${row.id} (its falsifier) from the main session, then the inbox again` }) }
+  // 2026-11-20: no falsifier wait (prove.js attempts without one; the verify workflow runs it
+  // after review A): one on record goes on the thread; none is said in the hand-back's why
+  if (falsifier) {
+    const nt = await move(row, inst, `note: append to the thread "falsifier on record for ${claim || 'the statement'} (lead-researcher): ${falsifier}"`, `${row.id} falsifier note`)
+    if (!nt) return { lost: true }
   }
-  const nt = await move(row, inst, `note: append to the thread "falsifier on record for ${claim || 'the statement'} (lead-researcher): ${falsifier}"`, `${row.id} falsifier note`)
-  if (!nt) return { lost: true }
-  Object.assign(base, { skill: 'researcher:prove', falsifier })
+  Object.assign(base, { skill: 'researcher:prove', falsifier }, pending.length ? { pending } : {})
   const register = `register the statement first (claims_new in ${inst}), then run /researcher:prove <claim> with ticket ${row.id} from the main session`
   if (!CLAIM_ID.test(claim)) {
     notes.push(`ANOMALY: ${row.id}: the lead asked for a proof attempt but named no registry claim${claim ? ' (' + claim + ')' : ''}`)
@@ -483,7 +474,8 @@ async function leadResearcher(row, i) {
   }
   return { for_main: Object.assign(base, { claim,
     why: `${row.id} needs a proof attempt on ${claim}${r.created ? ' (registered by the lead in this run)' : ''}, and prover cannot be launched inside the inbox run: ` +
-      `run /researcher:prove ${claim} with ticket ${row.id} from the main session (the Workflow prove.js with args)`,
+      `run /researcher:prove ${claim} with ticket ${row.id} from the main session (the Workflow prove.js with args)` +
+      (falsifier ? '' : '; no falsifier on record: the attempt goes ahead and the verify workflow runs one after review A'),
     args: { claim, ticket: row.id, home: i.home, instance: inst, root: ROOT } }) }
 }
 
@@ -579,7 +571,6 @@ async function handle(row, i) {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: TIER_MODELS, nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
-      if (r && r.needs_explore) return { for_main: { why: 'the claim has no falsifier yet: run /researcher:explore first', ticket: row.id, instance: inst, skill: 'researcher:explore' } }
       if (r && r.already_proved) return { for_main: { why: `${claim} is proved and the ticket was not read as a repair (#85): if it asks for one, run prove.js with these args (mode repair); else deliver or cancel ${row.id} (still in-progress)`,
         ticket: row.id, instance: inst, skill: 'researcher:prove', claim, mode: 'repair', handback: 'prove',
         args: { claim, ticket: row.id, home: i.home, instance: inst, root: ROOT, mode: 'repair' } } }
