@@ -663,6 +663,48 @@ class TestOptionParsing(RulingCase):
         self.assertEqual((False, None, n), (out["filed"], out["follow_up"], len(self.tickets())))
 
 
+class TestListingMatchesRecord(RulingCase):
+    """Review of 54692a4, findings 1 and 7: the letters listed are the letters recorded."""
+
+    BODY_OPTIONS = ("Options below.\n\n(a) accept the union\n(b) re-run the pass\n"
+                    "(c) wait until lem:y is proved\n\nRecord: "
+                    "library/reviews/paper/lem-x/%s/decision.md." % PASS)
+
+    def test_a_ruling_s_options_in_its_body_are_listed_and_recorded(self):
+        tid = self.ruling(ask="Rule on the modulo inputs of lem:x; options below.",
+                          detail=self.BODY_OPTIONS)
+        own = rl.own_options(*bd.get_ticket(self.board, tid)[1:])
+        self.assertEqual("wait until lem:y is proved", own["c"])        # ends with its paragraph
+        item = [i for i in dc.pending_decisions(self.board, workspace=self.ws)
+                if i["id"] == tid][0]
+        self.assertEqual(["(a) Accept", "(b) Re-run", "(c) Wait"],
+                         [o["label"] for o in item["options"]])
+        out = self.record(tid, "b")
+        self.assertEqual("verify", self.tickets()[out["follow_up"]]["kind"])
+
+    def test_a_plain_ticket_reads_its_ask_line_only_in_both(self):
+        self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
+                    ask="Redeploy fsq.sh?", detail="Choose: (a) redeploy now; (b) re-run the "
+                    "checks first; (c) drop it.", refs=[])
+        item = [i for i in dc.pending_decisions(self.board, workspace=self.ws)
+                if i["id"] == "T-0002"][0]
+        self.assertEqual(["(a) Proceed", "(b) Decline"], [o["label"] for o in item["options"]])
+        self.assertEqual("rejected", self.record("T-0002", "b")["status"])
+
+    def test_proceed_and_decline_stay_valid_on_a_plain_ticket_with_options(self):
+        """Finding 7: the generic words still work next to the ticket's own letters."""
+        ask = "Redeploy fsq.sh? (a) redeploy now; (b) re-run the checks first; (c) drop it."
+        self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
+                    ask=ask, refs=[])
+        self.assertEqual("accepted", self.record("T-0002", "proceed")["status"])
+        self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
+                    ask=ask, refs=[])
+        self.assertEqual("rejected", self.record("T-0003", "decline")["status"])
+        self.ticket(to="human", as_instance="author@main", kind="question", title="Rename?",
+                    ask="Rename the files? It touches (a) docs and (b) scripts only.", refs=[])
+        self.assertEqual("accepted", self.record("T-0004", "proceed")["status"])
+
+
 class TestGithubBackend(RulingCase):
     def test_record_on_the_github_store_finds_the_new_ticket_and_is_idempotent(self):
         import board_store as bs

@@ -269,18 +269,21 @@ def _ticket_options(t):
 
 
 def _ruling(board, t, workspace):
-    """``t``'s ruling (rulings.py) when it is a decision ticket from an Expert, else None."""
+    """``(ruling, ticket)``: ``t``'s ruling (rulings.py) when it is a decision ticket from an
+    Expert, with the ticket as read (``(path, meta, body)``), else ``(None, None)``."""
     if t.get("kind") != "decision" or t.get("to") != ac.HUMAN:
-        return None
+        return None, None
     # the listing reads metas only (2026-11-13: one read per ticket made it 27 s): a
     # ticket's body is read only when its title, ask or deliverable speak of inputs
     if not rulinglib.RE_ABOUT_INPUTS.search(" ".join(
             str(t.get(k) or "") for k in ("title", "ask", "deliverable"))):
-        return None
+        return None, None
     try:
-        return rulinglib.find_ruling(board, t["id"], workspace)
+        ticket = boardlib.get_ticket(board, t["id"])
+        r = rulinglib.find_ruling(board, t["id"], workspace, ticket=ticket)
+        return (r, ticket) if r else (None, None)
     except (ac.AcademyError, OSError):
-        return None
+        return None, None
 
 
 def _ticket_items(board, instance=None, to_human=False, workspace=None):
@@ -294,9 +297,10 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
         inst = t.get("from") if to_human else t.get("to")
         if instance and inst != instance:
             continue
-        r = _ruling(board, t, workspace) if to_human else None
-        # a ticket's own lettered options are what its letters mean (#125)
-        own = rulinglib.own_options(t)
+        r, ticket = _ruling(board, t, workspace) if to_human else (None, None)
+        # a ticket's own lettered options are what its letters mean (#125): a ruling's read
+        # with its body, a plain ticket's from its ask line, as record reads them
+        own = rulinglib.own_options(t, ticket[2] if r else None)
         items.append({
             "id": t["id"],
             "instance": inst,
@@ -352,6 +356,10 @@ def batches(items, size=4):
 # Recording
 # ----------------------------------------------------------------------------
 
+#: the generic answers a plain ticket always takes, own options or not
+GENERIC_WORDS = ("proceed", "yes", "y", "decline", "no", "n")
+
+
 def _is_proceed(choice):
     c = str(choice).strip().lower().strip("()")
     if c == "accept":
@@ -375,8 +383,9 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
         # a ruling on a pass's inputs: its follow-up is filed in this same step (#121)
         return rulinglib.record(board, r, choice, comment, workspace=workspace, date=date,
                                 ticket=ticket, action=action, force=force)
-    own = rulinglib.own_options(meta, body)
-    if own:
+    own = rulinglib.own_options(meta)            # the ask line, as the listing reads it
+    word = str(choice or "").strip().lower() in GENERIC_WORDS and action in (None, "")
+    if own and not word:
         # the ticket's own letters (#125): its (b) is its (b), not the generic decline
         letter, cls, option, _act = rulinglib.pick_own(own, choice, action, tid)
         proceed = cls != "decline"

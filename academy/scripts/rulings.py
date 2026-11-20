@@ -414,6 +414,8 @@ def kind_of(which):
 #: words that present a list of options just before its "(a)"
 RE_OPTION_CUE = re.compile(r"(?i)\b(?:options?|choose|choices?|rule|ruling|decide|pick|"
                            r"either|one of)\b")
+#: a paragraph break, kept while the text's other whitespace is collapsed
+PARA = "\u2029"
 #: words too slight to be an option's text on their own
 SLIGHT = {"and", "or", "the", "a", "an", "both", "of", "to", "in", "on"}
 
@@ -440,8 +442,9 @@ def _run(text, marks, i):
     for j, m in enumerate(seq):
         last = j + 1 == len(seq)
         t = text[m.end():len(text) if last else seq[j + 1].start()]
-        if last:
-            t = re.split(r"\.\s", t, maxsplit=1)[0]     # the last option ends with its sentence
+        if last:                                  # the last option ends with its sentence
+            t = re.split(r"\.\s|%s" % PARA, t, maxsplit=1)[0]
+        t = t.replace(PARA, " ")
         t = re.sub(r"[\s;,.]*(?:\b(?:or|and)\b)?[\s;,.]*$", "", t).strip()
         if not _substantial(t):
             return {}
@@ -453,7 +456,8 @@ def _lettered(text):
     """The options "(a) ...; (b) ...[; (c) ...]" a text presents, or {}: a full run from (a)
     on, each option with real text, presented as options (``_presented``); the last such run
     in the text wins (an earlier stray "(a)", a precedent's "D1 (a)", is prose)."""
-    text = " ".join(str(text or "").split())
+    paras = re.split(r"\n[ \t]*\n", str(text or "").replace("\r\n", "\n"))
+    text = (" %s " % PARA).join(" ".join(p.split()) for p in paras)
     marks = list(RE_OWN_MARK.finditer(text))
     for i in reversed(range(len(marks))):
         if marks[i].group(1) != "a" or not _presented(text[:marks[i].start()]):
@@ -466,7 +470,9 @@ def _lettered(text):
 
 def own_options(meta, body=None):
     """The ticket's own lettered options ``{letter: text}`` ("(a) ...; (b) ...; (c) ..." in
-    its ask, else in the body's ``## Ask`` section), or ``{}`` when it has fewer than two."""
+    its ask, else, when ``body`` is given, in the body's ``## Ask`` section), or ``{}``.
+    A ruling is read with its body, in the listing and in ``record`` alike; a plain ticket
+    with its ask line only (decisions.py), so the letters listed are the letters recorded."""
     out = _lettered((meta or {}).get("ask"))
     if out or not body:
         return out
