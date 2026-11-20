@@ -37,7 +37,7 @@ the ticket protocol is `docs/protocol.md`.
    existing result only (`ns:id` or `bib:key#pinpoint`; a lemma still to be proved is a
    GAP). When A suggests nothing, the blind pair is unchanged. A definition in a verdict's
    `modulo` list is an input unless its registry record is tagged `notation-only` (the
-   human's decision of 2026-11-20, #121, replacing T-0148).
+   human's ruling of 2026-11-20 on #103, replacing T-0148).
    **Differing inputs** (#121, the human's design of 2026-11-20): two CONFIRMED runs
    whose `modulo` lists still differ after the decision table's mechanical reduction
    (`settle-dependencies`) get one **`dependency-settler`** run (expert, read-only, tier

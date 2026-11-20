@@ -235,8 +235,10 @@ definition in a CONFIRMED run's modulo list **is an input**, giving `proved-modu
 unless its registry record is tagged `notation-only`; a reviewer's own mark is not
 trusted. The script drops only the tagged ones (in `dropped_definitions`) and keeps every
 other definition either run lists as an input of both (in `kept_definitions`), so a
-definition never reaches the dependency-settler: copy both lists into the record, and do
-not list a dropped definition among the inputs.
+definition never reaches the dependency-settler (unless it carries an open `[CHECK]`,
+case 9): copy both lists into the record, and do not list a dropped definition among the
+inputs. A pending kept definition is a `definition-input` item (section 3), never a
+`verify`.
 
 **Differing inputs** (#121; the human's design of 2026-11-20). When both runs are
 CONFIRMED, neither names a blocking step, and their modulo lists (in canonical spelling,
@@ -281,7 +283,9 @@ The settler's record is the fenced `json` block of its report (format:
    blocked and nothing is parked on the human. The concluder proposes apply's
    `proposed_status` (`proved-modulo` its `modulo`, or `proved`) with apply's `grounds`
    to the keeper (section 4.2), as for `confirmed-modulo`, files the `verify-input` items
-   of the unestablished modulo inputs, and returns `confirmed-settled`. With no
+   of the unestablished modulo inputs (a kept definition, in the table's
+   `kept_definitions`, gets the `definition-input` decision of section 3 instead, once),
+   and returns `confirmed-settled`. With no
    Researcher to ask, no repair is filed and the record and the packet name the
    declarations as an open item.
 4. A stop (`disagreement`): no status; the decision ticket to the human (section 4.3)
@@ -340,6 +344,12 @@ LF, Markdown, written by you:
    - a `lab:` claim: to the Researcher with `final_to: scientist`, since the
      Scientist is not a neighbour of the Expert;
    - an input that is itself a proof to review: kind `verify`, back to the Expert;
+   - a kept definition (`definition-input`, the definition rule, #103): a `decision`
+     ticket to the human with the route's `title` and `ask` (tag it notation-only, or
+     keep it as an input), **at most once per definition id** (`route.once`): first
+     `tickets_list {text: <route.title>, include_terminal: true}`, and when a ticket with
+     exactly that title exists, open or closed, file nothing and name it in the record
+     and the packet. Never a `verify` ticket on a definition;
    - a counterexample, from a DISPROVED run or from the falsifier of section 1a, or runs
      that still disagree on the inputs (a `disagreement`, never a `confirmed-settled`): a
      `decision` ticket to the human (the one rule for a counterexample; never a `prove`
