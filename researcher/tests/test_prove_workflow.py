@@ -24,7 +24,7 @@ const src = fs.readFileSync(process.argv[2], 'utf8').replace(/^export const meta
 const plan = JSON.parse(process.argv[3])
 const calls = []
 async function agent(prompt, opts) {
-  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt })
+  calls.push({ label: opts.label, agentType: opts.agentType, model: opts.model, prompt, schema: opts.schema })
   const q = plan[opts.label]
   if (!Array.isArray(q) || !q.length) throw new Error('unplanned agent ' + opts.label)
   return q.shift()
@@ -302,6 +302,35 @@ class ProveTests(unittest.TestCase):
                 "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
                 "check verify": [{"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3"]}],
                 "close": [MOVE]}
+
+    # ---- #124: a state stage that leaves out attack_exists costs no run ----------------------
+
+    def test_the_state_schema_does_not_require_attack_exists(self):
+        """#124: 22 review-clerk runs failed 'must have required property attack_exists' (ledger
+        since 2026-11-14): the property stays, the stage names it, and it is not required."""
+        _res, _labels, calls = self.run_wf(dict(self.COMPLETE))
+        c = next(c for c in calls if c["label"] == "state")
+        self.assertIn("attack_exists", c["schema"]["properties"])
+        self.assertNotIn("attack_exists", c["schema"]["required"])
+        self.assertIn("attack_exists", c["prompt"])                     # named explicitly in the stage
+
+    def test_a_missing_attack_exists_launches_no_attack_over_an_existing_one(self):
+        """Missing is unknown, never false: no attack-only run (it could overwrite an attack.md),
+        a note says so, and the prover is told to read attack.md if it exists."""
+        s = state()
+        del s["attack_exists"]
+        res, labels, calls = self.run_wf(dict(self.COMPLETE, state=[s]))
+        self.assertNotIn("attack", labels)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertIn("attack_exists", " ".join(res["notes"]))
+        prompt = next(c for c in calls if c["label"] == "attempt")["prompt"]
+        self.assertIn("If proofs/<id>/attack.md exists, read it first", prompt)
+        # a non-boolean is unknown too
+        res, labels, _ = self.run_wf(dict(self.COMPLETE, state=[state(attack_exists="unknown")]))
+        self.assertNotIn("attack", labels)
+        # false still launches the attack-only run
+        res, labels, _ = self.run_wf(dict(self.COMPLETE))
+        self.assertIn("attack", labels)
 
     def test_every_prover_launch_is_on_the_max_model(self):
         """T-1682: attack, attempt and filing launch on the args' model, or one clerk stage resolves it."""

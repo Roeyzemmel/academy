@@ -94,7 +94,7 @@ const STATE = { type: 'object', properties: {
     description: 'claim: a falsifier attacked this claim; input: one recorded on a declared input (depends_on) whose class or statement covers this claim; parent: one on the parent lead or direction item that covers it; ticket: the ticket thread records one; waived: the human waived it on the ticket or the claim; none' },
   falsifier_on: { type: 'string', description: 'for input or parent: the id it is recorded on; else empty' },
   inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs: depends_on, and the other-namespace inputs its record names as inputs (a registry resolves depends_on only in its own namespace), verbatim' },
-  attack_exists: { type: 'boolean', description: 'proofs/<id>/attack.md exists' },
+  attack_exists: { type: 'boolean', description: 'proofs/<id>/attack.md exists (true or false, by listing proofs/<id>/)' },
   repair: { type: 'boolean', description: 'the ticket asks to repair, polish, restyle or record an argument for the claim, or answers a negative review of it (GAP, a hypothesis to add): not a first proof' },
   repair_ask: { type: 'string', description: 'what the ticket asks to repair, one line (empty if not a repair)' },
   for_verify: { type: 'string', description: 'the verify ticket T-NNNN when the ticket\'s ask carries the marker "amendment for verify T-NNNN pass <pass>" (a repair a verify pass asked for, the dependency amendment); else empty' },
@@ -103,7 +103,10 @@ const STATE = { type: 'object', properties: {
   falsifier_statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, read first from a lab claim\'s frontmatter falsifies: entry <ns:id>@<hash> for this claim, then the "statement hash <h>" a request\'s ask names; a waiver, the hash it names; else empty' },
   falsifier_pending: { type: 'string', description: 'a falsifier on this claim filed and not back (an experiment or test ticket to the Scientist, or a falsifier request, open, accepted, in progress or blocked): its id; else empty' },
   falsifier_pending_status: { type: 'string', description: 'that ticket\'s status; else empty' } },
-  required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'attack_exists', 'repair'] }
+  required: ['ok', 'stop_reason', 'status', 'unsettled_inputs', 'attempts', 'falsified', 'falsifier_evidence', 'repair'] }
+// #124: attack_exists is asked for, named in the stage, and not required (22 clerk runs lost to
+// 'must have required property attack_exists' in the ledger since 2026-11-14); a missing or
+// non-boolean one is unknown, never false: no attack-only run that could overwrite an attack.md
 const PATH = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
 const FOR_VERIFY = { type: 'object', properties: { found: { type: 'boolean' }, kind: { type: 'string' },
   refs: { type: 'array', items: { type: 'string' } }, status: { type: 'string' },
@@ -237,7 +240,7 @@ const st = await launch(STAGE('prove-state', [
   `the claim's statement hash now (statement_hash: \`py ${AR}/expert/scripts/reviews.py hash --claim ${A.claim}\`, the registry engine's), ` +
   `the statement hash the falsifier attacked (falsifier_statement_hash: first a lab claim's frontmatter falsifies: ["${A.claim}@<hash>", ...] entry; then the "statement hash <h>" its request's ask names; else empty), ` +
   `any falsifier on this claim filed and not back (an experiment or test ticket to the Scientist, or a "Falsifier for ${A.claim}" request: tickets_list text ${A.claim}) with its status (falsifier_pending, falsifier_pending_status), ` +
-  `whether proofs/<id>/attack.md exists, and whether the ticket asks for a repair (repair, polish, restyle or record an argument, or answer a negative review) rather than a first proof, with what it asks, ` +
+  `whether proofs/<id>/attack.md exists (attack_exists: true or false; always return it), and whether the ticket asks for a repair (repair, polish, restyle or record an argument, or answer a negative review) rather than a first proof, with what it asks, ` +
   `and, when its ask carries the marker "amendment for verify T-NNNN pass <pass>", that verify ticket and pass (for_verify, for_verify_pass). Write nothing else.`,
 ]), { label: 'state', phase: 'State', agentType: CLERK, schema: STATE, effort: 'low' })
 if (!st) return Object.assign(out, { outcome: 'not-started', reason: 'the state stage returned nothing' })
@@ -404,7 +407,9 @@ const modulo = (st.unsettled_inputs || []).length ? `It rests on unsettled input
 // ---- Attempt ---------------------------------------------------------------------------
 phase('Attempt')
 let attacked = false
-if (!st.attack_exists) {
+const attackKnown = typeof st.attack_exists === 'boolean'
+if (!attackKnown) out.notes.push('the state stage did not say whether proofs/<id>/attack.md exists (attack_exists missing): unknown, so no attack-only run was launched; the prover was told to read it if it exists')
+if (attackKnown && !st.attack_exists) {
   const atk = await launchMax(`Attack-only run on ${A.claim} (home ${A.home}), briefed with academy/skills/rigor/references/attack-brief.md: you prove nothing. ` +
     `Write proofs/<id>/attack.md: a counterexample, an unlisted hypothesis, or the attack that failed and why; its frontmatter carries statement_hash: ${hashNow || '<the claim\'s statement hash>'}.`,
     { label: 'attack', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
@@ -421,7 +426,7 @@ const proved = await launchMax(`Prove ${A.claim} (home ${A.home}) in the attempt
   'State the dependencies as part of the proof: the frontmatter\'s dependencies: lists every registry id and bib:<key>#<pinpoint> the proof relies on, ' +
   'the same items as Inputs and their status (an attempt without it is not complete and is not filed for review). ' + relatedBrief +
   (st.attempts.length ? `Earlier attempts: ${st.attempts.join(', ')} (a repair is this new attempt; the old ones stay). ` : '') +
-  (attacked ? 'Read proofs/<id>/attack.md first. ' : '') +
+  (attacked ? 'Read proofs/<id>/attack.md first. ' : (attackKnown ? '' : 'If proofs/<id>/attack.md exists, read it first. ')) +
   (repair ? `This is a repair of a ${st.status} claim${T ? ' (ticket ' + T + ': tickets_get it)' : ''}: ${st.repair_ask || 'what the ticket asks'}. Fix exactly that in this new attempt, and make the record edits the ticket asks (the statement only if it asks). ` : '') +
   modulo + ' Set no status.',
   { label: 'attempt', phase: 'Attempt', agentType: PROVER }, MODEL_STAGE)
