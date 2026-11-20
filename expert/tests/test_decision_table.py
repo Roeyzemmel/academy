@@ -1084,6 +1084,98 @@ class AmendTableTests(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class AmendReviewFixTests(unittest.TestCase):
+    """Review fixes of the amend route (2026-11-20): a blind B's suggestion is an honest
+    outcome, and a suggestion must name an existing result."""
+
+    def bsug(self, add="paper:lem:x2"):
+        text = ("Report.\n\nVERDICT\nsubject: paper:lem:x\npass: 2026-09-28-T-0007\nrun: B\n"
+                "verdict: CONFIRMED\nmodulo: none\nadd_dependency: %s\nmodel: claude-opus-5-5\n"
+                "statement_hash: abc123\nblocking: none\nticket: T-0007\n" % add)
+        r = dt.parse_record(text)
+        r["run_id"] = "rv-B"
+        r["file"] = "reviews/paper/lem-x/2026-09-28-T-0007/B.md"
+        return r
+
+    def test_a_blind_b_suggestion_is_an_honest_outcome_routed_to_the_producer(self):
+        r = dt.decide(rec("CONFIRMED"), self.bsug())
+        self.assertEqual(r["outcome"], "new-pass-after-amendment", r)
+        self.assertIn("new-pass-after-amendment", dt.OUTCOMES)
+        self.assertIsNone(r["proposed_status"])
+        self.assertIsNone(r["grounds"])
+        self.assertEqual(r["anomalies"], [])
+        it = r["file_items"][0]
+        self.assertEqual((it["run"], it["kind"], it["text"]), ("B", "add-dependency", "paper:lem:x2"))
+        self.assertEqual((it["route"]["kind"], it["route"]["to_role"], it["route"]["mode"]),
+                         ("prove", "researcher", "repair"))
+        self.assertIn("run B", r["summary"])
+        self.assertIn("not run A", r["summary"])
+        self.assertIn("new pass", r["summary"])
+
+    def test_dependency_forms(self):
+        ok = ["paper:lem:x2", "s1:CEX-3", "bib:LMW16", "bib:LMW16#Thm11", "paper:lem:x2#item2"]
+        bad = ["a lemma that compact sets are closed", "lem x2", "OBS-3", "bib:", "bib:LMW 16",
+               "paper:lem:y (first clause)", ""]
+        for d in ok:
+            with self.subTest(d=d):
+                self.assertTrue(dt.dependency_ok(d), d)
+        for d in bad:
+            with self.subTest(d=d):
+                self.assertFalse(dt.dependency_ok(d), d)
+        # a registry that can be read must know the id; an unreadable one (None) does not refuse
+        self.assertFalse(dt.dependency_ok("paper:lem:x2", exists=lambda q: False))
+        self.assertTrue(dt.dependency_ok("paper:lem:x2", exists=lambda q: None))
+        self.assertTrue(dt.dependency_ok("bib:LMW16#Thm11", exists=lambda q: False))
+
+    def test_a_suggestion_that_is_not_a_result_is_a_gap_for_the_amend_route(self):
+        r = dt.decide(arec(add="the lemma that the lift is continuous"))
+        self.assertEqual(r["outcome"], "single-negative", r)
+        self.assertFalse(r["launch_b"])
+        self.assertIsNone(r["proposed_status"])
+        self.assertNotIn("add-dependency", [i["kind"] for i in r["file_items"]])
+        self.assertEqual(r["file_items"][0]["kind"], "repair")
+        self.assertTrue(any("not an existing result" in x for x in r["anomalies"]), r["anomalies"])
+
+    def test_an_unknown_registry_id_is_not_a_dependency(self):
+        r = dt.decide(arec(add="paper:lem:nowhere"), exists=lambda q: False)
+        self.assertEqual(r["outcome"], "single-negative", r)
+        self.assertTrue(any("paper:lem:nowhere" in x for x in r["anomalies"]))
+        r = dt.decide(arec(add="paper:lem:x2"), exists=lambda q: q == "paper:lem:x2")
+        self.assertEqual(r["outcome"], "awaiting-amendment")
+
+    def test_an_amend_b_suggesting_a_non_result_is_gap_equivalent(self):
+        r = dt.decide(arec(), amrec(add="some missing step"))
+        self.assertEqual(r["outcome"], "disagreement", r)
+        self.assertIsNone(r["proposed_status"])
+
+    def test_the_cli_checks_the_registry(self):
+        d = tempfile.mkdtemp()
+        try:
+            p = os.path.join(d, "A.md")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write("---\nsubject: paper:lem:x\npass: 2026-09-28-T-0007\nrun: A\n"
+                         "run_id: rv-A\nverdict: CONFIRMED\nmodulo: []\n"
+                         "model: claude-opus-5-5\nstatement_hash: abc123\n"
+                         "add_dependency: [paper:lem:nowhere]\n---\n\nr\n")
+            seen = []
+            old = dt.registry_exists
+            dt.registry_exists = lambda q: seen.append(q) or False
+            try:
+                import contextlib
+                import io
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    dt.main([p, "--json"])
+            finally:
+                dt.registry_exists = old
+            out = json.loads(buf.getvalue())
+            self.assertEqual(out["outcome"], "single-negative", out)
+            self.assertIn("paper:lem:nowhere", seen)
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
+
 class ResearcherForTests(unittest.TestCase):
     """Review V1 #5: the Researcher a claim's falsifier request goes to, computed, not
     guessed: the Researcher owning the claim's namespace; else the one Researcher the

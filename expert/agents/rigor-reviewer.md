@@ -97,7 +97,11 @@ subject-specific knowledge; it adds obligations and never removes one of the ste
    `add_dependency`. The producer then adds exactly that to the proof and to
    `depends_on`, and run B reviews the amended proof; the claim stays proved-modulo it
    until it is established. A missing argument is still **GAP**: `add_dependency` names
-   an existing result to rely on, never a step someone still has to prove.
+   an existing result to rely on, never a step someone still has to prove. **A lemma
+   that remains to be proved is a GAP, never an `add_dependency`**: each entry is a
+   registry id (`ns:id`) of a record that exists, or a `bib:key#pinpoint` of a published
+   result; anything else (a statement in words, a lemma to be written) the decision
+   table treats as GAP, with an anomaly.
 6. **Restatement drift.** Wherever the statement is restated (an introduction, a
    summary, a citing claim), compare hypothesis by hypothesis. A restatement that
    lost a hypothesis or gained a conclusion is a `global OVERSTATED` finding.
@@ -197,7 +201,8 @@ ticket: <as in the brief, or none>
 ```
 
 `add_dependency` is optional (omit it or say `none` when the proof lists every input it
-uses); it goes only with CONFIRMED (step 5, "An unlisted input is a suggestion").
+uses); it goes only with CONFIRMED (step 5, "An unlisted input is a suggestion"), and each
+entry is an existing result: `ns:id` or `bib:key#pinpoint`, never words.
 
 In reword mode the block also carries, after `run: R`, the four lines the bundle gives
 plus your scope:

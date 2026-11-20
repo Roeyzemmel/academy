@@ -122,7 +122,8 @@ RE_NS = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
             "single-negative", "degraded", "invalid-pair", "no-change", "incomplete",
-            "full-pass-needed", "invalid-base", "awaiting-amendment", "invalid-amend")
+            "full-pass-needed", "invalid-base", "awaiting-amendment", "invalid-amend",
+            "new-pass-after-amendment")
 
 
 # ----------------------------------------------------------------------------
@@ -441,12 +442,13 @@ LABEL_PREFIXES = {"lem", "thm", "defn", "def", "cor", "prop", "fact", "rmk", "ob
                   "ex", "claim", "conj", "eq", "sec", "nota", "assm", "hyp"}
 
 
-def registry_canonical(qid):
-    """The record id ``qid`` (``ns:name``) resolves to in the registry, aliases
-    included; None when the registry, the home or the record cannot be found."""
+def _registry_lookup(qid):
+    """``(readable, record id or None)`` for ``qid`` (``ns:name``): ``readable`` is False
+    when the registry, the home or the store cannot be read (the id is then unknown, not
+    absent)."""
     ns, _, name = str(qid or "").partition(":")
     if not name or ns == "bib":
-        return None
+        return False, None
     try:
         plugin = os.path.join(ac.repo_root(), "academy")
         if plugin not in sys.path:
@@ -455,7 +457,7 @@ def registry_canonical(qid):
         info = rws.namespaces().get(ns)
         home = info and info.get("home")
         if not home or not os.path.isdir(str(home)):
-            return None
+            return False, None
         store = federation.store(ns, home)
         rid, exact = store.lookup(name)
         # only the id itself or a registered alias: a profile's normalisation (case,
@@ -463,8 +465,69 @@ def registry_canonical(qid):
         if rid and not exact and name not in [str(a) for a in (store.aliases(rid) or ())]:
             rid = None
     except Exception:        # an unreadable registry leaves the spelling as written
-        return None
-    return "%s:%s" % (ns, rid) if rid else None
+        return False, None
+    return True, ("%s:%s" % (ns, rid) if rid else None)
+
+
+def registry_canonical(qid):
+    """The record id ``qid`` (``ns:name``) resolves to in the registry, aliases
+    included; None when the registry, the home or the record cannot be found."""
+    return _registry_lookup(qid)[1]
+
+
+def registry_exists(qid):
+    """True / False: the registry (readable) has / lacks the record ``qid``; None when it
+    cannot be read."""
+    readable, rid = _registry_lookup(qid)
+    return (rid is not None) if readable else None
+
+
+RE_DEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]*:[^\s()\[\]{}<>,;#]+$")
+RE_DEP_BIB = re.compile(r"^bib:[A-Za-z0-9][A-Za-z0-9_:.+/-]*$")
+
+
+def dependency_ok(item, exists=None):
+    """True when ``item`` (in canonical spelling) names an existing result, as a suggested
+    dependency must (2026-11-20 review): a registry id ``ns:id`` (known to the registry
+    when ``exists``, qid -> True / False / None for unreadable, can tell) or a
+    ``bib:KEY``, either with an optional ``#pinpoint``. A statement in words, a bare
+    unqualified id or a pointer phrase is not a dependency: a lemma that remains to be
+    proved is a GAP."""
+    s = " ".join(str(item or "").split()).strip("`'\"")
+    head, hash_, pin = s.partition("#")
+    if hash_ and not pin.strip():
+        return False
+    if head.startswith("bib:"):
+        return bool(RE_DEP_BIB.match(head))
+    if not RE_DEP_ID.match(head):
+        return False
+    if exists is not None and exists(head) is False:
+        return False
+    return True
+
+
+def _check_deps(rec, exists, notes):
+    """``rec`` with a suggestion that names no existing result made GAP-equivalent for
+    the amend route: the verdict GAP, the blocking step the suggestion, no
+    add_dependency (an anomaly in ``notes``)."""
+    if not rec or rec.get("problems") or not rec.get("add_dependency"):
+        return rec
+    bad = [d for d in rec["add_dependency"] if not dependency_ok(d, exists)]
+    if not bad:
+        return rec
+    out = dict(rec)
+    out["add_dependency"] = []
+    out["dependencies_not_results"] = bad
+    notes.append("run %s suggests add_dependency %s, which is not an existing result (a "
+                 "registry id ns:id, or bib:KEY[#pinpoint]): not a dependency; the run "
+                 "counts as GAP for the amend route (a lemma that remains to be proved is "
+                 "a GAP)" % (rec.get("run") or "?", ", ".join(bad)))
+    if str(rec.get("verdict") or "").upper().startswith("CONFIRMED"):
+        out["verdict_as_written"] = rec.get("verdict")
+        out["verdict"] = "GAP"
+        out["blocking"] = ("the proof relies on %s, which is not an existing result: it "
+                           "remains to be proved" % "; ".join(bad))
+    return out
 
 
 def canon_input(item, subject="", canon=None):
@@ -695,7 +758,7 @@ def _canon_rec(rec, canon):
 
 
 def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
-           kind_of=None, base=None, base_notes=(), canon=None):
+           kind_of=None, base=None, base_notes=(), canon=None, exists=None):
     """Apply the table (``_decide``) and give every item to file its ``route``
     (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
     lookup that decides which inputs are definitions.
@@ -706,9 +769,25 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
 
     Every modulo list (and ``established``) is first put in canonical spelling
     (``normalise_modulo``, #103), so two runs that name one input two ways agree;
-    ``canon`` (qid -> record id or None) replaces the registry's alias lookup."""
+    ``canon`` (qid -> record id or None) replaces the registry's alias lookup.
+
+    A suggested dependency (``add_dependency``) must name an existing result
+    (``dependency_ok``; ``exists``, qid -> True / False / None, checks a registry id: the
+    CLI passes ``registry_exists``); a run whose suggestion does not is GAP-equivalent
+    for the amend route, with an anomaly."""
     rec_a = _canon_rec(rec_a, canon)
     rec_b = _canon_rec(rec_b, canon)
+    dep_notes = []
+    rec_a = _check_deps(rec_a, exists, dep_notes)
+    rec_b = _check_deps(rec_b, exists, dep_notes)
+    res = _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
+                        base_notes, canon)
+    res["anomalies"] = dep_notes + list(res.get("anomalies") or [])
+    return res
+
+
+def _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
+                  base_notes, canon):
     if base:
         base = tuple(_canon_rec(r, canon) for r in base)
     subj = (rec_a or {}).get("subject") or ""
@@ -1236,6 +1315,7 @@ def decide_amend(rec_a, rec_b=None, established=(), primary=None, producer_role=
     | CONFIRMED + X | amend, CONFIRMED, amended_with X, modulo Y | ``confirmed-modulo`` on A's modulo, Y and X (propose proved-modulo); ``confirmed`` (proved) when every one is established |
     | CONFIRMED + X | amend, GAP | ``disagreement``: no status; file B's blocking step |
     | CONFIRMED + X | amend, DISPROVED | ``disproved``: no status; the counterexample goes to the human |
+    | CONFIRMED, no X | blind (not amend), CONFIRMED + add_dependency Z | ``new-pass-after-amendment``: no status; Z to the producer (``add-dependency`` item, as A's suggestion), then a new pass |
     | either PLAUSIBLE (or CONFIRMED off a primary) | | ``degraded`` |
     | no X, or B not amend, or amended_with != X, another pass / hash / statement / subject, a shared run id, or B suggesting further dependencies | | ``invalid-amend``: no status |
     """
@@ -1303,6 +1383,21 @@ def decide_amend(rec_a, rec_b=None, established=(), primary=None, producer_role=
         res["summary"] = ("a PLAUSIBLE verdict never counts toward two agreeing verdicts: "
                           "re-run the PLAUSIBLE run on a primary model (%s)"
                           % ", ".join(_primaries(primary)))
+        return res
+    if not is_amend(rec_a) and not is_amend(rec_b) and not rec_a.get("add_dependency") \
+            and rec_b.get("add_dependency") and a == "CONFIRMED" and b == "CONFIRMED":
+        # 2026-11-20 review: the blind B (not A) suggests a dependency. Nothing to pair: A
+        # reviewed the proof as it stands and B the same proof, so neither saw the amended
+        # one. The producer adds it (as A's suggestion is routed), then a new pass.
+        deps = rec_b["add_dependency"]
+        res["outcome"] = "new-pass-after-amendment"
+        res["add_dependency"] = list(deps)
+        res["file_items"] = [{"run": rec_b.get("run") or "B", "kind": "add-dependency",
+                              "text": ", ".join(deps)}]
+        res["summary"] = ("no status change: run B (not run A) is CONFIRMED and suggests "
+                          "adding %s; the producer adds it to the proof and to depends_on, "
+                          "and a new pass (a fresh blind A) is needed after the repair: "
+                          "this pair has no amend run to count" % ", ".join(deps))
         return res
     bad = _amend_problems(rec_a, rec_b)
     if not bad and a != "CONFIRMED":
@@ -1466,7 +1561,7 @@ def main(argv=None):
         sys.stderr.write("decision_table: %s\n" % exc)
         return 2
     res = decide(ra, rb, _split_list(args.established), args.primary, args.producer_role,
-                 base=base, base_notes=notes)
+                 base=base, base_notes=notes, exists=registry_exists)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
