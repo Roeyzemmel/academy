@@ -192,7 +192,28 @@ class TestGhTransportRefs(unittest.TestCase):
         t = gh.GhTransport("me/repo", run=fake)
         self.assertEqual(["refs/academy/ids/P-0004", "refs/academy/ids/P-0005"],
                          t.matching_refs("academy/ids/P-"))
-        self.assertIn("repos/me/repo/git/matching-refs/academy/ids/P-", fake.calls[0][0])
+        self.assertIn("repos/me/repo/git/matching-refs/academy/ids/P-?per_page=100&page=1", fake.calls[0][0])
+
+
+
+class GhMatchingRefsPagination(unittest.TestCase):
+    """Review of 612f3d0: git/matching-refs is paginated; a single GET saw only the lowest
+    page, so a checkout lagging behind started its search from a stale highest id."""
+    def test_every_page_is_read(self):
+        import board_gh
+        t = board_gh.GhTransport.__new__(board_gh.GhTransport)
+        pages = {1: [{"ref": "refs/academy/ids/P-%04d" % i} for i in range(1, 101)],
+                 2: [{"ref": "refs/academy/ids/P-0101"}]}
+        calls = []
+
+        def api(method, path, payload=None, missing_ok=False):
+            calls.append(path)
+            return pages.get(int(path.rsplit("page=", 1)[1]), [])
+        t.api = api
+        refs = t.matching_refs("academy/ids/P-")
+        self.assertEqual(101, len(refs))
+        self.assertEqual("refs/academy/ids/P-0101", refs[-1])
+        self.assertEqual(2, len(calls))
 
 
 if __name__ == "__main__":

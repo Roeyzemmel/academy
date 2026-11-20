@@ -171,7 +171,13 @@ class GhTransport(object):
     def matching_refs(self, prefix):
         """The names of the refs under ``refs/<prefix>`` (``git/matching-refs``, a prefix
         match; ``prefix`` has no trailing slash, which the API refuses)."""
-        return [r["ref"] for r in self.api("GET", "git/matching-refs/" + prefix) or []]
+        out, page = [], 1
+        while True:      # paginated like every list endpoint (review of 612f3d0)
+            chunk = self.api("GET", "git/matching-refs/%s?per_page=100&page=%d" % (prefix, page)) or []
+            out += [r["ref"] for r in chunk]
+            if len(chunk) < 100:
+                return out
+            page += 1
 
     def create_ref(self, ref):
         """Create ``ref`` (``refs/...``) at the default branch's head: True when created,
