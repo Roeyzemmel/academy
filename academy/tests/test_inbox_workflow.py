@@ -232,6 +232,21 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual([w["args"]["models"] for w in wfs], [{}, {}])   # no map given: an empty one
         self.assertNotIn("models", labels)
 
+    def test_a_nested_explore_hand_back_reaches_the_main_session(self):
+        """#87: explore hands its prove step back as for_main; the inbox passes it on with
+        the ticket instead of reading the run as unfinished."""
+        rows = [row("T-3", how="skill", target="researcher:explore", kind="question",
+                    to="researcher@u", refs=["DIR-2"])]
+        fm = {"skill": "researcher:prove", "handback": "lead-researcher",
+              "args": {"claim": "s1:GEO-1", "ticket": "T-3"}, "why": "the prove step"}
+        res, labels, calls = self.run_wf({
+            "list": [{"instances": [inst("researcher@u", rows)]}],
+            "workflow explore.js": [{"outcome": "handed-back", "for_main": fm}]})
+        self.assertEqual("researcher:prove", res["for_main"]["skill"])
+        self.assertEqual("T-3", res["for_main"]["ticket"])
+        self.assertEqual("researcher@u", res["for_main"]["instance"])
+        self.assertNotIn("check T-3", labels)
+
     def test_verify_takes_the_claim_its_title_names(self):
         """#89: the first namespaced ref is often the parent; the title decides, several
         refs and none in the title go back to the main session, a title-only claim is used."""

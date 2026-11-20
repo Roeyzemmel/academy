@@ -557,6 +557,9 @@ async function handle(row, i) {
       const direction = firstRef(row, /^([a-z][a-z0-9]*:)?DIR-\d+$/)
       const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ models: TIER_MODELS, nested: true, root: ROOT, ticket: row.id, home: i.home, instance: inst, n: 1 },
         direction ? { direction: direction.split(':').pop() } : {}))
+      // explore's prove step comes back as for_main (#87, 2026-11-20): pass it on to the main
+      // session with this ticket, as the prove route does; the ticket stays in-progress
+      if (r && r.for_main) return { for_main: Object.assign({ instance: inst }, r.for_main, { ticket: row.id }) }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.anomalies || []).concat(r.reason ? [r.reason] : []).join('; ') : 'lost', nested: r }
     }
     if (rt.target === 'researcher:generalize') {
