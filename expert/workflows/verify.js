@@ -99,8 +99,9 @@ const PREP = {
         evidence: { type: 'string', description: 'where it is (a report, a result, a direction item, a thread line), quoted or pointed at; a waiver quotes the human\'s thread line verbatim' },
         found: { type: 'string', enum: ['nothing', 'counterexample', ''], description: 'what the falsifier found: nothing (it ran and did not break the claim), a counterexample, or empty (none, or a waiver)' },
         request: { type: 'string', description: 'a falsifier request an earlier run of this pass filed (the verify ticket\'s waiting_on or its thread), or empty' },
-        request_status: { type: 'string', description: 'that request\'s status, or empty' } },
-      required: ['source', 'on', 'evidence', 'found', 'request', 'request_status'] },
+        request_status: { type: 'string', description: 'that request\'s status, or empty' },
+        statement_hash: { type: 'string', description: 'the statement hash the falsifier attacked, when the record says it (a lab result or report that records it; for a request this workflow filed, the hash its ask names; a waiver, the hash it names): else empty' } },
+      required: ['source', 'on', 'evidence', 'found', 'request', 'request_status', 'statement_hash'] },
     inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs (depends_on, and the other-namespace inputs its record names), verbatim' },
   },
   required: ['ok', 'stop_reason', 'pass', 'pass_dir', 'statement_hash', 'location', 'bundle', 'ticket', 'landed'],
@@ -237,7 +238,8 @@ const prep = await launch(STAGE('prepare', [
       'A ticket blocked by an earlier run of this pass (awaiting its falsifier) is taken blocked -> in-progress. ' +
       'Report the claim\'s falsifier on record (falsifier; conclude.md section 0, the sources prove.js accepts, #117): one that attacked this claim; or one recorded on a declared input, or on the parent lead or direction item, whose class or statement covers it, saying how; ' +
       'or the ticket thread records one (the falsifier request this ticket waited on, once it is back: its result); or the human waived it on the ticket or the claim (quote that thread line verbatim); else none. ' +
-      'Say what it found (nothing, or a counterexample), any falsifier request this ticket already filed with its status, and the claim\'s declared inputs.',
+      'Say what it found (nothing, or a counterexample), any falsifier request this ticket already filed with its status, and the claim\'s declared inputs. ' +
+      'Report in statement_hash the statement hash the falsifier attacked when its record says it (a request this workflow filed names it in its ask: "statement hash <h>"); else leave it empty: a falsifier of unknown or another wording does not count (a waiver aside).',
 ].filter(Boolean).join('\n')), { label: 'prepare', phase: 'Prepare', agentType: CHAIR, schema: PREP, effort: 'low' })
 
 if (!prep || !prep.ok) {
@@ -331,7 +333,28 @@ function falsifierOnRecord(f) {
     counts = false
     notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ...): not counted')
   }
-  return { counts, source: src, on: f.on || '', evidence: f.evidence || '', found: counts ? (f.found || '') : '' }
+  // review V1 #2: a falsifier counts only once it came back clean or with a counterexample
+  // (found nothing / counterexample); a request only once it is delivered or closed
+  const found = String(f.found || '').trim()
+  if (counts && src !== 'waived' && !['nothing', 'counterexample'].includes(found)) {
+    counts = false
+    notes.push(`a ${src} falsifier was reported with found ${JSON.stringify(found)} (not nothing, not a counterexample): not counted`)
+  }
+  if (counts && src === 'ticket' && !/^(delivered|closed)$/.test(String(f.request_status || '').trim())) {
+    counts = false
+    notes.push(`the falsifier request ${f.request || f.on || '(none named)'} is ${f.request_status || 'of unknown status'}, not delivered or closed: not counted`)
+  }
+  // review V1 #3: a falsifier attacked one wording; on another statement hash it never counts,
+  // and with the hash unknown only the human's waiver does
+  const fh = String(f.statement_hash || '').trim()
+  if (counts && fh && fh !== prep.statement_hash) {
+    counts = false
+    notes.push(`the ${src} falsifier was recorded on another wording (statement hash ${fh}, now ${prep.statement_hash}): not counted`)
+  } else if (counts && !fh) {
+    if (src === 'waived') notes.push('the waiver\'s statement hash is unknown: counted, a waiver being the human\'s call')
+    else { counts = false; notes.push(`the ${src} falsifier's statement hash is unknown (it may have attacked an older wording): not counted`) }
+  }
+  return { counts, source: src, on: f.on || '', evidence: f.evidence || '', found: counts && src !== 'waived' ? found : '' }
 }
 const DONE_TICKET = /^(delivered|closed|rejected|cancelled)$/
 
@@ -351,7 +374,8 @@ async function requestFalsifier(f) {
          `(for a claim of another namespace, paper: or lab:, the Researcher of the claim's domain, as a prove follow-up is routed, conclude.md section 4.3), final_to scientist ` +
          `(the Expert is no neighbour of the Scientist: the Researcher's experiment-spec relays it), refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; ` +
          `title "Falsifier for ${A.claim}"; ask: run a falsifier on ${A.claim}, an experiment or test that tries to break it (a search over the class it quantifies over, its standard examples first), ` +
-         `and deliver what it found (nothing, or a counterexample with its certificate); deliverable: the result (a lab result or report id) and whether it found a counterexample. ` +
+         `and deliver what it found (nothing, or a counterexample with its certificate); the ask names the statement it attacks as "statement hash ${prep.statement_hash}" (a falsifier counts only on the wording it attacked); ` +
+         `deliverable: the result (a lab result or report id) and whether it found a counterexample. ` +
          `The ask names the claim and the order (the falsifier before the second review) and never state run A's verdict, its findings or anything of the pass folder: run B must stay blind.`,
          T ? `Then block ${T}: tickets_update status blocked, waiting_on [<the request's id>], note "falsifier requested: <id>; the pass ${prep.pass} stays open and resumes when it is back". ` +
              `If tickets_create refuses, block ${T} waiting_on [human] with the refusal as the reason, and return the refusal.`

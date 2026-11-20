@@ -62,8 +62,9 @@ opinion of the mathematics never breaks a tie (`academy/references/roster-rules.
   the ticket's thread (the falsifier request this ticket waited on, once it is back, with
   its result); or the human's waiver on the ticket or the claim (quote the thread line
   `- YYYY-MM-DD human: ...` verbatim). Say what it found (nothing, or a counterexample),
-  any falsifier request the ticket already filed with its status, and the claim's declared
-  inputs. A ticket blocked by an earlier run of this pass (awaiting its falsifier) is taken
+  the statement hash it attacked when its record says it (a request this workflow filed
+  names it in its ask), any falsifier request the ticket already filed with its status, and
+  the claim's declared inputs. A ticket blocked by an earlier run of this pass (awaiting its falsifier) is taken
   `blocked -> in-progress`.
 - **The brief** (identical for A and B except `run`; paste nothing else — the
   reviewer reads the files, `budget.md` rule 9):
@@ -114,7 +115,12 @@ a negative A concludes on A alone, and a reword pass has no falsifier stage.
 
 - **On record and found nothing** (section 0's sources, checked by the script as
   prove.js checks them: evidence given, an input that is a declared input, a waiver
-  quoting the human's thread line): B is launched at once.
+  quoting the human's thread line): B is launched at once. What counts is checked in code:
+  a falsifier counts only when it found `nothing` (or a `counterexample`, below; an empty
+  or other answer does not count), a falsifier request only once it is `delivered` or
+  `closed`, and only on the statement hash the pass reviews: one recorded on another hash
+  never counts, one whose hash is unknown counts only as the human's waiver (with a note).
+  The request this stage files names the hash in its ask, so its result carries it.
 - **None on record**: launch no B. File one falsifier request: `tickets_create` kind
   `research` to the Researcher that owns the claim's namespace (a `paper:` or `lab:`
   claim: the Researcher of the claim's domain, as in section 4.3), `final_to: scientist`
