@@ -1575,7 +1575,17 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
             # as gitlinks
             excl = [":(top,literal,exclude)%s" % p.rstrip("/") for p in res["skipped"]]
             scope = ["--"] + specs if specs else (["--", scope_spec(pathspec)] if pathspec else [])
-            git(repo, "add", "-A", "--", *(scope[1:] if scope else [":/"]), *excl)
+            if specs:
+                # 'add -A -- <path>' fails ("pathspec did not match") on a path in neither
+                # the worktree nor the index -- a staged 'git rm', the old side of a staged
+                # 'git mv' -- so those are left to 'commit -- <path>', which takes them
+                indexed = set(git(repo, "ls-files", "-z", "--", *specs, strip=False).split("\0"))
+                present = [p for p in paths if p in indexed
+                           or os.path.lexists(os.path.join(repo, *p.split("/")))]
+                if present:
+                    git(repo, "add", "-A", "--", *path_specs(present), *excl)
+            else:
+                git(repo, "add", "-A", "--", *(scope[1:] if scope else [":/"]), *excl)
             # a pointer staged beforehand (moved or new) would ride along with the index:
             # unstage every staged gitlink (of the scope), so pins move only through
             # 'merge --bump'

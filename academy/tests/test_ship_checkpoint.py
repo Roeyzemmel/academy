@@ -1139,6 +1139,23 @@ class TestCheckpointManifest(CheckpointBase):
         self.assertEqual(self.files(self.sub), ["a.txt"])
         self.assertFalse(os.path.exists(os.path.join(self.sub, "a.txt")))
 
+    def test_a_staged_deletion_and_a_staged_move_commit_both_sides(self):
+        # review of ee7def0: 'git add -A -- <path>' of a path in neither worktree nor index
+        # failed with "pathspec did not match" and refused the whole repo, at every retry
+        self.write(self.sub, "old.md", "o\n")
+        self.write(self.sub, "keep.md", "k\n")
+        run(self.sub, "add", "old.md", "keep.md")
+        run(self.sub, "commit", "-q", "-m", "two files")
+        run(self.sub, "rm", "-q", "a.txt")
+        run(self.sub, "mv", "old.md", "new.md")
+        m = self.manifest({"sub": ["a.txt", "new.md", "old.md"]})
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert", "--manifest", m)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(sorted(run(self.sub, "show", "--name-only", "--no-renames", "--format=",
+                                    "HEAD").splitlines()), ["a.txt", "new.md", "old.md"])
+        self.assertEqual(run(self.sub, "status", "--porcelain"), "")
+        self.assertEqual(sorted(run(self.sub, "ls-files").splitlines()), ["keep.md", "new.md"])
+
     def test_wip_message_for_an_unfinished_ticket(self):
         self.write(self.sub, "half.md")
         rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert", "--wip", "blocked",
