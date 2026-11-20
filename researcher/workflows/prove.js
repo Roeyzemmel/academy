@@ -77,8 +77,12 @@ const STATE = { type: 'object', properties: {
   status: { type: 'string', description: 'the claim\'s registry status' },
   unsettled_inputs: { type: 'array', items: { type: 'string' }, description: 'depends_on / modulo inputs that are not proved' },
   attempts: { type: 'array', items: { type: 'string' }, description: 'earlier attempt paths' },
-  falsified: { type: 'boolean', description: 'a falsifier ran: a report, a direction item, or the ticket says so' },
-  falsifier_evidence: { type: 'string' },
+  falsified: { type: 'boolean', description: 'a falsifier counts (falsifier_source is not none)' },
+  falsifier_evidence: { type: 'string', description: 'where it is: the report, direction item, thread line or waiver, quoted or pointed at' },
+  falsifier_source: { type: 'string', enum: ['claim', 'input', 'parent', 'ticket', 'waived', 'none'],
+    description: 'claim: a falsifier attacked this claim; input: one recorded on a declared input (depends_on) whose class or statement covers this claim; parent: one on the parent lead or direction item that covers it; ticket: the ticket thread records one; waived: the human waived it on the ticket or the claim; none' },
+  falsifier_on: { type: 'string', description: 'for input or parent: the id it is recorded on; else empty' },
+  inputs: { type: 'array', items: { type: 'string' }, description: 'the claim\'s declared inputs: depends_on, and the other-namespace inputs its record names as inputs (a registry resolves depends_on only in its own namespace), verbatim' },
   attack_exists: { type: 'boolean', description: 'proofs/<id>/attack.md exists' },
   repair: { type: 'boolean', description: 'the ticket asks to repair, polish, restyle or record an argument for the claim, or answers a negative review of it (GAP, a hypothesis to add): not a first proof' },
   repair_ask: { type: 'string', description: 'what the ticket asks to repair, one line (empty if not a repair)' } },
@@ -186,7 +190,8 @@ phase('State')
 const st = await launch(STAGE('prove-state', [
   T ? `First take ${T}: open -> accepted -> in-progress (leave it if it is in progress already).` : '',
   `Then return: the claim's status (claims_show), its unsettled inputs (depends_on and modulo that are not proved), earlier attempts ` +
-  `(notebook.py ls / the object's proof: field), whether a falsifier ran (a report or direction item that attacked it, or the ticket says so: give the evidence), ` +
+  `(notebook.py ls / the object's proof: field), whether a falsifier counts and its source (#117: one that attacked this claim; or one recorded on a declared input, or on the parent lead or ` +
+  `direction item, whose class or statement covers this claim, saying how; or the ticket thread records one; or the human waived it on the ticket or the claim: then quote that thread line verbatim), with the evidence, and the declared inputs, ` +
   `whether proofs/<id>/attack.md exists, and whether the ticket asks for a repair (repair, polish, restyle or record an argument, or answer a negative review) rather than a first proof, with what it asks. Write nothing else.`,
 ]), { label: 'state', phase: 'State', agentType: CLERK, schema: STATE, effort: 'low' })
 if (!st) return Object.assign(out, { outcome: 'not-started', reason: 'the state stage returned nothing' })
@@ -200,7 +205,37 @@ if (/^proved$/.test(st.status) && !repair) {
     reason: `${A.claim} is proved and the ticket asks for no repair: nothing attempted, the ticket left as it was (rerun with mode repair, or deliver or cancel it)` })
 }
 const reviewed = /^proved(-modulo)?$/.test(st.status)   // it survived a review once: a repair needs no new falsifier
-if (!st.falsified && !(repair && reviewed)) return Object.assign(out, { outcome: 'needs-explore', needs_explore: true, reason: 'nobody has tried to break it: run /researcher:explore (its falsifier) first' })
+// #117: a falsifier on a declared input or the parent lead counts when it covers the claim, and
+// so does the human's waiver; checked in code against what the stage reported
+// What the code holds (review of 7ecda27): a known source with evidence; an input that is
+// one of the declared inputs (namespace prefixes ignored); a waiver that quotes a thread line
+// of the human ("- YYYY-MM-DD human: ..."). That the falsifier covers the claim is the stage's
+// report, as the claim's own falsifier always was.
+const SOURCES = ['claim', 'input', 'parent', 'ticket', 'waived', 'none']
+const bare = x => String(x || '').trim().replace(/^[a-z][a-z0-9]*:/, '')
+let src = st.falsifier_source || (st.falsified ? 'claim' : 'none')
+if (!SOURCES.includes(src)) { out.notes.push(`falsifier source ${JSON.stringify(src)} is not a known source: not counted`); src = 'none' }
+if (st.falsifier_source && (src === 'none') === !!st.falsified) out.notes.push(`the state stage said falsified ${!!st.falsified} with source ${src}: the source decides`)
+if (src === 'input' && bare(st.falsifier_on) === bare(A.claim)) src = 'claim'
+let counts = src !== 'none'
+if (counts && !String(st.falsifier_evidence || '').trim()) {
+  counts = false
+  out.notes.push(`a ${src} falsifier was reported with no evidence: not counted`)
+}
+if (counts && src === 'input' && !(st.inputs || []).map(bare).includes(bare(st.falsifier_on))) {
+  counts = false
+  out.notes.push(`the falsifier named is on ${st.falsifier_on || '(none named)'}, not a declared input of ${A.claim} (${(st.inputs || []).join(', ') || 'none declared'}): not counted`)
+}
+if (counts && (src === 'input' || src === 'parent') && !st.falsifier_on) counts = false
+if (counts && src === 'waived' && !/(^|\n)\s*-?\s*\d{4}-\d{2}-\d{2} human:/.test(st.falsifier_evidence || '')) {
+  counts = false
+  out.notes.push('a waiver was reported without the human\'s thread line (- YYYY-MM-DD human: ...): not counted')
+}
+if (counts) out.falsifier = { source: src, on: st.falsifier_on || null, evidence: st.falsifier_evidence || '' }
+if (!counts && !(repair && reviewed)) return Object.assign(out, { outcome: 'needs-explore', needs_explore: true,
+  reason: `nobody has tried to break ${A.claim}: run /researcher:explore (its falsifier) first. What counts: an experiment or test ticket to the Scientist that ` +
+    `tries to break it (a search over the class it quantifies over, its standard examples first) or a recorded attack on it; or one on a declared input or ` +
+    `the parent lead whose class covers it; or the human's waiver on the ticket` })
 const modulo = (st.unsettled_inputs || []).length ? `It rests on unsettled inputs (${st.unsettled_inputs.join(', ')}): it can be proved at most proved-modulo them; say so in the attempt.` : ''
 
 // ---- Attempt ---------------------------------------------------------------------------
@@ -255,5 +290,6 @@ if (bad) out.notes.push(`ANOMALY: the verify ticket ${f.ticket} is not a verify 
 out.verify_ticket = f.ticket
 out.proposal = f.proposal || null
 out.outcome = 'verify-filed'
-await deliver(`complete attempt ${p.path}; verify ticket ${f.ticket}${f.proposal ? '; sketch proposed (' + f.proposal + ')' : ''}`)
+const fal = out.falsifier && out.falsifier.source !== 'claim' ? `; falsifier accepted: ${out.falsifier.source}${out.falsifier.on ? ' ' + out.falsifier.on : ''}` : ''
+await deliver(`complete attempt ${p.path}; verify ticket ${f.ticket}${f.proposal ? '; sketch proposed (' + f.proposal + ')' : ''}${fal}`)
 return await end()

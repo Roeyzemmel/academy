@@ -24,7 +24,11 @@ The inbox runs the same script for a `prove` ticket. The script:
    survived a review once. A claim resting on an unsettled input can be proved at
    most `proved-modulo` it; the brief says so.
 2. **Falsified first.** A claim nobody tried to break returns `needs_explore`: run
-   `/researcher:explore` (its falsifier), then call again. A statement nobody attacked on
+   `/researcher:explore` (its falsifier), then call again. A falsifier counts when it
+   attacked this claim, or is recorded on a declared input (`depends_on`) or the parent
+   lead whose class covers it, or the human waived it on the ticket (#117); the script
+   checks an input's id against the declared inputs and a waiver for the human's line,
+   names the one accepted in the result, and otherwise says what would count. A statement nobody attacked on
    paper first gets one attack-only `prover` run (`academy/skills/rigor/references/attack-brief.md`,
    writing `proofs/<id>/attack.md`).
 3. **One `prover` attempt** in the path from `notebook.py attempt <id> --create`: prior art
