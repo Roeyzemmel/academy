@@ -97,10 +97,12 @@ const DATA = {
     limit_failures: { type: 'number' },
     proposals: { type: 'array', items: PROPOSAL },
   },
-  required: ['ok', 'error', 'start', 'end', 'summary', 'open_classes', 'regressions', 'limit_failures', 'proposals'],
+  required: ['ok', 'start', 'end', 'summary', 'open_classes', 'regressions', 'limit_failures', 'proposals'],
 }
-const FILED = { type: 'object', properties: { ok: { type: 'boolean' }, packet: { type: 'string' }, error: { type: 'string' } }, required: ['ok', 'packet', 'error'] }
-const SETTLED = { type: 'object', properties: { ok: { type: 'boolean' }, closed: { type: 'number' }, detail: { type: 'string' } }, required: ['ok', 'closed', 'detail'] }
+// #124: error and detail are asked for, never required (a stage that leaves one out would lose
+// its run); a missing one reads 'no reason given'
+const FILED = { type: 'object', properties: { ok: { type: 'boolean' }, packet: { type: 'string' }, error: { type: 'string' } }, required: ['ok', 'packet'] }
+const SETTLED = { type: 'object', properties: { ok: { type: 'boolean' }, closed: { type: 'number' }, detail: { type: 'string' } }, required: ['ok', 'closed'] }
 
 const out = { instance: A.instance, filed: false, settled: false, dropped: [] }
 
@@ -113,7 +115,7 @@ const d = await launch(STAGE('data', [
   'and recurring error families worth deciding on, each with 2-4 options and a recommendation. Write nothing.',
 ]), { label: 'gather', phase: 'Gather', agentType: ANALYST, schema: DATA, effort: 'low' })
 if (!d) return Object.assign(out, { reason: 'the gather stage returned nothing (a limit?): nothing filed, nothing settled' })
-if (!d.ok) return Object.assign(out, { reason: 'a script failed: ' + d.error })
+if (!d.ok) return Object.assign(out, { reason: 'a script failed: ' + (d.error || 'no reason given') })
 
 // ---- the rules, in code -------------------------------------------------------------
 const bare = (a) => String(a || '').split(':').pop()
@@ -146,7 +148,7 @@ const f = await launch(STAGE('write', [
   'Return the packet id (P-NNNN) the filing printed, or ok false with its error line. Do not settle: the workflow does.',
 ]), { label: 'write and file', phase: 'Write', agentType: ANALYST, schema: FILED })
 if (!f) return Object.assign(out, { reason: 'the write stage returned nothing: nothing settled' })
-if (!f.ok || !/^P-\d{4,}$/.test(f.packet)) return Object.assign(out, { reason: 'the packet was not filed: ' + (f.error || JSON.stringify(f.packet)) + '; nothing settled' })
+if (!f.ok || !/^P-\d{4,}$/.test(f.packet)) return Object.assign(out, { reason: 'the packet was not filed: ' + (f.error || (f.packet ? JSON.stringify(f.packet) : 'no reason given')) + '; nothing settled' })
 out.filed = true
 out.packet = f.packet
 log(`filed ${f.packet}`)
@@ -159,7 +161,7 @@ const s = await launch(STAGE('settle', [
 ]), { label: 'settle', phase: 'Settle', agentType: ANALYST, schema: SETTLED, effort: 'low' })
 out.settled = !!(s && s.ok)
 out.closed = s ? s.closed : 0
-if (!out.settled) out.reason = 'the packet is filed but the settle did not run: ' + (s ? s.detail : 'the stage returned nothing') + ' (run `py ' + AR + '/academy/scripts/error_ledger.py settle --packet ' + f.packet + '` by hand)'
+if (!out.settled) out.reason = 'the packet is filed but the settle did not run: ' + (s ? s.detail || 'no reason given' : 'the stage returned nothing') + ' (run `py ' + AR + '/academy/scripts/error_ledger.py settle --packet ' + f.packet + '` by hand)'
 out.summary = d.summary
 // Ship (docs/workflows.md, "Shipping is a step of the workflow"): the packet, its body and the settled ledger are board files, under no ticket, so the stage is
 // not-run and names the command for the session; a nested run leaves it to its parent.
