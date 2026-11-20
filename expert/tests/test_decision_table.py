@@ -127,6 +127,12 @@ class TableTests(unittest.TestCase):
         self.assertIsNone(r["proposed_status"])
         self.assertEqual([(d["input"], d["run"], d["shape"]) for d in r["differing_inputs"]],
                          [("paper:lem:a", "A", "id"), ("paper:lem:b", "B", "id")])
+        # the grounds settle_deps.py completes once the settler's record is applied (part 3):
+        # both verdict rows, no modulo yet, and no grounds of the table's own
+        self.assertIsNone(r["grounds"])
+        g = r["grounds_template"]
+        self.assertEqual((g["basis"], len(g["verdicts"]), g.get("modulo")), ("proof", 2, None))
+        self.assertEqual({v["verdict"] for v in g["verdicts"]}, {"CONFIRMED"})
 
     # The definition rule (the human's decision of 2026-11-20, #121, replacing T-0148): a
     # definition in a modulo list stays an input unless it is marked notation-only, on the

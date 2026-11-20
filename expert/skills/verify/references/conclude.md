@@ -230,36 +230,65 @@ inputs both runs name and mark each one: `proved`, `verified citation`, `sketch`
 `conjectured` / `open` (its status), `uncited folklore`, `cached but no card`,
 `uncitable`. The script then decides whether the recolour is earned; you do not.
 
-**Definitions are not inputs** (the human's decision, 2026-10-09, T-0148): a
-definition used only as notation is not an input in a verdict's modulo list; only a
-definition whose content the argument relies on counts. The script applies it: when two
-CONFIRMED runs' modulo lists differ only in definitions (registry kind `definition`,
-else a `defn:` / `DEF-` label), it reads them as agreeing on the intersection and lists
-the dropped ids in `dropped_definitions`. Copy that list into the record; do not list a
-dropped definition among the inputs.
+**The definition rule** (the human's decision of 2026-11-20, #121, replacing T-0148): a
+definition in a modulo list **is an input** unless its registry record is tagged
+`notation-only`; a reviewer's own mark is not trusted. The script drops only the tagged
+ones (in `dropped_definitions`): copy that list into the record and do not list a dropped
+definition among the inputs.
 
-**Differing inputs** (#121; the human's ruling, T-0613 and again 2026-11-20), built on
-the dependency amendment of section 1b: when both runs are CONFIRMED, neither names a
-blocking step, and their modulo lists (in canonical spelling, #103) still differ, the
-script gives `confirmed-union`, not `disagreement`. Its `modulo` is the union of the two
-lists, normalised only where the registry shows it: a definition one run lists is dropped
-(as above); an input one run lists is dropped when another listed registry id reaches it
-through `depends_on`, and a card pinpoint `bib:<key>#...` when such a listed id (or a
-record it reaches) `cites` the key (`union_dropped` names each with what reaches it).
-Each input left that one run lists and the proof does not declare (the claim's
-`depends_on`, `modulo`, `cites`) is read as an `add_dependency` suggestion: it must name
-an existing result (`dependency_ok`), and it is listed in `declare_dependencies`. Conclude
-it like `confirmed-modulo`: propose `proved-modulo` on the script's `modulo` to the keeper
-(section 4.2) and file its `verify-input` items as routed; no `decision` ticket goes to
-the human on the inputs. The `declare-dependency` item is section 1b's repair (a `prove`
-ticket, mode repair, to the Researcher `reviews.py researcher-for` names, marked
-`amendment for verify T-NNNN pass P`, so it files no verify ticket), but **nothing waits
-on it**: no run B follows (both runs reviewed the proof with those inputs in view) and the
-verify ticket is not blocked. The workflow files it; by hand, file it as routed. Copy both
-runs' lists (`modulo_lists`), `union_dropped` and `declare_dependencies` into the record.
-A `disagreement` remains when the verdicts differ, a run names a blocking step, or an
-undeclared input names no existing result (the anomaly says which): those go to the
-human with the union and intersection as options.
+**Differing inputs** (#121; the human's design of 2026-11-20). When both runs are
+CONFIRMED, neither names a blocking step, and their modulo lists (in canonical spelling,
+#103) differ, the script first reduces them mechanically (stage 1 below) and, if they
+still differ, gives `settle-dependencies`: no status yet. `modulo` is what both runs
+agree on; `differing_inputs` each input still differing with its admissibility facts
+(`input`, `run`, `shape`, `result`, `pointer`, `open_check`, `exists`, `cycle`);
+`modulo_lists` both lists as written; `dropped_inputs` the mechanical drops;
+`grounds_template` both verdict rows. Then one `expert:dependency-settler` run (read-only,
+blind to everything but the pass's `A.md`, `B.md` and `S-table.json`, the proof, the
+registry and the library; it grades neither verdict) classifies each differing input by
+the **first case that applies, in this fixed order**:
+
+| stage | cases |
+|---|---|
+| 0, the statement | 12 different readings of the statement: stop (reword, then a new pass) |
+| 1, mechanical (`decision_table.py`, never the settler) | 13 a shared input that is proved-modulo carries its modulo; 4 granularity (reached through another listed input's `depends_on` / `cites`); the definition rule |
+| 2, admissibility | 11 circular (the table's cycle): stop, a gap; 9 hypotheses not verified or an open `[CHECK]`: stop; 10 missing source: a `cite` ticket, the input stays a pending modulo input |
+| 3, is it used | 14 formal input: dropped; 6 spurious: dropped; 5 different internal routes: keep the route the proof writes |
+| 4, what kind | 7 hidden non-routine step: declared (no existing result: stop, a gap); 1 folklore (one run named nothing for a step it took as folklore, the other named the dependency): keep the named one, declared |
+| 5, among valid sources | 2 multi-source, same statement: "routine", every source named in the proof, one modulo input; 3 different settings: the best fit, a remark names the rest; 8 stronger than needed: the weakest sufficient result, declared |
+
+The settler's record is the fenced `json` block of its report (format:
+`expert/scripts/settle_deps.py`'s docstring). The workflow does the rest in code:
+
+1. stage *settle-table*: `decision_table.py A.md B.md --json` written verbatim to
+   `<pass dir>/S-table.json`;
+2. the settler run; stage *settle*: its report to `<pass dir>/S.md`, its record to
+   `<pass dir>/S.json`, then
+
+       py $E/settle_deps.py check "<pass dir>/S.json" --table "<pass dir>/S-table.json"
+       py $E/settle_deps.py apply "<pass dir>/S.json" --table "<pass dir>/S-table.json"
+
+   An invalid record (or none) relaunches the settler once with the problems; invalid
+   twice is a `disagreement` with an anomaly.
+3. `confirmed-settled`: stage *settle-file* files one declaration repair for the
+   `declarations` (section 1b's repair: kind `prove` to the Researcher `reviews.py
+   researcher-for` names, marked `amendment for verify T-NNNN pass P`, so it files no
+   verify ticket), carrying the `routine` notes (and, outside a paper, the `remark`
+   ones); a `cite` ticket per `cite` entry; for a `paper:` claim with a remark (case 3), a
+   `write` ticket to the Author. **Nothing waits on them**: the verify ticket is not
+   blocked and nothing is parked on the human. The concluder proposes apply's
+   `proposed_status` (`proved-modulo` its `modulo`, or `proved`) with apply's `grounds`
+   to the keeper (section 4.2), as for `confirmed-modulo`, files the `verify-input` items
+   of the unestablished modulo inputs, and returns `confirmed-settled`. With no
+   Researcher to ask, no repair is filed and the record and the packet name the
+   declarations as an open item.
+4. A stop (`disagreement`): no status; the decision ticket to the human (section 4.3)
+   with the union and intersection as options, the settler's classification (`S.md`,
+   `S.json`, the stops and their evidence) attached for the human.
+
+Copy `modulo_lists`, `differing_inputs`, `dropped_inputs` and what apply returned into
+the record. By hand (no workflow), launch nothing yourself: rerun the ticket through the
+workflow.
 
 **Check by hand only what one grep or one definition settles**, and say in the record
 which lines you checked. Where the runs differ, do not average them: say which is
@@ -274,8 +303,9 @@ LF, Markdown, written by you:
   line saying which pass this one supersedes;
 - the outcome, verbatim from the script (`outcome`, `summary`, `proposed_status`,
   `recolour`, `modulo`, `pending_inputs`, `dropped_definitions`, `anomalies`; for a
-  `confirmed-union`, also both runs' lists `modulo_lists`, `union_dropped` and the
-  `declare_dependencies` with the repair filed for them);
+  `settle-dependencies` pass, also `modulo_lists`, `differing_inputs`, `dropped_inputs`,
+  the settler's classification (`S.md`) and settle_deps.py's outcome with the tickets
+  filed for it);
 - both verdicts side by side: verdict, model, run id, blocking step;
 - the findings **both** runs reached independently, numbered, then what they
   disagreed about and which was right;
@@ -309,7 +339,7 @@ LF, Markdown, written by you:
      Scientist is not a neighbour of the Expert;
    - an input that is itself a proof to review: kind `verify`, back to the Expert;
    - a counterexample, from a DISPROVED run or from the falsifier of section 1a, or runs
-     that still disagree on the inputs (a `disagreement`, never a `confirmed-union`): a
+     that still disagree on the inputs (a `disagreement`, never a `confirmed-settled`): a
      `decision` ticket to the human (the one rule for a counterexample; never a `prove`
      ticket);
    - a missing card: kind `cite`.
@@ -324,8 +354,8 @@ LF, Markdown, written by you:
    `## Established vs assumed` names every input with its status; `## Evidence` the
    two records, run ids and the statement hash; `## Decisions needed` asks the human only
    what the table leaves to them (a DISPROVED counterexample; a disagreement's next
-   step; a modulo input nobody owns) — otherwise `None.` (a `confirmed-union` asks
-   nothing: the union is the ruling).
+   step; a modulo input nobody owns) — otherwise `None.` (a `confirmed-settled` asks
+   nothing: the settled record is the ruling).
 5. **The ticket**: `result` one line (e.g. `CONFIRMED x2; proved proposed; recolour
    earned`), `packets` set, then `in-progress -> delivered`.
 

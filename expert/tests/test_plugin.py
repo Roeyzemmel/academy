@@ -30,13 +30,14 @@ PLAN = {
     "related-work-scout": ("sonnet", "opus"),
     "review-chair": ("sonnet", "opus"),
     "rigor-reviewer": ("opus", "opus"),
+    "dependency-settler": ("opus", "opus"),
     "referee": ("opus", "opus"),
     "research-intake": ("sonnet", "opus"),
     "paper-liaison": ("haiku", "sonnet"),
 }
-EFFORT = {"rigor-reviewer": "xhigh", "referee": "high", "research-intake": "medium",
+EFFORT = {"rigor-reviewer": "xhigh", "dependency-settler": "high", "referee": "high", "research-intake": "medium",
           "paper-liaison": "low"}
-READ_ONLY = ("clerk", "rigor-reviewer", "referee")
+READ_ONLY = ("clerk", "rigor-reviewer", "dependency-settler", "referee")
 FORBIDDEN = ("Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit")
 MCP_WRITES = ("claims_new", "claims_attach_evidence", "claims_propose_status",
               "claims_set_status", "queue_add", "tickets_create", "tickets_update",

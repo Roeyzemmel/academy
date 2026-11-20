@@ -82,7 +82,8 @@ Mechanical rules applied before the table:
   ``differing_inputs`` each with its admissibility facts (``input_facts``: an open
   [CHECK], registry existence with an unknown namespace counted as not shown, a cycle
   back to the subject), both runs' lists in ``modulo_lists``, the drops in
-  ``dropped_inputs``. The settler and ``settle_deps.py`` take it from there.
+  ``dropped_inputs``, and ``grounds_template`` (both verdict rows, no modulo, no note:
+  ``grounds`` itself stays None). The settler and ``settle_deps.py`` take it from there.
 * B present after a non-CONFIRMED A is a process anomaly (B should not have run);
   it is reported, and the outcome is taken from A alone.
 
@@ -1302,6 +1303,9 @@ def _decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
             res["dropped_inputs"] = red["dropped"]
             if red["differing"]:
                 _settle_dependencies(res, red, ma, subject, exists, links_of, canon, dnote)
+                # the grounds settle_deps.py completes (modulo, note) once the record is
+                # applied: the concluder proposes with grounds made in code (#121 part 3)
+                res["grounds_template"] = _grounds(recs, [], "", prod_role)
                 return res
             ma = mb = set(red["agreed"])
             dnote += ("; the runs' lists (A %s, B %s) differ only mechanically (#121, stage "

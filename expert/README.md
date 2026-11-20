@@ -25,6 +25,7 @@ rule is `academy/references/roster-rules.md`, "Model fallback".
 | `librarian` | Fetches and caches sources, writes cards and index rows; the only editor of the cards, `index.md` and every Author's `references.bib`; curates the domain packs |
 | `review-chair` | The clerical stages of one proof review inside `workflows/verify.js` (which launches the blind rigor-reviewer runs): the pass, `decision_table.py`, the record, the evidence, the status proposal and the packet; grades nothing, launches nothing |
 | `rigor-reviewer` | One blind, adversarial proof review (CONFIRMED / PLAUSIBLE / GAP / DISPROVED); read-only, landed by a hook |
+| `dependency-settler` | When two CONFIRMED runs list different inputs (`settle-dependencies`, #121): classifies each differing input by the first of the fixed-order cases that applies, as one JSON record that `settle_deps.py` checks and applies; read-only, sees only the pass's two verdicts, the proof, the registry and the library; grades nothing |
 | `referee` | Whole-paper referee report from the built PDF, read cold; read-only, landed by a hook |
 | `related-work-scout` | Prior-art search for one statement, or the literature watch; writes only the library's `ledgers/<instance>/` |
 
@@ -67,7 +68,10 @@ Tests: `py -m unittest discover expert/tests` from the academy repo.
 `hooks/hooks.json`:
 
 - `review_blind_guard` (PreToolUse `Read|Grep|Glob`) denies a `rigor-reviewer` any
-  read of, or search over, the library's `reviews/`, so run B never sees run A. It is
+  read of, or search over, the library's `reviews/`, so run B never sees run A. A
+  `dependency-settler` gets the same closure with one opening: a Read of `A.md`, `B.md`
+  or `S-table.json` in an **open** pass folder (no `decision.md`, no `abandoned.md`),
+  i.e. the two verdicts and the table of the pass it settles; no search there. It is
   silent for every other agent and every path outside the Expert homes.
 - `library_edit_check` (PostToolUse edits and `Bash|PowerShell`) warns and never
   blocks. It validates an edited card (its schema and its quote against the cached

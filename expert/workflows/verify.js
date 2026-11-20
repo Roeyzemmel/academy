@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: 'Every verify ticket and /expert:verify, from the library home. args: {claim, ticket?, question?, mode?: "blind"|"reword", base_pass?, base_subject?, findings?}',
   phases: [
     { title: 'Prepare', detail: 'take the ticket, hash the statement, open the pass' },
-    { title: 'Review', detail: 'blind run A; a suggested dependency added by the producer (filed and waited for); B only if the table says launch_b, or in amend mode once the amendment is in (or run R); a GAP verdict files a falsifier request, which blocks nothing' },
+    { title: 'Review', detail: 'blind run A; a suggested dependency added by the producer (filed and waited for); B only if the table says launch_b, or in amend mode once the amendment is in (or run R); a GAP verdict files a falsifier request, which blocks nothing; CONFIRMED x2 on differing inputs (settle-dependencies) launches one dependency-settler, whose record settle_deps.py checks (one retry) and applies' },
     { title: 'Conclude', detail: 'decision table, record, evidence, proposal, packet, follow-ups' },
   ],
 }
@@ -23,7 +23,12 @@ export const meta = {
 // that suggests a dependency (add_dependency, the human's design of 2026-11-20) pauses the
 // pass the same way: the chair files a repair to the producer (add exactly those to the
 // proof and depends_on) and blocks the ticket; on the rerun B runs in amend mode, told the
-// suggestion only (reviews.py amend-brief), and A + B are the two verdicts. The verdicts are landed by the expert plugin's land_verdict hook (it
+// suggestion only (reviews.py amend-brief), and A + B are the two verdicts. Two CONFIRMED runs
+// whose modulo lists still differ after the table's mechanical reduction (settle-dependencies,
+// #121) get one dependency-settler run, its record checked and applied by settle_deps.py (one
+// retry; then a disagreement): settled, the follow-ups are filed and the status proposed, nothing
+// waiting on them; a stop is a disagreement with the settler's classification for the human.
+// The verdicts are landed by the expert plugin's land_verdict hook (it
 // fires for workflow agents: B0 pilot, docs/workflows.md).
 
 const A = args || {}
@@ -77,6 +82,7 @@ const MODE = A.mode === 'reword' ? 'reword' : 'blind'
 const QUESTION = A.question || 'may it be raised to proved?'
 const CHAIR = 'expert:review-chair'
 const REVIEWER = 'expert:rigor-reviewer'
+const SETTLER = 'expert:dependency-settler'
 const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
 const SCRIPTS = `Scripts: reviews.py is \`py ${AR}/expert/scripts/reviews.py\`, decision_table.py is \`py ${AR}/expert/scripts/decision_table.py\`, statement.py (the Author plugin's) is \`py ${AR}/author/scripts/statement.py\` (python3 where there is no py)` +
@@ -147,6 +153,44 @@ const FALS_OUT = {
   },
   required: ['request', 'refusal'],
 }
+// #121 part 3: the new stages' schemas require nothing; the code supplies every default
+const SETTLE_TABLE_OUT = {
+  type: 'object',
+  properties: {
+    written: { type: 'boolean', description: 'S-table.json was written in the pass folder' },
+    outcome: { type: 'string', description: 'the outcome in the JSON written' },
+  },
+  required: [],
+}
+const SETTLE_OUT = {
+  type: 'object',
+  properties: {
+    ok: { type: 'boolean', description: 'settle_deps.py check exited 0 (ok true)' },
+    problems: { type: 'array', items: { type: 'string' }, description: 'settle_deps.py check problems, verbatim; empty when ok' },
+    outcome: { type: 'string', enum: ['confirmed-settled', 'disagreement', ''], description: 'settle_deps.py apply outcome; empty when the check failed' },
+    proposed_status: { type: 'string', description: 'apply proposed_status (proved-modulo, proved), or empty' },
+    modulo: { type: 'array', items: { type: 'string' } },
+    declarations: { type: 'array', items: { type: 'object', properties: { dependency: { type: 'string' }, case: { type: 'number' }, from: { type: 'string' } } } },
+    notes: { type: 'array', items: { type: 'object', properties: { kind: { type: 'string' }, dependency: { type: 'string' }, sources: { type: 'array', items: { type: 'string' } }, text: { type: 'string' } } } },
+    cite: { type: 'array', items: { type: 'object', properties: { input: { type: 'string' }, evidence: { type: 'string' } } } },
+    stops: { type: 'array', items: { type: 'object', properties: { input: { type: 'string' }, case: { type: 'number' }, name: { type: 'string' }, evidence: { type: 'string' } } } },
+    dropped: { type: 'array', items: { type: 'object', properties: { input: { type: 'string' }, case: { type: 'number' }, line: { type: 'string' } } } },
+    grounds: { type: 'object', description: 'apply grounds, verbatim (null when none)' },
+    summary: { type: 'string' },
+  },
+  required: [],
+}
+const SETTLE_FILED = {
+  type: 'object',
+  properties: {
+    repair: { type: 'string', description: 'the declaration repair filed, or empty' },
+    cite: { type: 'array', items: { type: 'string' }, description: 'the cite tickets filed' },
+    author: { type: 'string', description: 'the Author ticket filed for a remark, or empty' },
+    blocked: { type: 'boolean', description: 'the verify ticket was blocked (it never should be)' },
+    refusals: { type: 'array', items: { type: 'string' }, description: 'refused tickets_create calls, verbatim' },
+  },
+  required: [],
+}
 const TABLE = {
   type: 'object',
   properties: {
@@ -158,7 +202,6 @@ const TABLE = {
     hash_now: { type: 'string', description: 'reviews.py hash of the statement as it stands now' },
     run_hash: { type: 'string', description: 'the statement_hash in the landed run file\'s own frontmatter (empty when not landed)' },
     add_dependency: { type: 'array', items: { type: 'string' }, description: 'decision_table.py add_dependency: the dependencies the run suggests adding (empty when none)' },
-    declare_dependencies: { type: 'array', items: { type: 'string' }, description: 'decision_table.py declare_dependencies (a confirmed-union, #121: the inputs one run lists that the proof does not declare; empty when none)' },
     blocking_step: { type: 'string', description: 'for a GAP verdict: the blocking step the run file names (where it is and, in one line, what fails), as the run states it; else empty' },
   },
   required: ['landed', 'run_file', 'verdict', 'outcome', 'launch_b', 'hash_now', 'run_hash'],
@@ -318,7 +361,7 @@ const table = (run) => launch(STAGE('table', [
   (run === 'B'
     ? `\`decision_table.py "<pass_dir>/A.md" "<pass_dir>/B.md" --json\` (run B is tabled against A: ${amending ? 'an amend run, mode amend' : 'the blind pair'})`
     : `\`decision_table.py "<pass_dir>/${run}.md" --json\` (no B argument)`) +
-  ` and report its outcome, launch_b, add_dependency and declare_dependencies (each empty when none), for a GAP verdict the blocking step the run names (blocking_step), and the statement_hash of the run file's own frontmatter (run_hash); re-hash the statement as it stands now ` +
+  ` and report its outcome, launch_b, add_dependency (empty when none), for a GAP verdict the blocking step the run names (blocking_step), and the statement_hash of the run file's own frontmatter (run_hash); re-hash the statement as it stands now ` +
   `exactly as the prepare stage hashed it, through the registry engine (\`reviews.py hash --claim ${A.claim}\`; never \`hash\` on a copied extract). Write nothing.`,
 ].join('\n')), { label: `table ${run}`, phase: 'Review', agentType: CHAIR, schema: TABLE, effort: 'low' })
 
@@ -595,39 +638,143 @@ const counterexample = !!(falsifier && falsifier.counts && falsifier.found === '
 // a GAP verdict (A single-negative, or B after a CONFIRMED A) files the falsifier request
 const gapRun = MODE === 'blind' && !counterexample ? [...runs].reverse().find(r => !r.lost && !r.stale && GAP.test(String(r.verdict || '')) && r.hash_now && r.hash_now === prep.statement_hash) : null
 const falsifierRequest = gapRun && !runs.some(r => r.stale) ? await requestFalsifier(gapRun) : null
-// #121: CONFIRMED x2 on differing modulo lists is the union, routed like confirmed-modulo; the
-// inputs the proof does not declare get the amendment's repair, but nothing waits on it
-const unionRun = MODE === 'blind' && !counterexample && !runs.some(r => r.stale)
-  ? runs.find(r => r.run === 'B' && !r.lost && r.outcome === 'confirmed-union') : null
-const union = !!unionRun
-const toDeclare = union && Array.isArray(unionRun.declare_dependencies) ? unionRun.declare_dependencies.filter(x => String(x || '').trim()) : []
-const declareRequest = toDeclare.length ? await requestDeclaration(toDeclare) : null
-async function requestDeclaration(deps) {
-  const list = deps.join(', ')
-  const earlier = String((prep.amendment || {}).request || '').trim()
-  if (earlier) { notes.push(`no declaration repair: this pass already filed ${earlier} (${(prep.amendment || {}).request_status || 'status unknown'})`); return earlier }
-  const to = researcherTo()
-  if (!to.instance) { notes.push(`no declaration repair filed for ${list}: no Researcher to ask (${to.why}); the conclude stage files the declare-dependency item as routed`); return null }
-  const T = ticket === 'none' ? '' : ticket
-  const reviewed = String((prep.amendment || {}).attempt || '').trim()
-  const req = await launch(STAGE('declaration', [
-    `claim: ${A.claim}`, `ticket: ${ticket}`, `pass: ${prep.pass}`, `inputs to declare (the table's declare_dependencies, confirmed-union): ${list}`,
-    `conclude.md section 2, "Differing inputs" (the repair of section 1b, but nothing waits on it). File one repair with tickets_create: kind prove, to ${to.instance} (${to.why}; reviews.py researcher-for), ` +
-      `refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; title "Repair: declare dependencies of ${A.claim}"; ` +
-      `ask (mode repair, researcher prove.js): add exactly these dependencies to the proof of ${A.claim} (cite them where the argument relies on them) and to the claim's depends_on (a bib: key to its cites, cited in the proof at its pinpoint): ${list}; change nothing else, not the statement; write the amended proof as a new attempt. ` +
-      (T ? `The ask's first line ends with the marker "amendment for verify ${T} pass ${prep.pass}"${reviewed ? ` and its detail says "run A reviewed ${reviewed}"` : ''}: this repair files no verify ticket (both runs of ${T}'s pass already reviewed the proof with these inputs in view) and delivers with the new attempt's path. ` : '') +
-      `deliverable: the amended proof attempt and the record's depends_on. The ask names the dependencies only: never a run's verdict, report or findings. ` +
-      `It blocks nothing: never block ${T || 'any ticket'} or wait on the repair; the conclude stage proposes proved-modulo at once. If tickets_create refuses, return the refusal verbatim.`,
-    'Write nothing in the pass folder and no claims_propose_status; return the request id (blocked false, waiting_on empty).',
-  ].join('\n')), { label: 'declaration', phase: 'Review', agentType: CHAIR, schema: AMEND_OUT, effort: 'low' })
-  const id = req && /^T-\d{4,}$/.test(String(req.request || '').trim()) ? req.request.trim() : ''
-  if (!req) notes.push('the declaration stage returned nothing: no repair is known to be filed')
-  else if (req.refusal) notes.push(`the declaration repair was refused (${req.refusal})`)
-  else if (!id) notes.push('the declaration stage returned no ticket id: no repair is known to be filed')
-  if (req && req.blocked) notes.push(`ANOMALY: ${ticket} was blocked on the declaration repair (nothing waits on it)`)
-  if (id) notes.push(`declaration repair ${id} to ${to.instance}: declare ${list} (confirmed-union, #121); it blocks nothing`)
-  return id || null
+// ---- Differing inputs: the dependency-settler (#121, the human's design of 2026-11-20) ----
+// CONFIRMED x2 whose modulo lists still differ after the table's mechanical reduction is
+// settle-dependencies: one settler run classifies each differing input in the fixed order,
+// settle_deps.py checks its record (one retry with the problems, then a disagreement with an
+// anomaly) and applies it. Settled: the declaration repair (the amendment's marker, nothing
+// waits on it), a cite ticket per missing source, an Author ticket for a remark in paper
+// text, and the status proposed to the keeper. A stop: the disagreement path, with the
+// settler's classification for the human.
+const settleRun = MODE === 'blind' && !counterexample && !runs.some(r => r.stale)
+  ? runs.find(r => r.run === 'B' && !r.lost && r.outcome === 'settle-dependencies') : null
+
+function recordOf(text) {   // the last fenced json block of the settler's report
+  const blocks = [...String(text || '').matchAll(/```json[ \t]*\r?\n([\s\S]*?)```/g)]
+  if (!blocks.length) return { problems: ['the report has no fenced json block (the record)'] }
+  try {
+    const r = JSON.parse(blocks[blocks.length - 1][1])
+    return r && typeof r === 'object' && !Array.isArray(r) ? { record: r } : { problems: ['the json block is not an object'] }
+  } catch (e) { return { problems: ['the json block does not parse: ' + String(e.message || e)] } }
 }
+const strs = x => Array.isArray(x) ? x.map(v => String(v)) : []
+const objs = x => Array.isArray(x) ? x.filter(v => v && typeof v === 'object') : []
+async function settleDependencies(b) {
+  const pd = prep.pass_dir
+  const disagree = (why, extra) => Object.assign({ outcome: 'disagreement', proposed_status: '', modulo: [], declarations: [], notes: [], cite: [],
+    stops: [], dropped: [], grounds: null, problems: [], summary: why, attempts: 0 }, extra || {})
+  if (b.hash_now !== prep.statement_hash) {
+    notes.push(`the statement moved under the review (hash ${prep.statement_hash} -> ${b.hash_now}): the differing inputs are not settled`)
+    return disagree('the statement moved under the review')
+  }
+  const tw = await launch(STAGE('settle-table', [
+    `pass_dir: ${pd}`, `claim: ${A.claim}`,
+    `conclude.md section 2, "Differing inputs". Run \`decision_table.py "<pass_dir>/A.md" "<pass_dir>/B.md" --json\` once and write its output verbatim (LF) to "<pass_dir>/S-table.json", ` +
+      'the table the dependency-settler reads and settle_deps.py checks against. Write nothing else; return written and the outcome in the JSON.',
+  ].join('\n')), { label: 'settle-table', phase: 'Review', agentType: CHAIR, schema: SETTLE_TABLE_OUT, effort: 'low' })
+  if (!tw || tw.written !== true || tw.outcome !== 'settle-dependencies') {
+    notes.push(`ANOMALY: the settle table was not written as settle-dependencies (${tw ? `written ${tw.written}, outcome ${tw.outcome || 'none'}` : 'the stage returned nothing'}): the dependency-settler not launched`)
+    return disagree('the settle table could not be written')
+  }
+  const ids = `subject: ${A.claim} · pass: ${prep.pass} · statement_hash: ${prep.statement_hash} · ticket: ${ticket}`
+  const brief = (prev) => `Settle the differing inputs of ${A.claim}: two blind runs are CONFIRMED on different modulo lists. ` +
+    `Read the two verdicts ${pd}/A.md and ${pd}/B.md and the table ${pd}/S-table.json (outcome settle-dependencies: classify each of its differing_inputs), ` +
+    `and the proof at ${prep.location}. Classify each differing input by the first case that applies, in the fixed order of your instructions, ` +
+    'and end your report with the one fenced json record.\n' + ids +
+    (prev ? `\nA first run's record failed \`settle_deps.py check\`; its problems:\n- ${prev.problems.join('\n- ')}\n` +
+      (prev.record ? `Its record was:\n${JSON.stringify(prev.record)}\n` : '') + 'Classify afresh and return the whole record, with those problems fixed.' : '')
+  let prev = null
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const label = attempt === 1 ? 'settler' : 'settler (retry)'
+    const out = await launchMax(brief(prev), { label, phase: 'Review', agentType: SETTLER }, { agentType: CHAIR, phase: 'Review', notes })
+    if (out === null) {     // a limit or an API error: launch nothing further (the role rule; review of 39de757)
+      notes.push(`${label} returned nothing (a limit or an API error): not relaunched, concluded as a disagreement`)
+      return disagree('the dependency-settler returned nothing', { problems: ['the settler returned nothing'], attempts: attempt })
+    }
+    let got = recordOf(out)
+    if (got.record) {
+      const r = await launch(STAGE('settle', [
+        `pass_dir: ${pd}`, `claim: ${A.claim}`,
+        `conclude.md section 2, "Differing inputs". Write the dependency-settler's report below verbatim (LF) to "<pass_dir>/S.md" and its record verbatim to "<pass_dir>/S.json" ` +
+          '(overwrite both: the last run is the one kept). Run `py ' + AR + '/expert/scripts/settle_deps.py check "<pass_dir>/S.json" --table "<pass_dir>/S-table.json"` once; ' +
+          'if it says ok, run `settle_deps.py apply` with the same arguments once and return its fields verbatim (outcome, proposed_status, modulo, declarations, notes, cite, stops, dropped, grounds, summary) with ok true; ' +
+          'else return ok false and its problems verbatim. Judge nothing: the script decides. File nothing.',
+        `The record (S.json):\n${JSON.stringify(got.record)}`,
+        `The report (S.md):\n${String(out)}`,
+      ].join('\n')), { label: attempt === 1 ? 'settle' : 'settle (retry)', phase: 'Review', agentType: CHAIR, schema: SETTLE_OUT, effort: 'low' })
+      if (!r) got = { record: got.record, problems: ['the settle stage returned nothing: the record was not checked'] }
+      else if (r.ok === true && ['confirmed-settled', 'disagreement'].includes(r.outcome)) {
+        return { outcome: r.outcome, proposed_status: r.outcome === 'confirmed-settled' ? String(r.proposed_status || '') : '',
+          modulo: strs(r.modulo), declarations: objs(r.declarations), notes: objs(r.notes), cite: objs(r.cite), stops: objs(r.stops),
+          dropped: objs(r.dropped), grounds: r.grounds && typeof r.grounds === 'object' ? r.grounds : null, problems: [],
+          summary: String(r.summary || ''), attempts: attempt }
+      } else if (r.ok === true) got = { record: got.record, problems: [`settle_deps.py apply returned outcome ${JSON.stringify(r.outcome || '')}`] }
+      else got = { record: got.record, problems: strs(r.problems).length ? strs(r.problems) : ['settle_deps.py check failed (no problems reported)'] }
+    }
+    notes.push(`${label}: the record is not valid (${got.problems.join('; ')})`)
+    prev = got
+  }
+  notes.push(`ANOMALY: the dependency-settler's record failed settle_deps.py check twice (${prev.problems.join('; ')}): concluded as a disagreement`)
+  return disagree('the settler\'s record failed the check twice', { problems: prev.problems, attempts: 2 })
+}
+
+// confirmed-settled: one declaration repair (the dependency amendment's marker and machinery:
+// researcher-for, for_verify, so prove.js files no verify ticket), carrying the routine and
+// remark notes; a cite ticket per missing source; an Author ticket for a remark in paper text.
+// Nothing blocks the verify ticket and nothing is parked on the human.
+async function fileSettled(st) {
+  const T = ticket === 'none' ? '' : ticket
+  const decl = st.declarations.map(d => String(d.dependency || '')).filter(Boolean)
+  const routine = st.notes.filter(n => n.kind === 'routine')
+  const remarks = st.notes.filter(n => n.kind === 'remark')
+  const paper = /^paper:/.test(A.claim)
+  const repairNotes = routine.concat(paper ? [] : remarks)
+  const noteText = n => n.kind === 'routine'
+    ? `the step resting on ${n.dependency} is routine: name every source (${strs(n.sources).join(', ')}) in the proof, ${n.dependency} the one kept`
+    : `a remark naming the other sources (${strs(n.sources).filter(x => x !== n.dependency).join(', ')}) for ${n.dependency}: ${n.text || ''}`
+  const to = researcherTo()
+  const asks = []
+  if (decl.length || repairNotes.length) {
+    if (!to.instance) notes.push(`no declaration repair filed${decl.length ? ' for ' + decl.join(', ') : ''}: no Researcher to ask (${to.why}); the record and the packet name it as an open item`)
+    else {
+      const reviewed = String((prep.amendment || {}).attempt || '').trim()
+      asks.push(`One declaration repair with tickets_create: kind prove, to ${to.instance} (${to.why}; reviews.py researcher-for), refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; ` +
+        `title "Repair: declare dependencies of ${A.claim}"; ask (mode repair, researcher prove.js): ` +
+        (decl.length ? `add exactly these dependencies to the proof of ${A.claim} (cite them where the argument relies on them) and to the claim's depends_on (a bib: key to its cites, cited at its pinpoint): ${decl.join(', ')}; ` : '') +
+        (repairNotes.length ? `and in the proof: ${repairNotes.map(noteText).join('; ')}; ` : '') +
+        'change nothing else, not the statement; write the amended proof as a new attempt. ' +
+        (T ? `The ask's first line ends with the marker "amendment for verify ${T} pass ${prep.pass}"${reviewed ? ` and its detail says "run A reviewed ${reviewed}"` : ''}: this repair files no verify ticket (both runs of ${T}'s pass reviewed the proof with these inputs in view) and delivers with the new attempt's path. ` : '') +
+        'deliverable: the amended proof attempt and the record\'s depends_on. The ask names the dependencies and notes only: never a run\'s verdict, report or findings. Return its id as repair.')
+    }
+  }
+  for (const c of st.cite) {
+    asks.push(`One cite ticket with tickets_create: kind cite, to this Expert instance (a missing card, conclude.md section 4.3), refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; ` +
+      `title "Cite: ${String(c.input || '').slice(0, 80)}"; ask: find, cache and card the source of "${c.input}", the input ${A.claim} rests on (the settler's evidence: ${c.evidence || 'none given'}); deliverable: the bib key and pinpoint. Add its id to cite.`)
+  }
+  if (paper && remarks.length) {
+    asks.push(`One ticket with tickets_create: kind write, to the Author instance owning ${A.claim}, refs [${A.claim}${T ? ', ' + T : ''}]${T ? ', parent ' + T : ''}; title "Remark after ${A.claim}: other sources"; ` +
+      `ask: add a remark after the proof of ${A.claim} naming the other sources of the step: ${remarks.map(noteText).join('; ')}; deliverable: the remark in the section file. Return its id as author.`)
+  }
+  if (!asks.length) return { repair: '', cite: [], author: '', refusals: [] }
+  const r = await launch(STAGE('settle-file', [
+    `claim: ${A.claim}`, `ticket: ${ticket}`, `pass: ${prep.pass}`,
+    'conclude.md section 2, "Differing inputs": the settled record\'s follow-ups. File exactly these, each once:',
+    ...asks.map((a, i) => `${i + 1}. ${a}`),
+    `None blocks anything: never block ${T || 'any ticket'} or wait on them; the conclude stage proposes the status at once. A refused tickets_create: return the refusal verbatim in refusals. ` +
+      'Write nothing in the pass folder and no claims_propose_status.',
+  ].join('\n')), { label: 'settle-file', phase: 'Review', agentType: CHAIR, schema: SETTLE_FILED, effort: 'low' })
+  const id = x => /^T-\d{4,}$/.test(String(x || '').trim()) ? String(x).trim() : ''
+  const res = { repair: r ? id(r.repair) : '', cite: r ? strs(r.cite).map(id).filter(Boolean) : [], author: r ? id(r.author) : '', refusals: r ? strs(r.refusals) : [] }
+  if (!r) notes.push('the settle-file stage returned nothing: no follow-up is known to be filed')
+  if (r && r.blocked) notes.push(`ANOMALY: ${ticket} was blocked on a settled pass's follow-ups (nothing waits on them)`)
+  for (const x of res.refusals) notes.push(`a settled pass's follow-up was refused (${x})`)
+  if (res.repair) notes.push(`declaration repair ${res.repair} to ${to.instance}${decl.length ? ': declare ' + decl.join(', ') : ''} (settled, #121); it blocks nothing`)
+  if (res.cite.length) notes.push(`cite tickets ${res.cite.join(', ')} for the missing sources (settled, #121)`)
+  if (res.author) notes.push(`Author ticket ${res.author} for the remark (case 3)`)
+  return res
+}
+const settled = settleRun ? await settleDependencies(settleRun) : null
+const settleFiled = settled && settled.outcome === 'confirmed-settled' ? await fileSettled(settled) : null
 log(runs.map(r => `${r.run}: ${r.lost ? 'lost' : r.verdict + ' -> ' + r.outcome}`).join('; '))
 if (runs.some(r => r.stale)) {     // #89 review: a run file on another statement is never concluded on
   return { claim: A.claim, outcome: 'stale-pass', pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
@@ -656,15 +803,18 @@ const done = await launch(STAGE('conclude', [
       : (amending && runs.some(r => r.run === 'B' && !r.lost)
           ? 'An amend pass (conclude.md section 1b): run B reviewed the proof amended with A\'s suggested dependencies; decision_table.py A.md B.md decides it (mode amend), the added dependencies in its modulo until established. Then: '
           : '') +
-        (union
-          ? 'The table on B says confirmed-union (#121; conclude.md section 2, "Differing inputs"): the runs are CONFIRMED x2 and differ only in the inputs they list, so route it like confirmed-modulo: ' +
-            'propose proved-modulo on the table\'s modulo (the union, normalised) through claims_propose_status to the keeper, record both runs\' lists (modulo_lists) and what the union dropped (union_dropped) in decision.md, ' +
-            'file the verify-input items as routed and no decision ticket to the human on the inputs. ' +
-            (declareRequest
-              ? `The declaration repair ${declareRequest} (the declare-dependency item: ${toDeclare.join(', ')}) is filed by the workflow: do not file it again; name it in the record, the packet and the ticket result. `
-              : toDeclare.length ? `No declaration repair was filed by the workflow: file the declare-dependency item (${toDeclare.join(', ')}) as the script routes it, blocking nothing. ` : '') +
-            'Then: '
-          : '') +
+        (settled && settled.outcome === 'confirmed-settled'
+          ? `The table on B says settle-dependencies and the dependency-settler's record (S.md, S.json, against S-table.json, in the pass folder) was checked and applied by settle_deps.py: confirmed-settled (#121; conclude.md section 2, "Differing inputs"). ` +
+            `Propose ${settled.proposed_status}${settled.modulo.length ? ' modulo ' + settled.modulo.join(', ') : ''} through claims_propose_status to the keeper, as for confirmed-modulo, with exactly these grounds: ${JSON.stringify(settled.grounds)}; ` +
+            `file a verify-input item for each modulo input not established (section 2); no decision ticket to the human on the inputs. Record in decision.md both runs' lists (modulo_lists), the differing inputs, the settler's classification (S.md) and what apply returned (${settled.summary}; dropped ${JSON.stringify(settled.dropped)}; declarations ${JSON.stringify(settled.declarations)}; notes ${JSON.stringify(settled.notes)}; cite ${JSON.stringify(settled.cite)}). ` +
+            (settleFiled && (settleFiled.repair || settleFiled.cite.length || settleFiled.author)
+              ? `The workflow filed ${[settleFiled.repair && 'the declaration repair ' + settleFiled.repair, settleFiled.cite.length && 'the cite tickets ' + settleFiled.cite.join(', '), settleFiled.author && 'the Author ticket ' + settleFiled.author].filter(Boolean).join(', ')}: do not file them again; name them in the record, the packet and the ticket result. `
+              : '') +
+            'Return outcome confirmed-settled; settle_deps.py\'s proposed_status and grounds stand where sections 2-6 say the script\'s (the table alone stops at settle-dependencies). Then: '
+          : settled
+            ? `The table on B says settle-dependencies, and the differing inputs were not settled (${settled.summary}${settled.stops.length ? '; the settler\'s stops: ' + JSON.stringify(settled.stops) : ''}${settled.problems.length ? '; the record\'s problems: ' + settled.problems.join('; ') : ''}). ` +
+              'Conclude it as a disagreement (no status, never claims_propose_status): the decision ticket to the human (section 4.3) with the union and intersection of the two lists as options, and the settler\'s classification attached for the human (S.md and S.json in the pass folder when written, the stops and their evidence above). Return outcome disagreement. Then: '
+            : '') +
         'conclude.md sections 2-6: the input-by-input status, the final decision_table.py over the landed runs with --established, the record decision.md, evidence rows, the proposal (only the script\'s proposed_status), follow-up tickets exactly as the script routes them, the packet, the ticket result and delivery, the blast radius, the report.',
   'Then list the run files in the pass folder (run_files).',
 ].filter(s => s !== '').join('\n')), { label: 'conclude', phase: 'Conclude', agentType: CHAIR, schema: DONE })
@@ -682,14 +832,18 @@ if (extra.length) notes.push('ANOMALY: run files the workflow did not launch: ' 
 if (counterexample && done.proposed_status && done.proposed_status !== 'none') {
   notes.push(`ANOMALY: the concluder proposed ${done.proposed_status} on a falsifier's counterexample (no status may change)`)
 }
-if (union && (done.outcome !== 'confirmed-union' || done.proposed_status !== 'proved-modulo')) {
-  notes.push(`ANOMALY: the table gives confirmed-union (#121: proved-modulo the union, to the keeper), but the concluder returned outcome ${done.outcome}, proposed_status ${done.proposed_status}`)
+if (settled && settled.outcome === 'confirmed-settled' && (done.outcome !== 'confirmed-settled' || done.proposed_status !== settled.proposed_status)) {
+  notes.push(`ANOMALY: settle_deps.py settled the pass (${settled.proposed_status}, to the keeper), but the concluder returned outcome ${done.outcome}, proposed_status ${done.proposed_status}`)
+}
+if (settled && settled.outcome !== 'confirmed-settled' && done.proposed_status && done.proposed_status !== 'none') {
+  notes.push(`ANOMALY: the concluder proposed ${done.proposed_status} on unsettled differing inputs (a disagreement: no status may change)`)
 }
 if (counterexample && done.outcome !== 'falsifier-counterexample') notes.push(`the concluder returned outcome ${done.outcome}: the pass is falsifier-counterexample`)
 const res = { claim: A.claim, pass: prep.pass, pass_dir: prep.pass_dir, runs, notes,
          outcome: counterexample ? 'falsifier-counterexample' : done.outcome, proposed_status: done.proposed_status, record: done.record,
          packet: done.packet, tickets: done.tickets, report: done.report, anomalies: extra, falsifier_request: falsifierRequest,
-         declaration_request: declareRequest, declare_dependencies: toDeclare,
+         settle: settled ? { outcome: settled.outcome, proposed_status: settled.proposed_status || null, modulo: settled.modulo, stops: settled.stops,
+           problems: settled.problems, attempts: settled.attempts, filed: settleFiled } : null,
          launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
 if (falsifier && falsifier.counts) res.falsifier = { source: falsifier.source, on: falsifier.on || null, evidence: falsifier.evidence, found: falsifier.found }
 // the ticket's state is read by inbox.py --check itself (the concluder delivers it)

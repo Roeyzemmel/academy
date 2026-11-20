@@ -35,8 +35,9 @@ The record (``S.json``, the JSON block of the settler's ``S.md``)::
 
 ``check`` lists the problems (empty: valid); ``apply`` returns the outcome:
 ``confirmed-settled`` (proposed ``proved-modulo`` the settled list, or ``proved`` when
-nothing remains) or ``disagreement`` (a stop), with the declarations to add, the proof
-notes and the cite tickets to file. Usage::
+nothing remains, with ``grounds``: the table's ``grounds_template`` completed) or
+``disagreement`` (a stop), with the declarations to add, the proof notes and the cite
+tickets to file. Usage::
 
     settle_deps.py check S.json --table table.json
     settle_deps.py apply S.json --table table.json
@@ -272,10 +273,12 @@ def _check_groups(seen, facts):
 
 def apply(record, table):
     """The outcome of a valid ``record`` (call ``check`` first): ``{outcome,
-    proposed_status, modulo, declarations, dropped, notes, cite, stops, summary}``."""
+    proposed_status, modulo, declarations, dropped, notes, cite, stops, summary,
+    grounds}``."""
     agreed = [str(x) for x in _list(table.get("modulo"))]
     out = {"outcome": "", "proposed_status": None, "modulo": [], "declarations": [],
-           "dropped": [], "notes": [], "cite": [], "stops": [], "summary": ""}
+           "dropped": [], "notes": [], "cite": [], "stops": [], "summary": "",
+           "grounds": None}
     readings = record.get("readings") or {}
     if readings.get("differ"):
         out.update(outcome="disagreement", stops=[{"case": 12, "evidence":
@@ -338,7 +341,24 @@ def apply(record, table):
         ("; declare " + ", ".join(d["dependency"] for d in decl)) if decl else "",
         ("; cite tickets for " + ", ".join(c["input"] for c in out["cite"]))
         if out["cite"] else ""))
+    out["grounds"] = _grounds(table, kept, out["summary"])
     return out
+
+
+def _grounds(table, modulo, summary):
+    """The table's ``grounds_template`` (both verdict rows) completed with the settled
+    modulo and the note, in the shape ``claims_propose_status`` checks; None without a
+    template."""
+    tpl = table.get("grounds_template")
+    if not isinstance(tpl, dict):
+        return None
+    g = json.loads(json.dumps(tpl))
+    g.pop("modulo", None)
+    if modulo:
+        g["modulo"] = list(modulo)
+    g["note"] = "two CONFIRMED verdicts on differing inputs, settled by the " \
+                "dependency-settler (#121): %s" % summary
+    return g
 
 
 def _load(path):

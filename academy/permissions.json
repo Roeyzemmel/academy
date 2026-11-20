@@ -6,12 +6,12 @@
     "academy": ["concierge", "explainer", "usage-analyst", "secretary", "inbox-clerk"],
     "author": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper", "notation-auditor"],
     "researcher": ["lead-researcher", "prover", "experiment-reviewer", "claim-keeper", "experiment-spec", "lit-request", "review-clerk"],
-    "expert": ["clerk", "librarian", "related-work-scout", "review-chair", "rigor-reviewer", "referee", "research-intake", "paper-liaison"],
+    "expert": ["clerk", "librarian", "related-work-scout", "review-chair", "rigor-reviewer", "dependency-settler", "referee", "research-intake", "paper-liaison"],
     "scientist": ["experimenter", "developer", "test-engineer", "upstream-contributor", "api-prober"]
   },
   "groups": {
     "graders": ["rigor-reviewer", "experiment-reviewer", "referee"],
-    "readonly": ["explainer", "clerk", "rigor-reviewer", "experiment-reviewer", "referee", "secretary"],
+    "readonly": ["explainer", "clerk", "rigor-reviewer", "dependency-settler", "experiment-reviewer", "referee", "secretary"],
     "producers": ["math-writer", "math-editor", "tex-engineer", "figure-maker", "note-sweeper", "notation-auditor", "lead-researcher", "prover", "librarian", "related-work-scout", "experimenter", "developer", "test-engineer", "upstream-contributor", "api-prober"],
     "clerical": ["concierge", "usage-analyst", "claim-keeper", "review-chair", "review-clerk", "inbox-clerk"]
   },

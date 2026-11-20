@@ -43,15 +43,16 @@ VERSIONED = {"base": "haiku", "medium": "sonnet", "large": "claude-opus-5-5",
 
 #: docs/config.md: "base for the clerical agents (clerk, paper-liaison, claim-keeper,
 #: lit-request, review-clerk, inbox-clerk, usage-analyst), max for the graders and the prover (rigor-reviewer,
-#: referee, experiment-reviewer, prover ...), large for explainer, math-writer and
+#: referee, experiment-reviewer, prover ...) and the dependency-settler, large for explainer, math-writer and
 #: developer, medium for the rest"
 SPEC_BASE = {"expert:clerk", "expert:paper-liaison", "researcher:claim-keeper",
              "researcher:lit-request", "researcher:review-clerk", "academy:inbox-clerk",
              "academy:usage-analyst"}
-SPEC_MAX = {"expert:rigor-reviewer", "expert:referee", "researcher:experiment-reviewer",
+SPEC_MAX = {"expert:rigor-reviewer", "expert:dependency-settler", "expert:referee",
+            "researcher:experiment-reviewer",
             "researcher:prover"}
 SPEC_LARGE = {"academy:explainer", "author:math-writer", "scientist:developer"}
-#: the 31 agent files of the five plugins (29 at f9d490a; review-clerk and inbox-clerk added 2026-10-31)
+#: the 32 agent files of the five plugins (29 at f9d490a; review-clerk and inbox-clerk added 2026-10-31, dependency-settler 2026-11-20)
 SPEC_MEDIUM = {"academy:concierge", "academy:secretary", "author:figure-maker",
                "author:math-editor", "author:notation-auditor", "author:note-sweeper",
                "author:tex-engineer", "expert:librarian", "expert:related-work-scout",
@@ -273,7 +274,7 @@ class TestAgentFiles(unittest.TestCase):
         for group, tier in ((SPEC_BASE, "base"), (SPEC_MEDIUM, "medium"),
                             (SPEC_LARGE, "large"), (SPEC_MAX, "max")):
             want.update({a: tier for a in group})
-        self.assertEqual(len(want), 31)
+        self.assertEqual(len(want), 32)
         self.assertEqual(set(files), set(want))
         for agent, path in files.items():
             fm = ac.read_agent_frontmatter(path)

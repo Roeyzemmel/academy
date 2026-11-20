@@ -35,11 +35,19 @@ the ticket protocol is `docs/protocol.md`.
    proved-modulo the added dependency until it is established. The repair files no verify
    ticket of its own (the amend B is the second verdict), and a suggestion names an
    existing result only (`ns:id` or `bib:key#pinpoint`; a lemma still to be proved is a
-   GAP). When A suggests nothing, the blind pair is unchanged. A definition used only as notation is
-   not an input in a verdict's `modulo` list; only a definition whose content the
-   argument relies on counts (the human's decision, 2026-10-09, T-0148). So two
-   CONFIRMED runs whose `modulo` lists differ only in definitions agree, on the
-   intersection of the lists; the decision table flags the definitions it dropped.
+   GAP). When A suggests nothing, the blind pair is unchanged. A definition in a verdict's
+   `modulo` list is an input unless its registry record is tagged `notation-only` (the
+   human's decision of 2026-11-20, #121, replacing T-0148).
+   **Differing inputs** (#121, the human's design of 2026-11-20): two CONFIRMED runs
+   whose `modulo` lists still differ after the decision table's mechanical reduction
+   (`settle-dependencies`) get one **`dependency-settler`** run (expert, read-only, tier
+   max, blind to everything but the pass's two verdicts and table, the proof, the
+   registry and the library). It grades neither verdict: it classifies each differing
+   input by the first of the human's fixed-order cases that applies, and
+   `settle_deps.py` checks and applies its record, so the status (proposed to the keeper)
+   comes from the script, not from the settler's reading; a case that stops (different
+   readings, circular, unverified hypotheses, a hidden step with no existing result) is
+   a disagreement for the human.
    **A reworded statement** (its text changed after a CONFIRMED x2 pass, the proof
    unchanged or reworded only) needs one informed reword run instead of a new pair
    (the human's decision, 2026-10-12, T-0347): the base pass's two verdicts on the old hash plus a
