@@ -120,8 +120,39 @@ if (A.mode === 'design') {
     'the answer to "if the claim were false, what would this experiment still report?", and the library calls not yet confirmed in the pack.',
     { label: 'design', phase: 'Leg', agentType: EXP, schema: DESIGN })
   if (d === null) return Object.assign(out, { outcome: 'lost', reason: 'the experimenter returned nothing' })
+  // #88: what comes back is checked in code. An argument instead of a header is the
+  // human's call (accept it, prove instead, or run the experiment anyway), never a leg
+  // left unfinished; a probe or experiment must bring a header (Kind:, no code), else one
+  // retry, then the leg fails visibly instead of putting junk to the header gate.
+  const headerProblems = (x) => {
+    const h = String((x && x.header) || '')
+    const probs = []
+    const kind = (h.match(/^[\s#*-]*Kind:\s*(\w+)/mi) || [])[1]
+    if (!h.trim()) probs.push('no header')
+    else if (!kind) probs.push('no Kind: line')
+    else if (!/^(search|measure|verify|probe)$/i.test(kind)) probs.push(`Kind: ${kind} is not search, measure, verify or probe`)
+    if (/^\s*(def |class |import |from \S+ import )/m.test(h)) probs.push('code in the header (the header only, no body)')
+    if (kind && /^probe$/i.test(kind) && !(/^[\s#*-]*Goal:/mi.test(h) && /^[\s#*-]*Decides:/mi.test(h))) probs.push('a probe needs Goal: and Decides:')
+    if (!/^\d{4}-\d{2}-\d{2}_[\w-]+$/.test(String((x && x.stem) || ''))) probs.push(`stem ${JSON.stringify((x && x.stem) || '')} is not YYYY-MM-DD_<slug>`)
+    return probs
+  }
+  let probs = d.path === 'argument' ? [] : headerProblems(d)
+  if (probs.length) {
+    out.notes.push('the design returned no usable header (' + probs.join('; ') + '): one retry')
+    const d2 = await launch(`Your design of ${A.claim || 'the ticket ' + T} did not return a usable header: ${probs.join('; ')}. ` +
+      'Return it again: path probe or experiment with the HEADER ONLY (Kind:, the fields of that kind, no code) and a stem YYYY-MM-DD_<slug>; ' +
+      'or path argument with the argument, if an argument settles it.', { label: 'design (retry)', phase: 'Leg', agentType: EXP, schema: DESIGN })
+    if (d2) { Object.assign(d, d2); probs = d.path === 'argument' ? [] : headerProblems(d) }
+    if (probs.length) return Object.assign(out, { outcome: 'no-header', path: d.path, reason: 'the design returned no usable header twice: ' + probs.join('; ') })
+  }
   Object.assign(out, { path: d.path, stem: d.stem, header: d.header, if_false: d.if_false })
-  if (d.path === 'argument') return Object.assign(out, { outcome: 'argument', argument: d.argument, notes: ['a two-line argument settles it: no script (a better result)'] })
+  if (d.path === 'argument') {
+    phase('Gate')
+    out.argument = d.argument
+    return gate('the experimenter answered with an argument instead of a header (#88): accept it (deliver the ticket with it as its result), ' +
+      'prove instead (file a prove ticket to the Researcher with the argument as the lead), or run the experiment anyway (call mode design again saying so)',
+      { argument: d.argument, outcome: 'argument-instead', options: ['accept the argument', 'prove instead', 'run the experiment anyway'] })
+  }
   if ((d.api_unfamiliar || []).length) out.notes.push('unfamiliar library calls: run /scientist:api-check on ' + d.api_unfamiliar.join(', ') + ' before build')
   phase('Gate')
   return gate('approve the header (approve / change / drop) before any compute; ask also: ' + d.if_false, { header: d.header, stem: d.stem, next: { mode: 'build', stem: d.stem, ticket: T } })

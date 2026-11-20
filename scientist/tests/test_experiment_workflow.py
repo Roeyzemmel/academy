@@ -59,10 +59,33 @@ class ExperimentTests(unittest.TestCase):
         self.assertEqual(res["for_main"]["next"]["mode"], "build")
         self.assertIn("HEADER ONLY", next(c for c in calls if c["label"] == "design")["prompt"])
 
-    def test_a_two_line_argument_stops_without_a_script(self):
-        res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [dict(DESIGN, path="argument", argument="by parity")]}, mode="design", claim="c")
-        self.assertEqual(res["outcome"], "argument")
+    def test_an_argument_instead_of_a_header_goes_to_the_human(self):
+        """#88: the argument is the human's call (accept, prove instead, run anyway),
+        never a leg left unfinished with the ticket in-progress."""
+        res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [dict(DESIGN, path="argument", argument="by parity")]}, mode="design", claim="c", ticket="T-1")
+        self.assertIsNone(err, err)
+        self.assertNotIn("build", labels)
+        self.assertEqual(res["for_main"]["outcome"], "argument-instead")
+        self.assertEqual(res["for_main"]["argument"], "by parity")
+        self.assertIn("prove instead", res["for_main"]["options"])
+        self.assertEqual(res["for_main"]["ticket"], "T-1")
+
+    def test_a_design_without_a_header_is_retried_once_then_fails(self):
+        bad = dict(DESIGN, header="The claim holds because ... (a hand argument)\ndef f(): pass")
+        res, labels, calls, err = self.run_wf({"lab home": [HOME], "design": [bad], "design (retry)": [DESIGN]},
+                                              mode="design", claim="c")
+        self.assertIsNone(err, err)
+        self.assertEqual(labels, ["lab home", "design", "design (retry)"])
+        self.assertIn("no Kind: line", next(c for c in calls if c["label"] == "design (retry)")["prompt"])
+        self.assertIn("approve the header", res["for_main"]["why"])
+        res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [bad], "design (retry)": [bad]},
+                                          mode="design", claim="c")
+        self.assertEqual(res["outcome"], "no-header")
         self.assertNotIn("for_main", res)
+        probe = dict(DESIGN, path="probe", header="Kind: probe\nGoal: is it fast")
+        res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [probe], "design (retry)": [probe]},
+                                          mode="design", claim="c")
+        self.assertIn("Goal: and Decides:", res["reason"])
 
     def test_build_checks_with_one_fix_and_stops_for_the_commit(self):
         built = {"script": "experiments/2026-10-31_x.py", "lab_claim": "lab:x", "tests": [], "note": ""}
