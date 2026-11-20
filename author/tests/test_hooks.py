@@ -497,10 +497,18 @@ class NotationScopeGuardTests(unittest.TestCase):
         self.assertIsNone(self.edit(self.decisions, agent="notation-auditor", tool="Write"))
         self.assertIsNone(self.edit(".claude/rules/notation-decisions.md"))
 
+    def test_style_file_allowed(self):
+        style = os.path.join(self.sb.home, ".claude", "rules", "style.md")
+        self.assertIsNone(self.edit(style))
+        self.assertIsNone(self.edit(style, agent="notation-auditor", tool="Write"))
+        self.assertIsNone(self.edit(".claude/rules/style.md"))
+
     def test_everything_else_denied(self):
         for p in (os.path.join(self.sb.home, "sections", "a.tex"),
                   os.path.join(self.sb.home, "references.bib"),
                   os.path.join(self.sb.other, ".claude", "rules", "notation-decisions.md"),
+                  os.path.join(self.sb.other, ".claude", "rules", "style.md"),
+                  os.path.join(self.sb.home, ".claude", "rules", "other.md"),
                   os.path.join(self.sb.root, "domains", "d", "notation.md")):
             with self.subTest(path=p):
                 self.assertEqual(self.edit(p), "deny")

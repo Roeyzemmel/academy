@@ -198,22 +198,36 @@ class VisionTests(unittest.TestCase):
     """The Author has aesthetic vision, exercised inside the role cut."""
 
     def test_the_reference_and_the_template_exist(self):
-        ref = read("references", "aesthetic-vision.md")
+        # the seven vision items are rules of the academy's one writing guide (#106)
+        with open(os.path.join(REPO, "academy", "references", "writing-style.md"),
+                  encoding="utf-8") as fh:
+            guide = fh.read()
         for item in ("arc", "Economy", "Notation that earns its place", "right level",
                      "Examples and figures", "promise", "voice"):
-            self.assertIn(item, ref)
+            self.assertIn(item, guide)
+        ref = read("references", "aesthetic-vision.md")   # the procedure, no style rule
+        self.assertIn("writing-style.md", ref)
+        self.assertIn("style.md", ref)
         self.assertIn("research", ref)              # a cleaner statement is asked for
-        tpl = read("templates", "vision.md")
-        self.assertIn("{{instance}}", tpl)
-        self.assertIn("pending", tpl)
+        for name in ("vision.md", "style.md"):
+            tpl = read("templates", name)
+            self.assertIn("{{instance}}", tpl)
+            self.assertIn("pending", tpl)
+        self.assertIn("writing-style.md", read("templates", "style.md"))
 
     def test_writers_start_from_the_vision_and_the_pinned_list(self):
         for agent in ("math-writer", "math-editor"):
             text = read("agents", agent + ".md")
             self.assertIn("Drafts/vision.md", text, agent)
             self.assertIn("pinned.py", text, agent)
-        for agent in ("figure-maker", "notation-auditor"):
-            self.assertIn("Drafts/vision.md", read("agents", agent + ".md"), agent)
+        self.assertIn("Drafts/vision.md", read("agents", "figure-maker.md"))
+        # every writer and the auditor read exactly the two style sources
+        for agent in ("math-writer", "math-editor", "figure-maker", "notation-auditor"):
+            text = read("agents", agent + ".md")
+            self.assertIn("writing-style.md", text, agent)
+            self.assertIn(".claude/rules/style.md", text, agent)
+            self.assertNotIn("proof-style.md", text, agent)
+            self.assertNotIn("notation-decisions.md`, then", text, agent)
         self.assertIn("vision mode", read("agents", "math-editor.md"))
 
     def test_the_aesthetic_pass_files_tickets_and_never_rewrites_pinned_statements(self):

@@ -15,7 +15,7 @@ caps: --agents {{agents}} (binding); everything else advisory (`academy/referenc
 - Pinned statements (`author/scripts/pinned.py`): (not listed yet)
 - Cited but unreadable sources (one Expert ticket): (none yet)
 - Cost estimate (tasks x runs x average tokens, `usage_report.py`), shown to the human before any dispatch: (not made yet)
-- Standing reviewer brief: (the home's `.claude/rules/`, pointed to in every verify ticket)
+- Standing reviewer brief: (the home's `.claude/rules/`, its `style.md` with the academy's `writing-style.md`, pointed to in every verify ticket)
 
 ## Tasks
 

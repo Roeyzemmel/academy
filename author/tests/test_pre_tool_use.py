@@ -127,6 +127,8 @@ class EndToEndTests(PinnedBase):
                              agent="author:notation-auditor")
         self.assertIn("notation-auditor", self.reason(out))
         self.assertIsNone(self.edit(self.decisions, "a", "b", agent="author:notation-auditor"))
+        style = os.path.join(self.sb.home, ".claude", "rules", "style.md")
+        self.assertIsNone(self.edit(style, "a", "b", agent="author:notation-auditor"))
 
     def test_first_denial_speaks_when_two_guards_deny(self):
         # the bib is denied by bib_gate before notation_scope_guard would speak

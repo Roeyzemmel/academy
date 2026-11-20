@@ -18,7 +18,8 @@ serially (`${CLAUDE_PLUGIN_ROOT}/../academy/references/budget.md`). Scripts: `$S
    clashes already known.
 4. **The aesthetic pass** (`${CLAUDE_PLUGIN_ROOT}/references/aesthetic-vision.md`): for
    each section changed since the last sync (at most three, the rest named in the
-   summary), one `math-editor` run in **vision mode** against `Drafts/vision.md`, read-only,
+   summary), one `math-editor` run in **vision mode** against `.claude/rules/style.md`,
+   `writing-style.md` and `Drafts/vision.md`, read-only,
    briefed with the pinned list (`py $S/pinned.py`). File its proposals as tickets:
    Filing, as the role cut says (`${CLAUDE_PLUGIN_ROOT}/../academy/references/roster-rules.md`,
    "Role cut"): an `author` proposal is a `write` or `apply` ticket to this Author; a
@@ -34,7 +35,8 @@ serially (`${CLAUDE_PLUGIN_ROOT}/../academy/references/budget.md`). Scripts: `$S
    paper's keywords and report hits since the last watch", `agenda: global`.
 6. **Referee, as a ticket.** `kind: referee`, to the same Expert instance, ask "Cold
    referee report on the built PDF at <home>/<build.dir>/<main>.pdf", `refs` naming the
-   milestone's entries; the referee checks the paper against `Drafts/vision.md` too.
+   milestone's entries; the referee checks the paper against `Drafts/vision.md` and
+   `.claude/rules/style.md` too.
    The referee packet comes back later; `/author:notes referee
    P-NNNN` then files its points.
 7. **Provenance markers** (only when the home sets `author.provenance`; the mechanism is

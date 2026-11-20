@@ -1,53 +1,26 @@
 # Vision: {{instance}}
 
-The paper's form and taste, kept by the Author (`author/references/aesthetic-vision.md`
-is the generic standard; this file wins over it). The writers read it before writing;
-the aesthetic pass of `/author:agenda` and `/author:presync` and the Expert's referee
-check the paper against it. Only the human's words change a decision here: record each
-with its date and source. A proposed decision not yet confirmed is marked
+The paper's arc and its decisions log, kept by the Author. The paper's style is not
+here: it is the two style sources, the academy's `academy/references/writing-style.md`
+(general) and this home's `.claude/rules/style.md` (this paper's notation, conventions,
+decisions, macros and margin-note rules; it refines the guide and wins over it). The
+writers read all three before writing; the aesthetic pass of `/author:agenda` and
+`/author:presync` (`author/references/aesthetic-vision.md`) and the Expert's referee
+check the paper against them. Only the human's words change a decision here: record
+each with its date and source. A proposed decision not yet confirmed is marked
 **pending** and does not bind.
 
 ## The arc
 
 What the paper is about in two sentences, the main results in the order a reader meets
-them, and why that order.
+them, and why that order; which examples run through the paper.
 
 - (to be stated by the human)
 
-## Statements
-
-How statements look in this paper (what a statement may contain, how hypotheses are
-listed, standing conventions that are not repeated).
-
-- (none recorded yet)
-
-## Proofs
-
-The reader a proof is written for, the length that calls for a supporting lemma, the
-order in which results depend on each other.
-
-- (none recorded yet)
-
-## Definitions and notation
-
-Which definitions carry the paper, which symbols are reserved. Settled notation lives in
-the home's notation decisions; only its principles are here.
-
-- (none recorded yet)
-
-## Examples and figures
-
-Which examples run through the paper, where a figure is expected.
-
-- (none recorded yet)
-
-## Voice
-
-Person, tense, level of formality, words to prefer or avoid.
-
-- (none recorded yet)
-
 ## Decisions log
+
+Every decision of the human's about this paper, dated: the arc's here, a style
+decision's in `.claude/rules/style.md` (named in the row).
 
 | date | decision | source | status |
 |---|---|---|---|

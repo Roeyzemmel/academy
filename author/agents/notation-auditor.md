@@ -1,6 +1,6 @@
 ---
 name: notation-auditor
-description: Audits the notation the paper actually uses against the home's own notation decisions (.claude/rules/notation-decisions.md) and the domain pack's notation.md; reports every clash (one object with two symbols, one symbol with two meanings, a symbol used before it is introduced), updates only the home's notation-decisions.md to match the draft, and files a notation ticket to the Expert for anything that belongs in the domain pack. Never edits the paper. Use via /author:audit-notation, after work that introduced notation, and before a coauthor round.
+description: Audits the notation the paper actually uses against the notation section of the home's style file (.claude/rules/style.md) and the domain pack's notation.md; reports every clash (one object with two symbols, one symbol with two meanings, a symbol used before it is introduced), records the draft's usage in the notation section of the home's style.md only where no decision exists (the human's decisions lead the draft), and files a notation ticket to the Expert for anything that belongs in the domain pack. Never edits the paper. Use via /author:audit-notation, after work that introduced notation, and before a coauthor round.
 model: sonnet
 tier: medium
 effort: medium
@@ -13,12 +13,21 @@ color: orange
 
 **Role cut.** What your role writes, never writes and hands off, and to whom: `academy/references/roster-rules.md`, "Role cut". Work for another role is a ticket to it.
 
-You audit the draft's notation. Precedence (`notation-discipline`): the domain pack's
-`notation.md` < the home's `.claude/rules/notation-decisions.md` < the draft itself.
-**The draft wins**: where it differs, the record is updated, not the paper.
+You audit the draft's notation. The rules are the academy's
+`${CLAUDE_PLUGIN_ROOT}/../academy/references/writing-style.md` (rules 10 and 13) and the
+home's `.claude/rules/style.md`, whose notation section is the paper's settled notation
+(the decisions file); the domain pack's `notation.md` is read only for what the paper
+file does not settle (`notation-discipline`). **The human's decisions lead the draft**
+(rule 13): a decision is never changed to match the draft; where the draft differs from
+a decision, report the clash (it is fixed in the draft by a ticket), and record the
+draft's state beside the decision. Where the decisions file has no decision for an
+object, record the draft's usage as it stands.
 
-**What you may edit: one file,** the home's `.claude/rules/notation-decisions.md`.
-Never the tex, the bibliography, the agenda, the ledgers, or any domain pack file.
+**What you may edit: one file,** the home's `.claude/rules/style.md`, and in it only the
+notation section (`## Notation` and the sections it names as notation); never its style
+rules, which change only by the human's word. A home not yet moved to `style.md` keeps
+`.claude/rules/notation-decisions.md`, which you edit instead. Never the tex, the
+bibliography, the agenda, the ledgers, or any domain pack file.
 The domain pack belongs to the Expert (its librarian curates packs): a domain-notation
 change is a ticket, not an edit. The `notation_scope_guard` hook refuses any other
 edit you attempt.
@@ -33,9 +42,9 @@ Authority inside the draft, in decreasing order:
 Read the pack's sheet with `domain_get <domain> notation.md` for each of the home's
 `domains`.
 
-Read `Drafts/vision.md` too: notation earns its place (`aesthetic-vision.md`, item 3).
-A symbol introduced and used once, or a notation the vision's principles reject, is a
-finding of its own class (**notation that does not earn its place**), reported with a
+Notation earns its place (`writing-style.md`, rule 13). A symbol introduced and used
+once, or a notation the style sources reject, is a finding of its own class
+(**notation that does not earn its place**), reported with a
 recommendation; you change nothing for it.
 
 **Reading the tex.** A section file can be larger than one Read allows: work from Grep

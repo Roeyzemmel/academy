@@ -21,8 +21,10 @@ Steps (each reported on stdout, nothing committed):
    ``objects/<kind>/`` for every object kind, ``proofs/``, ``journal/``,
    ``audits/``, ``views/``, each with a ``.gitkeep``, plus a short
    ``objects/README.md``. Existing files are never overwritten.
-   For an author, scaffold ``Drafts/vision.md`` (the paper's form and taste) from
-   ``author/templates/vision.md`` unless it exists.
+   For an author, scaffold ``Drafts/vision.md`` (the paper's arc and decisions log)
+   from ``author/templates/vision.md`` and ``.claude/rules/style.md`` (the paper's own
+   style file, refining the academy's ``references/writing-style.md``) from
+   ``author/templates/style.md``, each unless it exists.
    For a scientist, scaffold the lab from ``scientist/templates/lab/``: the package
    (``paths.package``) with its provenance module ``env.py`` (banner, save_result, the
    outcome blocks the experiment checker requires), ``experiments/_template.py`` and
@@ -56,9 +58,12 @@ except ImportError:  # vendored copy
     import _academy as ac  # noqa: E402
 
 TEMPLATES = os.path.join(PLUGIN, "templates", "academy-json")
-#: the Author's vision scaffold (author/references/aesthetic-vision.md), beside this plugin
+#: the Author's vision scaffold (the arc and decisions log), beside this plugin
 VISION_TEMPLATE = os.path.join(os.path.dirname(PLUGIN), "author", "templates", "vision.md")
 VISION_REL = os.path.join("Drafts", "vision.md")
+#: the paper's own style file (academy issue #106; refines references/writing-style.md)
+STYLE_TEMPLATE = os.path.join(os.path.dirname(PLUGIN), "author", "templates", "style.md")
+STYLE_REL = os.path.join(".claude", "rules", "style.md")
 #: the lab scaffold (scientist/templates/lab/: ``package/`` is renamed to paths.package)
 LAB_TEMPLATE = os.path.join(os.path.dirname(PLUGIN), "scientist", "templates", "lab")
 #: the library README (expert/templates/library/README.md)
@@ -192,15 +197,25 @@ def scaffold_notebook(home):
     return made
 
 
+def _scaffold_from(template, home, rel, instance):
+    path = os.path.join(home, rel)
+    if os.path.exists(path) or not os.path.isfile(template):
+        return None
+    with open(template, encoding="utf-8") as fh:
+        text = fh.read().replace("{{instance}}", instance)
+    return path if _touch(path, text) else None
+
+
 def scaffold_vision(home, instance):
     """Write ``Drafts/vision.md`` from the Author template unless it exists; returns the
     path written, or None (present, or no template beside this plugin)."""
-    path = os.path.join(home, VISION_REL)
-    if os.path.exists(path) or not os.path.isfile(VISION_TEMPLATE):
-        return None
-    with open(VISION_TEMPLATE, encoding="utf-8") as fh:
-        text = fh.read().replace("{{instance}}", instance)
-    return path if _touch(path, text) else None
+    return _scaffold_from(VISION_TEMPLATE, home, VISION_REL, instance)
+
+
+def scaffold_style(home, instance):
+    """Write ``.claude/rules/style.md`` from the Author template unless it exists;
+    returns the path written, or None (present, or no template beside this plugin)."""
+    return _scaffold_from(STYLE_TEMPLATE, home, STYLE_REL, instance)
 
 
 def _render(text, subs):
@@ -306,8 +321,10 @@ def init_instance(instance, home, domains, ns=None, workspace_path=None, board=T
             lines.append("would write %s/.gitattributes" % home)
         if role == "researcher":
             lines.append("would scaffold the notebook under %s" % home)
-        if role == "author" and not os.path.exists(os.path.join(home, VISION_REL)):
-            lines.append("would write %s/%s" % (home, VISION_REL.replace("\\", "/")))
+        if role == "author":
+            for rel in (VISION_REL, STYLE_REL):
+                if not os.path.exists(os.path.join(home, rel)):
+                    lines.append("would write %s/%s" % (home, rel.replace("\\", "/")))
         if role == "scientist":
             lines.append("would scaffold the lab (scientist/templates/lab) under %s" % home)
         if role == "expert":
@@ -333,6 +350,9 @@ def init_instance(instance, home, domains, ns=None, workspace_path=None, board=T
         made = scaffold_vision(home, instance)
         lines.append("vision: %s" % ("wrote " + made.replace("\\", "/") if made
                                      else "present, left alone"))
+        made = scaffold_style(home, instance)
+        lines.append("style: %s" % ("wrote " + made.replace("\\", "/") if made
+                                    else "present, left alone"))
     if role == "scientist":
         made = scaffold_lab(home, cfg)
         lines.append("lab: %d file(s) created" % len(made))
