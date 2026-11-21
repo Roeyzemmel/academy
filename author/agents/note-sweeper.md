@@ -44,7 +44,9 @@ Where an answer can live, checked in this order:
 (provenance), `await` (waits on the ticket it names first), `human` (a question for the
 human), `check` (an unverified step). An untyped note is judged as before. Write the typed
 form yourself only when `author.notes.typed` is true in the home's academy.json (the
-paper's macro then takes the optional argument); otherwise keep notes untyped.
+paper's macro then takes the optional argument); otherwise keep notes untyped. A kind goes
+on `\Claude` only, never on the inline `\cl` or a person's macro (the preamble gives the
+optional argument to the margin macro alone).
 
 **Reading the tex.** A section file can be larger than one Read allows: never Read a
 section whole, and do not repeat a Read that was refused for size. The plan gives each

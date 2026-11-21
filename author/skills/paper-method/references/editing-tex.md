@@ -74,7 +74,9 @@ every caller; the human releases a file by hand in `.claude/preamble-release.txt
   the optional argument): `\Claude[prov]{T-NNNN: ...}` provenance, `\Claude[await]{T-NNNN
   ...}` waits on that ticket (retired by the sweep once it ends with a result),
   `\Claude[human]{...}` a question for the human (the weekly review's list),
-  `\Claude[check]{...}` an unverified step. Otherwise write the note untyped.
+  `\Claude[check]{...}` an unverified step. Otherwise write the note untyped. A kind goes on
+  the margin macro `\Claude` only, never on the inline `\cl` or a person's macro: the
+  paper's preamble gives the optional argument to `\Claude` alone.
 - An unclosed brace in a margin note is the most common build break, usually an
   environment or a `%` inside the note.
 - Every sketched, unverified or judgement-call step gets a machine note in the file and
