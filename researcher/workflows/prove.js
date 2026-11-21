@@ -178,7 +178,7 @@ const OUTCOME = { type: 'object', properties: {
     tagged: { type: 'boolean', description: 'the class is written on the item in the file ([fix-known] ...); false when it is your reading' },
     rests_on: { type: 'array', items: { type: 'string' }, description: 'the registry ids the item says the proof rests on, verbatim (else empty)' } },
     required: ['text', 'class'] } },
-  template_only: { type: 'boolean', description: 'the sections Statement as attempted, Strategy and Proof hold nothing but the template\'s comments (the prover wrote nothing)' },
+  template_only: { type: 'boolean', description: 'every section (Statement as attempted, Strategy, Proof, Inputs, Gaps, Why it fails) holds nothing but the template\'s comments (the prover wrote nothing)' },
   objects: { type: 'array', items: { type: 'string' }, description: 'claims the attempt names (partial results)' },
   dependencies_declared: { type: 'boolean', description: 'the frontmatter has a dependencies: key (the code decides whether an empty list declares them)' },
   dependencies: { type: 'array', items: { type: 'string' }, description: 'the frontmatter\'s dependencies: items, verbatim, in order' },
@@ -543,7 +543,7 @@ if (proved === null) return Object.assign(out, { outcome: 'lost', reason: 'the p
 // ---- File: by the file, not by the summary ------------------------------------------------
 phase('File')
 const readOutcome = label => launch(STAGE('attempt-outcome', [`Read ${p.path}: return its frontmatter's outcome: field verbatim, its gaps, the claims it names, ` +
-  'whether the sections "Statement as attempted", "Strategy" and "Proof" hold nothing but the template\'s comments (template_only), ' +
+  'whether every section ("Statement as attempted", "Strategy", "Proof", "Inputs and their status", "Gaps", "Why it fails") holds nothing but the template\'s comments (template_only), ' +
   'each item of its "## Gaps" section as {text, class, tagged, rests_on} (#126): class is the tag written on the item ([fix-known], [fix-unclear], [needs-assumption]; tagged true), ' +
   'else your reading of it (tagged false) under this rule: fix-known = a routine step, a missing citation, or the proof resting on an existing registry statement (open, sketch or proved-modulo: that is a dependency, settled by its own ticket); ' +
   'fix-unclear = no route to close it is known; needs-assumption = closing it needs a hypothesis the statement does not carry now (a new assumption in the statement itself; resting on a registered statement is not one); ' +
@@ -573,14 +573,18 @@ const depCheck = o => {
 // gives proved-modulo); only fix-unclear and needs-assumption items (and an item with no class,
 // a legacy plain string, read conservatively) call for a falsifier
 const GAP_CLASSES = ['fix-known', 'fix-unclear', 'needs-assumption', 'not-a-gap']
-const NONE_TEXT = /^\s*(none|no gaps?)\b/i
+// the whole item says there is no gap: "None.", "No gaps.", "None in the argument from its
+// stated inputs", optionally "; flat:X is open"; never a sentence that only starts with "None"
+// ("None of the cases k>=3 is handled": review of c4cde59, finding 1)
+const NONE_TEXT = /^\s*(none|no gaps?)(\s+(in|from)\s[^.;]*)?\s*(;[^;]*\b(open|unreviewed|sketch|proved-modulo)\b[^;]*)?\.?\s*$/i
 const normGap = g => {
   const x = typeof g === 'string' ? { text: g } : (g || {})
   const text = String(x.text || '').trim()
   let cls = String(x.class || '').trim().toLowerCase()
   if (!GAP_CLASSES.includes(cls)) cls = ''
-  // "None." written as an item, unclassed or read as fix-known, is not a gap
-  if ((cls === '' || cls === 'fix-known') && NONE_TEXT.test(text) && !clean(x.rests_on).length && text.length < 80) cls = 'not-a-gap'
+  // "None." written as an item, unclassed or read (not tagged) as fix-known, is not a gap; a
+  // class the prover tagged on the item stands as written (finding 6)
+  if (!x.tagged && (cls === '' || cls === 'fix-known') && NONE_TEXT.test(text) && !clean(x.rests_on).length) cls = 'not-a-gap'
   return { text, class: cls, tagged: !!x.tagged, rests_on: clean(x.rests_on) }
 }
 const classify = (x, deps) => {
@@ -594,19 +598,25 @@ let o = await readOutcome('outcome')
 if (!o || !o.exists) return Object.assign(out, { outcome: 'unfinished', reason: 'the attempt file is missing or unreadable' })
 // #126, point 3: an attempt the prover left as the template (it wrote nothing) is lost, never
 // incomplete, and gets no falsifier; the template's own outcome (in-progress) with nothing in
-// the file reads the same
-const untouched = x => !!x.template_only ||
-  (/^(|in-progress)$/.test(String(x.outcome || '').trim()) && !(x.gaps || []).length && !x.dependencies_declared && !(x.objects || []).length)
+// the file reads the same. A failed outcome is never read so (its Why it fails may be all it
+// wrote, and a failed attempt files a falsifier: review of c4cde59, finding 2)
+const untouched = x => String(x.outcome || '').trim() !== 'failed' && (!!x.template_only ||
+  (/^(|in-progress)$/.test(String(x.outcome || '').trim()) && !(x.gaps || []).length && !x.dependencies_declared &&
+   !(x.objects || []).length && !(x.inputs_listed || []).length))
 if (untouched(o)) {
   out.notes.push(`the attempt ${p.path} is the template only (outcome ${o.outcome || 'none'}): the prover wrote nothing; no falsifier, not delivered`)
-  return Object.assign(out, { outcome: 'lost', reason: `the prover left ${p.path} as the template (nothing written): nothing further filed; relaunch the attempt` })
+  return Object.assign(out, { outcome: 'lost', reason: `the prover left ${p.path} as the template (nothing written): nothing further filed, the ticket left as it was` +
+    `${recordCheck ? ' and the repaired record not re-checked' : ''}; relaunch the attempt` })
 }
 const completeNoGaps = x => x.outcome === 'complete' && !classify(x, depCheck(x).deps).blocking.length
 let dc = depCheck(o)
 let fixed = false
 // review of fd04646, finding 3: a complete attempt whose only defect is its dependencies list
-// gets one fix round: the prover fixes the frontmatter of the same file, the clerk reads it again
-if (completeNoGaps(o) && dc.gaps.length) {
+// gets one fix round: the prover fixes the frontmatter of the same file, the clerk reads it again.
+// #126: a fix-known gap resting on an input the Inputs section lists counts as the dependency it
+// will be once declared (review of c4cde59, finding 4)
+const preFix = x => { const d = depCheck(x); return x.outcome === 'complete' && !classify(x, clean(d.deps.concat(d.used))).blocking.length }
+if (preFix(o) && dc.gaps.length) {
   fixed = true
   const fx = await launchMax(`Your attempt ${p.path} on ${A.claim} is complete, but its frontmatter's dependencies are not declared: ${dc.gaps.join('; ')}. ` +
     'Fix the frontmatter of that same attempt file, nothing else: its dependencies: key lists every registry id and bib:<key>#<pinpoint> the proof uses ' +
@@ -627,8 +637,10 @@ const gapText = g => (g.class ? `[${g.class}] ` : '') + g.text
 out.gaps = gc.real.map(g => g.text)
 out.gap_classes = gc.all
 out.dependencies = deps
-if (gc.dependency.length) {
-  out.inputs_to_settle = clean([].concat(...gc.dependency.map(g => g.rests_on)))
+// a not-a-gap item that names what the proof rests on ("None; it rests on flat:FND-48") names an input to settle too
+const restsOn = gc.dependency.concat(gc.all.filter(g => g.class === 'not-a-gap' && g.rests_on.length))
+if (restsOn.length) {
+  out.inputs_to_settle = clean([].concat(...restsOn.map(g => g.rests_on)))
   out.notes.push(`gaps that are dependencies (fix-known, resting on declared inputs): settled by those inputs' own verify or prove tickets, no falsifier: ${out.inputs_to_settle.join(', ')}`)
 }
 const dropped = gc.all.filter(g => g.class === 'not-a-gap')
@@ -791,6 +803,7 @@ if (!completeNoGaps(o) || depGaps.length) {
   out.outcome = 'attempt-incomplete'
   if (depGaps.length) out.dependency_gaps = depGaps
   const gl = gc.blocking.map(gapText).concat(o.outcome === 'complete' ? depGaps : [])
+  if (!gl.length && out.inputs_to_settle) gl.push(`none but the unreviewed inputs ${out.inputs_to_settle.join(', ')}`)
   const fid = await fileFalsifier()
   const rec = recordCheck ? await recheckRecord() : { clause: '' }
   // review of 62be9fa, point 3: the line says what was filed (the attempt itself never is)

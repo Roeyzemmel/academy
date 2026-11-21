@@ -297,7 +297,13 @@ for (const it of moved) {
     if (trig && !tr) return Object.assign(out, { outcome: 'lost', reason: `the trigger check of ${it.item} returned nothing (a limit?): nothing further launched` })
     // #126: an attempt triggers one only when failed or with a fix-unclear / needs-assumption gap
     // (a clerk answer without the count falls back to the gap count, read conservatively)
-    const fGaps = typeof tr?.falsifying_gaps === 'number' ? tr.falsifying_gaps : (tr?.gaps || 0)
+    // a clerk answer without the count: read as none, with an anomaly for the human (the raw
+    // gap count would count a "None." item: review of c4cde59, finding 3)
+    const fKnown = typeof tr?.falsifying_gaps === 'number'
+    const fGaps = fKnown ? tr.falsifying_gaps : 0
+    if (tr && tr.exists && tr.kind === 'attempt' && !fKnown && tr.outcome !== 'failed') {
+      out.anomalies.push(`${it.item}: the trigger check of ${trig} did not report falsifying_gaps: read as none (#126); the human decides whether the falsifier stays`)
+    }
     const afterAttempt = !!tr && tr.exists && ((tr.kind === 'attempt' && (tr.outcome === 'failed' || fGaps > 0)) || tr.verdict === 'GAP')
     if (!afterAttempt) {
       out.anomalies.push(`${it.item}: a falsifier filed before an attempt (${trig ? trig + ' is no failed attempt, has no fix-unclear or needs-assumption gap (#126) and is no GAP verdict' : 'no attempt or GAP verdict named'}): ` +

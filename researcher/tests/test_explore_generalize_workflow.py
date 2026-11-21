@@ -136,6 +136,12 @@ class ExploreTests(unittest.TestCase):
                                   dict(H, ticket="T-0600"))
         self.assertIsNone(err, err)
         self.assertEqual(res["anomalies"], [])
+        # ... and a clerk answer without falsifying_gaps is read as none, with an anomaly saying so
+        res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
+                                                 "trigger Q": [dict(FAILED, outcome="partial", gaps=1)], "get T-1": [GOOD_FALSIFIER], "note": [OK]},
+                                  dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertIn("did not report falsifying_gaps", " ".join(res["anomalies"]))
         # a GAP verdict does
         lead = {"items": [item("Q", "falsify", tickets=["T-1"], after="T-0900")], "report": "r", "next_picks": []}
         res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
