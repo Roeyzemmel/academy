@@ -350,5 +350,115 @@ class InventoryAndCliTests(SweepBase):
         self.assertFalse(p["recorded"])
 
 
+def meta(tid, status, result="", kind="verify"):
+    return (tid, {"id": tid, "status": status, "result": result, "kind": kind})
+
+
+class AwaitDecisionTests(unittest.TestCase):
+    """Review of 38e8803, findings 2 and 3: every ticket an await note names decides, and
+    only a positive verdict (CONFIRMED / SOUND, nothing negative or conditional) deletes."""
+
+    def d(self, metas, text="T-0001 awaits re-verification"):
+        return sw.await_decision(text, metas)
+
+    def test_every_named_ticket_must_have_ended_with_a_result(self):
+        both = [meta("T-0001", "delivered", "CONFIRMED x2"), meta("T-0002", "closed", "SOUND")]
+        self.assertEqual((self.d(both)["list"], self.d(both)["action"]), ("retire", "delete"))
+        live = [meta("T-0001", "delivered", "CONFIRMED"), meta("T-0002", "in-progress")]
+        self.assertEqual(self.d(live)["list"], "waiting")
+        dead = [meta("T-0001", "rejected", "wrong route"), meta("T-0002", "open")]
+        self.assertEqual(self.d(dead)["list"], "judge")
+        self.assertIn("T-0001", self.d(dead)["detail"])
+        self.assertEqual(self.d([meta("T-0001", "delivered", "CONFIRMED"), ("T-0009", None)])
+                         ["list"], "judge")
+        self.assertEqual(self.d([meta("T-0001", "closed", "")])["list"], "judge")
+        self.assertEqual(self.d([meta("T-0001", "delivered", "")])["list"], "waiting")
+
+    def test_a_pointer_names_the_negative_ticket(self):
+        r = self.d([meta("T-0001", "delivered", "CONFIRMED x2"),
+                    meta("T-0002", "delivered", "GAP in step 2")])
+        self.assertEqual((r["list"], r["action"], r["ticket"]), ("retire", "pointer", "T-0002"))
+        self.assertIn("GAP in step 2", r["result"])
+
+    def test_only_a_positive_verdict_deletes(self):
+        for res in ("CONFIRMED x2 (A, B)", "confirmed by both runs", "SOUND (A); SOUND (B)"):
+            self.assertEqual(self.d([meta("T-0001", "delivered", res)])["action"], "delete", res)
+        for res in ("a gap in step 2", "2 GAPs", "disproved by counterexamples",
+                    "fails for n=3", "the lemma is false", "Not proved",
+                    "proved modulo a citation",
+                    "Complete attempt (attempt-3), modulo PL Schoenflies",
+                    "SOUND MODULO the Tokarsky lemma", "CONFIRMED (A), PLAUSIBLE (B)",
+                    "CONFIRMED but needs revision", "inconclusive", "CONFIRMED; unverified "
+                    "step 3", "BROKEN", "an error in the index count", "partial: case 1 only"):
+            r = self.d([meta("T-0001", "delivered", res)])
+            self.assertEqual((r["list"], r.get("action")), ("retire", "pointer"), res)
+
+    def test_a_result_with_no_verdict_or_the_wrong_kind_is_judged(self):
+        r = self.d([meta("T-0001", "delivered", "verify ticket T-0005 filed", kind="prove")])
+        self.assertEqual(r["list"], "judge")
+        r = self.d([meta("T-0001", "delivered", "CONFIRMED", kind="prove")])
+        self.assertEqual(r["list"], "judge")
+        self.assertIn("prove", r["detail"])
+        # a note that waits on something else than a verification takes any kind
+        r = self.d([meta("T-0001", "delivered", "CONFIRMED: the pinpoint is p. 4", kind="cite")],
+                   text="T-0001 awaits the citation")
+        self.assertEqual(r["action"], "delete")
+
+
+class ReviewFixTests(SweepBase):
+    def test_a_note_naming_two_tickets_waits_on_the_live_one(self):
+        self.sb.write(self.b, B_TEX + "\nZ. \\Claude[await]{T-0020 then T-0022}\n")
+        p = self.plan()
+        self.assertIn(["T-0020", "T-0022"], [w["tickets"] for w in p["waiting"]])
+        self.assertNotIn(["T-0020", "T-0022"], [r["tickets"] for r in p["retire"]])
+
+    def test_identical_notes_in_two_places_are_cached_apart(self):
+        dup = "\\Claude{the same question}"
+        self.sb.write(self.a, "One. %s\n\nTwo.\n" % dup)
+        self.sb.write(self.b, "Other paragraph. %s\n" % dup)
+        p = self.plan()
+        self.assertEqual(len(p["judge"]), 2)
+        self.assertTrue(self.record()["advanced"])
+        self.commit_all()
+        self.assertEqual(self.plan(full=True)["todo"], 0)
+
+    def test_an_applied_move_of_one_of_two_identical_notes_is_applied(self):
+        dup = "\\Claude[prov]{T-0010: transcribed}"
+        self.sb.write(self.a, "One. %s\n" % dup)
+        self.sb.write(self.b, "Two. %s\n" % dup)
+        p = self.plan()
+        self.assertEqual(len(p["move"]), 2)
+        self.sb.write(self.a, "One.\n")
+        r = self.record()
+        self.assertEqual([x["file"] for x in r["pending"]], ["sections/b.tex"])
+        self.sb.write(self.b, "Two.\n")
+        self.plan()
+        self.assertEqual(self.record()["pending"], [])
+
+    def test_cached_verdicts_expire_after_notes_max_age(self):
+        self.sb.write(self.a, "One. \\Claude{a question}\n")
+        self.sb.write(self.b, "Two.\n")
+        self.plan()
+        self.record(today="2026-11-01")
+        self.commit_all()
+        q = self.plan()                                   # default 14 days
+        self.assertEqual([(x["text"], x["why"]) for x in q["judge"]], [("a question", "stale")])
+        self.sb.write_config(author=dict(self._author(), notes={"maxAge": 0}))
+        self.cfg = ac.load_config(self.home)
+        self.assertEqual(self.plan()["todo"], 0)          # 0: never
+
+    def test_a_plan_that_was_never_recorded_is_said_so(self):
+        self.plan()
+        q = self.plan()
+        self.assertTrue(any("not recorded" in w for w in q["warnings"]), q["warnings"])
+        self.assertIn("WARNING", sw.summary(q))
+        self.record()
+        self.assertEqual(self.plan()["warnings"], [])
+
+    def _author(self):
+        with open(os.path.join(self.home, ".claude", "academy.json"), encoding="utf-8") as fh:
+            return json.load(fh)["author"]
+
+
 if __name__ == "__main__":
     unittest.main()

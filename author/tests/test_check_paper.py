@@ -317,6 +317,9 @@ class ConfigValidation(unittest.TestCase):
         for frag in ("notes.lineChars", "notes.enforce", "notes.typed"):
             self.assertIn(frag, text)
         self.assertIn("notes.lineChars", "\n".join(self.probs(notes={"lineChars": True})))
+        self.assertEqual([], self.probs(notes={"maxAge": 0}))
+        self.assertIn("notes.maxAge", "\n".join(self.probs(notes={"maxAge": -1})))
+        self.assertIn("notes.maxAge", "\n".join(self.probs(notes={"maxAge": "14"})))
         self.assertIn("kind must be one of",
                       "\n".join(self.probs(statusLevels=[{"name": "x", "kind": "draft"}])))
 

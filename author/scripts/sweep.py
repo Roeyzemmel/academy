@@ -12,21 +12,26 @@ no judgement, and remembers what was judged:
 **plan** inventories the machine notes (``machine_notes.py``; typed ``\\Claude[kind]{...}``
 or untyped) and sorts the ones that need attention into four lists:
 
-- ``retire``: an ``await`` note whose named ticket (its first ``T-NNNN``) ended with an
-  artefact: ``delivered`` or ``closed`` with a non-empty result. ``action`` is ``delete``,
-  or ``pointer`` when the result reads as a negative or conditional outcome (a GAP,
-  DISPROVED, BROKEN, PLAUSIBLE or MODULO verdict, "refuted", "failed", ...): then
-  ``replacement`` is a short untyped pointer note, ``\\<macro>{T-NNNN <status>: <result>}``
-  within ``author.notes.maxLines``.
+- ``retire``: an ``await`` note every ticket of which (all the ``T-NNNN`` it names) ended
+  with an artefact: ``delivered`` or ``closed`` with a non-empty result
+  (``await_decision``). ``action`` is ``delete`` only when every result is a positive
+  verdict (CONFIRMED or SOUND, any case) with nothing negative or conditional in it (a
+  gap, modulo, broken, plausible, false, fails, not proved, unverified, inconclusive,
+  counterexample, error, wrong, partial, revision, ...) and, for a note that waits on a
+  verification, comes from a verify / review-experiment / referee ticket. A negative or
+  conditional result gives ``pointer``: ``replacement`` is a short untyped note naming
+  that ticket, ``\\<macro>{T-NNNN <status>: <result>}``, within ``author.notes.maxLines``.
+  A result that is neither, or a positive one from a ticket of another kind, is judged.
 - ``move``: a ``prov`` (provenance) note, proposed for removal; its text is first recorded
   where ``record_to`` says: the thread of the ticket it names, or (no ticket named) a
   record ticket on the agenda entry of the nearest label.
 - ``judge``: everything the note-sweeper still decides by its rule (an untyped, ``check``,
-  ``human`` or unknown-kind note; an ``await`` whose ticket was rejected, cancelled or
-  closed without a result, is not on the board, or that names no ticket: said in
-  ``detail``), with ``why``: ``new``, ``ticket moved``, ``context changed`` or ``stale``.
-- ``waiting``: ``await`` notes whose ticket is still live (delivered without a result
-  included: its sender has not landed it): nothing to do, cached as such.
+  ``human`` or unknown-kind note; an ``await`` one of whose tickets was rejected,
+  cancelled or closed without a result, or is not on the board, that names no ticket, or
+  whose results answer nothing: said in ``detail``), with ``why``: ``new``, ``ticket
+  moved``, ``context changed`` or ``stale``.
+- ``waiting``: ``await`` notes one of whose tickets is still live (delivered without a
+  result included: its sender has not landed it): nothing to do, cached as such.
 
 ``human`` lists every ``human`` note of the paper (the weekly review's list), whether or
 not it is to be judged. ``retire``, ``move`` and ``judge`` together are capped at
@@ -37,23 +42,29 @@ nothing to do and nothing deferred records itself at once (``recorded``: true).
 **What is re-read** (the incremental sweep). The state file
 ``<home>/.academy/note-sweep.json`` (``.academy/`` ignores itself: machine-local, never
 committed) keeps the commit of the last complete sweep and a cache of verdicts:
-signature -> {file, kind, ctx, tickets: {id: "status|updated"}, checked}. A sweep reads
+``file|signature|occurrence`` -> {file, kind, ctx, tickets: {id: "status|updated"},
+checked} (identical notes in two places are two entries). A sweep reads
 the tex files changed since that commit (``git diff`` against it, working tree and
 untracked files included), unless ``--full`` or there is no usable recorded commit (then
 every file). In a file that was read, a note is skipped when its cache entry matches: same
 signature (kind and text), same paragraph around it (``context_hash``: a reply written
-next to it brings it back), the same state of every ticket it names, and (with
-``--max-age``) checked within that many days. In a file that was not read, only notes with
-a cache entry that no longer matches come back (their ticket moved, or the entry is stale).
+next to it brings it back), the same state of every ticket it names, and checked within
+``author.notes.maxAge`` days (default 14; 0: forever; ``--max-age`` overrides). In a
+file that was not read, only notes with a cache entry that no longer matches come back
+(their ticket moved, or the entry is stale).
 The whole tex is still parsed, which costs milliseconds; what is saved is the agent's
 reading and judging.
+
+A plan whose predecessor listed work and was never recorded says so in ``warnings`` (and
+its first line ends with ``WARNING: ...``): the agent did not run ``record``.
 
 **record** runs after the agent's pass: every note of the plan's ``judge`` and ``waiting``
 lists still in the tex (minus ``--unjudged`` signatures: the ones the agent did not reach)
 is cached as checked and still open, and so is every new note in a file the plan had work
 in (a note the agent narrowed, or a pointer it left). Entries of notes no longer in the tex
 are dropped. The recorded commit moves to HEAD only when the sweep is complete: nothing
-deferred or unjudged, and every retirement and move applied (its note gone from the tex);
+deferred or unjudged, and every retirement and move applied (its file holds that many
+fewer copies of the note);
 otherwise it stays, so the next sweep reads the same files again and the cache skips what
 was done. The tex files still uncommitted at a complete record (the checkpoint commits the
 sweep's edits after it) are kept by content hash, and are not read again while unchanged.
@@ -83,10 +94,19 @@ import machine_notes as mn  # noqa: E402
 STATE = "note-sweep.json"
 PLAN = "note-sweep-plan.json"
 DEFAULT_LIMIT = 30
-#: a result that reads as a negative or conditional outcome leaves a pointer, not nothing
-RE_NEGATIVE = re.compile(r"\b(GAP|DISPROVED|BROKEN|PLAUSIBLE|MODULO|REFUTED)\b|"
-                         r"(?i:\b(refuted|not confirmed|failed|unfinished|counterexample|"
-                         r"partial|incomplete)\b)")
+#: only a positive verdict deletes an await note (review of 38e8803): CONFIRMED or SOUND,
+#: any case, with nothing negative or conditional anywhere in the result
+RE_POSITIVE = re.compile(r"\b(confirmed|sound)\b", re.IGNORECASE)
+#: a result with any of these leaves a pointer naming its ticket
+RE_NEGATIVE = re.compile(
+    r"\b(gaps?|modulo|broken|plausible|false|fail(s|ed|ing|ure)?|not\s+proved|unproved|"
+    r"unverified|inconclusive|counter-?examples?|errors?|erroneous|wrong|partial(ly)?|"
+    r"revis(e|ed|ion|ions)|disproved?|refuted?|not\s+confirmed|unfinished|incomplete|"
+    r"unsound|doubt(s|ful)?)\b", re.IGNORECASE)
+#: a note that waits on a verification is answered only by a ticket of these kinds
+RE_ASKS_VERIFICATION = re.compile(r"verif|review|re-?check|confirm", re.IGNORECASE)
+VERDICT_KINDS = ("verify", "review-experiment", "referee")
+DEFAULT_MAX_AGE = 14
 ENDED_WITH_ARTEFACT = ("delivered", "closed")
 ENDED_WITHOUT = ("rejected", "cancelled")
 RE_LABEL = re.compile(r"\\label\s*\{([^}]*)\}")
@@ -223,13 +243,19 @@ def parse_home(home, cfg, files=None):
     out, anomalies = [], []
     for rel in (files if files is not None else tex_files(home, cfg)):
         text = _read(home, rel)
-        rows = []
+        rows, nth = [], {}
         for n in mn.scan(text, macros):
             if n.get("body") is None:
                 anomalies.append("%s:%d: a \\%s note whose brace never closes"
                                  % (rel, n["line"], n["macro"]))
                 continue
-            rows.append(entry(rel, text, n, line_chars))
+            e = entry(rel, text, n, line_chars)
+            # the cache key: file, signature and occurrence (identical notes in two places
+            # have two paragraphs, review of 38e8803)
+            k = nth.get(e["sig"], 0)
+            nth[e["sig"]] = k + 1
+            e["key"] = "%s|%s|%d" % (rel, e["sig"], k)
+            rows.append(e)
         out.append((rel, text, rows))
     return out, anomalies
 
@@ -280,6 +306,61 @@ def pointer(macro, tid, status, result, max_lines, line_chars):
     return "\\%s{%s%s}" % (macro, head, "".join(TEX_ESCAPES.get(c, c) for c in res))
 
 
+def await_decision(text, metas):
+    """What to do with an ``await`` note, from every ticket it names (review of 38e8803).
+
+    ``metas`` is ``[(id, meta or None)]`` in the note's order. Returns a dict with
+    ``list`` (``retire`` / ``waiting`` / ``judge``) and, as they apply, ``action``
+    (``delete`` / ``pointer``), ``ticket`` and ``status`` and ``result`` (the ticket the
+    pointer names), ``detail`` (why it is judged):
+
+    1. a ticket not on the board, rejected, cancelled or closed without a result: judge;
+    2. any ticket still live (delivered without a result included): waiting;
+    3. all ended with a result: a negative or conditional result (``RE_NEGATIVE``) on any
+       of them: a pointer naming the first such ticket; a result with no positive verdict
+       (``RE_POSITIVE``), or a positive one from a ticket whose kind does not answer the
+       note (it asks for a verification and the ticket is no ``VERDICT_KINDS``): judge;
+       every one positive: delete.
+    """
+    live = None
+    for tid, m in metas:
+        if m is None:
+            return {"list": "judge", "detail": "%s is not on the board" % tid}
+        status = m.get("status")
+        if status in ENDED_WITHOUT:
+            return {"list": "judge", "detail": "%s was %s" % (tid, status)}
+        if status == "closed" and not _result(m):
+            return {"list": "judge", "detail": "%s was closed without a result" % tid}
+        if not (status in ENDED_WITH_ARTEFACT and _result(m)) and live is None:
+            live = tid
+    if live is not None:
+        return {"list": "waiting", "detail": "%s is live" % live}
+    unclear = []
+    for tid, m in metas:
+        res = _result(m)
+        if RE_NEGATIVE.search(res):
+            return {"list": "retire", "action": "pointer", "ticket": tid,
+                    "status": m.get("status"), "result": res}
+        if not RE_POSITIVE.search(res):
+            unclear.append("%s delivered no verdict (%s)" % (tid, res[:80]))
+        elif RE_ASKS_VERIFICATION.search(text or "") and m.get("kind") not in VERDICT_KINDS:
+            unclear.append("%s is a %s ticket: its result does not answer a verification"
+                           % (tid, m.get("kind") or "kindless"))
+    if unclear:
+        return {"list": "judge", "detail": "; ".join(unclear)}
+    tid, m = metas[0]
+    return {"list": "retire", "action": "delete", "ticket": tid, "status": m.get("status"),
+            "result": "; ".join(_result(x) for _t, x in metas)}
+
+
+def note_max_age(cfg):
+    """``author.notes.maxAge``: days a cached verdict holds (default 14; 0: forever)."""
+    a = (cfg or {}).get("author") if isinstance(cfg, dict) else None
+    notes = (a or {}).get("notes") if isinstance((a or {}).get("notes"), dict) else {}
+    v = notes.get("maxAge")
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else DEFAULT_MAX_AGE
+
+
 def _stale(cached, today, max_age):
     if not max_age:
         return False
@@ -324,7 +405,18 @@ def plan(home, cfg, store, full=False, limit=DEFAULT_LIMIT, max_age=None, today=
                 if rel in changed and _hash(_read(home, rel)) == h:
                     changed.discard(rel)
     max_lines, line_chars = mn.note_limits(cfg)
+    if max_age is None:
+        max_age = note_max_age(cfg)
     ns = str((cfg or {}).get("ns") or "paper")
+    warnings = []
+    try:
+        prev = load_plan(home)
+    except SweepError:
+        prev = None
+    if prev and prev.get("todo") and not prev.get("recorded"):
+        warnings.append("the last plan (%s, todo %s) was not recorded: `sweep.py record` was "
+                        "not run after that sweep, so its verdicts were not cached"
+                        % (prev.get("today"), prev.get("todo")))
     tickets = Tickets(store)
     parsed, anomalies = parse_home(home, cfg)
     retire, move, judge, waiting, human = [], [], [], [], []
@@ -341,7 +433,7 @@ def plan(home, cfg, store, full=False, limit=DEFAULT_LIMIT, max_age=None, today=
             counts["over_max_lines"] += e["lines"] > max_lines
             if e["kind"] == "human":
                 human.append(e)
-            cached = cache.get(e["sig"])
+            cached = cache.get(e["key"])
             if not read and not cached:
                 skipped["unread_file"] += 1
                 continue
@@ -375,20 +467,17 @@ def plan(home, cfg, store, full=False, limit=DEFAULT_LIMIT, max_age=None, today=
                     e["detail"] = "names no ticket"
                     judge.append(e)
                     continue
-                tid = e["tickets"][0]
-                meta = tickets.meta(tid)
-                status = (meta or {}).get("status")
-                res = _result(meta)
-                if status in ENDED_WITH_ARTEFACT and res:
-                    neg = bool(RE_NEGATIVE.search(res))
-                    e.update(action="pointer" if neg else "delete", status=status, result=res,
-                             replacement=pointer(e["macro"], tid, status, res, max_lines,
-                                                 line_chars) if neg else "")
+                dec = await_decision(e["text"], [(t, tickets.meta(t)) for t in e["tickets"]])
+                if dec["list"] == "retire":
+                    e.update(action=dec["action"], status=dec["status"], result=dec["result"],
+                             replacement=pointer(e["macro"], dec["ticket"], dec["status"],
+                                                 dec["result"], max_lines, line_chars)
+                             if dec["action"] == "pointer" else "")
+                    if dec["action"] == "pointer":
+                        e["ticket"] = dec["ticket"]
                     retire.append(e)
-                elif meta is None or status in ENDED_WITHOUT or status == "closed":
-                    e["detail"] = ("%s is not on the board" % tid if meta is None else
-                                   "%s was closed without a result" % tid
-                                   if status == "closed" else "%s was %s" % (tid, status))
+                elif dec["list"] == "judge":
+                    e["detail"] = dec["detail"]
                     judge.append(e)
                 else:
                     waiting.append(e)
@@ -408,10 +497,10 @@ def plan(home, cfg, store, full=False, limit=DEFAULT_LIMIT, max_age=None, today=
          "move": [x for x in move if id(x) in keep],
          "judge": [x for x in judge if id(x) in keep],
          "waiting": waiting, "human": human,
-         "deferred": len(rest), "deferred_sigs": [x["sig"] for x in rest],
+         "deferred": len(rest), "deferred_keys": [x["key"] for x in rest],
          "skipped": skipped, "counts": counts, "anomalies": anomalies,
-         "ticket_states": states,
-         "seen": {rel: [e["sig"] for e in rows] for rel, _t, rows in parsed},
+         "warnings": warnings, "ticket_states": states,
+         "seen": {rel: [e["key"] for e in rows] for rel, _t, rows in parsed},
          "recorded": False}
     p["todo"] = len(taken)
     _write_json(os.path.join(_dir(home), PLAN), p)
@@ -435,10 +524,12 @@ def record(home, cfg, store, unjudged=(), today=None):
     st = load_state(home)
     cache = st["cache"]
     parsed, _anomalies = parse_home(home, cfg)
-    now = {}
+    now, now_sigs, count_now = {}, set(), {}
     for rel, _text, rows in parsed:
         for e in rows:
-            now.setdefault(e["sig"], e)
+            now[e["key"]] = e
+            now_sigs.add(e["sig"])
+            count_now[(rel, e["sig"])] = count_now.get((rel, e["sig"]), 0) + 1
     unj = set(unjudged or ())
     tickets = Tickets(store)
     known = dict(p.get("ticket_states") or {})
@@ -449,32 +540,46 @@ def record(home, cfg, store, unjudged=(), today=None):
         return known[t]
 
     def put(e, states):
-        cache[e["sig"]] = {"file": e["file"], "kind": e["kind"], "ctx": e["ctx"],
+        cache[e["key"]] = {"file": e["file"], "kind": e["kind"], "ctx": e["ctx"],
                            "tickets": states, "checked": day}
 
     cached = narrowed = 0
     for x in (p.get("judge") or []) + (p.get("waiting") or []):
-        if x["sig"] in unj or x["sig"] not in now:
+        k = x.get("key")
+        if x["sig"] in unj or k not in now:
             continue
-        put(now[x["sig"]], x.get("states") or {t: state(t) for t in x["tickets"]})
+        put(now[k], x.get("states") or {t: state(t) for t in x["tickets"]})
         cached += 1
     worked = {x["file"] for x in (p.get("retire") or []) + (p.get("move") or [])
               + (p.get("judge") or [])}
-    seen = {s for sigs in (p.get("seen") or {}).values() for s in sigs}
+    seen = {k for keys in (p.get("seen") or {}).values() for k in keys}
     for rel, _text, rows in parsed:
         if rel not in worked:
             continue
         for e in rows:
-            if e["sig"] in seen or e["sig"] in cache or e["sig"] in unj:
+            if e["key"] in seen or e["key"] in cache or e["sig"] in unj:
                 continue
             put(e, {t: state(t) for t in e["tickets"]})
             narrowed += 1
-    gone = [s for s in cache if s not in now]
-    for s in gone:
-        del cache[s]
-    pending = [{"file": x["file"], "line": x["line"], "sig": x["sig"], "text": x["text"]}
-               for x in (p.get("retire") or []) + (p.get("move") or []) if x["sig"] in now]
-    left = sorted(s for s in unj if s in now)
+    gone = [k for k in cache if k not in now]
+    for k in gone:
+        del cache[k]
+    # a retirement or move is applied when its file holds fewer copies of that note than
+    # the plan saw, by as many as were planned (identical notes counted, not keyed)
+    count_seen, planned = {}, {}
+    for rel, keys in (p.get("seen") or {}).items():
+        for k in keys:
+            sig = k.split("|")[-2] if k.count("|") >= 2 else k
+            count_seen[(rel, sig)] = count_seen.get((rel, sig), 0) + 1
+    for x in (p.get("retire") or []) + (p.get("move") or []):
+        planned.setdefault((x["file"], x["sig"]), []).append(x)
+    pending = []
+    for fs, xs in sorted(planned.items()):
+        left_over = count_now.get(fs, 0) - (count_seen.get(fs, len(xs)) - len(xs))
+        for x in xs[:max(0, left_over)]:
+            pending.append({"file": x["file"], "line": x["line"], "sig": x["sig"],
+                            "text": x["text"]})
+    left = sorted(s for s in unj if s in now_sigs)
     why = []
     if p.get("deferred"):
         why.append("%d note(s) deferred" % p["deferred"])
@@ -493,6 +598,8 @@ def record(home, cfg, store, unjudged=(), today=None):
         st["dirty"] = {rel: _hash(_read(home, rel))
                        for rel in sorted((git_changed(home, head) or set()) & texs)}
     save_state(home, st)
+    p["recorded"] = True
+    _write_json(os.path.join(_dir(home), PLAN), p)
     return {"cached": cached, "narrowed": narrowed, "pruned": len(gone), "pending": pending,
             "unjudged": left, "advanced": advanced, "commit": st.get("commit"),
             "why": "; ".join(why), "cache_size": len(cache)}
@@ -540,6 +647,8 @@ def summary(p):
              " (%s)" % p["reason"] if p["reason"] else "", len(p["human"])))
     if p.get("recorded"):
         s += "; nothing to do: recorded"
+    for w in p.get("warnings") or ():
+        s += "; WARNING: " + w
     return s
 
 
