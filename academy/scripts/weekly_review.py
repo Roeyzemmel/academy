@@ -1102,8 +1102,8 @@ def render(data):
              "(%s real); merges waiting: %d stack tip(s) of %d unmerged branch(es); not "
              "gathered: %d."
              % (c["paper_changes"], c["paper_commits"], c["ready_statements"],
-                c["ready_added_proved"], c["new_attempts"], _dash(c["decisions"]),
-                _dash(c["decisions_real"]), c["merge_tips"], c["merges_unmerged"],
+                c["ready_added_proved"], c["new_attempts"], _dash(c.get("decisions")),
+                _dash(c.get("decisions_real")), c["merge_tips"], c["merges_unmerged"],
                 c["not_gathered"]))
     L += ["", "## 1. Paper changes by section", ""]
     if not data["paper"]:

@@ -1,6 +1,6 @@
 ---
 name: init
-description: 'Create a new academy instance: scaffold the home''s .claude/academy.json, register it in workspace.json, add .gitattributes and a board folder, and for a Researcher the notebook layout. Use for "/academy:init researcher@<domain>", "add a research domain".'
+description: 'Create a new academy instance: scaffold the home''s .claude/academy.json, register it in workspace.json, and for a Researcher the notebook layout. Use for "/academy:init researcher@<domain>", "add a research domain".'
 ---
 
 # Initialise an instance

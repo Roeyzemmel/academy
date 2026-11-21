@@ -686,6 +686,24 @@ class TestReportAndCli(FixtureCase):
             self.assertEqual(git(r, "rev-parse", "HEAD"), heads[r])
 
 
+class TestSkill(unittest.TestCase):
+    def test_fallback_file_takes_until_from_the_page(self):
+        with open(os.path.join(PLUGIN, "skills", "weekly-review", "SKILL.md"),
+                  encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("<board>/weekly/<until>.md", text)
+        self.assertIn("# Weekly review, <since> to <until>", text)
+        md = wr.render({"window": {"since": SINCE, "until": UNTIL}, "generated": UNTIL,
+                        "counts": dict.fromkeys(("paper_changes", "paper_commits",
+                                                 "ready_statements", "ready_added_proved",
+                                                 "new_attempts", "merge_tips",
+                                                 "merges_unmerged", "not_gathered"), 0),
+                        "paper": [], "ready": {"statements": [], "attempts": []},
+                        "decisions": None, "merges": [], "problems": {},
+                        "not_gathered": []})
+        self.assertEqual(md.splitlines()[0], "# Weekly review, %s to %s" % (SINCE, UNTIL))
+
+
 class TestDecisionsItemKind(unittest.TestCase):
     """decisions.py items carry the ticket's or packet's own kind (``item_kind``)."""
 
