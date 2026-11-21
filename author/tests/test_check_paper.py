@@ -112,6 +112,10 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("thm", cp.THEOREM_ENVS)
         self.assertTrue(cp.RE_CLAUDE.search("\\Claude {x}"))
         self.assertTrue(cp.RE_CLAUDE.search("\\cl{x}"))
+        # #110: a typed note, \\Claude[kind]{...}, is a machine note too
+        self.assertTrue(cp.RE_CLAUDE.search("\\Claude[await]{T-0001}"))
+        self.assertTrue(cp.RE_CLAUDE.search("\\Claude [prov] {x}"))
+        self.assertFalse(cp.RE_CLAUDE.search("\\claim{x}"))
         self.assertEqual(cp.COLOUR_COMMANDS, {"\\Sketch{": "sketch",
                                               "\\Conjectural{": "conjectural",
                                               "\\Meta{": "meta"})

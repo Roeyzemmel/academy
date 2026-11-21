@@ -206,7 +206,9 @@ def configure(author: Optional[dict] = None) -> None:
     notes = a.get("noteMacros") if isinstance(a.get("noteMacros"), dict) else {}
     machine = [m.strip().lstrip("\\") for m in (notes.get("machine")
                                                 or DEFAULT_MACHINE_MACROS) if m.strip()]
-    RE_CLAUDE = re.compile(r"\\(%s)\s*\{" % "|".join(re.escape(m) for m in machine))
+    # an optional kind in brackets (#110: \Claude[await]{...}; machine_notes.py)
+    RE_CLAUDE = re.compile(r"\\(%s)\s*(?:\[[^\]\n]*\]\s*)?\{"
+                           % "|".join(re.escape(m) for m in machine))
     MAIN_TEX = str(a.get("main") or DEFAULT_MAIN).replace("\\", "/")
     build = a.get("build") if isinstance(a.get("build"), dict) else {}
     BUILD_DIR = str(build.get("dir") or DEFAULT_BUILD_DIR).replace("\\", "/").rstrip("/")
