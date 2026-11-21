@@ -433,8 +433,10 @@ if (retried) {
 const isCard = card => /\.(md|ya?ml)$/i.test(String(card || '').trim())
 const noCard = !FH && !c.reachable && !isCard(c.card)
 if (FH && !isCard(c.card)) return await stillParked(`the librarian found ${ask.pinpoint || 'the statement'} in what was handed back but names no card (${c.card})`, 'unfinished (on the human)')
-// a hand-back's card must say it was read from the human's material (#108): cards.py checks it
-const expectRead = FH ? ' --expect-read-from human-supplied' : ''
+// a hand-back's card must say it was read from the human's material (#108): cards.py checks it,
+// and it must quote only the records this run made (round 2 of the review): a record's digest shows it
+// unchanged, not who wrote it, so an id the record stage did not return fails the card
+const expectRead = FH ? ` --expect-read-from human-supplied --expect-handback ${handback.ids.join(',')}` : ''
 let v = noCard ? null : await clerk('validate', [`Run cards.py validate ${c.card}${expectRead} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
 if (v && !v.ok) {
   out.notes.push('the card failed validation; sent back to the librarian once: ' + v.errors.join('; '))

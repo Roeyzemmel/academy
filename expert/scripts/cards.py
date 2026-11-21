@@ -6,6 +6,7 @@ verbatim quote. Files in a key folder whose name starts with ``_`` (``_intro.md`
 are notes, not cards.
 
     py cards.py validate [PATH ...] [--home H] [--json] [--strict] [--expect-read-from R]
+                       [--expect-handback ID,...]
     py cards.py new KEY "PINPOINT" --version V --read-from R [--home H] [--quote-file F]
                   [--used-by paper:lem:x,...] [--by expert@main/librarian] [--dry-run]
                   [--handback ID,...] [--status S --status-reason "..."]
@@ -260,6 +261,22 @@ def handback_ids(value):
     return [str(x).strip() for x in items if str(x).strip()]
 
 
+def handback_expected(path, expected):
+    """``validate --expect-handback``: the card names hand-back records, all of them among
+    ``expected`` (the ids this run's record stage returned). A record's digest only shows it
+    is unchanged since written, not who wrote it: this ties the card to this run's records."""
+    try:
+        got = handback_ids(read_card(path)[0].get("handback"))
+    except (OSError, ac.AcademyError, UnicodeDecodeError):
+        got = []
+    if not got:
+        return ["the card names no hand-back record (handback:); expected %s" % (", ".join(expected) or "none")]
+    stray = [i for i in got if i not in expected]
+    if stray:
+        return ["handback names %s, not recorded by this run (expected %s)" % (", ".join(stray), ", ".join(expected) or "none")]
+    return []
+
+
 def _human_lib():
     lib = ex.library()
     if not all(hasattr(lib, n) for n in ("handback_records", "find_quote")):
@@ -278,6 +295,8 @@ def _check_human(home, key, quote, ids):
     lib = _human_lib()
     frags = [p for p in (x.strip(" ,;") for x in RE_ELISION.split(str(quote or ""))) if p]
     base = {"against": None, "missing": frags, "checked": 0, "problems": []}
+    if not frags:               # nothing but elisions: nothing to check, never a vacuous pass
+        return dict(base, status="no-quote")
     recs = lib.handback_records(home, key)
     if not recs:
         return dict(base, status="no-human")
@@ -391,7 +410,9 @@ def _human_findings(qres, key, meta, errors, warnings):
     warning an extraction's lost display gets; a quote no script can check (transcribed from
     a page image) must be said ``status: unverified`` with its reason."""
     st = qres["status"]
-    if st in ("partial", "not-found"):
+    if st == "no-quote":
+        errors.append("the quote is nothing but elisions: no fragment of the human's text to check")
+    elif st in ("partial", "not-found"):
         errors.append("quote not verbatim from what the human handed back (%s): %s" % (
             qres["against"], "; ".join(repr(m[:60]) for m in qres["missing"][:3])))
     elif st == "no-human":
@@ -448,6 +469,8 @@ def cmd_validate(args):
                 rf = None
             if rf != args.expect_read_from:
                 errs = errs + ["read_from is %s, not %s" % (rf, args.expect_read_from)]
+        if args.expect_handback is not None:
+            errs = errs + handback_expected(p, handback_ids(args.expect_handback))
         rows.append({"path": p.replace("\\", "/"), "errors": errs, "warnings": warns,
                      "quote": (q or {}).get("status")})
         if errs or (args.strict and warns):
@@ -647,6 +670,8 @@ def main(argv=None):
     v.add_argument("--json", action="store_true")
     v.add_argument("--strict", action="store_true")
     v.add_argument("--no-text", action="store_true", help="skip the quote check")
+    v.add_argument("--expect-handback", metavar="ID,...",
+                   help="an error unless the card's handback names only these record ids (cite --from-human)")
     v.add_argument("--expect-read-from", choices=READ_FROM,
                    help="an error unless every card was read so (cite --from-human: human-supplied)")
     n = sub.add_parser("new")

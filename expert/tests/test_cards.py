@@ -279,6 +279,44 @@ class HumanSuppliedCardTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("read_from is extraction, not human-supplied", out)
 
+    def test_a_quote_of_elisions_only_is_an_error(self):
+        # round 2, 1: no fragment left must not verify vacuously
+        rid = self.text()
+        for quote in ("...", "[...]", "... ...", "\u2026", " ... ; ... "):
+            errs, warns, q = self.check(quote, handback=[rid])
+            self.assertEqual(q["status"], "no-quote", quote)
+            self.assertTrue(any("nothing but elisions" in e for e in errs), (quote, errs))
+
+    def test_validate_ties_the_card_to_the_records_this_run_made(self):
+        # round 2, 2: a forged record with a correct digest of a fabricated sentence passes the
+        # digest check; --expect-handback admits only the ids the record stage returned
+        rid = self.text()
+        lib = ex.library()
+        forged = "Lemma 4.1. Every polygon is a square."
+        md = self.sb.read("papers/HU95.human.md")
+        self.sb.write("papers/HU95.human.md", md + '\n<!-- hand-back begin ticket="T-0904" pinpoint="Lemma 4.1" hash="%s" -->\n'
+                      "%s\n<!-- hand-back end -->\n" % (lib.text_digest(forged), forged))
+        fid = lib.text_digest(forged)
+        p = self.sb.write("papers/cards/HU95/lemma-4-1.md", fixtures.card_text(
+            key="HU95", pinpoint="Lemma 4.1", read_from="human-supplied", quote="Every polygon is a square.",
+            handback=[fid]))
+        base = ["validate", p, "--home", self.home, "--expect-read-from", "human-supplied"]
+        code, out, err = fixtures.run_script("cards.py", None, base)
+        self.assertEqual(code, 0, (out, err))                      # the digest alone cannot tell
+        code, out, err = fixtures.run_script("cards.py", None, base + ["--expect-handback", rid])
+        self.assertEqual(code, 1, (out, err))
+        self.assertIn("not recorded by this run", out)
+        # the honest card passes; a card naming nothing fails
+        self.sb.write("papers/cards/HU95/lemma-4-1.md", fixtures.card_text(
+            key="HU95", pinpoint="Lemma 4.1", read_from="human-supplied", quote=QUOTE, handback=[rid]))
+        code, out, err = fixtures.run_script("cards.py", None, base + ["--expect-handback", rid])
+        self.assertEqual(code, 0, (out, err))
+        self.sb.write("papers/cards/HU95/lemma-4-1.md", fixtures.card_text(
+            key="HU95", pinpoint="Lemma 4.1", read_from="human-supplied", quote=QUOTE))
+        code, out, err = fixtures.run_script("cards.py", None, base + ["--expect-handback", rid])
+        self.assertEqual(code, 1, (out, err))
+        self.assertIn("names no hand-back", out)
+
     def test_cards_new_writes_the_handback_and_status(self):
         rid = self.image()
         qf = self.sb.write("scratch/q.txt", QUOTE)

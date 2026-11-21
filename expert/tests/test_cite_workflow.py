@@ -282,7 +282,7 @@ class FromHumanTests(unittest.TestCase):
         self.assertIn("fetch no text of the source", lib)
         self.assertIn("found false", lib)
         self.assertIn("--handback " + handback.text_hash(HUMAN_TEXT), lib)
-        self.assertIn("--expect-read-from human-supplied", calls[3]["prompt"])
+        self.assertIn("--expect-read-from human-supplied --expect-handback " + handback.text_hash(HUMAN_TEXT), calls[3]["prompt"])
         up = calls[5]["prompt"]
         self.assertIn("waiting_on []", up)
         self.assertIn("in-progress", up)
@@ -326,6 +326,7 @@ class FromHumanTests(unittest.TestCase):
         self.assertIn("read the pages as images", calls[2]["prompt"])
         self.assertIn("--handback " + FILE_ID, calls[2]["prompt"])
         self.assertIn("--status unverified", calls[2]["prompt"])
+        self.assertIn("--expect-handback " + FILE_ID + " ", calls[3]["prompt"])      # the file record's id
         self.assertIn("p808.png is an image", " ".join(res["notes"]))
 
     def test_a_ticket_not_parked_on_the_human_is_not_started(self):
