@@ -754,6 +754,56 @@ class TestLibrary(McpTestBase):
         with open(os.path.join(self.homes["expert@t"], ".academy", ".gitignore")) as fh:
             self.assertIn("*", fh.read())
 
+    def test_verify_quote_against_what_a_human_supplied(self):
+        # #108: a source no session could read is handed back by a human: a pasted text
+        # (<key>.human.md, one entry per hand-back) or a file (<key>.human/, with any text
+        # extracted from it); the quote is checked against it, as against <key>.txt
+        home = self.homes["expert@t"]
+        write(os.path.join(home, "K3.human.md"),
+              "---\nkey: K3\n---\n\n# K3\n\n"
+              '<!-- hand-back begin ticket="T-0001" date="2026-11-21" pinpoint="Lemma 4.1" -->\n'
+              "Lemma 4.1. Every saddle con-\nnection is the boundary of a cylinder.\n"
+              "<!-- hand-back end -->\n\n"
+              '<!-- hand-back begin ticket="T-0002" date="2026-11-21" pinpoint="p. 9" -->\n'
+              "On page nine the surface is a torus.\n"
+              "<!-- hand-back end -->\n")
+        write(os.path.join(home, "K4.human", "2026-11-21-t-0003-scan.txt"),
+              "Theorem 2. Any two points are finitely blocked.\n")
+        s = self.server("author@t")
+        err, res = s.call("library_verify_quote", key="K3",
+                          quote="Every saddle connection is the boundary of a cylinder.")
+        self.assertFalse(err, res)
+        self.assertTrue(res["match"], res)
+        self.assertIn("K3.human.md", res["source"])
+        self.assertIn("T-0001", res["source"])
+        err, res = s.call("library_verify_quote", key="K3", quote="Every saddle connection is a torus")
+        self.assertFalse(err, res)
+        self.assertFalse(res["match"])
+        # one quote is from one hand-back: a quote spanning two entries is not found
+        err, res = s.call("library_verify_quote", key="K3",
+                          quote="the boundary of a cylinder. On page nine the surface")
+        self.assertFalse(res["match"])
+        # the marker lines and the header are not the human's text
+        err, res = s.call("library_verify_quote", key="K3", quote='hand-back begin ticket="T-0001"')
+        self.assertFalse(res["match"])
+        err, res = s.call("library_verify_quote", key="K4", quote="Any two points are finitely blocked.")
+        self.assertFalse(err, res)
+        self.assertTrue(res["match"], res)
+        self.assertIn("K4.human/2026-11-21-t-0003-scan.txt", res["source"])
+        err, lk = s.call("library_lookup", key="K3")
+        self.assertEqual(lk["human"], ["K3.human.md"])
+        err, lk = s.call("library_lookup", key="K4")
+        self.assertEqual(lk["human"], ["K4.human/2026-11-21-t-0003-scan.txt"])
+        self.assertNotIn("note", lk)            # a key with only a hand-back is in the library
+
+    def test_handbacks_parsed_verbatim(self):
+        text = ('<!-- hand-back begin ticket="T-0001" pinpoint="Lemma \\"4.1\\"" -->\n'
+                "  two\n\nparagraphs  \n<!-- hand-back end -->\n")
+        got = lib.parse_handbacks(text)
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["text"], "  two\n\nparagraphs  ")
+        self.assertEqual(got[0]["attrs"], {"ticket": "T-0001", "pinpoint": 'Lemma "4.1"'})
+
     def test_search_lookup_missing(self):
         s = self.server("author@t")
         err, res = s.call("library_search", query="saddle connections of a cylinder")

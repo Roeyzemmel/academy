@@ -2,8 +2,9 @@
 
 The library home is the Expert instance's home (the ``expert@...`` home of workspace.json): files
 named by bibliography key (``<key>.txt`` extraction, ``<key>.pdf``, ``<key>.src/``,
-``<key>.meta``), ``index.md`` (one table row per cached source) and, once they
-exist, ``cards/<key>/<pinpoint>.md``.
+``<key>.meta``), ``index.md`` (one table row per cached source), once they
+exist ``cards/<key>/<pinpoint>.md``, and what a human read of a source no session
+could reach (``<key>.human.md``, ``<key>.human/``; #108).
 
 Derived state lives in ``<library home>/.academy/`` (created with its own
 ``.gitignore`` of ``*``, so it is ignored whatever the home's git setup):
@@ -208,6 +209,64 @@ def find_quote(text, quote):
 
 
 # ----------------------------------------------------------------------------
+# What a human supplied (#108): a source no session could read, read by a human
+# ----------------------------------------------------------------------------
+#
+# ``<key>.human.md``  the texts a human pasted, one entry per hand-back, verbatim between
+#                     its marker lines (written by the Expert's ``handback.py record``);
+# ``<key>.human/``    the files a human supplied (a PDF, a page image), with the text
+#                     extracted from a PDF beside it (``<name>.txt``).
+# A quote of ``key`` is checked against each entry and each text file on its own: one
+# quote comes from one hand-back.
+
+HUMAN_MD = ".human.md"
+HUMAN_DIR = ".human"
+HUMAN_TEXT_EXT = (".txt", ".md")
+HANDBACK_END = "<!-- hand-back end -->"
+RE_HANDBACK = re.compile(r"^<!-- hand-back begin(?P<attrs>[^\n]*?)-->\n(?P<text>.*?)\n"
+                         + re.escape(HANDBACK_END) + r"[ \t]*$", re.M | re.S)
+RE_HANDBACK_ATTR = re.compile(r'(\w+)="((?:[^"\\]|\\.)*)"')
+
+
+def parse_handbacks(text):
+    """The entries of a ``<key>.human.md``: ``[{"attrs": {name: value}, "text": verbatim}]``."""
+    out = []
+    for m in RE_HANDBACK.finditer(text.replace("\r\n", "\n")):
+        attrs = {k: re.sub(r"\\(.)", r"\1", v) for k, v in RE_HANDBACK_ATTR.findall(m.group("attrs"))}
+        out.append({"attrs": attrs, "text": m.group("text")})
+    return out
+
+
+def human_files(home, key):
+    """Home-relative paths of what a human supplied for ``key`` (the .md first)."""
+    out = []
+    if os.path.isfile(os.path.join(home, key + HUMAN_MD)):
+        out.append(key + HUMAN_MD)
+    d = os.path.join(home, key + HUMAN_DIR)
+    if os.path.isdir(d):
+        out += ["%s%s/%s" % (key, HUMAN_DIR, f) for f in sorted(os.listdir(d))
+                if not f.startswith(".") and os.path.isfile(os.path.join(d, f))]
+    return out
+
+
+def human_texts(home, key):
+    """``[(label, text)]``: each hand-back entry of ``<key>.human.md``, then each text
+    file of ``<key>.human/`` (a .txt or .md: pasted, or extracted from a supplied PDF)."""
+    out = []
+    md = os.path.join(home, key + HUMAN_MD)
+    if os.path.isfile(md):
+        for n, e in enumerate(parse_handbacks(_read(md)), 1):
+            a = e["attrs"]
+            what = ", ".join(x for x in (a.get("ticket"), a.get("date"), a.get("pinpoint")) if x)
+            out.append(("%s%s entry %d (human-supplied%s)" % (key, HUMAN_MD, n, ", " + what if what else ""),
+                        e["text"]))
+    for rel in human_files(home, key):
+        if rel.startswith(key + HUMAN_DIR + "/") and os.path.splitext(rel)[1].lower() in HUMAN_TEXT_EXT:
+            out.append(("%s (human-supplied)" % rel, _read(os.path.join(home, *rel.split("/")))))
+    return out
+
+
+# ----------------------------------------------------------------------------
 # FTS5 index
 # ----------------------------------------------------------------------------
 
@@ -336,7 +395,8 @@ def _lookup(ctx, a):
                                 if f.endswith(".tex"))[:50]
     cards = os.path.join(home, "cards", key)
     out["cards"] = sorted(os.listdir(cards)) if os.path.isdir(cards) else []
-    if not rows and not any(files.values()):
+    out["human"] = human_files(home, key)
+    if not rows and not any(files.values()) and not out["human"]:
         out["note"] = "not in the library (no index row, no cached file)"
     log_access(ctx, home, "library_lookup", key)
     return out
@@ -392,17 +452,22 @@ def _verify_quote(ctx, a):
     if not normalise_quote(quote):
         raise ToolError("quote is required")
     path = os.path.join(home, key + ".txt")
-    if not os.path.isfile(path):
-        raise ToolError("%s.txt is not cached in %s; nothing to verify against" % (key, home))
-    hit = find_quote(_read(path), quote)
+    targets = [("%s.txt (extraction)" % key, _read(path))] if os.path.isfile(path) else []
+    targets += human_texts(home, key)       # what a human supplied (#108)
+    if not targets:
+        raise ToolError("%s.txt is not cached in %s and no text a human supplied is recorded "
+                        "(%s%s, %s%s/); nothing to verify against" % (key, home, key, HUMAN_MD, key, HUMAN_DIR))
     log_access(ctx, home, "library_verify_quote", key)
-    res = {"key": key, "match": hit is not None, "source": "%s.txt (extraction)" % key,
+    res = {"key": key, "match": False, "source": "; ".join(t[0] for t in targets),
            "normalised_quote": normalise_quote(quote)}
-    if hit:
-        res["page"], res["context"] = hit
-    else:
-        res["note"] = ("no whitespace/hyphenation-normalised match in the extraction; "
-                       "the quote is not verified")
+    for label, text in targets:
+        hit = find_quote(text, quote)
+        if hit:
+            res.update(match=True, source=label)
+            res["page"], res["context"] = hit
+            return res
+    res["note"] = ("no whitespace/hyphenation-normalised match in %s; the quote is not verified"
+                   % ("the extraction" if len(targets) == 1 and os.path.isfile(path) else "any of them"))
     return res
 
 
@@ -454,7 +519,8 @@ TOOLS = [
          obj({"query": S, "limit": I, "kind": {"type": "string",
                                                "enum": ["text", "index", "card"]},
               "key": S, "raw": B}, ["query"]), _search),
-    Tool("library_verify_quote", "Check that a quote occurs in <key>.txt, normalising "
+    Tool("library_verify_quote", "Check that a quote occurs in <key>.txt or in what a human "
+         "supplied for it (<key>.human.md, <key>.human/), normalising "
          "whitespace, line-end hyphenation, ligatures and typographic quotes/dashes "
          "(case-sensitive). Access-logged.",
          obj({"key": S, "quote": S}, ["key", "quote"]), _verify_quote),
