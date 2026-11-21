@@ -930,7 +930,13 @@ class FalsifierOnFailureTests(unittest.TestCase):
     def test_a_sentence_that_starts_with_none_is_still_a_gap(self):
         """Review of c4cde59, finding 1: only an item that as a whole says "no gap" is dropped."""
         for t in ("None of the cases k>=3 is handled.", "No gap-free route for n=2 is known.",
-                  "None of the three sublemmas is proved; the bound is unclear."):
+                  "None of the three sublemmas is proved; the bound is unclear.",
+                  # review of 00254bc: text after "in"/"from", and a tail clause that names no id
+                  "None in the family F_k for k>=3 has been checked.",
+                  "None in the argument from its stated inputs, except step 3, which is unproved",
+                  "None from the cylinder case onward is proved",
+                  "None; step 4 is open (no route known)",
+                  "none in the argument; step 4 is still open"):
             for item in (t, self.gap(t, "fix-known", tagged=False)):
                 res, labels, _c = self.run_wf(self.plan(done(gaps=[item]), **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
                 self.assertEqual(res["outcome"], "attempt-incomplete", item)

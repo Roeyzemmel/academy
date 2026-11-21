@@ -576,7 +576,9 @@ const GAP_CLASSES = ['fix-known', 'fix-unclear', 'needs-assumption', 'not-a-gap'
 // the whole item says there is no gap: "None.", "No gaps.", "None in the argument from its
 // stated inputs", optionally "; flat:X is open"; never a sentence that only starts with "None"
 // ("None of the cases k>=3 is handled": review of c4cde59, finding 1)
-const NONE_TEXT = /^\s*(none|no gaps?)(\s+(in|from)\s[^.;]*)?\s*(;[^;]*\b(open|unreviewed|sketch|proved-modulo)\b[^;]*)?\.?\s*$/i
+// closed vocabulary (review of 00254bc): "in the argument / this attempt / the proof", "from its
+// stated inputs", and a tail clause only of the form "; <ns:id> is open|unreviewed|a sketch|proved-modulo"
+const NONE_TEXT = /^\s*(none|no gaps?)(\s+(in|from)\s+(the|this)\s+(argument|attempt|proof)(\s+from\s+its\s+stated\s+inputs)?)?\s*(;\s*[\w-]+:[\w.:-]+\s+is\s+(open|unreviewed|a sketch|proved-modulo))?\.?\s*$/i
 const normGap = g => {
   const x = typeof g === 'string' ? { text: g } : (g || {})
   const text = String(x.text || '').trim()
