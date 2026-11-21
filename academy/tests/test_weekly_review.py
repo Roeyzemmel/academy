@@ -37,7 +37,8 @@ TODAY = datetime.date(2026, 11, 21)
 def git(repo, *args, date=None):
     env = dict(os.environ, **QUIET)
     if date:
-        env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = date + "T12:00:00+00:00"
+        stamp = date if "T" in date else date + "T12:00:00+00:00"
+        env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = stamp
     p = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, env=env,
                        stdin=subprocess.DEVNULL, timeout=60)
     if p.returncode:
@@ -84,7 +85,19 @@ INTRO_1 = ("Intro.\n\\begin{lemma}\\label{lem:a}\nAll is well.\n\\end{lemma}\n"
 INTRO_2 = ("Intro.\n\\begin{lemma}\\label{lem:a}\nAll is well.\n\\end{lemma}\n"
            "\\begin{lemma}\\label{lem:b}\nThe second wording.\n\\end{lemma}\n")
 MAIN_1 = "Main.\n\\begin{theorem}\\label{thm:c}\nBig.\n\\end{theorem}\n"
-MAIN_2 = MAIN_1 + "\\begin{proposition}\\label{prop:d}\nNew one.\n\\end{proposition}\n"
+MAIN_2 = MAIN_1 + ("\\begin{proposition}\\label{prop:d}\nNew one.\n\\end{proposition}\n"
+                   "\\begin{proposition}\\label{prop:g}\nBorn proved.\n\\end{proposition}\n")
+#: lem:e gains only a margin note and a comment (note-only); lem:f loses its label
+EXTRA_1 = ("Extra.\n\\begin{lemma}\\label{lem:e}\nFine.\n\\end{lemma}\n"
+           "\\begin{lemma}\\label{lem:f}\nGone soon.\n\\end{lemma}\n")
+EXTRA_2 = ("Extra.\n\\begin{lemma}\\label{lem:e}\nFine. \\Claude{check {this} later} % a comment\n"
+           "\\end{lemma}\n\\begin{lemma}\nGone soon.\n\\end{lemma}\n")
+
+
+def statements_md(colours):
+    """A generated Drafts/statements.md with one row per (label, colour)."""
+    return "# Statement registry\n\n| label | env | title | colour | proof |\n|---|---|---|---|---|\n" + \
+        "".join("| `%s` | x |  | %s | none |\n" % kv for kv in colours)
 
 ATTEMPT = ("---\nobject: nb:C-1\nattempt: 1\nby: prover\ndate: 2026-11-17\noutcome: complete\n"
            "inputs: [paper:lem:a, C-2, \"a plain input\"]\n---\n\n## Proof\n\nBy lem a.\n")
@@ -125,12 +138,17 @@ class Fixture:
         write(os.path.join(p, ".claude", "academy.json"), json.dumps({
             "schema": 1, "role": "author", "instance": "author@main", "ns": "paper",
             "registry": {"profile": "paper", "root": "claims"},
-            "paths": {"tex": ["main.tex", "sections/*.tex"], "records": "claims"}}))
+            "paths": {"tex": ["main.tex", "sections/*.tex"], "records": "claims"},
+            "author": {"noteMacros": {"machine": ["\\Claude"], "human": ["\\ada"]}}}))
         write(os.path.join(p, "main.tex"), "\\input{sections/intro}\n")
         write(os.path.join(p, "sections", "intro.tex"), INTRO_1)
         write(os.path.join(p, "sections", "main.tex"), MAIN_1)
+        write(os.path.join(p, "sections", "extra.tex"), EXTRA_1)
+        write(os.path.join(p, "Drafts", "statements.md"), statements_md([("thm:c", "conjectural")]))
         for label, st, where in (("lem:a", "sketch", "sections/intro.tex"),
                                  ("lem:b", "sketch", "sections/intro.tex"),
+                                 ("lem:e", "sketch", "sections/extra.tex"),
+                                 ("lem:f", "sketch", "sections/extra.tex"),
                                  ("thm:c", "conjectured", "sections/main.tex")):
             write(os.path.join(p, "claims", "paper", label.replace(":", "__") + ".md"),
                   paper_claim(label, st, where))
@@ -142,14 +160,36 @@ class Fixture:
         write(os.path.join(p, "sections", "main.tex"), MAIN_2)
         write(os.path.join(p, "claims", "paper", "prop__d.md"),
               paper_claim("prop:d", "sketch", "sections/main.tex"))
+        write(os.path.join(p, "claims", "paper", "prop__g.md"),
+              paper_claim("prop:g", "proved", "sections/main.tex"))
+        write(os.path.join(p, "sections", "extra.tex"), EXTRA_2)
+        write(os.path.join(p, "Drafts", "statements.md"), statements_md([("thm:c", "sketch")]))
         self.c["p2"] = commit(p, "the week's paper work", "2026-11-16")
+        # 01:00 at +02:00 on the 21st is the 20th in UTC
+        write(os.path.join(p, "sections", "other.tex"), "Other.\n")
+        self.c["p_tz"] = commit(p, "late at night, east of UTC", "2026-11-21T01:00:00+02:00")
         write(os.path.join(p, "claims", "paper", "thm__c.md"),
               paper_claim("thm:c", "proved", "sections/main.tex"))
         self.c["p3"] = commit(p, "after the window", "2026-11-25")
         # remote-tracking refs, as a fetch would leave them (nothing is fetched)
         git(p, "update-ref", "refs/remotes/origin/main", self.c["p2"])
         git(p, "update-ref", "refs/remotes/origin/2026-11-10/merged-topic/author", self.c["p1"])
+        git(p, "update-ref", "refs/remotes/origin/2026-11-17/stack-low/author", self.c["p_tz"])
         git(p, "update-ref", "refs/remotes/origin/2026-11-18/open-topic/author", self.c["p3"])
+        env = dict(GIT_AUTHOR_DATE="2026-11-19T12:00:00+00:00",
+                   GIT_COMMITTER_DATE="2026-11-19T12:00:00+00:00")
+        old = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        try:
+            self.c["side"] = git(p, "commit-tree", self.c["p2"] + "^{tree}", "-p", self.c["p2"],
+                                 "-m", "a side branch")
+        finally:
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        git(p, "update-ref", "refs/remotes/origin/2026-11-19/side/author", self.c["side"])
         git(p, "update-ref", "refs/remotes/origin/not-a-work-branch", self.c["p3"])
 
     def _notebook(self):
@@ -178,6 +218,8 @@ class Fixture:
               "# Decision\n\n- outcome: `confirmed`\n")
         write(os.path.join(L, "reviews", "nb", "C-1", "2026-11-17-T-0003", "decision.md"),
               "Outcome (decision_table.py): confirmed-modulo\n")
+        write(os.path.join(L, "reviews", "paper", "prop-g", "2026-11-10-T-0004", "decision.md"),
+              "- outcome: `confirmed`\n")
 
     def close(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -277,16 +319,58 @@ class TestDecisionSummary(unittest.TestCase):
 
 
 class TestParseRefs(unittest.TestCase):
-    def test_work_branches_only_with_age(self):
-        text = ("origin/2026-11-18/topic/author\x1f%s\x1f2026-11-18\n"
-                "origin/feature\x1f%s\x1f2026-11-18\n"
-                "origin/main\x1f%s\x1f2026-11-18\n"
-                "origin/HEAD\x1f%s\x1f2026-11-18\n") % ("a" * 40, "b" * 40, "c" * 40, "c" * 40)
+    def test_work_branches_only_with_utc_age(self):
+        # 2026-11-18T23:30:00Z: the 18th in UTC whatever the committer's zone said
+        ts = int(datetime.datetime(2026, 11, 18, 23, 30, tzinfo=datetime.timezone.utc).timestamp())
+        text = ("origin/2026-11-18/topic/author\x1f%s\x1f%d\n"
+                "origin/feature\x1f%s\x1f%d\n"
+                "origin/main\x1f%s\x1f%d\n"
+                "origin/HEAD\x1f%s\x1f%d\n") % ("a" * 40, ts, "b" * 40, ts, "c" * 40, ts,
+                                                "c" * 40, ts)
         rows = wr.parse_refs(text, TODAY)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["branch"], "2026-11-18/topic/author")
         self.assertEqual(rows[0]["sha"], "a" * 40)
+        self.assertEqual(rows[0]["date"], "2026-11-18")
         self.assertEqual(rows[0]["age_days"], 3)
+
+
+class TestStackTips(unittest.TestCase):
+    def test_tips_and_depth(self):
+        rows = [{"branch": "2026-11-01/a/author", "sha": "a"},
+                {"branch": "2026-11-02/b/author", "sha": "b"},
+                {"branch": "2026-11-03/c/author", "sha": "c"},
+                {"branch": "2026-11-04/d/author", "sha": "d"}]
+        # a <- b <- c is one stack; d stands alone
+        unique = {"2026-11-01/a/author": {"a"}, "2026-11-02/b/author": {"a", "b"},
+                  "2026-11-03/c/author": {"a", "b", "c"}, "2026-11-04/d/author": {"d"}}
+        tips = wr.stack_tips(rows, unique)
+        self.assertEqual([(t["branch"], t["depth"], t["ahead"]) for t in tips],
+                         [("2026-11-03/c/author", 3, 3), ("2026-11-04/d/author", 1, 1)])
+
+    def test_two_names_on_one_commit_are_one_tip(self):
+        rows = [{"branch": "2026-11-01/a/author", "sha": "x"},
+                {"branch": "2026-11-02/b/author", "sha": "x"}]
+        unique = {r["branch"]: {"x"} for r in rows}
+        tips = wr.stack_tips(rows, unique)
+        self.assertEqual([(t["branch"], t["depth"]) for t in tips], [("2026-11-02/b/author", 2)])
+        self.assertEqual(tips[0]["same_commit"], ["2026-11-01/a/author"])
+
+
+class TestNotes(unittest.TestCase):
+    def test_strip_note_macros_balanced_and_comments(self):
+        text = "A \\Claude{one {nested} two} B \\ada[x]{y} C % gone\n50\\% stays \\Clauder{kept}"
+        self.assertEqual(wr.strip_notes(text, ["\\Claude", "\\ada"]),
+                         "A  B  C \n50\\% stays \\Clauder{kept}")
+
+    def test_macros_of_config(self):
+        cfg = {"author": {"noteMacros": {"human": ["\\ada"], "machine": ["\\Claude", "\\cl"]}}}
+        self.assertEqual(wr.note_macros(cfg), ["\\Claude", "\\ada", "\\cl"])
+
+    def test_diff_note_only(self):
+        out = wr.diff_records({"a": {"status": "s", "hash": "1", "norm": "n"}},
+                              {"a": {"status": "s", "hash": "2", "norm": "n"}})
+        self.assertEqual(out[0]["changes"], ["note-only"])
 
 
 # ---------------------------------------------------------------------- sections, on git
@@ -296,10 +380,12 @@ class TestRegistryChanges(FixtureCase):
         out = wr.registry_changes(self.fx.ws, SINCE, UNTIL, notes=[])
         paper = next(h for h in out if h["instance"] == "author@main")
         self.assertEqual(paper["base"], self.fx.c["p1"])
-        self.assertEqual(paper["head"], self.fx.c["p2"])
-        self.assertEqual([c["sha"] for c in paper["commits"]], [self.fx.c["p2"]])
+        self.assertEqual(paper["head"], self.fx.c["p_tz"])
+        self.assertEqual([(c["sha"], c["date"]) for c in paper["commits"]],
+                         [(self.fx.c["p_tz"], "2026-11-20"), (self.fx.c["p2"], "2026-11-16")])
         by = {c["qid"]: c for c in paper["changes"]}
-        self.assertEqual(sorted(by), ["paper:lem:a", "paper:lem:b", "paper:prop:d"])
+        self.assertEqual(sorted(by), ["paper:lem:a", "paper:lem:b", "paper:lem:e", "paper:lem:f",
+                                      "paper:prop:d", "paper:prop:g", "paper:thm:c"])
         self.assertEqual(by["paper:lem:a"]["changes"], ["status"])
         self.assertEqual(by["paper:lem:a"]["new_status"], "proved")
         self.assertEqual(by["paper:lem:b"]["changes"], ["reworded"])
@@ -307,8 +393,15 @@ class TestRegistryChanges(FixtureCase):
         self.assertEqual(by["paper:prop:d"]["changes"], ["added"])
         self.assertEqual(by["paper:prop:d"]["section"], "main")
         self.assertEqual(by["paper:prop:d"]["where"], "sections/main.tex:5")
-        # thm:c changed after the window: not here
-        self.assertNotIn("paper:thm:c", by)
+        self.assertEqual(by["paper:lem:e"]["changes"], ["note-only"])
+        # a label gone from the tex: said so, and the old line is not printed
+        self.assertEqual(by["paper:lem:f"]["changes"], ["label-removed"])
+        self.assertEqual(by["paper:lem:f"]["where"], "claims/paper/lem__f.md")
+        # thm:c: recoloured in the window; its status change came after the window
+        self.assertEqual(by["paper:thm:c"]["changes"], ["recoloured"])
+        self.assertEqual((by["paper:thm:c"]["old_colour"], by["paper:thm:c"]["new_colour"]),
+                         ("conjectural", "sketch"))
+        self.assertEqual(by["paper:thm:c"]["new_status"], "conjectured")
 
     def test_notebook_home_status_change(self):
         out = wr.registry_changes(self.fx.ws, SINCE, UNTIL, notes=[])
@@ -328,22 +421,40 @@ class TestRegistryChanges(FixtureCase):
         self.assertNotIn("author@main", [h["instance"] for h in out])
         self.assertTrue(any("author@main" in n for n in notes))
 
+    def test_shallow_clone_without_base_is_noted(self):
+        shallow = os.path.join(self.fx.tmp, "shallow-nb")
+        git(self.fx.tmp, "clone", "-q", "--depth", "1", "file://" + self.fx.nb.replace("\\", "/"),
+            shallow)
+        ws = json.loads(json.dumps(self.fx.ws))
+        ws["instances"]["researcher@r1"]["home"] = shallow
+        notes = []
+        wr.registry_changes(ws, SINCE, UNTIL, notes=notes)
+        self.assertTrue(any("researcher@r1" in n and "shallow" in n for n in notes), notes)
+
 
 class TestReady(FixtureCase):
-    def test_became_positive_with_pass(self):
+    def _ready(self):
         changes = wr.registry_changes(self.fx.ws, SINCE, UNTIL, notes=[])
-        ready = wr.ready_to_read(self.fx.ws, changes, SINCE, UNTIL, notes=[])
+        return wr.ready_to_read(self.fx.ws, changes, SINCE, UNTIL, notes=[])
+
+    def test_transitions_apart_from_added_proved(self):
+        ready = self._ready()
         by = {r["qid"]: r for r in ready["statements"]}
         self.assertEqual(sorted(by), ["nb:C-1", "paper:lem:a"])
         self.assertEqual(by["paper:lem:a"]["pass"], "2026-11-15-T-0002")
+        self.assertEqual(by["paper:lem:a"]["pass_date"], "2026-11-15")
+        self.assertFalse(by["paper:lem:a"]["pass_before_window"])
         self.assertEqual(by["paper:lem:a"]["outcome"], "confirmed")
         self.assertTrue(by["paper:lem:a"]["decision"].endswith(
             "reviews/paper/lem-a/2026-11-15-T-0002/decision.md"))
         self.assertEqual(by["nb:C-1"]["outcome"], "confirmed-modulo")
+        added = {r["qid"]: r for r in ready["added_proved"]}
+        self.assertEqual(sorted(added), ["paper:prop:g"])
+        self.assertEqual(added["paper:prop:g"]["pass_date"], "2026-11-10")
+        self.assertTrue(added["paper:prop:g"]["pass_before_window"])
 
     def test_new_attempts_with_inputs_and_their_status(self):
-        changes = wr.registry_changes(self.fx.ws, SINCE, UNTIL, notes=[])
-        ready = wr.ready_to_read(self.fx.ws, changes, SINCE, UNTIL, notes=[])
+        ready = self._ready()
         self.assertEqual(len(ready["attempts"]), 1)
         a = ready["attempts"][0]
         self.assertEqual(a["path"], "proofs/C-1/attempt-1.md")
@@ -356,16 +467,84 @@ class TestReady(FixtureCase):
 
 
 class TestMerges(FixtureCase):
-    def test_unmerged_work_branches(self):
+    def test_stack_tips_of_unmerged_work_branches(self):
         notes = []
-        out = wr.merges_waiting(self.fx.ws, self.fx.ws_path, today=TODAY, notes=notes)
+        out = wr.merges_waiting(self.fx.ws, self.fx.ws_path, today=datetime.date(2026, 11, 30),
+                                notes=notes)
         by = {r["repo"]: r for r in out}
-        self.assertEqual([b["branch"] for b in by["paperhome"]["branches"]],
-                         ["2026-11-18/open-topic/author"])
-        b = by["paperhome"]["branches"][0]
-        self.assertEqual(b["sha"], self.fx.c["p3"])
-        self.assertEqual(b["age_days"], -4)                # committed 2026-11-25, after TODAY
-        self.assertEqual(by["nbhome"]["branches"], [])
+        paper = by["paperhome"]
+        self.assertEqual(paper["unmerged"], 3)
+        tips = {t["branch"]: t for t in paper["tips"]}
+        self.assertEqual(sorted(tips), ["2026-11-18/open-topic/author", "2026-11-19/side/author"])
+        top = tips["2026-11-18/open-topic/author"]
+        self.assertEqual((top["sha"], top["depth"], top["ahead"]), (self.fx.c["p3"], 2, 2))
+        self.assertEqual(top["age_days"], 5)
+        self.assertEqual(tips["2026-11-19/side/author"]["age_days"], 11)
+        # the lower branch is dated in UTC (the 20th), not the committer's 21st
+        low = next(b for b in paper["branches"] if b["branch"] == "2026-11-17/stack-low/author")
+        self.assertEqual(low["date"], "2026-11-20")
+        self.assertEqual(by["nbhome"]["tips"], [])
+        self.assertTrue(any("review state" in n for n in notes))
+
+
+class TestNoGit(FixtureCase):
+    def test_missing_git_is_named_not_a_crash(self):
+        empty = os.path.join(self.fx.tmp, "empty-bin")
+        os.makedirs(empty, exist_ok=True)
+        old = os.environ["PATH"]
+        os.environ["PATH"] = empty
+        try:
+            data = wr.gather(self.fx.ws, self.fx.ws_path, SINCE, UNTIL, today=TODAY,
+                             board=self.fx.board, problems=False)
+        finally:
+            os.environ["PATH"] = old
+        self.assertEqual(data["paper"], [])
+        self.assertTrue(any("merges" in n for n in data["not_gathered"]))
+        self.assertTrue(any("registry changes not gathered" in n for n in data["not_gathered"]))
+
+
+class TestBoardProblems(unittest.TestCase):
+    def test_delivered_without_result_and_parked(self):
+        metas = [
+            {"id": "T-0001", "status": "delivered", "result": "", "to": "expert@main",
+             "title": "Empty", "updated": "2026-11-15"},
+            {"id": "T-0002", "status": "delivered", "result": "done", "updated": "2026-11-15"},
+            {"id": "T-0003", "status": "blocked", "waiting_on": ["human"], "updated": "2026-11-16",
+             "title": "Needs a call"},
+            {"id": "T-0004", "status": "blocked", "waiting_on": ["T-0002"], "updated": "2026-10-01"},
+            {"id": "T-0005", "status": "blocked", "waiting_on": ["expert@main"],
+             "updated": "2026-11-20"},
+            {"id": "T-0006", "status": "open"},
+        ]
+        out = wr.ticket_problems(metas, SINCE, UNTIL)
+        self.assertEqual([r["id"] for r in out["delivered_no_result"]], ["T-0001"])
+        self.assertEqual(out["parked"]["count"], 3)
+        self.assertEqual(out["parked"]["new"], 2)
+        self.assertEqual(out["parked"]["by_wait"], {"human": 1, "instance": 1, "ticket": 1})
+
+    def test_error_classes_need_a_repo(self):
+        notes = []
+        self.assertIsNone(wr.error_classes({"instances": {}}, SINCE, UNTIL, notes))
+        self.assertTrue(any("errors.repo" in n for n in notes))
+
+    def test_error_classes_new_in_window(self):
+        issues = [{"number": 3, "title": "a", "state": "open", "created_at": "2026-11-15T10:00:00Z"},
+                  {"number": 2, "title": "b", "state": "open", "created_at": "2026-11-01T10:00:00Z"},
+                  {"number": 1, "title": "c", "state": "closed", "created_at": "2026-11-16T10:00:00Z"}]
+        out = wr.error_classes({"errors": {"repo": "o/n"}}, SINCE, UNTIL, [],
+                               lister=lambda repo: issues)
+        self.assertEqual(out["open"], 2)
+        self.assertEqual([i["number"] for i in out["new"]], [3, 1])
+
+
+class TestRefutation(unittest.TestCase):
+    def test_line_found(self):
+        body = "## Ask\n\nRun it.\n\n- What would refute it: a surface with two cylinders.\n"
+        self.assertEqual(wr.refutation_line(body), "What would refute it: a surface with two cylinders.")
+
+    def test_goal_line_as_fallback_and_none(self):
+        self.assertEqual(wr.refutation_line("Goal:   a falsifier\n"), "Goal:   a falsifier")
+        self.assertIsNone(wr.refutation_line("nothing here"))
 
 
 class TestProblems(FixtureCase):
@@ -430,7 +609,8 @@ class TestDecisionsFromBoard(FixtureCase):
         b = self.fx.board
         bd.create_ticket(b, "human", "Run the search", "Run the search?", "a result",
                          kind="experiment", as_instance="author@main", workspace=self.fx.ws,
-                         date="2026-11-16", budget={"runs": 1})
+                         date="2026-11-16", budget={"runs": 1},
+                         detail="What would refute it: two cylinders of equal modulus.")
         bd.create_ticket(b, "human", "Merge the fix", "Merge it?", "a merge", kind="code",
                          as_instance="author@main", workspace=self.fx.ws, date="2026-11-16",
                          budget={"runs": 1})
@@ -439,6 +619,8 @@ class TestDecisionsFromBoard(FixtureCase):
         self.assertEqual(s["total"], 2)
         self.assertEqual(s["routine"], 1)
         self.assertEqual([i["title"] for i in s["real"]["experiment"]], ["Run the search"])
+        self.assertEqual(s["real"]["experiment"][0]["refutes"],
+                         "What would refute it: two cylinders of equal modulus.")
         self.assertEqual(notes, [])
 
     def test_unreadable_board_is_noted(self):
@@ -462,8 +644,18 @@ class TestReportAndCli(FixtureCase):
             self.assertIn(head, md)
         self.assertIn("`paper:lem:b`", md)
         self.assertIn("sections/intro.tex:5", md)
+        self.assertIn("label removed from tex", md)
+        self.assertIn("note-only", md)
+        self.assertIn("conjectural -> sketch", md)
         self.assertIn("2026-11-18/open-topic/author", md)
+        self.assertNotIn("2026-11-17/stack-low/author", md.split("## 4.")[1].split("## 5.")[0])
         self.assertIn("problems not gathered (--no-problems)", md)
+        self.assertIn("Added already proved", md)
+        self.assertIn("2026-11-10 (before the window)", md)
+        self.assertIn("as of %s, not as of --until" % TODAY.isoformat(), md)
+        ng = md.split("## Not gathered")[1]
+        for gap in ("coloured diff", "review state", "error-class"):
+            self.assertIn(gap, ng)
 
     def test_cli_json_and_out(self):
         out_md = os.path.join(self.fx.tmp, "out", "week.md")
@@ -477,8 +669,11 @@ class TestReportAndCli(FixtureCase):
         self.assertEqual(data["window"], {"since": SINCE, "until": UNTIL})
         for key in ("paper", "ready", "decisions", "merges", "problems", "not_gathered"):
             self.assertIn(key, data)
-        self.assertEqual(data["counts"]["paper_changes"], 3)
+        self.assertEqual(data["counts"]["paper_changes"], 7)
         self.assertEqual(data["counts"]["ready_statements"], 2)
+        self.assertEqual(data["counts"]["ready_added_proved"], 1)
+        self.assertEqual(data["counts"]["merge_tips"], 2)
+        self.assertIn("tickets", data["problems"])
         with open(out_md, encoding="utf-8") as fh:
             self.assertIn("# Weekly review", fh.read())
 
