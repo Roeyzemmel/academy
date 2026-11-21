@@ -17,6 +17,7 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `render_packets.py` | review, deep-dive | `[--out FILE] [--all]` (dashboard; default `<board>/.render/review.html`) · `--deep-dive FILE.json [--bundle GATHERED.json] [--kind K] [--out FILE]` (default `<board>/deep-dives/<id>.html`; FILE is the explainer's `{"sections": [...]}`, laid over the gathered bundle) |
 | `gather_deep_dive.py` | deep-dive | `SUBJECT [--kind K] [--out FILE] [--depth N]` |
 | `deep_dive_index.py` | deep-dive, review | `id SUBJECT` · `get ID` (exit 1 if none) · `set ID --url U [--kind K] [--title T] [--subject S]` · `path ID` · `list` |
+| `weekly_review.py` | weekly-review | `[--since YYYY-MM-DD] [--until YYYY-MM-DD] [--ref REF] [--json] [--out FILE] [--no-problems]` (read-only; the week's paper changes, statements ready to read, pending decisions, unmerged work branches and problems, as markdown or JSON; never publishes) |
 | `init_instance.py` | init | `<role>@<name> --home PATH --domain D [--domain D2] [--ns NS] [--expert I] [--scientist I] [--no-board] [--force] [--dry-run]` |
 | `usage_report.py` | usage, usage-analyst, desk | `[--days 7\|--since YYYY-MM-DD] [--max-subagents 12] [--json\|--brief]` |
 | `maintain.py` | maintain | `survey [--days 7] [--json] [--no-probes]` (candidates for a round: ledger families, daily commands over the time or size budget, unreadable definitions, worktrees left) · `union --base B --branches B1 B2 ... [--json]` (the branches merged in a throwaway worktree and gated together; exit 1 on a conflict or a failed gate) |

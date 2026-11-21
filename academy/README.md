@@ -36,5 +36,6 @@ Shared references beside it: `references/registry.md` (the `lab` / `paper` recor
 | /academy:status | Health of the academy as a whole: per instance, whether its home exists and .claude/academy.json is valid and matches workspace.json, plus ticket and packet counts. Use for "academy status", "is everything configured". Per role: /<role>:status. |
 | /academy:status-vocabulary | The one mapping between draft colours, registry claim statuses, and review verdict words (CONFIRMED / PLAUSIBLE / GAP / DISPROVED; SOUND / SOUND MODULO / GAP / BROKEN). Use whenever a status, colour or verdict is written, read or proposed. |
 | /academy:usage | Report Claude Code usage by instance, role and agent (turns, cache, models, limit failures) for a session or window; --weekly files a usage packet. Use for "usage this week", "how much did that run cost", "did we hit the limit". |
+| /academy:weekly-review | One private weekly page: paper changes, statements ready, real decisions, merges, problems. |
 
 <!-- skills:end -->
