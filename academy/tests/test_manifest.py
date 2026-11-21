@@ -217,5 +217,23 @@ class CliTests(Base):
         self.assertEqual(code, 1)
 
 
+class PidProbeTests(unittest.TestCase):
+    """os.kill(pid, 0) is no probe on Windows (signal 0 is CTRL_C_EVENT): it is never called
+    there, and the claim's age decides; elsewhere it still tells a dead pid."""
+    def test_windows_never_signals(self):
+        from academy_common import _manifest as mf
+        with mock.patch.object(mf.os, "name", "nt"), \
+                mock.patch.object(mf.os, "kill", side_effect=AssertionError("os.kill called on Windows")):
+            self.assertTrue(mf._mf_pid_alive(12345))
+
+    def test_posix_tells_a_dead_pid(self):
+        from academy_common import _manifest as mf
+        if os.name == "nt":
+            self.skipTest("POSIX only")
+        with mock.patch.object(mf.os, "kill", side_effect=ProcessLookupError):
+            self.assertFalse(mf._mf_pid_alive(12345))
+        self.assertTrue(mf._mf_pid_alive(os.getpid()))
+
+
 if __name__ == "__main__":
     unittest.main()
