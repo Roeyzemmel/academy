@@ -141,6 +141,50 @@ returns `null` at once, so each caller's "returned nothing" path ends the run qu
 `stopped` naming it. A script cannot read the reset time (the agent's error is not
 passed to it): the session's own error names it, and a scheduled run resumes after it.
 
+## Pinned code
+
+A run of `inbox.js` or `workplan.js` reads its code from a pin (#97, 2026-11-21): until
+then a merge, a branch switch or a `ship.py publish` in the academy checkout during a run
+changed the scripts and nested workflows it read half-way, and merges waited for runs to
+end. Both scripts carry the same `Code pin` block (pinned identical by
+`academy/tests/test_workflow_code_pin.py`):
+
+- **The pin stage**, the run's first (after the models lookup when `args.models` is not
+  given): one `general-purpose` stage at tier `base` runs `py <args.root>/academy/scripts/run_pin.py
+  start --label <run> --json`. It takes a detached `git worktree` of the checkout's HEAD at
+  `<main checkout>/.worktrees/run-<sha12>` (reused for the same commit; the folder ignores
+  itself) and writes a live marker `.worktrees/live/<run>.json`. Every script command of the
+  run and every nested workflow (`scriptPath` and `args.root`) then uses that root, and so
+  do the `for_main` hand-backs (their `args.root`). The result says what ran: `out.code =
+  {sha, root, pinned, run, why, ended}`.
+- **The end**: an `unpin` stage (`run_pin.py end --run <run>`) on every way out of the run,
+  a return or a throw (the run's body sits in a `try`, its `finally` ends the pin), tried
+  even after a usage limit stopped the launches. A run that died leaves its marker: it is
+  stale after `RUN_MAX_HOURS` (12) or, on Linux, as soon as the session process that ran
+  the pin stage is gone.
+- **Clean-up** at each `start`: a pin no live marker uses whose last use is older than
+  `KEEP_DAYS` (2) is removed (`git worktree remove`). The grace keeps a finished run's pin
+  for its hand-backs; the pin of the commit being started is never removed.
+- **Given, nested, off.** `args.code` (the object `start --json` printed) is a pin the
+  caller made and ends: the run uses it and runs no stage (workplan.js passes its pin to the
+  inbox it nests this way). A nested run (`nested: true`) never pins: it runs on the root it
+  was given. `pin: false` runs on the live checkout. A pin stage that returns no pin is a
+  note (`code not pinned: ...`), never a failed run.
+- **What is not pinned.** The top-level script is the file the skill's `scriptPath` names,
+  read by the Workflow tool when the run starts. The agent definitions, hooks, skills and
+  the MCP server come from where the plugins are installed: the plugin cache is already a
+  copy at a version, but a plugin loaded from the checkout itself changes with it. An
+  agent that runs a script by its plugin path (not a path the stage prompt gives) reads the
+  installed copy. Uncommitted changes of the checkout are not in the pin (`start` counts
+  them, and the run notes them). A checkout that is no git repository (the plugin cache)
+  is run as it is (`pinned: false`).
+- **Scripts in a pin read the pin.** The library's `repo_root()` answers the pin for a
+  package inside one, whatever `ACADEMY_ROOT` says, and `load_workspace` also looks for
+  `workspace.json` beside the checkout the pin was taken from.
+- `ship.py merge` and `publish` warn when a run is live on the repo (`run_pin.py live`),
+  naming the run, its age and its commit; they refuse nothing. `ship.py status` never lists
+  a pin as work (`--all` marks it `run pin`).
+
 ## Shipping is a step of the workflow, not a habit of the session
 
 A workflow that changes files ends by shipping them, in code: the inbox's `--check` runs
