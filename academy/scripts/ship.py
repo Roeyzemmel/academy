@@ -661,6 +661,10 @@ def gate_dir():
     d = os.environ.get("SHIP_GATE_DIR")
     if d:
         return d
+    # run from a workflow run's pin (#97): the pin's gate, never the live checkout's
+    rp = _run_pin()
+    if rp and rp.is_pin_path(ACADEMY_REPO):
+        return os.path.join(ACADEMY_REPO, "author", "scripts")
     return os.path.join(os.environ.get("ACADEMY_ROOT") or os.path.join(ROOT, "academy"), "author", "scripts")
 
 
