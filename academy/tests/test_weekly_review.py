@@ -87,7 +87,7 @@ MAIN_1 = "Main.\n\\begin{theorem}\\label{thm:c}\nBig.\n\\end{theorem}\n"
 MAIN_2 = MAIN_1 + "\\begin{proposition}\\label{prop:d}\nNew one.\n\\end{proposition}\n"
 
 ATTEMPT = ("---\nobject: nb:C-1\nattempt: 1\nby: prover\ndate: 2026-11-17\noutcome: complete\n"
-           "inputs: [paper:lem:a, \"a plain input\"]\n---\n\n## Proof\n\nBy lem a.\n")
+           "inputs: [paper:lem:a, C-2, \"a plain input\"]\n---\n\n## Proof\n\nBy lem a.\n")
 
 
 class Fixture:
@@ -349,7 +349,9 @@ class TestReady(FixtureCase):
         self.assertEqual(a["path"], "proofs/C-1/attempt-1.md")
         self.assertEqual(a["object"], "nb:C-1")
         self.assertEqual(a["outcome"], "complete")
+        # a bare id is the home's own namespace's
         self.assertEqual(a["inputs"], [{"ref": "paper:lem:a", "status": "proved"},
+                                       {"ref": "C-2", "status": "conjectured"},
                                        {"ref": "a plain input", "status": None}])
 
 
@@ -392,7 +394,7 @@ class TestProblems(FixtureCase):
                      "fix": "f"} for i in range(12)], "counts": {"ticket-waiting-done": 12},
                     "not_audited": ["x: home missing"]}), ""
             if argv[1] == rl:
-                return 0, json.dumps({"rows": [{"key": "Ab12", "read": "Thm 2"}],
+                return 0, json.dumps({"rows": [{"key": "Ab12", "read": "Thm 2", "tried": "x" * 500}],
                                       "could_not_read": []}), ""
             if cwd == self.fx.paper:
                 return 0, json.dumps({"items": [{"kind": "stale", "qid": "paper:lem:a",
@@ -405,6 +407,7 @@ class TestProblems(FixtureCase):
         self.assertEqual(len(out["audit"]["top"]), wr.TOP)
         self.assertEqual(out["audit"]["counts"], {"ticket-waiting-done": 12})
         self.assertEqual(out["reading_list"]["count"], 1)
+        self.assertEqual(out["reading_list"]["top"], [{"key": "Ab12", "read": "Thm 2"}])
         self.assertEqual(out["stale"]["count"], 1)
         self.assertEqual(out["stale"]["top"][0]["qid"], "paper:lem:a")
         # the notebook home's stale run failed: named, not dropped

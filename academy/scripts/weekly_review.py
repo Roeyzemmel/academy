@@ -486,7 +486,10 @@ def new_attempts(ws, since, until, statuses, notes, ref="HEAD"):
                 for ref_ in inputs:
                     ref_ = str(ref_)
                     q = RE_QID.match(ref_)
-                    st = statuses.get(q.group(1), {}).get(q.group(2)) if q else None
+                    if q and q.group(1) in statuses:
+                        st = statuses[q.group(1)].get(q.group(2))
+                    else:                   # a bare id: the home's own namespace's
+                        st = statuses.get(inst.get("ns"), {}).get(ref_.strip())
                     rows.append({"ref": ref_, "status": st or None})
                 out.append({"instance": name, "path": path.strip(),
                             "object": obj or "%s:%s" % (inst.get("ns"), m.group(1)),
@@ -642,7 +645,10 @@ def gather_problems(ws, ws_path, notes, tools=None, run=None):
         d = _json_of("reading_list", run, [sys.executable, path, "--json"] + wsarg, notes)
         if isinstance(d, dict):
             rows = d.get("rows") or []
-            out["reading_list"] = {"count": len(rows), "top": rows[:TOP],
+            keep = ("ticket", "key", "title", "read", "for")
+            out["reading_list"] = {"count": len(rows),
+                                   "top": [{k: r.get(k) for k in keep if k in r}
+                                           for r in rows[:TOP] if isinstance(r, dict)],
                                    "could_not_read": len(d.get("could_not_read") or [])}
     else:
         notes.append("reading_list: the reading list (%s) is not present in this checkout"
@@ -731,6 +737,11 @@ def gather(ws, ws_path, since, until, today=None, board=None, problems=True, ref
 
 # --------------------------------------------------------------------------------- render
 
+def _clip(text, n):
+    text = " ".join(str(text).split())
+    return text if len(text) <= n else text[:n - 3] + "..."
+
+
 def _short(sha):
     return (sha or "")[:10] or "-"
 
@@ -796,7 +807,8 @@ def render(data):
     if not at:
         L.append("None.")
     for a in at:
-        ins = ", ".join("%s (%s)" % (i["ref"], i["status"] or "?") for i in a["inputs"]) or "none"
+        ins = ", ".join("%s (%s)" % (_clip(i["ref"], 80), i["status"] or "?")
+                        for i in a["inputs"]) or "none"
         L.append("- `%s` %s (%s, %s): inputs %s" % (a["object"], a["path"], a["outcome"] or "?",
                                                     a["date"], ins))
     L += ["", "## 3. Decisions", ""]
@@ -838,7 +850,8 @@ def render(data):
             continue
         L.append("- %s: %d." % (head, v["count"]))
         for row in v["top"]:
-            L.append("  - " + "; ".join("%s" % x for x in row.values() if x not in (None, "")))
+            L.append("  - " + "; ".join(_clip(x, 120) for x in row.values()
+                                        if x not in (None, "")))
     L += ["", "## Not gathered", ""]
     L += ["- " + n for n in data["not_gathered"]] or ["Nothing: every source was read."]
     L.append("")
