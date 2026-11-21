@@ -7,7 +7,7 @@ description: 'Add or verify a citation through the librarian, the only route int
 
 `$ARGUMENTS` is a DOI, an arXiv id, a bib key or a paper's title, optionally with the
 pinpoint wanted and the sentence of the paper (or the claim id) that will rely on it; or a
-`cite` ticket id (`T-NNNN`). Run it from the library home. Budget: one librarian run, plus
+`cite` ticket id (`T-NNNN`); or `--from-human <ticket> <file|text>` (below). Run it from the library home. Budget: one librarian run, plus
 at most one retry of a run that returned nothing and one fix (`academy/references/budget.md`).
 
 The bibliography gate refuses an edit to a `references.bib` from anyone but the librarian.
@@ -33,6 +33,34 @@ docs/workflows.md):
    `<key>, <pinpoint>, verdict <v>, card <path>`.
 
 The librarian's fetches stay on the allowlist of sources (`scripts/source_guard.py`).
+
+## A human's hand-back: `--from-human <ticket> <file|text>`
+
+A `cite` ticket whose source no session could read is parked on the human (`blocked`,
+`waiting_on [human]`, reason "source unreachable from this session: <key>; a human with
+access reads <what> for <relying>"). The human resumes it with what they read:
+
+- `<file>`: a PDF or a page image, a path inside the workspace (or one of its homes). Pass
+  it when the rest of `$ARGUMENTS` names an existing file: `from_human: {file: "<absolute path>"}`.
+- `<text>`: anything else is the quoted statement, passed **exactly as the human wrote it**
+  (no cleaning, no reflowing): `from_human: {text: "<the human's words>"}`.
+
+Run the same workflow with `args: {models, root, ticket: "T-NNNN", from_human: {...}}`
+(and `ref: "<key>"` only when the park reason names no bib key). In code:
+1. the ticket is read, not moved: one not parked on the human is `not-started`;
+2. the material is recorded in the library by `scripts/handback.py`: a text as an entry of
+   `<key>.human.md`, refused unless it hashes to what the human gave (written again once);
+   a file copied into `<key>.human/`, a PDF's text extracted beside it;
+3. one `librarian` run writes the card from that material alone, `read_from:
+   human-supplied`, the quote verbatim from it (from a page image: transcribed, and the
+   card says so); `cards.py validate --expect-read-from human-supplied` checks it, with
+   one fix (a quote not in the human's text is an error);
+4. the packet, then the ticket unparked (`blocked -> in-progress`, `waiting_on` cleared)
+   and delivered.
+
+Material that does not hold the pinpoint (another page, cut off, unreadable) writes no
+card: the ticket stays parked, with a thread line saying exactly what is still missing
+(`outcome: still missing (on the human)`, `gate.missing`). Tell the human that line.
 
 ## What comes back, and what to do with it
 
