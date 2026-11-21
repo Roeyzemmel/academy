@@ -19,21 +19,27 @@ Two checks stand between a record and GitHub, and posting cannot skip either:
   shape (a word whose ``_``-parts are all in ``VOCAB``, a placeholder ``<n> <q> <path>
   <claim> <id> <host> <instance> <redacted>``, punctuation) and its tool is made of
   ``VOCAB`` words; otherwise as ``<tool>: (unlisted family <hash>)`` (the tool as
-  ``unlisted`` when it fails too). ``VOCAB`` is a fixed list of generic words: a person's
+  ``unlisted`` when it fails too), the hash taken of its ``skeleton`` (every non-``VOCAB``
+  token as ``<w>``), so it cannot confirm a guess of the private words. ``VOCAB`` is a fixed list of generic words: a person's
   name, a slug or a search term is not in it, so a family carrying one is unlisted;
 - ``Gate``: the only transport this module writes through. Every title, body, comment and
   label passes ``check_public`` (the same token rule over the whole text, plus dates,
   numbers, hex hashes and the comment markers) or raises ``Unsafe`` and nothing is sent.
+  A label is one of this module's (``Gate.OURS``) or already on the issue (a maintainer's,
+  passed through).
 
 One issue per family, labelled ``error-family``, found by the hidden marker ``<!--
 family:<hash> -->`` (``hash``: the first 12 hex digits of the sha1 of the posted family).
 The body is a table (tool, family, occurrences, first and last seen, the code of the last
 one, roles) and the same fields as hidden JSON (``<!-- error-family {...} -->``). Each
 sync adds one comment: the new count, the date span, counts by role and by cause, and the
-occurrences as hidden rows ``[time, role, cause, rev, ver]`` (``<!-- occurrences [...]
--->``); a resolve or settle adds ``<!-- resolves [...] -->`` rows ``{at, by, commit,
+occurrences as hidden rows ``[day, role, cause, rev, ver]`` (``<!-- occurrences [...]
+-->``, the day without its time); a resolve or settle adds ``<!-- resolves [...] -->`` rows ``{at, by, commit,
 version}``, so ``records_of`` rebuilds the records ``error_ledger.report`` reads (one
-"class" per family; with no session id, sessions count as one).
+"class" per family; with no session id, sessions count as one). Only comments by the
+poster (the transport's account, else the issue's author) are read, so a stranger's
+comment adds no rows. A record whose ``ts`` is malformed is skipped (counted, never
+fatal).
 
 A closed issue that recurs is reopened: with label ``regression`` when its last resolve
 named a fix (commit or version), or ``stale-code`` when every new error came from code
@@ -77,8 +83,9 @@ CAUSES = frozenset([c for _, c in el.BASH_CAUSES] + ["killed or timed out", el.B
 #: who may be named as having resolved an issue; anyone else is ``other``
 RESOLVERS = frozenset(("human", "settle") + ROLES)
 RE_REV = re.compile(r"[0-9a-f]{7,40}")
-RE_VER = re.compile(r"\d+(?:\.\d+){0,3}")
+RE_VER = re.compile(r"\d{1,3}(?:\.\d{1,3}){0,3}")
 RE_TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")
+RE_DAY = re.compile(r"\d{4}-\d\d-\d\d")
 
 #: the only words a posted text may use: generic error words, tool words, the words of
 #: this module's own text. A word outside it makes a family unlisted and a text unsafe.
@@ -176,15 +183,36 @@ class PublicFamily(str):
     """A family string that passed ``public_family``; only it may name an issue."""
 
 
+def skeleton(fam):
+    """``fam`` with every token that is no ``VOCAB`` word, placeholder or punctuation (and
+    a tool that fails ``tool_ok``) replaced by ``<w>``: what an unlisted family's hash is
+    taken of, so the hash depends only on public words and cannot confirm a guess of the
+    private one (the 2026-11-21 review: an unkeyed sha1 of the raw family was an oracle)."""
+    tool, sep, msg = str(fam or "").partition(": ")
+    out, pos = [], 0
+    while pos < len(msg):
+        m = RE_FAMILY_TOKEN.match(msg, pos)
+        if m and not (m.group("word") and not word_ok(m.group("word"))):
+            out.append(m.group(0))
+            pos = m.end()
+            continue
+        if not (out and out[-1] == "<w>"):
+            out.append("<w>")
+        pos = m.end() if m else pos + 1
+    return "%s%s%s" % (tool if tool_ok(tool) else "<w>", sep, "".join(out))
+
+
 def public_family(fam):
     """``fam`` if it passes ``family_ok``, else ``<tool>: (unlisted family <hash>)`` with
-    the sha1 of ``fam`` (the tool ``unlisted`` when the tool fails the check too)."""
+    the sha1 of its ``skeleton`` (the tool ``unlisted`` when the tool fails the check
+    too); unlisted families with one skeleton share an issue."""
     fam = str(fam or "")
     if family_ok(fam):
         return PublicFamily(fam)
     tool = fam.partition(": ")[0]
     return PublicFamily("%s: (unlisted family %s)" % (
-        tool if tool_ok(tool) else "unlisted", hashlib.sha1(fam.encode("utf-8")).hexdigest()[:12]))
+        tool if tool_ok(tool) else "unlisted",
+        hashlib.sha1(skeleton(fam).encode("utf-8")).hexdigest()[:12]))
 
 
 def family_of(rec):
@@ -217,8 +245,25 @@ class Gate(object):
     STATES = (None, "open", "closed")
     REASONS = (None, "completed", "not_planned")
 
+    #: the only labels this module adds; any other label must already be on the issue
+    OURS = (LABEL, REGRESSION, STALE)
+
     def __init__(self, inner):
         self._inner = inner
+        self._login = False
+
+    def login(self):
+        """The account the transport posts as (``gh api user``), or None if unknown."""
+        if self._login is False:
+            self._login = None
+            run = getattr(self._inner, "run", None)
+            try:
+                code, out, _ = run(["api", "-X", "GET", "user"], None) if run else (1, "", "")
+                if code == 0:
+                    self._login = (json.loads(out) or {}).get("login") or None
+            except (OSError, ValueError, TypeError, AttributeError):
+                self._login = None
+        return self._login
 
     def list_issues(self, *a, **kw):
         return self._inner.list_issues(*a, **kw)
@@ -226,8 +271,12 @@ class Gate(object):
     def list_comments(self, *a, **kw):
         return self._inner.list_comments(*a, **kw)
 
-    def _labels(self, labels):
+    def _labels(self, labels, existing=()):
         for lb in labels or ():
+            if lb in existing and lb not in self.OURS:
+                continue                    # put there by a maintainer: passed through
+            if lb not in self.OURS:
+                raise Unsafe("label %r is not one this module adds" % lb)
             check_public(lb)
 
     def create_issue(self, title, body, labels):
@@ -240,12 +289,14 @@ class Gate(object):
         check_public(body)
         return self._inner.add_comment(int(number), body)
 
-    def update_issue(self, number, body=None, labels=None, state=None, state_reason=None):
+    def update_issue(self, number, body=None, labels=None, state=None, state_reason=None,
+                     existing=()):
+        """``existing``: the issue's labels as read; those not this module's pass through."""
         if state not in self.STATES or state_reason not in self.REASONS:
             raise Unsafe("state %r / %r" % (state, state_reason))
         if body is not None:
             check_public(body)
-        self._labels(labels)
+        self._labels(labels, existing)
         return self._inner.update_issue(int(number), body=body, labels=labels, state=state,
                                         state_reason=state_reason)
 
@@ -327,7 +378,8 @@ def clean_ts(v):
 
 
 def occ_row(r):
-    return [clean_ts(r.get("ts")), role_of(r.get("instance")), cause_of(r),
+    """An occurrence as posted: its day (not its second), role, cause, rev, version."""
+    return [clean_ts(r.get("ts"))[:10], role_of(r.get("instance")), cause_of(r),
             clean_rev(r.get("rev")), clean_ver(r.get("ver"))]
 
 
@@ -379,8 +431,10 @@ def render_body(meta):
 
 
 def batch_id(fam, recs):
-    return hashlib.sha1(json.dumps([str(fam)] + [occ_row(r) for r in recs]).encode("utf-8")
-                        ).hexdigest()[:12]
+    """A batch's id: a hash of its family and records to the second (only the hash is
+    posted), so two batches of one day differ."""
+    rows = [[clean_ts(r.get("ts"))] + occ_row(r)[1:] for r in recs]
+    return hashlib.sha1(json.dumps([str(fam)] + rows).encode("utf-8")).hexdigest()[:12]
 
 
 def _chunks(rows):
@@ -456,6 +510,7 @@ def records_of(meta, comments):
         for rows in read_hidden("occurrences", body):
             for row in rows if isinstance(rows, list) else []:
                 ts, role, cause, rev, ver = (list(row) + [""] * 5)[:5]
+                ts = ts + "T00:00:00" if RE_DAY.fullmatch(str(ts)) else clean_ts(ts)
                 if not ts:
                     continue
                 rec = {"t": "error", "ts": ts, "session": "?", "instance": role or "other",
@@ -485,8 +540,8 @@ def merge_meta(old, fam, recs, batch):
         return m
     rows = [occ_row(r) for r in recs]
     m.update(family=fam, hash=family_hash(fam), batch=batch, tool=fam.partition(": ")[0])
-    m["first"] = min([x for x in (m.get("first"), rows[0][0]) if x])
-    m["last"] = max([x for x in (m.get("last"), rows[-1][0]) if x])
+    m["first"] = min([x for x in (m.get("first"), clean_ts(recs[0].get("ts"))) if x])
+    m["last"] = max([x for x in (m.get("last"), clean_ts(recs[-1].get("ts"))) if x])
     m["count"] = int(m.get("count") or 0) + len(rows)
     roles = collections.Counter({k: int(v) for k, v in (m.get("roles") or {}).items()
                                  if k in ROLES + ("other",)})
@@ -532,8 +587,16 @@ def index(t, state="all"):
     return out
 
 
-def comments_of(t, number):
-    return _pages(lambda p: t.list_comments(number, page=p))
+def comments_of(t, issue):
+    """The comments of ``issue`` written by the poster (the transport's account, else the
+    issue's author): only their hidden payloads and batch markers are read, so a
+    stranger's comment cannot add rows to the report or stop a post."""
+    login = t.login() if hasattr(t, "login") else None
+    login = login or ((issue.get("user") or {}).get("login"))
+    if not login:
+        return []
+    return [c for c in _pages(lambda p: t.list_comments(issue["number"], page=p))
+            if (c.get("user") or {}).get("login") == login]
 
 
 # -- sync -----------------------------------------------------------------------------------
@@ -560,15 +623,17 @@ def save_cursor(spool, cur):
 
 
 def read_batch(spool, cur):
-    """``(records, upto)``: the spool's error records from each file's cursor offset to its
-    end (whole lines only), or to the unfinished batch's end when there is one; benign
-    records and identical duplicates left out. ``upto`` is the new offset per file."""
+    """``(records, upto, skipped)``: the spool's error records from each file's cursor
+    offset to its end (whole lines only), or to the unfinished batch's end when there is
+    one; benign records and identical duplicates left out. ``upto`` is the new offset per
+    file; ``skipped`` counts the records whose ``ts`` is not ``YYYY-MM-DDTHH:MM:SS`` (left
+    out, so they never block a sync; they stay in the spool)."""
     partial = cur.get("partial")
     try:
         names = sorted(n for n in os.listdir(spool) if n.endswith(".jsonl"))
     except OSError:
         names = []
-    recs, upto, seen = [], {}, set()
+    recs, upto, seen, skipped = [], {}, set(), 0
     for name in names:
         path = os.path.join(spool, name)
         start = int(cur["offsets"].get(name, 0))
@@ -592,12 +657,15 @@ def read_batch(spool, cur):
             if not (isinstance(rec, dict) and rec.get("t") == "error" and rec.get("ts")
                     and rec.get("sig")) or el.is_benign(rec):
                 continue
+            if not RE_TS.fullmatch(str(rec["ts"])):
+                skipped += 1
+                continue
             key = json.dumps(rec, sort_keys=True)
             if key not in seen:
                 seen.add(key)
                 recs.append(rec)
     recs.sort(key=lambda r: r["ts"])
-    return recs, upto
+    return recs, upto, skipped
 
 
 def group(recs):
@@ -646,7 +714,8 @@ def post_family(t, issue, fam, recs):
         if not retry or issue.get("state") == "closed" or new != labels:
             t.update_issue(issue["number"], body=render_body(meta),
                            labels=new if new != labels else None,
-                           state="open" if issue.get("state") == "closed" else None)
+                           state="open" if issue.get("state") == "closed" else None,
+                           existing=labels)
     header = None
     if action == "reopened":
         header = "Reopened: the family recurred%s." % (
@@ -656,7 +725,7 @@ def post_family(t, issue, fam, recs):
     bodies = occurrence_comments(recs, batch, header)
     have = set()
     if retry:
-        for c in comments_of(t, issue["number"]):
+        for c in comments_of(t, issue):
             have.update(re.findall(r"<!-- batch:([0-9a-f]+ part \d+/\d+) -->", c.get("body") or ""))
     for k, body in enumerate(bodies, 1):
         if "%s part %d/%d" % (batch, k, len(bodies)) not in have:
@@ -671,10 +740,12 @@ def sync(spool, t, dry_run=False):
     refused; the batch is finished by the next sync)."""
     t = gated(t)
     cur = load_cursor(spool)
-    out = {"records": 0, "families": 0, "posted": [], "dry_run": dry_run, "error": None}
+    out = {"records": 0, "families": 0, "posted": [], "dry_run": dry_run, "error": None,
+           "skipped": 0}
     while True:
         partial = cur.get("partial")
-        recs, upto = read_batch(spool, cur)
+        recs, upto, skipped = read_batch(spool, cur)
+        out["skipped"] += skipped
         done = set(partial["done"]) if partial else set()
         groups = collections.OrderedDict((f, v) for f, v in group(recs).items()
                                          if str(f) not in done)
@@ -727,7 +798,7 @@ def issue_records(t, start):
         for tag in TAGS:
             if tag in label_names(i):
                 tags[fam] = tag
-        recs += records_of(meta, comments_of(t, i["number"]))
+        recs += records_of(meta, comments_of(t, i))
     lo = el._stamp(start)
     recs.append({"t": "settle", "ts": lo, "upto": lo})
     recs.sort(key=lambda r: r["ts"])
@@ -747,24 +818,36 @@ def report(t, start, now):
     return rep
 
 
-def _close(t, issue, meta, row, text):
+def _close(t, issue, meta, row, text, keep_fix=False):
+    """Close ``issue`` with ``text``; its fix becomes the resolve's (none if it names
+    none), except with ``keep_fix`` (a settle: silence fixes nothing, the last fix stands)."""
     meta = dict(meta, family=_meta_family(meta))
     meta["hash"] = family_hash(meta["family"])
     pub = _resolve_row(row)
     if pub.get("commit") or pub.get("version"):
         meta["fix"] = {k: pub[k] for k in ("commit", "version") if pub.get(k)}
-    else:
+    elif not keep_fix:
         meta.pop("fix", None)
     t.add_comment(issue["number"], check_public(text + "\n\n" + hidden("resolves", [pub]) + "\n"))
     names = label_names(issue)
     keep = [x for x in names if x not in TAGS]
     t.update_issue(issue["number"], body=render_body(meta), state="closed",
-                   state_reason="completed", labels=keep if keep != names else None)
+                   state_reason="completed", labels=keep if keep != names else None,
+                   existing=names)
 
 
 def wanted(names):
     """The posted family of each name (a family of the report, or a signature)."""
     return {str(public_family(el.family(n))): n for n in names}
+
+
+def shell_hint(name):
+    """Why a shell signature has no issue, and what to give instead, or ''."""
+    if name not in el.SHELL_EXIT_SIGS:
+        return ""
+    tool = name.split(":", 1)[0]
+    return ("%r is one signature for every failed command; its issues are per cause: give "
+            '--family "%s: <cause>", one of: %s' % (name, tool, ", ".join(sorted(CAUSES))))
 
 
 def resolve(t, sigs=(), families=(), by="human", commit="", version="", now=None):
@@ -808,12 +891,17 @@ def settle(t, quiet_days=7, now=None):
         row = {"ts": el._stamp(now), "by": "settle"}
         text = ("Closed by silence: no occurrence for %d days (last seen %s)."
                 % (int(quiet_days), clean_ts(meta["last"]) or "-"))
-        _close(t, i, meta, row, text)
+        _close(t, i, meta, row, text, keep_fix=True)
         closed.append((meta["family"], i["number"]))
     return closed
 
 
 # -- migrate -----------------------------------------------------------------------------
+
+def bad_ts(records):
+    """The records whose ``ts`` is not ``YYYY-MM-DDTHH:MM:SS``: migrate leaves them out."""
+    return [r for r in records if not RE_TS.fullmatch(str(r.get("ts") or ""))]
+
 
 def migrate_plan(records):
     """One entry per public family of the git ledger with at least one counted error:
@@ -822,6 +910,8 @@ def migrate_plan(records):
     errors, a resolved one all its errors and the resolves of its classes. ``tag`` is
     ``regression`` / ``stale-code`` for an open family whose classes' last resolve named
     a fix, as sync tags it."""
+    bad = {id(r) for r in bad_ts(records)}
+    records = [r for r in records if id(r) not in bad]
     errs = collections.defaultdict(list)
     fams_of_sig = collections.defaultdict(set)
     for r in records:
@@ -863,7 +953,7 @@ def migrate(records, t=None, dry_run=False, skip_resolved=False, log=None):
     t = gated(t)
     plan = migrate_plan(records)
     todo = [p for p in plan if p["open"] or not skip_resolved]
-    out = {"families": len(plan), "open": sum(1 for p in plan if p["open"]),
+    out = {"families": len(plan), "skipped": len(bad_ts(records)), "open": sum(1 for p in plan if p["open"]),
            "resolved": sum(1 for p in plan if not p["open"]),
            "regression": sum(1 for p in plan if p["tag"] == REGRESSION),
            "stale_code": sum(1 for p in plan if p["tag"] == STALE),
@@ -890,13 +980,24 @@ def migrate(records, t=None, dry_run=False, skip_resolved=False, log=None):
             issue = t.create_issue(title(fam), body, labels)
             out["created"] += 1
         else:
-            for c in comments_of(t, issue["number"]):
+            for c in comments_of(t, issue):
                 got.update(re.findall(r"<!-- batch:(migrate part \d+/\d+) -->",
                                       c.get("body") or ""))
             if len(got) >= len(bodies) and (p["open"] or issue.get("state") == "closed"):
                 out["existing"] += 1
                 continue
             out["completed"] += 1
+            # an issue a sync made first: its fields gain the migrated rows
+            old = meta_of(issue)
+            meta = merge_meta(old, fam, p["errors"], "migrate")
+            if p["meta"].get("fix"):
+                meta["fix"] = p["meta"]["fix"]
+            names = label_names(issue)
+            new = names + [x for x in [LABEL] + ([p["tag"]] if p["tag"] else [])
+                           if x not in names]
+            if meta != old or new != names:
+                t.update_issue(issue["number"], body=render_body(meta),
+                               labels=new if new != names else None, existing=names)
         for k, text in enumerate(bodies, 1):
             if "migrate part %d/%d" % (k, len(bodies)) not in got:
                 t.add_comment(issue["number"], text)

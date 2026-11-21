@@ -102,6 +102,8 @@ RE_CLAIM = re.compile(r"(?<![\w@/.:])[a-z][a-z0-9]*:[A-Za-z][\w.-]*(?::[\w.-]+)*
 RE_INSTANCE = re.compile(r"\b(?:author|researcher|expert|scientist)@[a-z0-9][a-z0-9-]*")
 RE_HOST = re.compile(r"(?i)(\b(?:enotfound|eai_again|econnrefused|host)\s+)[a-z0-9.-]+\.[a-z]{2,}\b")
 RE_WS = re.compile(r"\s+")
+#: the record time ``_stamp`` writes; a record with another ``ts`` is skipped when read
+RE_STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")
 
 
 def _now():
@@ -275,6 +277,8 @@ def read_dirs(roots):
                     continue
                 if not (isinstance(rec, dict) and rec.get("ts") and rec.get("t")):
                     continue
+                if not RE_STAMP.fullmatch(str(rec["ts"])):
+                    continue        # a malformed time (fractional seconds, Z): unreadable
                 if rec["t"] == "error":     # identical duplicates count once
                     key = json.dumps(rec, sort_keys=True)
                     if key in seen:
@@ -394,9 +398,15 @@ def classes(records):
     last_resolve = {}
     last_commit = {}
     last_version = {}
+    #: family -> (ts, commit, version) of its last family resolve (a record of a family
+    #: issue closed by ``resolve --family`` or ``settle``, ``_local_family_resolves``)
+    fam_resolve = {}
     settles = []
     for r in records:
-        if r["t"] == "resolve" and r.get("sig"):
+        if r["t"] == "resolve" and not r.get("sig") and r.get("families"):
+            for f in r["families"]:
+                fam_resolve[f] = (r["ts"], r.get("commit") or "", r.get("version") or "")
+        elif r["t"] == "resolve" and r.get("sig"):
             last_resolve[r["sig"]] = r["ts"]
             last_commit[r["sig"]] = r.get("commit") or ""
             last_version[r["sig"]] = r.get("version") or ""
@@ -406,7 +416,13 @@ def classes(records):
     for r in records:
         if r["t"] != "error" or not r.get("sig") or is_benign(r):
             continue
-        if r["ts"] <= last_resolve.get(r["sig"], ""):
+        fix = (last_resolve.get(r["sig"], ""), last_commit.get(r["sig"], ""),
+               last_version.get(r["sig"], ""))
+        if fam_resolve:
+            fr = fam_resolve.get(family_of(r["sig"], r))
+            if fr and fr[0] > fix[0]:
+                fix = fr
+        if r["ts"] <= fix[0]:
             continue
         c = out.setdefault(r["sig"], {"sig": r["sig"], "tool": r.get("tool", "?"),
                                       "msg": r.get("msg", ""), "count": 0,
@@ -414,6 +430,7 @@ def classes(records):
                                       "first": r["ts"], "last": r["ts"],
                                       "weeks": set(), "recs": []})
         c["recs"].append(r)
+        c["fix"] = fix[1:]
         c["count"] += 1
         c["sessions"].add(r.get("session") or "?")
         c["instances"].add(r.get("instance") or "?")
@@ -422,9 +439,9 @@ def classes(records):
     for c in out.values():
         c["reported"] = any(u >= c["first"] for u in settles)
         # an error after a resolve that named its fixing commit: the fix did not hold
-        c["regression_commit"] = last_commit.get(c["sig"], "")
+        fix = c.pop("fix")
+        c["regression_commit"] = fix[0]
         # ... unless every error since came from code older than the fix
-        fix = (last_commit.get(c["sig"], ""), last_version.get(c["sig"], ""))
         c["stale"] = bool(any(fix)) and all(has_fix(r, *fix) is False for r in c["recs"])
     return out
 
@@ -1080,6 +1097,8 @@ def main(argv=None):
                 print("error_ledger: settle stopped (%s)" % e, file=sys.stderr)
                 return 1
             # the packet id stays local: an issue never names it
+            _local_family_resolves(ws, iss, instance, closed, "settle",
+                                   "quiet for %d days" % a.quiet_days)
             append_file(spool_file(spool_dir(ws), instance),
                         {"t": "settle", "ts": _stamp(_now()), "upto": _stamp(_now()),
                          "packet": a.packet or "", "closed": len(closed)})
@@ -1111,20 +1130,15 @@ def main(argv=None):
                 print("error_ledger: resolve stopped (%s)" % e, file=sys.stderr)
                 return 1
             for name in missing:
-                print("error_ledger: no open issue for %r (run sync first?)" % name,
+                print("error_ledger: %s" % (iss.shell_hint(name) or
+                                            "no open issue for %r (run sync first?)" % name),
                       file=sys.stderr)
             if not closed:
                 print("error_ledger: nothing to resolve (no open issue matched)",
                       file=sys.stderr)
                 return 1
             # the note, and who wrote it, stay local: an issue never carries them
-            for fam, number in closed:
-                rec = {"t": "resolve", "ts": _stamp(_now()), "family": fam, "issue": number,
-                       "by": a.by, "note": a.note}
-                for k, v in (("commit", a.commit), ("version", version)):
-                    if v:
-                        rec[k] = v
-                append_file(spool_file(spool_dir(ws), instance), rec)
+            _local_family_resolves(ws, iss, instance, closed, a.by, a.note, a.commit, version)
             print("resolved %d family issue(s)" % len(closed))
             for fam, number in closed:
                 print("  closed #%s: %s" % (number, fam))
@@ -1156,6 +1170,23 @@ def main(argv=None):
     return 0
 
 
+def _local_family_resolves(ws, iss, instance, closed, by, note, commit="", version=""):
+    """For each family issue closed (``[(family, number)]``), a resolve record in the local
+    spool naming the local families it covers (``families``: the posted family and every
+    local ``family_of`` that posts as it, e.g. the raw families of an unlisted one), so
+    ``report --local`` closes those classes too (``classes``)."""
+    local = [r for r in local_records(ws) if r["t"] == "error" and r.get("sig")]
+    for fam, number in closed:
+        raws = {family_of(r["sig"], r) for r in local
+                if str(iss.public_family(family_of(r["sig"], r))) == fam}
+        rec = {"t": "resolve", "ts": _stamp(_now()), "family": fam, "issue": number,
+               "families": sorted(raws | {fam}), "by": by, "note": note}
+        for k, v in (("commit", commit), ("version", version)):
+            if v:
+                rec[k] = v
+        append_file(spool_file(spool_dir(ws), instance), rec)
+
+
 def _main_issues(a, ws, board, repo, why_not):
     """``sync`` and ``migrate``."""
     if not repo:
@@ -1179,6 +1210,10 @@ def _main_issues(a, ws, board, repo, why_not):
             print("  %s%s %s x%d: %s" % (row["action"], (" #%s" % row["issue"]) if row["issue"]
                                          else "", ("[%s]" % row["tag"]) if row["tag"] else "",
                                          row["count"], row["family"]))
+        if res.get("skipped"):
+            print("error_ledger: %d spool record(s) with a malformed time skipped (not "
+                  "YYYY-MM-DDTHH:MM:SS); they stay in the spool" % res["skipped"],
+                  file=sys.stderr)
         if res["error"]:
             print("error_ledger: sync stopped (%s); the next sync finishes the batch"
                   % res["error"], file=sys.stderr)
@@ -1196,7 +1231,8 @@ def _main_issues(a, ws, board, repo, why_not):
     print("  families: %d (open %d, of them regression %d, stale code %d; resolved %d; "
           "unlisted %d)" % (res["families"], res["open"], res["regression"], res["stale_code"],
                             res["resolved"], res["unlisted"]))
-    print("  records: %d error(s), %d resolve(s)" % (res["errors"], res["resolves"]))
+    print("  records: %d error(s), %d resolve(s); %d with a malformed time skipped"
+          % (res["errors"], res["resolves"], res["skipped"]))
     print("  to import: %d issue(s) (%d resolved skipped), %d comment(s), about %d write(s)"
           % (res["to_import"], res["skipped_resolved"], res["comments"], res["writes"]))
     if not a.dry_run:

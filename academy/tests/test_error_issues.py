@@ -56,6 +56,7 @@ class FakeGitHub(object):
         self.comments = {}
         self.calls = []
         self.sent = []              # (method, path, payload) of every write
+        self.login = "poster"       # the transport's own account
         self.fail_on = fail_on      # (method, path suffix, nth): raise on that call
 
     def writes(self):
@@ -63,7 +64,10 @@ class FakeGitHub(object):
 
     def __call__(self, args, stdin):
         method = args[args.index("-X") + 1]
-        url = next(x for x in args if x.startswith("repos/"))
+        url = next(x for x in args if x.startswith("repos/") or x == "user")
+        if url == "user":
+            self.calls.append((method, "user"))
+            return 0, json.dumps({"login": self.login}), ""
         path = url.split("/", 3)[3]
         self.calls.append((method, path))
         if self.fail_on and method == self.fail_on[0] and path.endswith(self.fail_on[1]):
@@ -90,6 +94,7 @@ class FakeGitHub(object):
             n = len(self.issues) + 1
             self.issues[n] = {"number": n, "id": 1000 + n, "title": payload["title"],
                               "body": payload["body"], "state": "open",
+                              "user": {"login": self.login},
                               "labels": [{"name": x} for x in payload.get("labels", [])]}
             self.comments[n] = []
             return 0, json.dumps(self.issues[n]), ""
@@ -106,7 +111,8 @@ class FakeGitHub(object):
             per, page = int(q.get("per_page", 30)), int(q.get("page", 1))
             return 0, json.dumps(self.comments[n][(page - 1) * per:page * per]), ""
         if seg[2:] == ["comments"] and method == "POST":
-            c = {"id": len(self.comments[n]) + 1, "body": payload["body"]}
+            c = {"id": len(self.comments[n]) + 1, "body": payload["body"],
+                 "user": {"login": self.login}}
             self.comments[n].append(c)
             return 0, json.dumps(c), ""
         return 1, "", "gh: Not Found (HTTP 404)"
@@ -114,6 +120,13 @@ class FakeGitHub(object):
     # helpers for the assertions
     def labels(self, n):
         return sorted(x["name"] for x in self.issues[n]["labels"])
+
+    def stranger_comment(self, n, body):
+        self.comments[n].append({"id": len(self.comments[n]) + 1, "body": body,
+                                 "user": {"login": "stranger"}})
+
+    def add_label(self, n, name):
+        self.issues[n]["labels"].append({"name": name})
 
     def by_family(self, fam):
         h = ei.family_hash(fam)
@@ -608,21 +621,136 @@ class LeakTests(Case):
         self.scan()
 
 
+#: what an id or a path looks like in a posted text (the real-ledger scan)
+RE_IDLIKE = re.compile(r"(?i:\b[a-z]{1,10}-\d+\b)|(?<![\w:])[a-z][a-z0-9]*:[a-z][\w.-]*:"
+                       r"|(?i:[\w.-]+/[\w.-]+\.[a-z]{1,5}\b|\b[a-z]:\\|\w@\w|session_"
+                       r"|\b[\w-]+\.(?:com|org|net|edu|io)\b)")
+
+
 class RealLedgerTests(unittest.TestCase):
-    """Opt in: ``ACADEMY_ERRORS_LEDGER=<board>/.errors`` checks every family of a real
-    ledger, read-only: its public form passes the gate."""
+    """Opt in: ``ACADEMY_ERRORS_LEDGER=<board>/.errors`` migrates a real ledger, read-only,
+    into a fake GitHub and scans every text it would post."""
 
     def test_every_real_family_posts_safely(self):
         where = os.environ.get("ACADEMY_ERRORS_LEDGER")
         if not where:
             self.skipTest("ACADEMY_ERRORS_LEDGER not set")
-        recs = [r for r in el.read_dirs([where]) if r["t"] == "error" and r.get("sig")
-                and not el.is_benign(r)]
-        fams = {el.family_of(r["sig"], r) for r in recs}
-        for f in fams:
-            pub = ei.public_family(f)
-            ei.check_public(ei.title(pub))
-            self.assertEqual(el.family(pub), pub if ei.RE_UNLISTED.search(pub) else el.family(pub))
+        gh = FakeGitHub()
+        res = ei.migrate(el.read_dirs([where]), ei.transport("me/academy", run=gh,
+                                                             write_interval=0))
+        self.assertEqual(res["created"], res["to_import"])
+        self.assertTrue(gh.sent)
+        for _, _, payload in gh.sent:
+            for v in payload.values():
+                for text in (v if isinstance(v, list) else [v]):
+                    ei.check_public(text)
+                    plain = str(text).replace("\\u003c", "<").replace("\\u003e", ">")
+                    self.assertIsNone(RE_IDLIKE.search(plain), RE_IDLIKE.search(plain))
+
+
+class ReviewFindingTests(Case):
+    """The 2026-11-21 review of the family issues."""
+
+    def test_the_unlisted_hash_is_of_the_skeleton(self):
+        a = ei.public_family("library_search: bad fts query <q>: no such column: manifold")
+        b = ei.public_family("library_search: bad fts query <q>: no such column: lattice")
+        self.assertEqual(a, b)
+        self.assertRegex(a, r"^library_search: \(unlisted family [0-9a-f]{12}\)$")
+        c = ei.public_family("library_search: bad fts query <q>: no such table: lattice")
+        self.assertNotEqual(a, c)
+        self.assertEqual(ei.public_family("adalovelace_tool: x"),
+                         ei.public_family("adabyron_tool: x"))
+        raws = ["library_search: bad fts query <q>: no such column: manifold",
+                "adalovelace_tool: x"] + [el.family(el.signature(t, m)) for t, m, _ in LEAKS]
+        hashes = {re.search(r"[0-9a-f]{12}", ei.public_family(r)).group(0)
+                  for r in raws if ei.RE_UNLISTED.search(ei.public_family(r))}
+        self.assertTrue(hashes)
+        for r in raws:
+            self.assertNotIn(ei.hashlib.sha1(r.encode("utf-8")).hexdigest()[:12], hashes)
+
+    def test_a_malformed_time_is_skipped_not_fatal(self):
+        self.spill(err(2, ts="2026-11-17T10:00:00.123Z"), err(1))
+        bad = dict(err(1, sec=5), ts="2026-11-18T10:00:00Z")
+        self.spill(bad)
+        res = ei.sync(self.spool, self.t)
+        self.assertIsNone(res["error"])
+        self.assertEqual((res["records"], res["skipped"]), (1, 2))
+        self.assertEqual(ei.sync(self.spool, self.t)["records"], 0)
+        board = os.path.join(self.d, "board")
+        el.append(board, "a@x", bad)
+        el.append(board, "a@x", err(1, sig=DIR))
+        self.assertEqual(len(el.read_all(board)), 1)         # the reader skips it too
+        res = ei.migrate(el.read_all(board) + [bad], None, dry_run=True)
+        self.assertEqual((res["families"], res["skipped"]), (1, 1))
+
+    def test_a_maintainer_label_passes_through(self):
+        self.spill(err(5, ver="1.0.0"))
+        ei.sync(self.spool, self.t)
+        n = self.gh.by_family(F_NT)["number"]
+        self.gh.add_label(n, "p1")
+        self.gh.add_label(n, "Ada-todo")
+        closed, _ = ei.resolve(self.t, families=[F_NT], version="1.1.0")
+        self.assertEqual(len(closed), 1)
+        self.spill(err(1, ver="1.2.0"))
+        self.assertIsNone(ei.sync(self.spool, self.t)["error"])
+        self.assertEqual(self.gh.labels(n), sorted(["Ada-todo", ei.LABEL, "p1", ei.REGRESSION]))
+        self.assertEqual(ei.settle(self.t, 0, now=NOW + dt.timedelta(days=9))[0][1], n)
+        with self.assertRaises(ei.Unsafe):          # a label the module adds is gated
+            self.t.create_issue("error family: x", "x", ["Ada-todo"])
+
+    def test_a_shell_signature_is_resolved_by_cause(self):
+        closed, missing = ei.resolve(self.t, [el.BASH_EXIT_SIG])
+        self.assertEqual((closed, missing), ([], [el.BASH_EXIT_SIG]))
+        hint = ei.shell_hint(el.BASH_EXIT_SIG)
+        self.assertIn('--family "Bash: <cause>"', hint)
+        self.assertIn("python traceback", hint)
+
+    def test_a_strangers_comment_is_not_read(self):
+        self.spill(err(2))
+        ei.sync(self.spool, self.t)
+        n = self.gh.by_family(F_NT)["number"]
+        self.gh.stranger_comment(n, ei.hidden("occurrences", [["2026-11-18", "author", "", "", ""]] * 50))
+        rep = ei.report(self.t, NOW - dt.timedelta(days=7), NOW)
+        self.assertEqual(rep["classes"][0]["count"], 1)
+        # nor does a stranger's batch marker stop a post
+        self.gh.stranger_comment(n, "<!-- batch:%s part 1/1 -->" % ei.batch_id(
+            ei.public_family(F_NT), [err(1)]))
+        self.spill(err(1))
+        ei.sync(self.spool, self.t)
+        self.assertEqual(len([c for c in self.gh.comments[n] if c["user"]["login"] == "poster"]), 2)
+
+    def test_settle_keeps_the_fix(self):
+        self.spill(err(10, ver="1.0.0"))
+        ei.sync(self.spool, self.t)
+        ei.resolve(self.t, families=[F_NT], commit="abc1234", version="1.1.0",
+                   now=NOW - dt.timedelta(days=9))
+        self.spill(err(8, ver="1.2.0"))
+        ei.sync(self.spool, self.t)
+        n = self.gh.by_family(F_NT)["number"]
+        ei.settle(self.t, 7, now=NOW)
+        self.assertEqual(self.gh.issues[n]["state"], "closed")
+        self.assertEqual(ei.meta_of(self.gh.issues[n])["fix"],
+                         {"commit": "abc1234", "version": "1.1.0"})
+
+    def test_migrate_onto_an_existing_issue_merges_its_fields(self):
+        self.spill(err(1))
+        ei.sync(self.spool, self.t)
+        board = os.path.join(self.d, "board")
+        el.append(board, "a@x", err(3, instance="expert@y"))
+        el.append(board, "a@x", err(2, instance="expert@y"))
+        res = ei.migrate(el.read_all(board), self.t)
+        self.assertEqual((res["created"], res["completed"]), (0, 1))
+        meta = ei.meta_of(self.gh.by_family(F_NT))
+        self.assertEqual((meta["count"], meta["roles"], meta["first"]),
+                         (3, {"author": 1, "expert": 2}, at(3)))
+
+    def test_versions_and_rows_are_coarse(self):
+        self.assertEqual([ei.clean_ver(v) for v in ("0.2.10", "1234.1", "1.2.3.4", "1.2.3.4.5")],
+                         ["0.2.10", "", "1.2.3.4", ""])
+        self.spill(err(1))
+        ei.sync(self.spool, self.t)
+        (rows,) = ei.read_hidden("occurrences", self.gh.comments[1][0]["body"])
+        self.assertRegex(rows[0][0], r"^\d{4}-\d\d-\d\d$")
 
 
 class WorkspaceCase(unittest.TestCase):
@@ -757,10 +885,19 @@ class CliTests(WorkspaceCase):
         local = [r for r in el.read_dirs([self.spool]) if r["t"] == "resolve"]
         self.assertEqual([(r["family"], r["note"], r["by"]) for r in local],
                          [(F_GONE, "noise from nb:GEO-12", "Ada")])
+        rc, out, _ = self.cli("report", "--json", "--local")
+        self.assertEqual([r["sig"] for r in json.loads(out)["classes"]], [NT])
         rc, out, _ = self.cli("settle", "--quiet-days", "30", "--packet", "P-0042")
         self.assertEqual(rc, 0)
         self.assertIn("0 issue(s) closed", out)
         self.assertNotIn("P-0042", json.dumps(self.gh.sent))
+        rc, out, _ = self.cli("settle", "--quiet-days", "0", "--packet", "P-0043")
+        self.assertIn("1 issue(s) closed", out)
+        rc, out, _ = self.cli("report", "--json", "--local")
+        self.assertEqual(json.loads(out)["classes"], [])           # closed locally too
+        rc, out, errs = self.cli("resolve", el.BASH_EXIT_SIG)
+        self.assertEqual(rc, 1)
+        self.assertIn('--family "Bash: <cause>"', errs)
 
     def test_report_falls_back_to_the_local_files_when_github_fails(self):
         self.make({"repo": "me/academy", "spool": "spool"})
