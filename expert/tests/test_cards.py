@@ -138,6 +138,89 @@ class CardTests(unittest.TestCase):
         self.assertEqual(out["cards"][0]["quote"], "verified")
 
 
+HANDBACK = ('---\nkey: HU95\n---\n\n'
+            '<!-- hand-back begin ticket="T-0904" date="2026-11-21" pinpoint="Lemma 4.1" -->\n'
+            "Lemma 4.1. Let P be a rational polygon. Then every\ngeneralized diagonal is finite.\n"
+            "<!-- hand-back end -->\n")
+
+
+class HumanSuppliedCardTests(unittest.TestCase):
+    """#108: ``read_from: human-supplied``: the card of a source no session could read, written
+    from what a human handed back; its quote must be verbatim from that material."""
+
+    def setUp(self):
+        self.sb = fixtures.Sandbox()
+        self.home = self.sb.lib
+
+    def tearDown(self):
+        self.sb.close()
+
+    def check(self, quote, rel="papers/cards/HU95/lemma-4-1.md", **extra):
+        p = self.sb.write(rel, fixtures.card_text(key="HU95", pinpoint="Lemma 4.1", quote=quote,
+                                                  read_from="human-supplied", **extra))
+        return cards.validate_path(p, self.home)
+
+    def test_the_value_is_in_the_schema(self):
+        self.assertIn("human-supplied", cards.READ_FROM)
+
+    def test_a_quote_from_the_human_text_is_verified(self):
+        self.sb.write("papers/HU95.human.md", HANDBACK)
+        errs, warns, q = self.check("Let P be a rational polygon. Then every generalized diagonal is finite.")
+        self.assertEqual((errs, warns), ([], []))
+        self.assertEqual(q["status"], "verified")
+        self.assertIn("HU95.human.md entry 1", q["against"])
+
+    def test_a_quote_not_in_the_human_text_is_an_error(self):
+        # the human's text is the source itself: a quote it does not hold is not verbatim
+        self.sb.write("papers/HU95.human.md", HANDBACK)
+        errs, warns, q = self.check("Let P be a rational polygon. Then every saddle connection is finite.")
+        self.assertEqual(q["status"], "not-found")
+        self.assertTrue(any("not verbatim from what the human handed back" in e for e in errs), errs)
+
+    def test_the_extraction_does_not_stand_in_for_the_human_text(self):
+        self.sb.write("papers/HU95.human.md", HANDBACK)
+        self.sb.write("papers/HU95.txt", "A different reading: every saddle connection is short.\n")
+        errs, warns, q = self.check("A different reading: every saddle connection is short.")
+        self.assertTrue(errs)
+
+    def test_nothing_handed_back_is_an_error(self):
+        errs, warns, q = self.check("Let P be a rational polygon. Then every generalized diagonal is finite.")
+        self.assertTrue(any("nothing a human handed back is recorded for HU95" in e for e in errs), errs)
+
+    def test_a_human_card_needs_a_quote(self):
+        self.sb.write("papers/HU95.human.md", HANDBACK)
+        errs, warns, q = self.check("")
+        self.assertTrue(any("no verbatim quote" in e for e in errs), errs)
+
+    def test_a_page_image_alone_is_unchecked_and_said(self):
+        self.sb.write("papers/HU95.human/2026-11-21-t-0904-p808.png", "not really a png")
+        errs, warns, q = self.check("Let P be a rational polygon. Then every generalized diagonal is finite.")
+        self.assertEqual(errs, [])
+        self.assertEqual(q["status"], "unchecked")
+        self.assertTrue(any("transcribed from" in w and "p808.png" in w for w in warns), warns)
+
+    def test_text_extracted_from_a_supplied_pdf_is_checked(self):
+        self.sb.write("papers/HU95.human/2026-11-21-t-0904-scan.pdf", "%PDF")
+        self.sb.write("papers/HU95.human/2026-11-21-t-0904-scan.txt", "Lemma 4.1. Let P be a ratio-\nnal polygon.\n")
+        errs, warns, q = self.check("Let P be a rational polygon.")
+        self.assertEqual(errs, [])
+        self.assertEqual(q["status"], "verified")
+
+    def test_validate_can_require_the_read(self):
+        self.sb.write("papers/HU95.human.md", HANDBACK)
+        p = self.sb.write("papers/cards/HU95/lemma-4-1.md", fixtures.card_text(
+            key="HU95", pinpoint="Lemma 4.1", read_from="human-supplied",
+            quote="Let P be a rational polygon. Then every generalized diagonal is finite."))
+        args = ["validate", p, "--home", self.home, "--expect-read-from", "human-supplied"]
+        code, out, err = fixtures.run_script("cards.py", None, args)
+        self.assertEqual(code, 0, (out, err))
+        q = self.sb.write("papers/cards/ABC21/lemma-2-1.md", fixtures.card_text())
+        code, out, err = fixtures.run_script("cards.py", None, ["validate", q, "--home", self.home,
+                                                                "--expect-read-from", "human-supplied"])
+        self.assertEqual(code, 1)
+        self.assertIn("read_from is extraction, not human-supplied", out)
+
+
 BIB = """@article{ABC21,
   author = {Able, A.},
   title = {A paper},

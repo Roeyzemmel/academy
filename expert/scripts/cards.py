@@ -5,7 +5,7 @@ of one cached source, with its hypotheses, the source version it was read in, an
 verbatim quote. Files in a key folder whose name starts with ``_`` (``_intro.md``)
 are notes, not cards.
 
-    py cards.py validate [PATH ...] [--home H] [--json] [--strict]
+    py cards.py validate [PATH ...] [--home H] [--json] [--strict] [--expect-read-from R]
     py cards.py new KEY "PINPOINT" --version V --read-from R [--home H] [--quote-file F]
                   [--used-by paper:lem:x,...] [--by expert@main/librarian] [--dry-run]
     py cards.py path KEY "PINPOINT"
@@ -42,13 +42,16 @@ The card format::
 
 ``read_from`` is one of ``source`` (the arXiv LaTeX in ``<key>.src/``),
 ``extraction`` (``<key>.txt``, a pdftotext extraction: quote it as *extraction*),
-``page-images``, ``image-only``, ``abstract``, ``not-read``, ``unknown`` (migrated,
-to be settled). ``status`` is ``verified`` when the quote was found in the cached
+``page-images``, ``image-only``, ``abstract``, ``not-read``, ``human-supplied`` (what a
+human with access read and handed back, #108: ``<key>.human.md`` or ``<key>.human/``,
+recorded by ``handback.py``), ``unknown`` (migrated, to be settled). ``status`` is ``verified`` when the quote was found in the cached
 text, else ``unverified`` with ``status_reason`` saying why (a migrated card is never
 repaired to match: its quote stays as the ledger gave it). The quote is checked against the cached text with the MCP server's
 own normaliser (``library.find_quote``, the code behind ``library_verify_quote``):
 each fragment between elisions must occur in ``<key>.src/**/*.tex`` (read_from
-``source``) or ``<key>.txt``.
+``source``) or ``<key>.txt``; for ``human-supplied``, in one entry of ``<key>.human.md``
+or one text of ``<key>.human/`` (an error when it does not: the human's text is the
+source), and a quote transcribed from a page image is said unchecked.
 
 Exit codes: 0 valid (warnings allowed unless --strict), 1 problems, 2 usage error.
 """
@@ -67,8 +70,10 @@ import _expert as ex  # noqa: E402
 from _expert import ac  # noqa: E402
 
 READ_FROM = ("source", "extraction", "page-images", "image-only", "abstract", "not-read",
-             "unknown")
+             "human-supplied", "unknown")
 TEXT_READS = ("source", "extraction")
+HUMAN = "human-supplied"
+QUOTED_READS = TEXT_READS + (HUMAN,)     # a card read so must carry a verbatim quote
 VERDICTS = ("match", "mismatch", "partial", "unusable", "unreachable", "n/a", "see-notes")
 REQUIRED_FIELDS = ("key", "pinpoint", "version", "read_from")
 CARD_KEYS = ("key", "pinpoint", "version", "read_from", "verdict", "used_by",
@@ -209,6 +214,8 @@ def check_quote(home, key, quote, read_from, _cache=None):
     if not frags:
         frags = [str(quote).strip()]
     lib = ex.library()
+    if read_from == HUMAN:
+        return _check_human(lib, home, key, frags)
     targets = []
     src = os.path.join(home, key + ".src")
     txt = os.path.join(home, key + ".txt")
@@ -233,6 +240,29 @@ def check_quote(home, key, quote, read_from, _cache=None):
             "partial" if len(missing) < len(frags) else "not-found")
         res = {"status": status, "against": label, "missing": missing,
                "checked": len(frags)}
+        if not missing:
+            return res
+        if best is None or len(missing) < len(best["missing"]):
+            best = res
+    return best
+
+
+def _check_human(lib, home, key, frags):
+    """A human-supplied card (#108) against what the human handed back, and nothing else:
+    each entry of ``<key>.human.md`` and each text of ``<key>.human/`` on its own. With only
+    files that have no text (a page image) the status is ``unchecked``; with nothing
+    recorded it is ``no-human``."""
+    texts = lib.human_texts(home, key)
+    if not texts:
+        files = lib.human_files(home, key)
+        return {"status": "unchecked" if files else "no-human", "against": ", ".join(files) or None,
+                "missing": frags, "checked": 0}
+    best = None
+    for label, text in texts:
+        missing = [f for f in frags if lib.find_quote(text, f) is None]
+        res = {"status": "verified" if not missing else (
+            "partial" if len(missing) < len(frags) else "not-found"),
+            "against": label, "missing": missing, "checked": len(frags)}
         if not missing:
             return res
         if best is None or len(missing) < len(best["missing"]):
@@ -296,12 +326,14 @@ def validate_card(meta, body, home=None, path=None, check_text=True, _cache=None
         quote = ""
     qres = None
     if "## Quote" in secs:
-        if not quote and rf in TEXT_READS:
+        if not quote and rf in QUOTED_READS:
             (warnings if migrated else errors).append(
                 "no verbatim quote, though read_from is %s" % rf)
         if quote and check_text and home and key and key != UNKEYED:
             qres = check_quote(home, key, quote, rf, _cache)
-            if qres["status"] == "partial":
+            if rf == HUMAN:
+                _human_findings(qres, key, errors, warnings)
+            elif qres["status"] == "partial":
                 warnings.append("quote only partly found in %s (%d of %d fragments "
                                 "missing): %s" % (
                                     qres["against"], len(qres["missing"]), qres["checked"],
@@ -317,6 +349,21 @@ def validate_card(meta, body, home=None, path=None, check_text=True, _cache=None
     if st == "verified" and not quote:
         errors.append("status verified, but the card has no quote")
     return errors, warnings, qres
+
+
+def _human_findings(qres, key, errors, warnings):
+    """A human's text is the source itself: a quote it does not hold is an error, not the
+    warning an extraction's lost display gets."""
+    st = qres["status"]
+    if st in ("partial", "not-found"):
+        errors.append("quote not verbatim from what the human handed back (%s): %s" % (
+            qres["against"], "; ".join(repr(m[:60]) for m in qres["missing"][:3])))
+    elif st == "no-human":
+        errors.append("read_from %s, but nothing a human handed back is recorded for %s "
+                      "(%s.human.md, %s.human/: handback.py record)" % (HUMAN, key, key, key))
+    elif st == "unchecked":
+        warnings.append("quote transcribed from %s (no text to check it against): not checked "
+                        "by script" % qres["against"])
 
 
 def validate_path(path, home=None, check_text=True, _cache=None):
@@ -349,6 +396,13 @@ def cmd_validate(args):
     rows, bad, cache = [], 0, {}
     for p in paths:
         errs, warns, q = validate_path(p, home, not args.no_text, cache)
+        if args.expect_read_from:
+            try:
+                rf = read_card(p)[0].get("read_from")
+            except (OSError, ac.AcademyError, UnicodeDecodeError):
+                rf = None
+            if rf != args.expect_read_from:
+                errs = errs + ["read_from is %s, not %s" % (rf, args.expect_read_from)]
         rows.append({"path": p.replace("\\", "/"), "errors": errs, "warnings": warns,
                      "quote": (q or {}).get("status")})
         if errs or (args.strict and warns):
@@ -546,6 +600,8 @@ def main(argv=None):
     v.add_argument("--json", action="store_true")
     v.add_argument("--strict", action="store_true")
     v.add_argument("--no-text", action="store_true", help="skip the quote check")
+    v.add_argument("--expect-read-from", choices=READ_FROM,
+                   help="an error unless every card was read so (cite --from-human: human-supplied)")
     n = sub.add_parser("new")
     n.add_argument("key")
     n.add_argument("pinpoint")

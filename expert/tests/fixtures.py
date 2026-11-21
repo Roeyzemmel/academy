@@ -20,6 +20,11 @@ REPO = os.path.dirname(PLUGIN)
 SCRIPTS = os.path.join(PLUGIN, "scripts")
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
+# The base plugin these tests run against is this checkout's (_expert.academy_plugin() follows
+# $ACADEMY_ROOT). Without this, a machine whose workspace exports a tagged root
+# (ACADEMY_WS__<TAG>__ROOT, adopted when _academy is imported) runs a worktree's expert
+# scripts against the main checkout's MCP modules (cards.py -> library.py, #108).
+os.environ["ACADEMY_ROOT"] = REPO
 
 import _academy as ac  # noqa: E402
 
