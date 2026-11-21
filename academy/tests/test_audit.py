@@ -60,10 +60,10 @@ class TicketTests(unittest.TestCase):
         fs = audit.audit_tickets([
             t("T-0010", "blocked", waiting_on=["T-9999"]),
             t("T-0015", "blocked", waiting_on=["expert@main"]),
-            t("T-0016", "blocked", waiting_on=["human (Roey)", "expert"]),
+            t("T-0016", "blocked", waiting_on=["human (the owner)", "expert"]),
         ], TODAY)
         self.assertEqual(classes(fs), [("ticket-waiting-malformed", "T-0016"), ("ticket-waiting-unknown", "T-0010")])
-        self.assertIn("'human (Roey)', 'expert'", next(f for f in fs if f["id"] == "T-0016")["detail"])
+        self.assertIn("'human (the owner)', 'expert'", next(f for f in fs if f["id"] == "T-0016")["detail"])
 
     def test_idle_and_empty_delivery(self):
         fs = audit.audit_tickets([
