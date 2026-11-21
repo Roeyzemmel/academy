@@ -242,6 +242,7 @@ def _packet_items(board, instance=None):
                 "options": _opt_dicts(kept, note),
                 "recommendation": rec or None,
                 "kind": _classify_packet(m),
+                "item_kind": m.get("kind"),         # the packet's own kind (weekly_review.py)
                 # the packet proposes a status that publishes a result: never worked on
                 # provisionally (proceed), the human decides first
                 "publishing": (m.get("status_proposed") in PUBLISHING_STATUSES
@@ -312,6 +313,7 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
             if r else None,
             "recommendation": None,
             "kind": _classify_ticket(t),
+            "item_kind": t.get("kind"),             # the ticket's own kind (weekly_review.py)
             "unblocks": [str(b) for b in (t.get("blocks") or [])],
             "stale": None,
             "source": "ticket-human" if to_human else "ticket-blocked",
