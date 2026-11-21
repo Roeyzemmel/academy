@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -43,6 +44,9 @@ class Base(unittest.TestCase):
         os.makedirs(self.repo)
         run(self.repo, "init", "-q", "-b", "main")
         configure(self.repo)
+        # an academy checkout: run_pin.py pins only a repo that holds it (review of 09ba2f2, 2)
+        os.makedirs(os.path.join(self.repo, "academy", "scripts"))
+        self.commit(os.path.join("academy", "scripts", "run_pin.py"), "# stand-in\n")
         self.commit("a.txt", "one\n")
 
     def commit(self, name, text):
@@ -150,6 +154,8 @@ class TestStart(Base):
         os.makedirs(path)
         with open(os.path.join(path, "junk"), "w", encoding="utf-8") as fh:
             fh.write("x")
+        old = time.time() - run_pin.YOUNG_SECONDS - 5             # no start is building it now
+        os.utime(path, (old, old))
         r = run_pin.start(self.repo, "a", alive=alive)
         self.assertEqual(sha, run(r["root"], "rev-parse", "HEAD"))
         self.assertFalse(os.path.exists(os.path.join(path, "junk")))
@@ -259,6 +265,111 @@ class TestClean(Base):
         self.assertEqual(a["root"], b["root"])
         self.assertEqual([], b["cleaned"])
         self.assertTrue(os.path.isdir(b["root"]))
+
+
+class TestReviewOf09ba2f2(Base):
+    """The independent review of 09ba2f2: concurrent starts, an enclosing repo, a dirty
+    reused pin, a pin kept for a hand-back, a pid of another pid namespace."""
+
+    def test_concurrent_starts_on_one_commit_all_get_the_one_pin(self):
+        script = os.path.join(os.path.dirname(HERE), "scripts", "run_pin.py")
+        procs = [subprocess.Popen([sys.executable, script, "--repo", self.repo, "start",
+                                   "--label", "r%d" % i, "--json"],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for i in range(6)]
+        outs = [p.communicate(timeout=120) for p in procs]
+        for p, (out, err) in zip(procs, outs):
+            self.assertEqual(0, p.returncode, err)
+        docs = [json.loads(out) for out, _ in outs]
+        self.assertTrue(all(d["pinned"] for d in docs), docs)
+        self.assertEqual(1, len({d["root"] for d in docs}))
+        self.assertEqual(6, len({d["run"] for d in docs}))
+        root = docs[0]["root"]
+        self.assertEqual(self.head(), run(root, "rev-parse", "HEAD"))
+        self.assertEqual("", run(root, "status", "--porcelain"))
+        self.assertTrue(os.path.isfile(os.path.join(root, "a.txt")))
+        self.assertEqual(2, len(self.worktrees()))
+        self.assertEqual(6, len(run_pin.live(self.repo, alive=alive)))
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".worktrees", run_pin.LOCK_NAME)))
+
+    def test_a_lock_left_by_a_dead_start_is_broken_after_its_age(self):
+        base = run_pin.pin_dir(self.repo, create=True)
+        lock = os.path.join(base, run_pin.LOCK_NAME)
+        with open(lock, "w", encoding="utf-8") as fh:
+            fh.write("1\n")
+        old = time.time() - run_pin.LOCK_STALE_SECONDS - 5
+        os.utime(lock, (old, old))
+        self.assertTrue(run_pin.start(self.repo, "a", alive=alive)["pinned"])
+        self.assertFalse(os.path.exists(lock))
+
+    def test_a_young_directory_is_never_removed(self):
+        sha = self.head()
+        path = os.path.join(self.repo, ".worktrees", "run-" + sha[:12])
+        os.makedirs(path)                                   # another start is building it
+        with open(os.path.join(path, "half"), "w", encoding="utf-8") as fh:
+            fh.write("x")
+        r = run_pin.start(self.repo, "a", alive=alive)
+        self.assertFalse(r["pinned"])
+        self.assertIn("being built", r["why"])
+        self.assertTrue(os.path.isfile(os.path.join(path, "half")))
+        # an old unused pin directory with no stamp: young ones survive clean as well
+        stray = os.path.join(self.repo, ".worktrees", "run-" + "f" * 12)
+        os.makedirs(stray)
+        self.assertEqual([], run_pin.clean(self.repo, now=time.time() + 1, keep_days=0.0, alive=alive))
+        self.assertTrue(os.path.isdir(stray))
+
+    def test_a_repo_inside_another_repo_is_not_pinned(self):
+        inner = os.path.join(self.repo, "plugins", "copy")       # a plugin copy in a tracked tree
+        os.makedirs(os.path.join(inner, "academy", "scripts"))
+        with open(os.path.join(inner, "academy", "scripts", "run_pin.py"), "w", encoding="utf-8") as fh:
+            fh.write("#\n")
+        r = run_pin.start(inner, "a", alive=alive)
+        self.assertFalse(r["pinned"])
+        self.assertIn("not the top of its git checkout", r["why"])
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".worktrees")))
+
+    def test_a_checkout_that_is_no_academy_repo_is_not_pinned(self):
+        other = os.path.join(self.tmp, "dotfiles")
+        os.makedirs(other)
+        run(other, "init", "-q", "-b", "main")
+        configure(other)
+        run(other, "commit", "-q", "--allow-empty", "-m", "x")
+        r = run_pin.start(other, "a", alive=alive)
+        self.assertFalse(r["pinned"])
+        self.assertIn("academy/scripts/run_pin.py", r["why"])
+        self.assertFalse(os.path.exists(os.path.join(other, ".worktrees")))
+
+    def test_a_reused_pin_with_changed_tracked_files_is_restored(self):
+        a = run_pin.start(self.repo, "a", alive=alive)
+        with open(os.path.join(a["root"], "a.txt"), "w", encoding="utf-8") as fh:
+            fh.write("tampered\n")
+        b = run_pin.start(self.repo, "b", alive=alive)
+        self.assertEqual(a["root"], b["root"])
+        self.assertTrue(b["restored"])
+        with open(os.path.join(b["root"], "a.txt"), encoding="utf-8") as fh:
+            self.assertEqual("one\n", fh.read())
+
+    def test_a_held_pin_is_kept_for_the_hold_and_its_expiry_is_said(self):
+        old = self.pin_at(1000.0, "a")
+        e = run_pin.end(self.repo, old["run"], now=1000.0, hold=True)
+        self.assertEqual(1000.0 + run_pin.HOLD_DAYS * DAY, e["expires"])
+        self.assertTrue(e["expires_iso"].startswith("1970-01-"))
+        self.assertEqual([], run_pin.clean(self.repo, now=1000.0 + (run_pin.HOLD_DAYS - 1) * DAY, alive=alive))
+        self.assertEqual([os.path.basename(old["root"])],
+                         run_pin.clean(self.repo, now=1000.0 + (run_pin.HOLD_DAYS + 1) * DAY, alive=alive))
+        plain = self.pin_at(5000.0, "b")
+        self.assertEqual(5000.0 + run_pin.KEEP_DAYS * DAY, run_pin.end(self.repo, plain["run"], now=5000.0)["expires"])
+
+    def pin_at(self, now, label):
+        self.commit("h%s.txt" % label, label)
+        return run_pin.start(self.repo, label, now=now, alive=alive)
+
+    def test_a_pid_of_another_pid_namespace_is_not_judged(self):
+        m = {"started": 1000.0, "host": socket.gethostname(), "pid": 4242, "pid_start": "7",
+             "pid_ns": "pid:[0]"}
+        self.assertFalse(run_pin.marker_live(dict(m, pid_ns=run_pin.pid_namespace()), now=1001.0, alive=dead))
+        if run_pin.pid_namespace():
+            self.assertTrue(run_pin.marker_live(m, now=1001.0, alive=dead))     # age alone
 
 
 class TestLibraryRoot(Base):

@@ -2,7 +2,7 @@
 """Pin the academy code a workflow run uses (#97).
 
     py run_pin.py [--repo DIR] start [--label L] [--keep-days N] [--json]
-    py run_pin.py [--repo DIR] end --run RUN [--json]
+    py run_pin.py [--repo DIR] end --run RUN [--hold] [--json]
     py run_pin.py [--repo DIR] live [--json]
     py run_pin.py [--repo DIR] clean [--keep-days N] [--json]
 
@@ -17,10 +17,21 @@ gives that worktree as the root of everything it runs. ``end`` removes the run's
 removes the pins that no live run uses and that nothing used for ``--keep-days`` days
 (default ``KEEP_DAYS``); ``start`` runs it first.
 
+``end --hold`` (a run that handed work back to the main session, whose args carry the
+pin's root) keeps the pin ``HOLD_DAYS`` days; ``end`` prints when the pin may go
+(``expires``). Creating, reusing and cleaning pins take ``.worktrees/pin.lock`` (O_EXCL,
+broken after ``LOCK_STALE_SECONDS``), and a pin directory with no stamp younger than
+``YOUNG_SECONDS`` is never removed. A reused pin whose tracked files changed is reset to
+its commit in place.
+
 A marker is stale (its run is taken for dead) when it is older than ``RUN_MAX_HOURS``
-hours, or when it names a process of this host that is gone: the first ancestor of
-``start`` that is not a shell or an interpreter, which is the session that ran the
-workflow (found on Linux only; elsewhere the age alone decides).
+hours, or when it names a process of this host and pid namespace that is gone (the same
+start time): the first ancestor of ``start`` that is not a shell or an interpreter, which
+is the session that ran the workflow (found on Linux only; elsewhere, and in another pid
+namespace, the age alone decides). A resumed workflow run does not write its marker again.
+
+Only the top of a git checkout that holds ``academy/scripts/run_pin.py`` at HEAD is pinned
+(a plugin copy inside another repository is not).
 
 ``DIR`` is any checkout of the academy repo (default: the one this script is in). A
 directory that is no git checkout (an installed plugin's cache, a copy at a version) is
@@ -50,8 +61,18 @@ SHA_LEN = 12
 #: days a pin no live run uses is kept after its last use (a hand-back of a finished run,
 #: /researcher:prove with the run's root, still finds its code)
 KEEP_DAYS = 2.0
+#: days a pin is kept after a run that ended with a hand-back to the main session
+#: (``end --hold``: a for_main or a gate, whose args carry the pin's root)
+HOLD_DAYS = 7.0
 #: hours after which a live marker is stale whatever its pid says (a run that died)
 RUN_MAX_HOURS = 12.0
+#: the lock that serialises creating, reusing and cleaning pins (one per main checkout)
+LOCK_NAME = "pin.lock"
+#: seconds after which a lock is taken for a dead start's and broken; how long to wait
+LOCK_STALE_SECONDS = 600.0
+LOCK_WAIT_SECONDS = 180.0
+#: a pin directory with no stamp younger than this is a start building it: never removed
+YOUNG_SECONDS = 300.0
 #: process names skipped when looking for the session above ``start``
 _WRAPPERS = {"bash", "sh", "dash", "zsh", "fish", "ksh", "env", "timeout", "nohup", "stdbuf",
              "sudo", "su", "bwrap", "sandbox-exec", "git", "py", "python", "python3"}
@@ -156,6 +177,50 @@ def _proc_stat(pid):
         return None
 
 
+class pin_lock:
+    """``.worktrees/pin.lock``, made with O_EXCL (Windows too): one start or clean at a time
+    per main checkout. A lock older than ``LOCK_STALE_SECONDS`` is a dead start's: broken."""
+
+    def __init__(self, base, wait=None):
+        self.path = os.path.join(base, LOCK_NAME)
+        self.wait = LOCK_WAIT_SECONDS if wait is None else wait
+
+    def __enter__(self):
+        deadline = time.time() + self.wait
+        while True:
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                try:
+                    if time.time() - os.path.getmtime(self.path) > LOCK_STALE_SECONDS:
+                        os.remove(self.path)
+                        continue
+                except OSError:
+                    continue                       # released meanwhile
+                if time.time() > deadline:
+                    raise PinError("%s is held by another start for over %ds" % (self.path, self.wait))
+                time.sleep(0.05)
+                continue
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write("%d %s\n" % (os.getpid(), socket.gethostname()))
+            return self
+
+    def __exit__(self, *exc):
+        try:
+            os.remove(self.path)
+        except OSError:
+            pass
+        return False
+
+
+def pid_namespace():
+    """This process's pid namespace (``/proc/self/ns/pid``), or None where there is none."""
+    try:
+        return os.readlink("/proc/self/ns/pid")
+    except (OSError, AttributeError):
+        return None
+
+
 def _wrapper(name):
     n = name.lower()
     if n.endswith(".exe"):
@@ -202,7 +267,11 @@ def marker_live(m, now=None, max_hours=RUN_MAX_HOURS, alive=pid_alive):
         return False
     if not started or now - started > max_hours * 3600:
         return False
-    if m.get("pid") and m.get("host") == socket.gethostname() and not alive(m["pid"], m.get("pid_start")):
+    # a pid is judged only in the pid namespace it was read in (a container on the same host
+    # name sees other numbers): elsewhere the age alone decides
+    if m.get("pid") and m.get("host") == socket.gethostname() and \
+            (not m.get("pid_ns") or m.get("pid_ns") == pid_namespace()) and \
+            not alive(m["pid"], m.get("pid_start")):
         return False
     return True
 
@@ -253,14 +322,39 @@ def _remove_pin(main, path):
         pass
 
 
+def _young(path):
+    """A pin directory that has no stamp yet and was made in the last ``YOUNG_SECONDS``:
+    a start is building it."""
+    try:
+        return not os.path.isfile(_stamp(os.path.dirname(path), os.path.basename(path))) and \
+            time.time() - os.path.getmtime(path) < YOUNG_SECONDS
+    except OSError:
+        return False
+
+
+def _expires(st, keep_days=KEEP_DAYS):
+    try:
+        return max(float(st.get("used") or 0) + keep_days * 86400, float(st.get("hold_until") or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def clean(repo, now=None, keep_days=KEEP_DAYS, keep=(), alive=pid_alive):
-    """Remove the pins no live run uses whose last use is older than ``keep_days``; the
-    names in ``keep`` stay. Returns the removed pins' names."""
-    now = time.time() if now is None else now
+    """Remove the pins no live run uses whose last use is older than ``keep_days`` (and
+    whose hold, ``end --hold``, is over); the names in ``keep`` stay, and so does a young
+    directory with no stamp (``_young``). Returns the removed pins' names."""
     top = toplevel(repo)
     if not top:
         return []
-    main = main_checkout(top)
+    base = os.path.join(main_checkout(top), PIN_DIR)
+    if not os.path.isdir(base):
+        return []
+    with pin_lock(base):
+        return _clean(main_checkout(top), now, keep_days, keep, alive)
+
+
+def _clean(main, now, keep_days, keep, alive):
+    now = time.time() if now is None else now
     base = os.path.join(main, PIN_DIR)
     try:
         names = sorted(n for n in os.listdir(base) if _PIN_NAME.match(n))
@@ -271,12 +365,15 @@ def clean(repo, now=None, keep_days=KEEP_DAYS, keep=(), alive=pid_alive):
     for n in names:
         if n in used or n in keep:
             continue
-        st = _read(_stamp(base, n)) or {}
-        try:
-            last = float(st.get("used") or 0) or os.path.getmtime(os.path.join(base, n))
-        except (OSError, TypeError, ValueError):
-            last = 0
-        if now - last > keep_days * 86400:
+        if _young(os.path.join(base, n)):
+            continue
+        st = _read(_stamp(base, n))
+        if st is None:
+            try:
+                st = {"used": os.path.getmtime(os.path.join(base, n))}
+            except OSError:
+                st = {}
+        if now > _expires(st, keep_days):
             _remove_pin(main, os.path.join(base, n))
             gone.append(n)
     if gone:
@@ -294,12 +391,20 @@ def start(repo, label=None, now=None, keep_days=KEEP_DAYS, alive=pid_alive):
     description, as printed."""
     now = time.time() if now is None else now
     repo = os.path.abspath(repo)
+
+    def unpinned(why):
+        return {"pinned": False, "root": repo, "sha": None, "run": None, "why": why}
     top = toplevel(repo)
     if not top:
-        return {"pinned": False, "root": repo, "sha": None, "run": None,
-                "why": "%s is no git checkout (an installed plugin is already a copy at a "
-                       "version): the run reads it as it is" % repo}
+        return unpinned("%s is no git checkout (an installed plugin is already a copy at a "
+                        "version): the run reads it as it is" % repo)
+    if not _same(top, repo):
+        return unpinned("%s is not the top of its git checkout (%s, another repository): the "
+                        "run reads it as it is" % (repo, top))
     sha = git(top, "rev-parse", "HEAD")
+    if not git(top, "cat-file", "-t", "HEAD:academy/scripts/run_pin.py", check=False):
+        return unpinned("%s holds no academy/scripts/run_pin.py at HEAD: no academy checkout, "
+                        "the run reads it as it is" % top)
     dirty = len([ln for ln in git(top, "status", "--porcelain", "--untracked-files=no",
                                   check=False).splitlines() if ln.strip()])
     main = main_checkout(top)
@@ -308,31 +413,44 @@ def start(repo, label=None, now=None, keep_days=KEEP_DAYS, alive=pid_alive):
     path = os.path.join(base, name)
     if is_pin_path(top):                         # started from a pin: that pin
         path, name = top, os.path.basename(top)
-    cleaned = clean(main, now, keep_days, keep=(name,), alive=alive)
-    # a directory of the main checkout that is no worktree answers with the main's HEAD
-    own = toplevel(path)
-    reused = bool(own) and _same(own, path) and git(path, "rev-parse", "HEAD", check=False) == sha
-    if not reused:
-        if os.path.exists(path):
-            _remove_pin(main, path)
-        git(main, "worktree", "prune", check=False)
-        git(main, "worktree", "add", "--detach", "--quiet", path, sha)
-    st = _read(_stamp(base, name)) or {"sha": sha, "created": now}
-    st["used"] = now
-    _write(_stamp(base, name), st)
+    restored = False
+    with pin_lock(base):                         # create, reuse and clean, one start at a time
+        cleaned = _clean(main, now, keep_days, (name,), alive)
+        # a directory of the main checkout that is no worktree answers with the main's HEAD
+        own = toplevel(path)
+        reused = bool(own) and _same(own, path) and git(path, "rev-parse", "HEAD", check=False) == sha
+        if reused and git(path, "status", "--porcelain", "--untracked-files=no", check=False):
+            # a tracked file of the pin was changed: back to the commit, in place (a live run
+            # may be reading it, so the directory stays)
+            git(path, "reset", "--quiet", "--hard", sha)
+            restored = True
+        if not reused:
+            if os.path.exists(path):
+                if _young(path):
+                    return unpinned("%s is being built by another start (no stamp, made in the "
+                                    "last %ds): the run reads %s as it is" % (path, YOUNG_SECONDS, repo))
+                _remove_pin(main, path)
+            git(main, "worktree", "prune", check=False)
+            git(main, "worktree", "add", "--detach", "--quiet", path, sha)
+        st = _read(_stamp(base, name)) or {"sha": sha, "created": now}
+        st["used"] = now
+        _write(_stamp(base, name), st)
     run = _new_run(label, now)
     pid, pid_start = session_pid()
     marker = {"run": run, "label": label or "", "sha": sha, "root": path, "source": top,
-              "started": now, "host": socket.gethostname(), "pid": pid, "pid_start": pid_start}
+              "started": now, "host": socket.gethostname(), "pid": pid, "pid_start": pid_start,
+              "pid_ns": pid_namespace()}
     _write(os.path.join(base, LIVE_DIR, run + ".json"), marker)
     return {"pinned": True, "root": path, "sha": sha, "run": run, "source": top,
-            "reused": reused, "dirty": dirty, "cleaned": cleaned,
+            "reused": reused, "restored": restored, "dirty": dirty, "cleaned": cleaned,
             "why": "pinned at %s%s" % (sha[:SHA_LEN], "; %d uncommitted change(s) of %s are "
                                        "not in the pin" % (dirty, top) if dirty else "")}
 
 
-def end(repo, run, now=None):
-    """End run ``run``: its marker is removed and its pin's last use is now."""
+def end(repo, run, now=None, hold=False, keep_days=KEEP_DAYS):
+    """End run ``run``: its marker is removed and its pin's last use is now; with ``hold``
+    (the run handed work back to the main session, whose args name the pin's root) the pin
+    is kept ``HOLD_DAYS``. The result says when the pin may be removed (``expires``)."""
     if not _RUN.match(run or ""):
         raise PinError("bad run id %r" % run)
     now = time.time() if now is None else now
@@ -346,11 +464,15 @@ def end(repo, run, now=None):
         return {"ended": False, "run": run, "why": "no live marker for this run"}
     os.remove(f)
     name = os.path.basename(os.path.normpath(m.get("root") or ""))
-    st = _read(_stamp(base, name))
-    if st is not None:
-        st["used"] = now
+    st = _read(_stamp(base, name)) or {"sha": m.get("sha"), "created": now}
+    st["used"] = now
+    if hold:
+        st["hold_until"] = max(float(st.get("hold_until") or 0), now + HOLD_DAYS * 86400)
+    if os.path.isdir(os.path.join(base, name)):
         _write(_stamp(base, name), st)
-    return {"ended": True, "run": run, "sha": m.get("sha"), "root": m.get("root")}
+    exp = _expires(st, keep_days)
+    return {"ended": True, "run": run, "sha": m.get("sha"), "root": m.get("root"), "held": bool(hold),
+            "expires": exp, "expires_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(exp))}
 
 
 def describe(m, now=None):
@@ -373,6 +495,7 @@ def main(argv=None):
     s.add_argument("--json", action="store_true")
     e = sp.add_parser("end")
     e.add_argument("--run", required=True)
+    e.add_argument("--hold", action="store_true", help="keep the pin %g days (a hand-back names it)" % HOLD_DAYS)
     e.add_argument("--json", action="store_true")
     li = sp.add_parser("live")
     li.add_argument("--json", action="store_true")
@@ -385,7 +508,7 @@ def main(argv=None):
             r = start(a.repo, a.label, keep_days=a.keep_days)
             text = "%s %s" % ("pinned" if r["pinned"] else "not pinned:", r["root"] if r["pinned"] else r["why"])
         elif a.cmd == "end":
-            r = end(a.repo, a.run)
+            r = end(a.repo, a.run, hold=a.hold)
             text = "ended %s" % a.run if r["ended"] else "not ended: %s" % r["why"]
         elif a.cmd == "live":
             r = live(a.repo, prune=False)
