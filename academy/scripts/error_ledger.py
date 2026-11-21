@@ -491,6 +491,8 @@ def family(sig):
     if not sep:
         return sig
     tool = tool.rsplit("__", 1)[-1]
+    if re.fullmatch(r"\(unlisted family [0-9a-f]{12}\)", msg):
+        return "%s: %s" % (tool, msg)      # a family of an issue (error_issues), as posted
     for pat, reason in FAMILY_RULES:
         if pat.search(msg):
             return "%s: %s" % (tool, reason)
@@ -1062,14 +1064,19 @@ def main(argv=None):
                 print("error_ledger: sync before the settle failed (%s); nothing closed"
                       % res["error"], file=sys.stderr)
                 return 1
-            closed = iss.settle(t, a.quiet_days, a.packet)
+            try:
+                closed = iss.settle(t, a.quiet_days)
+            except (iss.GhError, iss.Unsafe) as e:
+                print("error_ledger: settle stopped (%s)" % e, file=sys.stderr)
+                return 1
+            # the packet id stays local: an issue never names it
             append_file(spool_file(spool_dir(ws), instance),
                         {"t": "settle", "ts": _stamp(_now()), "upto": _stamp(_now()),
                          "packet": a.packet or "", "closed": len(closed)})
             print("settled%s: %d issue(s) closed by silence"
                   % ((" " + a.packet) if a.packet else "", len(closed)))
-            for sig, number in closed:
-                print("  closed #%s: %s" % (number, sig))
+            for fam, number in closed:
+                print("  closed #%s: %s" % (number, fam))
             return 0
         if not a.packet:
             print("error_ledger: settle --packet P-NNNN is required with the git ledger (%s)"
@@ -1086,18 +1093,31 @@ def main(argv=None):
                 print("error_ledger: nothing to resolve (no signature or family given)",
                       file=sys.stderr)
                 return 1
-            closed, missing = _issues().resolve(_transport(repo), a.sig, a.family, a.note,
-                                                a.by, a.commit, version)
-            for sig in missing:
-                print("error_ledger: no open issue for %r (run sync first?)" % sig,
+            iss = _issues()
+            try:
+                closed, missing = iss.resolve(_transport(repo), a.sig, a.family, a.by,
+                                              a.commit, version)
+            except (iss.GhError, iss.Unsafe) as e:
+                print("error_ledger: resolve stopped (%s)" % e, file=sys.stderr)
+                return 1
+            for name in missing:
+                print("error_ledger: no open issue for %r (run sync first?)" % name,
                       file=sys.stderr)
             if not closed:
                 print("error_ledger: nothing to resolve (no open issue matched)",
                       file=sys.stderr)
                 return 1
-            print("resolved %d class(es)" % len(closed))
-            for sig, number in closed:
-                print("  closed #%s: %s" % (number, sig))
+            # the note, and who wrote it, stay local: an issue never carries them
+            for fam, number in closed:
+                rec = {"t": "resolve", "ts": _stamp(_now()), "family": fam, "issue": number,
+                       "by": a.by, "note": a.note}
+                for k, v in (("commit", a.commit), ("version", version)):
+                    if v:
+                        rec[k] = v
+                append_file(spool_file(spool_dir(ws), instance), rec)
+            print("resolved %d family issue(s)" % len(closed))
+            for fam, number in closed:
+                print("  closed #%s: %s" % (number, fam))
             return 0
         now = _stamp(_now())
         sigs = list(a.sig)
@@ -1142,13 +1162,13 @@ def _main_issues(a, ws, board, repo, why_not):
         spool = spool_dir(ws)
         res = iss.sync(spool, t, dry_run=a.dry_run)
         verb = "would post" if a.dry_run else "posted"
-        print("sync %s (%s): %d record(s) of %d class(es) %s%s" % (
-            repo, spool, res["records"], res["classes"], verb,
+        print("sync %s (%s): %d record(s) of %d family(ies) %s%s" % (
+            repo, spool, res["records"], res["families"], verb,
             " (offline: existing issues not looked up)" if a.dry_run else ""))
         for row in res["posted"]:
             print("  %s%s %s x%d: %s" % (row["action"], (" #%s" % row["issue"]) if row["issue"]
                                          else "", ("[%s]" % row["tag"]) if row["tag"] else "",
-                                         row["count"], row["sig"]))
+                                         row["count"], row["family"]))
         if res["error"]:
             print("error_ledger: sync stopped (%s); the next sync finishes the batch"
                   % res["error"], file=sys.stderr)
@@ -1157,14 +1177,15 @@ def _main_issues(a, ws, board, repo, why_not):
     try:
         res = iss.migrate(read_all(board), t, dry_run=a.dry_run,
                           skip_resolved=a.skip_resolved, log=print if a.verbose else None)
-    except iss.GhError as e:
+    except (iss.GhError, iss.Unsafe) as e:
         print("error_ledger: migrate stopped (%s); run it again to finish (an issue already "
               "there is completed, not duplicated)" % e, file=sys.stderr)
         return 1
     print("migrate %s -> %s%s" % (os.path.join(board, LEDGER_DIR), repo,
                                   " (dry run: contacts no one)" if a.dry_run else ""))
-    print("  classes: %d (open %d, of them regression %d, stale code %d; resolved %d)" % (
-        res["classes"], res["open"], res["regression"], res["stale_code"], res["resolved"]))
+    print("  families: %d (open %d, of them regression %d, stale code %d; resolved %d; "
+          "unlisted %d)" % (res["families"], res["open"], res["regression"], res["stale_code"],
+                            res["resolved"], res["unlisted"]))
     print("  records: %d error(s), %d resolve(s)" % (res["errors"], res["resolves"]))
     print("  to import: %d issue(s) (%d resolved skipped), %d comment(s), about %d write(s)"
           % (res["to_import"], res["skipped_resolved"], res["comments"], res["writes"]))
