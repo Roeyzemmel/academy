@@ -19,6 +19,7 @@ Shared references beside it: `references/registry.md` (the `lab` / `paper` recor
 
 | Skill | What it does |
 |---|---|
+| /academy:audit | Consistency audit of the board and the registry: every state that contradicts its own evidence (blocked tickets whose waits ended, duplicate or stale packets, proved claims with a stale hash or no positive review), by class, with ids and a suggested fix. Read-only. Use for "audit", "what is inconsistent", weekly and before a merge. |
 | /academy:board | List, show, file, move and sync tickets on the academy board as the human. Use for "show the board", "what's open for the expert", "show T-0007", "close that ticket", "file a ticket to ...", "sync the board", or any ticket id. |
 | /academy:board-migrate | Move the file board to GitHub Issues, or check it: export the manifest, push in bulk over REST (resumable), verify zero drift from a byte-exact dump, cut over. Use for "migrate the board to GitHub", "board preflight", "verify the GitHub board". |
 | /academy:citation-discipline | How to rely on published work: cite before reproving, quote verbatim with the source version, check the real hypotheses, never invent references or pinpoints. Use whenever a literature result is stated, cited, applied or added to a bibliography. |
