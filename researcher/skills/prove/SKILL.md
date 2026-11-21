@@ -61,9 +61,18 @@ The inbox runs the same script for a `prove` ticket. The script:
      undeclared, it is incomplete.
    - otherwise (`attempt-incomplete`): nothing goes to review. The prover's attempt records
      the gaps; a gap that is a separate lemma becomes its own object with a `prove` ticket.
-     With no falsifier on record and none pending, `lead-researcher` (a researcher->scientist
+     The clerk reads each gap with its class (#126, the human, 2026-11-21): the item's tag
+     `[fix-known]`, `[fix-unclear]` or `[needs-assumption]`, else its own reading, or
+     `not-a-gap` ("None"). A `fix-known` gap resting only on declared dependencies is no gap
+     (a `complete` attempt with only those goes to review above, its verify ask naming the
+     unreviewed inputs, `inputs_to_settle`). **A falsifier is filed only for a `failed`
+     attempt or a `fix-unclear` / `needs-assumption` gap** (an unclassed legacy item counts
+     as one); `fix-known` gaps and undeclared dependencies alone file none
+     (`falsifier_skipped` says why). An attempt the prover left as the template is `lost`:
+     no falsifier, not delivered. Then, with no falsifier on record and none pending,
+     `lead-researcher` (a researcher->scientist
      liaison in `permissions.json`; the prover is none) files one `experiment` or `test`
-     ticket to the Scientist that tries to break the claim where the attempt failed (its
+     ticket to the Scientist that tries to break the claim where the attempt failed (those
      gaps), checked by the clerk; the delivery is unchanged and names it
      (`falsifier_ticket`). An incomplete repair for a verify pass is blocked on the human
      and files one too. A run lost to a limit files nothing.

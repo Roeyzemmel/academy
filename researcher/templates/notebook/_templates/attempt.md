@@ -38,7 +38,13 @@ statement that does the work is cited, never reproved) -->
 
 ## Gaps
 
-<!-- each unproved step, marked; empty only when the proof is complete -->
+<!-- each unproved step, marked, one item each, tagged with its class (#126):
+  - [fix-known] a routine step, a missing citation, or the proof resting on an existing
+    registry statement (open, sketch or proved-modulo: a dependency; name its id)
+  - [fix-unclear] no route to close it is known
+  - [needs-assumption] closing it needs a hypothesis the statement does not carry now
+Only the last two call for a falsifier. "None." when the proof is complete; a proof that is
+complete modulo unreviewed inputs says so under Inputs, not here. -->
 
 ## Why it fails
 
