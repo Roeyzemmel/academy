@@ -76,7 +76,10 @@ class ReasonTests(unittest.TestCase):
     def test_claims_of_refs(self):
         meta = {"refs": ["paper:lem:a", "T-0001", "file:expert@main/x.md", "bib:Ab01", "arxiv:2101.00001", "paper:lem:a"]}
         self.assertEqual(rl.claims_of(meta), ["paper:lem:a", "arxiv:2101.00001"])
-        self.assertEqual(rl.claims_of(meta, lambda c: c.startswith("paper:")), (["paper:lem:a"], ["arxiv:2101.00001"]))
+        self.assertEqual(rl.claims_of(meta, lambda c: c if c.startswith("paper:") else None), (["paper:lem:a"], ["arxiv:2101.00001"]))
+        # an old label counts as the record it names (review of d6b3716)
+        alias = {"s1:N22": "s1:CEX-3", "s1:CEX-3": "s1:CEX-3"}
+        self.assertEqual(rl.claims_of({"refs": ["s1:N22", "s1:CEX-3"]}, alias.get), (["s1:CEX-3"], []))
 
 
 class GraphTests(unittest.TestCase):
@@ -114,7 +117,7 @@ class BuildTests(unittest.TestCase):
     def test_rows(self):
         edges = [("paper:thm:b", "depends_on", "paper:lem:a"), ("paper:thm:y", "depends_on", "paper:lem:z"),
                  ("paper:thm:x", "depends_on", "paper:thm:y"), ("flat:Q-1", "bears_on", "paper:lem:z")]
-        rows, unparsed = rl.build(self.tickets(), lambda inst: self.INDEX, (edges, lambda c: True),
+        rows, unparsed = rl.build(self.tickets(), lambda inst: self.INDEX, (edges, lambda c: c),
                                   lambda pid: {"P-0009": "the page image is not in the cache"}.get(pid, ""))
         self.assertEqual([(r["ticket"], r["key"]) for r in rows],
                          [("T-0002", "Mo77"), ("T-0002", "Th92"), ("T-0001", "Ab01"), ("T-0003", "Gh04")])
@@ -132,8 +135,15 @@ class BuildTests(unittest.TestCase):
         self.assertIn("## Could not read", text)
         self.assertIn("T-0005: source unreachable", text)
 
+    def test_an_alias_ref_counts_the_canonical_record(self):
+        meta = {"id": "T-0009", "to": "expert@main", "title": "t", "refs": ["s1:N22"], "packets": []}
+        b = body(BLOCK + REASON % ("Ab01", "Ab01 Thm 2 for s1:N22"))
+        edges = [("s1:GEO-1", "depends_on", "s1:CEX-3")]
+        rows, _u = rl.build([(meta, b)], lambda inst: self.INDEX, (edges, {"s1:N22": "s1:CEX-3"}.get))
+        self.assertEqual((rows[0]["claims"], rows[0]["rests_on_it"]), (["s1:CEX-3"], ["s1:GEO-1"]))
+
     def test_unknown_claims_and_no_graph(self):
-        rows, _u = rl.build(self.tickets()[:1], lambda inst: self.INDEX, ([], lambda c: False))
+        rows, _u = rl.build(self.tickets()[:1], lambda inst: self.INDEX, ([], lambda c: None))
         self.assertEqual((rows[0]["claims"], rows[0]["unknown_claims"]), ([], ["paper:lem:a"]))
         self.assertIn("not in the registry: paper:lem:a", rl.render(rows))
         rows, _u = rl.build(self.tickets()[:1], lambda inst: self.INDEX, None)

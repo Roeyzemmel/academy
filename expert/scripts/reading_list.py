@@ -106,7 +106,8 @@ def bib_keys(text):
 
 def claims_of(meta, known=None):
     """The registry ids a ticket's refs name (not tickets, files or bib keys); with
-    ``known`` (a callable id -> bool), ``(known ids, unknown ids)``."""
+    ``known`` (a callable id -> its canonical id, or None when the registry has no such
+    record), ``(canonical ids, unknown refs)``: an old label counts as the record it names."""
     out = []
     for r in meta.get("refs") or []:
         r = str(r).strip()
@@ -114,7 +115,14 @@ def claims_of(meta, known=None):
             out.append(r)
     if known is None:
         return out
-    return [c for c in out if known(c)], [c for c in out if not known(c)]
+    canon, unknown = [], []
+    for c in out:
+        q = known(c)
+        if not q:
+            unknown.append(c)
+        elif q not in canon:
+            canon.append(q)
+    return canon, unknown
 
 
 def dependents(edge_list, claims):
@@ -164,7 +172,7 @@ def _unread(idx):
 def build(tickets, index_for, graph=None, packet_summary=None):
     """``(rows, unparsed)``. ``tickets``: ``(meta, body)`` pairs; ``index_for``: a callable
     ``expert instance -> {key: index row}``; ``graph``: ``(edges, known)`` with ``known`` a
-    callable id -> bool (None: not counted); ``packet_summary``: a callable packet id ->
+    callable id -> canonical id or None (None: not counted); ``packet_summary``: a callable packet id ->
     its summary text (None: not read)."""
     rows, unparsed = [], []
     for meta, body in tickets:
@@ -267,7 +275,8 @@ def index_lookup(workspace):
 
 
 def registry_graph(repo):
-    """``(edges, known)`` from the registry engine, seen from ``repo``."""
+    """``(edges, known)`` from the registry engine, seen from ``repo``: ``known(id)`` is the
+    record's canonical qid (an alias resolved), or None."""
     plugin = ex.academy_plugin()
     if plugin not in sys.path:
         sys.path.insert(0, plugin)
@@ -277,7 +286,8 @@ def registry_graph(repo):
 
     def known(cid):
         if cid not in canon:
-            canon[cid] = graph.record(cid, repo) is not None
+            rec = graph.record(cid, repo)
+            canon[cid] = rec.qid if rec is not None else None
         return canon[cid]
     return [(s, r, d) for s, r, d in es], known
 
