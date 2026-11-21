@@ -1,6 +1,6 @@
 ---
 name: sweep
-description: 'The machine-note sweep: plan by script (changed files, cached verdicts, typed notes by kind), retire await notes whose ticket ended, fold answered notes into their ticket''s thread and delete them, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full.'
+description: 'The machine-note sweep: a script plans it (changed files, cached verdicts, notes by kind); retire ended await notes, fold answered ones into their ticket''s thread and delete them, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full.'
 ---
 
 # /author:sweep

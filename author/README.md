@@ -87,6 +87,6 @@ colours: `skills/paper-method/references/editing-tex.md`, `draft-colours.md`. Te
 | /author:presync | The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, coloured diff, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone. |
 | /author:slideshow-maker | Build a research talk as a beamer deck plus lecture notes from one TeX source set: verified statements, definitions before use, figures that show the mechanism, no status tags, a review loop. Use for "make slides", "a 25-minute talk". |
 | /author:status | The paper's state at a glance: agenda progress, what /author:inbox would run, what waits on which ticket, tickets to this Author, checker summary. Read-only. Use for "where is the paper", "author status", "how far is the milestone". |
-| /author:sweep | The machine-note sweep: plan by script (changed files, cached verdicts, typed notes by kind), retire await notes whose ticket ended, fold answered notes into their ticket's thread and delete them, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full. |
+| /author:sweep | The machine-note sweep: a script plans it (changed files, cached verdicts, notes by kind); retire ended await notes, fold answered ones into their ticket's thread and delete them, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full. |
 
 <!-- skills:end -->
