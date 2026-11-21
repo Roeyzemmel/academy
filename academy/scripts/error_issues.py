@@ -30,15 +30,18 @@ Two checks stand between a record and GitHub, and posting cannot skip either:
 
 One issue per family, labelled ``error-family``, found by the hidden marker ``<!--
 family:<hash> -->`` (``hash``: the first 12 hex digits of the sha1 of the posted family).
-The body is a table (tool, family, occurrences, first and last seen, the code of the last
+The body is a table (tool, family, occurrences, first and last seen by day, the code of the last
 one, roles) and the same fields as hidden JSON (``<!-- error-family {...} -->``). Each
 sync adds one comment: the new count, the date span, counts by role and by cause, and the
 occurrences as hidden rows ``[day, role, cause, rev, ver]`` (``<!-- occurrences [...]
 -->``, the day without its time); a resolve or settle adds ``<!-- resolves [...] -->`` rows ``{at, by, commit,
 version}``, so ``records_of`` rebuilds the records ``error_ledger.report`` reads (one
-"class" per family; with no session id, sessions count as one). Only comments by the
-poster (the transport's account, else the issue's author) are read, so a stranger's
-comment adds no rows. A record whose ``ts`` is malformed is skipped (counted, never
+"class" per family; with no session id, sessions count as one; times are days, so a
+report window starts at midnight and bursts are per day). Only trusted comments are read
+(``author_association`` OWNER / MEMBER / COLLABORATOR, the transport's account, the
+issue's author, or workspace.json ``errors.posters``), so a stranger's comment adds no
+rows. A batch id is an HMAC keyed by the spool's random ``salt`` (``cursor.json``), so it
+cannot be brute-forced back to the times. A record whose ``ts`` is malformed is skipped (counted, never
 fatal).
 
 A closed issue that recurs is reopened: with label ``regression`` when its last resolve
@@ -55,9 +58,11 @@ is injectable, and the tests pass a fake GitHub), always wrapped in ``Gate``.
 import collections
 import datetime as _dt
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -248,9 +253,11 @@ class Gate(object):
     #: the only labels this module adds; any other label must already be on the issue
     OURS = (LABEL, REGRESSION, STALE)
 
-    def __init__(self, inner):
+    def __init__(self, inner, posters=()):
         self._inner = inner
         self._login = False
+        #: further accounts whose comments are read (workspace.json ``errors.posters``)
+        self.posters = tuple(str(p) for p in posters or ())
 
     def login(self):
         """The account the transport posts as (``gh api user``), or None if unknown."""
@@ -340,9 +347,9 @@ def label_names(issue):
     return [lb["name"] if isinstance(lb, dict) else str(lb) for lb in issue.get("labels") or []]
 
 
-def transport(repo, run=None, write_interval=None):
+def transport(repo, run=None, write_interval=None, posters=()):
     kw = {} if write_interval is None else {"write_interval": write_interval}
-    return Gate(GhTransport(repo, run=run, **kw))
+    return Gate(GhTransport(repo, run=run, **kw), posters)
 
 
 # -- the fields of an occurrence ----------------------------------------------------------
@@ -430,11 +437,13 @@ def render_body(meta):
     return check_public("\n".join(out) + "\n")
 
 
-def batch_id(fam, recs):
-    """A batch's id: a hash of its family and records to the second (only the hash is
-    posted), so two batches of one day differ."""
+def batch_id(fam, recs, salt=""):
+    """A batch's id: an HMAC, keyed by this spool's random ``salt`` (``cursor.json``), of
+    its family and records to the second, so two batches of one day differ, a retry gives
+    the same id, and the posted id cannot be brute-forced back to the times."""
     rows = [[clean_ts(r.get("ts"))] + occ_row(r)[1:] for r in recs]
-    return hashlib.sha1(json.dumps([str(fam)] + rows).encode("utf-8")).hexdigest()[:12]
+    return hmac.new(str(salt).encode("utf-8"), json.dumps([str(fam)] + rows).encode("utf-8"),
+                    hashlib.sha1).hexdigest()[:12]
 
 
 def _chunks(rows):
@@ -491,7 +500,7 @@ def _resolve_row(r):
     """A resolve as it may be posted: when, by whom (a role, ``human``, ``settle`` or
     ``other``), the fix's commit and version. Never the note."""
     by = str(r.get("by") or "")
-    row = {"at": clean_ts(r.get("ts")), "by": by if by in RESOLVERS else "other"}
+    row = {"at": clean_ts(r.get("ts"))[:10], "by": by if by in RESOLVERS else "other"}
     if clean_rev(r.get("commit")):
         row["commit"] = clean_rev(r["commit"])
     if clean_ver(r.get("version")):
@@ -510,7 +519,9 @@ def records_of(meta, comments):
         for rows in read_hidden("occurrences", body):
             for row in rows if isinstance(rows, list) else []:
                 ts, role, cause, rev, ver = (list(row) + [""] * 5)[:5]
-                ts = ts + "T00:00:00" if RE_DAY.fullmatch(str(ts)) else clean_ts(ts)
+                # a day's errors at noon, its resolves at midnight: an error of the day
+                # of a resolve counts as after it, and a window from midnight holds them
+                ts = ts + "T12:00:00" if RE_DAY.fullmatch(str(ts)) else clean_ts(ts)
                 if not ts:
                     continue
                 rec = {"t": "error", "ts": ts, "session": "?", "instance": role or "other",
@@ -522,7 +533,8 @@ def records_of(meta, comments):
         for rows in read_hidden("resolves", body):
             for r in rows if isinstance(rows, list) else []:
                 if isinstance(r, dict) and r.get("at"):
-                    rec = {"t": "resolve", "ts": r["at"], "sig": fam, "by": r.get("by") or ""}
+                    at_ = r["at"] + "T00:00:00" if RE_DAY.fullmatch(str(r["at"])) else r["at"]
+                    rec = {"t": "resolve", "ts": at_, "sig": fam, "by": r.get("by") or ""}
                     for k in ("commit", "version"):
                         if r.get(k):
                             rec[k] = r[k]
@@ -540,8 +552,9 @@ def merge_meta(old, fam, recs, batch):
         return m
     rows = [occ_row(r) for r in recs]
     m.update(family=fam, hash=family_hash(fam), batch=batch, tool=fam.partition(": ")[0])
-    m["first"] = min([x for x in (m.get("first"), clean_ts(recs[0].get("ts"))) if x])
-    m["last"] = max([x for x in (m.get("last"), clean_ts(recs[-1].get("ts"))) if x])
+    # by day, as the rows: no posted text carries a time of day
+    m["first"] = min([x[:10] for x in (m.get("first"), clean_ts(recs[0].get("ts"))) if x])
+    m["last"] = max([x[:10] for x in (m.get("last"), clean_ts(recs[-1].get("ts"))) if x])
     m["count"] = int(m.get("count") or 0) + len(rows)
     roles = collections.Counter({k: int(v) for k, v in (m.get("roles") or {}).items()
                                  if k in ROLES + ("other",)})
@@ -587,16 +600,23 @@ def index(t, state="all"):
     return out
 
 
+#: GitHub's ``author_association`` of an account with write access (or an org member);
+#: ``CONTRIBUTOR``, ``FIRST_TIMER``, ``NONE`` ... are refused
+TRUSTED_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
+
+
 def comments_of(t, issue):
-    """The comments of ``issue`` written by the poster (the transport's account, else the
-    issue's author): only their hidden payloads and batch markers are read, so a
-    stranger's comment cannot add rows to the report or stop a post."""
-    login = t.login() if hasattr(t, "login") else None
-    login = login or ((issue.get("user") or {}).get("login"))
-    if not login:
-        return []
+    """The comments of ``issue`` it trusts: by an account with write access to the repo
+    (``author_association`` OWNER / MEMBER / COLLABORATOR: the human's laptop and a cloud
+    or collaborator session alike), by the transport's own account, by the issue's
+    author, or by one of ``errors.posters``. Only their hidden payloads and batch markers
+    are read, so a stranger's comment cannot add rows to the report or stop a post."""
+    logins = {x for x in ((t.login() if hasattr(t, "login") else None),
+                          (issue.get("user") or {}).get("login")) if x}
+    logins.update(getattr(t, "posters", ()))
     return [c for c in _pages(lambda p: t.list_comments(issue["number"], page=p))
-            if (c.get("user") or {}).get("login") == login]
+            if c.get("author_association") in TRUSTED_ASSOCIATIONS
+            or (c.get("user") or {}).get("login") in logins]
 
 
 # -- sync -----------------------------------------------------------------------------------
@@ -611,6 +631,8 @@ def load_cursor(spool):
         cur = {}
     cur.setdefault("offsets", {})
     cur.setdefault("partial", None)
+    if not re.fullmatch(r"[0-9a-f]{32}", str(cur.get("salt") or "")):
+        cur["salt"] = None          # made, and saved, by the first sync that posts
     return cur
 
 
@@ -681,13 +703,13 @@ def _stale(recs, fix):
                for r in recs)
 
 
-def post_family(t, issue, fam, recs):
+def post_family(t, issue, fam, recs, salt=""):
     """Post one family's new records: create its issue, or update it (reopen a closed one,
     with ``regression`` / ``stale-code``), then the occurrence comment(s). Safe to repeat
     for the same batch: the fields merge once and a comment already there is not posted
     again. Returns ``(action, number, tag)``."""
     t = gated(t)
-    batch = batch_id(fam, recs)
+    batch = batch_id(fam, recs, salt)
     old = meta_of(issue) if issue else None
     retry = bool(old and old.get("batch") == batch)
     meta = merge_meta(old, fam, recs, batch)
@@ -756,11 +778,14 @@ def sync(spool, t, dry_run=False):
                                "tag": None, "count": len(v)}
                               for f, v in sorted(groups.items())]
             return out
+        if groups and not cur.get("salt"):
+            cur["salt"] = secrets.token_hex(16)
+            save_cursor(spool, cur)     # before anything is posted: a retry keys alike
         issues = index(t) if groups else {}
         for fam in sorted(groups):
             try:
                 action, number, tag = post_family(t, issues.get(family_hash(fam)), fam,
-                                                  groups[fam])
+                                                  groups[fam], cur["salt"])
             except (GhError, Unsafe) as e:
                 cur["partial"] = {"upto": upto, "done": sorted(done)}
                 save_cursor(spool, cur)
@@ -799,10 +824,21 @@ def issue_records(t, start):
             if tag in label_names(i):
                 tags[fam] = tag
         recs += records_of(meta, comments_of(t, i))
-    lo = el._stamp(start)
+    lo = el._stamp(day_start(start))
     recs.append({"t": "settle", "ts": lo, "upto": lo})
     recs.sort(key=lambda r: r["ts"])
     return recs, numbers, tags
+
+
+def day_start(start):
+    """``start`` at midnight: the issues keep days, so a window starts with a whole day."""
+    return start.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+#: what a report read from the issues cannot tell
+ISSUES_NOTE = ("Read from the error-family issues: occurrences are kept per day (the window "
+               "starts at midnight; bursts count at most one per day and family) and "
+               "without sessions (sessions read 1); `report --local` has the detail.")
 
 
 def report(t, start, now):
@@ -810,7 +846,8 @@ def report(t, start, now):
     issue's label (``regression`` / ``stale-code``) sets its state. Each class row gains
     ``issue`` and ``family``."""
     recs, numbers, tags = issue_records(t, start)
-    rep = el.report(recs, start, now, tags)
+    rep = el.report(recs, day_start(start), now, tags)
+    rep["note"] = ISSUES_NOTE
     for r in rep["classes"]:
         r["issue"] = numbers.get(r["sig"])
         r["family"] = r["sig"]
@@ -882,15 +919,15 @@ def settle(t, quiet_days=7, now=None):
     ("closed by silence"). Returns [(family, number)]."""
     t = gated(t)
     now = now or el._now()
-    cutoff = el._stamp(now - _dt.timedelta(days=quiet_days))
+    cutoff = (now - _dt.timedelta(days=quiet_days)).strftime("%Y-%m-%d")   # by day
     closed = []
     for i in list_families(t, "open"):
         meta = meta_of(i)
-        if not meta or not meta.get("family") or not meta.get("last") or meta["last"] >= cutoff:
+        if not meta or not meta.get("family") or not meta.get("last") or meta["last"][:10] >= cutoff:
             continue
         row = {"ts": el._stamp(now), "by": "settle"}
         text = ("Closed by silence: no occurrence for %d days (last seen %s)."
-                % (int(quiet_days), clean_ts(meta["last"]) or "-"))
+                % (int(quiet_days), meta["last"][:10] if RE_DAY.match(meta["last"]) else "-"))
         _close(t, i, meta, row, text, keep_fix=True)
         closed.append((meta["family"], i["number"]))
     return closed

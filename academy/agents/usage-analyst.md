@@ -44,7 +44,8 @@ plugin).
    the fix (the records' `rev` / `ver`); the proposal for it is to update that copy
    (`scripts/bootstrap.py`, or the submodule pointer), never a new fix. With issues, a
    class row is one family (`sig` and `family` are the family; `instances` are roles;
-   sessions are not kept, so `sessions` is 1) and carries its `issue` number (cite it as
+   sessions are not kept, so `sessions` is 1; times are days, so `bursts` count at most
+   one per day, as the report's note says) and carries its `issue` number (cite it as
    `#<n>` of the errors repo); the state comes from the reopened issue's label
    (`regression`, `stale-code`), and a report read from the local files instead says so
    on stderr (`issues ... not read`): say that under `## Machine notes`. The issues hold

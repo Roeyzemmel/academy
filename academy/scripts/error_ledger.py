@@ -262,6 +262,7 @@ def read_dirs(roots):
     out = []
     seen = set()
     paths = []
+    dropped = 0
     for root in roots:
         try:
             paths += [os.path.join(root, n) for n in sorted(os.listdir(root))
@@ -278,13 +279,17 @@ def read_dirs(roots):
                 if not (isinstance(rec, dict) and rec.get("ts") and rec.get("t")):
                     continue
                 if not RE_STAMP.fullmatch(str(rec["ts"])):
-                    continue        # a malformed time (fractional seconds, Z): unreadable
+                    dropped += 1    # a malformed time (fractional seconds, Z): unreadable
+                    continue
                 if rec["t"] == "error":     # identical duplicates count once
                     key = json.dumps(rec, sort_keys=True)
                     if key in seen:
                         continue
                     seen.add(key)
                 out.append(rec)
+    if dropped:
+        print("error_ledger: %d record(s) with a malformed time skipped (not "
+              "YYYY-MM-DDTHH:MM:SS)" % dropped, file=sys.stderr)
     out.sort(key=lambda r: r["ts"])
     return out
 
@@ -770,7 +775,8 @@ def render_markdown(rep, every=False):
     """The report as Markdown. The class table lists the classes with an error in the
     window (or a regression) and counts the rest; ``every`` lists them all."""
     w = rep["window"]
-    out = ["# Errors %s .. %s" % (w["start"], w["end"]), "",
+    out = ["# Errors %s .. %s" % (w["start"], w["end"]), ""] + (
+        [rep["note"], ""] if rep.get("note") else []) + [
            "%d error(s) in the window; %d open class(es), %d recurring."
            % (rep["errors_in_window"], rep["open_classes"], len(rep["recurring"])), ""]
     if rep.get("benign_in_window"):
@@ -950,10 +956,18 @@ def _issues():
     return error_issues
 
 
-def _transport(repo):
+def errors_posters(ws):
+    """workspace.json ``errors.posters``: further GitHub accounts whose comments on the
+    error issues are read (beyond the repo's owners, members and collaborators)."""
+    cfg = ws.get("errors") if isinstance(ws, dict) and isinstance(ws.get("errors"), dict) else {}
+    got = cfg.get("posters") or []
+    return [str(x) for x in got] if isinstance(got, list) else []
+
+
+def _transport(repo, ws=None):
     if TRANSPORT is not None:
         return TRANSPORT(repo)
-    return _issues().transport(repo)
+    return _issues().transport(repo, posters=errors_posters(ws))
 
 
 def issue_repo(a, ws):
@@ -977,6 +991,8 @@ def _print_report(rep, a):
             for r in b["classes"]:
                 r["issue"] = nums.get(r["sig"])
             b["source"] = rep["source"]
+            if rep.get("note"):
+                b["note"] = rep["note"]
         if rep.get("unsynced") is not None:
             b["unsynced"] = rep["unsynced"]
         print(json.dumps(b, ensure_ascii=False))
@@ -1074,7 +1090,7 @@ def main(argv=None):
         rep = None
         if repo and not a.local:
             try:
-                rep = _issues().report(_transport(repo), start, now)
+                rep = _issues().report(_transport(repo, ws), start, now)
                 rep["unsynced"] = _issues().pending(spool_dir(ws))
             except Exception as e:      # offline: the local files, said so
                 print("error_ledger: issues of %s not read (%s); reporting the local "
@@ -1085,7 +1101,7 @@ def main(argv=None):
     elif a.cmd == "settle":
         if repo:
             iss = _issues()
-            t = _transport(repo)
+            t = _transport(repo, ws)
             res = iss.sync(spool_dir(ws), t)
             if res["error"]:
                 print("error_ledger: sync before the settle failed (%s); nothing closed"
@@ -1124,7 +1140,7 @@ def main(argv=None):
                 return 1
             iss = _issues()
             try:
-                closed, missing = iss.resolve(_transport(repo), a.sig, a.family, a.by,
+                closed, missing = iss.resolve(_transport(repo, ws), a.sig, a.family, a.by,
                                               a.commit, version)
             except (iss.GhError, iss.Unsafe) as e:
                 print("error_ledger: resolve stopped (%s)" % e, file=sys.stderr)
@@ -1198,7 +1214,7 @@ def _main_issues(a, ws, board, repo, why_not):
             why_not, ", the spool is kept" if a.cmd == "sync" else ""), file=sys.stderr)
         return 1
     iss = _issues()
-    t = None if a.dry_run else _transport(repo)
+    t = None if a.dry_run else _transport(repo, ws)
     if a.cmd == "sync":
         spool = spool_dir(ws)
         res = iss.sync(spool, t, dry_run=a.dry_run)

@@ -112,7 +112,7 @@ class FakeGitHub(object):
             return 0, json.dumps(self.comments[n][(page - 1) * per:page * per]), ""
         if seg[2:] == ["comments"] and method == "POST":
             c = {"id": len(self.comments[n]) + 1, "body": payload["body"],
-                 "user": {"login": self.login}}
+                 "user": {"login": self.login}, "author_association": "OWNER"}
             self.comments[n].append(c)
             return 0, json.dumps(c), ""
         return 1, "", "gh: Not Found (HTTP 404)"
@@ -121,9 +121,9 @@ class FakeGitHub(object):
     def labels(self, n):
         return sorted(x["name"] for x in self.issues[n]["labels"])
 
-    def stranger_comment(self, n, body):
+    def stranger_comment(self, n, body, login="stranger", association="NONE"):
         self.comments[n].append({"id": len(self.comments[n]) + 1, "body": body,
-                                 "user": {"login": "stranger"}})
+                                 "user": {"login": login}, "author_association": association})
 
     def add_label(self, n, name):
         self.issues[n]["labels"].append({"name": name})
@@ -223,7 +223,7 @@ class AllowlistTests(unittest.TestCase):
         self.assertEqual((ei.clean_ver("0.2.10"), ei.clean_ver("0.2.10-ada")), ("0.2.10", ""))
         self.assertEqual(ei._resolve_row({"ts": at(1), "by": "Ada", "note": "x",
                                           "commit": "abc1234"}),
-                         {"at": at(1), "by": "other", "commit": "abc1234"})
+                         {"at": at(1)[:10], "by": "other", "commit": "abc1234"})
 
     def test_hidden_json_survives_a_closing_marker_in_the_text(self):
         obj = {"msg": "a --> b <!-- c", "n": [1, 2]}
@@ -272,7 +272,7 @@ class SyncTests(Case):
         self.assertEqual(len(self.gh.issues), 2)
         self.assertEqual(len(self.gh.comments[nt["number"]]), 2)
         meta = ei.meta_of(self.gh.issues[nt["number"]])
-        self.assertEqual((meta["count"], meta["last"]), (3, at(0)))
+        self.assertEqual((meta["count"], meta["last"]), (3, at(0)[:10]))
         self.assertEqual(meta["roles"], {"author": 2, "expert": 1})
 
     def test_counts_by_cause(self):
@@ -587,6 +587,7 @@ class LeakTests(Case):
     def scan(self):
         self.assertTrue(self.gh.sent)
         text = json.dumps(self.gh.sent, ensure_ascii=False)
+        self.assertIsNone(re.search(r"\d\d:\d\d", text), "a time of day was posted")
         hits = sorted(set(m.group(0) for m in PRIVATE.finditer(text)))
         self.assertEqual(hits, [], "private text reached GitHub")
         for _, _, payload in self.gh.sent:
@@ -719,6 +720,61 @@ class ReviewFindingTests(Case):
         ei.sync(self.spool, self.t)
         self.assertEqual(len([c for c in self.gh.comments[n] if c["user"]["login"] == "poster"]), 2)
 
+    def test_a_second_account_of_the_repo_is_trusted(self):
+        self.spill(err(2))
+        ei.sync(self.spool, self.t)
+        n = self.gh.by_family(F_NT)["number"]
+        row = ei.hidden("occurrences", [["2026-11-18", "expert", "", "", ""]])
+        self.gh.stranger_comment(n, row, login="laptop", association="COLLABORATOR")
+        self.gh.stranger_comment(n, row, login="member", association="MEMBER")
+        self.gh.stranger_comment(n, row, login="drive-by", association="CONTRIBUTOR")
+        self.gh.stranger_comment(n, row, login="listed", association="NONE")
+        start = NOW - dt.timedelta(days=7)
+        self.assertEqual(ei.report(self.t, start, NOW)["classes"][0]["count"], 3)
+        t = ei.transport("me/academy", run=self.gh, write_interval=0, posters=["listed"])
+        self.assertEqual(ei.report(t, start, NOW)["classes"][0]["count"], 4)
+        # a retry from the other account's machine sees the first one's batch marker
+        self.gh.login = "laptop"
+        other = ei.transport("me/academy", run=self.gh, write_interval=0)
+        self.assertEqual(len(ei.comments_of(other, self.gh.issues[n])), 3)   # not drive-by, not listed
+
+    def test_the_batch_id_is_salted(self):
+        fam = ei.public_family(F_NT)
+        recs = [err(1)]
+        self.assertNotEqual(ei.batch_id(fam, recs, "a" * 32), ei.batch_id(fam, recs, "b" * 32))
+        self.spill(err(1))
+        self.gh.fail_on = ["POST", "/comments", 1]
+        self.assertTrue(ei.sync(self.spool, self.t)["error"])
+        salt = ei.load_cursor(self.spool)["salt"]
+        self.assertRegex(salt, r"^[0-9a-f]{32}$")
+        first = ei.meta_of(self.gh.by_family(F_NT))["batch"]
+        self.assertIsNone(ei.sync(self.spool, self.t)["error"])     # the retry
+        self.assertEqual(ei.load_cursor(self.spool)["salt"], salt)
+        self.assertEqual(ei.meta_of(self.gh.by_family(F_NT))["batch"], first)
+        self.assertEqual(len(self.gh.comments[1]), 1)
+        other = os.path.join(self.d, "spool2")
+        el.append_file(el.spool_file(other, "author@x"), err(1))
+        ei.sync(other, self.t)
+        self.assertNotEqual(ei.load_cursor(other)["salt"], salt)
+
+    def test_a_mid_day_window_keeps_that_day_and_says_bursts_are_daily(self):
+        self.spill(err(7, sec=-3600))                   # 11:00, seven days back
+        ei.sync(self.spool, self.t)
+        start = NOW - dt.timedelta(days=7)              # 12:00 that day
+        rep = ei.report(self.t, start, NOW)
+        self.assertEqual(rep["classes"][0]["in_window"], 1)
+        self.assertIn("per day", rep["note"])
+        self.assertIn("per day", el.render_markdown(rep))
+
+    def test_read_dirs_says_what_it_dropped(self):
+        d = os.path.join(self.d, "ledger")
+        el.append_file(os.path.join(d, "a.jsonl"), dict(err(1), ts="2026-11-18T10:00:00Z"))
+        el.append_file(os.path.join(d, "a.jsonl"), err(1))
+        errs = io.StringIO()
+        with contextlib.redirect_stderr(errs):
+            self.assertEqual(len(el.read_dirs([d])), 1)
+        self.assertIn("1 record(s) with a malformed time", errs.getvalue())
+
     def test_settle_keeps_the_fix(self):
         self.spill(err(10, ver="1.0.0"))
         ei.sync(self.spool, self.t)
@@ -742,7 +798,7 @@ class ReviewFindingTests(Case):
         self.assertEqual((res["created"], res["completed"]), (0, 1))
         meta = ei.meta_of(self.gh.by_family(F_NT))
         self.assertEqual((meta["count"], meta["roles"], meta["first"]),
-                         (3, {"author": 1, "expert": 2}, at(3)))
+                         (3, {"author": 1, "expert": 2}, at(3)[:10]))
 
     def test_versions_and_rows_are_coarse(self):
         self.assertEqual([ei.clean_ver(v) for v in ("0.2.10", "1234.1", "1.2.3.4", "1.2.3.4.5")],
