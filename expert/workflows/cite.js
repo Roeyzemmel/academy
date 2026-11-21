@@ -1,7 +1,7 @@
 export const meta = {
   name: 'academy-cite',
-  description: 'Add or verify one citation: one librarian run (entry, card with a verbatim quote, index row), the card validated by script with one retry, then the packet and the ticket',
-  whenToUse: '/expert:cite and every cite ticket (also nested from the inbox), from the library home. args: {ticket?: "T-NNNN", ref?: "<DOI | arXiv id | bib key | title>", pinpoint?, relying?: "<sentence or claim id>", bib?: "<author instance>:references.bib"}',
+  description: 'Add or verify one citation: one librarian run (entry, card with a verbatim quote, index row), the card validated by script with one retry, then the packet and the ticket; or resume a ticket parked on the human with what the human read (from_human)',
+  whenToUse: '/expert:cite and every cite ticket (also nested from the inbox), from the library home; /expert:cite --from-human. args: {ticket?: "T-NNNN", ref?: "<DOI | arXiv id | bib key | title>", pinpoint?, relying?: "<sentence or claim id>", bib?: "<author instance>:references.bib", from_human?: {file?: "<path inside the workspace>", text?: "<the statement, as the human gave it>"} (with ticket)}',
   phases: [
     { title: 'Start', detail: 'take the ticket and read the ask' },
     { title: 'Cite', detail: 'one librarian run (once more if it returns nothing); the card validated, one retry' },
@@ -104,6 +104,31 @@ const launchOnce = (prompt, opts) => {
 }
 // ---- end Models
 if (!A.ticket && !A.ref) throw new Error('give args.ticket or args.ref')
+// #108: the human's hand-back. A cite ticket parked on the human (an unreachable source, below) is
+// resumed with what the human read: a file (a PDF or page image inside the workspace) or the quoted
+// statement as text. The material is recorded in the library by script (handback.py: a text checked
+// against its hash, computed here from the human's own words), the librarian writes the card from it
+// alone (read_from human-supplied), cards.py validates it, and only then is the ticket unparked and
+// delivered; material that does not hold the pinpoint leaves it parked, saying what is still missing.
+const FH = A.from_human === undefined || A.from_human === null ? null : A.from_human
+if (FH !== null && (typeof FH !== 'object' || Array.isArray(FH) || !(FH.file || FH.text)))
+  throw new Error('args.from_human is {file?: "<path inside the workspace>", text?: "<the statement, as the human gave it>"}: give one of them')
+if (FH && !A.ticket) throw new Error('args.from_human resumes a cite ticket parked on the human: give args.ticket')
+// the hash handback.py checks: FNV-1a (32 bits) of the UTF-8 bytes, line ends LF, blanks around removed
+const handHash = text => {
+  const t = String(text).replace(/\r\n?/g, '\n').replace(/^[ \t\n]+|[ \t\n]+$/g, '')
+  let h = 0x811c9dc5, n = 0
+  const add = b => { h = Math.imul(h ^ b, 0x01000193) >>> 0; n++ }
+  for (const ch of t) {
+    const c = ch.codePointAt(0)
+    if (c < 0x80) add(c)
+    else if (c < 0x800) { add(0xc0 | (c >> 6)); add(0x80 | (c & 63)) }
+    else if (c < 0x10000) { add(0xe0 | (c >> 12)); add(0x80 | ((c >> 6) & 63)); add(0x80 | (c & 63)) }
+    else { add(0xf0 | (c >> 18)); add(0x80 | ((c >> 12) & 63)); add(0x80 | ((c >> 6) & 63)); add(0x80 | (c & 63)) }
+  }
+  return 'fnv1a32:' + h.toString(16).padStart(8, '0') + ':' + n
+}
+const RE_BIBKEY = /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/
 const CLERK = 'academy:inbox-clerk'
 const LIB = 'expert:librarian'
 const T = A.ticket || ''
@@ -142,6 +167,22 @@ const PACKET = { type: 'object', properties: { packet: { type: 'string' }, error
 // #124: the clerk stages ask for detail (and stop_reason) and never require them (a clerk that left one
 // out lost its run); a missing one reads 'no reason given'
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, status: { type: 'string' }, detail: { type: 'string' } }, required: ['ok', 'status'] }
+// #108: the start of a hand-back reads the parked ticket (park_reason: asked, never required, #124)
+const ASK_FH = { type: 'object', properties: Object.assign({}, ASK.properties, { status: { type: 'string' },
+  waiting_on: { type: 'array', items: { type: 'string' } },
+  park_reason: { type: 'string', description: 'the reason of its last move to blocked, verbatim' } }),
+  required: ASK.required.concat(['status', 'waiting_on']) }
+// handback.py record --json, parsed by the code
+const REC = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
+  output: { type: 'string', description: 'its JSON line, verbatim' } }, required: ['exit'] }
+// the librarian's card from the human's material: found false is "the material does not hold the pinpoint"
+const HCARD = { type: 'object', properties: {
+  key: { type: 'string' }, pinpoint: { type: 'string' }, card: { type: 'string', description: 'the card path, or none written' },
+  verdict: { type: 'string', description: 'match, or how the source differs from what the paper wants' },
+  found: { type: 'boolean', description: 'the material holds the pinpoint' },
+  missing: { type: 'string', description: 'found false: exactly what is still needed (statement, page, and why)' },
+  bib_changed: { type: 'boolean' }, note: { type: 'string' } },
+  required: ['key', 'pinpoint', 'card', 'verdict', 'found', 'bib_changed', 'note'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
 // workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
@@ -181,19 +222,112 @@ const out = { ticket: T || null, notes: [] }
 // ---- Start ----------------------------------------------------------------------------
 phase('Start')
 let ask = { ok: true, ref: A.ref || '', pinpoint: A.pinpoint || '', relying: A.relying || '', bib: A.bib || '', instance: '' }
+let key = ''     // the hand-back's bibliography key (#108)
 if (T) {
   const a = await clerk('start', [`ticket: ${T}`,
-    'Move it to in-progress (open -> accepted -> in-progress, acting as its receiver; leave an in-progress ticket as it is), then return from its ask, ## Ask and refs:',
-    'the reference (DOI, arXiv id, bib key or title), the pinpoint wanted, the sentence or claim id that relies on it, the target bibliography (<author instance>:references.bib), and the instance you acted as.'],
-    ASK, 'start', 'Start')
+    FH ? 'Read it (tickets_get) and move nothing: a human hands back what they read of its source, and the ticket stays as it is until the card is checked. Return from its ask, ## Ask and refs:'
+      : 'Move it to in-progress (open -> accepted -> in-progress, acting as its receiver; leave an in-progress ticket as it is), then return from its ask, ## Ask and refs:',
+    'the reference (DOI, arXiv id, bib key or title), the pinpoint wanted, the sentence or claim id that relies on it, the target bibliography (<author instance>:references.bib), and the instance you acted as' +
+    (FH ? ' (its receiver); and its status, its waiting_on (a list), and the reason of its last move to blocked, verbatim from its thread (park_reason).' : '.')],
+    FH ? ASK_FH : ASK, 'start', 'Start')
   if (!a || !a.ok) return Object.assign(out, { outcome: 'not-started', reason: a ? a.detail || 'no reason given' : 'the start stage returned nothing' })
   ask = { ok: true, ref: A.ref || a.ref, pinpoint: A.pinpoint || a.pinpoint, relying: A.relying || a.relying, bib: A.bib || a.bib, instance: a.instance }
+  if (FH) {
+    const waits = Array.isArray(a.waiting_on) ? a.waiting_on.map(String) : String(a.waiting_on || '').split(/[\s,\[\]]+/)
+    if (a.status !== 'blocked' || !waits.includes('human'))
+      return Object.assign(out, { outcome: 'not-started', reason: `${T} is ${a.status || 'in no status the clerk read'}` +
+        (waits.filter(Boolean).length ? ` (waiting on ${waits.filter(Boolean).join(', ')})` : '') +
+        ', not parked on the human: --from-human resumes a cite ticket parked on the human (blocked, waiting_on [human])' })
+    const why = String(a.park_reason || '')
+    const m = /source unreachable from this session: ([A-Za-z0-9][A-Za-z0-9_.+-]*)(?=;|\s|$)/.exec(why)
+    key = (A.ref && RE_BIBKEY.test(A.ref) ? A.ref : '') || (m ? m[1].replace(/\.+$/, '') : '') || (RE_BIBKEY.test(String(ask.ref || '')) ? ask.ref : '')
+    if (!key) return Object.assign(out, { outcome: 'not-started', reason: 'no bibliography key: the park reason names none and the ask\'s reference is no key; pass args.ref = the key' })
+    const p = /a human with access reads (.*?) for /.exec(why)
+    if (!ask.pinpoint && p && p[1] !== 'the statement wanted') ask.pinpoint = p[1]
+  }
 }
-if (!ask.ref) return Object.assign(out, { outcome: 'not-started', reason: 'the ask names no reference (DOI, arXiv id, key or title)' })
+if (!ask.ref && !key) return Object.assign(out, { outcome: 'not-started', reason: 'the ask names no reference (DOI, arXiv id, key or title)' })
 
 // ---- Cite: one librarian run, the card checked by script ------------------------------------
 phase('Cite')
-const brief = SCRIPTS + `${ask.ref}. ` + (ask.pinpoint ? `The pinpoint intended: ${ask.pinpoint}. ` : 'No pinpoint given: locate the statement. ') +
+let c = null
+const end = async () => {
+  if (!A.nested) out.ship = await ship({ role: 'expert', ticket: T, done: !!out.ticket_delivered, instance: ask.instance, topic: 'cite-' + ((c && c.key) || key || ask.ref),
+    only: 'library board', agentType: CLERK, phase: 'Land', notes: out.notes })
+  return out
+}
+const actAs = ask.instance ? `act as: ${ask.instance}` : ''
+const q = x => '"' + String(x || '').replace(/"/g, "'") + '"'
+// #108: a hand-back that cannot finish leaves the ticket parked on the human, with one thread line
+// saying why (what is still missing); the gate is the same ask, sharpened
+const stillParked = async (why, outcome) => {
+  const line = `cite --from-human: ${why}; the ticket stays parked on the human`.replace(/"/g, "'")
+  const m = await clerk('note', [`ticket: ${T}`, actAs,
+    `note: append to the thread "${line.slice(0, 600)}", and move nothing (it stays blocked, waiting_on [human])`], MOVE, 'still parked', c ? 'Land' : 'Cite')
+  if (!m || !m.ok) out.notes.push('the thread line was not written: ' + line)
+  out.ticket_delivered = false
+  out.outcome = outcome
+  out.gate = { why, source: key, pinpoint: ask.pinpoint || '', relying: ask.relying || '', missing: out.missing || '' }
+  return await end()
+}
+const HB = `py ${AR}/expert/scripts/handback.py`
+const pin = ask.pinpoint ? ` --pinpoint ${q(ask.pinpoint)}` : ''
+const readRec = r => {
+  try { return JSON.parse(String((r && r.output) || '').trim().split(/\r?\n/).find(l => /^\{/.test(l)) || 'null') } catch (e) { return null }
+}
+const handback = { files: [], texts: [] }
+const took = j => {
+  for (const f of j.recorded || []) if (!handback.files.includes(f)) handback.files.push(f)
+  for (const t of j.texts || []) if (!handback.texts.includes(t)) handback.texts.push(t)
+  for (const n of j.notes || []) out.notes.push('hand-back: ' + n)
+}
+const recWhy = (r, j) => j && Array.isArray(j.problems) && j.problems.length ? j.problems.join('; ')
+  : r ? `handback.py exited ${r.exit} with no JSON line` : 'the record stage returned nothing'
+if (FH && FH.text) {
+  const h = handHash(FH.text)
+  const tf = `.academy/handback-${T}.txt`
+  const recPrompt = again => `WORKFLOW STAGE record of the academy-cite workflow: a human's hand-back of an unreachable source, for ${T}.\n` + SCRIPTS +
+    (again ? `A first try recorded nothing: ${again}.\n` : '') +
+    `1. With the Write tool, write the text between the two marker lines below to ${tf} in the library home, byte for byte: ` +
+    'no reflowing, no correction, no character added or dropped, nothing of the marker lines.\n' +
+    `2. Run \`${HB} record ${key} --ticket ${T}${pin} --text-file ${tf} --expect ${h} --json; echo $?\` once, from the library home.\n` +
+    'Return the exit code the shell printed, and its JSON line verbatim in output. Fix nothing and write nothing else.\n' +
+    '----- BEGIN HUMAN TEXT -----\n' + String(FH.text) + '\n----- END HUMAN TEXT -----'
+  let r = await safe(recPrompt(''), { label: 'record text', phase: 'Cite', agentType: LIB, schema: REC, effort: 'low' })
+  let j = readRec(r)
+  if (!(j && j.ok) && !LAUNCH_LIMIT.stopped) {
+    out.notes.push('the hand-back text was not recorded (' + recWhy(r, j) + '); written again once')
+    r = await safe(recPrompt(recWhy(r, j)), { label: 'record text (retry)', phase: 'Cite', agentType: LIB, schema: REC, effort: 'low' })
+    j = readRec(r)
+  }
+  if (!(j && j.ok)) return await stillParked(`the text handed back could not be recorded verbatim in the library (${recWhy(r, j)}); run --from-human again`, 'not-recorded (on the human)')
+  took(j)
+}
+if (FH && FH.file) {
+  const r = await clerk('record file', [`Run \`${HB} record ${key} --ticket ${T}${pin} --file ${q(FH.file)} --json; echo $?\` once, from the library home. ` +
+    'Return the exit code the shell printed, and its JSON line verbatim in output. Fix nothing.'], REC, 'record file', 'Cite')
+  const j = readRec(r)
+  if (!(j && j.ok)) return await stillParked(`the file handed back (${FH.file}) could not be recorded in the library (${recWhy(r, j)})`, 'not-recorded (on the human)')
+  took(j)
+}
+if (FH) out.handback = handback
+
+const brief = FH
+  ? SCRIPTS + `${key}: a source no session could reach, read by a human for the cite ticket ${T}. ` +
+    (ask.pinpoint ? `The pinpoint wanted: ${ask.pinpoint}. ` : 'No pinpoint given: locate the statement the relying sentence needs. ') +
+    (ask.relying ? `It is relied on by: ${ask.relying}. ` : '') + (ask.bib ? `The bibliography: ${ask.bib}.` : '') + '\n\n' +
+    `What the human handed back, recorded in the library home: ${handback.files.join(', ')}` +
+    (handback.texts.length ? ` (the text to quote from: ${handback.texts.join('; ')})` : ' (no text: read the pages as images)') + '.\n' +
+    'Write the card from that material only, and fetch no text of the source (a bibliography record may still be fetched, as for any entry). ' +
+    'If the material holds the pinpoint: write the card with cards.py new ... --read-from human-supplied, its version as the material shows it ' +
+    '(edition, journal, year, page) or "human-supplied, <date>" when it shows none, and its quote verbatim from that material: copied exactly from ' +
+    'the recorded text, or, from a page image or a PDF with no text, transcribed exactly and said so in ## Notes. Fill ## Statement and ## Hypotheses ' +
+    'from it, validate the card (cards.py validate <card> --expect-read-from human-supplied), set the verdict against the relying statement, and where ' +
+    'the index row says the source is unreachable, add that a human supplied this pinpoint (date, ticket). If the key is not yet in that bibliography, ' +
+    'add the entry from a fetched record as usual. If the material does not hold the pinpoint (another page or statement, cut off, unreadable), ' +
+    'write no card: return found false and say in missing exactly what is still needed (the statement, the page, and why). ' +
+    'Never quote from memory and never invent a pinpoint.'
+  : SCRIPTS + `${ask.ref}. ` + (ask.pinpoint ? `The pinpoint intended: ${ask.pinpoint}. ` : 'No pinpoint given: locate the statement. ') +
   (ask.relying ? `It is relied on by: ${ask.relying}. ` : '') + (ask.bib ? `The bibliography: ${ask.bib}.` : '') + '\n\n' +
   'If the key is already in that bibliography, verify it against the record rather than adding it again, and say whether the fields match. ' +
   'If it is new, fetch the record and add the entry in the file\'s key style. Then locate the statement, write its card with a verbatim quote ' +
@@ -207,8 +341,8 @@ const lost = async (reason) => {
     `(cards.py validate on any card written) before the ticket is run again"`], MOVE, 'lost note', 'Cite')
   return Object.assign(out, { outcome: 'lost', reason })
 }
-const lib = (prompt, label) => safe(prompt, { label, phase: 'Cite', agentType: LIB, schema: CARD })
-let c = await lib(brief, 'librarian')
+const lib = (prompt, label) => safe(prompt, { label, phase: 'Cite', agentType: LIB, schema: FH ? HCARD : CARD })
+c = await lib(brief, 'librarian')
 const retried = c === null && !LAUNCH_LIMIT.stopped
 if (retried) {
   out.notes.push('the librarian run returned no result; run once more')
@@ -217,10 +351,15 @@ if (retried) {
 }
 if (c === null) return await lost('the librarian returned no result twice (a limit, or a run that ended without its structured output): ' +
   'nothing further launched; any card or bib entry it wrote is unvalidated and uncommitted')
+// #108: the human's material does not hold the pinpoint: no card, the ticket stays parked, saying what is missing
+if (FH && c.found !== true) {
+  out.missing = String(c.missing || '').trim() || 'the librarian did not say what is missing'
+  return await stillParked(`what was handed back (${handback.files.join(', ')}) does not hold ${ask.pinpoint || 'the statement wanted'}: ${out.missing}`,
+    'still missing (on the human)')
+}
 // #94 review: two runs on one reference can leave two bib entries or two cards (cards.py new refuses only
 // the same card path): on the retry path cards.py dups counts them, and more than one loses the ticket
 if (retried) {
-  const q = x => '"' + String(x || '').replace(/"/g, "'") + '"'
   const d = await clerk('duplicates', [`Run \`cards.py dups ${c.key} ${q(c.pinpoint || ask.pinpoint)}` + (ask.bib ? ` --bib ${q(ask.bib)}` : '') +
     (ask.ref ? ` --ref ${q(ask.ref)}` : '') + ' --json; echo $?` once, from the library home. Return the exit code the shell printed, ' +
     'its JSON line verbatim in output, and the counts bib_key, bib_id and cards from it.'], DUPS, 'duplicates', 'Cite')
@@ -240,8 +379,12 @@ if (retried) {
   }
 }
 // an unreachable source has no card to validate (live run 2026-10-31 validated the words "none written"): skip the check
-const noCard = !c.reachable && !/\.(md|ya?ml)$/i.test(String(c.card || '').trim())
-let v = noCard ? null : await clerk('validate', [`Run cards.py validate ${c.card} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
+const isCard = card => /\.(md|ya?ml)$/i.test(String(card || '').trim())
+const noCard = !FH && !c.reachable && !isCard(c.card)
+if (FH && !isCard(c.card)) return await stillParked(`the librarian found ${ask.pinpoint || 'the statement'} in what was handed back but names no card (${c.card})`, 'unfinished (on the human)')
+// a hand-back's card must say it was read from the human's material (#108): cards.py checks it
+const expectRead = FH ? ' --expect-read-from human-supplied' : ''
+let v = noCard ? null : await clerk('validate', [`Run cards.py validate ${c.card}${expectRead} from the library home and return ok (no error) and every error line.`], CHECK, 'validate', 'Cite')
 if (v && !v.ok) {
   out.notes.push('the card failed validation; sent back to the librarian once: ' + v.errors.join('; '))
   const c2 = await lib(brief + `\n\nYour card ${c.card} fails cards.py validate:\n- ${v.errors.join('\n- ')}\n` +
@@ -249,32 +392,33 @@ if (v && !v.ok) {
     'librarian (fix)')
   if (c2 === null) { out.card = c.card; return await lost(`the librarian fix returned no result: the card ${c.card} fails cards.py validate and is uncommitted`) }
   c = c2
-  v = await clerk('validate', [`Run cards.py validate ${c.card} and return ok and every error line.`], CHECK, 'validate again', 'Cite')
+  v = await clerk('validate', [`Run cards.py validate ${c.card}${expectRead} and return ok and every error line.`], CHECK, 'validate again', 'Cite')
   if (v && !v.ok) out.notes.push('the card still fails validation after one fix; it must say why: ' + v.errors.join('; '))
 }
 Object.assign(out, { key: c.key, pinpoint: c.pinpoint, card: c.card, verdict: c.verdict, validated: !!(v && v.ok) })
 if (!/^match$/i.test(c.verdict)) out.notes.unshift(`MISMATCH (a mathematical finding): the source differs from what ${ask.relying || 'the paper'} wants: ${c.verdict}`)
-if (!c.reachable) out.notes.push('UNREACHABLE source: the card records how it was read; anything resting on it stays an unverified input until a human reads it')
+if (FH && !out.validated) {
+  return await stillParked(`the card ${c.card} written from what was handed back fails cards.py validate after one fix (` +
+    (v ? v.errors.join('; ') : 'the validate stage returned nothing') + '): it is not delivered', 'unfinished (on the human)')
+}
+if (!FH && !c.reachable) out.notes.push('UNREACHABLE source: the card records how it was read; anything resting on it stays an unverified input until a human reads it')
 // with a ticket, the bib edit in the Author home ships with it: the touch ledger records it and the
 // ticket's --check passes it to ship.py as --touched (docs/branching.md); without one, nothing claims it
 if (c.bib_changed && !T) out.notes.push(`${ask.bib || 'references.bib'} changed in the Author home and no ticket ships it: add --touched <that home's submodule>:references.bib to the command below (else the next Expert ticket's checkpoint carries it)`)
-const end = async () => {
-  if (!A.nested) out.ship = await ship({ role: 'expert', ticket: T, done: !!out.ticket_delivered, instance: ask.instance, topic: 'cite-' + (c.key || ask.ref),
-    only: 'library board', agentType: CLERK, phase: 'Land', notes: out.notes })
-  return out
-}
 
 // ---- Land --------------------------------------------------------------------------------
 phase('Land')
 const p = await safe(`File the citation packet for ${c.key}: packets_create kind citation, subject [bib:${c.key}#${c.pinpoint || '?'}], ` +
-  `the card ${c.card} under ## Produced, the verdict (${c.verdict})${c.reachable ? '' : ' and how the unreadable source was read'} under ## Established vs assumed` +
+  `the card ${c.card} under ## Produced, the verdict (${c.verdict})` +
+  (FH ? ` and how the source was read (by a human with access, who handed back ${handback.files.join(', ')} for ${T}: read_from human-supplied)`
+    : c.reachable ? '' : ' and how the unreadable source was read') + ' under ## Established vs assumed' +
   (T ? `, ticket ${T}` : '') + `; ## Decisions needed: None. unless the verdict is a mismatch, then one decision on what the relying statement should do. Return the packet id.`,
   { label: 'packet', phase: 'Land', agentType: LIB, schema: PACKET, effort: 'low' })
 out.packet = p && p.packet ? p.packet : null
 if (!out.packet) out.notes.push('the packet was not filed: ' + (p ? p.error : 'the stage returned nothing'))
 // An unreadable source is not delivered (project rule "inaccessible sources"): the ticket is parked on the human
 // with the exact ask (the source, the pinpoint wanted, the statement resting on it), and comes back as a gate
-if (T && !c.reachable) {
+if (T && !FH && !c.reachable) {
   const why = `source unreachable from this session: ${c.key || ask.ref}; a human with access reads ${ask.pinpoint || 'the statement wanted'} for ${ask.relying || 'the relying statement'}`
   const m = await clerk('move', [`ticket: ${T}`, ask.instance ? `act as: ${ask.instance}` : '',
     `block-human: blocked, waiting_on [human], reason "${why.replace(/"/g, "'").slice(0, 240)}"` + (out.packet ? `, and fields.packets [${out.packet}]` : '')], MOVE, 'park on human', 'Land')
@@ -284,10 +428,13 @@ if (T && !c.reachable) {
   return await end()
 }
 if (T) {
-  const result = `${c.key}, ${c.pinpoint || 'no pinpoint'}, verdict ${c.verdict}, card ${c.card}`.replace(/"/g, "'")
-  const m = await clerk('move', [`ticket: ${T}`, ask.instance ? `act as: ${ask.instance}` : '',
-    `deliver: deliver: true with result "${result.slice(0, 240)}"` + (out.packet ? ` and fields.packets [${out.packet}]` : '')], MOVE, 'deliver', 'Land')
+  const result = (`${c.key}, ${c.pinpoint || 'no pinpoint'}, verdict ${c.verdict}, card ${c.card}` + (FH ? ', read from what a human handed back' : '')).replace(/"/g, "'")
+  const deliver = `deliver: deliver: true with result "${result.slice(0, 240)}"` + (out.packet ? ` and fields.packets [${out.packet}]` : '')
+  // #108: the parked ticket is unparked first (blocked -> in-progress, the receiver clearing waiting_on), then delivered
+  const m = await clerk('move', [`ticket: ${T}`, actAs,
+    ...(FH ? ['unpark: tickets_update status in-progress with waiting_on [] (the human handed back what they read: the receiver clears the park, blocked -> in-progress); then'] : []),
+    deliver], MOVE, FH ? 'unpark and deliver' : 'deliver', 'Land')
   out.ticket_delivered = !!(m && m.ok)
 }
-out.outcome = out.validated ? 'cited' : 'cited (card not validated)'
+out.outcome = FH ? 'cited (human-supplied)' : out.validated ? 'cited' : 'cited (card not validated)'
 return await end()
