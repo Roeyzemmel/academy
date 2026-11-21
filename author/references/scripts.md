@@ -19,13 +19,17 @@ stderr. A skill reports a non-zero exit as it is and does not retry in a loop.
 | `commit_gate.py` | the PreToolUse hook; tex-engineer | (hook) · `--write-baseline [--root HOME]` |
 | `build_gate.py` | the SubagentStop hook | (hook) |
 | `tex_edit_check.py` | the PostToolUse hook | (hook) |
-| `pre_tool_use.py` | the PreToolUse hook (Edit/Write/MultiEdit/NotebookEdit) | (hook: one process per edit; reads the event once and calls the guards' `decide(event)` in order, the first denial wins, a guard that raises is skipped with a line on stderr: Edit/Write/MultiEdit `bib_gate`, `pinned_guard`, `preamble_guard`, `notation_scope_guard`; NotebookEdit the last. Each guard still runs standalone) |
+| `pre_tool_use.py` | the PreToolUse hook (Edit/Write/MultiEdit/NotebookEdit) | (hook: one process per edit; reads the event once and calls the guards' `decide(event)` in order, the first denial wins, a guard that raises is skipped with a line on stderr: Edit/Write/MultiEdit `bib_gate`, `pinned_guard`, `preamble_guard`, `notation_scope_guard`, `note_length_guard`; NotebookEdit `notation_scope_guard`. Each guard still runs standalone) |
 | `bib_gate.py` | `pre_tool_use.py`; standalone | (hook) |
 | `statement.py` | the writer, editor and sweeper (reading the tex); any agent that needs one statement | `<label>... [--proof] [--context N] [--json]` (the statement's environment with file and lines, and the proof that follows) · `<label>... --where` (one line: the file and the line ranges of the statement and its proof, for a brief) · `--outline FILE` (the labelled statements and headings of one tex file with their lines). Exit 1 when a label is not found (near labels named) |
 | `pinned.py` | inbox, agenda, presync, the writer and editor briefs | `[--home H] [--library L] [--json]` · `--labels` (the statements a CONFIRMED review pinned: their environment is not edited, the proof is free; `.claude/pinned-release.txt` is the human's release list) |
 | `pinned_guard.py` | `pre_tool_use.py`; standalone | (hook: refuses an edit that changes a pinned statement's environment) |
+| `note_length_guard.py` | `pre_tool_use.py`; standalone | (hook: refuses an edit that adds a machine note longer than `author.notes.maxLines` margin lines, estimated at `author.notes.lineChars` characters a line; narrowing a long note passes; `author.notes.enforce: false` switches it off) |
+| `sweep.py` | the note-sweeper, sweep, inbox (its Sweep stage) | `[--home H] [--board DIR] plan [--full] [--limit N] [--max-age DAYS] [--json]` (the notes to act on, by kind: `retire` (an `await` note whose ticket ended with a result: delete, or a pointer for a negative outcome), `move` (a `prov` note: record its text, then delete), `judge` (the rest, by the sweeper's rule), `waiting`, `human` (the human's list); only tex files changed since the last complete sweep and notes whose cached verdict no longer holds; first line `sweep: todo N (...)`; nothing to do records itself) · `record [--unjudged SIG...]` (after the pass: cache the judged-open notes, advance the recorded commit when the sweep is complete) · `inventory [--json]` (counts by file and kind, over the cap; read-only). State: `<home>/.academy/note-sweep.json` (machine-local) |
 
-Library modules (imported, not run): `agenda_lib.py` (the agenda format), `_author.py` (hook
+Library modules (imported, not run): `agenda_lib.py` (the agenda format), `machine_notes.py`
+(the machine notes of the tex: typed `\Claude[kind]{...}` or untyped, kinds, signatures, the
+line estimate), `_author.py` (hook
 helpers: home and config, checker runs, baseline, dirty marker, build lock),
 `_academy/` (the vendored `academy_common` package; never edit the copy, run
 `academy/scripts/sync_common.py` after a lib change).

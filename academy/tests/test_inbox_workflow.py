@@ -56,6 +56,11 @@ DONE = {"exit": 0, "status": "delivered", "detail": ""}
 LEAD_DONE = {"decision": "delivered", "claim": "", "created": False, "brief": "", "falsifier": "",
              "pending": [], "report": "worked"}
 FALSIFIED = "T-9 delivered: no counterexample up to 12 squares"
+# the sweep's plan (author/scripts/sweep.py, #98 point 1): work for the note-sweeper, or none
+SWEEP_WORK = {"exit": 0, "output": "sweep: todo 2 (retire 0, move 0, judge 2), deferred 0, waiting 0, "
+                                   "cached 5; mode incremental; for the human 0"}
+SWEEP_NONE = {"exit": 0, "output": "sweep: todo 0 (retire 0, move 0, judge 0), deferred 0, waiting 1, "
+                                   "cached 7; mode incremental; for the human 1; nothing to do: recorded"}
 
 
 def row(tid, how="agent", target="math-writer", kind="write", ret=False, frm="author@t",
@@ -99,7 +104,7 @@ class InboxWorkflowTests(unittest.TestCase):
         # #101 part 1: the run's claim is recorded before the ticket; a clerk-only route has none
         rows = [row("T-1"), row("T-2", how="reject", target=None, kind="prove")]
         snap = {"exit": 0, "output": "snapshot of T-1 (run inbox-all): 0 dirty path(s)"}
-        plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0 notes"],
+        plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0 notes"],
                 "snapshot T-1": [snap], "T-1 start": [OK], "math-writer T-1": ["done"],
                 "check T-1": [DONE], "T-2 reject": [OK], "check T-2": [DONE], "close author@t": [OK]}
         res, labels, calls = self.run_wf(plan, snapshot=True)
@@ -113,7 +118,7 @@ class InboxWorkflowTests(unittest.TestCase):
                       next(c["prompt"] for c in calls if c["label"] == "snapshot T-1"))
 
     def test_a_failed_snapshot_is_a_note_and_the_ticket_goes_on(self):
-        plan = {"list": [{"instances": [inst("author@t", [row("T-1")])]}], "sweep author@t": ["0 notes"],
+        plan = {"list": [{"instances": [inst("author@t", [row("T-1")])]}], "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0 notes"],
                 "snapshot T-1": [{"__throw": "no structured output"}], "T-1 start": [OK],
                 "math-writer T-1": ["done"], "check T-1": [DONE], "close author@t": [OK]}
         res, labels, _ = self.run_wf(plan, snapshot=True)
@@ -137,16 +142,46 @@ class InboxWorkflowTests(unittest.TestCase):
             inst("expert@t", [row("T-2", target="research-intake", kind="research", ret=True,
                                    to="expert@t")]),
             inst("author@t", [row("T-1"), row("T-3"), row("T-4"), row("T-5")])]}
-        plan = {"list": [listed], "sweep author@t": ["0 notes"],
+        plan = {"list": [listed], "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0 notes"],
                 "T-1 start": [OK], "math-writer T-1": ["done"], "check T-1": [DONE],
                 "T-3 start": [OK], "math-writer T-3": ["done"], "check T-3": [DONE],
                 "T-4 start": [OK], "math-writer T-4": ["done"], "check T-4": [DONE],
                 "close author@t": [OK]}
         res, labels, _ = self.run_wf(plan)
-        self.assertEqual(labels[:2], ["list", "sweep author@t"])     # the sweep comes first
+        self.assertEqual(labels[:3], ["list", "sweep plan author@t", "sweep author@t"])   # the sweep comes first
         self.assertEqual([t["id"] for t in res["taken"]], ["T-1", "T-3", "T-4"])   # cap 3
         self.assertNotIn("T-2 return leg", labels)                   # Author before Expert
         self.assertEqual(res["count"], 3)
+
+    def test_a_sweep_plan_with_nothing_to_do_launches_no_sweeper(self):
+        # #98 point 1: the plan is a script; the note-sweeper runs only when it lists work
+        plan = {"list": [{"instances": [inst("author@t", [row("T-1")])]}],
+                "sweep plan author@t": [SWEEP_NONE],
+                "T-1 start": [OK], "math-writer T-1": ["done"], "check T-1": [DONE],
+                "close author@t": [OK]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertNotIn("sweep author@t", labels)
+        self.assertEqual(res["sweep"], [{"instance": "author@t",
+                                         "report": SWEEP_NONE["output"]}])
+        stage = next(c for c in calls if c["label"] == "sweep plan author@t")
+        self.assertIn("/academy/author/scripts/sweep.py --home /h/author@t plan", stage["prompt"])
+        self.assertEqual(stage["agentType"], "academy:inbox-clerk")
+
+    def test_the_sweeper_gets_the_plan_line_and_a_failed_plan_falls_back(self):
+        base = {"list": [{"instances": [inst("author@t", [])]}], "sweep author@t": ["swept"],
+                "close author@t": [OK]}
+        res, labels, calls = self.run_wf(dict(base, **{"sweep plan author@t": [SWEEP_WORK]}))
+        sweeper = next(c for c in calls if c["label"] == "sweep author@t")
+        self.assertIn("todo 2", sweeper["prompt"])
+        self.assertEqual(res["sweep"][0]["report"], "swept")
+        res, labels, _ = self.run_wf(dict(base, **{"sweep plan author@t": [{"__throw": "no output"}]}))
+        self.assertIn("sweep author@t", labels)
+        self.assertTrue(any("sweep plan of author@t returned nothing" in n for n in res["notes"]),
+                        res["notes"])
+        res, labels, _ = self.run_wf(dict(base, **{"sweep plan author@t": [{"exit": 2, "output": "sweep.py: boom"}]}))
+        self.assertIn("sweep author@t", labels)
+        self.assertTrue(any("printed no plan line (exit 2: sweep.py: boom)" in n for n in res["notes"]),
+                        res["notes"])
 
     def test_relay_forward_with_a_good_child_is_blocked_on_it(self):
         r = row("T-7", target="research-intake", kind="research", frm="author@t",
@@ -564,7 +599,7 @@ class InboxWorkflowTests(unittest.TestCase):
         """#114: the weekly limit hit during a loop; list 2 returned nothing and the
         close-out crashed on 'insts.some' of null."""
         rows = [row("T-2", how="reject", target=None, kind="write", to="author@t")]
-        plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
+        plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0"],
                 "T-2 reject": [OK], "check T-2": [DONE], "list 2": [None], "close author@t": [OK]}
         res, labels, _ = self.run_wf(plan, loop=True)
         self.assertIn("returned nothing", res["stopped"])
@@ -624,7 +659,7 @@ class InboxWorkflowTests(unittest.TestCase):
         rows = [row("T-2", how="reject", target=None, kind="prove", to="author@t")]
         plan = {"list": [{"instances": [inst("author@t", [], waiting=24), inst("expert@t", [])]}],
                 "list (retry)": [{"instances": [inst("author@t", rows, waiting=24), inst("expert@t", [])]}],
-                "sweep author@t": ["0"], "T-2 reject": [OK], "check T-2": [DONE], "close author@t": [OK]}
+                "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0"], "T-2 reject": [OK], "check T-2": [DONE], "close author@t": [OK]}
         res, labels, calls = self.run_wf(plan)
         self.assertEqual(labels[:2], ["list", "list (retry)"])
         self.assertIn("author@t: 24 waiting, no rows", next(c for c in calls if c["label"] == "list (retry)")["prompt"])
@@ -633,7 +668,7 @@ class InboxWorkflowTests(unittest.TestCase):
     def test_waiting_with_no_rows_twice_is_an_anomaly_and_the_others_go_on(self):
         rows = [row("T-3", how="reject", target=None, kind="prove", to="expert@t")]
         listed = {"instances": [inst("author@t", [], waiting=24), inst("expert@t", rows, waiting=1)]}
-        plan = {"list": [listed], "list (retry)": [listed], "sweep author@t": ["0"],
+        plan = {"list": [listed], "list (retry)": [listed], "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0"],
                 "T-3 reject": [OK], "check T-3": [DONE]}
         res, labels, _ = self.run_wf(plan)
         self.assertEqual([t["id"] for t in res["taken"]], ["T-3"])
@@ -666,7 +701,7 @@ class InboxWorkflowTests(unittest.TestCase):
 
     def test_an_author_research_route_is_filed_by_math_writer_and_checked(self):
         rows = [row("T-5", how="research", target="expert", kind="write", to="author@t")]
-        plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
+        plan = {"list": [{"instances": [inst("author@t", rows)]}], "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0"],
                 "T-5 start": [OK], "math-writer T-5 (research)": [{"ticket": "T-6", "refusal": ""}],
                 "get T-6": [child("T-6", "T-5", "author@t", "expert@t", "research", "researcher")],
                 "T-5 block-on": [OK], "check T-5": [DONE], "close author@t": [OK]}
@@ -714,7 +749,7 @@ class InboxWorkflowTests(unittest.TestCase):
     def test_a_return_leg_listed_under_its_sender_is_landed_not_dropped(self):
         # live run 2026-11-13: two return legs (delivered back to the Author, addressed to the Expert) were dropped as anomalies
         r = row("T-5", target="math-editor", kind="verify", ret=True, frm="author@t", to="expert@t")
-        plan = {"list": [{"instances": [inst("author@t", [r])]}], "sweep author@t": ["0"],
+        plan = {"list": [{"instances": [inst("author@t", [r])]}], "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0"],
                 "math-editor T-5 (land)": ["landed"], "check T-5": [{"exit": 0, "status": "closed", "output": "T-5: closed (closed)", "detail": ""}],
                 "close author@t": [OK]}
         res, labels, _ = self.run_wf(plan)
@@ -952,7 +987,7 @@ class InboxWorkflowTests(unittest.TestCase):
 
     def test_another_roles_agent_route_is_unchanged(self):
         rows = [row("T-1", target="math-writer", kind="write")]
-        res, labels, calls = self.run_wf({"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
+        res, labels, calls = self.run_wf({"list": [{"instances": [inst("author@t", rows)]}], "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0"],
                                           "T-1 start": [OK], "math-writer T-1": ["done"], "check T-1": [DONE],
                                           "close author@t": [OK]})
         self.assertNotIn("cannot launch prover", next(c for c in calls if c["label"] == "math-writer T-1")["prompt"])
@@ -962,7 +997,7 @@ class InboxWorkflowTests(unittest.TestCase):
 
     def _author_one(self, start, check):
         rows = [row("T-1", target="math-writer", kind="write")]
-        return self.run_wf({"list": [{"instances": [inst("author@t", rows)]}], "sweep author@t": ["0"],
+        return self.run_wf({"list": [{"instances": [inst("author@t", rows)]}], "sweep plan author@t": [SWEEP_WORK], "sweep author@t": ["0"],
                             "T-1 start": [start], "math-writer T-1": ["done"], "check T-1": [check],
                             "close author@t": [OK]})
 

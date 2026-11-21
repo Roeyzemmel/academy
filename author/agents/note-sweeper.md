@@ -1,6 +1,6 @@
 ---
 name: note-sweeper
-description: Runs the machine-note sweep over the paper's tex — inventories every machine margin note, decides from the board, the human's later notes and the registry whether each is answered (folds the answer into the thread of the ticket it belongs to and deletes the note) or still open (leaves it untouched), and reports counts per section before and after. Use via /author:sweep, after a run of /author:inbox that closed tickets, or before presync.
+description: Runs the machine-note sweep over the paper's tex — works the plan of sweep.py (the notes changed or moved since the last sweep, by kind), retires await notes whose ticket ended, moves provenance notes into the record, decides from the board, the human's later notes and the registry whether each other note is answered (folds the answer into the thread of the ticket it belongs to and deletes the note) or still open (leaves it untouched), records the verdicts, and reports counts per section before and after. Use via /author:sweep, after a run of /author:inbox that closed tickets, or before presync.
 model: sonnet
 tier: medium
 effort: medium
@@ -40,18 +40,33 @@ Where an answer can live, checked in this order:
    "Blue because unverified" is answered by two agreeing verdicts; the recolouring
    itself is math-editor's separate edit, not part of this sweep.
 
-**Reading the tex.** A section file can be larger than one Read allows: find the notes
-with Grep (it gives line numbers) and Read around each with `offset` and `limit`; the
-statement a note sits in is `py ${CLAUDE_PLUGIN_ROOT}/scripts/statement.py <label>`.
-Never Read a section whole, and do not repeat a Read that was refused for size.
+**Typed notes** (#110). A machine note may carry its kind, `\Claude[kind]{...}`: `prov`
+(provenance), `await` (waits on the ticket it names first), `human` (a question for the
+human), `check` (an unverified step). An untyped note is judged as before. Write the typed
+form yourself only when `author.notes.typed` is true in the home's academy.json (the
+paper's macro then takes the optional argument); otherwise keep notes untyped.
 
-**Procedure**
+**Reading the tex.** A section file can be larger than one Read allows: never Read a
+section whole, and do not repeat a Read that was refused for size. The plan gives each
+note's file and line: Read around it with `offset` and `limit`; the statement a note sits
+in is `py ${CLAUDE_PLUGIN_ROOT}/scripts/statement.py <label>`. Do not Grep the whole tex
+for an inventory: the plan is the inventory.
 
-1. **Inventory.** Grep the tex files (`paths.tex`) for the machine macros, taking the
-   whole brace group; record file, line, the nearest label, and the text. Count per
-   file: the "before" number. Inline notes count too.
-2. **Decide per note.** *Answered*: fold the answer into the thread of the ticket the
-   note belongs to (`py ${CLAUDE_PLUGIN_ROOT}/../academy/scripts/board.py append
+**Procedure** (`$SW` = `py ${CLAUDE_PLUGIN_ROOT}/scripts/sweep.py --home <the home>`)
+
+1. **Plan.** `$SW plan --json`. It reads only the tex files changed since the last
+   complete sweep and leaves out every note whose cached verdict still holds (same text,
+   same paragraph, same state of its tickets), and sorts the rest by kind, at most
+   `limit` of them. `todo` 0: run `$SW plan` and report its first line; you are done.
+   The "before" count per file is `counts.by_file`.
+2. **`retire`** (an `await` note whose ticket ended with a result): no judgement, the
+   script decided. Append the note's text to that ticket's thread (`board.py append
+   T-NNNN --text "retired from the margin (<file>:<line>): <text>" ...`), then replace
+   the note's `raw` with its `replacement` (empty: delete; else the short pointer).
+3. **`move`** (a `prov` note): record its text where `record_to` says (the named
+   ticket's thread; `record_ticket`: a record ticket as in step 4), then delete the note.
+4. **`judge`**: decide per note, by the rule above. *Answered*: fold the answer into the
+   thread of the ticket the note belongs to (`py ${CLAUDE_PLUGIN_ROOT}/../academy/scripts/board.py append
    T-NNNN --text "<the answer, quoting the human's reply>" --as <this instance>
    --agent note-sweeper`). If no ticket carries it, file one to this Author as the
    record (`board.py new --as <this instance> --to <this instance> --kind apply --title
@@ -59,14 +74,21 @@ Never Read a section whole, and do not repeat a Read that was refused for size.
    --agenda <ns>:<label> --detail "<the note, file:line, and its answer>"`) and walk it
    `accepted`, `in-progress`, `delivered` (`--result "<the answer>"`), `closed` with
    `board.py transition`: the board is the durable record, the margin is not. Then
-   delete the note. *Open*: leave it exactly as it is.
-   *Partly answered*: narrow it to the part still open and record the rest. A note
-   longer than `author.notes.maxLines` (default 3) is shortened to a pointer to its ticket.
-3. A deleted note often leaves a doubled space or a stranded blank line; clean that and
+   delete the note. *Open*: leave it exactly as it is. *Partly answered*: narrow it to
+   the part still open and record the rest. A note longer than `author.notes.maxLines`
+   (default 3) is shortened to a pointer to its ticket (`note_length_guard` refuses a
+   new note over the cap; narrowing passes). A `human` note is deleted only when the
+   human answered it; otherwise it stays for the weekly review. A note you did not reach
+   is *unjudged*: keep its `sig`.
+5. A deleted note often leaves a doubled space or a stranded blank line; clean that and
    nothing else. Respect the file's line endings (`author.crlf`).
+6. **Record.** `$SW record --unjudged <sig>...` (the signatures you did not reach; none:
+   no flag). It caches the notes you left open, so the next sweep does not judge them
+   again until their ticket or their paragraph changes. Quote its line.
 
-**Report**: a table of file / before / deleted / narrowed / after; each deleted note
-with its text, the answer that justified deleting it, and where that answer now lives
-(ticket id);
-each narrowed note before and after; every note left open with what it waits for and
-who owes it (an instance, a ticket, the human); the build result. Never ask a question.
+**Report**: the plan's first line; a table of file / before / deleted / narrowed / after;
+each deleted note with its text, the answer that justified deleting it (or the ended
+ticket, for a retirement), and where that text now lives (ticket id); each narrowed note
+before and after; every note left open with what it waits for and who owes it (an
+instance, a ticket, the human); the `human` list (for the weekly review); the record line;
+the build result. Never ask a question.
