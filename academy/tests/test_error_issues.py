@@ -142,6 +142,45 @@ class HiddenAndTitleTests(unittest.TestCase):
         self.assertIn("~", s)
 
 
+class PrivateMathTests(unittest.TestCase):
+    """#95, the human's rule of 2026-11-21: an issue may refer to the plugin's errors, never to
+    the private mathematics. After configure, claim labels, the folders named after claims,
+    absolute folders and the human's name are hidden; the plugin's own words stay."""
+    WS = {"instances": {"author@main": {"role": "author"}, "researcher@r1": {"role": "researcher", "ns": "s1"}},
+          "human": {"name": "Ann"}}
+
+    def setUp(self):
+        self.addCleanup(ei.PRIVATE.update, dict(ei.PRIVATE))
+        ei.configure(self.WS)
+
+    def test_labels_paths_and_names(self):
+        s = ei.scrub("refused: no claim `paper:lem:covering-x` in C:\\Work\\Math\\WS\\claims\\paper\\a.md; "
+                     "Ann 2026-11-13: s1:GEO-71 -> proved; ~/lib/reviews/paper/defn-billiard-x/2026-11-17-T-1/A.md; "
+                     "proofs/FND-38/attempt-1.md; objects/claim/torus-arithmetic.md; claims/paper/lem-y.md; "
+                     "the kb does not build with cornered-torus-arithmetic at proved; /tmp/x/y/scratch.py")
+        for leak in ("covering-x", "GEO-71", "Ann", "Work", "billiard-x", "FND-38", "torus-arithmetic", "lem-y",
+                     "cornered-torus", "/tmp/x"):
+            self.assertNotIn(leak, s, leak)
+        for kept in ("paper:<claim>", "s1:<claim>", "the human 2026-11-13", "reviews/paper/<claim>", "proofs/<claim>",
+                     "objects/claim/<claim>", "<dir>/scratch.py", "-> proved", "refused: no claim"):
+            self.assertIn(kept, s, kept)
+
+    def test_plugin_words_and_urls_stay(self):
+        s = ei.scrub("refused: evidence kind `proof-review`; file:expert@main/x.md; see https://github.com/o/r/issues/9; "
+                     "researcher:prove")
+        self.assertIn("https://github.com/o/r/issues/9", s)
+        self.assertIn("researcher:prove", s)                  # an agent name, not a namespace
+        self.assertIn("expert@main", s)
+
+    def test_the_body_and_its_hidden_fields(self):
+        sig = "mcp: refused: the grounds do not support s1:GEO-71 -> proved"
+        meta = ei.merge_meta(None, sig, [err(1, sig=sig, msg="refused: s1:GEO-71 -> proved")], "b")
+        body = ei.render_body(meta)
+        self.assertNotIn("GEO-71", body)
+        self.assertIn("<!-- sig:%s -->" % ei.sig_hash(sig), body)   # the marker is still the raw signature's
+        self.assertIsNotNone(ei.hash_of({"body": body}))
+
+
 class SyncTests(Case):
     def test_one_issue_per_class_one_comment_per_sync_and_no_double_post(self):
         self.spill(err(2), err(1, session="s2"), err(1, sig="Read: eisdir <path>"))

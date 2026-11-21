@@ -11,8 +11,14 @@ count, rev, ver, and ``fix`` once a resolve named a commit or version). Each com
 sync carries its occurrences as hidden JSON rows (``<!-- occurrences [...] -->``: ts,
 session, instance, cause, rev, ver, agent) and a resolve or settle carries
 ``<!-- resolves [...] -->``, so ``records_of`` rebuilds the ledger records of a class and
-``error_ledger.report`` reads them unchanged. Every text that leaves the machine is
-redacted (``error_ledger.redact``) and has home-directory prefixes replaced by ``~``.
+``error_ledger.report`` reads them unchanged. Every text that leaves the machine goes
+through ``scrub``: secrets redacted (``error_ledger.redact``), home-directory prefixes as
+``~`` and other absolute folders as ``<dir>``, and, once ``configure`` has read the
+workspace (the CLI does), every registry label as ``<ns>:<claim>``, the folders named after
+a claim (``reviews/<ns>/<id>``, ``proofs/<id>``, ``objects/<kind>/<id>``, ``claims/<ns>/<id>``)
+and the human's name as "the human". The human's rule (2026-11-21): an issue may refer to the
+plugin's errors, never to the private mathematics. The issue marker is the hash of the raw
+signature, so scrubbing the stored one changes no lookup.
 
 A closed issue that recurs is reopened: with label ``regression`` when its last resolve
 named a fix (commit or version), or ``stale-code`` when every new error came from code
@@ -56,9 +62,44 @@ def sig_hash(sig):
     return hashlib.sha1(sig.encode("utf-8")).hexdigest()[:12]
 
 
+#: what scrub also hides once ``configure`` read the workspace (#95, the human's rule of
+#: 2026-11-21: an issue may refer to the plugin's errors, never to the private mathematics):
+#: the registry namespaces (a claim label names what a paper proves) and the human's name
+PRIVATE = {"ns": (), "names": ()}
+# a Windows path's folders, and a POSIX absolute path's folders (not a URL's): the file name stays
+RE_WINDIR = re.compile(r"(?i)\b[a-z]:\\(?:[^\\\s'\"`|]+\\)+")
+RE_POSIXDIR = re.compile(r"(?<![\w.~:/<])/(?:[^/\s'\"`|<>]+/)+")
+
+
+def configure(workspace):
+    """Take the namespaces and the human's name from ``workspace`` (a loaded workspace.json)."""
+    insts = (workspace or {}).get("instances") or {}
+    ns = sorted({i.get("ns") for i in insts.values() if i.get("ns")} |
+                {"paper" for i in insts.values() if i.get("role") == "author"})
+    human = ((workspace or {}).get("human") or {}).get("name")
+    PRIVATE["ns"] = tuple(ns)
+    PRIVATE["names"] = (human,) if human else ()
+
+
 def scrub(text):
-    """Redacted (secrets), home directories as ``~``: what may go to a public issue."""
-    return el.redact(RE_HOME.sub("~", str(text or "")))
+    """What may go to a public issue: secrets redacted, home directories as ``~``, other
+    absolute folders as ``<dir>``, and (after ``configure``) registry labels as
+    ``<ns>:<claim>`` and the human's name as "the human"."""
+    t = RE_HOME.sub("~", str(text or ""))
+    t = RE_WINDIR.sub("<dir>\\\\", t)
+    t = RE_POSIXDIR.sub("<dir>/", t)
+    # a review or proof folder is named after its claim
+    t = re.sub(r"\breviews/([a-z0-9]+)/[^/\s'\"`|]+", r"reviews/\1/<claim>", t)
+    t = re.sub(r"\bproofs/[^/\s'\"`|]+", "proofs/<claim>", t)
+    t = re.sub(r"\b(objects|claims)/([a-z0-9]+)/[^/\s'\"`|]+", r"\1/\2/<claim>", t)
+    # the notebook registry names a record without its namespace in some refusals
+    t = re.sub(r"(does not build with )[^\s;,]+", r"\1<claim>", t)
+    if PRIVATE["ns"]:
+        t = re.sub(r"(?<![\w@/.:])(%s):[A-Za-z][\w.-]*(?::[\w.-]+)*" % "|".join(map(re.escape, PRIVATE["ns"])),
+                   r"\1:<claim>", t)
+    for n in PRIVATE["names"]:
+        t = re.sub(r"\b%s\b" % re.escape(n), "the human", t)
+    return el.redact(t)
 
 
 def hidden(name, obj):
@@ -132,7 +173,7 @@ def render_body(meta):
            "(`regression` after a fix, `stale-code` when the errors came from code older "
            "than the fix).", "", "| field | value |", "|---|---|"]
     out += ["| %s | %s |" % r for r in rows]
-    stored = dict(meta, msg=scrub(meta.get("msg")), sig=meta["sig"])
+    stored = dict(meta, msg=scrub(meta.get("msg")), sig=scrub(meta["sig"]), family=scrub(meta.get("family")))
     out += ["", hidden("error-class", stored)]
     return "\n".join(out) + "\n"
 
@@ -240,11 +281,12 @@ def merge_meta(old, sig, recs, batch):
     if m.get("batch") == batch:
         return m
     last = recs[-1]
-    m.update(sig=sig, hash=sig_hash(sig), family=el.family(sig), batch=batch,
+    m.update(sig=sig, hash=sig_hash(sig), family=scrub(el.family(sig)), batch=batch,
              tool=last.get("tool") or m.get("tool") or "?",
              msg=scrub(last.get("msg") or m.get("msg") or ""))
-    m["families"] = sorted(set(m.get("families") or []) |
-                           {el.family_of(sig, r) for r in recs})
+    # a family is built from the message: it is scrubbed like the message (#95)
+    m["families"] = sorted({scrub(f) for f in m.get("families") or []} |
+                           {scrub(el.family_of(sig, r)) for r in recs})
     m["first"] = min([x for x in (m.get("first"), recs[0]["ts"]) if x])
     m["last"] = max([x for x in (m.get("last"), last["ts"]) if x])
     m["count"] = int(m.get("count") or 0) + len(recs)
@@ -571,7 +613,7 @@ def migrate_plan(records):
         res = [r for r in hist[sig] if r["t"] == "resolve"]
         c = open_cls.get(sig)
         meta = merge_meta(None, sig, errs, "migrate")
-        meta["families"] = sorted({el.family_of(sig, r) for r in c["recs"]}) if c else []
+        meta["families"] = sorted({scrub(el.family_of(sig, r)) for r in c["recs"]}) if c else []
         if res and (res[-1].get("commit") or res[-1].get("version")):
             meta["fix"] = {k: res[-1][k] for k in ("commit", "version") if res[-1].get(k)}
         tag = None

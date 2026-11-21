@@ -992,6 +992,8 @@ def main(argv=None):
         return 2
     instance = getattr(a, "instance", None) or _instance_for({})
     repo, why_not = issue_repo(a, ws)
+    if a.cmd in ("sync", "migrate", "report", "resolve", "settle"):
+        _issues().configure(ws)          # #95: what scrub hides comes from the workspace
     if a.cmd in ("sync", "migrate"):
         return _main_issues(a, ws, board, repo or (getattr(a, "repo", None) or errors_repo(ws)),
                             why_not)
