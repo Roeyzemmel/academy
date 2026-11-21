@@ -3,23 +3,28 @@
 Usage:
 
     py error_ledger.py [hook]                    # PostToolUseFailure hook, event on stdin
-    py error_ledger.py report [--days 7 | --since YYYY-MM-DD] [--json] [--repo O/N] [--workspace PATH]
+    py error_ledger.py report [--days 7 | --since YYYY-MM-DD] [--json] [--local] [--repo O/N] [--workspace PATH]
     py error_ledger.py settle [--packet P-NNNN] [--quiet-days 7] [--repo O/N] [--workspace PATH]
     py error_ledger.py resolve [SIG ...] [--family NAME] [--note TEXT] [--by WHO] [--commit SHA] [--version V] [--repo O/N] [--workspace PATH]
     py error_ledger.py sync [--repo OWNER/NAME] [--dry-run] [--workspace PATH]
     py error_ledger.py migrate [--repo OWNER/NAME] [--dry-run] [--skip-resolved] [--workspace PATH]
 
 **Where the errors go (academy#95).** When workspace.json names ``errors.repo``
-(``"errors": {"repo": "OWNER/NAME"}``) the error classes are GitHub issues of that repo,
-labelled ``error-class`` (``error_issues.py``): the hook appends to a local **spool**
+(``"errors": {"repo": "OWNER/NAME"}``) the error FAMILIES are GitHub issues of that repo,
+labelled ``error-family`` (``error_issues.py``): the hook appends to a local **spool**
 that is never committed (``errors.spool``, else ``$ACADEMY_ERRORS_SPOOL``, else
 ``<user cache>/academy/errors/<workspace key>/<instance>.jsonl``), still offline and
-still never failing a tool call; ``sync`` posts the spool's new records (one comment per
-class per sync, a cursor so nothing is posted twice, a closed issue reopened on
-recurrence with ``regression`` or ``stale-code``); ``report``, ``resolve`` and ``settle``
-read and close the issues; ``migrate`` imports the git ledger once. Without
-``errors.repo``, or without ``gh``, everything below holds as before (``report`` then
-reads the git ledger and the spool together).
+still never failing a tool call; ``sync`` posts the spool's new records, one issue per
+family (``family_of``, checked against an allowlist; one comment per family per sync, a
+cursor so nothing is posted twice, a closed issue reopened on recurrence with
+``regression`` or ``stale-code``); ``report``, ``resolve --family`` and ``settle`` read and
+close the issues; ``migrate`` imports the git ledger once, by family. The repo may be
+public, so an issue carries the family, counts, dates, roles, shell causes and code
+versions only: messages, details, commands, paths, signatures, sessions, instance names,
+packet ids and resolve notes stay in the spool and the git ledger (``report --local``
+reads them; a resolve's note and resolver go to the spool). Without ``errors.repo``, or
+without ``gh``, everything below holds as before (``report`` then reads the git ledger and
+the spool together).
 
 The git ledger is ``<board>/.errors/<instance>.jsonl`` (one file per instance, so two
 machines never merge-conflict; the board's SessionStart commit carries it). It is
@@ -31,7 +36,8 @@ append-only; each line is one JSON record:
     {"t": "resolve", "ts", "sig", "note", "by", ["commit"], ["version"]}   # the class is closed
 
 An *error class* is a signature: the tool plus the first line of the message with
-paths, ids, numbers and hex normalised away. A class is **open** from its first
+paths, ids, numbers and hex normalised away. A *family* (``family``) folds classes by
+verb and reason; one no rule names is its signature masked again (``mask``). A class is **open** from its first
 error record after its last ``resolve`` record. The weekly cycle:
 
 1. ``hook`` accumulates every failed tool call, all week, silently (it never fails a
@@ -981,8 +987,12 @@ def main(argv=None):
     p.add_argument("--all", action="store_true",
                    help="the Markdown class table lists every open class, also those with "
                         "no error in the window")
-    p.add_argument("--repo", help="read the error-class issues of OWNER/NAME (default: "
+    p.add_argument("--repo", help="read the error-family issues of OWNER/NAME (default: "
                                   "workspace.json errors.repo)")
+    p.add_argument("--local", action="store_true",
+                   help="read this machine's git ledger and spool, not the issues: the "
+                        "classes with their messages, sessions and instances (the issues "
+                        "hold families only)")
     p.add_argument("--workspace")
     p = sub.add_parser("settle")
     p.add_argument("--packet", help="the usage packet of the weekly review (required with "
@@ -1006,13 +1016,13 @@ def main(argv=None):
     p.add_argument("--instance")
     p.add_argument("--repo")
     p.add_argument("--workspace")
-    p = sub.add_parser("sync", help="post the local spool's new errors to the error-class "
+    p = sub.add_parser("sync", help="post the local spool's new errors to the error-family "
                                     "issues of errors.repo")
     p.add_argument("--repo")
     p.add_argument("--dry-run", action="store_true",
                    help="say what would be posted; contacts no one, moves no cursor")
     p.add_argument("--workspace")
-    p = sub.add_parser("migrate", help="one-off: import the git ledger's classes as issues")
+    p = sub.add_parser("migrate", help="one-off: import the git ledger as family issues")
     p.add_argument("--repo")
     p.add_argument("--dry-run", action="store_true",
                    help="count what would be imported; contacts no one")
@@ -1045,7 +1055,7 @@ def main(argv=None):
         else:
             start = now - _dt.timedelta(days=a.days if a.days is not None else 7)
         rep = None
-        if repo:
+        if repo and not a.local:
             try:
                 rep = _issues().report(_transport(repo), start, now)
                 rep["unsynced"] = _issues().pending(spool_dir(ws))

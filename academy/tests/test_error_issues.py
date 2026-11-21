@@ -773,6 +773,16 @@ class CliTests(WorkspaceCase):
         self.assertIn("not read", errs)
         self.assertEqual(json.loads(out)["open_classes"], 2)
 
+    def test_report_local_reads_the_local_files_with_their_detail(self):
+        self.make({"repo": "me/academy", "spool": "spool"})
+        self.use_fake()
+        el.append_file(el.spool_file(self.spool, "author@t"), err(1))
+        rc, out, _ = self.cli("report", "--json", "--local")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.gh.calls, [])
+        (row,) = json.loads(out)["classes"]
+        self.assertEqual((row["sig"], row["instances"]), (NT, ["author@x"]))
+
     def test_migrate_dry_run_on_the_cli(self):
         self.make({"repo": "me/academy", "spool": "spool"})
         self.use_fake()
