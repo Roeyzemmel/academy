@@ -168,6 +168,39 @@ class Refuse(Exception):
     pass
 
 
+def _run_pin():
+    """``run_pin.py`` beside this script (#97), or None when it cannot be loaded."""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_ship_run_pin", os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_pin.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:   # noqa: BLE001 -- a warning's helper never fails a command
+        return None
+
+
+def warn_live_runs(repo, what):
+    """Warn on stderr when a workflow run is live on ``repo`` (#97): it reads its scripts and
+    nested workflows from its pin, which ``what`` leaves alone, but the agent definitions,
+    hooks and skills of a plugin loaded from this checkout change under it. Never refuses."""
+    rp = _run_pin()
+    try:
+        runs = rp.live(repo) if rp else []
+    except Exception:   # noqa: BLE001
+        return
+    if not runs:
+        return
+    print("ship: warning: %d workflow run%s live on %s: %s; %s changes this checkout under "
+          "%s: its scripts and nested workflows run from the pin and do not move, but the "
+          "agent definitions, hooks and skills of a plugin loaded from this checkout do. A run "
+          "that is over and still listed: py %s end --run <run>"
+          % (len(runs), " is" if len(runs) == 1 else "s are", repo,
+             "; ".join(rp.describe(m) for m in runs), what, "it" if len(runs) == 1 else "them",
+             os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_pin.py")),
+          file=sys.stderr)
+
+
 def git_env():
     """The environment for every git call: never wait on an editor, pager or prompt
     (every commit and merge here passes its message explicitly)."""
@@ -968,6 +1001,7 @@ def cmd_merge(a):
     stat = git(repo, "diff", "--shortstat", "%s...%s" % (main_before, tip)) or "no file changes"
     print("merge %s @ %s into main @ %s: %d commit%s; %s"
           % (branch, tip[:9], main_before[:9], n, "" if n == 1 else "s", stat))
+    warn_live_runs(repo, "the merge")
     touched = gate_inputs_changed(repo, main_before, tip)
     if touched:
         print("!! gate inputs changed: %s -- the branch changes what its own merge gate checks "
@@ -1197,6 +1231,7 @@ def cmd_publish(a):
     head = git(repo, "rev-parse", "HEAD")
     check_sha(a.sha, head, "HEAD of main is %s, not the approved --sha")
     require_clean(repo, ignore_submodules=bool(prefix_of(a.sub)))
+    warn_live_runs(repo, "the publish")
     # the verified SHA is the source, not the ref: main moving after the check changes nothing
     p = subprocess.run(["git", "-C", repo, "push", "--no-follow-tags", "--recurse-submodules=no",
                         "origin", "%s:refs/heads/main" % head], capture_output=True, text=True,
@@ -1309,8 +1344,11 @@ def worktree_report(repos, show_all=False):
                 for wt in wts]
         states = list(pool.map(lambda j: worktree_work(j[1], j[2], j[3]), jobs))
     rows = []
+    rp = _run_pin()
     for (label, repo, _wt, _ahead), st in zip(jobs, states):
-        work = st["dirty"] != 0 or st["unpushed"] != 0 or st["ahead"]
+        # a workflow run's pinned code (run_pin.py, #97) holds no work: never offered as removable
+        pin = bool(rp and rp.is_pin_path(st["path"]))
+        work = not pin and (st["dirty"] != 0 or st["unpushed"] != 0 or st["ahead"])
         if not (work or show_all):
             continue
         top = os.path.realpath(repo)
@@ -1323,7 +1361,7 @@ def worktree_report(repos, show_all=False):
         count = lambda n: "?" if n is None else n  # noqa: E731
         # a clean one: a gone directory needs `git worktree prune`, a locked one `remove -f -f`
         marks = (["missing"] if st["missing"] else []) + (
-            [] if work else ["prunable"] if st["missing"] else
+            [] if work else ["prunable"] if st["missing"] else ["run pin"] if pin else
             ["locked"] if st.get("locked") else ["removable"])
         rows.append("  %-26s %-58s %-44s dirty=%s unpushed=%s%s%s" % (
             label, shown, st["branch"] or "(detached)", count(st["dirty"]),
