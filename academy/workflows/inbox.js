@@ -357,7 +357,7 @@ let lastInsts = insts
 // note-sweeper is launched only when the plan lists work; a plan with nothing to do records
 // itself. A plan stage that fails launches the note-sweeper as before, with a note.
 const SWEEP_PLAN = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
-  output: { type: 'string', description: 'the first line of the output, verbatim' } }, required: ['exit', 'output'] }
+  output: { type: 'string', description: 'the first line of the output, verbatim' } }, required: ['exit'] }   // #124: output asked, not required (read as '')
 phase('Sweep')
 for (const i of insts.filter(i => i.role === 'author')) {
   const sp = await tryClerk('sweep-plan', [`From ${i.home} run \`py ${ROOT}/author/scripts/sweep.py --home ${i.home} plan\` once (python3 where there is no py). ` +

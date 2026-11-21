@@ -66,7 +66,14 @@ every caller; the human releases a file by hand in `.claude/preamble-release.txt
   a human coauthor.**
 - Keep a machine note to `author.notes.maxLines` [3] lines and break long `\texttt` keys
   (`\texttt{a-}\allowbreak\texttt{b}`): the margin clips what it cannot hold (checker R7).
-  The long text belongs in the ticket thread.
+  The long text belongs in the ticket thread. `note_length_guard` refuses an edit that
+  adds a longer machine note (estimated at `author.notes.lineChars` [30] characters a
+  line); narrowing an existing long note passes.
+- **Typed notes** (#110), only when `author.notes.typed` is true (the paper's macro takes
+  the optional argument): `\Claude[prov]{T-NNNN: ...}` provenance, `\Claude[await]{T-NNNN
+  ...}` waits on that ticket (retired by the sweep once it ends with a result),
+  `\Claude[human]{...}` a question for the human (the weekly review's list),
+  `\Claude[check]{...}` an unverified step. Otherwise write the note untyped.
 - An unclosed brace in a margin note is the most common build break, usually an
   environment or a `%` inside the note.
 - Every sketched, unverified or judgement-call step gets a machine note in the file and
