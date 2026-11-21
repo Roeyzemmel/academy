@@ -355,7 +355,9 @@ let lastInsts = insts
 // #98 point 1: the sweep's plan is a script (author/scripts/sweep.py: the notes of the tex files
 // changed since the last sweep, minus the verdicts it cached, acted on by kind, #110). The
 // note-sweeper is launched only when the plan lists work; a plan with nothing to do records
-// itself. A plan stage that fails launches the note-sweeper as before, with a note.
+// itself. A plan stage that fails launches nothing (the sweeper's procedure needs the plan):
+// a note says so. A plan warning (the last plan was never recorded) becomes a note. Cached
+// verdicts expire after author.notes.maxAge days (the script's default, 14).
 const SWEEP_PLAN = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
   output: { type: 'string', description: 'the first line of the output, verbatim' } }, required: ['exit'] }   // #124: output asked, not required (read as '')
 phase('Sweep')
@@ -368,9 +370,17 @@ for (const i of insts.filter(i => i.role === 'author')) {
     out.sweep = (out.sweep || []).concat([{ instance: i.name, report: line }])
     continue
   }
-  if (!todo) notes.push(`the sweep plan of ${i.name} ${sp ? `printed no plan line (exit ${sp.exit}: ${line.slice(0, 120)})` : 'returned nothing'}: the note-sweeper ran without it`)
+  if (!todo) {
+    // review of 38e8803: the note-sweeper works from the plan, so without one it is not launched
+    const why = `the sweep plan of ${i.name} ${sp ? `printed no plan line (exit ${sp.exit}: ${line.slice(0, 120)})` : 'returned nothing'}`
+    notes.push(`${why}: the note-sweeper was not run; run /author:sweep once the plan works`)
+    out.sweep = (out.sweep || []).concat([{ instance: i.name, report: `not swept: ${why}` }])
+    continue
+  }
+  const warned = /; WARNING: (.*)$/.exec(line)
+  if (warned) notes.push(`${i.name} sweep: ${warned[1]}`)
   const s = await launch(`Run the machine-note sweep of ${i.name} (home ${i.home}) as /author:sweep does` +
-    (todo ? ` (its plan: ${line})` : '') + ', and report the counts per section.',
+    ` (its plan: ${line}). End with \`sweep.py record\`.` + ' Report the counts per section.',
     { label: `sweep ${i.name}`, phase: 'Sweep', agentType: 'author:note-sweeper' })
   if (s === null) return Object.assign(out, { stopped: `the sweep of ${i.name} was lost (a limit?): nothing further launched` })
   out.sweep = (out.sweep || []).concat([{ instance: i.name, report: s }])

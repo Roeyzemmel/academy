@@ -15,9 +15,12 @@ skips every note whose cached verdict still holds, and sorts the rest by kind (#
 `await` notes whose ticket ended with a result are retired, `prov` notes are moved into
 the record, `human` notes are listed for the human, the rest are judged. Its first line
 is `sweep: todo N (...)`. **`todo 0`: relay that line and stop**; nothing is launched (the
-plan has recorded itself). `$ARGUMENTS` may add `--full` (read every tex file: after an
-Overleaf sync, or when the state was lost) or `--max-age DAYS` (re-judge verdicts older
-than that: the weekly pass and presync use `--max-age 14`).
+plan has recorded itself). A plan that exits non-zero: relay its error and stop; the
+sweeper is not launched without a plan. A cached verdict expires after
+`author.notes.maxAge` days (default 14), so every pass (the inbox, presync, the weekly
+run) re-judges the oldest ones in turn. `$ARGUMENTS` may add `--full` (read every tex file:
+after an Overleaf sync, or when the state was lost) or `--max-age DAYS` (override).
+A plan line ending in `WARNING: ...` says the last sweep never ran `record`: relay it.
 
 Otherwise launch `note-sweeper` (`subagent_type: author:note-sweeper`). It carries the
 deletion rule, where an answer can live, and the mechanics, works the plan and records

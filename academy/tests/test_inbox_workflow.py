@@ -167,20 +167,33 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("/academy/author/scripts/sweep.py --home /h/author@t plan", stage["prompt"])
         self.assertEqual(stage["agentType"], "academy:inbox-clerk")
 
-    def test_the_sweeper_gets_the_plan_line_and_a_failed_plan_falls_back(self):
+    def test_the_sweeper_gets_the_plan_line_and_a_failed_plan_skips_it(self):
         base = {"list": [{"instances": [inst("author@t", [])]}], "sweep author@t": ["swept"],
                 "close author@t": [OK]}
         res, labels, calls = self.run_wf(dict(base, **{"sweep plan author@t": [SWEEP_WORK]}))
         sweeper = next(c for c in calls if c["label"] == "sweep author@t")
         self.assertIn("todo 2", sweeper["prompt"])
         self.assertEqual(res["sweep"][0]["report"], "swept")
+        # review of 38e8803 (finding 4): the sweeper's procedure needs the plan, so a failed
+        # plan stage launches no sweeper; the run says so and goes on
         res, labels, _ = self.run_wf(dict(base, **{"sweep plan author@t": [{"__throw": "no output"}]}))
-        self.assertIn("sweep author@t", labels)
-        self.assertTrue(any("sweep plan of author@t returned nothing" in n for n in res["notes"]),
-                        res["notes"])
+        self.assertNotIn("sweep author@t", labels)
+        self.assertTrue(any("sweep plan of author@t returned nothing" in n and "not run" in n
+                            for n in res["notes"]), res["notes"])
         res, labels, _ = self.run_wf(dict(base, **{"sweep plan author@t": [{"exit": 2, "output": "sweep.py: boom"}]}))
-        self.assertIn("sweep author@t", labels)
+        self.assertNotIn("sweep author@t", labels)
         self.assertTrue(any("printed no plan line (exit 2: sweep.py: boom)" in n for n in res["notes"]),
+                        res["notes"])
+        self.assertEqual(res["sweep"][0]["report"].split(":")[0], "not swept")
+
+    def test_a_plan_warning_is_a_note(self):
+        # finding 6: the last plan was never recorded (the sweeper did not run record)
+        warn = dict(SWEEP_WORK, output=SWEEP_WORK["output"] + "; WARNING: the last plan "
+                    "(2026-11-20, todo 2) was not recorded: `sweep.py record` was not run")
+        plan = {"list": [{"instances": [inst("author@t", [])]}], "sweep plan author@t": [warn],
+                "sweep author@t": ["swept"], "close author@t": [OK]}
+        res, _labels, _ = self.run_wf(plan)
+        self.assertTrue(any("author@t" in n and "was not recorded" in n for n in res["notes"]),
                         res["notes"])
 
     def test_relay_forward_with_a_good_child_is_blocked_on_it(self):

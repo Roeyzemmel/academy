@@ -58,9 +58,12 @@ for an inventory: the plan is the inventory.
    complete sweep and leaves out every note whose cached verdict still holds (same text,
    same paragraph, same state of its tickets), and sorts the rest by kind, at most
    `limit` of them. `todo` 0: run `$SW plan` and report its first line; you are done.
+   A plan that exits non-zero: report its error line and stop. Never fall back to an
+   inventory by hand: the plan and its record are the sweep's memory.
    The "before" count per file is `counts.by_file`.
-2. **`retire`** (an `await` note whose ticket ended with a result): no judgement, the
-   script decided. Append the note's text to that ticket's thread (`board.py append
+2. **`retire`** (an `await` note every ticket of which ended with a result): no
+   judgement, the script decided (delete only on a positive verdict; else a pointer
+   naming the negative ticket). Append the note's text to that ticket's thread (`board.py append
    T-NNNN --text "retired from the margin (<file>:<line>): <text>" ...`), then replace
    the note's `raw` with its `replacement` (empty: delete; else the short pointer).
 3. **`move`** (a `prov` note): record its text where `record_to` says (the named
