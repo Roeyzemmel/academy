@@ -1,6 +1,6 @@
 ---
 name: audit
-description: 'Consistency audit of the board and the registry: every state that contradicts its own evidence (blocked tickets whose waits ended, duplicate or stale packets, proved claims with a stale hash or no positive review), by class, with ids and a suggested fix. Read-only. Use for "audit", "what is inconsistent", weekly and before a merge.'
+description: 'Read-only audit: board and registry states that contradict their evidence. Use for "audit".'
 ---
 
 # Academy audit (#111)
