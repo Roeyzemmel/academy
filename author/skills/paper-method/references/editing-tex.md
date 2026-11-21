@@ -66,9 +66,10 @@ every caller; the human releases a file by hand in `.claude/preamble-release.txt
   a human coauthor.**
 - Keep a machine note to `author.notes.maxLines` [3] lines and break long `\texttt` keys
   (`\texttt{a-}\allowbreak\texttt{b}`): the margin clips what it cannot hold (checker R7).
-  The long text belongs in the ticket thread. `note_length_guard` refuses an edit that
-  adds a longer machine note (estimated at `author.notes.lineChars` [30] characters a
-  line); narrowing an existing long note passes.
+  The long text belongs in the ticket thread. With `author.notes.enforce` true,
+  `note_length_guard` refuses an edit that adds a longer machine note (estimated at
+  `author.notes.lineChars` [30] characters a line); narrowing an existing long note passes,
+  and so does moving one: insert the new copy before deleting the old.
 - **Typed notes** (#110), only when `author.notes.typed` is true (the paper's macro takes
   the optional argument): `\Claude[prov]{T-NNNN: ...}` provenance, `\Claude[await]{T-NNNN
   ...}` waits on that ticket (retired by the sweep once it ends with a result),

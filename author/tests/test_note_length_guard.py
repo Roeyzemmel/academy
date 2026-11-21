@@ -1,7 +1,8 @@
 """note_length_guard: author.notes.maxLines enforced when a machine note is written (#110 point 5).
 
 The guard judges only the notes an edit adds: an existing long note passing through an edit
-unchanged is not the writer's, and narrowing a long note (shorter, still long) is progress.
+unchanged is not the writer's, and narrowing a long note (shorter, still long) is progress, and a note already in the paper (a move or a copy) is not new.
+The guard is opt-in (``author.notes.enforce: true``).
 """
 
 import json
@@ -29,6 +30,8 @@ class GuardTests(unittest.TestCase):
         self.addCleanup(self.sb.cleanup)
         self.tex = os.path.join(self.sb.home, "sections", "a.tex")
         self.sb.write(self.tex, "Intro. \\Claude{%s}\n\nText here.\n" % LONG)
+        self.sb.write_config(author=dict(self._author(), notes={"maxLines": 3,
+                                                                "enforce": True}))
 
     def edit(self, old, new, path=None, tool="Edit"):
         ti = {"file_path": path or self.tex}
@@ -64,7 +67,7 @@ class GuardTests(unittest.TestCase):
 
     def test_write_of_a_new_file_with_a_long_note(self):
         new = os.path.join(self.sb.home, "sections", "b.tex")
-        self.assertEqual(g.decide(self.edit(None, "\\Claude{%s}\n" % LONG, new, "Write"))[0],
+        self.assertEqual(g.decide(self.edit(None, "\\Claude{%s}\n" % LONGER, new, "Write"))[0],
                          "deny")
         self.assertIsNone(g.decide(self.edit(None, "\\Claude{%s}\n" % SHORT, new, "Write")))
 
@@ -78,18 +81,41 @@ class GuardTests(unittest.TestCase):
         self.assertIsNone(g.decide(self.edit("Text here.", "\\Claude{%s}" % LONGER)))
 
     def test_line_chars_and_max_lines_come_from_the_config(self):
-        self.sb.write_config(author=dict(self._author(), notes={"maxLines": 2,
+        self.sb.write_config(author=dict(self._author(), notes={"maxLines": 2, "enforce": True,
                                                                 "lineChars": 200}))
         self.assertIsNone(g.decide(self.edit("Text here.", "\\Claude{%s}" % LONGER)))
-        self.sb.write_config(author=dict(self._author(), notes={"maxLines": 1,
+        self.sb.write_config(author=dict(self._author(), notes={"maxLines": 1, "enforce": True,
                                                                 "lineChars": 10}))
         self.assertEqual(g.decide(self.edit("Text here.", "\\Claude{%s}" % SHORT))[0], "deny")
 
     def test_a_human_note_is_not_judged(self):
         self.sb.write_config(author=dict(self._author(),
+                                         notes={"enforce": True},
                                          noteMacros={"machine": ["\\Claude"],
                                                      "human": ["\\Ada"]}))
         self.assertIsNone(g.decide(self.edit("Text here.", "\\Ada{%s}" % LONGER)))
+
+    def test_off_unless_enforce_is_true(self):
+        for notes in ({"maxLines": 3}, {"maxLines": 3, "enforce": "true"}):
+            self.sb.write_config(author=dict(self._author(), notes=notes))
+            self.assertIsNone(g.decide(self.edit("Text here.", "\\Claude{%s}" % LONGER)))
+
+    def test_a_move_inserted_before_the_old_copy_is_deleted_passes(self):
+        # the paper moves statements with their notes: insert first, delete afterwards
+        moved = "Text here.\n\nMoved. \\Claude{%s}" % LONG
+        self.assertIsNone(g.decide(self.edit("Text here.", moved)))
+        other = os.path.join(self.sb.home, "sections", "b.tex")
+        self.assertIsNone(g.decide(self.edit(None, "Copied. \\Claude{%s}\n" % LONG, other,
+                                             "Write")))
+        self.sb.write(other, "Elsewhere.\n")
+        self.assertIsNone(g.decide(self.edit("Elsewhere.", "Elsewhere. \\Claude{%s}" % LONG,
+                                             other)))
+
+    def test_a_move_whose_old_copy_was_deleted_first_says_insert_before_deleting(self):
+        self.sb.write(self.tex, "Intro.\n\nText here.\n")
+        v = g.decide(self.edit("Text here.", "Text here. \\Claude{%s}" % LONG))
+        self.assertEqual(v[0], "deny")
+        self.assertIn("insert the new copy before deleting the old one", v[1])
 
     def test_through_the_dispatcher_hook(self):
         code, out, _err = run_hook("pre_tool_use.py", self.edit(

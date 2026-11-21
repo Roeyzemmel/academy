@@ -308,6 +308,15 @@ class ConfigValidation(unittest.TestCase):
                      "preamble.policy", "notes.maxLines", "bib.acceptedWarnings",
                      "author.labels must be an object", "mainResults.labels"):
             self.assertIn(frag, text)
+
+    def test_the_note_switches_are_typed(self):
+        self.assertEqual([], self.probs(notes={"maxLines": 3, "lineChars": 40,
+                                               "enforce": True, "typed": False}))
+        text = "\n".join(self.probs(notes={"lineChars": 0, "enforce": "false",
+                                           "typed": "yes"}))
+        for frag in ("notes.lineChars", "notes.enforce", "notes.typed"):
+            self.assertIn(frag, text)
+        self.assertIn("notes.lineChars", "\n".join(self.probs(notes={"lineChars": True})))
         self.assertIn("kind must be one of",
                       "\n".join(self.probs(statusLevels=[{"name": "x", "kind": "draft"}])))
 
