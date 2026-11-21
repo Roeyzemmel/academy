@@ -89,19 +89,46 @@ def _rel_to(root, path):
     return rel
 
 
+#: a workflow run's pinned code: ``<checkout>/.worktrees/run-<sha12>`` (run_pin.py, #97)
+_RUN_PIN = re.compile(r"^run-[0-9a-f]{12}$")
+
+
+def is_run_pin(path):
+    """Whether ``path`` is the pinned code of a workflow run (``academy/scripts/run_pin.py``:
+    ``<academy checkout>/.worktrees/run-<sha12>``)."""
+    path = os.path.normpath(os.path.abspath(str(path)))
+    return bool(_RUN_PIN.match(os.path.basename(path))) and \
+        os.path.basename(os.path.dirname(path)) == ".worktrees"
+
+
+def _own_checkout():
+    here = os.path.realpath(os.path.abspath(_PKG_DIR))
+    return os.path.dirname(os.path.dirname(os.path.dirname(here)))
+
+
+def run_pin_source():
+    """The main checkout whose pin this package runs from, or None when it runs from no pin."""
+    own = _own_checkout()
+    return os.path.dirname(os.path.dirname(own)) if is_run_pin(own) else None
+
+
 def repo_root():
     """The academy repo root.
 
-    ``ACADEMY_ROOT`` wins. Otherwise it is three levels above this package, which
-    holds both for ``academy/lib/academy_common/`` and for a vendored copy at
+    A package inside a workflow run's pin (``is_run_pin``) answers the pin, whatever
+    ``ACADEMY_ROOT`` says: a run's scripts read the run's code, never the live checkout's
+    (#97). Otherwise ``ACADEMY_ROOT`` wins, and else it is three levels above this package,
+    which holds both for ``academy/lib/academy_common/`` and for a vendored copy at
     ``<plugin>/scripts/_academy/``; symlinks (``~/.claude/skills/<name>``) are
     resolved first.
     """
+    own = _own_checkout()
+    if is_run_pin(own):
+        return own
     env = os.environ.get("ACADEMY_ROOT")
     if env:
         return os.path.abspath(env)
-    here = os.path.realpath(os.path.abspath(_PKG_DIR))
-    return os.path.dirname(os.path.dirname(os.path.dirname(here)))
+    return own
 
 
 def find_home(path):
