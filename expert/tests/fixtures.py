@@ -20,13 +20,37 @@ REPO = os.path.dirname(PLUGIN)
 SCRIPTS = os.path.join(PLUGIN, "scripts")
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
-# The base plugin these tests run against is this checkout's (_expert.academy_plugin() follows
-# $ACADEMY_ROOT). Without this, a machine whose workspace exports a tagged root
-# (ACADEMY_WS__<TAG>__ROOT, adopted when _academy is imported) runs a worktree's expert
-# scripts against the main checkout's MCP modules (cards.py -> library.py, #108).
-os.environ["ACADEMY_ROOT"] = REPO
-
 import _academy as ac  # noqa: E402
+import _expert as ex  # noqa: E402
+
+
+def pin_academy_root():
+    """Run against this checkout's base plugin until the returned patch stops (#108).
+
+    ``_expert.academy_plugin()`` follows ``$ACADEMY_ROOT``, which importing ``_academy`` may
+    have adopted from a workspace's tagged root (ACADEMY_WS__<TAG>__ROOT): a worktree's
+    expert scripts would then load the main checkout's MCP modules (cards.py -> library.py).
+    The environment is patched (and restored by ``stop()``), and the cached MCP modules
+    are dropped on both sides, so each side loads its own. ``Sandbox`` pins it for its
+    life; a module whose tests need the library outside a sandbox calls it from
+    ``setUpModule`` and registers ``stop`` with ``unittest.addModuleCleanup``."""
+    from unittest import mock
+
+    def drop():
+        for k in [k for k in ex._CACHE if k == "pkg" or k.startswith("mod:")]:
+            del ex._CACHE[k]
+        for k in [k for k in sys.modules if k == "academy_mcp_tools" or k.startswith("academy_mcp_tools.")]:
+            del sys.modules[k]
+    p = mock.patch.dict(os.environ, {"ACADEMY_ROOT": REPO})
+    p.start()
+    drop()
+    stop = p.stop
+
+    def stop_and_drop():
+        stop()
+        drop()
+    p.stop = stop_and_drop
+    return p
 
 INDEX = """# Index
 
@@ -64,6 +88,7 @@ def card_text(key="ABC21", pinpoint="Lemma 2.1", quote="Let M be a translation s
 
 class Sandbox(object):
     def __init__(self):
+        self._root_pin = pin_academy_root()
         self.root = tempfile.mkdtemp(prefix="expert-test-")
         self.lib = os.path.join(self.root, "papers")
         self.paperhome = os.path.join(self.root, "paperhome")
@@ -114,6 +139,7 @@ class Sandbox(object):
             else:
                 os.environ[k] = v
         shutil.rmtree(self.root, ignore_errors=True)
+        self._root_pin.stop()
 
 
 def run_script(script, event=None, args=(), env=None, cwd=None):

@@ -6,32 +6,35 @@ parked on the human. The human hands back what they read, through
 where the card written from it (``read_from: human-supplied``) is checked by
 ``cards.py validate`` and ``library_verify_quote``:
 
-* a **text** (the quoted statement, pasted) becomes one entry of ``<key>.human.md``,
-  verbatim between its marker lines, with the ticket, the date and the pinpoint. The
-  workflow computes the text's hash from the human's own words and passes it as
-  ``--expect``: a text that reached this script altered (an agent copied it) is refused
-  and nothing is written;
-* a **file** (a PDF or a page image, a path inside the workspace) is copied into
-  ``<key>.human/<date>-<ticket>-<name>``; a PDF's text layer is extracted beside it
-  (``<name>.txt``, by ``pdftotext -layout``) when there is one. The folder gets a
-  ``.gitignore`` that keeps only the texts tracked: the files are personal copies, as the
-  library's PDFs are.
+``<key>.human.md`` is the register of the hand-backs (its format: the MCP library module,
+"What a human supplied"); every record carries a sha256, checked whenever it is read:
 
-Recording the same text or file again changes nothing (``already``).
+* a **text** (the quoted statement, pasted) becomes one entry, verbatim between its
+  marker lines, with the ticket, the date, the pinpoint and its digest. The workflow
+  computes the digest from the human's own words and passes it as ``--expect``: a text
+  that reached this script altered (an agent copied it) is refused and nothing is written;
+* a **file** (a PDF or a page image, a path inside the workspace and outside the library)
+  is copied into ``<key>.human/<date>-<ticket>-<name>``; a PDF's text layer is extracted
+  beside it (``<name>.txt``, by ``pdftotext -layout``) when there is one; one record line
+  names both, with the sha256 of each. The folder gets a ``.gitignore`` that keeps only the
+  texts tracked: the files are personal copies, as the library's PDFs are.
+
+Each record's id is its digest (printed as ``id``): the card written from it names it
+(``cards.py new ... --handback <id>``). Recording the same text or file again changes
+nothing (``already``).
 
     py handback.py record KEY --ticket T [--pinpoint P] --text-file F --expect HASH [--home H] [--json]
     py handback.py record KEY --ticket T [--pinpoint P] --file PATH [--home H] [--json]
     py handback.py show KEY [--home H] [--json]
     py handback.py hash --text-file F
 
-The hash is ``fnv1a32:<8 hex>:<UTF-8 bytes>`` of the text with its line ends made LF and
-the blanks around it removed (cite.js computes the same in JavaScript).
+The digest is ``sha256:<hex>`` of the text's UTF-8 bytes, its line ends made LF and the
+blanks around it removed (cite.js computes the same in JavaScript).
 
 Exit codes: 0 recorded (or already there), 1 refused, 2 usage error.
 """
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -53,26 +56,32 @@ GITIGNORE = ("# What a human supplied (handback.py): personal copies, never comm
              "# library's PDFs; the texts (pasted, or extracted from a PDF) stay tracked.\n"
              "*\n!.gitignore\n!*.txt\n!*.md\n")
 HEADER = ("---\nkey: %s\nkind: human-supplied\n---\n\n# %s: read by a human\n\n"
-          "Each entry is what a human with access to the source handed back for a cite ticket,\n"
-          "verbatim between its marker lines (`handback.py record`). Never edit an entry: a new\n"
-          "hand-back is a new entry. A card quoting one says `read_from: human-supplied`.\n")
+          "The register of what a human with access to the source handed back for cite tickets\n"
+          "(`handback.py record`): a text verbatim between its marker lines, a file of the folder\n"
+          "beside this one, each with its sha256. Never edit a record: a new hand-back is a new\n"
+          "record. A card quoting one says `read_from: human-supplied` and names it (`handback:`).\n")
 
 
 # ----------------------------------------------------------------------------
-# The hash (the same in cite.js)
+# The library module (the register's one implementation) and the digest
 # ----------------------------------------------------------------------------
+
+def _lib():
+    """The MCP library module, refused clearly when it predates the hand-back register."""
+    lib = ex.library()
+    if not all(hasattr(lib, n) for n in ("handback_records", "text_digest", "file_digest", "HUMAN_DIR")):
+        raise SystemExit("handback: the academy base plugin at %s predates the hand-back register (#108; "
+                         "library.handback_records is missing): update it, or set ACADEMY_ROOT to a checkout "
+                         "that has it" % ex.academy_plugin())
+    return lib
+
 
 def normalise(text):
-    """LF line ends, the blanks around the text removed (only spaces, tabs, newlines)."""
-    return str(text).replace("\r\n", "\n").replace("\r", "\n").strip(" \t\n")
+    return _lib().normalise_handback(text)
 
 
 def text_hash(text):
-    data = normalise(text).encode("utf-8", "surrogatepass")
-    h = 0x811c9dc5
-    for b in data:
-        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
-    return "fnv1a32:%08x:%d" % (h, len(data))
+    return _lib().text_digest(text)
 
 
 # ----------------------------------------------------------------------------
@@ -80,8 +89,8 @@ def text_hash(text):
 # ----------------------------------------------------------------------------
 
 def _result(key, ticket, kind):
-    return {"ok": False, "key": key, "ticket": ticket, "kind": kind, "recorded": [], "texts": [],
-            "already": False, "problems": [], "notes": []}
+    return {"ok": False, "key": key, "ticket": ticket, "kind": kind, "id": None, "recorded": [],
+            "texts": [], "already": False, "problems": [], "notes": []}
 
 
 def _attr(v):
@@ -89,18 +98,35 @@ def _attr(v):
     return v.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _texts(home, key, rel_prefix):
-    return [label for label, _ in ex.library().human_texts(home, key) if label.startswith(rel_prefix)]
+def _attrs(pairs):
+    return " ".join('%s="%s"' % (k, _attr(v)) for k, v in pairs if v not in (None, ""))
+
+
+def _append(home, key, entry):
+    """Append one record to ``<key>.human.md`` (created with its header)."""
+    lib = _lib()
+    path = os.path.join(home, key + lib.HUMAN_MD)
+    old = ""
+    if os.path.isfile(path):
+        with open(path, "r", encoding="utf-8") as fh:
+            old = fh.read()
+    body = (old.rstrip("\n") + "\n\n") if old.strip() else HEADER % (key, key) + "\n"
+    ac.atomic_write(path, body + entry)
+
+
+def _labels(home, key, rid):
+    return [r["label"] for r in _lib().handback_records(home, key) if r["ok"] and r["id"] == rid and r["text"] is not None]
 
 
 def record_text(home, key, ticket, text, expect=None, pinpoint=None, date=None):
-    """One entry of ``<key>.human.md``; refused when ``text`` does not hash to ``expect``."""
+    """One text entry of ``<key>.human.md``; refused when ``text`` does not hash to ``expect``."""
     r = _result(key, ticket, "text")
     if not RE_KEY.match(str(key or "")):
         r["problems"].append("%r is not a bibliography key" % key)
         return r
-    t = normalise(text)
-    got = text_hash(t)
+    lib = _lib()
+    t = lib.normalise_handback(text)
+    got = lib.text_digest(t)
     r["hash"] = got
     if not t:
         r["problems"].append("the text is empty")
@@ -111,27 +137,14 @@ def record_text(home, key, ticket, text, expect=None, pinpoint=None, date=None):
                              "write it again, byte for byte, and record it again" % (got, expect))
     if r["problems"]:
         return r
-    lib = ex.library()
-    path = os.path.join(home, key + lib.HUMAN_MD)
+    r["id"] = got
     rel = key + lib.HUMAN_MD
-    old = ""
-    if os.path.isfile(path):
-        with open(path, "r", encoding="utf-8") as fh:
-            old = fh.read()
-    entries = lib.parse_handbacks(old)
-    if any(normalise(e["text"]) == t for e in entries):
-        r.update(ok=True, already=True, recorded=[rel])
-        r["texts"] = _texts(home, key, rel)
+    if any(x["ok"] and x["kind"] == "text" and x["id"] == got for x in lib.handback_records(home, key)):
+        r.update(ok=True, already=True, recorded=[rel], texts=_labels(home, key, got))
         return r
-    attrs = 'ticket="%s" date="%s"' % (_attr(ticket), _attr(date or ac.today()))
-    if pinpoint:
-        attrs += ' pinpoint="%s"' % _attr(pinpoint)
-    attrs += ' hash="%s"' % got
-    entry = "%s begin %s -->\n%s\n%s\n" % (MARK, attrs, t, lib.HANDBACK_END)
-    body = (old.rstrip("\n") + "\n\n") if old.strip() else HEADER % (key, key) + "\n"
-    ac.atomic_write(path, body + entry)
-    r.update(ok=True, recorded=[rel])
-    r["texts"] = _texts(home, key, rel)
+    attrs = _attrs([("ticket", ticket), ("date", date or ac.today()), ("pinpoint", pinpoint), ("hash", got)])
+    _append(home, key, "%s begin %s -->\n%s\n%s\n" % (MARK, attrs, t, lib.HANDBACK_END))
+    r.update(ok=True, recorded=[rel], texts=_labels(home, key, got))
     return r
 
 
@@ -153,7 +166,8 @@ def extract_pdf(pdf, txt):
 
 
 def allowed_roots(home):
-    """The workspace root and every instance home; the library home alone without a workspace."""
+    """The workspace root and every instance home (the library's own files excepted, below);
+    the library home alone without a workspace."""
     ws = ex.load_workspace_or_none()
     roots = [home]
     if ws:
@@ -163,69 +177,73 @@ def allowed_roots(home):
     return [os.path.realpath(r) for r in roots if r]
 
 
-def _sha(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 16), b""):
-            h.update(chunk)
-    return h.hexdigest()
+def _under(path, root):
+    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
 def record_file(home, key, ticket, path, pinpoint=None, date=None):
-    """Copy ``path`` into ``<key>.human/``; a PDF's text is extracted beside it."""
+    """Copy ``path`` into ``<key>.human/`` and record it (and a PDF's text) with their sha256."""
     r = _result(key, ticket, "file")
     if not RE_KEY.match(str(key or "")):
         r["problems"].append("%r is not a bibliography key" % key)
         return r
-    src = os.path.realpath(os.path.abspath(str(path or "")))
+    src = os.path.realpath(os.path.abspath(str(path or "")))     # a symlink is judged by its target
     ext = os.path.splitext(src)[1].lower()
+    lib_home = os.path.realpath(home)
     if not os.path.isfile(src):
         r["problems"].append("no such file: %s" % path)
-    elif not any(src == root or src.startswith(root + os.sep) for root in allowed_roots(home)):
-        r["problems"].append("%s is outside the workspace and its homes: put the file inside it" % path)
+    elif _under(src, lib_home):
+        r["problems"].append("%s is inside the library home (%s): its cached files, cards and records are not a "
+                             "human's material; hand back a file from outside the library (the workspace's "
+                             "scratch, say)" % (path, src))
+    elif not any(_under(src, root) for root in allowed_roots(home) if root != lib_home):
+        r["problems"].append("%s is outside the workspace and its homes (%s): put the file inside it" % (path, src))
     elif ext not in FILE_EXT:
         r["problems"].append("%s is not a PDF, an image or a text (%s)" % (path, ", ".join(FILE_EXT)))
     if r["problems"]:
         return r
-    lib = ex.library()
+    lib = _lib()
     dname = key + lib.HUMAN_DIR
     d = os.path.join(home, dname)
-    sha = _sha(src)
-    if os.path.isdir(d):
-        for f in sorted(os.listdir(d)):
-            full = os.path.join(d, f)
-            if not f.startswith(".") and os.path.isfile(full) and _sha(full) == sha:
-                r.update(ok=True, already=True, recorded=["%s/%s" % (dname, f)])
-                stem = os.path.splitext(f)[0]
-                if os.path.isfile(os.path.join(d, stem + ".txt")) and not f.endswith(".txt"):
-                    r["recorded"].append("%s/%s.txt" % (dname, stem))
-                r["texts"] = [x for x in _texts(home, key, dname + "/")
-                              if x.split(" ")[0] in r["recorded"]]
-                return r
+    sha = lib.file_digest(src)
+    r["id"] = sha
+    for x in lib.handback_records(home, key):
+        if x["ok"] and x["kind"] == "file" and x["id"] == sha:
+            r.update(ok=True, already=True, recorded=list(x["files"]), texts=[x["label"]] if x["text"] is not None else [])
+            return r
     os.makedirs(d, exist_ok=True)
     gi = os.path.join(d, ".gitignore")
     if not os.path.isfile(gi):
         ac.atomic_write(gi, GITIGNORE)
     stem = "%s-%s-%s" % (date or ac.today(), ac.slugify(ticket, maxlen=20, default="ticket"),
                          ac.slugify(os.path.splitext(os.path.basename(src))[0], maxlen=40, default="file"))
-    name = stem + ext
-    n = 2
-    while os.path.exists(os.path.join(d, name)):
-        name = "%s-%d%s" % (stem, n, ext)
+    n, base = 2, stem
+    while os.path.exists(os.path.join(d, stem + ext)) or os.path.exists(os.path.join(d, stem + ".txt")):
+        stem = "%s-%d" % (base, n)
         n += 1
+    name = stem + ext
     shutil.copyfile(src, os.path.join(d, name))
-    r["recorded"].append("%s/%s" % (dname, name))
-    if ext == ".pdf":
-        txt = os.path.splitext(name)[0] + ".txt"
+    rel = "%s/%s" % (dname, name)
+    r["recorded"].append(rel)
+    text_rel = text_sha = None
+    if ext in lib.HUMAN_TEXT_EXT:
+        text_rel, text_sha = rel, lib.file_digest(os.path.join(d, name))
+    elif ext == ".pdf":
+        txt = stem + ".txt"
         if extract_pdf(os.path.join(d, name), os.path.join(d, txt)):
-            r["recorded"].append("%s/%s" % (dname, txt))
+            text_rel, text_sha = "%s/%s" % (dname, txt), lib.file_digest(os.path.join(d, txt))
+            r["recorded"].append(text_rel)
         else:
             r["notes"].append("no text extracted from %s (no text layer, or no pdftotext): the card's "
-                              "quote is transcribed from the pages and said unchecked" % name)
-    elif ext not in lib.HUMAN_TEXT_EXT:
-        r["notes"].append("%s is an image: the card's quote is transcribed from it and said unchecked" % name)
+                              "quote is transcribed from the pages, and the card says status unverified" % name)
+    else:
+        r["notes"].append("%s is an image: the card's quote is transcribed from it, and the card says status "
+                          "unverified" % name)
+    attrs = _attrs([("ticket", ticket), ("date", date or ac.today()), ("pinpoint", pinpoint), ("path", rel),
+                    ("sha256", sha), ("text", text_rel), ("text_sha256", text_sha)])
+    _append(home, key, "%s file %s -->\n" % (MARK, attrs))
     r["ok"] = True
-    r["texts"] = [x for x in _texts(home, key, dname + "/") if x.split(" ")[0] in r["recorded"]]
+    r["texts"] = _labels(home, key, sha)
     if pinpoint:
         r["pinpoint"] = pinpoint
     return r
@@ -277,14 +295,16 @@ def cmd_record(args):
 
 def cmd_show(args):
     home = _home(args)
-    lib = ex.library()
+    lib = _lib()
+    recs = lib.handback_records(home, args.key)
     r = {"key": args.key, "files": lib.human_files(home, args.key),
-         "texts": [label for label, _ in lib.human_texts(home, args.key)]}
+         "records": [{"id": x["id"], "kind": x["kind"], "ok": x["ok"], "problem": x["problem"],
+                      "label": x["label"], "ticket": x["attrs"].get("ticket")} for x in recs]}
     if args.json:
         print(json.dumps(r, ensure_ascii=False))
     else:
-        for f in r["files"]:
-            print(f)
+        for x in r["records"]:
+            print("%s\t%s\t%s" % (x["id"], "ok" if x["ok"] else "BAD: " + x["problem"], x["label"]))
     return 0
 
 

@@ -333,7 +333,8 @@ def handback_records(home, key):
                     if not tpath or not os.path.isfile(tpath) or file_digest(tpath) != a.get("text_sha256"):
                         rec.update(ok=False, problem="%s does not match its text_sha256" % a.get("text"))
                     else:
-                        rec["files"].append(a["text"])
+                        if a["text"] not in rec["files"]:
+                            rec["files"].append(a["text"])
                         rec["text"] = _read(tpath)
                         rec["label"] = "%s (human-supplied, from %s%s)" % (a["text"], a["path"], ", " + what if what else "")
         out.append(rec)
