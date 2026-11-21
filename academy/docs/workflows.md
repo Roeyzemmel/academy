@@ -156,15 +156,25 @@ end. Both scripts carry the same `Code pin` block (pinned identical by
   itself) and writes a live marker `.worktrees/live/<run>.json`. Every script command of the
   run and every nested workflow (`scriptPath` and `args.root`) then uses that root, and so
   do the `for_main` hand-backs (their `args.root`). The result says what ran: `out.code =
-  {sha, root, pinned, run, why, ended}`.
+  {sha, root, pinned, run, why, ended, expires}` (`end_error` when the end failed).
+  `start` pins only the top of a git checkout that holds `academy/scripts/run_pin.py` at
+  HEAD (a plugin copy inside another repository is run as it is). Creating, reusing and
+  cleaning pins take `.worktrees/pin.lock`, so concurrent starts on one commit share one
+  pin; a reused pin whose tracked files changed is reset to its commit in place.
 - **The end**: an `unpin` stage (`run_pin.py end --run <run>`) on every way out of the run,
   a return or a throw (the run's body sits in a `try`, its `finally` ends the pin), tried
-  even after a usage limit stopped the launches. A run that died leaves its marker: it is
-  stale after `RUN_MAX_HOURS` (12) or, on Linux, as soon as the session process that ran
-  the pin stage is gone.
+  even after a usage limit stopped the launches. The end never throws: an unpin stage that
+  throws (a budget exhausted, an abort) leaves the run's result as it was, with `ended:
+  false` and `end_error`. A run that ended with a hand-back (a `for_main` or a gate) ends
+  with `--hold`, which keeps its pin `HOLD_DAYS` (7) for the main session; `expires` says
+  until when. A run that died leaves its marker: it is stale after `RUN_MAX_HOURS` (12)
+  or, on Linux, as soon as the session process that ran the pin stage is gone (judged
+  only in the pid namespace the marker was written in, and by its start time). A resumed
+  run does not write its marker again: after 12 hours `ship.py` no longer sees it.
 - **Clean-up** at each `start`: a pin no live marker uses whose last use is older than
-  `KEEP_DAYS` (2) is removed (`git worktree remove`). The grace keeps a finished run's pin
-  for its hand-backs; the pin of the commit being started is never removed.
+  `KEEP_DAYS` (2) and whose hold is over is removed (`git worktree remove`). The pin of the
+  commit being started is never removed, nor a directory with no stamp made in the last
+  five minutes (a start building it).
 - **Given, nested, off.** `args.code` (the object `start --json` printed) is a pin the
   caller made and ends: the run uses it and runs no stage (workplan.js passes its pin to the
   inbox it nests this way). A nested run (`nested: true`) never pins: it runs on the root it

@@ -170,6 +170,31 @@ class InboxPin(unittest.TestCase):
         self.assertEqual(["T-2 reject", "unpin"], labels[-2:])
         self.assertTrue(res["code"]["ended"])
 
+    def test_a_throwing_unpin_keeps_the_runs_result(self):
+        # review of 09ba2f2, 3: agent() throws on budget exhaustion or abort
+        res, labels, _, err = run_wf(INBOX, self.plan(unpin=[{"__throw": "budget exhausted"}]), {"root": "/academy"})
+        self.assertIsNone(err, err)
+        self.assertEqual("unpin", labels[-1])
+        self.assertEqual("worked", res["taken"][0]["outcome"])
+        self.assertFalse(res["code"]["ended"])
+        self.assertIn("budget exhausted", res["code"]["end_error"])
+
+    def test_a_run_that_hands_back_holds_its_pin_and_says_until_when(self):
+        # review of 09ba2f2, 5: a for_main's args carry the pin's root
+        rows = [row("T-3", how="none", target=None, kind="other")]
+        ended = {"exit": 0, "output": json.dumps({"ended": True, "run": RUN, "held": True, "expires": 1.0,
+                                                  "expires_iso": "2026-11-28T10:00:00Z"})}
+        plan = {"pin": [pin_out(PINNED)], "list": [listing(rows)], "sweep author@t": ["0 notes"], "unpin": [ended]}
+        res, labels, calls, err = run_wf(INBOX, plan, {"root": "/academy"})
+        self.assertIsNone(err, err)
+        self.assertTrue(res["for_main"])
+        self.assertIn("end --run %s --hold --json" % RUN, prompt(calls, "unpin"))
+        self.assertEqual("2026-11-28T10:00:00Z", res["code"]["expires"])
+        # no hand-back: no hold
+        _, _, calls, err = run_wf(INBOX, self.plan(), {"root": "/academy"})
+        self.assertIsNone(err, err)
+        self.assertNotIn("--hold", prompt(calls, "unpin"))
+
     def test_a_pin_stage_with_no_pin_is_a_note_and_the_run_goes_on_live(self):
         for answer, why in ((None, "returned nothing"), ({"exit": 1, "output": "Traceback: boom"}, "printed no pin"),
                             (pin_out(dict(PINNED, sha="nothex")), "printed no pin")):

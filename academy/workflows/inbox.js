@@ -131,13 +131,15 @@ if (!A.root) throw new Error('args.root must be the academy repo (the folder hol
 // args.root. args.code (the JSON object `run_pin.py start --json` printed, or its text) is a pin the
 // caller made and ends; a nested run (nested: true) runs on the root it was given; pin: false runs on
 // args.root, the live checkout. Otherwise the pin stage makes one, and the run ends it on every way
-// out (pinEnd(), from a finally). A pin stage that returns no pin is a note, never a failed run.
+// out (pinEnd(), from a finally, which never throws: a lost unpin is CODE.end_error). A run that hands
+// work back (a for_main or a gate: its args carry the pin's root) holds the pin longer (end --hold), and
+// CODE.expires says until when. A pin stage that returns no pin is a note, never a failed run.
 const PIN_OUT = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
   output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
 const PIN_PY = `py ${String(A.root || '').replace(/[\\/]+$/, '')}/academy/scripts/run_pin.py`
 const CODE = { sha: null, root: String(A.root || '').replace(/[\\/]+$/, ''), pinned: false, run: null, why: '' }
 const PIN_NOTES = []
-const PIN_OWN = { run: null }      // the pin this run made, and so ends
+const PIN_OWN = { run: null, out: null }   // the pin this run made, and so ends; out: the run's result
 const pinRead = v => {             // a pin (object or its JSON text, a code fence allowed), else null
   if (typeof v === 'string') {
     const t = v.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')
@@ -175,14 +177,25 @@ async function pinStart(label) {
   }
   return CODE
 }
-async function pinEnd() {         // once, on every way out of a run that made its pin
+async function pinEnd() {         // once, on every way out of a run that made its pin; never throws
   if (!PIN_OWN.run) return
   const run = PIN_OWN.run
   PIN_OWN.run = null
-  const r = await launch(`WORKFLOW STAGE unpin. Run \`${PIN_PY} end --run ${run} --json\` once (python3 where there is no py). ` +
-    'Fix nothing, whatever it prints: return the exit code the shell printed and its whole output verbatim.',
-  { label: 'unpin', agentType: 'general-purpose', tier: 'base', schema: PIN_OUT, effort: 'low', record: true })
-  CODE.ended = !!(r && /"ended":\s*true/.test(String(r.output || '')))
+  const o = PIN_OWN.out || {}
+  const hold = !!((Array.isArray(o.for_main) ? o.for_main.length : o.for_main) || (o.gates && o.gates.length))
+  try {
+    const r = await launch(`WORKFLOW STAGE unpin. Run \`${PIN_PY} end --run ${run}${hold ? ' --hold' : ''} --json\` once (python3 where there is no py). ` +
+      'Fix nothing, whatever it prints: return the exit code the shell printed and its whole output verbatim.',
+    { label: 'unpin', agentType: 'general-purpose', tier: 'base', schema: PIN_OUT, effort: 'low', record: true })
+    let e = null
+    try { e = JSON.parse(String((r && r.output) || '').trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')) } catch (x) { e = null }
+    CODE.ended = !!(e && e.ended === true)
+    if (e && e.expires_iso) CODE.expires = e.expires_iso
+    if (!CODE.ended) CODE.end_error = r ? `the unpin stage printed ${JSON.stringify(String(r.output || '').slice(0, 160))}` : 'the unpin stage returned nothing'
+  } catch (x) {
+    CODE.ended = false
+    CODE.end_error = `the unpin stage threw: ${String(x && x.message || x).slice(0, 200)}; the marker goes stale on its own (run_pin.py end --run ${run} clears it)`
+  }
 }
 // ---- end Code pin
 // the run's code, pinned before anything reads it; the run below ends the pin in its finally
@@ -338,6 +351,7 @@ const taken = []
 
 const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0, budget: null, code: CODE }
 notes.push(...PIN_NOTES)
+PIN_OWN.out = out
 const followed = new Set(A.ids || [])
 const children = new Set()           // follow: the child ids this run's relays and research asks filed
 
