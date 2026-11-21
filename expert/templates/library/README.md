@@ -22,10 +22,12 @@ research copies of cited papers.
 <bibkey>.meta    one line per field: source URL, version, date fetched, how read
 index.md         one row per cached or recorded source, kept in sync (/expert:library-index)
 cards/           one card per relied-on statement: pinpoint, version, verbatim quote
-<bibkey>.human.md  what a human with access pasted for a source no session could read,
-                 one verbatim entry per hand-back (handback.py; /expert:cite --from-human)
+<bibkey>.human.md  the register of what a human with access handed back for a source no
+                 session could read: pasted texts verbatim, and the files below, each
+                 record with its sha256 (handback.py; /expert:cite --from-human)
 <bibkey>.human/    the files a human supplied (a PDF, a page image), with a PDF's text
-                 beside it; its own .gitignore keeps only the texts tracked
+                 beside it; only the files a record names count; its own .gitignore
+                 keeps only the texts tracked
 ```
 
 **Prefer the LaTeX source over everything else.** It is the paper as written:

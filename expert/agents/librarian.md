@@ -66,13 +66,16 @@ it:
 ## A human's hand-back (`/expert:cite --from-human`)
 
 A source no session could read was read by a human, and what they handed back is recorded
-in the library: `<key>.human.md` (a pasted text, one entry per hand-back, verbatim between
-its markers) or `<key>.human/` (a PDF or page image, with any text extracted beside it).
-Write the card from that material alone, with `--read-from human-supplied`; fetch no text
-of the source. The quote is copied exactly from the recorded text (`cards.py validate`
-fails a quote that is not in it), or transcribed exactly from a page image and said so in
-`## Notes`. The version is what the material shows (edition, journal, year, page). Never
-edit `<key>.human.md` or a file in `<key>.human/`: they are evidence, like a cached file.
+in the library's register `<key>.human.md`, each record with its id (a sha256): a pasted
+text verbatim between its markers, or a file of `<key>.human/` (a PDF or page image, with
+any text extracted beside it). Write the card from that material alone, with
+`--read-from human-supplied --handback <the ids of the records you quote>`; fetch no text
+of the source. The quote is copied exactly from the record's text (`cards.py validate`
+fails any fragment that is not in it, however short, and does not fold n² to n2), or
+transcribed exactly from a page image, said so in `## Notes`, with `--status unverified
+--status-reason "..."`. The version is what the material shows (edition, journal, year, page). Never
+edit `<key>.human.md` or a file in `<key>.human/`: they are evidence, like a cached file,
+and a record that no longer matches its digest is not used.
 If the material does not hold the pinpoint, write no card and say exactly what is still
 missing.
 
