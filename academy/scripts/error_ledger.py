@@ -447,17 +447,58 @@ FAMILY_RULES = [
 ]
 
 
+#: the message part of a signature is cut at this length (``signature``)
+SIG_MSG_MAX = 100
+#: the masks ``family`` applies again to a signature no rule names, in this order: a
+#: ledger line keeps the signature its hook made, and older hooks masked less (academy#95:
+#: claim labels, slugs, bib keys and repo paths were still in old signatures)
+FAMILY_MASKS = (
+    (re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://\S+"), "<path>"),                    # a URL
+    (re.compile(r"(?<![\w<:\\/])[\w.@~-]+(?:[\\/][\w.@<>~-]+)+"), "<path>"),     # a/b, a\b
+    (RE_PATH, "<path>"),                                                          # /a/b, c:\a
+    (re.compile(r"(?<![\w<])[\w.<>-]*\.(?:txt|md|py|jsonl?|tex|bib|pdf|sh|ps1|ya?ml|toml|"
+                r"html|csv|log)\b"), "<path>"),                                   # a file
+    (re.compile(r"(['\"`]).*?\1"), "<q>"),                                        # quoted
+    (re.compile(r"[\"`]\S*"), "<q>"),                       # an unpaired quote, to its word's end
+    (RE_HOST, r"\1<host>"),
+    (RE_INSTANCE, "<instance>"),
+    (re.compile(r"[\w.+-]*@[\w.-]+"), "<instance>"),                              # x@y
+    (RE_CLAIM, "<claim>"),
+    (RE_ID, "<id>"),
+    (re.compile(r"\b[a-z]+-(?:<n>|\d+)(?![\w<])"), "<id>"),                       # FND-3
+    (RE_NUM, "<n>"),
+    (re.compile(r"\b[a-z]+<n>[\w.]*"), "<id>"),                                   # abc12, d1
+    (re.compile(r"(?<![a-z0-9])[a-z0-9]+(?:[-_][a-z0-9]+){2,}(?![\w>])"), "<id>"),  # a slug
+)
+
+
+def mask(text):
+    """``text`` with paths, URLs, files, quoted strings, hosts, instances, claim labels,
+    ids, numbers, letter-number keys and slugs (three or more ``-``/``_`` parts) masked."""
+    for pat, rep in FAMILY_MASKS:
+        text = pat.sub(rep, text)
+    return RE_WS.sub(" ", text).strip()
+
+
 def family(sig):
     """A coarser label for a class signature: the verb and the reason, without the
-    normalised target (id, status, path, host). Falls back to the signature itself.
-    The class keys (``signature``) are not touched; this only groups them for reading."""
+    normalised target (id, status, path, host). The tool is its last ``__`` part (an MCP
+    tool without its server). A signature no rule names falls back to itself, masked
+    again (``mask``) and, when the signature was cut at ``SIG_MSG_MAX``, without its cut
+    last word (``...``). The class keys (``signature``) are not touched; this only groups
+    them for reading, and it is what an error issue may say (``error_issues``)."""
     tool, sep, msg = sig.partition(": ")
     if not sep:
         return sig
+    tool = tool.rsplit("__", 1)[-1]
     for pat, reason in FAMILY_RULES:
         if pat.search(msg):
-            return "%s: %s" % (tool.rsplit("__", 1)[-1], reason)
-    return sig
+            return "%s: %s" % (tool, reason)
+    cut = len(msg) >= SIG_MSG_MAX
+    if cut:
+        msg = re.sub(r"\s*\S*$", "", msg)
+    msg = mask(msg)
+    return "%s: %s%s" % (tool, msg, " ..." if cut else "")
 
 
 BASH_EXIT_SIG = "Bash: exit code <n>"

@@ -120,6 +120,49 @@ class FamilyTests(unittest.TestCase):
         self.assertEqual(el.family(sig), sig)
 
 
+class FamilyMaskTests(unittest.TestCase):
+    """A family that no rule names falls back to the signature, masked again (academy#95:
+    the family is all that goes to a public issue, and old ledger lines keep signatures
+    made by older, weaker normalisations)."""
+
+    def test_old_signatures_are_masked_again(self):
+        f = el.family
+        cases = {
+            "x__claims_attach_evidence: refused: no claim `nb:lem:strip-bound` in <path>":
+                "claims_attach_evidence: refused: no claim <q> in <path>",
+            "x__claims_set_status: refused: the verdict file does not carry fnd-<n> to proved:":
+                "claims_set_status: refused: the verdict file does not carry <id> to proved:",
+            "x__claims_set_status: refused: the verdict file does not carry some-long-slug-name to x":
+                "claims_set_status: refused: the verdict file does not carry <id> to x",
+            "x__queue_log: no job <n>-<n>-<n>_alpha_beta_gamma* in <path>":
+                "queue_log: no job <n>-<n>-<n>_<id>* in <path>",
+            "x__library_verify_quote: wr<n>.txt is not cached in <path>; nothing":
+                "library_verify_quote: <path> is not cached in <path>; nothing",
+            "x__library_lookup: a key looks like abc<n>, got <q>":
+                "library_lookup: a key looks like <id>, got <q>",
+            "x__issue_write: label <q> not found in someone/repo":
+                "issue_write: label <q> not found in <path>",
+            "x__issue_write: see https://example.org/a/b now":
+                "issue_write: see <path> now",
+            "x__config_get: unknown instance (have: author@main, ada@remote-a)":
+                "config_get: unknown instance (have: <instance>, <instance>)",
+            "x__claims_new: may create claims only in nb:ex-7 here 12 times":
+                "claims_new: may create claims only in <claim> here <n> times",
+            "Bash: c:\\users\\ada\\x; audits\\slug\\a.md": "Bash: <path>; <path>",
+        }
+        for sig, want in cases.items():
+            self.assertEqual(f(sig), want, sig)
+
+    def test_a_truncated_signature_loses_its_cut_word(self):
+        msg = ("words " * 30)[:100]                 # ends in the cut word "word"
+        self.assertEqual(el.family("T: " + msg), "T: " + ("words " * 16).rstrip() + " ...")
+        self.assertEqual(el.family("T: short"), "T: short")
+
+    def test_masking_is_idempotent(self):
+        sig = "x__claims_new: no claim `nb:a` in /a/b, fnd-<n> abc<n>"
+        self.assertEqual(el.family(el.family(sig)), el.family(sig))
+
+
 class BriefReportTests(unittest.TestCase):
     """What a session reads of the report stays small (2026-11-13: 174 000 characters of
     JSON for a week with 130 open classes, 84 of them with no error that week)."""
