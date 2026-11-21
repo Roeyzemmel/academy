@@ -1,9 +1,15 @@
 """reading_list.py (#108): the human's reading list of unreachable sources, built from the
-parked cite tickets' thread lines and the library index. Pure functions; no board."""
+parked cite tickets' last block reason, the library index and the registry's edges. Pure
+functions, plus gather and main on a file board."""
 
+import io
+import json
 import os
+import shutil
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 
 import _env  # noqa: F401  (puts the scripts on the path)
 
@@ -12,95 +18,173 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
 
 import reading_list as rl  # noqa: E402
 
-PREFIX = "- 2026-11-19 expert@main/inbox-clerk: status in-progress -> blocked: "
+BLOCK = "- 2026-11-19 expert@main/inbox-clerk: status in-progress -> blocked: "
+REASON = "source unreachable from this session: %s; a human with access reads %s"
 
 
-def body(*reasons):
-    return "## Thread\n\n" + "\n".join(PREFIX + r for r in reasons) + "\n"
+def body(*lines):
+    return "## Thread\n\n" + "\n".join(lines) + "\n"
 
 
-class LineTests(unittest.TestCase):
-    def test_the_last_line_and_the_split_at_the_claim(self):
-        b = body("source unreachable from this session: Ab01; a human with access reads Ab01 Thm 2 for paper:lem:a",
-                 "source unreachable from this session: Ab01; a human with access reads Ab01 p. 8 for Prop. 5.6; "
-                 "Def. 3.2 for paper:prop:x (sections/s.tex)")
-        h = rl.unreachable_line(b)
-        self.assertEqual(h["key"], "Ab01")
-        self.assertEqual(h["what"], "Ab01 p. 8 for Prop. 5.6; Def. 3.2")       # its own "for" stays in the what
-        self.assertEqual(h["relying"], "paper:prop:x (sections/s.tex)")
+def parse(reason):
+    return rl.parse_reason(rl.last_block(body(BLOCK + reason)))
+
+
+class ReasonTests(unittest.TestCase):
+    def test_the_split_at_the_claim(self):
+        h = parse(REASON % ("Ab01", "Ab01 p. 8 for Prop. 5.6; Def. 3.2 for paper:prop:x (sections/s.tex)"))
+        self.assertEqual((h["keys"], h["what"], h["relying"], h["truncated"]),
+                         (["Ab01"], "Ab01 p. 8 for Prop. 5.6; Def. 3.2", "paper:prop:x (sections/s.tex)", False))
+
+    def test_a_free_text_relying(self):
+        h = parse(REASON % ("Ab01", "Ab01 Thm 2 for the sentence in sec. 3 on the bound"))
+        self.assertEqual((h["what"], h["relying"]), ("Ab01 Thm 2", "the sentence in sec. 3 on the bound"))
         self.assertFalse(h["truncated"])
 
-    def test_a_line_the_board_cut_short(self):
-        what = "Not yet known. Needed: the main-result statement of the algorithm " * 3
-        h = rl.unreachable_line(body("source unreachable from this session: Ab01; a human with access reads " + what + "for pap"))
+    def test_the_real_cut_lengths(self):
+        """cite.js cuts the reason at 240: one of 238-240 characters was cut, whatever it holds."""
+        head = REASON % ("Ab01", "")
+        for n in (238, 240):
+            reason = (head + "Not yet known. Needed: the main-result statement " * 6)[:n - 8] + " for pap"
+            self.assertEqual(len(reason), n)
+            h = parse(reason)
+            self.assertTrue(h["truncated"], n)
+            self.assertTrue(h["what"].endswith("[...]"), n)
+            self.assertNotIn(" for pap", h["what"])
+        # a cut that falls after a claim id marks the relying part
+        reason = (head + "Ab01 Lemma 4.1 for paper:lem:tok (sections/background.tex); the T-1277 Rule 9 check of the "
+                  + "statement and of the hypotheses k >= 2 and the angles " * 3)[:240]
+        h = parse(reason)
         self.assertTrue(h["truncated"])
-        self.assertTrue(h["what"].endswith("[...]"))
-        self.assertNotIn("for pap", h["what"])
-        self.assertEqual(h["relying"], "")
+        self.assertTrue(h["relying"].startswith("paper:lem:tok") and h["relying"].endswith("[...]"))
+        self.assertEqual(h["what"], "Ab01 Lemma 4.1")
+        # a full reason well under the cut is not marked
+        self.assertFalse(parse(REASON % ("Ab01", "x " * 60 + "for the sentence"))["truncated"])
 
-    def test_no_such_line(self):
-        self.assertIsNone(rl.unreachable_line(body("waiting on the human: decide")))
+    def test_several_keys(self):
+        self.assertEqual(parse(REASON % ("Er13 (Mo77, Th92 unreachable)", "the statement for paper:lem:p"))["keys"],
+                         ["Er13", "Mo77", "Th92"])
+
+    def test_only_the_last_block_counts(self):
+        stale = body(BLOCK + REASON % ("Ab01", "Ab01 Thm 2 for paper:lem:a"),
+                     "- 2026-11-20 human: uploaded Ab01",
+                     "- 2026-11-20 expert@main/inbox-clerk: status in-progress -> blocked: a decision on the wording")
+        self.assertIsNone(rl.parse_reason(rl.last_block(stale)))
+        self.assertEqual(rl.parse_reason("- x: blocked: source unreachable from this session: Er13 then something"),
+                         {"unparsed": "source unreachable from this session: Er13 then something"})
 
     def test_claims_of_refs(self):
-        self.assertEqual(rl.claims_of({"refs": ["paper:lem:a", "T-0001", "file:expert@main/x.md", "bib:Ab01", "s1:GEO-3", "paper:lem:a"]}),
-                         ["paper:lem:a", "s1:GEO-3"])
+        meta = {"refs": ["paper:lem:a", "T-0001", "file:expert@main/x.md", "bib:Ab01", "arxiv:2101.00001", "paper:lem:a"]}
+        self.assertEqual(rl.claims_of(meta), ["paper:lem:a", "arxiv:2101.00001"])
+        self.assertEqual(rl.claims_of(meta, lambda c: c.startswith("paper:")), (["paper:lem:a"], ["arxiv:2101.00001"]))
 
 
 class GraphTests(unittest.TestCase):
-    def test_depends_chains_only_and_direct_bearings(self):
-        text = "\n".join([
-            "flat:C-1 (bears_on) [- / n/a]",
-            "  flat:C-2 (depends_on) [- / n/a]",        # under a bearing: not a dependent
-            "paper:lem:b (depends_on) [proved / true]",
-            "  paper:thm:c (depends_on) [sketch / unsettled]",
-            "  flat:D-1 (bears_on) [open / unsettled]",  # bears on a dependent: counted as bearing
-            "    flat:D-2 (depends_on) [open / unsettled]",
-        ])
-        deps, near = rl.depends_tree(text)
-        self.assertEqual(deps, {"paper:lem:b", "paper:thm:c"})
-        self.assertEqual(near, {"flat:C-1", "flat:D-1"})
+    def test_breadth_first_order_does_not_matter(self):
+        """Review of 699a65e: the edges, not a printed listing. C depends on A whatever comes
+        first; a dependent of a bearer is not a dependent; implies is neither."""
+        edges = [("x:B", "bears_on", "x:A"), ("x:C", "depends_on", "x:A"), ("x:D", "depends_on", "x:C"),
+                 ("x:E", "depends_on", "x:B"), ("x:F", "bears_on", "x:D"), ("x:G", "implies", "x:A")]
+        for es in (edges, list(reversed(edges))):
+            self.assertEqual(rl.dependents(es, ["x:A"]), (["x:C", "x:D"], ["x:B", "x:F"]))
+
+    def test_a_cycle_ends(self):
+        self.assertEqual(rl.dependents([("x:A", "depends_on", "x:B"), ("x:B", "depends_on", "x:A")], ["x:A"]), (["x:B"], []))
 
 
 class BuildTests(unittest.TestCase):
-    INDEX = [{"key": "Ab01", "authors, short title": "Ab, \"A paper\"", "version": "journal, doi:10.1/xyz",
-              "source url": "`https://example.org/ab01` (needs a browser)", "source dir": "none: unreachable",
-              "how read": "unreachable", "used for": "publisher refused by the proxy"},
-             {"key": "Cd02", "authors, short title": "Cd", "version": "arXiv", "source url": "",
-              "source dir": "Cd02.src", "how read": "source", "used for": "Thm 1 for lem:z"}]
+    INDEX = {"Ab01": {"key": "Ab01", "authors, short title": "Ab, \"A paper\"", "version": "journal, doi:10.1/xyz",
+                      "source url": "`https://example.org/ab01` (needs a browser)", "source dir": "none: unreachable",
+                      "how read": "unreachable", "used for": "publisher refused by the proxy"},
+             "Er13": {"key": "Er13", "authors, short title": "Er", "version": "arXiv", "source url": "",
+                      "source dir": "Er13.src", "how read": "source", "used for": "Thm 1.10"},
+             "Gh04": {"key": "Gh04", "authors, short title": "Gh", "version": "Ann. 2004, doi:10.2/gh04", "source url": "",
+                      "source dir": "Gh04.txt", "how read": "text", "used for": "p. 3"}}
 
     def tickets(self):
-        line = "source unreachable from this session: %s; a human with access reads %s for %s"
-        return [({"id": "T-0001", "title": "Card for Ab01", "refs": ["paper:lem:a"], "packets": ["P-0001"]},
-                 body(line % ("Ab01", "Ab01 Thm 2", "paper:lem:a"))),
-                ({"id": "T-0002", "title": "Card for Cd02", "refs": ["paper:lem:z"], "packets": []},
-                 body(line % ("Cd02 (Ef03 unreachable)", "Cd02 Lemma 4", "paper:lem:z"))),
-                ({"id": "T-0003", "title": "A decision", "refs": []}, body("decide something"))]
+        return [({"id": "T-0001", "to": "expert@main", "title": "Card for Ab01", "refs": ["paper:lem:a"], "packets": ["P-0001"]},
+                 body(BLOCK + REASON % ("Ab01", "Ab01 Thm 2 for paper:lem:a"))),
+                ({"id": "T-0002", "to": "expert@main", "title": "Schoenflies", "refs": ["paper:lem:z"], "packets": []},
+                 body(BLOCK + REASON % ("Er13 (Mo77, Th92 unreachable)", "the polygon theorem for paper:lem:z"))),
+                ({"id": "T-0003", "to": "expert@main", "title": "Gh04 p. 9", "refs": ["paper:lem:g"], "packets": ["P-0007", "P-0009"]},
+                 body(BLOCK + REASON % ("Gh04", "Gh04 p. 9 page image for paper:lem:g"))),
+                ({"id": "T-0004", "to": "expert@main", "title": "A decision", "refs": []}, body(BLOCK + "decide something")),
+                ({"id": "T-0005", "to": "expert@main", "title": "Odd", "refs": []}, body(BLOCK + "source unreachable from this session: Zz99 garbled"))]
 
-    def test_rows_sorted_by_what_rests_on_them(self):
-        deps = {"paper:lem:a": ({"paper:thm:b"}, set()), "paper:lem:z": ({"paper:thm:y", "paper:thm:x"}, {"flat:Q-1"})}
-        rows = rl.build(self.tickets(), self.INDEX, lambda c: deps[c])
-        self.assertEqual([r["ticket"] for r in rows], ["T-0002", "T-0001"])    # T-0003 is no unreachable source
-        a = rows[1]
-        self.assertEqual(a["link"], "https://example.org/ab01")
-        self.assertEqual(a["tried"], "publisher refused by the proxy")       # the index row of an unread source
-        self.assertEqual(rows[0]["tried"], "")                                # a read source: its use is not "tried"
-        self.assertEqual(rows[0]["key"], "Cd02 (Ef03 unreachable)")
-        self.assertEqual((rows[0]["rests_on_it"], rows[0]["bears_on_it"]), (["paper:thm:x", "paper:thm:y"], ["flat:Q-1"]))
-        text = rl.render(rows)
+    def test_rows(self):
+        edges = [("paper:thm:b", "depends_on", "paper:lem:a"), ("paper:thm:y", "depends_on", "paper:lem:z"),
+                 ("paper:thm:x", "depends_on", "paper:thm:y"), ("flat:Q-1", "bears_on", "paper:lem:z")]
+        rows, unparsed = rl.build(self.tickets(), lambda inst: self.INDEX, (edges, lambda c: True),
+                                  lambda pid: {"P-0009": "the page image is not in the cache"}.get(pid, ""))
+        self.assertEqual([(r["ticket"], r["key"]) for r in rows],
+                         [("T-0002", "Mo77"), ("T-0002", "Th92"), ("T-0001", "Ab01"), ("T-0003", "Gh04")])
+        self.assertEqual(unparsed, [{"ticket": "T-0005", "reason": "source unreachable from this session: Zz99 garbled"}])
+        mo = rows[0]
+        self.assertEqual((mo["rests_on_it"], mo["bears_on_it"], mo["in_index"]), (["paper:thm:x", "paper:thm:y"], ["flat:Q-1"], False))
+        ab = rows[2]
+        self.assertEqual((ab["link"], ab["tried"]), ("https://example.org/ab01", "publisher refused by the proxy"))
+        gh = rows[3]
+        self.assertEqual((gh["link"], gh["tried"]), ("https://doi.org/10.2/gh04", "the page image is not in the cache"))
+        text = rl.render(rows, unparsed)
         self.assertIn("do not edit", text)
-        self.assertIn("2 source(s) to read; on the claims they block, 3 registry statement(s) rest", text)
-        self.assertIn("2 rest on them (depends_on), 1 more bear on them", text)
+        self.assertIn("4 source(s) to read; on the claims they block, 3 registry statement(s) rest", text)
+        self.assertIn("- **Named as:** Er13 (Mo77, Th92 unreachable)", text)
+        self.assertIn("## Could not read", text)
+        self.assertIn("T-0005: source unreachable", text)
 
-    def test_a_failed_count_is_said(self):
-        def boom(c):
-            raise RuntimeError("no graph")
-        rows = rl.build(self.tickets()[:1], self.INDEX, boom)
+    def test_unknown_claims_and_no_graph(self):
+        rows, _u = rl.build(self.tickets()[:1], lambda inst: self.INDEX, ([], lambda c: False))
+        self.assertEqual((rows[0]["claims"], rows[0]["unknown_claims"]), ([], ["paper:lem:a"]))
+        self.assertIn("not in the registry: paper:lem:a", rl.render(rows))
+        rows, _u = rl.build(self.tickets()[:1], lambda inst: self.INDEX, None)
         self.assertIsNone(rows[0]["rests_on_it"])
-        self.assertIn("could not be read", rl.render(rows))
-        self.assertIsNone(rl.build(self.tickets()[:1], self.INDEX, None)[0]["rests_on_it"])
+        self.assertIn("not counted", rl.render(rows))
 
     def test_nothing_to_read(self):
         self.assertIn("Nothing to read", rl.render([]))
+
+
+class GatherTests(unittest.TestCase):
+    def test_gather_and_main_on_a_file_board(self):
+        import fixtures  # noqa: F401
+        bd = rl.ex.base_script("board")
+        d = tempfile.mkdtemp(prefix="academy-rl-")
+        self.addCleanup(shutil.rmtree, d, True)
+        lib = os.path.join(d, "lib")
+        os.makedirs(lib)
+        with open(os.path.join(lib, "index.md"), "w", encoding="utf-8") as fh:
+            fh.write("| key | authors, short title | version | source URL | source dir | how read | date | used for |\n"
+                     "|---|---|---|---|---|---|---|---|\n"
+                     "| Ab01 | Ab, \"A paper\" | journal | `https://example.org/ab01` | none: unreachable | unreachable | 2026-11-19 | refused |\n")
+        ws = {"instances": {"expert@main": {"role": "expert", "home": lib, "domains": ["d"]},
+                            "author@main": {"role": "author", "home": os.path.join(d, "paper"), "domains": ["d"], "ns": "paper"}},
+              "board": os.path.join(d, "board")}
+        os.makedirs(ws["board"])
+        wsp = os.path.join(d, "workspace.json")
+        with open(wsp, "w", encoding="utf-8") as fh:
+            json.dump(ws, fh)
+        w = rl.ac.load_workspace(wsp)
+        kw = dict(workspace=w, date="2026-11-19", as_instance="author@main", budget={"runs": 1})
+        t1 = bd.create_ticket(ws["board"], to="expert@main", title="Card for Ab01", ask="cite", deliverable="a card",
+                              kind="cite", refs=["paper:lem:a"], **kw)
+        t2 = bd.create_ticket(ws["board"], to="author@main", title="Not the Expert's", ask="x", deliverable="y", kind="write", **kw)
+        tid1, tid2 = (os.path.basename(str(t)).split("-")[0] + "-" + os.path.basename(str(t)).split("-")[1] for t in (t1, t2))
+        for tid, who in ((tid1, "expert@main"), (tid2, "author@main")):
+            bd.transition_ticket(ws["board"], tid, "accepted", as_instance=who, workspace=w)
+            bd.transition_ticket(ws["board"], tid, "in-progress", as_instance=who, workspace=w)
+            bd.transition_ticket(ws["board"], tid, "blocked", as_instance=who, workspace=w, waiting_on=["human"],
+                                 reason=REASON % ("Ab01", "Ab01 Thm 2 for paper:lem:a"))
+        got = rl.gather(w, ws["board"])
+        self.assertEqual([m["id"] for m, _b in got], [tid1])                 # to the Expert only
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.assertEqual(rl.main(["--workspace", wsp, "--board", ws["board"], "--json", "--no-deps"]), 0)
+        out = json.loads(buf.getvalue())
+        self.assertEqual([(r["ticket"], r["key"], r["link"]) for r in out["rows"]], [(tid1, "Ab01", "https://example.org/ab01")])
+        with redirect_stdout(io.StringIO()):
+            rl.main(["--workspace", wsp, "--board", ws["board"], "--write", "--no-deps"])
+        with open(os.path.join(lib, "views", "reading-list.md"), encoding="utf-8") as fh:
+            self.assertIn("## Ab01", fh.read())
 
 
 if __name__ == "__main__":
