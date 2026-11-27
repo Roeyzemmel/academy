@@ -55,7 +55,15 @@ Rules:
   row's own record must still be about the claim, and must record the same
   ``base_subject``;
 * computation: one commit hash for all, the validation case passed, and ``outcome``
-  matching the target (supports -> supported, refutes -> refuted*).
+  matching the target (supports -> supported, refutes -> refuted*);
+* discharge (#127, the human's ruling of 2026-11-27): ``basis: discharge`` carries a
+  proved-modulo record to ``proved`` and nothing else: ``modulo`` (the record's inputs)
+  and ``inputs`` (each ``{input, id, status}``, as ``core.discharge`` resolved it), every
+  input established (``proved``, a ``cited`` card match, a ``notation-only``
+  definition). Proof grounds for ``proved`` that still name a ``modulo`` pass only with
+  such a ``discharge`` list beside the same CONFIRMED verdicts
+  (:func:`discharge_problems`); without one, proved with open inputs is proved-modulo.
+  The statuses are the caller's: the profiles resolve the inputs again before writing.
 
 The roles in the grounds are declared by the caller. :func:`check_verdict_refs` ties
 the rows to the files: each ``ref`` must be a landed review record on disk whose own
@@ -73,6 +81,9 @@ COMPUTATION_TARGETS = ("supported", "refuted", "refuted-as-stated")
 PROOF_VERDICTS = ("CONFIRMED", "PLAUSIBLE", "GAP", "DISPROVED")
 EXPERIMENT_VERDICTS = ("SOUND", "SOUND MODULO", "GAP", "BROKEN")
 BASES = ("proof", "computation", "human")
+#: an input's status that discharges it (#127): a proved record, a ``bib:`` card
+#: pinpoint whose card says match, a definition tagged notation-only
+ESTABLISHED_INPUTS = ("proved", "cited", "notation-only")
 LIFECYCLE_TARGETS = ("superseded", "dropped")
 # the reviewers of each basis (plan section 8): proofs go to the Expert's rigor-reviewer
 # pair (``expert`` when an Expert decision table names only the role), experiments to
@@ -168,6 +179,25 @@ def reword_problems(new_status, grounds, rows, statement_hash=None):
     return probs
 
 
+def discharge_problems(modulo, inputs):
+    """Why ``inputs`` (``[{input, id, status, why}]``) do not discharge ``modulo``
+    (empty when every item of it is an established input)."""
+    if not isinstance(inputs, list) or not all(isinstance(i, dict) for i in inputs):
+        return ["the discharge must be a list of inputs {input, id, status}"]
+    by = {str(i.get("input") or "").strip(): i for i in inputs}
+    probs = []
+    for m in modulo or []:
+        i = by.get(str(m).strip())
+        if i is None:
+            probs.append("modulo input %r is not in the discharge" % str(m))
+        elif i.get("status") not in ESTABLISHED_INPUTS or \
+                (i.get("status") == "cited" and not str(i.get("id") or "").startswith("bib:")):
+            probs.append("modulo input %r is not established: %s"
+                         % (str(m), i.get("why") or "%s is %s" % (i.get("id") or m,
+                                                                   i.get("status") or "open")))
+    return probs
+
+
 def norm_role(r):
     """'researcher:prover' -> 'prover'; '' when absent."""
     r = str(r or "").strip().lower()
@@ -187,6 +217,17 @@ def check_grounds(new_status, grounds, statement_hash=None, human=False,
     if not isinstance(grounds, dict):
         return False, ["grounds must be an object"]
     basis = grounds.get("basis")
+    if basis == "discharge":
+        if new_status != "proved":
+            return False, ["a discharge carries proved-modulo to proved only, not %r"
+                           % new_status]
+        modulo = grounds.get("modulo") or []
+        if not modulo:
+            return False, ["a discharge needs grounds.modulo: the record's missing inputs"]
+        probs = discharge_problems(modulo, grounds.get("inputs"))
+        if probs:
+            return False, probs
+        return True, ["discharge: every modulo input established"]
     if basis not in BASES:
         return False, ["grounds.basis must be 'proof', 'computation' or 'human'"]
 
@@ -274,7 +315,11 @@ def check_grounds(new_status, grounds, statement_hash=None, human=False,
         if new_status == "proved-modulo" and not modulo:
             probs.append("proved-modulo needs grounds.modulo (the missing inputs)")
         if new_status == "proved" and modulo:
-            probs.append("proved with open inputs is proved-modulo")
+            if grounds.get("discharge"):
+                probs.extend(discharge_problems(modulo, grounds["discharge"]))
+            else:
+                probs.append("proved with open inputs is proved-modulo (once every input "
+                             "is proved, a discharge: registry.py discharge)")
     else:
         bad = [v for v in verdicts if v not in EXPERIMENT_VERDICTS]
         if bad:

@@ -133,6 +133,9 @@ class ClaimsBackend(object):
     def statement_hash(self, cid):
         return None
 
+    def discharge(self, cid):
+        raise NotEnabled("a discharge (#127) needs the registry engine backend")
+
 
 def split_id(cid):
     m = RE_CLAIM_ID.match(str(cid or "").strip())
@@ -374,12 +377,15 @@ class RegistryBackend(ClaimsBackend):
     def deps(self, cid, reverse=False, transitive=False):
         from pathlib import Path
         ns, _ = split_id(cid)
+        # modulo too (#127): a proved-modulo record rests on its inputs, and the
+        # claim-keeper finds what to discharge as the id's ``modulo`` dependants
+        rels = tuple(self.graph.DEP_RELS) + ("modulo",)
         edges = self.graph.walk(cid, Path(self._home(ns)), reverse=reverse,
-                                transitive=transitive)
+                                transitive=transitive, rels=rels)
         return {"id": cid, "direction": "used by" if reverse else "depends on / bears on",
                 "transitive": transitive, "edges": edges,
                 "note": "the registry engine's graph across every namespace reachable "
-                        "from %s (relations: %s)" % (ns, ", ".join(self.graph.DEP_RELS))}
+                        "from %s (relations: %s)" % (ns, ", ".join(rels))}
 
     def check(self, ns, strict=False):
         strict_arg = ["--strict"] if strict and self._profile(ns) != "s1-kb" else []
@@ -551,6 +557,23 @@ class RegistryBackend(ClaimsBackend):
                 "check": self._cli(ns, ["check", self.fsl.file_for(
                     self.fsl.registry_root(__import__("pathlib").Path(home)), cid).as_posix()])}
 
+
+    def discharge(self, cid):
+        """proved-modulo -> proved once every modulo input is established (#127): the
+        record is assessed here (``registry.core.discharge``), the caller's word on the
+        inputs is not taken."""
+        from pathlib import Path
+        from registry.core import discharge
+        ns, _ = split_id(cid)
+        try:
+            a = discharge.apply(cid, Path(self._home(ns)))
+        except ValueError as exc:
+            raise ToolError("refused: %s" % exc)
+        finally:
+            self.federation.CACHE.clear()
+        return {"id": a["id"], "old": "proved-modulo", "new": "proved",
+                "inputs": [discharge.explain(i) for i in a["inputs"]],
+                "history": discharge.history_note(a), "check": self.check(ns)}
 
     def _s1_verdict_refs(self, home, grounds):
         """The s1 verdict refs of the grounds: home paths (``audits/...`` or
@@ -816,6 +839,13 @@ def _set_status(ctx, a):
     if not ctx.is_human and ctx.agent != "claim-keeper":
         raise ToolError("refused: only claim-keeper or the human sets a status")
     be = backend(ctx)
+    g = a.get("grounds") or {}
+    if g.get("basis") == "discharge" or (status == "proved" and g.get("discharge")):
+        # a discharge (#127): the record's own modulo inputs, resolved by the server
+        if status != "proved":
+            raise ToolError("refused: a discharge carries proved-modulo to proved only, "
+                            "not %r" % status)
+        return be.discharge(cid)
     ok, reasons = check_grounds(status, a.get("grounds"), be.statement_hash(cid),
                                 human=ctx.is_human)
     if not ok:
@@ -931,7 +961,11 @@ GROUNDS = {"type": "object", "description": "See check_grounds: basis (proof | "
                                             "id holding the quote); a notebook: verdict_file; "
                                             "a reword review (T-0347): mode 'reword', "
                                             "base_pass, base_hash, and the reword verdict "
-                                            "row's mode, base_hash, reword_scope"}
+                                            "row's mode, base_hash, reword_scope; "
+                                            "a discharge (#127): basis 'discharge' and "
+                                            "status proved, nothing else (the server "
+                                            "resolves the record's modulo inputs and "
+                                            "refuses unless every one is proved)"}
 
 TOOLS = [
     Tool("claims_show", "Show one claim (any namespace) with its evidence and back-links.",

@@ -64,7 +64,7 @@ STATUS_BLURB = {
     "superseded": "replaced by `superseded_by`; kept for history",
     "dropped": "no longer pursued",
 }
-EVIDENCE_KINDS = ("experiment", "audit", "verdict", "hand", "citation", "note")
+EVIDENCE_KINDS = ("experiment", "audit", "verdict", "hand", "citation", "note", "discharge")
 LIST_FIELDS = ("bears_on", "depends_on", "falsifies", "evidence", "history", "open", "tags")
 SCALAR_FIELDS = ("id", "title", "status", "where", "supersedes", "superseded_by")
 REQUIRED = ("id", "title", "status", "history")
@@ -1037,6 +1037,11 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     claim = parse_text(path.read_text(encoding="utf-8"), path, fallback=False)
     if claim.dialect_error:
         raise Refused("requote the file first")
+    grounds, dis = _discharge_grounds(repo, cid, claim, status, grounds)
+    if dis is not None:
+        note = "; ".join(x for x in ((note or "").strip(),
+                                      "" if grounds.get("basis") == "discharge"
+                                      else grounds_note(dis)) if x) or None
     lifecycle = status in ("superseded", "dropped")
     if lifecycle and grounds and grounds.get("basis") != "human":
         ok, why = bool(str(grounds.get("note") or note or "").strip()), \
@@ -1055,6 +1060,8 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     held = [str(r) for r in (claim.fields.get("evidence") or [])]
     evidence = _new_rows([_row_for(claim, r) for r in evidence], held)
     evidence = evidence + _verdict_rows(grounds, evidence + held)
+    if dis is not None:
+        evidence.append(_discharge_mod().evidence_row(dis))
     evidence = [_row_for(claim, r) for r in evidence]
     for row in evidence:
         _validate_row(row, repo, claim.v2)
@@ -1111,6 +1118,61 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
             _cache.clear()
         raise
     return old
+
+
+def _discharge_mod():
+    from ..core import discharge
+    return discharge
+
+
+def grounds_note(assessment):
+    return _discharge_mod().history_note(assessment)
+
+
+#: a run id named in a history row's review summary (``CONFIRMED rv-1, CONFIRMED rv-2``)
+_RE_HIST_RUN = re.compile(r"\b(?:CONFIRMED|PLAUSIBLE|GAP|DISPROVED)\s+([^\s,();]+)")
+
+
+def _modulo_pass_runs(claim):
+    """The run ids of the review that carried the record to its current proved-modulo
+    (its newest proved-modulo history row), as a set (empty when none is named)."""
+    for h in claim.fields.get("history") or []:
+        _d, st, note = schema.history_cells(h)
+        if st == "proved-modulo":
+            return set(_RE_HIST_RUN.findall(note))
+        if st:
+            return set()
+    return set()
+
+
+def _discharge_grounds(repo, cid, claim, status, grounds):
+    """``(grounds, assessment or None)``: a discharge (#127) -- grounds of basis
+    ``discharge``, or proof grounds carrying ``discharge`` -- is assessed again here
+    (``core.discharge``), never taken from the caller, and refused unless every input of
+    the record's ``modulo`` is established; the grounds are rebuilt from that
+    assessment. Proof grounds for ``proved`` that rest on the very review that carried
+    the record to proved-modulo, without a discharge, are refused: that is a discharge,
+    whose inputs must be checked."""
+    g = grounds or {}
+    if status == "proved" and (g.get("basis") == "discharge" or g.get("discharge")):
+        federation.CACHE.clear()
+        a = _discharge_mod().assess(cid, repo)
+        if not a["dischargeable"]:
+            raise Refused("%s cannot be discharged:\n- %s" % (cid, "\n- ".join(a["problems"])))
+        if g.get("basis") == "discharge":
+            return _discharge_mod().grounds(a), a
+        return dict(g, modulo=a["modulo"], discharge=a["inputs"]), a
+    if status == "proved" and g.get("basis") == "proof" and claim.v2 \
+            and claim.state == "proved-modulo" and claim.modulo:
+        held = _modulo_pass_runs(claim)
+        runs = {str(v.get("run_id") or "").strip() for v in g.get("verdicts") or []
+                if isinstance(v, dict)}
+        if held and runs and runs <= held:
+            raise Refused("the grounds are the review that carried %s to proved-modulo "
+                          "(modulo %s): proved on it is a discharge, applied once every "
+                          "input is proved (registry.py discharge %s, or grounds basis "
+                          "discharge)" % (cid, ", ".join(claim.modulo), cid))
+    return grounds, None
 
 
 def _new_rows(rows, held):

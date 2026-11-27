@@ -30,6 +30,15 @@ Commands of the engine itself, for every repo:
                                           ``Verify <claim> (reword of <pass>)``, to the
                                           Expert; none while one with that title is open);
                                           filed as the Expert's review-chair, or --as human
+    py -m registry discharge [ID ...] [--all] [--ns NS] [--input ID] [--dry-run] [--json]
+                                          the proved-modulo records whose every modulo
+                                          input is established now (proved, a card
+                                          match, a notation-only definition), each with
+                                          why or why not; without --dry-run they become
+                                          proved, bottom-up (#127; core/discharge.py).
+                                          --all: this repo's namespace; --ns: that one;
+                                          --input: those whose modulo names that input,
+                                          in every namespace reachable from here
 """
 from __future__ import annotations
 
@@ -39,10 +48,11 @@ import os
 import sys
 from pathlib import Path
 
-from .core import federation, graph, stale, workspace
+from .core import discharge, federation, graph, stale, workspace
 from .profiles import module
 
-ENGINE_COMMANDS = ("graph", "classes", "federation", "requote", "statement", "stale")
+ENGINE_COMMANDS = ("graph", "classes", "federation", "requote", "statement", "stale",
+                   "discharge")
 
 
 def _pop_repo(argv):
@@ -85,6 +95,19 @@ def _engine(repo, argv):
                     help="the filing instance: the Expert instance (default; as its "
                          "review-chair) or human")
     sl.add_argument("--json", action="store_true")
+    d = sub.add_parser("discharge")
+    d.add_argument("ids", nargs="*", help="records to assess (ns:id; a bare id is this "
+                                          "repo's)")
+    d.add_argument("--all", action="store_true",
+                   help="every proved-modulo record of this repo's namespace")
+    d.add_argument("--ns", action="append", default=[],
+                   help="every proved-modulo record of this namespace (repeatable)")
+    d.add_argument("--input", action="append", default=[],
+                   help="every proved-modulo record whose modulo names this input, in "
+                        "every reachable namespace (repeatable): the check after it is "
+                        "proved")
+    d.add_argument("--dry-run", action="store_true", help="assess only; write nothing")
+    d.add_argument("--json", action="store_true")
     r = sub.add_parser("requote")
     r.add_argument("--write", action="store_true", help="rewrite the files (default: dry run)")
     r.add_argument("--report", help="write the data-equality report (Markdown) here")
@@ -125,6 +148,8 @@ def _engine(repo, argv):
         return 0
     if a.cmd == "stale":
         return _stale_cmd(repo, a)
+    if a.cmd == "discharge":
+        return _discharge_cmd(repo, a)
     if a.cmd == "requote":
         from . import requote
         return requote.main(repo, write=a.write, report=a.report)
@@ -258,6 +283,74 @@ def _stale_cmd(repo, a):
     if items and not a.file_reword:
         print("\n(dry run: --file-reword files the tickets listed `to file`)")
     return 1 if any(i.get("refused") for i in items) else 0
+
+
+def _discharge_cmd(repo, a):
+    own = workspace.repo_ns(repo)
+    nss = list(a.ns)
+    for ns in nss:
+        if ns not in workspace.namespaces():
+            print(f"discharge: `{ns}` is not a namespace of the workspace", file=sys.stderr)
+            return 2
+    if a.all:
+        if not own:
+            print("discharge: --all needs a registry home (or --ns NS)", file=sys.stderr)
+            return 2
+        nss.append(own)
+    if not (a.ids or nss or a.input):
+        print("discharge: name records, or --all / --ns NS / --input ID", file=sys.stderr)
+        return 2
+    ids = discharge.candidates(repo, a.ids, nss, a.input)
+    done, refused, results = set(), [], {}
+    while True:
+        federation.CACHE.clear()
+        progressed = False
+        for q in ids:
+            if q in done:
+                continue
+            res = discharge.assess(q, repo)
+            results[q] = dict(res, applied=False, refused=None)
+            if not res["dischargeable"] or a.dry_run:
+                continue
+            try:
+                discharge.apply(q, repo)
+            except ValueError as exc:
+                results[q]["refused"] = str(exc)
+                refused.append(q)
+                done.add(q)
+                continue
+            results[q]["applied"] = True
+            done.add(q)
+            progressed = True
+            if a.input:
+                # a chain discharges bottom-up: what rests on this one is next
+                ids += [x for x in discharge.candidates(repo, inputs=[q]) if x not in ids]
+        if a.dry_run or not progressed:
+            break
+    items = [results[q] for q in ids if q in results]
+    if a.json:
+        print(json.dumps({"items": items}, indent=1, ensure_ascii=False))
+        return 1 if refused else 0
+    n_ok = sum(1 for i in items if i["dischargeable"] or i["applied"])
+    print(f"discharge: {len(items)} record(s) assessed, {n_ok} dischargeable"
+          + (" (dry run: nothing written)" if a.dry_run else
+             f", {sum(1 for i in items if i['applied'])} discharged"))
+    for i in items:
+        if i["applied"]:
+            word = "discharged"
+        elif i["refused"]:
+            word = "refused"
+        else:
+            word = "dischargeable" if i["dischargeable"] else "held"
+        print(f"- {i['id']}  {i['status'] or '-'}  {word}")
+        for x in i["inputs"]:
+            print(f"    {'ok ' if x['established'] else 'no '} {discharge.explain(x)}")
+        if not i["inputs"] and i["problems"]:
+            for p in i["problems"]:
+                print(f"    {p}")
+        if i["refused"]:
+            print(f"    {i['refused']}")
+    return 1 if refused else 0
 
 
 def main(argv=None):
