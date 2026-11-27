@@ -868,11 +868,13 @@ class ShipTests(unittest.TestCase):
         self.assertEqual(out["result"]["ship"]["status"], "refused")
         self.assertIn("ship stage was refused", " ".join(out["result"]["notes"]))
 
-    def test_no_ticket_is_not_run(self):
-        out, labels, _ = self.run_wf(dict(self.PLAN, prepare=dict(PREP, ticket="none")), ticket=None, nested=False)
-        self.assertNotIn("ship", labels)
-        self.assertEqual(out["result"]["ship"]["command"],
-                         "py scripts/ship.py checkpoint --ticket verify-paper-lem-x --role expert --only library board")
+    def test_no_ticket_ships_the_slug_once(self):
+        # #136 item 4: nine ticket-free verify runs on 2026-11-27 each needed the checkpoint by hand
+        out, labels, _ = self.run_wf(dict(self.PLAN, prepare=dict(PREP, ticket="none"), ship={"status": "pushed", "output": "library 2026-11-27/verify-paper-lem-x/expert @ abc1234 (1 files) pushed\nverify-paper-lem-x: delivered (no ticket)\n"}),
+                                     ticket=None, nested=False)
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(out["result"]["ship"]["status"], "pushed")
+        self.assertEqual(out["result"]["ship"]["branches"], ["library 2026-11-27/verify-paper-lem-x/expert"])
 
 
 if __name__ == "__main__":

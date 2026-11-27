@@ -52,7 +52,7 @@ The inbox runs it for a `question` ticket. The order is code (2026-10-31; docs/w
 **Report** the lead's `report` (not a summary of it), each item's step and tickets, the
 `artefacts`, every `anomalies` entry, the next picks, what `for_main` handed back and what
 its prove run did, and `ship` (a question ticket's checkpoint, run once; a
-direction run is `not-run` with the command to run from the workspace root; a refusal is
+direction run ships `explore-<direction>` through `inbox.py --ship-slug`, #136; a refusal is
 reported, never retried).
 
 **Reading a returned result.** An undecided search (a cap hit) is not a counterexample. A

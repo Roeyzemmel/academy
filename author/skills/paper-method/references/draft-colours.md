@@ -27,6 +27,34 @@ renaming one word. The colours themselves are defined once, in the preamble.
 An unestablished statement becomes established only when an Expert verification (a `verify` ticket, two
 agreeing verifier runs) lands. **No writing agent recolours its own work.**
 
+## The reword marks (a level of kind `mark`)
+
+A settled statement (`proved` / `proved-modulo`) reworded after its review is
+**reworded**: settled on its earlier wording, reword review owed
+(`academy:status-vocabulary`). It keeps its status colour; on top of it the words
+changed since the reviewed text are violet, `\Reworded{…}`, and the removed words stand
+struck where they were, `\Struck{…}`. Violet, not purple (purple is the `\Claude` notes).
+
+- **Generated, never typed.** `scripts/reword_marks.py` (dry run by default, `--apply` to
+  write) takes every claim `registry.py stale` lists, recovers the reviewed text exactly
+  from the paper's git history (its hash must be the base pass's `statement_hash`, or the
+  statement is reported and left alone), diffs it word by word against the current text
+  and writes the marks; it removes them when the claim is no longer stale (the reword pass
+  confirmed). A writer never adds, edits or removes a mark by hand: after a rewording,
+  run the script.
+- **Outside the hash.** Every statement hash ignores the marks (`\Reworded{x}` as `x`,
+  `\Struck{x}` as nothing), so writing or removing them never voids a pass or a pin.
+- **What is never marked**: environment boundaries, labels, `\item`, line breaks,
+  comments, list options. Display math is coloured but never struck (`soul`'s `\st` is
+  text-mode only); the dry run lists what it left unmarked.
+- **The checker** (only with the level): W5 warns on a stale settled claim without marks
+  (it reads as settled on its current text); R8 fails marks on a claim that is not stale.
+- **Opt-in**: `author.statusLevels` holds `{"name": "reworded", "kind": "mark", "command":
+  "\\Reworded", "strike": "\\Struck", "colour": "violet", "requires": "stale",
+  "generated": true}` (`docs/config.md`), and the preamble defines the two macros (for
+  example `\Reworded` as `\textcolor` and `\Struck` as `soul`'s `\st`, both violet).
+  Without the level nothing is checked and `--apply` refuses.
+
 ## The provenance marker (`author.provenance`)
 
 Independent of the status colours, and not a status. It marks what the authors added

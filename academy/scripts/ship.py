@@ -599,6 +599,13 @@ def cmd_start(a):
         args = ["worktree", "add", wt] + ([name] if exists else ["-b", name] + ([on] if on else []))
         git(repo, *args)
         print("worktree %s on %s" % (wt, name))
+        env_root = os.environ.get("ACADEMY_ROOT")
+        if (env_root and os.path.isfile(os.path.join(wt, "academy", "scripts", "ship.py"))
+                and os.path.realpath(env_root) != os.path.realpath(wt)):
+            # #138: tests and ship.py run in the worktree would otherwise import the code
+            # ACADEMY_ROOT names (the main checkout); the push gate sets it on its own
+            print("note: ACADEMY_ROOT is %s, not this worktree: prefix test runs and ship.py "
+                  "commands with ACADEMY_ROOT=%s" % (env_root, wt))
     else:
         git(repo, "switch", name) if exists else git(repo, "switch", "-c", name, *([on] if on else []))
         print("%s on %s (uncommitted changes carried along)" % (repo, name))

@@ -956,6 +956,15 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertIn("--ids T-1,T-2", calls[0]["prompt"])          # filtered in the script, not transcribed whole
         self.assertEqual([t["id"] for t in res["taken"]], ["T-2"])
 
+    def test_ids_are_taken_in_the_order_given(self):
+        """#134: the listing order (T-2005 before T-2009) does not override the ids' order."""
+        rows = [row("T-2005", how="reject", target=None, kind="prove", to="expert@t"),
+                row("T-2009", how="reject", target=None, kind="prove", to="expert@t")]
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}],
+                "T-2009 reject": [OK], "check T-2009": [DONE], "T-2005 reject": [OK], "check T-2005": [DONE]}
+        res, _, _ = self.run_wf(plan, ids=["T-2009", "T-2005"])
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-2009", "T-2005"])
+
     def test_a_row_listed_with_a_status_the_inbox_cannot_take_is_skipped(self):
         """#92: a blocked or delivered ticket whose row lost its blocked field is not taken."""
         rows = [dict(row("T-1", how="reject", target=None, kind="prove", to="expert@t"), status="blocked"),

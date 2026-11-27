@@ -72,13 +72,15 @@ DEFAULT_STATEMENT_ENVS = ("thm", "prop", "lem", "fact", "cor", "conj", "defn", "
 
 def statement_hash(text):
     """sha256 of the whitespace-collapsed text, first 16 hex digits (the registry's
-    ``statement_hash_of``)."""
-    norm = re.sub(r"\s+", " ", text or "").strip()
-    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
+    ``statement_hash_of``), the reword marks ignored (#137)."""
+    return hashlib.sha256(norm(text).encode("utf-8")).hexdigest()[:16]
 
 
 def norm(text):
-    return re.sub(r"\s+", " ", text or "").strip()
+    """The text as a pin compares it: the reword marks dropped (``\\Reworded{x}`` as
+    ``x``, ``\\Struck{x}`` as nothing; #137), whitespace collapsed. Generating or
+    removing the marks therefore never counts as an edit of a pinned statement."""
+    return re.sub(r"\s+", " ", ac.strip_reword_marks(text or "")).strip()
 
 
 # ----------------------------------------------------------------------------

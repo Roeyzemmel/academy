@@ -44,7 +44,7 @@ from ..core import fm, legacy_fm, workspace, federation, projection, schema, gro
 from ..core import stale as _stale
 from ..core import structure
 from ..core.edit import Doc
-from ..core.model import Record, Store
+from ..core.model import Record, Store, strip_marks
 
 #: the repo used when a function is called without one (the shim sets its own lab)
 ROOT = Path.cwd()
@@ -922,7 +922,8 @@ def _paper_texts(home_):
 
 
 def _paper_statement(home_, label, texts=None):
-    """The LaTeX environment that carries ``\\label{label}`` in sections/*.tex, or None.
+    """The LaTeX environment that carries ``\\label{label}`` in sections/*.tex, or None,
+    without its reword marks (``model.strip_marks``, #137): the text a review is given on.
     ``texts``: those files' texts, read once by the caller."""
     for text in (texts if texts is not None else _paper_texts(home_)):
         i = text.find("\\label{%s}" % label)
@@ -934,7 +935,8 @@ def _paper_statement(home_, label, texts=None):
         b = begins[-1]
         env = b.group(1)
         end = text.find("\\end{%s}" % env, i)
-        return text[b.start():(end + len(env) + 6) if end >= 0 else i]
+        # the reword marks are not part of the statement (#137)
+        return strip_marks(text[b.start():(end + len(env) + 6) if end >= 0 else i])
     return None
 
 
@@ -1015,6 +1017,19 @@ def today():
 def _human_name():
     ws = workspace.load_workspace() or {}
     return ((ws.get("human") or {}).get("name")) or "the human"
+
+
+def _hand_row(quote, where):
+    """The evidence row of the human's word, as the MCP tool claims_set_status writes it
+    (``hand | <where> | <name>'s word | - | "<quote>"``): ``set-status --human`` adds it
+    when no hand row is given, so a ``proved`` on the human's word is never refused for
+    "no evidence" (#132). Bars in the free text become the divides sign, as there."""
+    name = _human_name()
+    cells = ["hand", (where or "").strip() or name, "%s's word" % name, "-",
+             '"%s"' % str(quote).strip()]
+    cells[2:] = [c.replace("|", "∣") for c in cells[2:]]
+    cells[1] = cells[1].replace("|", "∣")
+    return " | ".join(cells)
 
 
 def _history_note(note, g):
@@ -1577,7 +1592,10 @@ def main(argv=None):
         try:
             # the command line cannot tell who runs it: --human claims the human's voice,
             # as the old claims.py did (not hooked; see the migration log's known limits)
-            old = set_status(repo, a.id, a.status, g, a.note, a.evidence, human=bool(a.human))
+            ev = list(a.evidence)
+            if a.human and not any(r.split("|")[0].strip() == "hand" for r in ev):
+                ev.append(_hand_row(a.human, a.where_said))
+            old = set_status(repo, a.id, a.status, g, a.note, ev, human=bool(a.human))
         except Refused as exc:
             print(f"set-status: refused: {exc}", file=sys.stderr)
             return 1

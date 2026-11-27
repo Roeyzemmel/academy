@@ -40,7 +40,12 @@ What it does
 4. Writes the generated registry ``Drafts/statements.md`` (LF endings).
 5. Summarises the last build from ``.build/main.log`` / ``.build/main.blg`` and,
    if ``pdftotext`` is on PATH, counts ``??`` in ``.build/main.pdf``.
-6. **R7** (warning): scans the built PDF for a clipped fragment -- text whose box
+6. **W5 / R8** (#137, only with the reword level: an ``author.statusLevels`` entry of
+   kind ``mark``): a stale settled claim (``registry.py stale``) whose statement carries
+   no ``\\Reworded`` / ``\\Struck`` mark is a warning (W5: it reads as settled on its
+   current text); marks on a statement whose claim is not stale are a violation (R8).
+   ``reword_marks.py --apply`` writes and removes them. The marks colour no statement.
+7. **R7** (warning): scans the built PDF for a clipped fragment -- text whose box
    falls outside the page, the geometric signature of a margin note the column
    could not hold. Needs a build no older than the newest ``.tex`` under
    ``sections/``, ``tikz/`` or ``main.tex``, and ``pdftohtml`` plus ``synctex`` on
@@ -138,6 +143,8 @@ LEVEL_KIND: Dict[str, str] = {}
 LEVEL_COLOUR: Dict[str, str] = {}
 SKETCH_LEVELS: Set[str] = set()
 LEVEL_ORDER: List[str] = []
+#: the reword level (``author.statusLevels`` entry of kind ``mark``, #137), or None
+MARK_LEVEL: Optional[dict] = None
 ACCEPTED_BIB_WARNINGS: Tuple[str, ...] = ()
 MAIN_RESULTS: Dict[str, object] = dict(DEFAULT_MAIN_RESULTS)
 #: W4 (opt-in, ``author.labels.enforcePrefixes``): the typed prefixes a label may carry
@@ -174,7 +181,7 @@ def configure(author: Optional[dict] = None) -> None:
     global REGISTRY_DEFAULT, DEFINITION_ENVS, LEVEL_KIND, LEVEL_COLOUR, SKETCH_LEVELS
     global LEVEL_ORDER, ESTABLISHED, ACCEPTED_BIB_WARNINGS, MAIN_RESULTS, RE_REF
     global QUESTION_ENVS
-    global NOTE_MAX_LINES, LABEL_PREFIXES, ENFORCE_LABEL_PREFIXES
+    global NOTE_MAX_LINES, LABEL_PREFIXES, ENFORCE_LABEL_PREFIXES, MARK_LEVEL
     a = author if isinstance(author, dict) else {}
     th = a.get("theorems") if isinstance(a.get("theorems"), dict) else {}
     THEOREM_ENVS = set(th.get("all") or DEFAULT_THEOREM_ENVS)
@@ -182,7 +189,9 @@ def configure(author: Optional[dict] = None) -> None:
     COMMENTARY_ENVS = set(th.get("commentary") or DEFAULT_COMMENTARY_ENVS)
     DEFINITION_ENVS = set(th.get("definitions") or DEFAULT_DEFINITION_ENVS)
     QUESTION_ENVS = set(th.get("questions") or DEFAULT_QUESTION_ENVS)
-    levels = _ac.author_status_levels(a)
+    # a level of kind mark (#137: the reword marks) colours no statement
+    MARK_LEVEL = _ac.author_mark_level(a)
+    levels = [lv for lv in _ac.author_status_levels(a) if lv.get("kind") != "mark"]
     ESTABLISHED = next((lv["name"] for lv in levels if lv.get("kind") == "established"),
                        "established")
     LEVEL_ORDER = [str(lv["name"]) for lv in levels]
@@ -482,7 +491,7 @@ class RefUse:
 
 @dataclass
 class Finding:
-    kind: str             # "R1" ... "R6", "W1" ... "W4", "BUILD"
+    kind: str             # "R1" ... "R8", "W1" ... "W5", "BUILD"
     severity: str         # "V" (violation) or "W" (warning)
     file: str
     line: int
@@ -1218,6 +1227,55 @@ def rule_margin_overflow(root: str) -> List[Finding]:
     return out
 
 
+def stale_claims(root: str) -> Dict[str, dict]:
+    """``{label: stale item}`` of the paper's stale settled claims (the registry's
+    ``stale`` list, read through ``reword_marks.stale_items``). Raises when it cannot be
+    read (no workspace, no library, no engine)."""
+    import reword_marks
+    _store, items = reword_marks.stale_items(root)
+    return {str(i["id"]): i for i in items}
+
+
+def rule_reword_marks(paper: Paper, root: Optional[str],
+                      stale: Optional[Dict[str, dict]] = None) -> List[Finding]:
+    """W5 / R8 (#137), only with the home's reword level (``author.statusLevels`` entry of
+    kind ``mark``): a stale settled claim whose statement carries no reword mark reads as
+    settled on its current text (W5, a warning); a statement carrying reword marks whose
+    claim is not stale shows a reword that no longer stands (R8, a violation).
+    ``reword_marks.py --apply`` writes and removes them. When the stale list cannot be
+    read, a NOTE on stderr says so and nothing is checked."""
+    if MARK_LEVEL is None or root is None:
+        return []
+    if stale is None:
+        try:
+            stale = stale_claims(root)
+        except Exception as exc:        # noqa: BLE001 -- said, never fatal
+            print("NOTE: W5/R8 (reword marks) not checked: the stale list could not be "
+                  "read (%s)" % exc, file=sys.stderr)
+            return []
+    out: List[Finding] = []
+    for stmt in paper.statements:
+        marked = _ac.RE_REWORD_MARK.search(stmt.body or "") is not None
+        # a statement may keep an old label: any of its labels names its claim (not the
+        # labels of its items)
+        labels = [stmt.label] + [lab.strip() for lab in RE_LABEL.findall(stmt.body or "")
+                                 if not lab.strip().startswith("it:")]
+        item = next((stale[lab] for lab in labels if lab in stale), None)
+        if item is not None and not marked:
+            out.append(Finding(
+                "W5", "W", stmt.file, stmt.line, stmt.label,
+                "%s %s reworded since its review pass %s carries no reword marks: it reads "
+                "as settled on its current text (`reword_marks.py --apply` writes them)"
+                % (item.get("status") or "settled", stmt.env, item.get("pass") or "?")))
+        elif item is None and marked:
+            out.append(Finding(
+                "R8", "V", stmt.file, stmt.line, stmt.label,
+                "%s carries reword marks (%s / %s) but its claim is not stale: they show a "
+                "reword that no longer stands (`reword_marks.py --apply` removes them)"
+                % (stmt.env, MARK_LEVEL.get("command"), MARK_LEVEL.get("strike"))))
+    return out
+
+
 def run_rules(paper: Paper, root: Optional[str] = None) -> List[Finding]:
     findings: List[Finding] = []
     findings.extend(paper.anomalies)
@@ -1230,6 +1288,7 @@ def run_rules(paper: Paper, root: Optional[str] = None) -> List[Finding]:
     findings.extend(rule_undefined_refs(paper))
     if root is not None:
         findings.extend(rule_margin_overflow(root))
+        findings.extend(rule_reword_marks(paper, root))
     findings.sort(key=lambda f: (f.file, f.line, f.kind))
     return findings
 
@@ -1271,8 +1330,15 @@ class BuildSummary:
     bibtex_accepted: int = 0
     qq: int = 0
     notes: List[str] = field(default_factory=list)
+    #: build files holding NUL bytes (#136: after a container restart): the counts
+    #: above then describe the corruption, not the paper, and are not counted
+    corrupted: List[str] = field(default_factory=list)
 
     def render(self) -> str:
+        if self.corrupted:
+            return ("BUILD: corrupted build files (NUL bytes in %s): the build is not "
+                    "checked; delete them (or %s) and rebuild"
+                    % (", ".join(self.corrupted), _build_rel("aux").rsplit("/", 1)[0] + "/"))
         if not self.present:
             return ("BUILD: nothing to check (no %s, .blg or .pdf)"
                     % _build_rel("log"))
@@ -1296,8 +1362,23 @@ def bib_warning_accepted(line: str) -> bool:
 
 
 def summarise_build(root: str) -> BuildSummary:
-    """Summarise .build/main.log, .build/main.blg and ?? in the PDF."""
+    """Summarise .build/main.log, .build/main.blg and ?? in the PDF.
+
+    Build files holding NUL bytes (#136: ``main.aux`` and ``main.out`` after a container
+    restart; pdflatex then dies on "invalid character" and the log fills with undefined
+    references) make the summary report corruption instead of counting it as defects."""
     summary = BuildSummary()
+    for ext in ("aux", "out", "toc", "log"):
+        path = _build_path(root, ext)
+        try:
+            with open(path, "rb") as handle:
+                if b"\x00" in handle.read():
+                    summary.corrupted.append(_build_rel(ext))
+        except OSError:
+            continue
+    if summary.corrupted:
+        summary.present = True
+        return summary
     log_path = _build_path(root, "log")
     if os.path.isfile(log_path):
         summary.present = True
@@ -1600,7 +1681,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     violations = report(findings, summary, registry_path, len(paper.statements))
     if summary is not None:
-        violations += summary.errors + summary.undefined + summary.qq
+        violations += summary.errors + summary.undefined + summary.qq + len(summary.corrupted)
     warnings = sum(1 for f in findings if f.severity == "W")
     if violations:
         return 1

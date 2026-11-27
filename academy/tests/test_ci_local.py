@@ -207,6 +207,45 @@ class Plan(unittest.TestCase):
         self.assertIn("second ok", text)
 
 
+ROOT_ECHO = """on: push
+jobs:
+  a:
+    steps:
+      - name: root
+        run: python3 -c "import os; open('root.txt', 'w').write(os.environ.get('ACADEMY_ROOT', ''))"
+"""
+
+
+@unittest.skipUnless(BASH, "bash is not installed")
+class AcademyRootIsTheCheckoutUnderTest(unittest.TestCase):
+    """#138: a worktree's gate imported the main checkout's code through the session's
+    ACADEMY_ROOT; an academy checkout's steps now run with ACADEMY_ROOT set to itself."""
+
+    def setUp(self):
+        self.top = tempfile.mkdtemp(prefix="ci-local-root-")
+        self.addCleanup(shutil.rmtree, self.top, True)
+        write(self.top, "tests.yml", ROOT_ECHO)
+        from unittest import mock
+        p = mock.patch.dict(os.environ, {"ACADEMY_ROOT": os.path.join(self.top, "elsewhere")})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def root(self):
+        ok, lines = ci.run(self.top)
+        self.assertTrue(ok, "\n".join(lines))
+        with open(os.path.join(self.top, "root.txt"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_an_academy_checkout_runs_with_its_own_root(self):
+        for rel in (".claude-plugin/marketplace.json", "academy/scripts/ci_local.py"):
+            os.makedirs(os.path.dirname(os.path.join(self.top, rel)), exist_ok=True)
+            open(os.path.join(self.top, rel), "w").close()
+        self.assertEqual(self.root(), self.top)
+
+    def test_another_repo_keeps_the_environment(self):
+        self.assertEqual(self.root(), os.path.join(self.top, "elsewhere"))
+
+
 MEET = """on: push
 jobs:
   a:
