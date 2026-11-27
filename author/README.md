@@ -77,7 +77,7 @@ colours: `skills/paper-method/references/editing-tex.md`, `draft-colours.md`. Te
 | Skill | What it does |
 |---|---|
 | /author:agenda | Maintain the paper's agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into tickets. Use for "update the agenda", "what does the paper need". |
-| /author:audit-notation | Audit the paper's notation against its style.md and the domain pack, report clashes, sync style.md's notation to the draft, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round. |
+| /author:audit-notation | Audit the paper's notation against its style.md and the domain pack, report clashes, record the draft's notation in style.md where no decision exists, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round. |
 | /author:inbox | Work the paper's inbox (replaces /author:next): sweep the machine notes, then take at most three tickets from the board, routed by kind, landed if returned, or released if unblocked. Use for "next", "run the agenda", "work the inbox". |
 | /author:next | Retired: /author:next is now /author:inbox. Use only to be redirected; for "next" or "run the agenda" use /author:inbox. |
 | /author:notes | File the human's new margin notes as tickets on their agenda entry (to the Author, or to the role owning the work), and referee-packet points. Use when the human left notes in the PDF, after an Overleaf sync, or when a referee packet returns. |
