@@ -44,6 +44,14 @@ phrases the questions. Neither one asks the human or records on its own.
    secretary's `header`/`question`/`options` verbatim. Show any `flag` as part of the
    question text, not hidden. The human may answer free text ("other") on any question, or
    decline to answer (skip it — nothing is recorded for a skipped question).
+   **A multi-select batch** (its items carry `multiselect` and `select`, the claim): the
+   proofs, experiments and tests, grouped by claim. Ask it as ONE question with
+   `multiSelect: true`, "Tick the ones to run" (the claim named in the question), one
+   option per item (its title and what it costs). A batch of one item is asked as "Run
+   it" / "Not now". Record it with one command:
+   `py $S/decisions.py select --ticked T-1,T-2 --unticked T-3`: ticked ones proceed;
+   unticked ones stay on the board as they are, with a `human decision: not now` line, and
+   are not asked again until another day (they are not rejected).
 4. **Record before asking the next batch.** For every answered question in the batch,
    immediately:
    `py $S/decisions.py record <id> --choice <letter|proceed|decline> [--action <rerun|accept|wait|split|decline>] [--force] [--comment "<note or free text>"]`

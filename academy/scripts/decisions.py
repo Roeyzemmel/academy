@@ -23,6 +23,7 @@ Usage::
     py decisions.py stalled-rulings [--json]
     py decisions.py policy [--dry-run] [--json] [--instance X]
     py decisions.py undo <T-id>
+    py decisions.py select --ticked T-1,T-2 --unticked T-3 [--comment TEXT]
 
 ``record`` writes back via ``packets.decide_packet`` for a ``P-NNNN/Dk`` (or a bare
 ``P-NNNN`` with exactly one decision still pending), and via ``board.append_to_ticket``
@@ -334,7 +335,10 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
             if r else None,
             "recommendation": None,
             "kind": _classify_ticket(t),
+            "ticket_kind": t.get("kind"),
+            "claim": next((str(x) for x in (t.get("refs") or []) if x), None),
             "category": category(t),
+            "not_now": _not_now_date(t),
             "own_options": bool(own or alts),
             "unblocks": [str(b) for b in (t.get("blocks") or [])],
             "stale": None,
@@ -344,7 +348,27 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
     return items
 
 
-def pending_decisions(board, instance=None, workspace=None):
+#: the kinds asked as multi-select batches, "tick the ones to run" (#86): spending choices
+SELECT_KINDS = ("prove", "experiment", "test")
+#: the thread line of an unticked multi-select item; ``decision_choice`` keeps its date
+NOT_NOW = "human decision: not now"
+RE_NOT_NOW = re.compile(r"^not now \((\d{4}-\d{2}-\d{2})\)$")
+
+
+def _not_now_date(t):
+    m = RE_NOT_NOW.match(str(t.get("decision_choice") or ""))
+    return m.group(1) if m else None
+
+
+def _selectable(item):
+    """True for a ticket item asked in a multi-select batch: a prove, experiment or test
+    with nothing else to choose (no ruling, no alternatives)."""
+    return (item.get("source") in ("ticket-human", "ticket-blocked")
+            and item.get("ticket_kind") in SELECT_KINDS
+            and not item.get("ruling") and not item.get("own_options"))
+
+
+def pending_decisions(board, instance=None, workspace=None, date=None):
     """Every pending decision (a)+(b)+(c) above, as a list of item dicts.
 
     Ordered packets first (by id, then D-number), then tickets to human, then
@@ -354,6 +378,9 @@ def pending_decisions(board, instance=None, workspace=None):
     items = _packet_items(board, instance)
     items += _ticket_items(board, instance, to_human=True, workspace=workspace)
     items += _ticket_items(board, instance, to_human=False, workspace=workspace)
+    if date:
+        # "not now" on that day (an unticked multi-select item, #86): asked another day
+        items = [i for i in items if i.get("not_now") != date]
     return items
 
 
@@ -511,7 +538,10 @@ def batches(items, size=4):
     """Group ``items`` into batches of at most ``size``.
 
     Ordered most-unblocking first, substantive before mechanical, and grouped by
-    topic (instance) within ties -- a stable sort, then a plain chunking.
+    topic (instance) within ties -- a stable sort, then a plain chunking. Proofs,
+    experiments and tests with nothing else to choose (``SELECT_KINDS``) come after, as
+    multi-select batches grouped by claim: each of their items carries ``multiselect`` and
+    ``select`` (the claim); the human ticks the ones to run (``select``).
     """
     size = max(1, int(size))
     ordered = sorted(items, key=lambda i: (
@@ -519,7 +549,29 @@ def batches(items, size=4):
         0 if i.get("kind") == "substantive" else 1,
         str(i.get("instance") or ""),
         str(i.get("id"))))
-    return [ordered[i:i + size] for i in range(0, len(ordered), size)]
+    single = [i for i in ordered if not _selectable(i)]
+    out = [single[i:i + size] for i in range(0, len(single), size)]
+    # #86: proofs, experiments and tests are asked as multi-select batches ("tick the ones
+    # to run"), grouped by claim (the first ref): a claim's items stay in one batch when
+    # they fit, and small groups share a batch up to ``size``
+    groups = {}
+    for i in ordered:
+        if _selectable(i):
+            groups.setdefault(i.get("claim") or "(no claim)", []).append(i)
+    batch = []
+    for claim, group in groups.items():
+        group = sorted(group, key=lambda i: str(i.get("id")))
+        rows = [dict(i, multiselect=True, select=claim) for i in group]
+        if batch and len(batch) + len(rows) > size:
+            out.append(batch)
+            batch = []
+        while len(rows) > size:
+            out.append(rows[:size])
+            rows = rows[size:]
+        batch += rows
+    if batch:
+        out.append(batch)
+    return out
 
 
 # ----------------------------------------------------------------------------
@@ -658,6 +710,39 @@ def record(board, item_id, choice, comment="", workspace=None, date=None, action
         "id must look like P-0001/D1, P-0001 or T-0001, not %r" % item_id)
 
 
+def select(board, ticked=(), unticked=(), comment="", date=None):
+    """Record one multi-select batch (#86): every ``ticked`` ticket proceeds (``record``,
+    ``decision_choice: proceed``); every ``unticked`` one stays on the board as it is (open
+    to the human, or blocked on the human), with a ``human decision: not now`` thread line
+    and ``decision_choice: not now (<date>)``, so it is not asked again that day and is
+    asked again on a later one. Only proofs, experiments and tests pending on the human
+    are selectable. Returns ``[{"ref", "status"}]`` in the order given."""
+    date = date or ac.today()
+    ids = list(ticked) + list(unticked)
+    if len(set(ids)) != len(ids):
+        raise ac.AcademyError("a ticket is both ticked and unticked, or named twice")
+    for tid in ids:
+        _p, meta, _b = boardlib.get_ticket(board, tid)
+        pending = (meta.get("to") == ac.HUMAN and meta.get("status") == "open") or (
+            meta.get("status") == "blocked"
+            and ac.HUMAN in [str(w) for w in (meta.get("waiting_on") or [])])
+        if meta.get("kind") not in SELECT_KINDS or not pending:
+            raise ac.AcademyError("%s is not a multi-select item (a %s ticket, %s): record it "
+                                  "on its own" % (tid, meta.get("kind"), meta.get("status")))
+    out = []
+    for tid in ticked:
+        out.append(record(board, tid, "proceed", comment, date=date))
+    for tid in unticked:
+        text = NOT_NOW + " (unticked in a multi-select batch); it stays on the board and is " \
+            "asked again on a later day"
+        if comment.strip():
+            text += " -- " + " ".join(comment.split())
+        boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
+        _set_choice(board, tid, "not now (%s)" % date)
+        out.append({"ref": tid, "status": boardlib.get_ticket(board, tid)[1].get("status")})
+    return out
+
+
 def accept_recommended(board, mechanical_only=False, dry_run=False, workspace=None, date=None):
     """Apply every packet's own recorded recommendation (never a ticket's, which has none).
 
@@ -787,6 +872,11 @@ def main(argv=None):
     p.add_argument("--instance"); p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("select", help="record one multi-select batch: ticked proceed, "
+                                      "unticked stay on the board (not now)")
+    p.add_argument("--ticked", default=""); p.add_argument("--unticked", default="")
+    p.add_argument("--comment", default="")
+
     p = sub.add_parser("undo", help="revert a routine-policy acceptance, until an inbox run "
                                     "touches the ticket")
     p.add_argument("id")
@@ -809,7 +899,7 @@ def main(argv=None):
                     print(_fmt_item(i))
                 print("%d pending decision(s)" % len(items))
         elif a.cmd == "batches":
-            bs = batches(pending_decisions(board, a.instance, ws), a.size)
+            bs = batches(pending_decisions(board, a.instance, ws, date=ac.today()), a.size)
             if a.json:
                 print(_wire(bs))
             else:
@@ -833,6 +923,10 @@ def main(argv=None):
                 line = digest(done)
                 print(("(dry run) " if a.dry_run and line else "") + (
                     line or "nothing accepted under the policy"))
+        elif a.cmd == "select":
+            ids = lambda v: [x for x in re.split(r"[,\s]+", v or "") if x]  # noqa: E731
+            print(json.dumps(select(board, ids(a.ticked), ids(a.unticked), a.comment),
+                             ensure_ascii=False))
         elif a.cmd == "undo":
             if not ac.RE_TICKET_ID.match(a.id):
                 raise ac.AcademyError("undo takes a ticket id, not %r" % a.id)

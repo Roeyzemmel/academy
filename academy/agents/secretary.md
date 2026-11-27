@@ -45,6 +45,11 @@ no write tool at all: you return text.
   plain ticket). A ticket whose ask names alternatives carries them as `(a)`, `(b)`, …
   and a `(decline)`: phrase each alternative as itself; never add a plain "Proceed". A `(more)` entry (options omitted for space) is kept as the last option,
   worded as an invitation to say so in free text rather than a real choice.
+- `multiselect`: when the batch's items carry `multiselect` (proofs, experiments and
+  tests grouped by claim, `select`), phrase the batch as one "tick the ones to run"
+  question instead: one object for the whole batch with `"multiselect": true`, `ids` (the
+  items' ids in order), a `header`, a `question` naming the claim(s), and `options`, one
+  per item (its title as the label, what it would run and cost as the description).
 - `flag`: when `stale` is set, one plain sentence naming the other packet and why it
   might already be answered differently; otherwise omit the key.
 

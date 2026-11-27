@@ -288,5 +288,68 @@ class RealOptionsTests(BoardCase):
         self.assertEqual(dc.apply_policy(self.board, self.ws, date=DATE), [])
 
 
+# ----------------------------------------------------------------------------
+# (3) experiments and proofs: multi-select batches, grouped by claim
+# ----------------------------------------------------------------------------
+
+class MultiSelectTests(BoardCase):
+    def make(self):
+        self.blocked(kind="prove", title="Prove A1", to="researcher@r1", refs=["s1:A"])
+        self.blocked(kind="experiment", title="Search B", to="researcher@r1", refs=["s1:B"])
+        self.blocked(kind="test", title="Test A2", to="researcher@r1", refs=["s1:A"])
+        self.blocked(kind="verify", title="Verify C")
+        self.blocked(kind="prove", title="Prove A3", to="researcher@r1", refs=["s1:A"])
+
+    def test_selectable_items_are_batched_by_claim_after_the_others(self):
+        self.make()
+        bs = dc.batches(dc.pending_decisions(self.board, workspace=self.ws))
+        self.assertEqual([[i["id"] for i in b] for b in bs],
+                         [["T-0004"], ["T-0001", "T-0003", "T-0005", "T-0002"]])
+        self.assertTrue(all(i["multiselect"] for i in bs[1]))
+        self.assertNotIn("multiselect", bs[0][0])
+        self.assertEqual([i["select"] for i in bs[1]], ["s1:A", "s1:A", "s1:A", "s1:B"])
+
+    def test_a_claim_group_is_kept_whole_when_it_fits(self):
+        for n in range(3):
+            self.blocked(kind="prove", title="Prove A%d" % n, to="researcher@r1", refs=["s1:A"])
+        for n in range(2):
+            self.blocked(kind="prove", title="Prove B%d" % n, to="researcher@r1", refs=["s1:B"])
+        bs = dc.batches(dc.pending_decisions(self.board, workspace=self.ws))
+        self.assertEqual([[i["select"] for i in b] for b in bs],
+                         [["s1:A"] * 3, ["s1:B"] * 2])
+
+    def test_ticked_proceed_and_unticked_stay_with_not_now(self):
+        self.make()
+        out = dc.select(self.board, ticked=["T-0001", "T-0003"], unticked=["T-0005", "T-0002"],
+                        date=DATE)
+        self.assertEqual([o["status"] for o in out], ["accepted", "accepted", "blocked",
+                                                      "blocked"])
+        self.assertEqual(meta_of(self.board, "T-0001")["decision_choice"], "proceed")
+        m = meta_of(self.board, "T-0005")
+        self.assertEqual((m["status"], m["waiting_on"]), ("blocked", ["human"]))
+        self.assertTrue(any(t.startswith(dc.NOT_NOW) for t in texts(self.board, "T-0005")))
+        # not asked again the same day; asked again on a later one
+        same = [i["id"] for i in dc.pending_decisions(self.board, workspace=self.ws,
+                                                      date=DATE)]
+        self.assertEqual(same, ["T-0004"])
+        later = [i["id"] for i in dc.pending_decisions(self.board, workspace=self.ws,
+                                                       date=LATER)]
+        self.assertEqual(later, ["T-0002", "T-0004", "T-0005"])
+
+    def test_select_refuses_a_ticket_that_is_not_selectable(self):
+        self.make()
+        with self.assertRaises(ac.AcademyError):
+            dc.select(self.board, ticked=["T-0004"], unticked=[], date=DATE)
+
+    def test_select_cli(self):
+        self.make()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = dc.main(["--board", self.board, "--workspace", self.ws_path, "select",
+                          "--ticked", "T-0001", "--unticked", "T-0003,T-0005"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(json.loads(out.getvalue())), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
