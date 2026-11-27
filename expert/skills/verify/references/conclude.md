@@ -256,6 +256,12 @@ card whose verdict is `match` and whose hypotheses cover the use. So first list 
 inputs both runs name and mark each one: `proved`, `verified citation`, `sketch` /
 `conjectured` / `open` (its status), `uncited folklore`, `cached but no card`,
 `uncitable`. The script then decides whether the recolour is earned; you do not.
+The script also reads the registry itself at conclude time (#133): every input the runs,
+a reword's base chain or an amend suggestion name that is established **now** (a
+`proved` record on its current statement, a `match` card, a notation-only definition:
+the discharge's rule) counts as if you had listed it, and is reported in
+`established_inputs`. `--established` adds what the registry cannot show; never pass
+`--no-registry` in a conclude.
 
 **The definition rule** (the human's ruling of 2026-11-20 on #103, replacing T-0148): a
 definition in a CONFIRMED run's modulo list **is an input**, giving `proved-modulo`,
@@ -501,7 +507,11 @@ GAP or `exceeds` link, or a hash that does not match refuses).
      chain, every link's row newest first, then the root's two, with `root_pass`,
      `root_hash` and `chain`); the recolour is earned as in the normal table. The base
      pass's modulo is carried over (a reword base's includes its own base's), plus any
-     input R adds.
+     input R adds, **less every input established now** (#133, `established_dropped`):
+     a carried input the registry shows proved on its current statement is dropped, and
+     with none left the proposal is `proved` with no modulo. Never re-add a dropped
+     input by hand, and never propose `proved-modulo` on a claim that is already
+     `proved` when the script proposes `proved`.
    - `full-pass-needed` (R is GAP, or `reword_scope: exceeds`): no status. Write the
      record, then open a **fresh blind pass** on the new statement (section 0, a new
      `new-pass` without `--reword-of`); its brief says nothing of R.

@@ -50,6 +50,14 @@ grounds hold every link's row (newest first) and the root's two rows. A broken l
 (missing, abandoned, not confirmed, GAP, another hash) gives ``invalid-base``. A reword
 record naming ``root_pass`` / ``root_hash`` must name the chain's.
 
+The base pass's modulo is carried over only while it is open (#133): an input
+established at conclude time (the registry's ``proved`` on its current statement, a
+matching card or a notation-only definition, read through ``registry.core.discharge``
+by ``registry_established``; or named by ``--established``) is dropped from the reword
+outcome (``established_dropped``), and R proposes ``proved`` when none remains. The CLI
+reads the registry for every mode (``--no-registry`` turns it off), so ``--established``
+need not list the proved inputs by hand.
+
 A reword run on a **renamed** record (T-0476) names ``base_subject``: the superseded id
 whose reviews folder holds the base pass. The base is then read from
 ``<reviews>/<ns>/<dir of base_subject>/<base_pass>/`` and its runs must be about
@@ -749,6 +757,35 @@ def registry_canonical(qid):
     return _registry_lookup(qid)[1]
 
 
+def registry_established(items, subject=""):
+    """``{input: assessment}`` of the inputs among ``items`` that the registry shows
+    established **now** (#133): ``registry.core.discharge.established_now`` on each, the
+    discharge's own rule (a ``proved`` record on its current statement, a ``bib:`` card
+    pinpoint whose card says match, a definition tagged notation-only), read from the
+    home of the subject's namespace. {} when the registry cannot be read: the table then
+    goes by ``--established`` alone, as before."""
+    ns = str(subject or "").partition(":")[0]
+    out = {}
+    try:
+        plugin = os.path.join(ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import discharge, workspace as rws
+        info = rws.namespaces().get(ns) or {}
+        home = info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return {}
+        for it in items:
+            if it in out:
+                continue
+            a = discharge.established_now(it, ns, str(home))
+            if a.get("established"):
+                out[it] = {k: a.get(k) for k in ("input", "id", "status", "why")}
+    except Exception:        # noqa: BLE001 -- an unreadable registry establishes nothing
+        return {}
+    return out
+
+
 def registry_exists(qid):
     """True / False: the registry (readable) has / lacks the record ``qid`` (False too for
     a namespace the workspace has none of: ``check:``, ``tex:``, ``uncited:``); None when
@@ -1303,9 +1340,27 @@ def _canon_chain(rec, canon, depth=0):
     return out
 
 
+def _all_inputs(recs, depth=0):
+    """Every modulo / suggested input of ``recs`` and of their reword chains (canonical,
+    in first-seen order)."""
+    out = []
+    for r in recs:
+        if not r:
+            continue
+        for k in LIST_FIELDS:
+            for m in r.get(k) or ():
+                if m not in out:
+                    out.append(m)
+        if r.get("_base") and depth < MAX_CHAIN:
+            for m in _all_inputs(list(r["_base"][:2]), depth + 1):
+                if m not in out:
+                    out.append(m)
+    return out
+
+
 def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
            kind_of=None, base=None, base_notes=(), canon=None, exists=None, links_of=None,
-           tags_of=None, items_of=None):
+           tags_of=None, items_of=None, established_of=None):
     """Apply the table (``_decide``) and give every item to file its ``route``
     (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
     lookup that decides which inputs are definitions, ``tags_of`` (qid -> the record's
@@ -1333,14 +1388,33 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
     ``items_of`` (qid -> ``{"hash": whole hash, "items": {key: {"hash", "status"}}}`` or
     None; the CLI passes ``registry_items``) names a structured record's items (#127):
     a blind pass whose runs carry ``items:`` is then decided per item
-    (:func:`decide_items`)."""
+    (:func:`decide_items`).
+
+    ``established_of`` (a list of canonical inputs -> ``{input: assessment}`` of those
+    established now; the CLI passes ``registry_established``) adds to ``established``
+    every modulo input of the runs, of a reword run's base chain and of an amend
+    suggestion that the registry shows established at conclude time (#133), so a carried
+    or listed input that is already proved never yields ``proved-modulo`` by itself; the
+    assessments are in ``established_inputs``."""
     rec_a = _canon_rec(rec_a, canon)
     rec_b = _canon_rec(rec_b, canon)
     dep_notes = []
     rec_a = _check_deps(rec_a, exists, dep_notes)
     rec_b = _check_deps(rec_b, exists, dep_notes)
+    est_info = {}
+    if established_of is not None:
+        subj = (rec_a or {}).get("subject") or ""
+        chain = tuple(_canon_chain(r, canon) for r in base) if base else ()
+        cands = _all_inputs([rec_a, rec_b] + list(chain))
+        try:
+            est_info = dict(established_of(cands, subj) or {})
+        except Exception:        # noqa: BLE001 -- the registry read is best effort
+            est_info = {}
+        established = list(normalise_modulo(established, subj, canon)) + sorted(est_info)
     res = _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
                         base_notes, canon, links_of, exists, tags_of)
+    if est_info:
+        res["established_inputs"] = [dict(est_info[k], input=k) for k in sorted(est_info)]
     res["anomalies"] = dep_notes + list(res.get("anomalies") or [])
     if not is_reword(rec_a) and not (is_amend(rec_a) or is_amend(rec_b)):
         res = decide_items(res, rec_a, rec_b, established, primary, producer_role,
@@ -2187,12 +2261,21 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
                                         | set(r_dropped))
     res["kept_definitions"] = kept
     mod = sorted((set(base_res["modulo"]) - set(base_kept)) | set(r_rest) | set(kept))
+    # #133: the base pass's modulo is the base's view of its inputs; an input established
+    # now (registry proved on its current statement, a matching card, --established) is
+    # no longer open, so it is dropped here and, when none remains, R proposes proved
+    gone = sorted(m for m in mod if m in established)
+    mod = [m for m in mod if m not in established]
+    res["established_dropped"] = gone
     base_recs = [base_a, base_b]
     how = ("reword run CONFIRMED (%s) on base pass %s%s, %s on %s"
            % (scope, rec_r.get("base_pass"),
               (" of %s" % rec_r["base_subject"]) if rec_r.get("base_subject") else "",
               ("a confirmed reword pass (chain %s)" % " -> ".join(res["chain"])) if link
               else "CONFIRMED x2", rec_r.get("base_hash")))
+    if gone:
+        how += "; inputs established now, dropped from the carried modulo: %s" \
+            % ", ".join(gone)
     if not mod:
         res["outcome"] = "confirmed"
         res["proposed_status"] = "proved"
@@ -2480,6 +2563,11 @@ def _text(res):
         out.append("modulo: %s" % ", ".join(res["modulo"]))
     if res["pending_inputs"]:
         out.append("pending inputs: %s" % ", ".join(res["pending_inputs"]))
+    if res.get("established_dropped"):
+        out.append("established now, dropped from the carried modulo: %s"
+                   % ", ".join(res["established_dropped"]))
+    for i in res.get("established_inputs") or ():
+        out.append("established (registry): %s %s" % (i["input"], i.get("status") or ""))
     for opt in res.get("modulo_options") or ():
         out.append("option %s: modulo %s" % (opt["label"],
                                              ", ".join(opt["modulo"]) or "none"))
@@ -2557,6 +2645,9 @@ def main(argv=None):
                     help="a reword run (mode: reword): the base pass folder (default: the "
                          "sibling folder its base_pass names, under its base_subject's "
                          "folder when it names one)")
+    ap.add_argument("--no-registry", action="store_true",
+                    help="do not read the registry for inputs established now (#133): go "
+                         "by --established alone")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     try:
@@ -2575,7 +2666,8 @@ def main(argv=None):
         return 2
     res = decide(ra, rb, _split_list(args.established), args.primary, args.producer_role,
                  base=base, base_notes=notes, exists=registry_exists,
-                 links_of=registry_links, items_of=registry_items)
+                 links_of=registry_links, items_of=registry_items,
+                 established_of=None if args.no_registry else registry_established)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):

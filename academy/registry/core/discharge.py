@@ -150,6 +150,32 @@ def resolve_input(item, own_ns, repo):
     return out
 
 
+def established_now(item, own_ns, repo):
+    """``resolve_input`` of one input, held to the input's **current** statement (#133):
+    a ``proved`` record whose statement changed after its last positive review pass
+    (``core.stale``: its status shows as ``proved (stale)``) is not established for a
+    new proposal, so ``established`` turns False and ``why`` says so. The decision
+    table's conclude step reads the registry through this, never a rule of its own."""
+    out = resolve_input(item, own_ns, repo)
+    if not out["established"] or out["status"] != "proved" or not out["id"]:
+        return out
+    try:
+        from . import stale
+        ns, rid = federation.split(out["id"])
+        store = federation.store_from(ns, repo)
+        root = stale.reviews_root(repo)
+        hit = [i for i in stale.find(store, root, {rid}) if i.get("kind") == "stale"] \
+            if store is not None and root is not None else []
+    except Exception:          # noqa: BLE001 -- no review library: the status stands
+        hit = []
+    if hit:
+        out.update(established=False,
+                   why="%s is proved on an earlier statement (hash %s, now %s): stale "
+                       "until a reword pass lands" % (out["id"], hit[0].get("pass_hash"),
+                                                      hit[0].get("hash")))
+    return out
+
+
 def modulo_of(store, rid):
     """The record's ``modulo`` list ([] when none), or None for a schema-v1 record."""
     kb = getattr(store, "kb", None)

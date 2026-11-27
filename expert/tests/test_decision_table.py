@@ -828,6 +828,156 @@ class RewordChainTests(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class EstablishedAtConcludeTests(unittest.TestCase):
+    """#133: a reword pass carried the base pass's modulo over, so a proposal named an
+    input that the registry already showed proved (four proposals on one day, three of
+    them lowering a proved claim). The table now reads the registry at conclude time
+    (``established_of``; the CLI's ``registry_established``) and drops what is
+    established now; R proposes proved when nothing remains."""
+
+    P1 = RewordChainTests.P1
+
+    def base(self, modulo):
+        return rec("CONFIRMED", modulo=modulo), rec("CONFIRMED", run="B", modulo=modulo)
+
+    def est(self, *proved):
+        seen = []
+
+        def of(items, subject):
+            seen.append((list(items), subject))
+            return {i: {"id": i, "status": "proved", "why": ""} for i in items if i in proved}
+        of.seen = seen
+        return of
+
+    def check_proved(self, r):
+        self.assertEqual((r["outcome"], r["proposed_status"], r["modulo"]),
+                         ("confirmed", "proved", []))
+        self.assertTrue(r["recolour"])
+        self.assertNotIn("modulo", r["grounds"])
+        ok, why = ex.mcp_module("claims").check_grounds("proved", r["grounds"], r["grounds"]
+                                                         ["statement_hash"])
+        self.assertTrue(ok, why)
+
+    def test_carried_base_input_proved_now_proposes_proved(self):
+        # shape 1: the blind base pass said modulo X; X has been proved since
+        of = self.est("paper:prop:compact-conical-finite")
+        r = dt.decide(rwrec(), base=self.base("paper:prop:compact-conical-finite"),
+                      established_of=of)
+        self.check_proved(r)
+        self.assertEqual(r["established_dropped"], ["paper:prop:compact-conical-finite"])
+        self.assertEqual([i["input"] for i in r["established_inputs"]],
+                         ["paper:prop:compact-conical-finite"])
+        self.assertIn("paper:prop:compact-conical-finite", of.seen[0][0])
+        self.assertEqual(of.seen[0][1], "paper:lem:x")
+        self.assertIn("dropped from the carried modulo", dt._text(r))
+
+    def test_unqualified_input_is_read_canonically(self):
+        # shape 2: the base runs wrote the label without its namespace
+        of = self.est("paper:fact:unfolding-properties")
+        r = dt.decide(rwrec(), base=self.base("fact:unfolding-properties"),
+                      established_of=of)
+        self.check_proved(r)
+
+    def test_input_carried_down_a_reword_chain(self):
+        # shape 3: the input sits in the blind root's modulo under a confirmed reword link
+        a, b = self.base("paper:lem:dihedral-structure-group")
+        r1 = dict(rwrec(), **{"pass": self.P1,
+                              "file": "reviews/paper/lem-x/%s/R.md" % self.P1,
+                              "_base": (a, b, [])})
+        r2 = rwrec(base_pass=self.P1, base_hash="def456", h="ghi789", run_id="rv-R2")
+        r = dt.decide(r2, base=(r1, None),
+                      established_of=self.est("paper:lem:dihedral-structure-group"))
+        self.check_proved(r)
+        self.assertEqual(len(r["chain"]), 2)
+
+    def test_input_named_by_the_reword_run_itself(self):
+        # shape 4: R lists the input (proved on the human's word); the base had none
+        r = dt.decide(rwrec(modulo="paper:lem:polar-decomposition"), base=self.base("none"),
+                      established_of=self.est("paper:lem:polar-decomposition"))
+        self.check_proved(r)
+
+    def test_only_the_open_inputs_stay(self):
+        r = dt.decide(rwrec(), base=self.base("paper:lem:a, paper:lem:b"),
+                      established_of=self.est("paper:lem:a"))
+        self.assertEqual((r["outcome"], r["proposed_status"], r["modulo"]),
+                         ("confirmed-modulo", "proved-modulo", ["paper:lem:b"]))
+        self.assertEqual(r["grounds"]["modulo"], ["paper:lem:b"])
+        self.assertEqual(r["established_dropped"], ["paper:lem:a"])
+        self.assertEqual(r["pending_inputs"], ["paper:lem:b"])
+
+    def test_nothing_established_keeps_the_carried_modulo(self):
+        r = dt.decide(rwrec(), base=self.base("paper:lem:a"), established_of=self.est())
+        self.assertEqual((r["outcome"], r["modulo"]), ("confirmed-modulo", ["paper:lem:a"]))
+        # an unreadable registry (the hook raising) is the same as nothing established
+        def boom(items, subject):
+            raise OSError("no registry")
+        r = dt.decide(rwrec(), base=self.base("paper:lem:a"), established_of=boom)
+        self.assertEqual(r["modulo"], ["paper:lem:a"])
+
+    def test_the_established_option_drops_too(self):
+        r = dt.decide(rwrec(), base=self.base("paper:lem:a"), established=["lem:a"])
+        self.check_proved(r)
+
+    def test_amend_reads_the_registry_too(self):
+        a = rec("CONFIRMED", modulo="paper:lem:a")
+        a["add_dependency"] = ["paper:lem:d"]
+        b = rec("CONFIRMED", run="B", modulo="paper:lem:a")
+        b.update(mode="amend", base_pass=a.get("pass"), base_hash="abc123",
+                 amended_with=["paper:lem:d"], add_dependency=[])
+        r = dt.decide(a, b, established_of=self.est("paper:lem:a", "paper:lem:d"))
+        self.assertEqual((r["mode"], r["outcome"], r["proposed_status"]),
+                         ("amend", "confirmed", "proved"))
+        r = dt.decide(a, b, established_of=self.est("paper:lem:a"))
+        self.assertEqual((r["outcome"], r["pending_inputs"]),
+                         ("confirmed-modulo", ["paper:lem:d"]))
+
+
+class RegistryEstablishedTests(unittest.TestCase):
+    """#133: ``registry_established`` reads the discharge's rule from a real registry."""
+
+    LAB = ("---\nid: lab:{id}\nkind: claim\ntitle: t {id}\nstatus: {status}\n"
+           "lifecycle: active\nevidence:\n  - verdict | reviews/{id}/A.md | CONFIRMED | "
+           "rv-a-{id} | grader rigor-reviewer\n  - verdict | reviews/{id}/B.md | CONFIRMED"
+           " | rv-b-{id} | grader rigor-reviewer\nhistory:\n  - 2026-11-20 | {status} | "
+           "proof review\n---\nBody {id}.\n")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, True)
+        lab = os.path.join(self.tmp, "LabHome")
+        os.makedirs(os.path.join(lab, "claims", "lab"))
+        for cid, st in (("in-a", "proved"), ("in-b", "sketch"), ("in-c", "proved-modulo")):
+            with open(os.path.join(lab, "claims", "lab", cid + ".md"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(self.LAB.format(id=cid, status=st))
+        ws = os.path.join(self.tmp, "workspace.json")
+        with open(ws, "w", encoding="utf-8") as fh:
+            json.dump({"board": os.path.join(self.tmp, "board"), "instances": {
+                "scientist@t": {"role": "scientist", "home": lab, "ns": "lab"}}}, fh)
+        from unittest import mock
+        p = mock.patch.dict(os.environ, {"ACADEMY_WORKSPACE": ws})
+        p.start()
+        self.addCleanup(p.stop)
+        self._clear()
+        self.addCleanup(self._clear)
+
+    def _clear(self):
+        try:
+            import registry
+            registry.clear_cache()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def test_only_proved_inputs_are_established(self):
+        got = dt.registry_established(["lab:in-a", "lab:in-b", "lab:in-c", "free text"],
+                                      "lab:x")
+        self.assertEqual(sorted(got), ["lab:in-a"])
+        self.assertEqual(got["lab:in-a"]["status"], "proved")
+
+    def test_unknown_namespace_reads_nothing(self):
+        self.assertEqual(dt.registry_established(["zz:a"], "zz:x"), {})
+
+
 class RewordBaseSubjectTests(unittest.TestCase):
     """T-0476: a reword run on a renamed record names the base pass's subject
     (``base_subject``, the superseded id) and the table reads the base there."""

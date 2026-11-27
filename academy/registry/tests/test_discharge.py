@@ -287,6 +287,24 @@ class Discharge(unittest.TestCase):
         self.assertEqual(got, {"s1:GEO-5", "lab:z", "lab:mid"})
 
     # -- the grounds gate ----------------------------------------------------
+    def test_established_now_holds_a_proved_input_to_its_current_statement(self):
+        # #133: the decision table's conclude step reads inputs through this
+        from unittest import mock
+        from registry.core import stale
+        a = discharge.established_now("lab:in-a", "lab", str(self.lab))
+        self.assertTrue(a["established"], a)
+        self.assertFalse(discharge.established_now("lab:mid", "lab", str(self.lab))
+                         ["established"])
+        self.assertTrue(discharge.established_now("lab:defn-n", "lab", str(self.lab))
+                        ["established"])
+        hit = [{"kind": "stale", "id": "in-a", "hash": "new", "pass_hash": "old"}]
+        with mock.patch.object(stale, "reviews_root", return_value=self.lib), \
+                mock.patch.object(stale, "find", return_value=hit) as find:
+            a = discharge.established_now("lab:in-a", "lab", str(self.lab))
+        self.assertFalse(a["established"])
+        self.assertIn("stale", a["why"])
+        self.assertEqual(find.call_args[0][2], {"in-a"})
+
     def test_check_grounds_on_discharge_grounds(self):
         ok = {"input": "lab:a", "id": "lab:a", "status": "proved"}
         cases = (({"basis": "discharge", "modulo": ["lab:a"], "inputs": [ok]}, "proved", True),
