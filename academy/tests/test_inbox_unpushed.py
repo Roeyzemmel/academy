@@ -195,6 +195,56 @@ class RefusalTests(Base):
         self.board = keep
 
 
+class RunBranchTests(Base):
+    """#102: a run's tickets share one branch, ``<date>/run-<run>/<role>``, which does not
+    name the ticket; its commit carries the tag ``ticket/<T-NNNN>/<n>``, and the scan finds
+    the ticket's work through it."""
+
+    RUN_BRANCH = "2026-11-27/run-inbox-scientist-t-20261127t231500-ab12/scientist"
+
+    def tagged(self, repo, tid, n=1, name=None):
+        self.commit(repo, name or "%s.py" % tid.lower())
+        run(repo, "tag", "-a", "-m", tid, "ticket/%s/%d" % (tid, n), "HEAD")
+
+    def test_a_tickets_commit_on_an_unpushed_run_branch_is_found_by_its_tag(self):
+        self.put("T-0007")
+        wt = self.worktree(self.RUN_BRANCH, repo=self.lab)
+        self.tagged(wt, "T-0007")
+        code, out, err = self.check()
+        self.assertEqual(code, 3, out + err)
+        self.assertIn("lab %s unpushed=1 dirty=0" % self.RUN_BRANCH, out)
+        self.assertIn("py scripts/ship.py push lab --repo %s" % wt, out)
+
+    def test_a_run_branch_in_the_main_checkout_is_pushed_from_there(self):
+        self.put("T-0007")
+        run(self.lab, "switch", "-q", "-c", self.RUN_BRANCH)
+        self.tagged(self.lab, "T-0007")
+        code, out, err = self.check()
+        self.assertEqual(code, 3, out + err)
+        self.assertIn("lab %s unpushed=1 dirty=0" % self.RUN_BRANCH, out)
+        self.assertIn("-> py scripts/ship.py push lab\n", out + "\n")
+
+    def test_pushed_it_is_delivered_and_a_later_tickets_commit_does_not_hold_it(self):
+        self.put("T-0007")
+        wt = self.worktree(self.RUN_BRANCH, repo=self.lab)
+        self.tagged(wt, "T-0007")
+        run(wt, "push", "-q", "origin", self.RUN_BRANCH)
+        self.tagged(wt, "T-0008")                            # the run's next ticket, unpushed
+        with open(os.path.join(wt, "later.py"), "w") as f:
+            f.write("in progress\n")                     # and its work in progress
+        code, out, err = self.check()
+        self.assertEqual(code, 0, out + err)
+        self.assertNotIn("unpushed", out)
+        found = core.unpushed_branches(self.root, "T-0008")
+        self.assertEqual([(f["label"], f["branch"], f["unpushed"]) for f in found],
+                         [("lab", self.RUN_BRANCH, 1)])
+
+    def test_the_tag_of_another_ticket_does_not_count(self):
+        self.put("T-0007")
+        self.tagged(self.worktree(self.RUN_BRANCH, repo=self.lab), "T-0070")
+        self.assertEqual(self.check()[0], 0)
+
+
 class PatternTests(unittest.TestCase):
     def test_names_that_name_the_ticket(self):
         hit = core.ticket_branch_re("T-0007")

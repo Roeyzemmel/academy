@@ -85,6 +85,28 @@ class ShipGuard(unittest.TestCase):
         self.assertIsNone(self.decide("git commit -m x", cwd=self.sub, ws=off))
         self.assertIsNone(self.decide("git commit -m x", cwd=self.sub, ws={"instances": {}}))
 
+    def test_ticket_tags_are_ship_pys_and_its_own_tag_push_passes(self):
+        # #102: a checkpoint tags each ticket's commit ticket/<id>/<n> and pushes the tag
+        # with the run branch; it runs git as a subprocess, so the guard never sees it
+        for cmd in ("py scripts/ship.py checkpoint --ticket T-0001 --role human --only sub "
+                    "--run inbox-x-20261127T101010-ab12",
+                    "py scripts/ship.py tickets sub",
+                    "git tag -l 'ticket/*'", "git tag --list", "git tag", "git tag v1",
+                    "git tag -n9 -l ticket/T-0001/1", "git show ticket/T-0001/1",
+                    "git tag --contains HEAD", "git tag --points-at HEAD"):
+            self.assertIsNone(self.decide(cmd, cwd=self.sub), cmd)
+        # by hand, a ticket tag is not made, moved or deleted; a tag push is a push
+        for cmd in ("git tag ticket/T-0001/1", "git tag -a ticket/T-0001/1 -m x HEAD",
+                    "git tag -f ticket/T-0001/1", "git tag -d ticket/T-0001/2",
+                    "git -C sub tag -a -m x ticket/T-0002/1"):
+            v = self.decide(cmd, cwd=self.root if cmd.startswith("git -C") else self.sub)
+            self.assertIsNotNone(v, cmd)
+            self.assertEqual(v[0], "deny")
+            self.assertIn("ship.py checkpoint", v[1], cmd)
+        for cmd in ("git push origin ticket/T-0001/1", "git push --tags", "git push --follow-tags"):
+            self.assertEqual(self.decide(cmd, cwd=self.sub)[0], "deny", cmd)
+        self.assertIsNone(self.decide("git tag ticket/T-0001/1", cwd=self.scratch))
+
 
 if __name__ == "__main__":
     unittest.main()

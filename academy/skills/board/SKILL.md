@@ -40,6 +40,7 @@ files: `git status --porcelain -- <board>`), run
 `py scripts/ship.py checkpoint --ticket <the ticket in hand, else board-sync> --role human
 --title "board: <n> change(s)" --only board`. It commits only the board's paths (a plain
 directory of the workspace, or the board submodule) on a `<date>/<ticket>/human` branch
-and pushes that branch; a dirty board on `main` is refused: then
+(no `--run`: the ticket's own branch, not a run's; a ticket id's commit is also tagged
+`ticket/<id>/<n>`) and pushes it; a dirty board on `main` is refused: then
 `py scripts/ship.py start board <topic>` first, and run it again. Never stash. Print its
 output as it is and report the branch and commit, or "nothing to commit".
