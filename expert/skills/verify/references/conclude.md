@@ -113,6 +113,31 @@ the substitution in the ticket thread and the record. A run on any of the gradin
 primaries (`grading.primaryModels`, roster-rules.md) counts in full; a run on any other
 model the table reads as PLAUSIBLE, so nothing is proposed on it.
 
+## 1-items. A structured record: the decision per item (#127)
+
+A record with `items` (`registry.py statement <id> --items` lists them with their
+hashes) is reviewed per item: the brief lists its hypotheses H1, H2, ... and its items,
+and each run's verdict block carries `items: C1 CONFIRMED; C2 CONFIRMED modulo X; C3
+GAP` and `hypotheses_used:` (the reviewer's brief says how). The script decides each
+item from the two runs' entries by the same table (`items.<key>` in its JSON) and
+derives the whole outcome: every item `confirmed` -> `confirmed`; every item
+`confirmed` or `confirmed-modulo` -> `confirmed-modulo`, modulo the union; an item still
+awaiting B -> `awaiting-b` (`launch_b`: A CONFIRMED on at least one item launches B,
+which reviews every item); otherwise `per-item`: no whole status, and
+`proposed_items` gives the status of each item that has one. So a GAP on one item holds
+only that item: its repair is filed from `file_items` (each names its `item`), and the
+other items are proposed as decided. A run without `items:` on a structured record:
+the table decides on the whole statement and says so (`items_note`).
+
+Each item's grounds (`items.<key>.grounds`) carry `item` and `item_hash` (the item's
+hash now; absent, with an anomaly, when the statement moved since the runs: re-verify).
+Propose per item: one `claims_propose_status {id, item: <key>, status, grounds:
+<that item's grounds>}` per entry of `proposed_items`; the keeper sets each item and the
+record's status follows from them. With a `confirmed` / `confirmed-modulo` whole
+outcome the whole grounds still serve (`claims_propose_status` without `item` sets every
+item at once). An unused hypothesis (`hypotheses_used` missing one) is a finding for the
+record's `decision.md` and a `prove` ticket (class `hypothesis`) to the Researcher.
+
 ## 1a. The falsifier, on a GAP verdict
 
 The human's design (2026-11-20, as revised the same day): a falsifier (an experiment or
@@ -231,6 +256,12 @@ card whose verdict is `match` and whose hypotheses cover the use. So first list 
 inputs both runs name and mark each one: `proved`, `verified citation`, `sketch` /
 `conjectured` / `open` (its status), `uncited folklore`, `cached but no card`,
 `uncitable`. The script then decides whether the recolour is earned; you do not.
+The script also reads the registry itself at conclude time (#133): every input the runs,
+a reword's base chain or an amend suggestion name that is established **now** (a
+`proved` record on its current statement, a `match` card, a notation-only definition:
+the discharge's rule) counts as if you had listed it, and is reported in
+`established_inputs`. `--established` adds what the registry cannot show; never pass
+`--no-registry` in a conclude.
 
 **The definition rule** (the human's ruling of 2026-11-20 on #103, replacing T-0148): a
 definition in a CONFIRMED run's modulo list **is an input**, giving `proved-modulo`,
@@ -412,9 +443,17 @@ does not require a new proof from scratch". The design chosen: one informed run.
 `decision.md` records `confirmed` or `confirmed-modulo` on the old hash, and the proof is
 unchanged or changed only in wording. Typically: a wording finding, a notation pass, a
 restatement that drops a redundant hypothesis. **Not** when the proof changed in
-substance, when the base pass was anything but CONFIRMED x2, or when the rewording
+substance, when the base pass was anything but confirmed, or when the rewording
 answers a hypothesis / statement / proof finding: those take a full blind pass
 (sections 0-6).
+
+**The base is the last confirmed pass** (#127, the human's ruling of 2026-11-27, verbatim:
+"Rewording in general should have the previous confirmed statement as reference"): a
+blind CONFIRMED x2 pass, or a reword pass whose run R the table confirms. A reword on a
+reword compares the wording that last pass confirmed (its R's `statement_hash`) with the
+statement now, so the diff is the last step only; the chain of reword passes must end in
+a blind CONFIRMED x2 pass (`reviews.py` and the table follow it back; a broken link, a
+GAP or `exceeds` link, or a hash that does not match refuses).
 
 **Steps** (`$E` as above; scratch files in the session scratchpad, never under
 `reviews/`):
@@ -422,15 +461,18 @@ answers a hypothesis / statement / proof finding: those take a full blind pass
 1. Take the ticket as in section 0. The cost is one reviewer run plus you.
 2. Recover the statement **as the base pass reviewed it** (its `decision.md` names
    which file and label; `git show <commit>:<file>` from the commit before the
-   rewording) into `old.txt`, in the form the base pass hashed (the engine's text: a
+   rewording; for a reword base, the wording its R confirmed, not the first one) into `old.txt`, in the form the base pass hashed (the engine's text: a
    notebook record's `## Statement` section with its heading line, a paper label's
    whole environment; a base pass pinned before T-0464 may have hashed the body alone,
    see "Passes pinned on a hand-copied extract" in section 0). `py $E/reviews.py hash --file old.txt` must equal the base runs'
-   `statement_hash`. The current statement needs no file: `reword-brief` takes it from
+   `statement_hash` (a reword base's: its R's). The current statement needs no file: `reword-brief` takes it from
    the registry, and its hash is `py $E/reviews.py hash --claim <id>`.
 3. Open the pass: `py $E/reviews.py new-pass <id> --reword-of <base pass> --ticket
    T-NNNN`. It refuses unless the base pass is CONFIRMED x2 (by its own table) and not
-   abandoned; the name ends in `-reword`.
+   abandoned, or a reword pass the table confirms on its chain back to one; the name
+   ends in `-reword`. Its `.open` note records `reword_of`, `base_hash` (the hash the
+   base confirmed), the chain's blind `root_pass` / `root_hash` and `chain`; for a
+   reword base the bundle gives `root_pass` and `root_hash` too, which R copies.
 4. Write the bundle: `py $E/reviews.py reword-brief <id> <pass> --old-file old.txt
    --findings <file or "T-NNNN: one line"> ... --out
    <scratch>/bundle.md`. It refuses when `old.txt` is not the reviewed statement or the
@@ -450,25 +492,34 @@ answers a hypothesis / statement / proof finding: those take a full blind pass
    CONFIRMED x2 base pass stays in the old id's folder. In step 3 add
    `--base-subject <old id>`: `py $E/reviews.py new-pass <new id> --reword-of <base
    pass> --base-subject <old id> --ticket T-NNNN`. It refuses unless the new record
-   lists `<old id>` in `supersedes`; the pass opens under the new id and notes
+   supersedes `<old id>`, directly or through the records it supersedes (a chain of
+   renames, #127); the pass opens under the new id and notes
    `base_subject`. `reword-brief <new id> <pass> ...` then reads the base from the old
    id's folder and puts `base_subject: <old id>` into the lines R copies; the table
    (step 6) reads the base there, and its grounds carry `base_subject`, which
    `set-status` accepts only for a record that supersedes that id.
 6. The table: `py $E/decision_table.py "<pass dir>/R.md" --established <ids> --json`.
    It finds the base pass beside the reword pass (`--base-dir` overrides) and recomputes
-   the base's table. Outcomes:
+   the base's table; for a reword base, that link's table on its own base, back to the
+   blind root. Outcomes:
    - `confirmed` / `confirmed-modulo`: propose `proved` / `proved-modulo` with the
-     script's grounds (`mode: reword`, the reword row first, then the base rows); the
-     recolour is earned as in the normal table. The base pass's modulo is carried over,
-     plus any input R adds.
+     script's grounds (`mode: reword`, the reword row first, then the base rows: on a
+     chain, every link's row newest first, then the root's two, with `root_pass`,
+     `root_hash` and `chain`); the recolour is earned as in the normal table. The base
+     pass's modulo is carried over (a reword base's includes its own base's), plus any
+     input R adds, **less every input established now** (#133, `established_dropped`):
+     a carried input the registry shows proved on its current statement is dropped, and
+     with none left the proposal is `proved` with no modulo. Never re-add a dropped
+     input by hand, and never propose `proved-modulo` on a claim that is already
+     `proved` when the script proposes `proved`.
    - `full-pass-needed` (R is GAP, or `reword_scope: exceeds`): no status. Write the
      record, then open a **fresh blind pass** on the new statement (section 0, a new
      `new-pass` without `--reword-of`); its brief says nothing of R.
    - `disproved`: the counterexample to the human at once, as in section 4.
    - `degraded`: re-run R on a primary. `incomplete`: relaunch R once.
-   - `invalid-base`: no status; the anomalies say why (base missing or not confirmed,
-     `base_hash` not the base runs' hash, an unchanged statement, a shared run id, base
+   - `invalid-base`: no status; the anomalies say why (base missing or not confirmed, a
+     broken link of the chain, `base_hash` not the base runs' hash (a reword base's: its
+     R's), an unchanged statement, a shared run id, base
      runs about another id than the reword run's subject or its `base_subject`).
 7. The record `<pass dir>/decision.md` (section 3), naming the base pass, both hashes,
    the word diff and `reword_scope`. Evidence: one row for R.md (section 4.1); the base

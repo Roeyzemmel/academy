@@ -5,7 +5,6 @@ model: opus
 tier: large
 effort: high
 fallback: sonnet
-maxTurns: 40
 tools: Read, Grep, Glob, Bash, PowerShell, Edit, Write, Skill, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_list, mcp__plugin_academy_academy__claims_deps, mcp__plugin_academy_academy__claims_new, mcp__plugin_academy_academy__domain_get, mcp__plugin_academy_academy__config_get, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__library_search, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_list, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__tickets_update, mcp__plugin_academy_academy__packets_get, mcp__academy__claims_show, mcp__academy__claims_list, mcp__academy__claims_deps, mcp__academy__claims_new, mcp__academy__domain_get, mcp__academy__config_get, mcp__academy__library_lookup, mcp__academy__library_search, mcp__academy__tickets_get, mcp__academy__tickets_list, mcp__academy__tickets_create, mcp__academy__tickets_update, mcp__academy__packets_get
 skills: [academy:rigor, academy:status-vocabulary, academy:citation-discipline, academy:notation-discipline, academy:honest-reporting, author:paper-method]
 color: blue
@@ -59,7 +58,10 @@ its lines). Read anything else with `offset` and `limit` from those numbers.
   one-line ask, which is what `/academy:decide` shows), and this ticket `blocked`,
   `waiting_on: [<that id>]`. A change the human decided that needs an argument (it adds
   or drops a hypothesis, removes an exception): make it in the conjecture colour and file
-  the `research` ticket. Deliver with the answer as the one-line result.
+  the `research` ticket. Deliver with the answer as the one-line result. A ticket with
+  a `decision_choice` was already answered by the human on `/academy:decide` (an
+  alternative, or `proceed`): do what it says, and never block it on the human or file a
+  `decision` ticket for that same choice again (#86).
 - A ticket asking for an illustration is not yours: report it for `figure-maker`.
 
 **Rules that override everything else**

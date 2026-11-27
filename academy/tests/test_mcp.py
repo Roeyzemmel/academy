@@ -584,7 +584,7 @@ class TestTickets(McpTestBase):
         self.assertTrue(err)
         self.assertIn("in-progress -> delivered -> closed", msg)
         self.assertIn("from in-progress you may move it to: accepted, blocked, delivered, "
-                      "rejected", msg)
+                      "partial, rejected", msg)
         self.assertEqual(before, self._ticket_file(tid))
 
     def test_a_multi_line_result_keeps_its_first_line_and_fills_the_body(self):
@@ -753,6 +753,89 @@ class TestLibrary(McpTestBase):
             self.assertIn("library_verify_quote", fh.read())
         with open(os.path.join(self.homes["expert@t"], ".academy", ".gitignore")) as fh:
             self.assertIn("*", fh.read())
+
+    def test_verify_quote_against_what_a_human_supplied(self):
+        # #108: a source no session could read is handed back by a human: a pasted text (an
+        # entry of <key>.human.md, with its digest) or a file (in <key>.human/, recorded in the
+        # register with the digest of its bytes and of its extracted text); a quote is checked
+        # against each sound record on its own
+        home = self.homes["expert@t"]
+        t1 = "Lemma 4.1. Every saddle con-\nnection is the boundary of a cylinder."
+        t2 = "On page nine the surface is a torus with n² squares."
+        write(os.path.join(home, "K4.human", "2026-11-21-t-0003-scan.txt"),
+              "Theorem 2. Any two points are finitely blocked.\n")
+        write(os.path.join(home, "K4.human", "2026-11-21-t-0003-scan.pdf"), "%PDF")
+        write(os.path.join(home, "K4.human", "stray.txt"), "A stray text nobody recorded here.\n")
+        d = os.path.join(home, "K4.human")
+        write(os.path.join(home, "K3.human.md"),
+              "---\nkey: K3\n---\n\n# K3\n\n"
+              '<!-- hand-back begin ticket="T-0001" date="2026-11-21" pinpoint="Lemma 4.1" hash="%s" -->\n'
+              "%s\n<!-- hand-back end -->\n\n"
+              '<!-- hand-back begin ticket="T-0002" date="2026-11-21" pinpoint="p. 9" hash="%s" -->\n'
+              "%s\n<!-- hand-back end -->\n\n"
+              '<!-- hand-back begin ticket="T-0005" pinpoint="p. 10" hash="%s" -->\n'
+              "Tampered: every surface is a torus.\n<!-- hand-back end -->\n"
+              % (lib.text_digest(t1), t1, lib.text_digest(t2), t2, lib.text_digest("Every surface is a sphere.")))
+        write(os.path.join(home, "K4.human.md"),
+              '<!-- hand-back file ticket="T-0003" path="K4.human/2026-11-21-t-0003-scan.pdf" sha256="%s" '
+              'text="K4.human/2026-11-21-t-0003-scan.txt" text_sha256="%s" -->\n'
+              % (lib.file_digest(os.path.join(d, "2026-11-21-t-0003-scan.pdf")),
+                 lib.file_digest(os.path.join(d, "2026-11-21-t-0003-scan.txt"))))
+        s = self.server("author@t")
+        err, res = s.call("library_verify_quote", key="K3",
+                          quote="Every saddle connection is the boundary of a cylinder.")
+        self.assertFalse(err, res)
+        self.assertTrue(res["match"], res)
+        self.assertIn("K3.human.md entry 1", res["source"])
+        self.assertIn("T-0001", res["source"])
+        err, res = s.call("library_verify_quote", key="K3", quote="Every saddle connection is a torus")
+        self.assertFalse(res["match"])
+        # one quote is from one hand-back
+        err, res = s.call("library_verify_quote", key="K3",
+                          quote="the boundary of a cylinder. On page nine the surface")
+        self.assertFalse(res["match"])
+        # the markers are not the human's text; an entry edited after it was recorded is not used
+        err, res = s.call("library_verify_quote", key="K3", quote='hand-back begin ticket="T-0001"')
+        self.assertFalse(res["match"])
+        err, res = s.call("library_verify_quote", key="K3", quote="every surface is a torus")
+        self.assertFalse(res["match"], res)
+        # the narrow fold: n² is not n2 in a human's text
+        err, res = s.call("library_verify_quote", key="K3", quote="a torus with n2 squares")
+        self.assertFalse(res["match"], res)
+        err, res = s.call("library_verify_quote", key="K3", quote="a torus with n² squares")
+        self.assertTrue(res["match"], res)
+        err, res = s.call("library_verify_quote", key="K4", quote="Any two points are finitely blocked.")
+        self.assertTrue(res["match"], res)
+        self.assertIn("K4.human/2026-11-21-t-0003-scan.txt", res["source"])
+        err, res = s.call("library_verify_quote", key="K4", quote="A stray text nobody recorded")
+        self.assertFalse(res["match"], res)                         # a file no record names
+        err, lk = s.call("library_lookup", key="K4")
+        self.assertEqual(lk["human"], ["K4.human.md", "K4.human/2026-11-21-t-0003-scan.pdf",
+                                       "K4.human/2026-11-21-t-0003-scan.txt"])
+        self.assertNotIn("note", lk)
+        recs = lib.handback_records(home, "K3")
+        self.assertEqual([r["ok"] for r in recs], [True, True, False])
+        self.assertIn("does not match its hash", recs[2]["problem"])
+        # a recorded file replaced afterwards is not used
+        write(os.path.join(d, "2026-11-21-t-0003-scan.txt"), "Theorem 2. Any two points are finitely blocked, forged.\n")
+        err, res = s.call("library_verify_quote", key="K4", quote="Any two points are finitely blocked")
+        self.assertTrue(err, res)               # no sound record with a text is left: nothing to verify against
+
+    def test_handbacks_parsed_verbatim(self):
+        text = ('<!-- hand-back begin ticket="T-0001" pinpoint="Lemma \\"4.1\\"" -->\n'
+                "  two\n\nparagraphs  \n<!-- hand-back end -->\n"
+                '<!-- hand-back file ticket="T-0002" path="K.human/a.png" sha256="sha256:00" -->\n')
+        got = lib.parse_handbacks(text)
+        self.assertEqual(len(got), 2)
+        self.assertEqual(got[0]["text"], "  two\n\nparagraphs  ")
+        self.assertEqual(got[0]["attrs"], {"ticket": "T-0001", "pinpoint": 'Lemma "4.1"'})
+        self.assertEqual((got[1]["kind"], got[1]["attrs"]["path"]), ("file", "K.human/a.png"))
+
+    def test_the_narrow_fold(self):
+        self.assertIsNone(lib.find_quote("x₁ in ℝ", "x1 in R", narrow=True))
+        self.assertIsNotNone(lib.find_quote("x₁ in ℝ", "x1 in R"))          # extractions: NFKC, as before
+        self.assertIsNotNone(lib.find_quote("the ﬁnite “nice” set", 'the finite "nice" set', narrow=True))
+        self.assertEqual(lib.text_digest("a\r\n"), "sha256:" + __import__("hashlib").sha256(b"a").hexdigest())
 
     def test_search_lookup_missing(self):
         s = self.server("author@t")
@@ -1517,7 +1600,7 @@ class TestRegistryBackend(McpTestBase):
     def tearDown(self):
         for h in (self.homes["scientist@t"], self.homes["researcher@t"]):
             for d in ("claims", "results", "experiments", "audits", "tools", "computation",
-                      "kb", "site", "STATUS.md", "INDEX.md", "OPEN.md"):
+                      "kb", "site", "STATUS.md", "INDEX.md", "OPEN.md", "notes"):
                 p = os.path.join(h, d)
                 if os.path.isdir(p):
                     shutil.rmtree(p)
@@ -1569,6 +1652,37 @@ class TestRegistryBackend(McpTestBase):
         self.assertTrue(err)
         self.assertIn("computation never establishes", msg)
         self.assertIn("status: supported", self.lab_text())
+
+    def test_set_one_item_of_a_structured_record(self):
+        """#127: claims_set_status with item sets that item; the record's status is
+        derived; claims_show gives the items with their hashes."""
+        lab = self.homes["scientist@t"]
+        write(os.path.join(lab, "notes", "st.md"), "n\n")
+        path = os.path.join(lab, "claims", "lab", "st.md")
+        write(path, "---\nid: lab:st\nkind: claim\ntitle: two parts\nstatus: sketch\n"
+                    "lifecycle: active\nhypotheses:\n  H1: compact\nitems:\n"
+                    "  C1: [proved]\n  C2: [sketch]\nevidence:\n"
+                    "  - hand | notes/st.md | - | - | seed\nhistory:\n"
+                    "  - 2026-11-20 | sketch | created\n---\n**H1.** compact.\n\n"
+                    "**C1.** one.\n**C2.** two.\n")
+        s = self.server("researcher@t")
+        err, res = s.call("claims_show", id="lab:st")
+        self.assertFalse(err, res)
+        self.assertEqual(res["structure"]["items"]["C2"]["status"], "sketch")
+        self.assertEqual(len(res["structure"]["items"]["C2"]["hash"]), 16)
+        err, msg = s.call("claims_set_status", id="lab:st", status="proved", item="C9",
+                          grounds={"basis": "human", "quote": "it holds"})
+        self.assertTrue(err)
+        self.assertIn("no item C9", msg)
+        err, res = s.call("claims_set_status", id="lab:st", status="proved", item="C2",
+                          grounds={"basis": "human", "quote": "C2 holds"})
+        self.assertFalse(err, res)
+        self.assertEqual((res["old"], res["record"]), ("sketch", "proved"))
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: proved\n", text)
+        self.assertIn("  C2: [proved]", text)
+        self.assertEqual(res["check"]["exit"], 0, res)
 
     def test_set_status_refused_by_the_record_check(self):
         # the human's word passes, but `refuted-as-stated` without `superseded_by` fails
@@ -1824,15 +1938,43 @@ class TestRegistryBackend(McpTestBase):
             self.assertIn("verdict | reviews/pm/%s.md | CONFIRMED | r%s | grader "
                           "rigor-reviewer" % (r, r), got)        # a v2 record's rows
         self.assertIn("| proved-modulo | proof review (CONFIRMED rA, CONFIRMED rB)", got)
-        # the same verdicts carry it on to proved once the input is in, and modulo goes
+        # the same verdicts do not carry it on to proved by themselves: that is a
+        # discharge (#127), applied by the server once every input is proved
         err, msg = set_to("proved", dict(g, modulo=["lab:ew"]))
         self.assertTrue(err)
-        err, res = set_to("proved", g)
+        err, msg = set_to("proved", g)
+        self.assertTrue(err)
+        self.assertIn("is a discharge", msg)
+        err, msg = set_to("proved", {"basis": "discharge"})
+        self.assertTrue(err)
+        self.assertIn("lab:ew is open", msg)                 # the input is still open
+        self.assertIn("status: proved-modulo", text())
+        # an input that is proved: the discharge writes proved, drops modulo, and adds
+        # one discharge row and a history row; the reviews stay
+        write(os.path.join(lab, "claims", "lab", "pmin.md"),
+              "---\nid: lab:pmin\nkind: claim\ntitle: PM input\nstatus: proved\n"
+              "lifecycle: active\nevidence:\n  - verdict | reviews/pm/A.md | CONFIRMED "
+              "| rA | grader rigor-reviewer\nhistory:\n  - 2026-09-28 | proved | the "
+              "human's word\n---\nBody.\n")
+        write(path, text().replace("  - lab:ew\n", "  - lab:pmin\n"))
+        # the keeper finds it as a `modulo` dependant of the input
+        err, res = s.call("claims_deps", id="lab:pmin", reverse=True)
         self.assertFalse(err, res)
+        self.assertIn(("lab:pm", "modulo"), [(e["from"], e["rel"]) for e in res["edges"]])
+        err, res = set_to("proved", {"basis": "discharge"})
+        self.assertFalse(err, res)
+        self.assertEqual((res["old"], res["new"]), ("proved-modulo", "proved"))
         got = text()
         self.assertIn("status: proved\n", got)
         self.assertNotIn("modulo:", got)
+        self.assertIn("discharge | lab:pmin | proved | - | inputs established", got)
+        self.assertIn("| proved | discharged: inputs lab:pmin proved", got)
         self.assertEqual(got.count("verdict | reviews/pm/A.md"), 1, got)
+        # only claim-keeper (or the human) discharges
+        err, msg = s.call("claims_set_status", caller="researcher:prover", id="lab:pm",
+                          status="proved", grounds={"basis": "discharge"})
+        self.assertTrue(err)
+        self.assertIn("not granted to prover", msg)
 
     def test_s1_set_status(self):
         s = self.server("researcher@t")

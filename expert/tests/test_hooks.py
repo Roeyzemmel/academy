@@ -110,6 +110,27 @@ class LandVerdictTests(unittest.TestCase):
             meta, _ = ac.read_frontmatter(fh.read())
         self.assertEqual(meta["gap_class"], "statement")
 
+    def test_the_items_are_kept_in_the_record(self):
+        """#127: a structured record's per-item reading lands with the run, and the
+        decision table reads it back from the landed file; a block without it lands
+        exactly as before (test_lands_the_record)."""
+        import decision_table as dt
+        text = REPORT.replace("blocking: none", "blocking: none\nitems: C1 CONFIRMED; C2 "
+                              "CONFIRMED modulo paper:lem:y\nhypotheses_used: H1, H2")
+        fixtures.run_script("land_verdict.py", stop_event("expert:rigor-reviewer", text))
+        path = os.path.join(self.pass_dir(), "A.md")
+        with open(path, encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertEqual(meta["items"], "C1 CONFIRMED; C2 CONFIRMED modulo paper:lem:y")
+        self.assertEqual(meta["hypotheses_used"], "H1, H2")
+        r = dt.read_record(path)
+        self.assertEqual(r["items"]["C2"], {"verdict": "CONFIRMED",
+                                            "modulo": ["paper:lem:y"]})
+        self.assertEqual(r["hypotheses_used"], ["H1", "H2"])
+        with open(os.path.join(self.pass_dir(), "A.md"), encoding="utf-8") as fh:
+            self.assertNotIn("items:", REPORT)
+            self.assertIn("items:", fh.read())
+
     def test_idempotent_by_run(self):
         # 2026-10-08: a second landing of the same run made A-2.md duplicates
         for _ in range(2):
@@ -201,6 +222,23 @@ class LandVerdictTests(unittest.TestCase):
         with open(p, encoding="utf-8") as fh:
             meta, _ = ac.read_frontmatter(fh.read())
         self.assertNotIn("base_subject", meta)
+        self.assertNotIn("root_pass", meta)
+        self.assertNotIn("root_hash", meta)
+
+    def test_a_reword_on_a_reword_keeps_its_chain_root(self):
+        """#127: the bundle of a reword on a reword gives root_pass / root_hash; kept."""
+        text = self.REWORD.replace("reword_scope: weaker",
+                                   "root_pass: 2026-09-01-T-0001\nroot_hash: 00112233aabbccdd\n"
+                                   "reword_scope: weaker")
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", text))
+        self.assertEqual(code, 0, err)
+        p = os.path.join(self.sb.lib, "reviews", "paper", "lem-strip-bound",
+                         "2026-10-12-T-0347-reword", "R.md")
+        with open(p, encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertEqual((meta["root_pass"], meta["root_hash"], meta["base_pass"]),
+                         ("2026-09-01-T-0001", "00112233aabbccdd", "2026-09-28-T-0007"))
 
     def test_a_bare_base_subject_blocks(self):
         text = self.REWORD.replace("reword_scope: weaker", "base_subject: lem-strip-bound\n"

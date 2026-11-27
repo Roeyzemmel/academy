@@ -14,7 +14,7 @@ The one part of the Expert's inbox that is not shared (``inbox.py`` wraps the ac
 | research without ``final_to``, or with ``final_to`` the Expert | agent ``research-intake``, read as ``final_to: researcher`` |
 | note | ``human``: a note is for the Author; block with ``waiting_on [human]`` |
 | decision, other | ``human``: block the ticket with ``waiting_on: [human]`` |
-| any other kind | ``reject``: not Expert work; the reason names the role it belongs to and, for Researcher or Scientist work, says to ask through a ``research`` ticket to the Expert with ``final_to`` |
+| any other kind | ``reject``: not Expert work; the reason names the role it belongs to and, for Researcher or Scientist work, says to ask through a ``research`` ticket to the Expert with ``final_to``; for an Author kind (``ac.AUTHOR_KINDS``), says to file it as the Author, as the ``tickets_create`` refusal does (#131) |
 """
 
 import os
@@ -43,8 +43,8 @@ ROUTES = {
 BELONGS = {
     "prove": "researcher", "review-experiment": "researcher", "generalize": "researcher",
     "experiment": "scientist", "test": "scientist", "code": "scientist",
-    "build": "author", "figure": "author",
 }
+BELONGS.update({k: "author" for k in ac.AUTHOR_KINDS})
 #: relay tickets (final_to beyond the Expert) go to the relay of their crossing
 RELAYS = {"researcher": "research-intake", "scientist": "research-intake",
           "author": "paper-liaison"}
@@ -68,4 +68,8 @@ def route(meta):
     why = "a %s ticket is %s work, not Expert work; reject it with that reason" % (kind, role)
     if role in ("researcher", "scientist"):
         why += ("; ask through a research ticket to the Expert with final_to %s" % role)
+    elif role == "author":
+        # no relay carries an Author's own kind: say what tickets_create says (#131)
+        why += ("; it is filed as the Author (instance: the Author, to: the Author), "
+                "not through the Expert")
     return {"how": "reject", "target": None, "why": why}

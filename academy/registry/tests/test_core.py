@@ -491,6 +491,69 @@ class TestRewordBaseSubject(unittest.TestCase):
         why = self.refs(self.grounds(), supersedes=["paper:lem:mid"])
         self.assertIn("does not list in supersedes", " ".join(why))
 
+    def test_supersedes_through_a_chain_of_renames_with_the_lookup(self):
+        # #127: NEW supersedes MID, MID supersedes OLD; with the records' lookup the base
+        # pass of OLD counts for NEW, and an unreadable link ends its branch
+        sup_of = {"paper:lem:mid": ["paper:lem:x"]}.get
+        g = self.grounds()
+        self.assertEqual(grounds.check_verdict_refs(
+            g, lambda ref: self.d / ref, self.NEW_ID, supersedes=["paper:lem:mid"],
+            supersedes_of=sup_of), [])
+        self.assertTrue(grounds.check_verdict_refs(
+            g, lambda ref: self.d / ref, self.NEW_ID, supersedes=["paper:lem:mid"],
+            supersedes_of=lambda i: None))
+        self.assertEqual(grounds.supersedes_closure(
+            self.NEW_ID, ["lem:mid"], {"paper:lem:mid": ["lem:x"]}.get) >= {"paper:lem:x"},
+            True)
+
+    def chain_grounds(self):
+        """#127: A, B and R1 (OLD -> MID) filed under OLD_ID; R2 (MID -> NEW) under the
+        claim, naming base_subject OLD_ID and base pass p2."""
+        write(self.d / "lem-x" / "p2" / "R.md",
+              self.RW.format(s=self.OLD_ID, bs="").replace("statement_hash: NEW",
+                                                           "statement_hash: MID")
+              .replace("run_id: r\n", "run_id: r1\n")
+              .replace("base_pass: 2026-10-01-T-0001", "base_pass: p1"))
+        write(self.d / "cor-x" / "p3" / "R.md",
+              self.RW.format(s=self.NEW_ID, bs="base_subject: %s\n" % self.OLD_ID)
+              .replace("run_id: r\n", "run_id: r2\n").replace("base_hash: OLD",
+                                                               "base_hash: MID")
+              .replace("base_pass: 2026-10-01-T-0001", "base_pass: p2"))
+        rw = {"verdict": "CONFIRMED", "grader_role": "expert", "mode": "reword",
+              "reword_scope": "equivalent"}
+        rows = [dict(rw, run_id="r2", statement_hash="NEW", base_hash="MID",
+                     base_pass="p2", base_subject=self.OLD_ID, ref="cor-x/p3/R.md"),
+                dict(rw, run_id="r1", statement_hash="MID", base_hash="OLD",
+                     base_pass="p1", ref="lem-x/p2/R.md"),
+                {"verdict": "CONFIRMED", "run_id": "a", "grader_role": "expert",
+                 "statement_hash": "OLD", "ref": "lem-x/p1/A.md",
+                 "base_subject": self.OLD_ID},
+                {"verdict": "CONFIRMED", "run_id": "b", "grader_role": "expert",
+                 "statement_hash": "OLD", "ref": "lem-x/p1/B.md",
+                 "base_subject": self.OLD_ID}]
+        return {"basis": "proof", "mode": "reword", "base_pass": "p2", "base_hash": "MID",
+                "statement_hash": "NEW", "root_pass": "p1", "root_hash": "OLD",
+                "verdicts": rows, "producer_role": "author"}
+
+    def test_a_reword_chain_over_a_renamed_record(self):
+        g = self.chain_grounds()
+        ok, why = grounds.check_grounds("proved", g, "NEW")
+        self.assertTrue(ok, why)
+        self.assertEqual(self.refs(g), [])
+        # the claim does not supersede the id the earlier links are filed under
+        self.assertTrue(self.refs(g, supersedes=()))
+        # the last link was not told its base is filed under the old id
+        write(self.d / "cor-x" / "p3" / "R.md",
+              (self.d / "cor-x" / "p3" / "R.md").read_text(encoding="utf-8")
+              .replace("base_subject: %s\n" % self.OLD_ID, ""))
+        g["verdicts"][0].pop("base_subject")
+        self.assertIn("base_subject", " ".join(self.refs(g)))
+
+    def test_a_reword_chain_link_must_match_its_own_record(self):
+        g = self.chain_grounds()
+        g["verdicts"][1]["base_pass"] = "p0"
+        self.assertIn("base_pass", " ".join(self.refs(g)))
+
     def test_a_bare_supersedes_entry_is_not_another_namespaces_record(self):
         # a bare entry means the claim's own namespace (reviews.check_base_subject reads
         # it so): a lab record that supersedes bare ``lem:x`` supersedes lab:lem:x, so a

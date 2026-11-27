@@ -15,10 +15,12 @@ from ._base import (
 from ._config import instance_for_home, load_config
 from ._workspace import load_workspace
 from ._touched import claim_touches, drop_touches
-from ._manifest import (ManifestError, find_claim, load_pending, manifest_changed,
-                        manifest_targets, merge_manifest, prune_claims, release_claim,
-                        save_pending)
-from ._tickets import is_dead_route, relay_return_ready
+from ._manifest import (ManifestError, find_claim, lease_heartbeat, live_leases, load_pending,
+                        manifest_changed, manifest_targets, merge_manifest, prune_claims,
+                        release_claim, save_pending)
+from ._tickets import (PARTIAL, append_thread, format_who, is_dead_route, relay_return_ready,
+                       validate_ticket)
+from ._artefacts import delivery_artefact
 from ._store import FileBoardStore, as_store, board_dir, open_store, status_lookup
 
 # ----------------------------------------------------------------------------
@@ -50,6 +52,19 @@ class inbox_core(object):
     PRIORITY = {"high": 0, "normal": 1, "low": 2}
     RETURN_WHY = ("return leg: the child is back; close it and deliver this ticket "
                   "with a result pointing at it")
+    #: review of dd0fcd1, point 6: a partial ticket this instance sent comes back to it
+    PARTIAL_WHY = ("came back partial (work done, deliverable not met): decide as its sender: "
+                   "reopen it for the receiver (partial -> in-progress, with the reason), "
+                   "close it as it stands (partial -> closed) or cancel it (with the reason)")
+    #: re-review of ca04c0e, finding B: the thread lines that count toward the cap on a
+    #: partial ticket's cycles (a reopen, or a decider leaving it for the human)
+    REOPEN_LINE = "status partial -> in-progress"
+    LEFT_LINE = "partial: left for the human"
+    #: the cycles after which the row goes to the human (blocked, waiting_on [human])
+    PARTIAL_CAP = 2
+    #: the agent of each role that decides a partial ticket its instance sent
+    PARTIAL_DECIDERS = {"author": "math-writer", "researcher": "lead-researcher",
+                        "expert": "research-intake", "scientist": "experimenter"}
 
     is_dead_route = staticmethod(is_dead_route)
 
@@ -139,6 +154,11 @@ class inbox_core(object):
                                  if position_first else
                                  (m["_group"], prio(m), pos(m), num(m))))
         rows = [inbox_core._row(m, route) for m in pool]
+        if return_legs:
+            back = inbox_core.partial_rows(store, instance, campaign=campaign, cowork=cowork)
+            first = next((i for i, r in enumerate(rows) if r["status"] != "in-progress"),
+                         len(rows))
+            rows[first:first] = back
         if extra:
             first = next((i for i, r in enumerate(rows) if r["status"] != "in-progress"),
                          len(rows))
@@ -148,6 +168,50 @@ class inbox_core(object):
             n = max(1, int(limit))
             rows = rows[:n if (campaign or cowork) else min(n, inbox_core.MAX)]
         return rows, total
+
+    @staticmethod
+    def partial_rows(board, instance, campaign=None, cowork=None):
+        """The partial tickets ``instance`` sent, to another instance or to itself (review of
+        dd0fcd1, point 6; re-review of ca04c0e, finding C), as return rows (``return`` and
+        ``partial`` true): its decider agent (``PARTIAL_DECIDERS``) reopens, closes or
+        cancels each. The cap (finding B): ``reopens`` counts the thread's reopen lines and
+        the decider's "left for the human" notes; after one, the decider may only close it
+        or leave it for the human; at ``PARTIAL_CAP`` the row is ``park``: it goes to the
+        human (blocked, waiting_on [human], with the reason). A partial ticket the human
+        sent stays the human's (desk, /academy:decide)."""
+        out = []
+        role = instance.split("@", 1)[0] if "@" in str(instance) else None
+        store = as_store(board)
+        for _ref, m in store.iter_meta():
+            if m.get("status") != PARTIAL or m.get("from") != instance:
+                continue
+            if campaign and m.get("campaign") != campaign:
+                continue
+            if cowork and m.get("cowork") != cowork:
+                continue
+            try:
+                body = store.get(m["id"])[2] or ""
+            except Exception:                        # noqa: BLE001 -- unreadable: no count
+                body = ""
+            n = body.count(inbox_core.REOPEN_LINE) + body.count(inbox_core.LEFT_LINE)
+            got = "%s: %s" % (m.get("to"), " ".join(str(m.get("result") or "no result").split())[:200])
+            if n >= inbox_core.PARTIAL_CAP:
+                rt = {"how": "human", "target": "human",
+                      "why": "reopened twice: close or ask the human; partial again after %d "
+                             "reopens or hand-offs (%s): parked on the human" % (n, got)}
+            else:
+                rt = {"how": "agent", "target": inbox_core.PARTIAL_DECIDERS.get(role, "human"),
+                      "why": "%s (%s)%s" % (inbox_core.PARTIAL_WHY, got, (
+                          "; reopened once already: close it, or leave it partial with the "
+                          "thread note '%s' and file nothing; never reopen it again"
+                          % inbox_core.LEFT_LINE) if n else "")}
+            row = inbox_core.extra_row(m, rt, returned=True)
+            row["partial"] = True
+            row["reopens"] = n
+            row["park"] = n >= inbox_core.PARTIAL_CAP
+            out.append(row)
+        out.sort(key=lambda r: (inbox_core.prio(r), inbox_core.num(r)))
+        return out
 
     @staticmethod
     def takeable(row):
@@ -177,7 +241,8 @@ class inbox_core(object):
                 "parent": m.get("parent") or "", "final_to": m.get("final_to") or "",
                 "title": m.get("title"), "agenda": m.get("agenda"),
                 "budget": m.get("budget"), "refs": m.get("refs") or [],
-                "campaign": m.get("campaign"), "cowork": m.get("cowork"), "route": r, "return": bool(m.get("_return")),
+                "campaign": m.get("campaign"), "cowork": m.get("cowork"),
+                "decision_choice": m.get("decision_choice"), "route": r, "return": bool(m.get("_return")),
                 "over_budget": over, "blocked": m.get("_blocked"), "path": m.get("_path")}
 
     @staticmethod
@@ -199,7 +264,8 @@ class inbox_core(object):
     def serial_checkpoint(meta):
         """Where a ticket stands after its route ran, and whether it is settled.
 
-        Settled: delivered (with a result), blocked with its reason, rejected. A ticket
+        Settled: delivered (with a result), partial (with a result: the work done, the
+        deliverable not met; #100), blocked with its reason, rejected. A ticket
         still open, accepted or in-progress is *unfinished*: report it, do not take
         another ticket while it is (it comes first in the next run).
         """
@@ -209,6 +275,10 @@ class inbox_core(object):
             state = "delivered"
             if not meta.get("result"):
                 problem = "delivered without a result"
+        elif st == PARTIAL:
+            state = PARTIAL
+            if not meta.get("result"):
+                problem = "partial without a result (what was done, what is missing)"
         elif st in ("rejected", "cancelled"):
             state = "rejected"
         elif st == "blocked":
@@ -229,14 +299,16 @@ class inbox_core(object):
     #: still returns its own result in time
     SHIP_TIMEOUT = 90
     #: the ticket states (``serial_checkpoint``) after which the role's work is finished
-    SHIP_STATES = ("delivered", "rejected")
+    SHIP_STATES = ("delivered", "rejected", PARTIAL)
 
     @staticmethod
     def ship_checkpoint(args, instance, board, r, role=None, out=None):
         """After ``--check`` found ticket ``r`` finished (delivered or closed, rejected or
         cancelled, with no problem), run the academy's ``ship.py --workspace <root>
         checkpoint --ticket <id> --role <role> --only <the ticket's repos>`` in the
-        workspace root, so the ticket's work is committed and pushed on its own branch
+        workspace root, so the ticket's work is committed and pushed (with ``--run`` when a
+        live lease names the instance, ``_lease_run``: on the run's branch, one per run, the
+        ticket's commit tagged ``ticket/<id>/<n>``, #102; else on the ticket's own branch)
         (``ship_script``: this academy checkout's ``academy/scripts/ship.py``, else
         ``$ACADEMY_ROOT``'s, else the workspace's ``scripts/ship.py`` shim).
 
@@ -428,12 +500,17 @@ class inbox_core(object):
             sys.stderr.write("checkpoint for %s cannot ship %s: in no submodule of %s; "
                              "commit it by hand\n"
                              % (r["id"], ", ".join(p for _, p in stray), root))
+        # #102: the run working this instance (its live lease names it) names the branch,
+        # one per run; #96: and its own leases are its to switch
+        run = inbox_core._lease_run(root, name)
         # every by-hand command is scoped: the unscoped manual run sweeps every dirty
         # submodule and is for the human or cloud session that owns the checkout
         by_hand = "py scripts/ship.py checkpoint --ticket %s --role %s --only %s" % (
             r["id"], role, " ".join(only) or "<your home submodule> board")
         if touched:
             by_hand += " --touched " + " ".join(touched)
+        if run:
+            by_hand += " --run " + run
         if not inbox_core._session_inside(root):
             sys.stderr.write("checkpoint not run: session is outside %s; run it by hand: %s\n"
                              % (root, by_hand))
@@ -451,7 +528,8 @@ class inbox_core(object):
                              % (r["id"], role, " ".join(touched)))
         import subprocess
         cmd = [sys.executable, ship, "--workspace", root, "checkpoint", "--ticket", r["id"],
-               "--role", role, "--only"] + only + (["--touched"] + touched if touched else [])
+               "--role", role, "--only"] + only + (["--touched"] + touched if touched else []) \
+            + (["--run", run] if run else [])
         # output goes to a file, not a pipe: a git grandchild holding a pipe open would
         # outlive the timeout's kill and hang the read
         with tempfile.TemporaryFile() as log:
@@ -485,6 +563,19 @@ class inbox_core(object):
                              "scripts/ship.py start <sub> <topic>, then re-run: %s\n"
                              % (r["id"], p.returncode, by_hand))
         return p.returncode
+
+    @staticmethod
+    def _lease_run(root, name):
+        """The run whose live lease names instance ``name`` (``.academy/leases``, #96), else
+        None: the inbox run this ticket's ``--check`` belongs to, when it took no snapshot."""
+        if not name:
+            return None
+        try:
+            runs = sorted({lease.get("run") for lease in live_leases(root)
+                           if name in (lease.get("instances") or []) and lease.get("run")})
+        except (ManifestError, OSError):
+            return None
+        return runs[0] if len(runs) == 1 else None
 
     @staticmethod
     def _manifest_target(targets, path):
@@ -527,7 +618,15 @@ class inbox_core(object):
                    "nothing of it is claimed: commit its part by hand\n" % (tid, target))
             (out or sys.stderr).write(msg)
         repos = merge_manifest(changed, (pending or {}).get("repos"), touches)
-        path = save_pending(root, tid, repos)
+        # #96: the run the ticket was worked in rides along: ship.py never switches a home
+        # leased by another live run, and this run's own leases are its to switch
+        run = (claim or {}).get("run") or (pending or {}).get("run")
+        if run:
+            try:
+                lease_heartbeat(root, run)          # the run is alive: its check is a heartbeat
+            except (ManifestError, OSError):
+                pass
+        path = save_pending(root, tid, repos, run=run)
         if claim_file:
             release_claim(claim_file)
         if not repos:
@@ -568,7 +667,7 @@ class inbox_core(object):
                 done.add(m.group(1))
         if p.returncode == 0:
             done |= set(repos)
-        save_pending(root, tid, {t: ps for t, ps in repos.items() if t not in done})
+        save_pending(root, tid, {t: ps for t, ps in repos.items() if t not in done}, run=run)
         drop_touches([f for t, fs in by_target.items() if t in done for f in fs])
         if p.returncode != 0:
             sys.stderr.write("warning: checkpoint for %s exited %d (see its output); its "
@@ -619,8 +718,14 @@ class inbox_core(object):
         every local branch whose name names the ticket (``ticket_branch_re``; never
         main/master) with commits on no remote-tracking branch (no fetch: the refs as
         they are), or checked out in a linked worktree with uncommitted changes (untracked
-        files included). ``[{label, repo, branch, unpushed, dirty, worktree}]``; label is
-        the ship.py target (the submodule's path, ``workspace`` for the superproject).
+        files included). A run's branch (#102: ``<date>/run-<run>/<role>``, shared by the
+        run's tickets) does not name the ticket: the ticket's tags (``ticket/<id>/<n>``, one
+        on each of its checkpoint commits) do, and every local branch holding one counts
+        with the commits up to the ticket's tags that no remote has -- never a later
+        ticket's commits, and never uncommitted changes in its worktree, which are the
+        run's next ticket's. ``[{label, repo, branch, unpushed, dirty, worktree, current}]``;
+        label is the ship.py target (the submodule's path, ``workspace`` for the
+        superproject); current says the repo's own checkout is on that branch.
         A git call that fails counts as nothing found."""
         pat = inbox_core.ticket_branch_re(ticket)
         if not pat:
@@ -635,8 +740,19 @@ class inbox_core(object):
                                       "refs/heads")
             names = [b for b in out.splitlines() if not rc and b and b not in ("main", "master")
                      and pat.search(b)]
-            if not names:
+            rc, out = inbox_core._git(repo, "for-each-ref", "--format=%(*objectname) %(objectname)",
+                                      "refs/tags/ticket/%s/" % str(ticket).strip().upper())
+            tagged = sorted({(l.split() or [""])[0] for l in out.splitlines() if not rc and l.strip()})
+            by_tag = []
+            for c in tagged:
+                rc, out = inbox_core._git(repo, "for-each-ref", "--contains", c,
+                                          "--format=%(refname:lstrip=2)", "refs/heads")
+                by_tag += [b for b in out.splitlines() if not rc and b and b not in names
+                           and b not in by_tag and b not in ("main", "master")]
+            if not names and not by_tag:
                 continue
+            rc, out = inbox_core._git(repo, "branch", "--show-current")
+            here = out.strip() if not rc else ""
             # the linked worktrees on those branches (the first entry is the main one)
             rc, out = inbox_core._git(repo, "worktree", "list", "--porcelain")
             where, cur, first = {}, None, True
@@ -649,18 +765,24 @@ class inbox_core(object):
                     if cur is not None:
                         first = False
                     cur = None
-            for b in names:
-                rc, out = inbox_core._git(repo, "rev-list", "--count", "refs/heads/" + b,
-                                          "--not", "--remotes")
+            for b in names + by_tag:
+                named = b in names
+                if named:
+                    rc, out = inbox_core._git(repo, "rev-list", "--count", "refs/heads/" + b,
+                                              "--not", "--remotes")
+                else:                   # a run's branch: the ticket's commits only
+                    rc, out = inbox_core._git(repo, "rev-list", "--count", *tagged,
+                                              "--not", "--remotes")
                 ahead = int(out.strip() or 0) if not rc else 0
                 wt = where.get(b)
                 dirty = 0
-                if wt and os.path.isdir(wt):
+                if named and wt and os.path.isdir(wt):
                     rc, out = inbox_core._git(wt, "status", "--porcelain")
                     dirty = len(out.splitlines()) if not rc else 0
                 if ahead or dirty:
                     found.append({"label": label, "repo": repo, "branch": b,
-                                  "unpushed": ahead, "dirty": dirty, "worktree": wt or ""})
+                                  "unpushed": ahead, "dirty": dirty, "worktree": wt or "",
+                                  "current": b == here})
         return found
 
     @staticmethod
@@ -670,7 +792,7 @@ class inbox_core(object):
         ``unpushed_branches`` with how to push it; [] when nothing is unpushed. Only for
         the workspace's own board; ``"unpushedCheck": false`` in workspace.json switches
         it off. Never raises (a failure is one warning line on stderr and no hold)."""
-        if r.get("unfinished") or r.get("state") != "delivered":
+        if r.get("unfinished") or r.get("state") not in ("delivered", PARTIAL):
             return []
         try:
             ws = load_workspace(getattr(args, "workspace", None))
@@ -690,7 +812,11 @@ class inbox_core(object):
                 f["label"], f["branch"], f["unpushed"], f["dirty"],
                 (" " + f["worktree"]) if f["worktree"] else ""))
             push = "py scripts/ship.py push %s --repo %s" % (f["label"], f["worktree"])
-            if not (f["worktree"] and inbox_core.TEMPLATE_BRANCH.match(f["branch"])):
+            if (not f["worktree"] and f.get("current") and not f["dirty"]
+                    and inbox_core.TEMPLATE_BRANCH.match(f["branch"])):
+                # the checkpoint's own branch, checked out in the repo itself (a run branch)
+                lines.append("    -> py scripts/ship.py push %s" % f["label"])
+            elif not (f["worktree"] and inbox_core.TEMPLATE_BRANCH.match(f["branch"])):
                 lines.append("    -> not a <date>/<topic>/<role> branch in a worktree: ship.py "
                              "cannot push it; the human pushes it or moves its commits to one")
             elif f["dirty"]:
@@ -702,6 +828,81 @@ class inbox_core(object):
             lines.append("  (delivered is reported once this work is pushed; then run "
                          "--check %s again)" % r["id"])
         return lines
+
+    #: the line --check prints after a delivery it refused and could not move to partial
+    PARTIAL_HINT = ("  -> finish the work and deliver it again, or re-mark it partial "
+                    "(tickets_update status partial, the result saying what was done and "
+                    "what is missing; the sender then reopens, closes or cancels it)")
+    #: the agent name of the thread lines --check writes as the receiver
+    CHECK_AGENT = "inbox-check"
+
+    @staticmethod
+    def artefact_problem(args, board, r):
+        """The missing artefact of ``r`` as a line (``artefact_check``'s ``problem``), or None."""
+        return inbox_core.artefact_check(args, board, r).get("problem")
+
+    @staticmethod
+    def artefact_check(args, board, r):
+        """After the checkpoint of a *delivered* ticket ``r`` (status delivered, no problem):
+        ``{"problem", "warn"}``. ``problem`` is the artefact its kind needs
+        (``delivery_artefact``, #100 part 1) when it is missing, as ``"a <kind> ticket
+        without <what>: <why>"``; ``warn`` a line when it is missing on purpose (the result
+        opens with a marker: declined, already proved, dropped, ...). Both None when it is
+        there, the kind needs none, or the check is off (``"artefactCheck": false`` in
+        workspace.json). Only for the workspace's own board, whose homes it reads (as
+        ``unpushed_check``). Never raises."""
+        none = {"problem": None, "warn": None}
+        if r.get("unfinished") or r.get("status") != "delivered":
+            return none
+        try:
+            try:
+                ws = load_workspace(getattr(args, "workspace", None))
+            except (AcademyError, OSError):
+                return none
+            if ws.get("artefactCheck") is False or not ws.get("board") or \
+                    not _same_file(board_dir(board), ws["board"]):
+                return none
+            _ref, meta, body = as_store(board).get(r["id"])
+            res = delivery_artefact(meta, body, ws)
+        except Exception as exc:                     # noqa: BLE001 -- never break --check
+            sys.stderr.write("warning: artefact check for %s failed: %s: %s\n"
+                             % (r.get("id"), type(exc).__name__, exc))
+            return none
+        if res.get("marker"):
+            return {"problem": None,
+                    "warn": "WARN: %s delivered without %s, on purpose: the result says %r"
+                            % (r["id"], res["need"], res["marker"])}
+        if res["ok"]:
+            return none
+        return {"problem": "a %s ticket without %s: %s" % (res["kind"], res["need"],
+                                                           res["why"]), "warn": None}
+
+    @staticmethod
+    def mark_partial(board, tid, problem, date=None):
+        """Move the delivered ticket ``tid`` to ``partial`` as its receiver, after --check
+        found its artefact missing (review of dd0fcd1, point 5): a thread line naming what
+        is missing, then the move; the result stays (what was done). True when written;
+        False, with one warning line, when the ticket moved meanwhile or the write fails."""
+        try:
+            store = as_store(board)
+            ref, meta, body = store.get(tid)
+            if meta.get("status") != "delivered":
+                return False
+            from ._base import today
+            date = date or today()
+            who = format_who(meta.get("to"), inbox_core.CHECK_AGENT)
+            body = append_thread(body, who, "no artefact: %s" % problem, date)
+            body = append_thread(body, who, "status delivered -> %s" % PARTIAL, date)
+            meta = dict(meta, status=PARTIAL, updated=date)
+            probs = validate_ticket(meta, body)
+            if probs:
+                raise AcademyError("; ".join(probs))
+            store.save(meta, body, ref)
+            return True
+        except Exception as exc:                     # noqa: BLE001 -- never break --check
+            sys.stderr.write("warning: could not move %s to partial: %s: %s\n"
+                             % (tid, type(exc).__name__, exc))
+            return False
 
     @staticmethod
     def _session_inside(root):
@@ -762,7 +963,21 @@ class inbox_core(object):
             # can say unfinished: the workflow reads the first "<id>: <state> (<status>)"
             inbox_core.ship_checkpoint(args, instance, board, r, role=role, out=out)
             held = inbox_core.unpushed_check(args, board, r)
-            if held:
+            # #100 part 1: after the checkpoint (a code ticket's artefact is its commit); a
+            # delivery without it is moved to partial here, as its receiver (review of dd0fcd1)
+            art = inbox_core.artefact_check(args, board, r)
+            missing, warn = art.get("problem"), art.get("warn")
+            if missing and inbox_core.mark_partial(board, r["id"], missing):
+                r = dict(r, status=PARTIAL, state=PARTIAL, unfinished=False,
+                         problem="no artefact: " + missing)
+                status = PARTIAL
+                held = held + ["  -> moved delivered -> partial by --check (as %s's receiver): "
+                               "its sender reopens, closes or cancels it" % r["id"]]
+            elif missing:
+                r = dict(r, state="unfinished", unfinished=True, problem="no artefact: " + missing)
+                status = "%s, no artefact" % r["status"]
+                held = held + [inbox_core.PARTIAL_HINT]
+            elif held:
                 r = dict(r, state="unfinished", unfinished=True,
                          problem="work of %s is not on a remote" % r["id"])
                 status = "%s, unpushed" % r["status"]
@@ -770,7 +985,7 @@ class inbox_core(object):
                 status = r["status"]
             out.write("%s: %s (%s)%s\n" % (r["id"], r["state"], status,
                                            ("; " + r["problem"]) if r["problem"] else ""))
-            for line in held:
+            for line in held + ([warn] if warn else []):
                 out.write(line + "\n")
             return 3 if r["unfinished"] else 0
         cowork = getattr(args, "cowork", None)

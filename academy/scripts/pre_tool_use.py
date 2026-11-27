@@ -10,13 +10,15 @@ order, and emits the first verdict:
 =========================  ==================================================
 tool                       guards, in order
 =========================  ==================================================
-Bash, PowerShell           script_path_guard, ship_guard, generated_view_guard
+Bash, PowerShell           script_path_guard, ship_guard, generated_view_guard,
+                           decide_guard
 Edit, Write, MultiEdit     explainer_write_guard, role_write_guard,
                            generated_view_guard
 NotebookEdit               explainer_write_guard, role_write_guard
 =========================  ==================================================
 
-The selection is the matchers the guards had as separate hooks (generated_view_guard
+The selection is the matchers the guards had as separate hooks (decide_guard, #86, came
+later and was never one) (generated_view_guard
 never covered NotebookEdit). The order is the order of their former registration; it
 only matters when two guards would deny the same call, and then the first one's reason
 is the one shown. A guard that raises is skipped (one line on stderr) and the next one
@@ -31,7 +33,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _academy as ac  # noqa: E402
 
-SHELL = ("script_path_guard", "ship_guard", "generated_view_guard")
+SHELL = ("script_path_guard", "ship_guard", "generated_view_guard", "decide_guard")
 EDIT = ("explainer_write_guard", "role_write_guard", "generated_view_guard")
 #: tool name -> the guards (module names in this folder) it runs, in order
 GUARDS = {

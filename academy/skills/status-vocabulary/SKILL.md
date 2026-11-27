@@ -72,6 +72,7 @@ checker enforces the draft side.
 |---|---|
 | Two CONFIRMED, distinct run ids, same statement hash, no inputs | `proved` |
 | Two CONFIRMED with named black-box inputs | `proved-modulo`, inputs in `modulo` |
+| `proved-modulo`, and every `modulo` input now established | `proved`, by discharge (below) |
 | Any PLAUSIBLE or GAP | no change; GAP files a repair |
 | DISPROVED, counterexample verified | `refuted` or `refuted-as-stated` |
 | Two SOUND (or SOUND MODULO the same assumption, recorded in the evidence note), commit hash, validation case reproduced, no counterexample | `supported` |
@@ -80,6 +81,31 @@ checker enforces the draft side.
 | The human's word | any status; the history line says so |
 
 Computation never reaches `proved` or `proved-modulo`.
+
+**Discharge is mechanical** (the human's ruling of 2026-11-27, #127). A `proved-modulo`
+record becomes `proved` once every input in its `modulo` is established: a record whose
+status is `proved` (not `proved-modulo`: a chain discharges bottom-up), a `bib:KEY#PIN`
+whose library card at that pinpoint says `match`, or a definition tagged `notation-only`.
+Free text, an unresolved id or an input still open holds it. The two CONFIRMED reviews
+that gave `proved-modulo` stay its evidence; the discharge adds one `discharge` evidence
+row naming each input and its status, and a history row `discharged: inputs X, Y proved`.
+It runs as `registry.py discharge [ID ...] [--all] [--input ID] [--dry-run]` or as
+`claims_set_status` with grounds `{basis: discharge}` (claim-keeper or the human), and
+no judgement enters it; the same reviews without a discharge do not carry the record to
+`proved`.
+
+**A structured record's status is derived** (#127, the human's ruling of 2026-11-27:
+"Hypotheses + items"). A record with `items` (each `[status, modulo...]`) carries the
+status its items give: every item `proved` -> `proved`; every item `proved` or
+`proved-modulo` -> `proved-modulo`, its `modulo` the union of the items' inputs;
+otherwise the weakest item status, in the order refuted, refuted-as-stated, open,
+conjectured, sketch, supported, proved-modulo, proved. Reviews, the decision table, the
+keeper and the discharge then work per item: `claims_set_status` with `item` sets one
+item on grounds checked against that item's hash (the hypotheses' texts and the item's
+own, so another item's rewording leaves it standing), a status change without `item`
+sets every item, and a discharge carries each item whose own inputs are established to
+`proved`. `registry.py check` refuses a record whose status is not the derived one. A
+record without `items` is unchanged.
 
 **An attestation is the human's word, recorded.** When the human attests a status (for
 example "I checked this proof; mark it proved"), the words are recorded verbatim, with
@@ -100,6 +126,7 @@ approval of something else, silence, or a paraphrase, and never writes one on it
 | Not settled | `open`, `conjectured` or `sketch`, by kind and proof state |
 | blue / red / brown / black | sketch / conjectural / meta / established |
 
-Ticket lifecycle words (`open`, `accepted`, `in-progress`, `delivered`, `closed`, …)
+Ticket lifecycle words (`open`, `accepted`, `in-progress`, `delivered`, `partial`, `closed`, …;
+`partial` is work done with the deliverable not met, #100)
 belong to tickets, not to claims: `docs/protocol.md` section 4. A ticket that is
 `open` says nothing about a claim that is `open`.

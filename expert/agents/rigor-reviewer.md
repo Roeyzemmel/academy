@@ -6,7 +6,6 @@ model: opus
 tier: max
 effort: xhigh
 fallback: opus
-maxTurns: 60
 skills: [academy:rigor, academy:citation-discipline, academy:status-vocabulary, academy:honest-reporting]
 color: red
 ---
@@ -109,8 +108,9 @@ subject-specific knowledge; it adds obligations and never removes one of the ste
 ## Reword mode (run R)
 
 Your brief says `run: R` and `mode: reword` and names a **bundle file** (written by
-`reviews.py reword-brief`). The statement was reviewed and decided CONFIRMED x2 (the
-**base pass**), and then its wording changed; the proof did not, or changed only in
+`reviews.py reword-brief`). The statement was reviewed and decided CONFIRMED x2, or
+confirmed by an earlier reword pass chained to such a pass (the **base pass**: the last
+confirmed one, #127), and then its wording changed; the proof did not, or changed only in
 wording. The human's rule (2026-10-12, T-0347): such a statement gets one informed reader,
 not a new proof check from scratch. You are that reader, and you are **not blind** to
 the base pass.
@@ -218,6 +218,8 @@ reword_scope: equivalent | weaker | covered | exceeds
 `statement_hash` is then the **new** statement's hash, as the bundle gives it. When the
 bundle also gives `base_subject: <ns:id>` (the statement's label was renamed, and the
 base pass is filed under the old id, T-0476), copy that line too, after `base_hash`.
+When it gives `root_pass` and `root_hash` (the base pass is itself a reword pass, #127:
+the chain's blind root), copy both lines too, after `base_hash` (and `base_subject`).
 
 In amend mode the block also carries, after `run: B`, the four lines the bundle gives:
 
@@ -227,6 +229,25 @@ base_pass: <as in the bundle: this pass>
 base_hash: <as in the bundle>
 amended_with: <as in the bundle: the dependencies the amendment added>
 ```
+
+**A structured statement** (#127) names its parts: a notebook statement writes them as
+lines `**H1.** ...` (hypotheses) and `**C1.** ...` (conclusions, the items); a paper
+statement's items are its `\item ... \label{it:KEY}` (KEY is the label without `it:`),
+and the brief lists its hypotheses H1, H2, ... When the statement names its items,
+decide each item on its own and add two lines to the block, after `gap_class`:
+
+```
+items: <KEY word [modulo ids], the word one of the four; one entry per item, separated by ;>
+hypotheses_used: <the H's the proof of some item uses, comma-separated, or none>
+```
+
+for example `items: C1 CONFIRMED; C2 CONFIRMED modulo paper:lem:x; C3 GAP`. Every item
+gets an entry; an item's `modulo` lists only the inputs its own proof uses. The
+whole-run `verdict` is the weakest of the items' (GAP if any item is GAP) and `modulo`
+the union of theirs; `blocking` names the item (`C3: step 4 ...`). A hypothesis no
+item's proof uses is a finding (step 1): name it in the report, and give `gap_class:
+hypothesis` when it is the only one. A statement without named items: leave both
+lines out.
 
 `gap_class` says what the blocking finding touches, and so who repairs it
 (`academy/references/roster-rules.md`, "Role cut"): `hypothesis` (a hypothesis is

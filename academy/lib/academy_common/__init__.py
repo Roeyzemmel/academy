@@ -18,6 +18,7 @@ ones); callers never import a part, they use ``ac.<name>`` on the package:
     _agents     agent identity, permissions, the caller handshake
     _files      the frontmatter subset, atomic writes, ids
     _tickets    ticket vocabulary, transitions, edges, blocking, validation, the thread
+    _artefacts  what a delivered ticket of each kind must leave behind (#100)
     _store      the board store, and the ticket rules that read other tickets through it
     _inbox      the inbox core
     _packets    packets
@@ -59,6 +60,8 @@ Tickets
     slugify, ticket_filename, find_ticket, thread_lines, append_thread,
     HUMAN_VIA_SESSION, VIA_SESSION, VIAS, is_human_speaker,
     thread_is_append_only, new_ticket, parties, editable_fields
+Delivery artefacts (#100)
+    ARTEFACTS, delivery_artefact(meta, body, workspace)   the artefact a delivery needs
 Inbox (one core, thin per-role wrappers)
     inbox_core.select(board, instance, limit, all=False, route=..., campaign=None)
     inbox_core.serial_checkpoint(meta) / check(board, tid), is_dead_route(meta)
@@ -82,12 +85,12 @@ Shell commands (which repository a ``git commit`` runs in)
 import sys
 import types
 
-from . import (_base, _config, _workspace, _touched, _manifest, _agents, _files, _tickets, _store,
-               _inbox, _packets, _hooks)
+from . import (_base, _config, _workspace, _touched, _manifest, _agents, _files, _tickets, _artefacts,
+               _store, _inbox, _packets, _hooks)
 
 #: the parts, in import order
-_PARTS = (_base, _config, _workspace, _touched, _manifest, _agents, _files, _tickets, _store,
-          _inbox, _packets, _hooks)
+_PARTS = (_base, _config, _workspace, _touched, _manifest, _agents, _files, _tickets,
+          _artefacts, _store, _inbox, _packets, _hooks)
 
 #: names a part rebinds while running (a ``global`` statement): the package holds no
 #: copy of them, it reads the owner's current value

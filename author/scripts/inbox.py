@@ -13,8 +13,9 @@ notation / sweep to this Author itself, or an ask to another role), filed with
 ``board.py new`` / ``tickets_create`` or, from an agenda gap, ``agenda.py gaps --file``.
 The Author's routing table is ``routes.py``. What is Author-specific lives here:
 
-1. **Sweep first.** Every run starts with the machine-note sweep (``note-sweeper``, as
-   ``/author:sweep`` does); the output says so first and it counts against no item cap.
+1. **Sweep first.** Every run starts with the machine-note sweep (``sweep.py plan``, then
+   ``note-sweeper`` when the plan lists work, as ``/author:sweep`` does); the output says so
+   first and it counts against no item cap.
 2. **Selection.** The core's, in the Author's precedence: in-progress tickets first,
    then returned tickets to land (a ticket this Author filed to another role that came
    back ``delivered``; ``"return": true``), then ``open``/``accepted`` tickets ordered by
@@ -296,7 +297,8 @@ def inbox_parser():
 def sweep_step():
     return {"how": "agent", "target": "note-sweeper",
             "why": "the machine-note sweep runs before any ticket is taken; it counts "
-                   "against no item cap (/author:sweep is the standalone entry)"}
+                   "against no item cap (/author:sweep is the standalone entry). Its plan "
+                   "is a script (sweep.py plan); the agent runs only when it lists work"}
 
 
 def run_inbox(args):

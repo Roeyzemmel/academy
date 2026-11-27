@@ -166,6 +166,71 @@ class RewordPassTests(unittest.TestCase):
                                       "--new-text", NEW)
         self.assertEqual(code, 1)
 
+    def land_reword(self, pass_, base, base_hash, new_hash, run_id, verdict="CONFIRMED"):
+        d = os.path.join(self.sb.lib, "reviews", "paper", "lem-strip-bound", pass_)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "R.md"), "w", encoding="utf-8") as fh:
+            fh.write("---\nsubject: %s\npass: %s\nrun: R\nrun_id: %s\nverdict: %s\n"
+                     "modulo: []\nmodel: claude-opus-5-5\nstatement_hash: %s\n"
+                     "mode: reword\nbase_pass: %s\nbase_hash: %s\n"
+                     "reword_scope: equivalent\n---\n\nRun R report.\n"
+                     % (SUBJ, pass_, run_id, verdict, new_hash, base, base_hash))
+        with open(os.path.join(d, "decision.md"), "w", encoding="utf-8") as fh:
+            fh.write("outcome: confirmed\n")
+
+    def test_a_reword_of_a_reword_of_a_reword(self):
+        """#127: a three-link chain. Each new pass stands on the last confirmed one; the
+        old statement is the wording that pass confirmed, and the note names the root."""
+        third = NEW.replace("illuminated", "lit")
+        fourth = third.replace("translation surface", "surface")
+        h1, h2, h3 = (self.dt.statement_hash(t) for t in (NEW, third, fourth))
+        p1, p2 = "2026-10-01-T-0100-reword", "2026-10-05-T-0200-reword"
+        self.land_reword(p1, self.base, self.old_hash, h1, "rv-R1")
+        self.land_reword(p2, p1, h1, h2, "rv-R2")
+        code, name, err = self.run_cli("new-pass", SUBJ, "--ticket", "T-0300",
+                                       "--reword-of", p2)
+        self.assertEqual(code, 0, err)
+        import reviews
+        note = reviews.pass_note(self.sb.lib, SUBJ, name)
+        self.assertEqual((note["reword_of"], note["base_hash"], note["root_pass"],
+                          note["root_hash"]), (p2, h2, self.base, self.old_hash))
+        self.assertEqual(note["chain"], " -> ".join([self.base, p1, p2]))
+        code, out, err = self.run_cli("reword-brief", SUBJ, name, "--old-text", third,
+                                      "--new-text", fourth)
+        self.assertEqual(code, 0, err)
+        for want in ("base_pass: %s" % p2, "base_hash: %s" % h2,
+                     "root_pass: %s" % self.base, "root_hash: %s" % self.old_hash,
+                     "statement_hash: %s" % h3, "[-translation-]",
+                     "%s/R.md" % p2):
+            self.assertIn(want, out)
+        # the diff is the last step only: the first wording is not the reference
+        for old in (OLD, NEW):
+            code, out, err = self.run_cli("reword-brief", SUBJ, name, "--old-text", old,
+                                          "--new-text", fourth)
+            self.assertEqual(code, 1, out)
+            self.assertIn("base_hash", err)
+
+    def test_a_broken_chain_is_refused(self):
+        third = NEW.replace("illuminated", "lit")
+        h1, h2 = (self.dt.statement_hash(t) for t in (NEW, third))
+        p1, p2 = "2026-10-01-T-0100-reword", "2026-10-05-T-0200-reword"
+        # the second link checked against the root's wording, not the first link's
+        self.land_reword(p1, self.base, self.old_hash, h1, "rv-R1")
+        self.land_reword(p2, p1, self.old_hash, h2, "rv-R2")
+        code, out, err = self.run_cli("new-pass", SUBJ, "--reword-of", p2)
+        self.assertEqual(code, 1, out)
+        # the first link GAP
+        self.land_reword(p2, p1, h1, h2, "rv-R2")
+        self.land_reword(p1, self.base, self.old_hash, h1, "rv-R1", verdict="GAP")
+        code, out, err = self.run_cli("new-pass", SUBJ, "--reword-of", p2)
+        self.assertEqual(code, 1, out)
+        self.assertIn("does not confirm", err)
+        # the blind root not CONFIRMED x2
+        self.land_reword(p1, self.base, self.old_hash, h1, "rv-R1")
+        self.write_run("B", "GAP")
+        code, out, err = self.run_cli("new-pass", SUBJ, "--reword-of", p2)
+        self.assertEqual(code, 1, out)
+
     def test_word_diff(self):
         import reviews
         self.assertEqual(reviews.word_diff("a b c", "a x c"), "a [-b-] {+x+} c")
@@ -305,13 +370,29 @@ class CheckBaseSubjectTests(unittest.TestCase):
         self.refused([])
         self.refused(["paper:lem:y"])
         self.refused(["lab:lem:x"])                # same local id, another namespace
-        self.refused(["paper:lem:mid"])            # transitive is not enough
+        self.refused(["paper:lem:mid"])            # mid supersedes nothing here
         self.refused(["lem:x"], subject="lab:cor:x")   # bare means lab:lem:x
         self.refused(None)                         # record unreadable
         self.refused(["paper:lem:x"], base="lem:x")    # bare base_subject
 
     def test_a_base_subject_equal_to_the_subject_needs_no_supersedes(self):
         self.check([], base="paper:cor:x")
+
+    def test_a_chain_of_renames_is_followed(self):
+        """#127: cor:x supersedes lem:mid, which supersedes lem:x (bare, in its own
+        namespace): a base pass of lem:x counts for cor:x; an unreadable or unrelated
+        middle record does not reach it."""
+        import reviews
+        recs = {"paper:cor:x": ["paper:lem:mid"], "paper:lem:mid": ["lem:x"]}
+        reviews.check_base_subject("paper:cor:x", "paper:lem:x", recs.get)
+        recs3 = {"paper:cor:x": ["paper:lem:m2"], "paper:lem:m2": ["paper:lem:m1"],
+                 "paper:lem:m1": ["paper:lem:x"]}
+        reviews.check_base_subject("paper:cor:x", "paper:lem:x", recs3.get)
+        for broken in ({"paper:cor:x": ["paper:lem:mid"]},
+                       {"paper:cor:x": ["paper:lem:mid"], "paper:lem:mid": ["paper:lem:y"]},
+                       {"paper:cor:x": ["paper:lem:mid"], "paper:lem:mid": ["paper:cor:x"]}):
+            with self.assertRaises(reviews.Refused):
+                reviews.check_base_subject("paper:cor:x", "paper:lem:x", broken.get)
 
 
 S1_GEO = """---
@@ -426,6 +507,27 @@ class HashFromRegistryTests(unittest.TestCase):
     def test_hash_claim_and_file_are_exclusive(self):
         code, out, err = self.run_cli("hash", "--claim", "s1:GEO-1", "--text", "x")
         self.assertNotEqual(code, 0, out)
+
+    def test_hash_item_of_a_structured_record(self):
+        """#127: ``hash --claim ID --item KEY`` is the engine's item hash."""
+        self.sb.write("nbhome/objects/claim/GEO-2.md", S1_GEO.replace(
+            "id: GEO-1", "id: GEO-2").replace(
+            "status: open\n", "status: open\nhypotheses:\n  H1: Q a group\n"
+                              "items:\n  C1: [open]\n").replace(
+            "Let $Q$ be a group", "**H1.** $Q$ is a group.\n\n**C1.** Let $Q$ be a group"))
+        code, out, err = self.run_cli("hash", "--claim", "s1:GEO-2", "--item", "C1")
+        self.assertEqual(code, 0, err)
+        engine = os.path.join(os.path.dirname(fixtures.PLUGIN), "academy")
+        if engine not in sys.path:
+            sys.path.insert(0, engine)
+        from registry.core import federation
+        federation.CACHE.clear()
+        st = federation.store("s1", self.sb.path("nbhome"))
+        self.assertEqual(str(out), st.item_hash("GEO-2", "C1"))
+        self.assertNotEqual(str(out), st.statement_hash("GEO-2"))
+        code, out, err = self.run_cli("hash", "--claim", "s1:GEO-2", "--item", "C9")
+        self.assertEqual(code, 1, out)
+        self.assertIn("no item C9", err)
 
     def test_registry_statement_gives_the_text_and_its_hash(self):
         import decision_table as dt

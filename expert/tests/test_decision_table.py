@@ -694,6 +694,290 @@ class RewordTableTests(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class RewordChainTests(unittest.TestCase):
+    """#127 (the human's ruling, 2026-11-27: "rewording in general should have the
+    previous confirmed statement as reference"): a reword on a confirmed reword pass."""
+
+    P1, P2, P3 = "2026-10-12-T-0347-reword", "2026-10-20-T-0400-reword", \
+        "2026-10-25-T-0500-reword"
+
+    def link(self, rec_r, pass_, base):
+        """``rec_r`` as the base reword pass ``pass_``'s run R, standing on ``base``."""
+        r = dict(rec_r)
+        r["pass"] = pass_
+        r["file"] = "reviews/paper/lem-x/%s/R.md" % pass_
+        r["_base"] = base
+        return r
+
+    def chain2(self, r1_kw=None, modulo="none"):
+        a, b = rec("CONFIRMED", modulo=modulo), rec("CONFIRMED", run="B", modulo=modulo)
+        return self.link(rwrec(**(r1_kw or {})), self.P1, (a, b, []))
+
+    def test_a_reword_on_a_confirmed_reword_pass(self):
+        r1 = self.chain2()
+        r2 = rwrec(base_pass=self.P1, base_hash="def456", h="ghi789", run_id="rv-R2")
+        r = dt.decide(r2, base=(r1, None))
+        self.assertEqual((r["outcome"], r["proposed_status"]), ("confirmed", "proved"))
+        self.assertEqual(r["chain"], ["2026-09-28-T-0007", self.P1])
+        self.assertEqual((r["root_pass"], r["root_hash"]), ("2026-09-28-T-0007", "abc123"))
+        g = r["grounds"]
+        self.assertEqual([v["run_id"] for v in g["verdicts"]], ["rv-R2", "rv-R", "rv-A", "rv-B"])
+        self.assertEqual([(v.get("mode"), v.get("base_hash"), v.get("base_pass"))
+                          for v in g["verdicts"][:2]],
+                         [("reword", "def456", self.P1),
+                          ("reword", "abc123", "2026-09-28-T-0007")])
+        self.assertEqual((g["base_hash"], g["root_hash"], g["chain"]),
+                         ("def456", "abc123", ["2026-09-28-T-0007", self.P1]))
+        claims = ex.mcp_module("claims")
+        ok, why = claims.check_grounds("proved", g, "ghi789")
+        self.assertTrue(ok, why)
+        self.assertFalse(claims.check_grounds("proved", g, "def456")[0])
+        self.assertIn("chain", dt._text(r))
+
+    def test_a_three_link_chain_carries_every_modulo(self):
+        r1 = self.chain2(r1_kw={"modulo": "paper:lem:b"}, modulo="paper:lem:a")
+        r2 = self.link(rwrec(base_pass=self.P1, base_hash="def456", h="ghi789",
+                             run_id="rv-R2"), self.P2, (r1, None, []))
+        r3 = rwrec(base_pass=self.P2, base_hash="ghi789", h="jkl012", run_id="rv-R3",
+                   modulo="paper:lem:c")
+        r = dt.decide(r3, base=(r2, None))
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:a", "paper:lem:b", "paper:lem:c"])
+        self.assertEqual(r["chain"], ["2026-09-28-T-0007", self.P1, self.P2])
+        self.assertEqual([v["run_id"] for v in r["grounds"]["verdicts"]],
+                         ["rv-R3", "rv-R2", "rv-R", "rv-A", "rv-B"])
+        ok, why = ex.mcp_module("claims").check_grounds("proved-modulo", r["grounds"],
+                                                         "jkl012")
+        self.assertTrue(ok, why)
+
+    def test_a_broken_link_carries_nothing(self):
+        ok_r2 = dict(base_pass=self.P1, base_hash="def456", h="ghi789", run_id="rv-R2")
+        cases = {
+            # compared against the root's wording, not the one the link confirmed
+            "base_hash abc123 is not": (rwrec(**dict(ok_r2, base_hash="abc123")),
+                                        self.chain2()),
+            "not confirmed": (rwrec(**ok_r2), self.chain2({"verdict": "GAP",
+                                                           "blocking": "step 2"})),
+            "exceeds": (rwrec(**ok_r2), self.chain2({"scope": "exceeds"})),
+            "own base": (rwrec(**ok_r2), self.link(rwrec(), self.P1, None)),
+            "root base": (rwrec(**ok_r2),
+                          self.link(rwrec(), self.P1, (rec("CONFIRMED"),
+                                                       rec("GAP", run="B"), []))),
+            "run id": (rwrec(**dict(ok_r2, run_id="rv-A")), self.chain2()),
+            "belongs to pass": (rwrec(**dict(ok_r2, base_pass=self.P2)), self.chain2()),
+        }
+        for why, (r2, r1) in cases.items():
+            with self.subTest(why=why):
+                res = dt.decide(r2, base=(r1, None))
+                self.assertIn(res["outcome"], ("invalid-base",), res["anomalies"])
+                self.assertIsNone(res["proposed_status"])
+                self.assertIsNone(res["grounds"])
+
+    def test_a_named_root_must_be_the_chains(self):
+        r2 = rwrec(base_pass=self.P1, base_hash="def456", h="ghi789", run_id="rv-R2")
+        r2["root_pass"] = "2026-09-01-T-0001"
+        res = dt.decide(r2, base=(self.chain2(), None))
+        self.assertEqual(res["outcome"], "invalid-base")
+        self.assertTrue(any("root_pass" in x for x in res["anomalies"]), res["anomalies"])
+        r2["root_pass"], r2["root_hash"] = "2026-09-28-T-0007", "abc123"
+        self.assertEqual(dt.decide(r2, base=(self.chain2(), None))["outcome"], "confirmed")
+
+    def test_a_reword_record_beside_a_blind_run_is_still_no_base(self):
+        # a misfiled reword record as the base pass's A, with a blind B: not a link
+        res = dt.decide(rwrec(run_id="rv-R2", base_hash="def456", h="ghi789"),
+                        base=(rwrec(), rec("CONFIRMED", run="B")))
+        self.assertEqual(res["outcome"], "invalid-base")
+
+    def test_base_records_follow_the_chain_on_disk(self):
+        import shutil
+        d = tempfile.mkdtemp()
+        try:
+            subj = os.path.join(d, "reviews", "paper", "lem-x")
+
+            def put(pass_, name, text):
+                os.makedirs(os.path.join(subj, pass_), exist_ok=True)
+                p = os.path.join(subj, pass_, name)
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+                return p
+            for run in ("A", "B"):
+                put("2026-09-28-T-0007", run + ".md",
+                    "---\nsubject: paper:lem:x\npass: 2026-09-28-T-0007\nrun: %s\n"
+                    "run_id: rv-%s\nverdict: CONFIRMED\nmodulo: []\nmodel: claude-opus-5-5\n"
+                    "statement_hash: abc123\n---\n\nr\n" % (run, run))
+            rw = ("---\nsubject: paper:lem:x\npass: {p}\nrun: R\nrun_id: {rid}\n"
+                  "verdict: CONFIRMED\nmodulo: []\nmodel: claude-opus-5-5\n"
+                  "statement_hash: {h}\nmode: reword\nbase_pass: {bp}\nbase_hash: {bh}\n"
+                  "reword_scope: weaker\n---\n\nr\n")
+            put(self.P1, "R.md", rw.format(p=self.P1, rid="rv-R1", h="def456",
+                                           bp="2026-09-28-T-0007", bh="abc123"))
+            put(self.P2, "R.md", rw.format(p=self.P2, rid="rv-R2", h="ghi789",
+                                           bp=self.P1, bh="def456"))
+            r3 = put(self.P3, "R.md", rw.format(p=self.P3, rid="rv-R3", h="jkl012",
+                                                bp=self.P2, bh="ghi789"))
+            code, out, err = fixtures.run_script("decision_table.py", None, [r3, "--json"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(out["outcome"], "confirmed", out)
+            self.assertEqual(out["chain"], ["2026-09-28-T-0007", self.P1, self.P2])
+            # a loop: the first link names the last as its base
+            put(self.P1, "R.md", rw.format(p=self.P1, rid="rv-R1", h="def456",
+                                           bp=self.P2, bh="ghi789"))
+            code, out, err = fixtures.run_script("decision_table.py", None, [r3, "--json"])
+            self.assertEqual(out["outcome"], "invalid-base", out)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class EstablishedAtConcludeTests(unittest.TestCase):
+    """#133: a reword pass carried the base pass's modulo over, so a proposal named an
+    input that the registry already showed proved (four proposals on one day, three of
+    them lowering a proved claim). The table now reads the registry at conclude time
+    (``established_of``; the CLI's ``registry_established``) and drops what is
+    established now; R proposes proved when nothing remains."""
+
+    P1 = RewordChainTests.P1
+
+    def base(self, modulo):
+        return rec("CONFIRMED", modulo=modulo), rec("CONFIRMED", run="B", modulo=modulo)
+
+    def est(self, *proved):
+        seen = []
+
+        def of(items, subject):
+            seen.append((list(items), subject))
+            return {i: {"id": i, "status": "proved", "why": ""} for i in items if i in proved}
+        of.seen = seen
+        return of
+
+    def check_proved(self, r):
+        self.assertEqual((r["outcome"], r["proposed_status"], r["modulo"]),
+                         ("confirmed", "proved", []))
+        self.assertTrue(r["recolour"])
+        self.assertNotIn("modulo", r["grounds"])
+        ok, why = ex.mcp_module("claims").check_grounds("proved", r["grounds"], r["grounds"]
+                                                         ["statement_hash"])
+        self.assertTrue(ok, why)
+
+    def test_carried_base_input_proved_now_proposes_proved(self):
+        # shape 1: the blind base pass said modulo X; X has been proved since
+        of = self.est("paper:prop:compact-conical-finite")
+        r = dt.decide(rwrec(), base=self.base("paper:prop:compact-conical-finite"),
+                      established_of=of)
+        self.check_proved(r)
+        self.assertEqual(r["established_dropped"], ["paper:prop:compact-conical-finite"])
+        self.assertEqual([i["input"] for i in r["established_inputs"]],
+                         ["paper:prop:compact-conical-finite"])
+        self.assertIn("paper:prop:compact-conical-finite", of.seen[0][0])
+        self.assertEqual(of.seen[0][1], "paper:lem:x")
+        self.assertIn("dropped from the carried modulo", dt._text(r))
+
+    def test_unqualified_input_is_read_canonically(self):
+        # shape 2: the base runs wrote the label without its namespace
+        of = self.est("paper:fact:unfolding-properties")
+        r = dt.decide(rwrec(), base=self.base("fact:unfolding-properties"),
+                      established_of=of)
+        self.check_proved(r)
+
+    def test_input_carried_down_a_reword_chain(self):
+        # shape 3: the input sits in the blind root's modulo under a confirmed reword link
+        a, b = self.base("paper:lem:dihedral-structure-group")
+        r1 = dict(rwrec(), **{"pass": self.P1,
+                              "file": "reviews/paper/lem-x/%s/R.md" % self.P1,
+                              "_base": (a, b, [])})
+        r2 = rwrec(base_pass=self.P1, base_hash="def456", h="ghi789", run_id="rv-R2")
+        r = dt.decide(r2, base=(r1, None),
+                      established_of=self.est("paper:lem:dihedral-structure-group"))
+        self.check_proved(r)
+        self.assertEqual(len(r["chain"]), 2)
+
+    def test_input_named_by_the_reword_run_itself(self):
+        # shape 4: R lists the input (proved on the human's word); the base had none
+        r = dt.decide(rwrec(modulo="paper:lem:polar-decomposition"), base=self.base("none"),
+                      established_of=self.est("paper:lem:polar-decomposition"))
+        self.check_proved(r)
+
+    def test_only_the_open_inputs_stay(self):
+        r = dt.decide(rwrec(), base=self.base("paper:lem:a, paper:lem:b"),
+                      established_of=self.est("paper:lem:a"))
+        self.assertEqual((r["outcome"], r["proposed_status"], r["modulo"]),
+                         ("confirmed-modulo", "proved-modulo", ["paper:lem:b"]))
+        self.assertEqual(r["grounds"]["modulo"], ["paper:lem:b"])
+        self.assertEqual(r["established_dropped"], ["paper:lem:a"])
+        self.assertEqual(r["pending_inputs"], ["paper:lem:b"])
+
+    def test_nothing_established_keeps_the_carried_modulo(self):
+        r = dt.decide(rwrec(), base=self.base("paper:lem:a"), established_of=self.est())
+        self.assertEqual((r["outcome"], r["modulo"]), ("confirmed-modulo", ["paper:lem:a"]))
+        # an unreadable registry (the hook raising) is the same as nothing established
+        def boom(items, subject):
+            raise OSError("no registry")
+        r = dt.decide(rwrec(), base=self.base("paper:lem:a"), established_of=boom)
+        self.assertEqual(r["modulo"], ["paper:lem:a"])
+
+    def test_the_established_option_drops_too(self):
+        r = dt.decide(rwrec(), base=self.base("paper:lem:a"), established=["lem:a"])
+        self.check_proved(r)
+
+    def test_amend_reads_the_registry_too(self):
+        a = rec("CONFIRMED", modulo="paper:lem:a")
+        a["add_dependency"] = ["paper:lem:d"]
+        b = rec("CONFIRMED", run="B", modulo="paper:lem:a")
+        b.update(mode="amend", base_pass=a.get("pass"), base_hash="abc123",
+                 amended_with=["paper:lem:d"], add_dependency=[])
+        r = dt.decide(a, b, established_of=self.est("paper:lem:a", "paper:lem:d"))
+        self.assertEqual((r["mode"], r["outcome"], r["proposed_status"]),
+                         ("amend", "confirmed", "proved"))
+        r = dt.decide(a, b, established_of=self.est("paper:lem:a"))
+        self.assertEqual((r["outcome"], r["pending_inputs"]),
+                         ("confirmed-modulo", ["paper:lem:d"]))
+
+
+class RegistryEstablishedTests(unittest.TestCase):
+    """#133: ``registry_established`` reads the discharge's rule from a real registry."""
+
+    LAB = ("---\nid: lab:{id}\nkind: claim\ntitle: t {id}\nstatus: {status}\n"
+           "lifecycle: active\nevidence:\n  - verdict | reviews/{id}/A.md | CONFIRMED | "
+           "rv-a-{id} | grader rigor-reviewer\n  - verdict | reviews/{id}/B.md | CONFIRMED"
+           " | rv-b-{id} | grader rigor-reviewer\nhistory:\n  - 2026-11-20 | {status} | "
+           "proof review\n---\nBody {id}.\n")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, True)
+        lab = os.path.join(self.tmp, "LabHome")
+        os.makedirs(os.path.join(lab, "claims", "lab"))
+        for cid, st in (("in-a", "proved"), ("in-b", "sketch"), ("in-c", "proved-modulo")):
+            with open(os.path.join(lab, "claims", "lab", cid + ".md"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(self.LAB.format(id=cid, status=st))
+        ws = os.path.join(self.tmp, "workspace.json")
+        with open(ws, "w", encoding="utf-8") as fh:
+            json.dump({"board": os.path.join(self.tmp, "board"), "instances": {
+                "scientist@t": {"role": "scientist", "home": lab, "ns": "lab"}}}, fh)
+        from unittest import mock
+        p = mock.patch.dict(os.environ, {"ACADEMY_WORKSPACE": ws})
+        p.start()
+        self.addCleanup(p.stop)
+        self._clear()
+        self.addCleanup(self._clear)
+
+    def _clear(self):
+        try:
+            import registry
+            registry.clear_cache()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def test_only_proved_inputs_are_established(self):
+        got = dt.registry_established(["lab:in-a", "lab:in-b", "lab:in-c", "free text"],
+                                      "lab:x")
+        self.assertEqual(sorted(got), ["lab:in-a"])
+        self.assertEqual(got["lab:in-a"]["status"], "proved")
+
+    def test_unknown_namespace_reads_nothing(self):
+        self.assertEqual(dt.registry_established(["zz:a"], "zz:x"), {})
+
+
 class RewordBaseSubjectTests(unittest.TestCase):
     """T-0476: a reword run on a renamed record names the base pass's subject
     (``base_subject``, the superseded id) and the table reads the base there."""
@@ -1827,3 +2111,171 @@ class DefinitionRuleReviewTests(unittest.TestCase):
         # a lemma with the same mark is still a verify-input
         r = self.run_("paper:lem:a [CHECK]", "paper:lem:a [CHECK]")
         self.assertEqual([i["kind"] for i in r["file_items"]], ["verify-input"])
+
+
+class BasePassOnAnotherBranchTests(unittest.TestCase):
+    """#130: a base pass committed on a forked ticket branch was reported as "has no
+    decision.md"; the note now names the branch that holds it."""
+
+    def git(self, *args):
+        import subprocess
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        subprocess.run(["git", "-C", self.repo] + list(args), check=True, env=env,
+                       capture_output=True)
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = self._tmp.name
+        self.git("init", "-q", "-b", "main")
+        self.d = os.path.join(self.repo, "reviews", "paper", "lem-x", "2026-11-23-T-1957")
+        os.makedirs(self.d)
+        for f in ("A.md", "B.md"):
+            with open(os.path.join(self.d, f), "w") as fh:
+                fh.write("run\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "runs")
+        self.git("switch", "-q", "-c", "2026-11-23/t-1957/expert")
+        with open(os.path.join(self.d, "decision.md"), "w") as fh:
+            fh.write("decision\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "decision")
+        self.git("switch", "-q", "main")
+
+    def test_the_note_names_the_branch_holding_the_decision(self):
+        self.assertEqual(dt.branches_holding(self.d), ["2026-11-23/t-1957/expert"])
+        _a, _b, notes = dt.base_records(None, "x", self.d)
+        self.assertIn("has no decision.md", notes[0])
+        self.assertIn("complete on 2026-11-23/t-1957/expert", notes[0])
+
+    def test_a_missing_folder_names_it_too(self):
+        self.git("switch", "-q", "--orphan", "empty")
+        import shutil
+        shutil.rmtree(os.path.join(self.repo, "reviews"), ignore_errors=True)
+        _a, _b, notes = dt.base_records(None, "x", self.d)
+        self.assertIn("folder", notes[0])
+        self.assertIn("2026-11-23/t-1957/expert", notes[0])
+
+    def test_a_reword_base_on_another_branch_is_named(self):
+        # #127 with #130: a chain's reword link holds R.md and decision.md, no A or B
+        r = os.path.join(self.repo, "reviews", "paper", "lem-x", "2026-11-24-T-1960")
+        os.makedirs(r)
+        with open(os.path.join(r, "R.md"), "w") as fh:
+            fh.write("run\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "reword run")
+        self.git("switch", "-q", "-c", "2026-11-24/t-1960/expert")
+        with open(os.path.join(r, "decision.md"), "w") as fh:
+            fh.write("decision\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "reword decision")
+        self.git("switch", "-q", "main")
+        self.assertIn("complete on 2026-11-24/t-1960/expert", dt.elsewhere(r))
+
+    def test_no_note_when_the_checkout_has_it_or_no_branch_does(self):
+        self.git("switch", "-q", "2026-11-23/t-1957/expert")
+        self.assertEqual(dt.branches_holding(self.d), [])
+        self.git("switch", "-q", "main")
+        self.git("branch", "-q", "-D", "2026-11-23/t-1957/expert")
+        self.assertEqual(dt.branches_holding(self.d), [])
+        self.assertEqual(dt.elsewhere(self.d), "")
+
+
+def irec(verdict, items, run="A", hyps="H1, H2", **kw):
+    """A run with an ``items:`` line (#127) and ``hypotheses_used``."""
+    r = rec(verdict, run=run, **kw)
+    r["items"], r["item_problems"] = dt.parse_items(items)
+    r["hypotheses_used"] = [h.strip() for h in hyps.split(",") if h.strip()]
+    return r
+
+
+REG = {"hash": "abc123", "items": {"C1": {"hash": "h1" * 8, "status": "sketch"},
+                                   "C2": {"hash": "h2" * 8, "status": "sketch"},
+                                   "C3": {"hash": "h3" * 8, "status": "sketch"}}}
+
+
+def items_of(_qid):
+    return REG
+
+
+class ItemTests(unittest.TestCase):
+    """#127: the table per item, the whole outcome derived from the items'."""
+
+    def test_parse_items_line(self):
+        r = dt.parse_record(
+            "VERDICT\nsubject: paper:prop:x\nverdict: GAP\nitems: C1 CONFIRMED; it:c2 "
+            "CONFIRMED modulo paper:lem:x, bib:AW21#Thm1.3; C3: GAP\n"
+            "hypotheses_used: H1, H3\n")
+        self.assertEqual(r["items"], {
+            "C1": {"verdict": "CONFIRMED", "modulo": []},
+            "c2": {"verdict": "CONFIRMED", "modulo": ["paper:lem:x", "bib:AW21#Thm1.3"]},
+            "C3": {"verdict": "GAP", "modulo": []}})
+        self.assertEqual(r["hypotheses_used"], ["H1", "H3"])
+        self.assertEqual(r["item_problems"], [])
+        bad = dt.parse_record("VERDICT\nverdict: GAP\nitems: C1 maybe; C2 GAP extra\n")
+        self.assertEqual(len(bad["item_problems"]), 2)
+        self.assertFalse(bad["problems"])      # the whole verdict still reads
+
+    def test_every_item_confirmed_is_confirmed(self):
+        it = "C1 CONFIRMED; C2 CONFIRMED; C3 CONFIRMED"
+        r = dt.decide(irec("CONFIRMED", it), irec("CONFIRMED", it, run="B"),
+                      items_of=items_of)
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertEqual(r["proposed_items"],
+                         {"C1": ["proved"], "C2": ["proved"], "C3": ["proved"]})
+        self.assertEqual(r["items"]["C2"]["grounds"]["item"], "C2")
+        self.assertEqual(r["items"]["C2"]["grounds"]["item_hash"], "h2" * 8)
+
+    def test_one_item_modulo_keeps_the_others_proved(self):
+        it = "C1 CONFIRMED; C2 CONFIRMED modulo paper:lem:y; C3 CONFIRMED"
+        r = dt.decide(irec("CONFIRMED", it, modulo="paper:lem:y"),
+                      irec("CONFIRMED", it, run="B", modulo="paper:lem:y"),
+                      items_of=items_of)
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:y"])
+        self.assertEqual(r["proposed_items"], {"C1": ["proved"],
+                                               "C2": ["proved-modulo", "paper:lem:y"],
+                                               "C3": ["proved"]})
+        self.assertEqual(r["grounds"]["modulo"], ["paper:lem:y"])
+
+    def test_a_gap_on_one_item_holds_only_that_item(self):
+        # A: GAP overall (C3), CONFIRMED on C1 and C2: B is launched for the items
+        ra = irec("GAP", "C1 CONFIRMED; C2 CONFIRMED; C3 GAP", blocking="step 4")
+        self.assertTrue(dt.should_launch_b(ra))
+        r = dt.decide(ra, items_of=items_of)
+        self.assertEqual(r["outcome"], "awaiting-b")
+        self.assertTrue(r["launch_b"])
+        rb = irec("CONFIRMED", "C1 CONFIRMED; C2 CONFIRMED; C3 CONFIRMED", run="B")
+        r = dt.decide(ra, rb, items_of=items_of)
+        self.assertEqual(r["outcome"], "per-item")
+        self.assertIsNone(r["proposed_status"])
+        self.assertEqual(r["items"]["C3"]["outcome"], "single-negative")
+        self.assertEqual(r["proposed_items"], {"C1": ["proved"], "C2": ["proved"]})
+        self.assertEqual([i["item"] for i in r["file_items"]], ["C3"])
+        self.assertIn("step 4", r["file_items"][0]["text"])
+
+    def test_a_run_without_items_falls_back_to_the_whole_statement(self):
+        r = dt.decide(rec("CONFIRMED"), rec("CONFIRMED", run="B"), items_of=items_of)
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertNotIn("items", r)
+        self.assertIn("decided on the whole statement", r["items_note"])
+        # one run with items, one without: the same fallback
+        it = "C1 CONFIRMED; C2 CONFIRMED; C3 CONFIRMED"
+        r = dt.decide(irec("CONFIRMED", it), rec("CONFIRMED", run="B"), items_of=items_of)
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertIn("gave no `items:` entry", r["items_note"])
+
+    def test_a_moved_statement_gives_item_grounds_without_item_hash(self):
+        it = "C1 CONFIRMED; C2 CONFIRMED; C3 CONFIRMED"
+        r = dt.decide(irec("CONFIRMED", it, h="old999"),
+                      irec("CONFIRMED", it, run="B", h="old999"), items_of=items_of)
+        self.assertNotIn("item_hash", r["items"]["C1"]["grounds"])
+        self.assertTrue(any("statement changed since the runs" in a for a in r["anomalies"]))
+
+    def test_unrecorded_items_without_registry(self):
+        it = "C1 CONFIRMED; C2 GAP"
+        r = dt.decide(irec("GAP", it, blocking="x"), irec("CONFIRMED", it, run="B"))
+        self.assertEqual(r["outcome"], "per-item")
+        self.assertNotIn("item_hash", r["items"]["C1"]["grounds"])

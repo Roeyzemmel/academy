@@ -1,10 +1,10 @@
 export const meta = {
   name: 'academy-inbox',
   description: 'Work the board inboxes in the fixed order (Author, Expert, Researcher, Scientist), at most three tickets, serially: routes, relay legs and their conclusions, checkpoints, all in code',
-  whenToUse: '/academy:inbox and every role inbox (only: [instance]). args: {root: <academy repo>, n?, cap?, only?: [instance], campaign?, cowork?, ids?: [T-NNNN]}',
+  whenToUse: '/academy:inbox and every role inbox (only: [instance]). args: {root: <academy repo>, n?, cap?, only?: [instance], campaign?, cowork?, ids?: [T-NNNN], sweep?: false (skip the Author\'s note sweep)}',
   phases: [
     { title: 'List', detail: 'each instance\'s inbox.py --json' },
-    { title: 'Sweep', detail: 'the Author\'s machine-note sweep, before any ticket' },
+    { title: 'Sweep', detail: 'the Author\'s machine-note sweep, before any ticket and only when the run takes one of its tickets: the plan by script, the note-sweeper only when it lists work' },
     { title: 'Tickets', detail: 'one ticket at a time, by route, then its checkpoint' },
     { title: 'Close', detail: 'the Author\'s delivered self-tickets' },
   ],
@@ -124,7 +124,84 @@ const launchOnce = (prompt, opts) => {
 }
 // ---- end Models
 if (!A.root) throw new Error('args.root must be the academy repo (the folder holding the plugins)')
-const ROOT = A.root.replace(/[\\/]+$/, '')
+// ---- Code pin (docs/workflows.md, "Pinned code"; #97): the same block in inbox.js and workplan.js.
+// The run reads its code from a worktree of the academy repo pinned at the commit HEAD pointed to
+// when it started (academy/scripts/run_pin.py), so a merge, a branch switch or a publish during the
+// run changes nothing it runs: every script command and nested workflow takes CODE.root, never
+// args.root. args.code (the JSON object `run_pin.py start --json` printed, or its text) is a pin the
+// caller made and ends; a nested run (nested: true) runs on the root it was given; pin: false runs on
+// args.root, the live checkout. Otherwise the pin stage makes one, and the run ends it on every way
+// out (pinEnd(), from a finally, which never throws: a lost unpin is CODE.end_error). A run that hands
+// work back (a for_main or a gate: its args carry the pin's root) holds the pin longer (end --hold), and
+// CODE.expires says until when. A pin stage that returns no pin is a note, never a failed run.
+const PIN_OUT = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
+  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
+const PIN_PY = `py ${String(A.root || '').replace(/[\\/]+$/, '')}/academy/scripts/run_pin.py`
+const CODE = { sha: null, root: String(A.root || '').replace(/[\\/]+$/, ''), pinned: false, run: null, why: '' }
+const PIN_NOTES = []
+const PIN_OWN = { run: null, out: null }   // the pin this run made, and so ends; out: the run's result
+const pinRead = v => {             // a pin (object or its JSON text, a code fence allowed), else null
+  if (typeof v === 'string') {
+    const t = v.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')
+    try { v = JSON.parse(t) } catch (e) { return null }
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v) || typeof v.root !== 'string' || !v.root) return null
+  if (v.pinned && !/^[0-9a-f]{40}$/.test(String(v.sha || ''))) return null
+  return v
+}
+const pinSet = (c, why) => Object.assign(CODE, { sha: c.sha || null, root: c.root.replace(/[\\/]+$/, ''),
+  pinned: !!c.pinned, run: c.run || null, why })
+async function pinStart(label) {
+  if (A.code !== undefined && A.code !== null) {
+    const c = pinRead(A.code)
+    if (!c) throw new Error(`args.code is no pin (${String(JSON.stringify(A.code)).slice(0, 80)}): pass the JSON object \`${PIN_PY} start --json\` prints, or leave it out`)
+    return pinSet(c, 'given by the caller, which ends it' + (c.why ? ': ' + c.why : ''))
+  }
+  if (A.nested) { CODE.why = 'nested: the calling run pins the code and gave this root'; return CODE }
+  if (A.pin === false) { CODE.why = 'args.pin false: the run reads the live checkout'; return CODE }
+  const tag = String(label).replace(/[^A-Za-z0-9@+._-]/g, '-').slice(0, 60)
+  const r = await launch(`WORKFLOW STAGE pin. Run \`${PIN_PY} start --label ${tag} --json\` once (python3 where there is no py). ` +
+    'Fix nothing, whatever it prints: return the exit code the shell printed and its whole output verbatim.',
+  { label: 'pin', agentType: 'general-purpose', tier: 'base', schema: PIN_OUT, effort: 'low' })
+  const c = r ? pinRead(String(r.output || '')) : null
+  if (!c) {
+    CODE.why = 'the pin stage ' + (r ? `printed no pin (${JSON.stringify(String(r.output || '').slice(0, 160))})` : 'returned nothing')
+    PIN_NOTES.push(`code not pinned: ${CODE.why}; the run reads the live checkout ${CODE.root}`)
+    return CODE
+  }
+  pinSet(c, String(c.why || ''))
+  if (!c.pinned) PIN_NOTES.push(`code not pinned: ${CODE.why || 'run_pin.py gave no reason'}`)
+  else {
+    PIN_OWN.run = c.run || null
+    if (c.dirty) PIN_NOTES.push(`code pinned at ${CODE.sha.slice(0, 12)}: ${CODE.why}`)
+  }
+  return CODE
+}
+async function pinEnd() {         // once, on every way out of a run that made its pin; never throws
+  if (!PIN_OWN.run) return
+  const run = PIN_OWN.run
+  PIN_OWN.run = null
+  const o = PIN_OWN.out || {}
+  const hold = !!((Array.isArray(o.for_main) ? o.for_main.length : o.for_main) || (o.gates && o.gates.length))
+  try {
+    const r = await launch(`WORKFLOW STAGE unpin. Run \`${PIN_PY} end --run ${run}${hold ? ' --hold' : ''} --json\` once (python3 where there is no py). ` +
+      'Fix nothing, whatever it prints: return the exit code the shell printed and its whole output verbatim.',
+    { label: 'unpin', agentType: 'general-purpose', tier: 'base', schema: PIN_OUT, effort: 'low', record: true })
+    let e = null
+    try { e = JSON.parse(String((r && r.output) || '').trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')) } catch (x) { e = null }
+    CODE.ended = !!(e && e.ended === true)
+    if (e && e.expires_iso) CODE.expires = e.expires_iso
+    if (!CODE.ended) CODE.end_error = r ? `the unpin stage printed ${JSON.stringify(String(r.output || '').slice(0, 160))}` : 'the unpin stage returned nothing'
+  } catch (x) {
+    CODE.ended = false
+    CODE.end_error = `the unpin stage threw: ${String(x && x.message || x).slice(0, 200)}; the marker goes stale on its own (run_pin.py end --run ${run} clears it)`
+  }
+}
+// ---- end Code pin
+// the run's code, pinned before anything reads it; the run below ends the pin in its finally
+await pinStart('inbox-' + String(A.run_id || ((A.only && A.only.length) ? A.only.join('+') : 'all')))
+const ROOT = CODE.root
+try {   // the whole run, unindented: its finally ends the pin on every way out (a return, a throw)
 // loop (2026-10-31): pass after pass over every inbox until nothing moves; a ticket that needs
 // the human becomes a gate (set aside, collected, asked in one batch) and the others go on.
 // The whole academy then runs in code, with the human asked only where the rules need them.
@@ -147,7 +224,8 @@ const NESTED_COST = { 'expert:verify': 3, 'researcher:review-experiment': 3, 're
   'researcher:prove': 2, 'researcher:generalize': 2, 'expert:cite': 1, 'expert:domain': 1, 'expert:referee': 1, 'author:notes': 1 }
 function costOf(row, i) {
   const rt = row.route || {}
-  if (row.return || row.released || rt.how === 'reject' || rt.how === 'human') return 0   // clerk moves only
+  if (row.partial) return row.park ? 0 : 1                              // its sender's decider (#100 review, point 6); parked: a clerk move
+  if (row.return || row.released || rt.how === 'reject' || rt.how === 'human' || rt.how === 'wait') return 0   // clerk moves only
   if (i.role === 'expert' && rt.target === 'clerk') return 2            // the clerk, and the librarian if it escalates
   if (i.role === 'scientist' && rt.target === 'developer') return 4     // developer and test-engineer, two rounds
   if (rt.how === 'skill') return NESTED_COST[rt.target] || 1
@@ -194,7 +272,10 @@ const ROW = {
     budget_runs: { type: 'number' },
     // #124: why is asked for, never required (a clerk that leaves it out would lose the list); read as 'no reason given'
     route: { type: 'object', properties: { how: { type: 'string' }, target: { type: ['string', 'null'] }, why: { type: 'string' } }, required: ['how', 'target'] },
-    return: { type: 'boolean' }, released: { type: 'boolean' }, over_budget: { type: ['string', 'null'] },
+    return: { type: 'boolean' }, released: { type: 'boolean' },
+    partial: { type: 'boolean', description: 'a partial ticket this instance sent, back with it (#100); false when absent' },
+    reopens: { type: 'number', description: 'a partial row: its reopens so far; 0 when absent' },
+    park: { type: 'boolean', description: 'a partial row reopened twice: it goes to the human; false when absent' }, over_budget: { type: ['string', 'null'] },
   },
   required: ['id', 'kind', 'status', 'from', 'to', 'final_to', 'refs', 'budget_runs', 'route', 'return', 'released', 'over_budget'],
 }
@@ -214,7 +295,7 @@ const CHECK = { type: 'object', properties: { exit: { type: 'number', descriptio
   status: { type: 'string' }, output: { type: 'string', description: 'the command output, verbatim' }, detail: { type: 'string' } }, required: ['exit', 'status', 'output'] }
 // the check's verdict is read from its own first line ("T-NNNN: <state> (<status>)"), not from the clerk's reading
 // of it (live run 2026-10-31: a refused checkpoint made the clerk report exit 3 for a delivered ticket)
-const FINISHED = /^(delivered|closed|rejected|cancelled)$/
+const FINISHED = /^(delivered|partial|closed|rejected|cancelled)$/
 function readCheck(chk, id) {
   if (!chk) return null
   const m = new RegExp('^' + id + ': (\\S+) \\(([^)]+)\\)', 'm').exec(String(chk.output || ''))
@@ -245,34 +326,86 @@ const RELAY_OUT = { type: 'object', properties: {
 // the instances it works. snapshot: false (args) runs without it, as before: --check then ships the ticket's
 // repos by --only.
 const SNAPSHOT = A.snapshot !== false
-const RUN_ID = ('inbox-' + String(A.run_id || ((A.only && A.only.length) ? A.only.join('+') : 'all')))
-  .replace(/[^A-Za-z0-9@+._-]/g, '-').slice(0, 100)
+// #96 (the human's choice, 2026-11-27: "Leases, one checkout"): two runs with disjoint instance
+// sets may work in one checkout at once. After the listing, the clerk takes a lease for this run
+// on the home of every listed instance (manifest.py lease take); an instance whose home another
+// live run holds is skipped for this run (a note says so), never waited for. Each ticket's
+// snapshot heartbeats the run's leases; the run releases them at its end, early stops included
+// (a run that dies leaves them to go stale: its pid gone, or 30 minutes without a heartbeat
+// when the pid cannot be checked).
+// The run id is made unique by that stage (the prefix below, a timestamp and a random suffix:
+// a script has no clock of its own); args.run_id names it instead. The leases and the claims
+// use the same id. leases: false (args) runs without them, with the prefix as the run id.
+const LEASES = A.leases !== false
+const RUN_BASE = ('inbox-' + String(A.run_id || ((A.only && A.only.length) ? A.only.join('+') : 'all')))
+  .replace(/[^A-Za-z0-9@+._-]/g, '-').slice(0, 90)
+let RUN_ID = RUN_BASE
+const LEASE = { held: false, skipped: new Map() }
 const SNAP = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
   output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit'] }
 const withDetail = r => (r && typeof r === 'object' && typeof r.detail !== 'string') ? Object.assign({}, r, { detail: '' }) : r
 const clerk = async (stage, lines, schema, label) => {
   const r = await launch(
     `WORKFLOW STAGE ${stage} of the academy-inbox workflow.\n` + lines.filter(Boolean).join('\n'),
-    { label: label || stage, phase: stage === 'list' ? 'List' : (stage === 'close-self' ? 'Close' : 'Tickets'), agentType: CLERK, schema, effort: 'low' })
+    { label: label || stage, phase: stage === 'list' ? 'List' : (stage === 'close-self' ? 'Close' : (stage === 'sweep-plan' ? 'Sweep' : 'Tickets')), agentType: CLERK, schema, effort: 'low' })
   return schema === MOVE || schema === CHECK ? withDetail(r) : r
 }
 // a stage that throws (no structured output) is a failed snapshot or check, never a failed run
 const tryClerk = async (stage, lines, schema, label) => { try { return await clerk(stage, lines, schema, label) } catch (e) { return null } }
+const PID_NOTE = '$PPID is left for the shell to expand (the session\'s process, whose end ends the claim and the leases)'
 async function snapshot(row) {
-  const r = await tryClerk('snapshot', [`py ${ROOT}/academy/scripts/manifest.py snapshot --ticket ${row.id} --run ${RUN_ID}`,
-    'Run it once (python3 where there is no py). Return the exit code the shell printed and the output verbatim.'], SNAP, `snapshot ${row.id}`)
+  const r = await tryClerk('snapshot', [`py ${ROOT}/academy/scripts/manifest.py snapshot --ticket ${row.id} --run ${RUN_ID} --pid $PPID`,
+    `Run it once, as written (python3 where there is no py; ${PID_NOTE}). Return the exit code the shell printed and the output verbatim.`], SNAP, `snapshot ${row.id}`)
   const ok = !!(r && r.exit === 0)
   if (!ok) notes.push(`${row.id}: no snapshot before it (${r ? String(r.output || '').replace(/\s+/g, ' ').slice(0, 120) : 'the stage returned nothing'}); its checkpoint ships its repos by --only, as before`)
   return ok
 }
 const checkCmd = (row, i) => [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`,
   'Run it once. Return the exit code the shell printed (echo $?), the ticket status, and the whole output verbatim in output.']
+// #96: the leases. take: the run's id and the instances it may run; release: at the end
+async function takeLeases(xs) {
+  if (!LEASES || !xs.length) return xs
+  const r = await tryClerk('lease', [`py ${ROOT}/academy/scripts/manifest.py lease take ${A.run_id ? '--run' : '--prefix'} ${RUN_BASE} ` +
+    `--instances ${xs.map(i => i.name).join(',')} --pid $PPID`,
+  `Run it once, as written (python3 where there is no py; ${PID_NOTE}). Return the exit code the shell printed and the output verbatim.`], SNAP, 'lease take')
+  const text = String((r && r.output) || '')
+  const m = /^run (\S+)\s*$/m.exec(text)
+  const id = m && m[1]
+  if (!r || r.exit !== 0 || !id || !/^[A-Za-z0-9@+._-]{1,120}$/.test(id) || !id.startsWith(RUN_BASE)) {
+    notes.push(`no leases taken (${r ? text.replace(/\s+/g, ' ').slice(0, 120) || 'exit ' + r.exit : 'the stage returned nothing'}): ` +
+      `this run works unleased as run ${RUN_ID}; a concurrent run in this checkout is not kept off its homes (#96)`)
+    return xs
+  }
+  RUN_ID = id
+  LEASE.held = true
+  for (const line of text.split(/\r?\n/)) {
+    const k = /^skipped (\S+): (.*)$/.exec(line.trim())
+    if (k && xs.some(i => i.name === k[1])) LEASE.skipped.set(k[1], k[2])
+  }
+  for (const [name, why] of LEASE.skipped) notes.push(`${name} is skipped this run: ${why} (#96: its home is another live run's)`)
+  out.leases = { run: RUN_ID, skipped: [...LEASE.skipped.keys()] }
+  return xs.filter(i => !LEASE.skipped.has(i.name))
+}
+async function releaseLeases() {
+  if (!LEASE.held) return
+  LEASE.held = false
+  let r = null
+  try {
+    // record: tried after a stop as well (a usage limit makes it fail, and the leases then go stale)
+    r = await launch(`WORKFLOW STAGE lease of the academy-inbox workflow.\npy ${ROOT}/academy/scripts/manifest.py lease release --run ${RUN_ID}\n` +
+      'Run it once (python3 where there is no py). Return the exit code the shell printed and the output verbatim.',
+    { label: 'lease release', phase: 'Close', agentType: CLERK, schema: SNAP, effort: 'low', record: true })
+  } catch (e) { r = null }
+  if (!r || r.exit !== 0) notes.push(`the leases of run ${RUN_ID} were not released (they go stale in 30 minutes): py ${ROOT}/academy/scripts/manifest.py lease release --run ${RUN_ID}`)
+}
 const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `act as: ${inst}`, what], MOVE, label || `${row.id} ${what.split(':')[0]}`)
 
 const notes = []
 const taken = []
 
-const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0, budget: null }
+const out = { taken, notes, for_main: null, gates: [], remaining: {}, passes: 0, budget: null, code: CODE }
+notes.push(...PIN_NOTES)
+PIN_OWN.out = out
 const followed = new Set(A.ids || [])
 const children = new Set()           // follow: the child ids this run's relays and research asks filed
 
@@ -298,7 +431,7 @@ async function listAll(pass) {
     // (live runs 2026-10-31: 304 rows, four instances lost): --ids filters in the script (the ids and their children)
     `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.ids && A.ids.length ? ' --ids ' + [...new Set([...A.ids, ...(A.follow ? [...followed, ...children] : [])])].join(',') : ''}${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
     'Return every instance (one entry each, even with no rows) with its "home" copied verbatim from the script\'s JSON (never a path you know otherwise: the workspace\'s checkout, #116), ' +
-    'and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
+    'and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent; partial, park false and reopens 0 when absent), and "waiting".',
   ]
   let listed = await clerk('list', lines, LIST, label)
   if (!listed) return null
@@ -315,7 +448,7 @@ async function listAll(pass) {
     }
     for (const b of bad) notes.push(`ANOMALY: ${b} after the retry: its tickets are not taken this pass; inbox.py --instance ${b.split(':')[0]} --json lists them`)
   }
-  const xs = listed.instances.filter(i => !A.only || A.only.includes(i.name))
+  const xs = listed.instances.filter(i => (!A.only || A.only.includes(i.name)) && !LEASE.skipped.has(i.name))
   // a later listing can come back with home '' (live run 2026-11-17: the second pass lost every home and the
   // nested prove threw 'args.home must be the Researcher home', ending the run): keep the last home seen
   for (const i of xs) { if (i.home) knownHome[i.name] = i.home; else if (knownHome[i.name]) i.home = knownHome[i.name] }
@@ -349,12 +482,48 @@ const LIMIT_WHY = 'three agent launches in a row returned nothing: most likely a
   'the session\'s own error names the reset time; resume after it). Nothing further launched (#115)'
 let insts = await listAll(1)
 if (!insts) return Object.assign(out, listFailed ? { stopped: listFailed, list_failed: true } : { stopped: 'the list stage returned nothing (a usage limit?)', usage_limit: LAUNCH_LIMIT.stopped })
+insts = await takeLeases(insts)
 let lastInsts = insts
+// from here on every way out releases the run's leases (#96)
+try {
 
 // ---- Sweep (the Author's, before any ticket; counts against no cap) -------------------
+// #98 point 1: the sweep's plan is a script (author/scripts/sweep.py: the notes of the tex files
+// changed since the last sweep, minus the verdicts it cached, acted on by kind, #110). The
+// note-sweeper is launched only when the plan lists work; a plan with nothing to do records
+// itself. A plan stage that fails launches nothing (the sweeper's procedure needs the plan):
+// a note says so. A plan warning (the last plan was never recorded) becomes a note. Cached
+// verdicts expire after author.notes.maxAge days (the script's default, 14).
+const SWEEP_PLAN = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
+  output: { type: 'string', description: 'the first line of the output, verbatim' } }, required: ['exit'] }   // #124: output asked, not required (read as '')
 phase('Sweep')
 for (const i of insts.filter(i => i.role === 'author')) {
-  const s = await launch(`Run the machine-note sweep of ${i.name} (home ${i.home}) as /author:sweep does, and report the counts per section.`,
+  // #129: the sweep (40 to 80 tool calls, usually 0 to 5 notes retired) runs only for a run that
+  // takes one of this Author's tickets, and not at all with sweep: false (a cowork that runs the
+  // inbox per ticket sweeps once, on its last call)
+  if (A.sweep === false || !(i.rows || []).length) {
+    notes.push(`${i.name}: no sweep (${A.sweep === false ? 'sweep: false' : 'no ticket of it to take in this run'})`)
+    continue
+  }
+  const sp = await tryClerk('sweep-plan', [`From ${i.home} run \`py ${ROOT}/author/scripts/sweep.py --home ${i.home} plan\` once (python3 where there is no py). ` +
+    'Return the exit code the shell printed and the first line of its output verbatim.'], SWEEP_PLAN, `sweep plan ${i.name}`)
+  const line = sp ? String(sp.output || '').trim().split('\n')[0] : ''
+  const todo = sp && sp.exit === 0 ? /^sweep: todo (\d+)\b/.exec(line) : null
+  if (todo && Number(todo[1]) === 0) {
+    out.sweep = (out.sweep || []).concat([{ instance: i.name, report: line }])
+    continue
+  }
+  if (!todo) {
+    // review of 38e8803: the note-sweeper works from the plan, so without one it is not launched
+    const why = `the sweep plan of ${i.name} ${sp ? `printed no plan line (exit ${sp.exit}: ${line.slice(0, 120)})` : 'returned nothing'}`
+    notes.push(`${why}: the note-sweeper was not run; run /author:sweep once the plan works`)
+    out.sweep = (out.sweep || []).concat([{ instance: i.name, report: `not swept: ${why}` }])
+    continue
+  }
+  const warned = /; WARNING: (.*)$/.exec(line)
+  if (warned) notes.push(`${i.name} sweep: ${warned[1]}`)
+  const s = await launch(`Run the machine-note sweep of ${i.name} (home ${i.home}) as /author:sweep does` +
+    ` (its plan: ${line}). End with \`sweep.py record\`.` + ' Report the counts per section.',
     { label: `sweep ${i.name}`, phase: 'Sweep', agentType: 'author:note-sweeper' })
   if (s === null) return Object.assign(out, { stopped: `the sweep of ${i.name} was lost (a limit?): nothing further launched` })
   out.sweep = (out.sweep || []).concat([{ instance: i.name, report: s }])
@@ -404,7 +573,8 @@ async function relayReturn(row, inst) {
   // mechanical: no relay agent. The child is closed by its sender (this instance), the
   // parent goes blocked -> in-progress -> delivered (blocked -> delivered is no transition)
   const m = await move(row, inst,
-    'return-leg: tickets_get the ticket; its child is the id in waiting_on. tickets_get the child. If the child is delivered, ' +
+    'return-leg: tickets_get the ticket; its child is the id in waiting_on. tickets_get the child. If the child is partial (#100: work done, deliverable not met), ' +
+    'move it closed (act as the child\'s from), then move this ticket blocked -> in-progress -> partial (status partial, act as its receiver) with result "partial: <the child id>: <the child\'s result>" and stop. If the child is delivered, ' +
     'move it closed (act as the child\'s from). Then move this ticket blocked -> in-progress -> delivered (deliver: true) with result ' +
     '"child <id> <its status>[; packets <ids>]"; a rejected or cancelled child is named as such.', `${row.id} return leg`)
   return { outcome: m && m.ok ? 'delivered (return leg)' : 'unfinished', detail: m ? m.detail : 'lost' }
@@ -569,7 +739,7 @@ async function leadResearcher(row, i) {
   if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail || 'no reason given' : 'lost') }
   const r = await launch(
     `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
-    'Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ' +
+    'Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ' + chosen(row) +
     `An earlier run may have worked this ticket already: first read the ticket's thread (tickets_get ${row.id}), the tickets filed for it (tickets_list parent ${row.id}) ` +
     'and the journal, and go on from there; never file a falsifier, lookup or cite ticket a second time. ' +
     'You run inside a workflow: the Agent and Workflow tools are not available here, so you cannot launch prover or run /researcher:prove, ' +
@@ -622,6 +792,12 @@ async function leadResearcher(row, i) {
     args: { claim, ticket: row.id, home: i.home, instance: inst, root: ROOT } }) }
 }
 
+// #86: what the human chose on /academy:decide (the ticket's decision_choice), told to the
+// agent that resumes the ticket so it does that and does not ask it again
+function chosen(row) {
+  return row.decision_choice ? `The human already decided this ticket on /academy:decide (its decision_choice): ${row.decision_choice}. Do that; do not ask the human again or block on the same choice. ` : ''
+}
+
 async function handle(row, i) {
   const inst = i.name, rt = row.route || {}
   const why = rt.why || 'no reason given'
@@ -629,12 +805,33 @@ async function handle(row, i) {
     const r = await move(row, inst, 'release: blocked -> accepted (everything it waited on is back)')
     if (!r || !r.ok) return { outcome: 'unfinished', detail: 'release failed' }
   }
+  if (row.partial && row.park) {
+    // re-review of ca04c0e, finding B: partial again after two reopens: the human decides
+    const m = await move(row, inst, `block-human: blocked, waiting_on ["human"], reason "${why.replace(/"/g, "'").slice(0, 300)}"`, `${row.id} park`)
+    return { outcome: m && m.ok ? 'parked on the human' : 'unfinished', detail: why }
+  }
+  if (row.partial) {
+    // review of dd0fcd1, point 6: a partial ticket this instance sent (to another or to itself) is back with it
+    const choices = row.reopens
+      ? 'It was reopened before: close it as it stands (status closed), or leave it partial and only append the thread note "partial: left for the human" (no status move); never reopen it again, and file nothing.'
+      : 'Reopen it for the receiver (tickets_update status in-progress with a reason saying what is still wanted), close it as it stands (status closed), or cancel it (status cancelled, with a reason). Make exactly one of these moves.'
+    const r = await launch(`WORKFLOW INBOX: the ticket ${row.id} that ${inst} sent to ${row.to} came back partial (the work done, the deliverable not met): ${why}. ` +
+      `Read it (tickets_get) and decide as its sender (instance=${inst}). ${choices} Return what you did and why in one line.`,
+      { label: `${rt.target} ${row.id} (partial)`, phase: 'Tickets', agentType: `${i.role}:${rt.target}` })
+    return r === null ? { lost: true } : { outcome: 'partial decided', detail: String(r).split('\n')[0] }
+  }
   if (rt.how === 'reject' && !rt.why) {      // a terminal move needs its reason: without one the human decides (review of 0da42c3)
     return { for_main: { why: `${row.id}: the route says reject but gives no reason; reject it with one, or route it`, ticket: row.id, instance: inst } }
   }
   if (rt.how === 'reject') {
     await move(row, inst, `reject: rejected, with reason "${why}"`)
     return { outcome: 'rejected', detail: why }
+  }
+  if (rt.how === 'wait') {
+    // #128: the argument is already asked (an open child the ticket did not wait on): park on it
+    if (!/^T-\d{4,}$/.test(String(rt.target || ''))) return { for_main: { why: `${row.id}: the route says wait but names no ticket`, ticket: row.id, instance: inst } }
+    const m = await move(row, inst, `block-on: blocked, waiting_on [${rt.target}], reason "${why}"`)
+    return { outcome: m && m.ok ? `waiting on ${rt.target}` : 'unfinished', detail: why, parked: !!(m && m.ok) }
   }
   if (rt.how === 'human') {
     if (i.role === 'author' || i.role === 'scientist')
@@ -721,7 +918,7 @@ async function handle(row, i) {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
-      if (r && r.already_proved) return { for_main: { why: `${claim} is proved and the ticket was not read as a repair (#85): if it asks for one, run prove.js with these args (mode repair); else deliver or cancel ${row.id} (still in-progress)`,
+      if (r && r.already_proved) return { for_main: { why: `${claim} is proved and the ticket was not read as a repair (#85): if it asks for one, run prove.js with these args (mode repair); else deliver ${row.id} with a result starting "already proved: " (the marker --check accepts for a delivery with no attempt, #100) or cancel it (still in-progress)`,
         ticket: row.id, instance: inst, skill: 'researcher:prove', claim, mode: 'repair', handback: 'prove',
         args: { claim, ticket: row.id, home: i.home, instance: inst, root: ROOT, mode: 'repair' } } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
@@ -734,11 +931,12 @@ async function handle(row, i) {
       // #85: a repair that reworded a reviewed statement files "Verify <claim> (reword of <pass>)"
       // (prove.js): reword mode over that base pass; any other title runs the blind pass
       const rw = /\(reword of (\d{4}-\d{2}-\d{2}(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?)\)/.exec(row.title || '')
-      const reword = rw && !/-reword$/.test(rw[1]) ? { mode: 'reword', base_pass: rw[1] } : {}
+      // #127: the base may be a confirmed reword pass (its chain ends in a blind pair)
+      const reword = rw ? { mode: 'reword', base_pass: rw[1] } : {}
       if (reword.mode) notes.push(`${row.id}: a reword verify over the base pass ${reword.base_pass} (from the title)`)
       const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ models: await modelsMap(), nested: true, root: ROOT, claim, ticket: row.id }, reword))
       if (reword.mode && r && r.outcome === 'not-started') notes.push(`${row.id}: the reword pass over ${reword.base_pass} did not start (${r.reason || 'no reason given'}): ` +
-        `a reword ticket whose base pass is not CONFIRMED x2 needs a blind verify instead (the same ticket without "(reword of ...)" in its title)`)
+        `a reword ticket whose base pass (a blind pass, or a reword pass chained to one) is not CONFIRMED x2 needs a blind verify instead (the same ticket without "(reword of ...)" in its title)`)
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
     const subject = firstRef(row, /^lab:\S+$/)
@@ -753,7 +951,7 @@ async function handle(row, i) {
     }
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.notes || []).join('; ') : 'lost', nested: r }
   }
-  if (rt.how === 'skill') return { for_main: { why: `the skill ${rt.target} runs in the main session`, ticket: row.id, instance: inst, skill: rt.target } }
+  if (rt.how === 'skill') return { for_main: { why: `the skill ${rt.target} runs in the main session` + (row.decision_choice ? ` (the human chose: ${row.decision_choice})` : ''), ticket: row.id, instance: inst, skill: rt.target } }
   if (rt.how === 'agent' && i.role === 'researcher' && rt.target === 'lead-researcher' && !row.return) return leadResearcher(row, i)
   if (rt.how === 'agent') {
     const type = `${i.role}:${rt.target}`
@@ -764,13 +962,27 @@ async function handle(row, i) {
     }
     const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py --home ' + i.home + '`; the statements to leave byte for byte)' : ''))
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail || 'no reason given' : 'lost') }
-    const r = await launch(
-      `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
-      `Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ` +
+    const work = `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
+      `Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ` + chosen(row) +
       (i.role === 'author' ? (st.detail ? `Pinned statements, to leave byte for byte: ${st.detail}\n` : `Pinned statements: the start stage returned none; run \`py ${ROOT}/author/scripts/pinned.py --home ${i.home}\` before editing and leave those byte for byte.\n`) +
         (taken.length ? `Earlier tickets of this run: ${JSON.stringify(taken.map(t => [t.id, t.outcome, t.detail]))}\n` : '') : '') +
-      `Finish by delivering it (tickets_update deliver: true, result one line) or, if you cannot, blocked with waiting_on and the reason.`,
-      { label: `${rt.target} ${row.id}`, phase: 'Tickets', agentType: type })
+      `Finish by delivering it (tickets_update deliver: true, result one line) or, if you cannot, blocked with waiting_on and the reason.`
+    let r = await launch(work, { label: `${rt.target} ${row.id}`, phase: 'Tickets', agentType: type })
+    // #129: an empty result (not null: the agent ran) is a run stopped mid-ticket, most likely at
+    // its turn limit (T-1972, T-1984); one continuation run picks up its partial edits, as the
+    // main session did by hand, and a second empty one is reported as such, not as "worked"
+    const empty = x => x !== null && !String(x).trim()
+    if (empty(r)) {
+      notes.push(`${row.id}: ${type} stopped without a report (most likely its turn limit, #129): relaunched once to finish from its partial edits`)
+      r = await launch(`WORKFLOW INBOX, continuation (#129): an earlier ${type} run on ${row.id} stopped without a report, most likely at its turn limit, ` +
+        `and may have left partial edits in the home's working tree (git status and git diff in ${i.home}; the ticket thread). Read them first, ` +
+        `keep what is done, do not redo it, and finish the ticket.\n` + work,
+      { label: `${rt.target} ${row.id} (continue)`, phase: 'Tickets', agentType: type })
+      if (empty(r)) {
+        return { outcome: 'unfinished', turn_limit: true,
+          detail: `${type} stopped twice without a report (most likely its turn limit, #129); partial edits, if any, are in ${i.home}'s working tree` }
+      }
+    }
     return r === null ? { lost: true } : { outcome: 'worked', detail: String(r).split('\n')[0] }
   }
   return { for_main: { why: `no workflow route for ${rt.how}:${rt.target}`, ticket: row.id, instance: inst } }
@@ -855,8 +1067,19 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
       // a ticket that ends blocked is parked (on its child, on the human, on a dead route): --check's exit 3 is
       // then its expected end, not unfinished work (live run 2026-10-31 closed the Expert on it)
       const parkedOk = chk && chk.exit === 3 && chk.status === 'blocked'
-      const unfinished = !chk || (chk.exit === 3 && !parkedOk)
+      // #100 review, point 5: a delivery without its artefact is moved to partial by --check itself
+      // (exit 0); one it could not move is that ticket's matter, never the instance's unfinished work
+      const noArtefact = !!chk && /no artefact/.test(String(chk.output || ''))
+      // point 6: a partial ticket its sender reopened is the receiver's in-progress work again
+      const reopened = !!row.partial && !!chk && chk.status === 'in-progress'
+      const unfinished = !chk || (chk.exit === 3 && !parkedOk && !noArtefact && !reopened)
       let outcome = unfinished ? 'unfinished' : res.outcome
+      if (noArtefact) {
+        const why = (String(chk.output).split(/\r?\n/).find(l => /no artefact/.test(l)) || '').trim().slice(0, 300)
+        outcome = chk.status === 'partial' ? 'partial (no artefact)' : 'delivered without its artefact'
+        notes.push(`${row.id}: ${chk.status === 'partial' ? 'delivered without its artefact, moved to partial by --check' : 'delivered without its artefact and could not be moved to partial: mark it partial by hand'}: ${why}`)
+        if (chk.exit === 3) stuck.add(row.id)
+      }
       if (unfinished) {
         stuck.add(row.id)
         const n = (unfinishedBy.get(i.name) || 0) + 1
@@ -895,3 +1118,7 @@ out.cap = CAP
 if (insts.some(i => i.role === 'author') && taken.some(t => roleOf(t.instance) === 'author'))
   notes.push('Author: run check_paper.py (`py ' + ROOT + '/author/scripts/check_paper.py --root <home>`) from the home and relay its summary; launch tex-engineer once if an agent reported the build not clean')
 return out
+} finally {
+  await releaseLeases()
+}
+} finally { await pinEnd() }

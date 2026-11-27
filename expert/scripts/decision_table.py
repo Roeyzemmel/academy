@@ -38,6 +38,26 @@ blind pass); a missing, abandoned or unconfirmed base, another hash, subject or 
 shared run id or an unchanged statement gives ``invalid-base``. A reword record given as
 run B is an ``invalid-pair``: it is never half of a blind pair.
 
+A reword run may stand on a **confirmed reword pass** (#127, the human's ruling of
+2026-11-27: "rewording in general should have the previous confirmed statement as
+reference"). ``base_records`` reads such a base pass (one run R, no A and B) as
+``(R, None)`` with ``R["_base"]`` its own base, followed back to the blind CONFIRMED x2
+root (at most :data:`MAX_CHAIN` links, no loops); ``decide_reword`` decides the base link
+first, and the new run's ``base_hash`` must be the hash that link confirmed (its
+``statement_hash``). The outcome carries the chain's modulo (each link's plus the root's),
+``chain`` (the passes from the root to the base) and ``root_pass`` / ``root_hash``; the
+grounds hold every link's row (newest first) and the root's two rows. A broken link
+(missing, abandoned, not confirmed, GAP, another hash) gives ``invalid-base``. A reword
+record naming ``root_pass`` / ``root_hash`` must name the chain's.
+
+The base pass's modulo is carried over only while it is open (#133): an input
+established at conclude time (the registry's ``proved`` on its current statement, a
+matching card or a notation-only definition, read through ``registry.core.discharge``
+by ``registry_established``; or named by ``--established``) is dropped from the reword
+outcome (``established_dropped``), and R proposes ``proved`` when none remains. The CLI
+reads the registry for every mode (``--no-registry`` turns it off), so ``--established``
+need not list the proved inputs by hand.
+
 A reword run on a **renamed** record (T-0476) names ``base_subject``: the superseded id
 whose reviews folder holds the base pass. The base is then read from
 ``<reviews>/<ns>/<dir of base_subject>/<base_pass>/`` and its runs must be about
@@ -45,6 +65,16 @@ whose reviews folder holds the base pass. The base is then read from
 ``base_subject``. Whether the claim supersedes that id is checked where the status is
 set (``registry.core.grounds.check_verdict_refs``) and when the pass is opened
 (``reviews.py new-pass --base-subject``), not here.
+
+A **structured record** (#127, the human's ruling of 2026-11-27: "Hypotheses + items")
+is decided per item when its runs carry ``items:`` (``C1 CONFIRMED; C2 CONFIRMED modulo
+X; C3 GAP``): each item by the table above on its own entries, the whole outcome
+derived (``decide_items``: all confirmed -> ``confirmed``; all confirmed or
+confirmed-modulo -> ``confirmed-modulo`` with the union; an item awaiting B ->
+``awaiting-b``; else ``per-item``, with ``items`` and ``proposed_items``). Each item's
+grounds carry ``item`` and ``item_hash``. A run without ``items:`` on a structured
+record falls back to the whole-statement decision, with ``items_note``. A run A that is
+CONFIRMED on at least one item launches B (``should_launch_b``).
 
 Mechanical rules applied before the table:
 
@@ -116,6 +146,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -126,14 +157,24 @@ import _academy as ac  # noqa: E402
 
 VERDICTS = ("CONFIRMED", "PLAUSIBLE", "GAP", "DISPROVED")
 #: the reword run's own fields (T-0347): blank on every blind run
-REWORD_FIELDS = ("mode", "base_pass", "base_hash", "reword_scope", "base_subject")
+REWORD_FIELDS = ("mode", "base_pass", "base_hash", "reword_scope", "base_subject",
+                 "root_pass", "root_hash")
+#: the reword fields a record carries only when its brief gave them: ``base_subject``
+#: (T-0476, a renamed record) and the chain's blind root (#127, a reword on a reword)
+REWORD_OPTIONAL = ("base_subject", "root_pass", "root_hash")
+#: the longest reword chain followed back to its blind root (a loop guard)
+MAX_CHAIN = 32
 #: the dependency amendment (the human's design, 2026-11-20): ``add_dependency`` is a
 #: reviewer's suggestion (inputs the proof relies on but does not list); ``amended_with``
 #: is an amend run's list of the dependencies the amendment added (``mode: amend``, with
 #: ``base_pass`` and ``base_hash`` naming run A of the same pass)
 AMEND_FIELDS = ("add_dependency", "amended_with")
+#: a structured record's per-item reading (#127): ``items`` (``C1 CONFIRMED; C2 CONFIRMED
+#: modulo paper:lem:x; C3 GAP``) and ``hypotheses_used`` (the H's the proof used)
+ITEM_FIELDS = ("items", "hypotheses_used")
 FIELDS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
-          "statement_hash", "blocking", "ticket", "gap_class") + REWORD_FIELDS + AMEND_FIELDS
+          "statement_hash", "blocking", "ticket", "gap_class") + REWORD_FIELDS + AMEND_FIELDS \
+    + ITEM_FIELDS
 LIST_FIELDS = ("modulo",) + AMEND_FIELDS
 #: a reword run's reading of the new wording against the proof as reviewed: ``equivalent``
 #: (the same content), ``weaker`` (implied by the old statement), ``covered`` (claims more
@@ -152,7 +193,7 @@ RE_NS = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
             "single-negative", "degraded", "invalid-pair", "no-change", "incomplete",
             "full-pass-needed", "invalid-base", "awaiting-amendment", "invalid-amend",
-            "new-pass-after-amendment", "settle-dependencies")
+            "new-pass-after-amendment", "settle-dependencies", "per-item")
 
 
 # ----------------------------------------------------------------------------
@@ -309,10 +350,10 @@ def parse_record(text):
         if block is not None:
             fields = dict(fields or {})
             fields.update(block)
-    elif any(not fields.get(k) for k in ("gap_class",) + AMEND_FIELDS):
+    elif any(not fields.get(k) for k in ("gap_class",) + AMEND_FIELDS + ITEM_FIELDS):
         # a landed record keeps the report (and its VERDICT block) as its body
         block = parse_verdict_block(text) or {}
-        for k in ("gap_class",) + AMEND_FIELDS:
+        for k in ("gap_class",) + AMEND_FIELDS + ITEM_FIELDS:
             if not fields.get(k) and block.get(k):
                 fields[k] = block[k]
     rec = {k: "" for k in FIELDS}
@@ -341,7 +382,61 @@ def parse_record(text):
     rec["mode"] = rec["mode"].strip().lower()
     sc = rec["reword_scope"].strip().lower()
     rec["reword_scope"] = sc if sc in REWORD_SCOPES else ""
+    rec["items"], rec["item_problems"] = parse_items(rec["items"])
+    hu = rec["hypotheses_used"]
+    rec["hypotheses_used"] = [] if str(hu).strip().lower() in NONE_WORDS \
+        else [h.strip() for h in re.split(r"[,;\s]+", str(hu)) if h.strip()]
     return rec
+
+
+RE_ITEM_MODULO = re.compile(r"(?i)^modulo\b\s*")
+
+
+def parse_items(v):
+    """``({key: {"verdict": W, "modulo": [...]}}, problems)`` of a VERDICT block's
+    ``items:`` line (#127): entries separated by ``;``, each ``KEY VERDICT [modulo a, b]``
+    (``KEY:`` and an ``it:`` prefix on a paper label are read past). Empty for none."""
+    if isinstance(v, dict):
+        return v, []
+    s = str(v or "").strip()
+    if s.lower() in NONE_WORDS:
+        return {}, []
+    out, probs = {}, []
+    depth, cur, parts = 0, [], []
+    for ch in s:
+        if ch in _OPEN:
+            depth += 1
+        elif ch in _CLOSE:
+            depth = max(0, depth - 1)
+        elif ch == ";" and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+            continue
+        cur.append(ch)
+    parts.append("".join(cur))
+    for part in parts:
+        toks = part.strip().split(None, 2)
+        if not toks:
+            continue
+        key = toks[0].rstrip(":")
+        if key.startswith("it:"):
+            key = key[3:]
+        word = norm_verdict(toks[1]) if len(toks) > 1 else ""
+        if not key or not word:
+            probs.append("items entry %r is not `KEY VERDICT [modulo ids]`" % part.strip())
+            continue
+        rest = toks[2] if len(toks) > 2 else ""
+        mod = []
+        if rest.strip():
+            if not RE_ITEM_MODULO.match(rest.strip()):
+                probs.append("items entry %r: after the verdict only `modulo ids`"
+                             % part.strip())
+            else:
+                mod = _split_list(RE_ITEM_MODULO.sub("", rest.strip(), count=1))
+        if key in out:
+            probs.append("items entry %s is given twice" % key)
+        out[key] = {"verdict": word, "modulo": mod}
+    return out, probs
 
 
 def is_reword(rec):
@@ -660,6 +755,35 @@ def registry_canonical(qid):
     """The record id ``qid`` (``ns:name``) resolves to in the registry, aliases
     included; None when the registry, the home or the record cannot be found."""
     return _registry_lookup(qid)[1]
+
+
+def registry_established(items, subject=""):
+    """``{input: assessment}`` of the inputs among ``items`` that the registry shows
+    established **now** (#133): ``registry.core.discharge.established_now`` on each, the
+    discharge's own rule (a ``proved`` record on its current statement, a ``bib:`` card
+    pinpoint whose card says match, a definition tagged notation-only), read from the
+    home of the subject's namespace. {} when the registry cannot be read: the table then
+    goes by ``--established`` alone, as before."""
+    ns = str(subject or "").partition(":")[0]
+    out = {}
+    try:
+        plugin = os.path.join(ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import discharge, workspace as rws
+        info = rws.namespaces().get(ns) or {}
+        home = info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return {}
+        for it in items:
+            if it in out:
+                continue
+            a = discharge.established_now(it, ns, str(home))
+            if a.get("established"):
+                out[it] = {k: a.get(k) for k in ("input", "id", "status", "why")}
+    except Exception:        # noqa: BLE001 -- an unreadable registry establishes nothing
+        return {}
+    return out
 
 
 def registry_exists(qid):
@@ -1107,10 +1231,14 @@ def effective(rec, primary=None):
 
 
 def should_launch_b(rec_a, primary=None):
-    """Run B is launched only after a positive run A (CONFIRMED on a primary)."""
+    """Run B is launched only after a positive run A (CONFIRMED on a primary): on a
+    structured record (#127), A CONFIRMED on at least one item."""
     if not rec_a or rec_a["problems"]:
         return False
-    return effective(rec_a, primary)[0] == "CONFIRMED"
+    if effective(rec_a, primary)[0] == "CONFIRMED":
+        return True
+    return is_primary(rec_a.get("model"), primary) and any(
+        (it or {}).get("verdict") == "CONFIRMED" for it in (rec_a.get("items") or {}).values())
 
 
 GRADER_ROLE = "expert"    # every proof review here is run by an Expert instance
@@ -1201,9 +1329,38 @@ def _canon_rec(rec, canon):
     return out
 
 
+def _canon_chain(rec, canon, depth=0):
+    """``_canon_rec`` on ``rec`` and on every record of its reword chain (``_base``)."""
+    out = _canon_rec(rec, canon)
+    if out and out.get("_base") and depth < MAX_CHAIN:
+        ba, bb, notes = out["_base"]
+        out = dict(out)
+        out["_base"] = (_canon_chain(ba, canon, depth + 1),
+                        _canon_chain(bb, canon, depth + 1), notes)
+    return out
+
+
+def _all_inputs(recs, depth=0):
+    """Every modulo / suggested input of ``recs`` and of their reword chains (canonical,
+    in first-seen order)."""
+    out = []
+    for r in recs:
+        if not r:
+            continue
+        for k in LIST_FIELDS:
+            for m in r.get(k) or ():
+                if m not in out:
+                    out.append(m)
+        if r.get("_base") and depth < MAX_CHAIN:
+            for m in _all_inputs(list(r["_base"][:2]), depth + 1):
+                if m not in out:
+                    out.append(m)
+    return out
+
+
 def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
            kind_of=None, base=None, base_notes=(), canon=None, exists=None, links_of=None,
-           tags_of=None):
+           tags_of=None, items_of=None, established_of=None):
     """Apply the table (``_decide``) and give every item to file its ``route``
     (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
     lookup that decides which inputs are definitions, ``tags_of`` (qid -> the record's
@@ -1226,22 +1383,227 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
     ``registry_links``) is the registry's reach for two CONFIRMED runs' differing inputs
     (#121): ``reduce_differing`` drops what it shows mechanically, and ``input_facts``
     gives what is left its admissibility facts (``exists`` reads existence there, and a
-    None from it is "not shown"); without it nothing is dropped."""
+    None from it is "not shown"); without it nothing is dropped.
+
+    ``items_of`` (qid -> ``{"hash": whole hash, "items": {key: {"hash", "status"}}}`` or
+    None; the CLI passes ``registry_items``) names a structured record's items (#127):
+    a blind pass whose runs carry ``items:`` is then decided per item
+    (:func:`decide_items`).
+
+    ``established_of`` (a list of canonical inputs -> ``{input: assessment}`` of those
+    established now; the CLI passes ``registry_established``) adds to ``established``
+    every modulo input of the runs, of a reword run's base chain and of an amend
+    suggestion that the registry shows established at conclude time (#133), so a carried
+    or listed input that is already proved never yields ``proved-modulo`` by itself; the
+    assessments are in ``established_inputs``."""
     rec_a = _canon_rec(rec_a, canon)
     rec_b = _canon_rec(rec_b, canon)
     dep_notes = []
     rec_a = _check_deps(rec_a, exists, dep_notes)
     rec_b = _check_deps(rec_b, exists, dep_notes)
+    est_info = {}
+    if established_of is not None:
+        subj = (rec_a or {}).get("subject") or ""
+        chain = tuple(_canon_chain(r, canon) for r in base) if base else ()
+        cands = _all_inputs([rec_a, rec_b] + list(chain))
+        try:
+            est_info = dict(established_of(cands, subj) or {})
+        except Exception:        # noqa: BLE001 -- the registry read is best effort
+            est_info = {}
+        established = list(normalise_modulo(established, subj, canon)) + sorted(est_info)
     res = _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
                         base_notes, canon, links_of, exists, tags_of)
+    if est_info:
+        res["established_inputs"] = [dict(est_info[k], input=k) for k in sorted(est_info)]
     res["anomalies"] = dep_notes + list(res.get("anomalies") or [])
+    if not is_reword(rec_a) and not (is_amend(rec_a) or is_amend(rec_b)):
+        res = decide_items(res, rec_a, rec_b, established, primary, producer_role,
+                           kind_of, links_of, exists, canon, tags_of, items_of)
+    return res
+
+
+# ----------------------------------------------------------------------------
+# Per-item decisions (#127)
+# ----------------------------------------------------------------------------
+
+def registry_items(qid):
+    """``{"hash": whole hash, "items": {key: {"hash", "status", "modulo"}}}`` of a
+    structured record (#127) through the registry engine; None when it is not one or
+    cannot be read."""
+    ns, _, name = str(qid or "").partition(":")
+    if not name:
+        return None
+    try:
+        plugin = os.path.join(ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import federation, workspace as rws
+        info = rws.namespaces().get(ns)
+        home = info and info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return None
+        st = federation.store(ns, home)
+        rid, exact = st.lookup(name)
+        if rid is None or not exact:
+            return None
+        sv = st.structure(rid)
+        if not sv:
+            return None
+        return {"hash": st.statement_hash(rid),
+                "items": {k: {"hash": sv["hashes"].get(k), "status": v[0],
+                              "modulo": list(v[1])} for k, v in sv["items"].items()}}
+    except Exception:        # an unreadable registry: decided as a whole statement
+        return None
+
+
+def _item_rec(rec, key):
+    """Run ``rec`` read on item ``key`` alone: that item's verdict and modulo."""
+    if rec is None:
+        return None
+    it = (rec.get("items") or {}).get(key)
+    out = dict(rec)
+    out.pop("_eff", None)
+    out["items"] = {}
+    out["add_dependency"] = []
+    out["verdict"] = it["verdict"]
+    out["raw_verdict"] = it["verdict"]
+    out["modulo"] = list(it.get("modulo") or [])
+    if it["verdict"] in ("CONFIRMED", "PLAUSIBLE"):
+        out["blocking"] = ""
+    return out
+
+
+#: how far a per-item outcome has come: the whole outcome is the least-advanced
+_ITEM_FINAL = ("confirmed", "confirmed-modulo")
+
+
+def decide_items(res, rec_a, rec_b=None, established=(), primary=None, producer_role=None,
+                 kind_of=None, links_of=None, exists=None, canon=None, tags_of=None,
+                 items_of=None):
+    """The table per item (#127, the human's ruling of 2026-11-27): when the runs carry
+    ``items:``, each item is decided from the two runs' entries for it by the same rules
+    (:func:`_decide` on the item's verdict and modulo), and the whole outcome is derived:
+    every item confirmed -> ``confirmed``; every item confirmed or confirmed-modulo ->
+    ``confirmed-modulo``, modulo the union; an item awaiting B -> ``awaiting-b`` (B reviews
+    every item); every item the same other outcome -> that outcome; else ``per-item``
+    (no whole status; ``items`` lists each item's outcome and ``proposed_items`` the item
+    statuses to set). A run without ``items:`` on a structured record leaves today's
+    whole-statement decision, with a note. Each item's grounds carry ``item`` and, when
+    the runs' statement hash is the record's current one, ``item_hash`` (the keeper
+    checks it against the item's hash)."""
+    recs = [r for r in (rec_a, rec_b) if r is not None and not r.get("problems")]
+    if not recs:
+        return res
+    subject = (rec_a or {}).get("subject") or ""
+    reg = items_of(subject) if items_of is not None and subject else None
+    with_items = [r for r in recs if r.get("items")]
+    for r in recs:
+        for p in r.get("item_problems") or ():
+            res["anomalies"].append("run %s items: %s" % (r.get("run") or "?", p))
+    if not with_items:
+        if reg:
+            res["items_note"] = ("the record is structured (items %s) but no run gave an "
+                                 "`items:` line: decided on the whole statement"
+                                 % ", ".join(reg["items"]))
+            res["anomalies"].append(res["items_note"])
+        return res
+    keys = list(reg["items"]) if reg else list(with_items[0]["items"])
+    short = [r for r in recs if set(keys) - set(r.get("items") or {})]
+    if short:
+        res["items_note"] = ("run %s gave no `items:` entry for %s: decided on the whole "
+                             "statement" % (", ".join(r.get("run") or "?" for r in short),
+                                            ", ".join(sorted(set(keys) - set(
+                                                short[0].get("items") or {})))))
+        res["anomalies"].append(res["items_note"])
+        return res
+    extra = sorted(set().union(*[set(r["items"]) for r in recs]) - set(keys))
+    if extra:
+        res["anomalies"].append("items %s are not items of the record: ignored"
+                                % ", ".join(extra))
+    hyps = sorted(set().union(*[set(r.get("hypotheses_used") or ()) for r in recs]))
+    res["hypotheses_used"] = {r.get("run") or "?": list(r.get("hypotheses_used") or ())
+                              for r in recs}
+    whole_now = (reg or {}).get("hash")
+    run_hash = next((r.get("statement_hash") for r in recs if r.get("statement_hash")), "")
+    per = {}
+    for k in keys:
+        ia, ib = _item_rec(rec_a, k), _item_rec(rec_b, k)
+        r = _decide(ia, ib, established, primary, producer_role, kind_of, links_of,
+                    exists, canon, tags_of)
+        _route_items(r, ia, ib, producer_role)
+        g = r.get("grounds")
+        if g:
+            g["item"] = k
+            ih = ((reg or {}).get("items") or {}).get(k, {}).get("hash")
+            if ih and whole_now and run_hash == whole_now:
+                g["item_hash"] = ih
+            elif reg:
+                r["anomalies"].append("item %s: the statement changed since the runs (hash "
+                                      "%s, now %s): its grounds carry no item_hash"
+                                      % (k, run_hash or "?", whole_now or "?"))
+        per[k] = r
+    res["items"] = {k: {key: r.get(key) for key in (
+        "outcome", "proposed_status", "modulo", "pending_inputs", "grounds", "summary",
+        "file_items", "anomalies")} for k, r in per.items()}
+    res["proposed_items"] = {k: [r["proposed_status"]] + list(
+        r["modulo"] if r["proposed_status"] == "proved-modulo" else [])
+        for k, r in per.items() if r.get("proposed_status")}
+    outs = [r["outcome"] for r in per.values()]
+    union = []
+    for r in per.values():
+        for m in r.get("modulo") or ():
+            if m not in union and r["outcome"] == "confirmed-modulo":
+                union.append(m)
+    note = "; ".join("%s %s" % (k, r["outcome"]) for k, r in per.items())
+    if hyps:
+        note += "; hypotheses used: %s" % ", ".join(hyps)
+    res["file_items"] = [dict(it, item=k, text="item %s: %s" % (k, it.get("text") or ""))
+                         for k, r in per.items() for it in r.get("file_items") or ()]
+    whole = _grounds(recs, union, "per item (#127): " + note,
+                     producer_role_for(subject, producer_role)) if all(
+        o in _ITEM_FINAL for o in outs) else None
+    if all(o == "confirmed" for o in outs):
+        res.update(outcome="confirmed", proposed_status="proved", recolour=True, modulo=[],
+                   pending_inputs=[], grounds=whole, launch_b=False,
+                   summary="every item CONFIRMED x2: propose proved (%s)" % note)
+    elif all(o in _ITEM_FINAL for o in outs):
+        pend = sorted(set(m for m in union if m not in set(established or ())))
+        res.update(outcome="confirmed-modulo", proposed_status="proved-modulo",
+                   modulo=union, pending_inputs=pend, recolour=not pend, grounds=whole,
+                   launch_b=False,
+                   summary="every item CONFIRMED x2, modulo %s: propose proved-modulo "
+                           "(%s)" % (", ".join(union), note))
+    elif "awaiting-b" in outs:
+        res.update(outcome="awaiting-b", launch_b=True, proposed_status=None, grounds=None,
+                   recolour=False,
+                   summary="item(s) %s CONFIRMED in A: launch run B with the identical "
+                           "brief (it reviews every item; %s)"
+                           % (", ".join(k for k, r in per.items()
+                                        if r["outcome"] == "awaiting-b"), note))
+    elif len(set(outs)) == 1:
+        one = next(iter(per.values()))
+        res.update(outcome=outs[0], proposed_status=None, grounds=None, recolour=False,
+                   launch_b=False, needs_human=one.get("needs_human", False),
+                   summary="every item %s (%s)" % (outs[0], note))
+    else:
+        res.update(outcome="per-item", proposed_status=None, grounds=None, recolour=False,
+                   launch_b=False,
+                   needs_human=any(r.get("needs_human") for r in per.values()),
+                   summary="decided per item: %s; set the proposed item statuses (the "
+                           "record's status is derived from them)" % note)
+    # B after a GAP A is the sequencing of a structured record, not an anomaly
+    res["anomalies"] = [a for a in res["anomalies"]
+                        if "was launched after a non-positive run A" not in a]
+    for k, r in per.items():
+        res["anomalies"].extend("item %s: %s" % (k, a) for a in r.get("anomalies") or ()
+                                if "was launched after a non-positive run A" not in a)
     return res
 
 
 def _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
                   base_notes, canon, links_of=None, exists=None, tags_of=None):
     if base:
-        base = tuple(_canon_rec(r, canon) for r in base)
+        base = tuple(_canon_chain(r, canon) for r in base)
     subj = (rec_a or {}).get("subject") or ""
     established = normalise_modulo(established, subj, canon)
     if is_reword(rec_a):
@@ -1540,14 +1902,73 @@ def slug_id(cid):
     return s.strip("-.") or "item"
 
 
-def base_records(r_path, base_pass, base_dir=None, base_subject=None):
+def branches_holding(path, files=("decision.md", "A.md", "B.md")):
+    """The branches (local, then ``origin/``) of the repository holding ``path`` whose tree
+    has ``path/<file>`` for every one of ``files``, when the checked-out tree lacks one:
+    the pass was committed on another ticket branch that never reached this one (#130:
+    "the base pass has no decision.md" while the record sat on a forked branch). [] when
+    the checkout has them all, or git cannot tell."""
+    if all(os.path.isfile(os.path.join(path, f)) for f in files):
+        return []
+    top = path
+    while top and not os.path.isdir(top):
+        top = os.path.dirname(top)
+    try:
+        def git(*args, **kw):
+            if "input" not in kw:
+                kw["stdin"] = subprocess.DEVNULL
+            return subprocess.run(["git", "-C", top] + list(args), capture_output=True,
+                                  text=True, timeout=30, **kw)
+        root = git("rev-parse", "--show-toplevel").stdout.strip()
+        if not root:
+            return []
+        rel = os.path.relpath(os.path.abspath(path), root).replace(os.sep, "/")
+        refs = git("for-each-ref", "--sort=-committerdate", "--format=%(refname:short)",
+                   "refs/heads/", "refs/remotes/origin/").stdout.split()
+        refs = [r for r in refs if r not in ("origin", "origin/HEAD")]
+        if not refs:
+            return []
+        query = "".join("%s:%s/%s\n" % (r, rel, f) for r in refs for f in files)
+        out = git("cat-file", "--batch-check", input=query).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if len(out) != len(refs) * len(files):
+        return []
+    n = len(files)
+    return [r for k, r in enumerate(refs)
+            if not any(line.endswith(" missing") for line in out[k * n:(k + 1) * n])]
+
+
+#: the files of a complete reword pass (#127: a reword base has R.md, no A.md or B.md)
+REWORD_FILES = ("decision.md", "R.md")
+
+
+def elsewhere(d):
+    """A note naming the branches that hold the pass ``d`` the checkout lacks, or '': a
+    blind pass (decision, A, B) or a reword pass (decision, R), as a chain's links are."""
+    held = branches_holding(d)
+    if not held and not os.path.isfile(os.path.join(d, "A.md")):
+        held = branches_holding(d, REWORD_FILES)
+    if not held:
+        return ""
+    return ("; the pass is complete on %s, not on the checked-out branch: merge that branch "
+            "in (py scripts/ship.py sync, or a merge of the ticket branch) and retry"
+            % ", ".join(held[:3]) + (" and %d more" % (len(held) - 3) if len(held) > 3 else ""))
+
+
+def base_records(r_path, base_pass, base_dir=None, base_subject=None, _seen=None):
     """``(A, B, notes)``: the base pass's run records for the reword record at
     ``r_path``. The base pass is the sibling folder ``base_pass`` of the reword pass
     (``<subject dir>/<base_pass>/``), or, when the reword run names ``base_subject``
     (T-0476, a renamed record), ``<reviews>/<ns>/<dir of base_subject>/<base_pass>/``
     beside the reword pass's own subject folder; ``base_dir`` overrides both. An
     abandoned base pass, or a missing folder or run, gives None in its place and a note
-    saying why."""
+    saying why.
+
+    A base pass that is itself a reword pass (#127: its ``R.md`` is a reword record, and
+    it has no ``A.md`` or ``B.md``) gives ``(R, None, notes)``, with ``R["_base"]`` the
+    ``base_records`` of R's own base, followed back to the blind root; a loop, or a chain
+    longer than :data:`MAX_CHAIN`, ends in ``(None, None, [why])``."""
     if not base_dir and not base_pass:
         return None, None, ["the reword run names no base_pass: its base is missing"]
     if base_dir:
@@ -1566,47 +1987,77 @@ def base_records(r_path, base_pass, base_dir=None, base_subject=None):
                          base_pass)
     shown = d.replace("\\", "/")
     if not os.path.isdir(d):
-        return None, None, ["the base pass folder %s is missing" % shown]
+        return None, None, ["the base pass folder %s is missing%s" % (shown, elsewhere(d))]
     if os.path.isfile(os.path.join(d, "abandoned.md")):
         return None, None, ["the base pass %s was abandoned, so its decision is missing"
                             % shown]
     notes = []
     if not os.path.isfile(os.path.join(d, "decision.md")):
         notes.append("the base pass %s has no decision.md: its table is recomputed from "
-                      "its runs" % shown)
+                      "its runs%s" % (shown, elsewhere(d)))
     recs = []
     for run in ("A", "B"):
         p = os.path.join(d, run + ".md")
         recs.append(read_record(p) if os.path.isfile(p) else None)
+    r_file = os.path.join(d, "R.md")
+    if recs == [None, None] and os.path.isfile(r_file):
+        rec_r = read_record(r_file)
+        if is_reword(rec_r):
+            # a reword base (#127): follow its own base, back to the blind root
+            seen = set(_seen or ())
+            key = os.path.normcase(os.path.abspath(d))
+            if key in seen:
+                rec_r["_base"] = (None, None, ["the reword chain loops back to %s" % shown])
+            elif len(seen) >= MAX_CHAIN:
+                rec_r["_base"] = (None, None, ["the reword chain is longer than %d links"
+                                               % MAX_CHAIN])
+            else:
+                seen.add(key)
+                rec_r["_base"] = base_records(r_file, rec_r.get("base_pass"), None,
+                                              rec_r.get("base_subject") or None, seen)
+            return rec_r, None, notes
     return recs[0], recs[1], notes
 
 
+def is_link(base_a, base_b):
+    """Whether ``(base_a, base_b)`` is a reword base (#127): one reword record, no B."""
+    return is_reword(base_a) and base_b is None
+
+
 def _base_problems(rec_r, base_a, base_b):
-    """Why the base records cannot carry the reword run (a list of anomalies)."""
-    if base_a is None or base_b is None or base_a["problems"] or base_b["problems"]:
-        return ["the base pass %s is missing or unreadable (its runs A and B)"
-                % (rec_r.get("base_pass") or "?")]
+    """Why the base records cannot carry the reword run (a list of anomalies). The base
+    is a blind pair ``(A, B)``, or a reword link ``(R, None)`` (#127, ``is_link``)."""
+    link = is_link(base_a, base_b)
+    recs = [base_a] if link else [base_a, base_b]
+    if any(b is None or b["problems"] for b in recs):
+        return ["the base pass %s is missing or unreadable (%s)"
+                % (rec_r.get("base_pass") or "?", "its run R" if link
+                   else "its runs A and B")]
     probs = []
-    for b in (base_a, base_b):
-        if is_reword(b):
-            probs.append("the base run %s is a reword record: a base pass must be a blind "
-                         "pair" % (b.get("run") or "?"))
-    if probs:
-        return probs
+    if not link:
+        for b in recs:
+            if is_reword(b):
+                probs.append("the base run %s is a reword record: a base pass must be a "
+                             "blind pair, or a reword pass of one run R"
+                             % (b.get("run") or "?"))
+        if probs:
+            return probs
     bh, new = rec_r.get("base_hash") or "", rec_r.get("statement_hash") or ""
     if not bh:
         probs.append("the reword run names no base_hash")
-    for b in (base_a, base_b):
+    for b in recs:
         if bh and (b.get("statement_hash") or "") != bh:
-            probs.append("base_hash %s is not the base run %s's statement_hash %s"
-                         % (bh, b.get("run") or "?", b.get("statement_hash") or "(none)"))
+            probs.append("base_hash %s is not the base run %s's statement_hash %s%s"
+                         % (bh, b.get("run") or "?", b.get("statement_hash") or "(none)",
+                            " (the wording the base reword pass confirmed)" if link
+                            else ""))
     if not new:
         probs.append("the reword run has no statement_hash")
     elif bh and new == bh:
         probs.append("the statement did not change (statement_hash = base_hash): the base "
                      "pass's own decision applies, not a reword")
     subj, bsubj = rec_r.get("subject"), rec_r.get("base_subject") or ""
-    for b in (base_a, base_b):
+    for b in recs:
         if bsubj and b.get("subject") != bsubj:
             probs.append("the base pass reviewed subject %s, not the reword run's "
                          "base_subject %s" % (b.get("subject") or "(none)", bsubj))
@@ -1616,38 +2067,69 @@ def _base_problems(rec_r, base_a, base_b):
                          "pass of a superseded id needs base_subject)"
                          % (b["subject"], subj))
             break
-    for b in (base_a, base_b):
+    for b in recs:
         bp = b.get("pass") or ""
         if bp and rec_r.get("base_pass") and bp != rec_r["base_pass"]:
             probs.append("the base run %s belongs to pass %s, not base_pass %s"
                          % (b.get("run") or "?", bp, rec_r["base_pass"]))
     rid = rec_r.get("run_id") or ""
-    if not rid or rid in (base_a.get("run_id"), base_b.get("run_id")):
+    if not rid or rid in [b.get("run_id") for b in recs]:
         probs.append("the reword run's run id %s is not distinct from the base runs'"
                      % (rid or "(none)"))
     return probs
 
 
-def _reword_grounds(rec_r, base_recs, modulo, note, prod_role):
-    g = _grounds([rec_r] + list(base_recs), modulo, note, prod_role)
+def _reword_grounds(rec_r, base_recs, modulo, note, prod_role, base_res=None):
+    """The reword grounds: R's row, then the base's rows. On a reword base (#127,
+    ``base_res`` its decision) the base's rows are its own grounds' rows (each link's,
+    newest first, then the root's A and B), and the grounds name the chain."""
+    link = base_res is not None and base_res.get("mode") == "reword"
+    g = _grounds([rec_r] + ([] if link else list(base_recs)), modulo, note, prod_role)
     g["verdicts"][0].update({"mode": "reword", "base_hash": rec_r.get("base_hash") or "",
+                             "base_pass": rec_r.get("base_pass") or "",
                              "reword_scope": rec_r.get("reword_scope") or ""})
     g.update({"mode": "reword", "base_pass": rec_r.get("base_pass") or "",
               "base_hash": rec_r.get("base_hash") or "",
               "statement_hash": rec_r.get("statement_hash") or ""})
     bsubj = rec_r.get("base_subject") or ""
+    if not link:
+        if bsubj:
+            g["base_subject"] = bsubj
+            for row in g["verdicts"]:
+                row["base_subject"] = bsubj
+        g.update({"root_pass": rec_r.get("base_pass") or "",
+                  "root_hash": rec_r.get("base_hash") or "",
+                  "chain": [rec_r.get("base_pass") or ""]})
+        return g
+    # a chain: every reword row names its own base; a row whose record is about another
+    # (superseded) id than R's says so as base_subject (the blind rows) or rests on the
+    # next link's base_subject (the links)
     if bsubj:
-        g["base_subject"] = bsubj
-        for row in g["verdicts"]:
-            row["base_subject"] = bsubj
+        g["verdicts"][0]["base_subject"] = bsubj
+    subj = rec_r.get("subject") or ""
+    about = base_res.get("root_subject") or ""
+    for row in (base_res.get("grounds") or {}).get("verdicts") or []:
+        row = dict(row)
+        if row.get("mode") != "reword":
+            if about and about != subj:
+                row["base_subject"] = about
+            else:
+                row.pop("base_subject", None)
+        g["verdicts"].append(row)
+    g.update({"root_pass": base_res.get("root_pass") or "",
+              "root_hash": base_res.get("root_hash") or "",
+              "chain": list(base_res.get("chain") or []) + [rec_r.get("base_pass") or ""]})
     return g
 
 
 def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
-                  producer_role=None, kind_of=None, base_notes=(), tags_of=None):
+                  producer_role=None, kind_of=None, base_notes=(), tags_of=None, _depth=0):
     """The reword table (T-0347). ``rec_r`` is the reword run's record (``mode:
     reword``); ``base_a`` / ``base_b`` the base pass's runs, both CONFIRMED on
-    ``base_hash`` for the reword to carry anything.
+    ``base_hash`` for the reword to carry anything. A reword base (#127): ``base_a`` the
+    base pass's run R (``base_b`` None) with ``base_a["_base"]`` its own base records
+    (``base_records``); that link is decided first by this same table, recursively back
+    to the blind root, and counts as the base's decision (its modulo carried).
 
     | Reword run R | Base pass | Outcome |
     |---|---|---|
@@ -1657,12 +2139,14 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
     | CONFIRMED with no ``reword_scope`` | any | ``incomplete``: relaunch R |
     | CONFIRMED, scope equivalent / weaker / covered | missing, abandoned, not CONFIRMED x2, other hash / subject / pass, shared run id, or an unchanged statement | ``invalid-base``: no status |
     | CONFIRMED, scope equivalent / weaker / covered | CONFIRMED x2 on base_hash (modulo X) | ``confirmed`` / ``confirmed-modulo`` on X plus R's modulo: propose proved / proved-modulo; recolour as the normal table |
+    | CONFIRMED, scope equivalent / weaker / covered | a reword pass this table confirms (modulo X), its R on base_hash | the same, X being that link's modulo (its own base's included) |
     """
     res = _new_result()
     res.update({"mode": "reword", "launch_full_pass": False, "base_outcome": None,
                 "base_pass": (rec_r or {}).get("base_pass") or "",
                 "base_hash": (rec_r or {}).get("base_hash") or "",
                 "base_subject": (rec_r or {}).get("base_subject") or "",
+                "chain": [], "root_pass": "", "root_hash": "", "root_subject": "",
                 "reword_finding": ""})
     res["anomalies"].extend(base_notes or ())
     established = set(established or ())
@@ -1716,22 +2200,57 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
         res["summary"] = "the reword run gives no reword_scope: relaunch it"
         return res
 
+    link = is_link(base_a, base_b)
     bad = _base_problems(rec_r, base_a, base_b)
     base_res = None
-    if not bad:
+    if not bad and link:
+        # a reword base (#127): decide that link first, on its own base
+        if _depth >= MAX_CHAIN:
+            bad.append("the reword chain is longer than %d links" % MAX_CHAIN)
+        else:
+            sub = base_a.get("_base") or (None, None, [
+                "the base reword run %s's own base was not loaded" % (base_a.get("run_id")
+                                                                       or "?")])
+            base_res = decide_reword(dict(base_a), sub[0], sub[1], established, primary,
+                                     producer_role, kind_of, sub[2], tags_of, _depth + 1)
+    elif not bad:
         base_res = _decide(base_a, base_b, established, primary, producer_role, kind_of,
                            tags_of=tags_of)
+    if base_res is not None:
         res["base_outcome"] = base_res["outcome"]
         res["anomalies"].extend("base pass: " + a for a in base_res["anomalies"])
         if base_res["outcome"] not in ("confirmed", "confirmed-modulo"):
             bad.append("the base pass %s is not confirmed (its table gives %s)"
                        % (rec_r.get("base_pass") or "?", base_res["outcome"]))
+        elif link:
+            ids = [v.get("run_id") for v in (base_res.get("grounds") or {})
+                   .get("verdicts") or []]
+            if (rec_r.get("run_id") or "") in ids:
+                bad.append("the reword run's run id %s is not distinct from the chain's "
+                           "runs'" % rec_r.get("run_id"))
+    if base_res is not None and not bad:
+        if link:
+            res["chain"] = list(base_res.get("chain") or []) + [rec_r.get("base_pass") or ""]
+            res["root_pass"] = base_res.get("root_pass") or ""
+            res["root_hash"] = base_res.get("root_hash") or ""
+            res["root_subject"] = base_res.get("root_subject") or ""
+        else:
+            res["chain"] = [rec_r.get("base_pass") or ""]
+            res["root_pass"] = rec_r.get("base_pass") or ""
+            res["root_hash"] = rec_r.get("base_hash") or ""
+            res["root_subject"] = base_a.get("subject") or ""
+        for k in ("root_pass", "root_hash"):
+            said = rec_r.get(k) or ""
+            if said and said.lower() not in NONE_WORDS and said != res[k]:
+                bad.append("the reword run names %s %s, but its chain's is %s"
+                           % (k, said, res[k] or "(none)"))
     if bad:
         res["outcome"] = "invalid-base"
         res["anomalies"].extend(bad)
-        res["summary"] = ("no status change: the base pass does not carry a CONFIRMED x2 "
-                          "decision on base_hash for this reword run; fix the base in the "
-                          "brief, or open a fresh blind pass")
+        res["summary"] = ("no status change: the base pass does not carry a confirmed "
+                          "decision (a CONFIRMED x2 blind pair, or a confirmed reword pass "
+                          "chained to one) on base_hash for this reword run; fix the base "
+                          "in the brief, or open a fresh blind pass")
         return res
 
     # the definition rule on R's modulo too (nit (b) of the review of 47ab60e)
@@ -1742,17 +2261,27 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
                                         | set(r_dropped))
     res["kept_definitions"] = kept
     mod = sorted((set(base_res["modulo"]) - set(base_kept)) | set(r_rest) | set(kept))
+    # #133: the base pass's modulo is the base's view of its inputs; an input established
+    # now (registry proved on its current statement, a matching card, --established) is
+    # no longer open, so it is dropped here and, when none remains, R proposes proved
+    gone = sorted(m for m in mod if m in established)
+    mod = [m for m in mod if m not in established]
+    res["established_dropped"] = gone
     base_recs = [base_a, base_b]
-    how = ("reword run CONFIRMED (%s) on base pass %s%s, CONFIRMED x2 on %s"
+    how = ("reword run CONFIRMED (%s) on base pass %s%s, %s on %s"
            % (scope, rec_r.get("base_pass"),
               (" of %s" % rec_r["base_subject"]) if rec_r.get("base_subject") else "",
-              rec_r.get("base_hash")))
+              ("a confirmed reword pass (chain %s)" % " -> ".join(res["chain"])) if link
+              else "CONFIRMED x2", rec_r.get("base_hash")))
+    if gone:
+        how += "; inputs established now, dropped from the carried modulo: %s" \
+            % ", ".join(gone)
     if not mod:
         res["outcome"] = "confirmed"
         res["proposed_status"] = "proved"
         res["recolour"] = True
         res["grounds"] = _reword_grounds(rec_r, base_recs, [], how + ", no open inputs",
-                                         prod_role)
+                                         prod_role, base_res)
         res["summary"] = "%s: propose proved; recolour earned" % how
         return res
     res["outcome"] = "confirmed-modulo"
@@ -1761,7 +2290,7 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
     res["proposed_status"] = "proved-modulo"
     res["recolour"] = not res["pending_inputs"]
     res["grounds"] = _reword_grounds(rec_r, base_recs, mod, "%s, modulo %s"
-                                     % (how, ", ".join(mod)), prod_role)
+                                     % (how, ", ".join(mod)), prod_role, base_res)
     res["file_items"] = _input_items(res["pending_inputs"], "R", kept, kind_of)
     res["summary"] = ("%s, modulo %s: propose proved-modulo; %s"
                       % (how, ", ".join(mod), "recolour earned (every input established)"
@@ -2014,6 +2543,10 @@ def _text(res):
                       res.get("base_outcome") or "not read",
                       (", base_subject %s" % res["base_subject"])
                       if res.get("base_subject") else ""))
+        if len(res.get("chain") or []) > 1:
+            out.append("chain: %s (blind root %s on %s)"
+                       % (" -> ".join(res["chain"]), res.get("root_pass") or "?",
+                          res.get("root_hash") or "?"))
     if res["launch_b"]:
         out.append("next: launch run B")
     if res.get("mode") == "amend":
@@ -2030,6 +2563,11 @@ def _text(res):
         out.append("modulo: %s" % ", ".join(res["modulo"]))
     if res["pending_inputs"]:
         out.append("pending inputs: %s" % ", ".join(res["pending_inputs"]))
+    if res.get("established_dropped"):
+        out.append("established now, dropped from the carried modulo: %s"
+                   % ", ".join(res["established_dropped"]))
+    for i in res.get("established_inputs") or ():
+        out.append("established (registry): %s %s" % (i["input"], i.get("status") or ""))
     for opt in res.get("modulo_options") or ():
         out.append("option %s: modulo %s" % (opt["label"],
                                              ", ".join(opt["modulo"]) or "none"))
@@ -2055,6 +2593,14 @@ def _text(res):
     if res.get("kept_definitions"):
         out.append("kept definitions (inputs of both runs, no notation-only tag): %s"
                    % ", ".join(res["kept_definitions"]))
+    for k, r in (res.get("items") or {}).items():
+        out.append("item %s: %s%s%s" % (k, r["outcome"],
+                                         (" -> propose %s" % r["proposed_status"])
+                                         if r.get("proposed_status") else "",
+                                         (" modulo %s" % ", ".join(r["modulo"]))
+                                         if r.get("modulo") else ""))
+    if res.get("items_note"):
+        out.append("items: %s" % res["items_note"])
     for it in res["file_items"]:
         r = it.get("route") or {}
         out.append("file (%s, run %s%s): %s%s" % (
@@ -2099,6 +2645,9 @@ def main(argv=None):
                     help="a reword run (mode: reword): the base pass folder (default: the "
                          "sibling folder its base_pass names, under its base_subject's "
                          "folder when it names one)")
+    ap.add_argument("--no-registry", action="store_true",
+                    help="do not read the registry for inputs established now (#133): go "
+                         "by --established alone")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     try:
@@ -2117,7 +2666,8 @@ def main(argv=None):
         return 2
     res = decide(ra, rb, _split_list(args.established), args.primary, args.producer_role,
                  base=base, base_notes=notes, exists=registry_exists,
-                 links_of=registry_links)
+                 links_of=registry_links, items_of=registry_items,
+                 established_of=None if args.no_registry else registry_established)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):

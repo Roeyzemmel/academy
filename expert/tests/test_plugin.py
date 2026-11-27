@@ -262,6 +262,14 @@ class InboxTests(unittest.TestCase):
         self.assertIn("author", r["why"])
         self.assertNotIn("final_to", r["why"])
 
+    def test_author_kinds_are_told_to_file_as_the_author(self):
+        # #131: T-2007, an apply after a verify pass, rejected with "another role work"
+        for kind in ("apply", "write", "copy", "figure", "build", "sweep"):
+            r = inbox.route({"kind": kind})
+            self.assertEqual(r["how"], "reject", kind)
+            self.assertIn("is author work", r["why"], kind)
+            self.assertIn("filed as the Author", r["why"], kind)
+
     def test_cli_all_lists_without_the_cut_and_n_is_the_limit_alias(self):
         code, out, err = fixtures.run_script("inbox.py", None, ["--instance", "expert@main",
                                                                 "--all", "--json"])

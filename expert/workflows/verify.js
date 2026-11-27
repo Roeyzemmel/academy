@@ -290,7 +290,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   const skipped = lines.find(l => /checkpoint not run/.test(l))
   const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
   const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
-    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : m && !/^(delivered|rejected|partial)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
     : bad ? { status: 'refused', detail: bad.trim() }
     : skipped ? { status: 'not-run', detail: skipped.trim() }
     : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
@@ -350,12 +350,12 @@ const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_F
 phase('Prepare')
 const prep = await launch(STAGE('prepare', [
   `claim: ${A.claim}`, `ticket: ${A.ticket || 'none'}`, `mode: ${MODE}`,
-  MODE === 'reword' ? `base_pass: ${A.base_pass || '(find it: reviews.py list)'}` : '',
+  MODE === 'reword' ? `base_pass: ${A.base_pass || '(find it: reviews.py list; the last confirmed pass, blind or reword, #127)'}` : '',
   A.base_subject ? `base_subject: ${A.base_subject}` : '',
   A.findings ? `findings for the bundle: ${A.findings}` : '',
   '',
   MODE === 'reword'
-    ? `conclude.md section 7 steps 1-4: take the ticket, recover old.txt, check the old hash, \`reviews.py new-pass <id> --reword-of <base pass>\` (with --base-subject when given), write the bundle with \`reviews.py reword-brief\` (no --new-file: it takes the registry's statement). statement_hash is the NEW statement's hash, the registry engine's: \`reviews.py hash --claim ${A.claim}\` (T-0464).`
+    ? `conclude.md section 7 steps 1-4: take the ticket, recover old.txt, check the old hash (for a reword base pass: the wording its R confirmed, #127), \`reviews.py new-pass <id> --reword-of <base pass>\` (with --base-subject when given), write the bundle with \`reviews.py reword-brief\` (no --new-file: it takes the registry's statement). statement_hash is the NEW statement's hash, the registry engine's: \`reviews.py hash --claim ${A.claim}\` (T-0464).`
     : `conclude.md section 0: take the ticket (its budget field gates nothing: never block it for budget), pin and hash the statement with \`reviews.py hash --claim ${A.claim}\` (the registry engine's statement text, the hash claims_set_status checks; never a hand-copied extract, T-0464), open the pass (\`reviews.py new-pass\`, \`reviews.py dir\`). For a statement that lives in a tex file, location is the output line of \`statement.py <label> --where --home <that Author home>\` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder. ` +
       'new-pass returns the open pass of this same ticket when one is open (a rerun, #89): then list in landed the run files already in its folder (A.md, B.md) with the statement_hash of each one\'s frontmatter. ' +
       'Report the claim\'s falsifier on record (falsifier; conclude.md section 0, the sources prove.js accepts, #117): one that attacked this claim; or one recorded on a declared input, or on the parent lead or direction item, whose class or statement covers it, saying how; ' +
@@ -861,7 +861,7 @@ const done = await launch(STAGE('conclude', [
             ? `The table on B says settle-dependencies, and the differing inputs were not settled (${settled.summary}${settled.stops.length ? '; the settler\'s stops: ' + JSON.stringify(settled.stops) : ''}${settled.problems.length ? '; the record\'s problems: ' + settled.problems.join('; ') : ''}). ` +
               'Conclude it as a disagreement (no status, never claims_propose_status): the decision ticket to the human (section 4.3) with the union and intersection of the two lists as options, and the settler\'s classification attached for the human (S.md and S.json in the pass folder when written, the stops and their evidence above). Return outcome disagreement. Then: '
             : '') +
-        'conclude.md sections 2-6: the input-by-input status, the final decision_table.py over the landed runs with --established, the record decision.md, evidence rows, the proposal (only the script\'s proposed_status), follow-up tickets exactly as the script routes them, the packet, the ticket result and delivery, the blast radius, the report.',
+        'conclude.md sections 2-6: the input-by-input status, the final decision_table.py over the landed runs with --established (it also reads the registry for inputs established now, #133: a carried input already proved is dropped, so a reword never proposes proved-modulo on a proved input), the record decision.md, evidence rows, the proposal (only the script\'s proposed_status), follow-up tickets exactly as the script routes them, the packet, the ticket result and delivery, the blast radius, the report.',
   'Then list the run files in the pass folder (run_files).',
 ].filter(s => s !== '').join('\n')), { label: 'conclude', phase: 'Conclude', agentType: CHAIR, schema: DONE })
 

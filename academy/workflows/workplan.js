@@ -108,12 +108,89 @@ const launchOnce = (prompt, opts) => {
 // ---- end Models
 if (!['campaign', 'cowork'].includes(A.kind)) throw new Error('args.kind must be campaign or cowork')
 if (!A.root) throw new Error('args.root must be the academy repo')
-const ROOT = A.root.replace(/[\\/]+$/, '')
-const AR = ROOT
 const KIND = A.kind
 const TAG = KIND === 'campaign' ? A.target : A.slug
 if (!TAG) throw new Error(KIND === 'campaign' ? 'args.target is required' : 'args.slug is required')
 if (KIND === 'campaign' && !A.home) throw new Error('a campaign needs args.home (the Researcher home)')
+// ---- Code pin (docs/workflows.md, "Pinned code"; #97): the same block in inbox.js and workplan.js.
+// The run reads its code from a worktree of the academy repo pinned at the commit HEAD pointed to
+// when it started (academy/scripts/run_pin.py), so a merge, a branch switch or a publish during the
+// run changes nothing it runs: every script command and nested workflow takes CODE.root, never
+// args.root. args.code (the JSON object `run_pin.py start --json` printed, or its text) is a pin the
+// caller made and ends; a nested run (nested: true) runs on the root it was given; pin: false runs on
+// args.root, the live checkout. Otherwise the pin stage makes one, and the run ends it on every way
+// out (pinEnd(), from a finally, which never throws: a lost unpin is CODE.end_error). A run that hands
+// work back (a for_main or a gate: its args carry the pin's root) holds the pin longer (end --hold), and
+// CODE.expires says until when. A pin stage that returns no pin is a note, never a failed run.
+const PIN_OUT = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
+  output: { type: 'string', description: 'the command output, verbatim' } }, required: ['output'] }
+const PIN_PY = `py ${String(A.root || '').replace(/[\\/]+$/, '')}/academy/scripts/run_pin.py`
+const CODE = { sha: null, root: String(A.root || '').replace(/[\\/]+$/, ''), pinned: false, run: null, why: '' }
+const PIN_NOTES = []
+const PIN_OWN = { run: null, out: null }   // the pin this run made, and so ends; out: the run's result
+const pinRead = v => {             // a pin (object or its JSON text, a code fence allowed), else null
+  if (typeof v === 'string') {
+    const t = v.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')
+    try { v = JSON.parse(t) } catch (e) { return null }
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v) || typeof v.root !== 'string' || !v.root) return null
+  if (v.pinned && !/^[0-9a-f]{40}$/.test(String(v.sha || ''))) return null
+  return v
+}
+const pinSet = (c, why) => Object.assign(CODE, { sha: c.sha || null, root: c.root.replace(/[\\/]+$/, ''),
+  pinned: !!c.pinned, run: c.run || null, why })
+async function pinStart(label) {
+  if (A.code !== undefined && A.code !== null) {
+    const c = pinRead(A.code)
+    if (!c) throw new Error(`args.code is no pin (${String(JSON.stringify(A.code)).slice(0, 80)}): pass the JSON object \`${PIN_PY} start --json\` prints, or leave it out`)
+    return pinSet(c, 'given by the caller, which ends it' + (c.why ? ': ' + c.why : ''))
+  }
+  if (A.nested) { CODE.why = 'nested: the calling run pins the code and gave this root'; return CODE }
+  if (A.pin === false) { CODE.why = 'args.pin false: the run reads the live checkout'; return CODE }
+  const tag = String(label).replace(/[^A-Za-z0-9@+._-]/g, '-').slice(0, 60)
+  const r = await launch(`WORKFLOW STAGE pin. Run \`${PIN_PY} start --label ${tag} --json\` once (python3 where there is no py). ` +
+    'Fix nothing, whatever it prints: return the exit code the shell printed and its whole output verbatim.',
+  { label: 'pin', agentType: 'general-purpose', tier: 'base', schema: PIN_OUT, effort: 'low' })
+  const c = r ? pinRead(String(r.output || '')) : null
+  if (!c) {
+    CODE.why = 'the pin stage ' + (r ? `printed no pin (${JSON.stringify(String(r.output || '').slice(0, 160))})` : 'returned nothing')
+    PIN_NOTES.push(`code not pinned: ${CODE.why}; the run reads the live checkout ${CODE.root}`)
+    return CODE
+  }
+  pinSet(c, String(c.why || ''))
+  if (!c.pinned) PIN_NOTES.push(`code not pinned: ${CODE.why || 'run_pin.py gave no reason'}`)
+  else {
+    PIN_OWN.run = c.run || null
+    if (c.dirty) PIN_NOTES.push(`code pinned at ${CODE.sha.slice(0, 12)}: ${CODE.why}`)
+  }
+  return CODE
+}
+async function pinEnd() {         // once, on every way out of a run that made its pin; never throws
+  if (!PIN_OWN.run) return
+  const run = PIN_OWN.run
+  PIN_OWN.run = null
+  const o = PIN_OWN.out || {}
+  const hold = !!((Array.isArray(o.for_main) ? o.for_main.length : o.for_main) || (o.gates && o.gates.length))
+  try {
+    const r = await launch(`WORKFLOW STAGE unpin. Run \`${PIN_PY} end --run ${run}${hold ? ' --hold' : ''} --json\` once (python3 where there is no py). ` +
+      'Fix nothing, whatever it prints: return the exit code the shell printed and its whole output verbatim.',
+    { label: 'unpin', agentType: 'general-purpose', tier: 'base', schema: PIN_OUT, effort: 'low', record: true })
+    let e = null
+    try { e = JSON.parse(String((r && r.output) || '').trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')) } catch (x) { e = null }
+    CODE.ended = !!(e && e.ended === true)
+    if (e && e.expires_iso) CODE.expires = e.expires_iso
+    if (!CODE.ended) CODE.end_error = r ? `the unpin stage printed ${JSON.stringify(String(r.output || '').slice(0, 160))}` : 'the unpin stage returned nothing'
+  } catch (x) {
+    CODE.ended = false
+    CODE.end_error = `the unpin stage threw: ${String(x && x.message || x).slice(0, 200)}; the marker goes stale on its own (run_pin.py end --run ${run} clears it)`
+  }
+}
+// ---- end Code pin
+// the run's code, pinned before anything reads it; the run below ends the pin in its finally
+await pinStart(`workplan-${KIND}-${TAG}`)
+const ROOT = CODE.root
+const AR = ROOT
+try {   // the whole run, unindented: its finally ends the pin on every way out (a return, a throw)
 const CLERK = KIND === 'campaign' ? 'researcher:review-clerk' : 'academy:inbox-clerk'
 // The prompts name the two scripts by their bare names; every prompt carries where they
 // are (the ledger, 2026-11-07: nine failed guesses of cowork.py's folder in one cowork).
@@ -191,7 +268,8 @@ async function launchMax(prompt, opts, s) {   // launch(prompt, opts) on the lau
 }
 const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_FALLBACKS.join(', ')}` : ''
 
-const out = { kind: KIND, tag: TAG, notes: [], for_main: [], taken: [], rounds_run: 0, agents_used: 0, tickets_filed: [], launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
+const out = { kind: KIND, tag: TAG, notes: [...PIN_NOTES], for_main: [], taken: [], rounds_run: 0, agents_used: 0, tickets_filed: [], launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS, code: CODE }
+PIN_OWN.out = out
 
 // ---- shared components ----------------------------------------------------------------
 async function caps() {
@@ -218,7 +296,7 @@ async function nextActor(receivers, cap) {
   const only = (receivers || []).filter(r => r && r !== 'human')
   if (!only.length) return { count: 0 }
   const r = await workflow({ scriptPath: ROOT + '/academy/workflows/inbox.js' },
-    Object.assign({ models: await modelsMap(), root: ROOT, only, cap, nested: true }, KIND === 'campaign' ? { campaign: TAG } : { cowork: TAG }))
+    Object.assign({ models: await modelsMap(), root: ROOT, code: CODE, only, cap, nested: true }, KIND === 'campaign' ? { campaign: TAG } : { cowork: TAG }))
   if (!r) return { lost: true }
   out.taken.push(...(r.taken || []))
   if (r.for_main) out.for_main.push(r.for_main)
@@ -360,3 +438,4 @@ if (out.agents_used || out.tickets_filed.length)
   out.ship = { status: 'not-run', detail: 'no ticket: run the command from the workspace root (unless workspace.json says "shipCheckpoint": false)',
     command: `py scripts/ship.py checkpoint --ticket campaign-${String(TAG).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} --role researcher --only <home submodule> board` }
 return report(st, why || stopRule(st) || `--rounds (${cp.rounds}) reached`)
+} finally { await pinEnd() }

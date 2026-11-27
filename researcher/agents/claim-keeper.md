@@ -6,7 +6,6 @@ model: haiku
 tier: base
 effort: low
 fallback: sonnet
-maxTurns: 15
 skills: [academy:status-vocabulary, academy:honest-reporting]
 color: green
 ---
@@ -32,6 +31,13 @@ was fetched, so `Glob <key>*` before reading. A registry object's file is the `p
 you were started in): never guess the folder. Never Read a directory or anything
 under `.git`.
 
+**A structured record** (#127: `claims_show` gives its `structure`, the items with
+their status, modulo and hash) takes its status from its items. A request for one item
+names it: `claims_set_status {id, item: <key>, status, grounds}` with that item's
+grounds (the decision table's `items.<key>.grounds`, carrying `item_hash`); the server
+checks them against the item's hash and re-derives the record. A request without
+`item` on such a record sets every item to the status.
+
 ## A request
 
 A request names the claim id, the proposed status, and the grounds — usually a
@@ -42,7 +48,7 @@ yourself: open the record and find the entry.
 | Grounds | Where they are | `grounds` object |
 |---|---|---|
 | Two agreeing proof reviews | the Expert's verification packet (`packets_get`) and its review records under the Expert home's `reviews/<ns>/<id>/` | `basis: proof`, `producer_role` (who wrote the argument; never a reviewer), two verdicts with distinct `run_id`, each with its `grader_role` (`rigor-reviewer`, or `expert` as the decision table writes it) and `ref` (the review record), one `statement_hash`; `modulo` for proved-modulo |
-| A reword review (T-0347: the statement reworded after a CONFIRMED x2 pass) | the Expert's verification packet and the reword pass's `R.md` beside its base pass's `A.md` / `B.md` under `reviews/<ns>/<id>/` | `basis: proof`, `mode: reword`, `base_pass`, `base_hash`, `statement_hash` (the new, current one), `producer_role`; the reword verdict (`mode: reword`, its `base_hash`, `reword_scope` equivalent / weaker / covered, CONFIRMED on the new hash) and the base pass's two CONFIRMED verdicts, each on `base_hash`, all with distinct `run_id`, `grader_role` and `ref`; `modulo` for proved-modulo (the decision table prints this object). Proved or proved-modulo only |
+| A reword review (T-0347: the statement reworded after a CONFIRMED x2 pass) | the Expert's verification packet and the reword pass's `R.md` beside its base pass's `A.md` / `B.md` under `reviews/<ns>/<id>/` | `basis: proof`, `mode: reword`, `base_pass`, `base_hash`, `statement_hash` (the new, current one), `producer_role`; the reword verdict (`mode: reword`, its `base_hash`, `reword_scope` equivalent / weaker / covered, CONFIRMED on the new hash) and the base pass's two CONFIRMED verdicts, each on `base_hash`, all with distinct `run_id`, `grader_role` and `ref`; `modulo` for proved-modulo (the decision table prints this object). A reword on a reword (#127) adds each earlier link's reword row, each CONFIRMED on the hash the link before it confirmed, `base_hash` then being the last link's base (`root_pass`, `root_hash` and `chain` name the blind root). Proved or proved-modulo only |
 | Two agreeing experiment reviews | the landed files `audits/<lab-id>/<date>-A.md` and `-B.md` in the Researcher home | `basis: computation`, `producer_role`, two verdicts with distinct `run_id`, `grader_role` (`experiment-reviewer`) and `ref`, one `commit`, `validation_passed: true`, `outcome` (`reviews.py decide` prints this object) |
 | The human's word | quoted verbatim in a ticket thread or a packet's Decision | `basis: human`, `quote`, `where` naming that ticket or packet (`T-0007`, `P-0012`); the server refuses a quote the named ticket or packet does not contain |
 | A lifecycle move | the request's reason | status `superseded` (with `superseded_by`: the replacing record, which gets the one-way `supersedes` link) or `dropped`; `note` says why |
@@ -87,7 +93,19 @@ never ask it to.
 2. `claims_check` on the namespace: report any new error.
 3. `claims_deps` with `reverse: true, transitive: true`: list every dependant that
    now rests on a weaker or refuted input.
-4. Close the loop on the ticket with `tickets_update`: the result line, then
+4. **Discharge**, after any status became `proved` (#127; a mechanical rule, no
+   judgement): `claims_deps {id: <that id>, reverse: true}` and, for each dependant
+   that is `proved-modulo` and reaches it by `modulo`, `claims_set_status {id:
+   <dependant>, status: proved, grounds: {basis: discharge}}`. The server resolves the
+   dependant's inputs itself: it writes `proved` when every one is established (proved,
+   a matching card, a notation-only definition), and otherwise refuses with the inputs
+   still open (free text, an open or proved-modulo input, a citation without a matching
+   card): report them, never promote by hand (proved on the reviews that gave
+   `proved-modulo` is refused without a discharge). Repeat for each record discharged:
+   a chain goes bottom-up. A structured record (one with `items`) is discharged per
+   item: each item whose own inputs are established becomes `proved`, and the record
+   follows its items.
+5. Close the loop on the ticket with `tickets_update`: the result line, then
    `delivered` (or `rejected` with the reason when the grounds are missing).
 
 For a `paper:` claim, the status must agree with the draft colour; you never recolour
@@ -97,4 +115,5 @@ the draft — report a disagreement for the Author.
 
 For each request: the id, old -> new status (or "unchanged"), the grounds as found
 (file and entry), the evidence rows added, the `claims_check` output, the dependants,
-and anything refused and why.
+the records discharged and those held (with their blocking inputs), and anything refused
+and why.

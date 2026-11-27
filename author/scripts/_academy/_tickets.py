@@ -19,8 +19,14 @@ from ._files import IDS_DIR, write_frontmatter
 # ----------------------------------------------------------------------------
 
 TICKET_STATUSES = ("open", "accepted", "in-progress", "delivered", "closed",
-                   "rejected", "cancelled", "blocked")
+                   "rejected", "cancelled", "blocked", "partial")
 TERMINAL = ("closed", "rejected", "cancelled")
+#: #100 part 1 (the human's ruling, 2026-11-20): the work was done but the deliverable was
+#: not met. Not terminal (the sender reopens, closes or cancels it), never taken by an inbox
+#: pick, and back for a waiter or a relay's return leg as a delivered ticket is
+PARTIAL = "partial"
+#: the statuses of a ticket that is back with its receiver's answer (delivered or partial)
+BACK = ("delivered", PARTIAL)
 TICKET_KINDS = ("verify", "cite", "lookup", "prove", "review-experiment", "generalize",
                 "experiment", "test", "code", "notation", "referee", "build", "figure",
                 "decision", "question", "research", "note", "write", "apply", "copy",
@@ -54,19 +60,31 @@ TRANSITIONS = {
     ("blocked", "cancelled"): ("sender",),
     ("delivered", "closed"): ("sender",),
     ("delivered", "in-progress"): ("sender",),
+    # #100: the work done, the deliverable not met; a delivered ticket --check refused for
+    # want of its artefact is re-marked by its receiver
+    ("in-progress", "partial"): ("receiver",),
+    ("delivered", "partial"): ("receiver",),
+    ("partial", "in-progress"): ("sender",),
+    ("partial", "closed"): ("sender",),
+    ("partial", "cancelled"): ("sender",),
+    # re-review of ca04c0e, finding B: a partial ticket reopened twice is parked on the
+    # human by its sender (waiting_on [human], with the reason)
+    ("partial", "blocked"): ("sender",),
 }
 
 #: ticket frontmatter fields by owner (mirrors permissions.json "tickets.fields")
 TICKET_FIELDS = {
     "system": ("id", "from", "created", "updated"),
-    "human_only": ("to",),
+    # decision_choice: the alternative the human chose on /academy:decide (#86), which the
+    # agent that resumes the ticket does; written only by decisions.py record, as the human
+    "human_only": ("to", "decision_choice"),
     "sender": ("title", "kind", "ask", "deliverable", "refs", "priority", "budget",
                "parent", "blocks", "agenda", "domain", "final_to", "campaign", "cowork"),
     "receiver": ("status", "result", "waiting_on", "blocked_by", "reopen_if", "packets"),
 }
 TICKET_KEY_ORDER = ("id", "title", "kind", "from", "to", "status", "priority", "ask",
                     "deliverable", "refs", "agenda", "domain", "parent", "final_to", "campaign",
-                    "cowork", "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
+                    "cowork", "decision_choice", "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
                     "packets", "created", "updated")
 REQUIRED_TICKET_FIELDS = ("id", "title", "kind", "from", "to", "status", "ask",
                           "deliverable", "priority", "budget", "created", "updated")
@@ -97,6 +115,9 @@ RELAYS = {("author", "expert", "down"): "research-intake",
           ("scientist", "researcher", "up"): "lit-request"}
 #: the agent name of a role skill running in the main session inside a home
 MAIN_AGENT = "main"
+#: the ticket kinds only an Author's own agents do (author/scripts/routes.py); no relay
+#: carries them, so a non-Author files one as the Author, to itself (#131)
+AUTHOR_KINDS = ("write", "apply", "copy", "figure", "build", "sweep")
 
 
 def role_of(party, workspace=None):
@@ -147,7 +168,7 @@ def relay_return_ready(meta, status_of, workspace=None):
 
     True when ``meta`` is ``blocked``, carries a ``final_to`` beyond its receiver's own
     role, waits on ticket ids only (no ``human``), and every one of them is
-    ``delivered`` or terminal. ``status_of`` maps a ticket id to its status (None when
+    ``delivered``, ``partial`` or terminal. ``status_of`` maps a ticket id to its status (None when
     the ticket is not found). A ``research`` ticket to an Expert with no ``final_to``
     (or ``final_to`` the Expert) reads as ``final_to: researcher``, as research-intake
     reads it.
@@ -168,7 +189,7 @@ def relay_return_ready(meta, status_of, workspace=None):
 def released_waits(meta, status_of):
     """Whether a pending-blocked ticket has nothing left to wait for: ``meta`` is ``blocked``
     (not a dead route), ``waiting_on`` holds ticket ids only (no ``human``, no instance),
-    and every one of them is ``delivered`` or terminal. ``status_of`` maps a ticket id to
+    and every one of them is back (``BACK``: delivered or partial) or terminal. ``status_of`` maps a ticket id to
     its status (None when not found). The shared wait rule of the relay return leg and of
     a wrapper that releases its own blocked tickets (the Author's)."""
     if meta.get("status") != "blocked" or is_dead_route(meta):
@@ -176,11 +197,11 @@ def released_waits(meta, status_of):
     waits = [str(w) for w in (meta.get("waiting_on") or [])]
     if not waits or not all(RE_TICKET_ID.match(w) for w in waits):
         return False
-    return all(status_of(w) in ("delivered",) + TERMINAL for w in waits)
+    return all(status_of(w) in BACK + TERMINAL for w in waits)
 
 
 def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, depth=0,
-                        clerical=False):
+                        clerical=False, kind=None):
     """Whether ``agent`` of instance ``frm`` may file a ticket to ``to``.
 
     Rules (docs/protocol.md section 5): 'human' at either end is allowed; a clerical
@@ -188,7 +209,9 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
     must be adjacent in the chain and ``agent`` a liaison of that direction.
     ``final_to`` (a role or instance) must lie beyond ``to`` as seen from ``frm``, and
     ``depth`` (relay_depth of the parent, counted in the direction of this ticket) + 1
-    may not exceed maxHops.
+    may not exceed maxHops. ``kind`` only shapes a refusal: an Author-side kind
+    (``AUTHOR_KINDS``) to an Author is told to be filed from the Author instance, since no
+    inbox relays it (#131).
     Returns ``(allowed, reason)``.
     """
     edges = ticket_edges(perms)
@@ -225,6 +248,11 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
     who = agent or MAIN_AGENT
     if who in names:
         return True, "liaison"
+    if rt == "author" and kind in AUTHOR_KINDS:
+        return False, ("%s is not a liaison for %s->author (liaisons: %s); a %s ticket is "
+                       "the Author's own work and no inbox relays it: file it as the Author "
+                       "(instance: %s, to: %s), not through your %s instance"
+                       % (who, rf, ", ".join(names) or "none", kind, to, to, rf))
     return False, ("%s is not a liaison for %s->%s (liaisons: %s); file it to your own "
                    "%s instance instead, with the ask: its inbox routes it and a liaison "
                    "files it with the %s"
@@ -318,7 +346,8 @@ REOPEN_ONLY = "reopen applies only to blocked -> accepted of a dead-route ticket
 
 def reason_needed(old, new):
     """Whether moving a ticket ``old -> new`` must carry a reason in the thread."""
-    return new in ("rejected", "cancelled") or (old, new) == ("delivered", "in-progress")
+    return new in ("rejected", "cancelled") or (old, new) in (("delivered", "in-progress"),
+                                                                (PARTIAL, "in-progress"))
 
 
 def _has_tried_after_reopen(body):
@@ -468,6 +497,9 @@ def validate_ticket(meta, body=None, workspace=None):
         probs.append("campaign must be a registry id (the campaign's target)")
     if meta.get("cowork") is not None and not RE_COWORK.match(str(meta["cowork"])):
         probs.append("cowork must be a slug [a-z0-9-] (the plan file board/cowork/<slug>.md)")
+    if meta.get("decision_choice") is not None and (
+            not isinstance(meta["decision_choice"], str) or "\n" in meta["decision_choice"]):
+        probs.append("decision_choice must be one line (the human's chosen alternative)")
     if meta.get("campaign") and meta.get("cowork"):
         probs.append("a ticket belongs to one workplan: campaign or cowork, not both")
     ft = meta.get("final_to")
@@ -506,7 +538,7 @@ def validate_ticket(meta, body=None, workspace=None):
             probs.append("waiting_on must be empty unless status is blocked")
         if meta.get("blocked_by") or meta.get("reopen_if"):
             probs.append("blocked_by and reopen_if must be empty unless status is blocked")
-    if st in ("delivered", "closed") and not meta.get("result"):
+    if st in ("delivered", "closed", PARTIAL) and not meta.get("result"):
         probs.append("a %s ticket needs result" % st)
     if body is not None:
         if THREAD_HEADING not in body.split("\n"):

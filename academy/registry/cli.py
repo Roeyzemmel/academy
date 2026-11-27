@@ -19,6 +19,15 @@ Commands of the engine itself, for every repo:
     py -m registry federation             which home serves each namespace from here
     py -m registry statement <ns:id>      the statement text a review is given on, and its
                                           hash (the one claims_set_status compares)
+    py -m registry statement <ns:id> --items
+                                          ... and, for a structured record (#127), one line
+                                          per item: key, status, modulo, item hash
+    py -m registry structure <ns:id> [--write]
+                                          the `hypotheses` / `items` frontmatter its body
+                                          suggests (the `**H<n>.**` / `**C<n>.**` lines; the
+                                          paper's `\\label{it:..}` items), each item at the
+                                          record's status; --write adds it to the record
+                                          (one record, never in bulk: lazy migration, #127)
     py -m registry requote [--write] [--report FILE]   the R2 requote (fsl-claims only)
     py -m registry stale [--ns NS] [--section S] [--json]
                                           the proved / proved-modulo claims whose statement
@@ -30,6 +39,15 @@ Commands of the engine itself, for every repo:
                                           ``Verify <claim> (reword of <pass>)``, to the
                                           Expert; none while one with that title is open);
                                           filed as the Expert's review-chair, or --as human
+    py -m registry discharge [ID ...] [--all] [--ns NS] [--input ID] [--dry-run] [--json]
+                                          the proved-modulo records whose every modulo
+                                          input is established now (proved, a card
+                                          match, a notation-only definition), each with
+                                          why or why not; without --dry-run they become
+                                          proved, bottom-up (#127; core/discharge.py).
+                                          --all: this repo's namespace; --ns: that one;
+                                          --input: those whose modulo names that input,
+                                          in every namespace reachable from here
 """
 from __future__ import annotations
 
@@ -39,10 +57,11 @@ import os
 import sys
 from pathlib import Path
 
-from .core import federation, graph, stale, workspace
+from .core import discharge, federation, graph, stale, structure, workspace
 from .profiles import module
 
-ENGINE_COMMANDS = ("graph", "classes", "federation", "requote", "statement", "stale")
+ENGINE_COMMANDS = ("graph", "classes", "federation", "requote", "statement", "stale",
+                   "discharge", "structure")
 
 
 def _pop_repo(argv):
@@ -75,6 +94,12 @@ def _engine(repo, argv):
     sub.add_parser("federation")
     st = sub.add_parser("statement")
     st.add_argument("id")
+    st.add_argument("--items", action="store_true",
+                    help="also each item's status, modulo and hash (a structured record)")
+    su = sub.add_parser("structure")
+    su.add_argument("id")
+    su.add_argument("--write", action="store_true",
+                    help="write the proposal into the record (default: print it)")
     sl = sub.add_parser("stale")
     sl.add_argument("--ns", help="one namespace (default: this repo's own, else every "
                                  "namespace reachable from it)")
@@ -85,6 +110,19 @@ def _engine(repo, argv):
                     help="the filing instance: the Expert instance (default; as its "
                          "review-chair) or human")
     sl.add_argument("--json", action="store_true")
+    d = sub.add_parser("discharge")
+    d.add_argument("ids", nargs="*", help="records to assess (ns:id; a bare id is this "
+                                          "repo's)")
+    d.add_argument("--all", action="store_true",
+                   help="every proved-modulo record of this repo's namespace")
+    d.add_argument("--ns", action="append", default=[],
+                   help="every proved-modulo record of this namespace (repeatable)")
+    d.add_argument("--input", action="append", default=[],
+                   help="every proved-modulo record whose modulo names this input, in "
+                        "every reachable namespace (repeatable): the check after it is "
+                        "proved")
+    d.add_argument("--dry-run", action="store_true", help="assess only; write nothing")
+    d.add_argument("--json", action="store_true")
     r = sub.add_parser("requote")
     r.add_argument("--write", action="store_true", help="rewrite the files (default: dry run)")
     r.add_argument("--report", help="write the data-equality report (Markdown) here")
@@ -121,14 +159,119 @@ def _engine(repo, argv):
             return 1
         st = federation.store_from(rec.ns, repo)
         print(f"hash: {st.statement_hash(rec.id)}")
+        if a.items:
+            s = st.structure(rec.id)
+            if s is None:
+                print("items: none (not a structured record)")
+            else:
+                print(f"derived: {s['status'] or '-'}"
+                      + (f" modulo {', '.join(s['modulo'])}" if s["modulo"] else ""))
+                for k, h in s["hypotheses"].items():
+                    print(f"{k}: {' '.join(h.split())}")
+                for k, (ist, mod) in s["items"].items():
+                    print(f"{k} {ist}{' ' + ', '.join(mod) if mod else ''} "
+                          f"hash {s['hashes'].get(k) or '(no text)'}")
         print(st.statement_text(rec.id))
         return 0
+    if a.cmd == "structure":
+        return _structure_cmd(repo, a)
     if a.cmd == "stale":
         return _stale_cmd(repo, a)
+    if a.cmd == "discharge":
+        return _discharge_cmd(repo, a)
     if a.cmd == "requote":
         from . import requote
         return requote.main(repo, write=a.write, report=a.report)
     return 1
+
+
+def _structure_cmd(repo, a):
+    """``structure ID [--write]``: the lazy migration of one record (#127)."""
+    state, rec, detail = federation.resolve(a.id, repo)
+    if rec is None:
+        print(f"structure: `{a.id}` does not resolve ({state}{': ' + detail if detail else ''})",
+              file=sys.stderr)
+        return 1
+    st = federation.store_from(rec.ns, repo)
+    bh, bi = st.body_parts(rec.id)
+    paper = bool(st.paper_items)
+    parsed = None if paper else st.body_parse(rec.id)
+    if parsed and parsed["problems"]:
+        print(f"structure: {rec.qid}: refused, its statement's parts cannot be read "
+              "without guessing:\n- " + "\n- ".join(parsed["problems"]), file=sys.stderr)
+        return 1
+    path = Path(rec.file)
+    try:
+        from .core import fm as _fm
+        fields, _body = _fm.split_document(path.read_text(encoding="utf-8"), str(path))
+    except Exception as exc:        # noqa: BLE001 -- said as is
+        print(f"structure: {path} cannot be read ({exc})", file=sys.stderr)
+        return 1
+    if not bi:
+        if bh:
+            print(f"structure: {rec.qid}: hypotheses found ({', '.join(bh)}), but no items")
+        print(f"structure: {rec.qid} has no items in its statement ("
+              + ("no \\label{it:...} item in its environment" if paper else
+                 "no `**C<n>.**` line and no enumerated list under a `**Claim.**` "
+                 "header in its `## Statement`") + "): nothing to propose")
+        return 1
+    prop = structure.propose(fields, bh, bi, paper=paper)
+    from .core.edit import Doc
+    fmt = None
+    if st.profile == "fsl-claims":
+        fmt = _fm.format_scalar_single
+    lines = []
+    for key in ("hypotheses", "items"):
+        if key in prop:
+            lines.append(f"{key}:")
+            for k, v in prop[key].items():
+                kk = _fm.double_quote(k) if (_fm.needs_quotes(k) or ":" in k or "#" in k) else k
+                lines.append(f"  {kk}: {_fm.format_list(v) if isinstance(v, list) else (fmt or _fm.format_scalar)(v)}")
+    print(f"structure: {rec.qid} ({path})")
+    print("\n".join(lines))
+    if parsed and parsed["numbering"]:
+        print("# the items as numbered in the statement (check the order): "
+              + ", ".join(f"{k} = {v}" for k, v in parsed["numbering"].items()))
+    if parsed:
+        print(f"# forms: hypotheses {parsed['forms']['hyps'] or 'none'}, "
+              f"items {parsed['forms']['items'] or 'none'}")
+    if paper and "hypotheses" not in prop:
+        print("# the tex labels no hypothesis: add `hypotheses:` (H<n>: its text) by hand")
+    if not a.write:
+        print("(dry run: --write adds it to the record)")
+        return 0
+    before = path.read_bytes()
+    old_errs = _record_errors(st, rec, repo)
+    doc = Doc(path, fmt)
+    for key in ("hypotheses", "items"):
+        if key in prop:
+            doc.set_map(key, prop[key], after=("id", "kind", "form", "title", "status",
+                                               "statement", "modulo"))
+    doc.save()
+    federation.CACHE.clear()
+    added = [e for e in _record_errors(st, rec, repo) if e not in old_errs]
+    if added:
+        path.write_bytes(before)
+        federation.CACHE.clear()
+        print("structure: refused, the record would not pass check:\n" + "\n".join(added),
+              file=sys.stderr)
+        return 1
+    print("written")
+    return 0
+
+
+def _record_errors(st, rec, repo):
+    """The check errors of one record, read from disk, in its own home."""
+    home = Path(st.home)
+    if st.profile == "s1-kb":
+        from .profiles import s1kb
+        kb = s1kb.load_kb(home)
+        s1kb.run_check(kb)
+        rel = Path(rec.file).resolve().relative_to(home.resolve()).as_posix()
+        return [e for e in kb.errors if e.startswith(rel + ":") or e.startswith(rel + " ")]
+    from .profiles import fsl
+    errs, _w = fsl._check_one(Path(rec.file), home, fsl.registry_root(home))
+    return errs
 
 
 def _board():
@@ -258,6 +401,76 @@ def _stale_cmd(repo, a):
     if items and not a.file_reword:
         print("\n(dry run: --file-reword files the tickets listed `to file`)")
     return 1 if any(i.get("refused") for i in items) else 0
+
+
+def _discharge_cmd(repo, a):
+    own = workspace.repo_ns(repo)
+    nss = list(a.ns)
+    for ns in nss:
+        if ns not in workspace.namespaces():
+            print(f"discharge: `{ns}` is not a namespace of the workspace", file=sys.stderr)
+            return 2
+    if a.all:
+        if not own:
+            print("discharge: --all needs a registry home (or --ns NS)", file=sys.stderr)
+            return 2
+        nss.append(own)
+    if not (a.ids or nss or a.input):
+        print("discharge: name records, or --all / --ns NS / --input ID", file=sys.stderr)
+        return 2
+    ids = discharge.candidates(repo, a.ids, nss, a.input)
+    done, refused, results = set(), [], {}
+    while True:
+        federation.CACHE.clear()
+        progressed = False
+        for q in ids:
+            if q in done:
+                continue
+            res = discharge.assess(q, repo)
+            results[q] = dict(res, applied=False, refused=None)
+            if not res["dischargeable"] or a.dry_run:
+                continue
+            try:
+                discharge.apply(q, repo)
+            except ValueError as exc:
+                results[q]["refused"] = str(exc)
+                refused.append(q)
+                done.add(q)
+                continue
+            results[q]["applied"] = True
+            done.add(q)
+            progressed = True
+            if a.input:
+                # a chain discharges bottom-up: what rests on this one is next
+                ids += [x for x in discharge.candidates(repo, inputs=[q]) if x not in ids]
+        if a.dry_run or not progressed:
+            break
+    items = [results[q] for q in ids if q in results]
+    if a.json:
+        print(json.dumps({"items": items}, indent=1, ensure_ascii=False))
+        return 1 if refused else 0
+    n_ok = sum(1 for i in items if i["dischargeable"] or i["applied"])
+    print(f"discharge: {len(items)} record(s) assessed, {n_ok} dischargeable"
+          + (" (dry run: nothing written)" if a.dry_run else
+             f", {sum(1 for i in items if i['applied'])} discharged"))
+    for i in items:
+        if i["applied"]:
+            word = "discharged"
+        elif i["refused"]:
+            word = "refused"
+        else:
+            word = "dischargeable" if i["dischargeable"] else "held"
+        print(f"- {i['id']}  {i['status'] or '-'}  {word}")
+        for x in i["inputs"]:
+            print(f"    {'ok ' if x['established'] else 'no '} "
+                  f"{('item ' + x['item'] + ': ') if x.get('item') else ''}"
+                  f"{discharge.explain(x)}")
+        if not i["inputs"] and i["problems"]:
+            for p in i["problems"]:
+                print(f"    {p}")
+        if i["refused"]:
+            print(f"    {i['refused']}")
+    return 1 if refused else 0
 
 
 def main(argv=None):

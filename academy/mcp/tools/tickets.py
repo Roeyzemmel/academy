@@ -184,13 +184,13 @@ def create_ticket(ctx, a, clerical=False):
     depth = ac.relay_depth(ctx.store, parent, sender, to, final_to,
                            ac.ticket_edges(ctx.perms)["chain"], ctx.workspace) \
         if final_to and parent else 0
-    ok, why = ac.ticket_edge_allowed(sender, to, agent, ctx.perms, ctx.workspace,
-                                     final_to, depth, clerical=clerical)
-    if not ok:
-        raise ToolError("refused: " + why)
     kind = a.get("kind") or "other"
     if kind not in ac.TICKET_KINDS:
         kind = "other"
+    ok, why = ac.ticket_edge_allowed(sender, to, agent, ctx.perms, ctx.workspace,
+                                     final_to, depth, clerical=clerical, kind=kind)
+    if not ok:
+        raise ToolError("refused: " + why)
     prio = a.get("priority") or "normal"
     if prio not in ac.PRIORITIES:
         raise ToolError("priority must be one of %s" % ", ".join(ac.PRIORITIES))
@@ -290,7 +290,7 @@ def update_ticket(ctx, a):
         if a.get("result_detail") is None:
             a["result_detail"] = result_rest
     elif (not fields.get("result") and not meta.get("result") and a.get("result_detail")
-          and (deliver or new_status in ("delivered", "closed"))):
+          and (deliver or new_status in ("delivered", "closed", ac.PARTIAL))):
         fields["result"] = _headline(a["result_detail"])[0]
     if (deliver or new_status == "delivered") and meta.get("status") == "delivered" \
             and (human or "receiver" in pset):
@@ -408,7 +408,7 @@ def update_ticket(ctx, a):
             lines.append("status %s -> %s%s" % (hop_old, hop_new,
                                                 (": " + " ".join(reason.split()))
                                                 if reason and not dead_block else ""))
-        if new_status in ("delivered", "closed") and not meta.get("result"):
+        if new_status in ("delivered", "closed", ac.PARTIAL) and not meta.get("result"):
             raise ToolError("%s needs result: pass fields.result (one line, the answer) in the same call as status; "
                             "detail goes in the ## Result body (result_detail)" % new_status)
     elif a.get("reopen"):

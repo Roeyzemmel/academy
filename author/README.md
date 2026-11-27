@@ -36,17 +36,20 @@ rule: `academy/references/roster-rules.md`, "Model fallback").
 Skills: `/author:inbox` (replaces `next`, and before it `tier`; `/author:next` stays as a redirect), `/author:agenda`, `/author:notes`, `/author:sweep`, `/author:audit-notation`, `/author:presync`,
 `/author:status`, and `paper-method` (preloaded by the writing agents).
 
-Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home. The four edit
-guards (`bib_gate`, `pinned_guard`, `preamble_guard`, `notation_scope_guard`) are registered
+Hooks (`hooks/hooks.json`), each a silent no-op outside an Author home. The five edit
+guards (`bib_gate`, `pinned_guard`, `preamble_guard`, `notation_scope_guard`,
+`note_length_guard`) are registered
 once, as `pre_tool_use.py`, which calls each guard's `decide(event)` in that order in one
 process (the first denial wins, a guard that raises is skipped); each still runs standalone:
 `tex_edit_check` (PostToolUse edits: checker + dirty marker), `bib_gate` (only
 `expert:librarian` edits the bibliography), `notation_scope_guard` (PreToolUse edits:
 the notation-auditor edits only the home's `.claude/rules/style.md`, or a home's old
 `notation-decisions.md`; scoped by agent),
-`pinned_guard` (PreToolUse edits: nobody, the main session included, changes the
+`note_length_guard` (PreToolUse edits, the fifth guard, opt-in with `author.notes.enforce`:
+an edit that adds a machine note longer than `author.notes.maxLines`, and not already in the
+paper, is refused), `pinned_guard` (PreToolUse edits: nobody, the main session included, changes the
 environment of a statement a CONFIRMED review pinned, `scripts/pinned.py`; the proof is
-free; only the human releases a pin in `.claude/pinned-release.txt`), `preamble_guard`
+free; only the human releases a pin in `.claude/pinned-release.txt`, by hand or by "accept and release" on `/academy:decide`), `preamble_guard`
 (PreToolUse edits: under `author.preamble.policy` `propose` or `locked`, no tool edit of
 the preamble; the human releases a file in `.claude/preamble-release.txt`),
 `commit_gate` (Bash|PowerShell, scoped by
@@ -77,14 +80,14 @@ colours: `skills/paper-method/references/editing-tex.md`, `draft-colours.md`. Te
 | Skill | What it does |
 |---|---|
 | /author:agenda | Maintain the paper's agenda (Drafts/agenda.md): results in paper order with claim id, required status, dependencies, owner; refresh statuses, show milestones, turn gaps into tickets. Use for "update the agenda", "what does the paper need". |
-| /author:audit-notation | Audit the paper's notation against its style.md and the domain pack, report clashes, sync style.md's notation to the draft, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round. |
+| /author:audit-notation | Audit the paper's notation against its style.md and the domain pack, report clashes, record the draft's notation in style.md where no decision exists, ticket domain changes to the Expert. Use after new notation or before a coauthor round. |
 | /author:inbox | Work the paper's inbox (replaces /author:next): sweep the machine notes, then take at most three tickets from the board, routed by kind, landed if returned, or released if unblocked. Use for "next", "run the agenda", "work the inbox". |
 | /author:next | Retired: /author:next is now /author:inbox. Use only to be redirected; for "next" or "run the agenda" use /author:inbox. |
 | /author:notes | File the human's new margin notes as tickets on their agenda entry (to the Author, or to the role owning the work), and referee-packet points. Use when the human left notes in the PDF, after an Overleaf sync, or when a referee packet returns. |
 | /author:paper-method | Writing a math paper in LaTeX: the two style sources (writing-style.md, the paper's style.md), the paper's mechanics, handing back a section, the pre-send checklist. Use whenever writing, restructuring or cleaning up a paper. |
-| /author:presync | The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets, clean build, coloured diff, one-page summary. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone. |
+| /author:presync | The bundle to run at a milestone: checker, note sweep, notation audit, literature-watch and referee tickets. Use when the author is about to share, sync (Overleaf) or send the paper, or reaches an agenda milestone. |
 | /author:slideshow-maker | Build a research talk as a beamer deck plus lecture notes from one TeX source set: verified statements, definitions before use, figures that show the mechanism, no status tags, a review loop. Use for "make slides", "a 25-minute talk". |
 | /author:status | The paper's state at a glance: agenda progress, what /author:inbox would run, what waits on which ticket, tickets to this Author, checker summary. Read-only. Use for "where is the paper", "author status", "how far is the milestone". |
-| /author:sweep | The machine-note sweep: inventory machine margin notes in the tex, fold answered ones into their ticket's thread and delete them, leave open ones, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full. |
+| /author:sweep | The machine-note sweep: a script plans it (changed files, cached verdicts, notes by kind); retire ended await notes, fold answered ones into their ticket's thread and delete them, report counts. Use after /author:inbox runs, before /author:presync, or when margins are full. |
 
 <!-- skills:end -->

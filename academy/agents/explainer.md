@@ -6,7 +6,6 @@ model: opus
 tier: large
 effort: high
 fallback: sonnet
-maxTurns: 25
 skills: [academy:status-vocabulary, academy:citation-discipline, academy:notation-discipline, academy:honest-reporting]
 color: blue
 ---

@@ -6,7 +6,6 @@ model: haiku
 tier: base
 effort: low
 fallback: sonnet
-maxTurns: 15
 skills: [academy:status-vocabulary, academy:honest-reporting]
 color: green
 ---
@@ -36,7 +35,8 @@ in `${CLAUDE_PLUGIN_ROOT}/references/scripts.md`. Use `py` on Windows, `python3`
 - **packet**: `packets_create` kind `experiment-review` with the body the stage gives,
   only when it says the human must decide.
 - **close**: `tickets_update` with `deliver: true` and `result` = the one line the stage
-  gives.
+  gives; when the stage says "Mark ... partial", `status: partial` with that `result`
+  instead, never `deliver: true` (#100: work done, deliverable not met).
 - **put back**: `in-progress -> accepted` (receiver, a ticket started but not worked this
   run): one direct step, no reason, never through `blocked` (#123). The same move puts
   back a ticket taken in any stage below.

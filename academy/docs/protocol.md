@@ -130,7 +130,9 @@ board/
   `T-\d{4,}-*.md` are ignored by every tool. `human/RESUME.md` and
   `human/SUMMARY.md` are free Markdown.
 - **Committing.** Tool writes do not commit. When the board is a directory of the
-  workspace, its changes are committed with the ticket's work, on the ticket's branch,
+  workspace, its changes are committed with the ticket's work, on the checkpoint's branch
+  (the inbox run's `<date>/run-<run>/<role>`, else the ticket's own; each ticket's commit
+  tagged `ticket/T-NNNN/<n>`, #102),
   by `ship.py checkpoint --ticket T-NNNN --role <role> --only board` (section 5, the
   inbox checkpoint; `docs/branching.md`); `session_start` never commits the workspace.
   Only a board that is a git repository of its own is committed by `session_start` and
@@ -262,10 +264,11 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 | `final_to` | role \| instance \| empty | no | sender | The role (or instance) the request is really for; set on relayed tickets; a receiver whose role is not `final_to` hands the ticket to its relay |
 | `campaign` | registry id \| empty | no | sender | The target of the campaign this ticket belongs to; `inbox.py --campaign <target>` lists only such tickets. Omitted unless set |
 | `cowork` | slug \| empty | no | sender | The cowork this ticket belongs to (`/academy:cowork`, plan `<board>/cowork/<slug>.md`); `inbox.py --cowork <slug>` lists only such tickets. At most one of `campaign` and `cowork`. Omitted unless set |
+| `decision_choice` | str, one line \| empty | no | human only | What the human chose on `/academy:decide` (`decisions.py record`, #86): `(b) <the alternative's text>` for a ticket whose ask named alternatives (lettered, or "A, or B"), `proceed` for a plain acceptance, `proceed (routine policy)` for one under `decisions.routine`. The agent that resumes the ticket does that alternative and does not ask it again. Omitted unless set |
 | `blocks` | list of ticket ids | no | sender (server mirrors) | Tickets waiting on this one |
 | `waiting_on` | list of ticket ids, instances or `human` | iff `blocked` | receiver | What the receiver waits for |
 | `budget` | map `{runs: int >= 1}`, optionally `max_model: fable\|opus\|sonnet\|haiku` | yes | sender | A note from the sender on how much the ticket is expected to take; it gates nothing (the run's budget does, `references/budget.md` rule 7). Default `runs` from `academy.json` `budget.ticketDefault`. The model is not the sender's: an agent runs on its agent file's `model:`. `max_model`, if given, is an advisory note and never blocks a route |
-| `result` | str, one line | iff `delivered`/`closed` | receiver | The answer in one line; detail in `## Result` |
+| `result` | str, one line | iff `delivered`/`closed`/`partial` | receiver | The answer in one line; detail in `## Result` |
 | `packets` | list of packet ids | no | receiver | Packets produced for this ticket |
 | `created` | `YYYY-MM-DD` | yes | system | |
 | `updated` | `YYYY-MM-DD` | yes | system | Set on every write |
@@ -387,8 +390,85 @@ permissions.json). **The human may make any transition**, including re-opening
 | blocked | cancelled | sender | reason in thread |
 | delivered | closed | sender | |
 | delivered | in-progress | sender | reason in thread ("returned") |
+| in-progress | partial | receiver | `result` non-empty: what was done and what is missing (#100) |
+| delivered | partial | receiver | `result` non-empty (a delivery `--check` refused for want of its artefact, re-marked) |
+| partial | in-progress | sender | reason in thread ("finish it") |
+| partial | closed | sender | (what was done is taken as it stands) |
+| partial | cancelled | sender | reason in thread |
+| delivered | partial | `--check`, as the receiver | the artefact missing (below); thread line `no artefact: <why>` |
+| partial | blocked | sender | `waiting_on [human]` and the reason: reopened twice (the cap, below) |
 
 Terminal states: `closed`, `rejected`, `cancelled`.
+
+### Delivery artefacts and `partial`
+
+A `delivered` ticket must leave an artefact a script can check (#100 part 1, the human's
+ruling of 2026-11-20). `inbox.py --check` checks it after the checkpoint, only for tickets
+of the workspace's own board (`ARTEFACTS` in `academy_common/_artefacts.py`):
+
+| Kind | Artefact |
+|---|---|
+| `prove` | a proof attempt `proofs/<ID>/attempt-<n>.md` (or `<claim>, attempt-<n>`) named in the result, refs or `## Result`, present, its `outcome:` not `incomplete`, `failed` or `in-progress` |
+| `verify` | a pass folder `reviews/<ns>/<claim>/<date>-T-NNNN[-...]/` with `decision.md` in an Expert library |
+| `cite` | a card `cards/<key>/<slug>.md` named, or a card file in `cards/<key>/` of a key the refs (`bib:<key>`) or the result name |
+| `experiment`, `test` | an `experiments/*.py` header or a `results/*.json` named; a report packet `P-NNNN` named that exists; or an `experiments/*.py` whose header names the ticket |
+| `code`, `build`, `write`, `apply`, `figure`, `copy` | a commit whose message names the ticket (its checkpoint), or a 7-40 hex hash in the result that is a commit in a workspace repo or a home |
+| any other kind | none (the result suffices) |
+
+A ticket to the human and a relay parent (its child carries the artefact) are not checked.
+
+**No artefact on purpose.** A delivery may rest on no artefact only when its result says
+why at its very start, as `<marker>: <why>`, with a marker of its kind; `--check` then prints
+a `WARN:` line naming it. Never for `cite`, `verify` or `code`:
+
+| Kind | Markers |
+|---|---|
+| `apply`, `write`, `copy`, `figure` | `declined:`, `no change:`, `superseded:`, `not needed:` |
+| `prove` | `already proved:` |
+| `experiment`, `test` | `dropped:`, `no search:` |
+
+The wordings the board holds from before the colon form are matched as they are (`Declined,
+...`, `Both edits declined, ...`, `No tex change: ...`, `No edits made: ...`, `Nothing
+applied, tex untouched`, `Not applied (stale): ...`, `Already in the file (from T-NNNN)` for
+a figure, `<id> is already proved: nothing to attempt`, `No search run (`, `No search (`,
+`No computation (`). For the edit kinds and experiments the human's quoted decision counts
+too: `<name> <date>: <decision word> ...` at the start, or `(<name>, <date>: "...")` with a
+decision word (decided, ruled, declined, satisfied, drop, keep, accept, close, cancel,
+approve), `<name>` the workspace's `human.name`; a bare mention of the name does not. A
+marker never passes a result that says the work failed: `attempt/run/script/... failed`,
+`failed to`, `crashed`, `budget`, `error`, `incomplete`, `timed out`, `usage limit`, `hit
+a/its/the ... limit` anywhere in it.
+
+**The automatic move.** A delivery without its artefact and without a marker is moved by
+`--check` itself, as the ticket's receiver, `delivered -> partial`: a thread line
+`<receiver>/inbox-check: no artefact: <what is missing>`, the status line
+`T-NNNN: partial (partial); no artefact: ...`, exit 0. If the move fails the line reads
+`T-NNNN: unfinished (delivered, no artefact)` and the exit is 3. The inbox workflow puts
+the reason in the run's notes and never counts either as the instance's unfinished work.
+
+**Back with the sender.** A `partial` ticket an instance sent, to another instance or to
+itself, comes back to that instance's inbox as a return row (`partial: true`): its decider
+(`math-writer`, `lead-researcher`, `research-intake`, `experimenter`) reopens it
+(`partial -> in-progress` with a reason), closes it or cancels it; a reopened one is the
+receiver's in-progress work, not unfinished. **The cap**: the row counts the thread's
+`status partial -> in-progress` lines and the decider's `partial: left for the human`
+notes (`reopens`). After one, the decider may only close it or leave it partial with that
+note, and files nothing; at two the row is parked instead: the sender moves it
+`partial -> blocked`, `waiting_on [human]`, with the reason ("reopened twice: close or ask
+the human"), and `/academy:decide` lists it. A partial ticket the human sent stays with the human (the desk,
+`/academy:decide`; on GitHub the issue is assigned to the human, label `status:partial`,
+created at the first partial write).
+
+**Switch-off.** `"artefactCheck": false` in workspace.json turns the check (and the move)
+off.
+
+**`partial`** (#100 part 1, the human's ruling of 2026-11-20): the work was done but the
+deliverable was not met (a proof attempt that is incomplete or failed, a falsifier after an
+incomplete attempt). It is not terminal, but no inbox takes it: the next move is the
+sender's (reopen, close or cancel), and the desk and `/academy:decide` show it to the human
+when the human sent it (on GitHub such an issue is assigned to the human, label
+`status:partial`). A waiter and a relay's return leg treat a partial child as back, like a
+delivered one, and the return leg marks the parent partial too, naming the child.
 
 **One call to deliver (MCP `tickets_update` only).** `deliver: true`, by the receiver of an
 `open`, `accepted` or `in-progress` ticket with `fields.result` set, walks the legal chain to
@@ -524,7 +604,7 @@ line reads `T-NNNN: unfinished (delivered, unpushed); work of T-NNNN is not on a
 one line per branch says how to push it (`py scripts/ship.py push <sub> --repo
 <worktree>`), and the exit is 3: the ticket is not reported delivered until that work is
 pushed and `--check` is run again. `"unpushedCheck": false` in workspace.json switches
-this off. Selection, ordering, return legs and the
+this off. **A delivery needs its artefact**: see "Delivery artefacts and `partial`" in section 4 above. Selection, ordering, return legs and the
 checkpoint live once, in the academy library (`inbox_core` in `academy_common`); each
 role's `scripts/inbox.py` is a thin wrapper and `scripts/routes.py` its routing table.
 `--n N` (alias `--limit`) lowers the count, `--all` lists without taking,
@@ -709,7 +789,11 @@ plain `proved` while both runs list inputs needs `--action intersection` or `--f
 own option the keyword reading cannot class is refused on a ruling until `--action` names it.
 A decline is always recorded and rejects the ruling; it undoes nothing already done. The
 listing reads a ruling's options with its body and a plain ticket's from its ask line,
-as `record` does; a plain ticket still takes `proceed` / `decline`.
+as `record` does; a plain ticket still takes `proceed` / `decline`, except that a ticket
+whose ask names alternatives (lettered, or unlettered: "Decide: drop the note, or a
+literature lookup and a one-line remark") takes one of them or `decline`, never a bare
+`proceed` (#86). The chosen alternative is stored on the ticket as `decision_choice`
+(section 3), which the resuming agent reads.
 
 ### 6.4 A research request from the Author
 
@@ -745,7 +829,9 @@ as `record` does; a plain ticket still takes `proceed` / `decline`.
 The base plugin's hooks (`academy/hooks/hooks.json`) enforce parts of this protocol
 directly. Each script imports the vendored lib `scripts/_academy/`. The PreToolUse
 guards on shell and edit calls (`script_path_guard`, `ship_guard`,
-`generated_view_guard`, `explainer_write_guard`, `role_write_guard`) are not registered
+`generated_view_guard`, `decide_guard`, `explainer_write_guard`, `role_write_guard`;
+`decide_guard` denies a subagent the `decisions.py` verbs that record the human's answer,
+#86) are not registered
 one by one: `pre_tool_use.py` is registered once per matcher group (`Bash|PowerShell`,
 `Edit|Write|MultiEdit|NotebookEdit`) and calls each guard's `decide(event)` in one
 process, in that order per tool, the first denial winning and a guard that raises

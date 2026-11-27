@@ -6,7 +6,6 @@ model: haiku
 tier: base
 effort: low
 fallback: sonnet
-maxTurns: 30
 skills: [academy:honest-reporting]
 color: yellow
 ---
@@ -25,7 +24,7 @@ plugin).
 
 1. Run `py ${CLAUDE_PLUGIN_ROOT}/scripts/usage_report.py --days 7 --json` (or the
    window in your brief), and once more without `--json` for the tables. When the
-   workspace names `errors.repo` (the error classes are GitHub issues), first run
+   workspace names `errors.repo` (the error families are GitHub issues), first run
    `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py sync` so this machine's spool is
    posted; a sync that fails is reported in `## Machine notes`, not retried. Then run
    `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py report --days 7 --json --brief` (and
@@ -43,10 +42,15 @@ plugin).
    every error since its fix came from a checkout or an installed plugin older than
    the fix (the records' `rev` / `ver`); the proposal for it is to update that copy
    (`scripts/bootstrap.py`, or the submodule pointer), never a new fix. With issues, a
-   class row carries its `issue` number (cite it as `#<n>` of the errors repo), the
-   state comes from the reopened issue's label (`regression`, `stale-code`), and a
-   report read from the local files instead says so on stderr (`issues ... not read`):
-   say that under `## Machine notes`. The shell
+   class row is one family (`sig` and `family` are the family; `instances` are roles;
+   sessions are not kept, so `sessions` is 1; times are days, so `bursts` count at most
+   one per day, as the report's note says) and carries its `issue` number (cite it as
+   `#<n>` of the errors repo); the state comes from the reopened issue's label
+   (`regression`, `stale-code`), and a report read from the local files instead says so
+   on stderr (`issues ... not read`): say that under `## Machine notes`. The issues hold
+   no messages: for the cause of a family, run `report --days 7 --local` (this machine's
+   spool and the git ledger, with messages). Never copy a message, path or id into a
+   public issue or the errors repo. The shell
    families (`Bash: script not found`, `Bash: shell quoting`, `Bash: python
    traceback`, ...) are the `Bash: exit code` class read by cause; `Bash: no error
    text` is a last stage that exited non-zero with ordinary output and is noise
@@ -97,7 +101,7 @@ plugin).
    was filed): `py ${CLAUDE_PLUGIN_ROOT}/scripts/error_ledger.py settle
    --packet <the id from step 3>`. It records that the week was reviewed and closes
    the classes reported before that have not recurred for seven days (solved by
-   silence; with issues, every open `error-class` issue quiet for seven days, closed
+   silence; with issues, every open `error-family` issue quiet for seven days, closed
    with the comment "closed by silence", after a sync); the others carry over into
    next week's report with a larger `weeks_open`. Only after step 3 succeeded: if the packet was not filed, do not
    settle. You never resolve a class by hand; that is the human's word

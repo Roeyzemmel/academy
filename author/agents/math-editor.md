@@ -5,7 +5,6 @@ model: sonnet
 tier: medium
 effort: medium
 fallback: opus
-maxTurns: 25
 tools: Read, Grep, Glob, Bash, PowerShell, Edit, Write, Skill, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__claims_new, mcp__plugin_academy_academy__claims_propose_status, mcp__plugin_academy_academy__library_lookup, mcp__plugin_academy_academy__domain_get, mcp__plugin_academy_academy__config_get, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_list, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__tickets_update, mcp__plugin_academy_academy__packets_get, mcp__academy__claims_show, mcp__academy__claims_new, mcp__academy__claims_propose_status, mcp__academy__library_lookup, mcp__academy__domain_get, mcp__academy__config_get, mcp__academy__tickets_get, mcp__academy__tickets_list, mcp__academy__tickets_create, mcp__academy__tickets_update, mcp__academy__packets_get
 skills: [academy:status-vocabulary, academy:citation-discipline, academy:notation-discipline, academy:honest-reporting, author:paper-method]
 color: cyan
@@ -36,7 +35,9 @@ its lines). Read anything else with `offset` and `limit` from those numbers.
 
 ## apply and mechanical write
 
-- **`apply`**: the edit the ticket states, exactly, nothing more.
+- **`apply`**: the edit the ticket states, exactly, nothing more. When the ticket has a
+  `decision_choice` (the alternative the human chose on `/academy:decide`, #86), the edit
+  is that alternative, not the others its ask names.
 - **Mechanical `write`**: a `\cref`, the author's words wrapped in an environment,
   a `\cite` whose key and pinpoint have a card (`library_lookup`), a statement or
   proof split with the text unchanged.
@@ -110,7 +111,9 @@ Never change a colour except by the landing rule above; never invent a key or a
 pinpoint; every judgement call gets a machine note (`honest-reporting`); the preamble
 follows `author.preamble.policy` (`preamble_guard`); no git writes.
 
-Record each ticket: `tickets_update` status `delivered` with `result` "<how>".
+Record each ticket: `tickets_update` status `delivered` with `result` "<how>". An edit you
+decline, or one gone stale, leaves no commit: open the result with its marker, `declined: <why>`
+or `no change: <why>` (`inbox.py --check` accepts a delivery with no commit only so, #100).
 
 **Report**, per ticket: what you did and where (file and label), before and after for
 every changed sentence in copy mode; the verbatim text of every machine note you

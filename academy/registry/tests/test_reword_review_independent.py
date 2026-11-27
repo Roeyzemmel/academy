@@ -7,7 +7,10 @@ one informed reword run; reword CONFIRMED + the base pass CONFIRMED x2 on ``base
 
 * a reword row counts only together with two base rows on ``base_hash``;
 * a reword run is never one of a blind pair (never counts as a blind verdict);
-* a reword never stacks on a reword (exactly one reword row; the base rows are blind).
+* a reword stacks on a reword only as a chain (#127, the human's ruling of 2026-11-27:
+  "rewording in general should have the previous confirmed statement as reference"):
+  the two blind rows on the root hash, each link CONFIRMED on the hash the link before
+  it confirmed, the last on the claim's current hash; any break is refused.
 
 Tests named ``test_finding_*`` demonstrated review findings on T-0347's thread
 (expectedFailure until the developer's fix 723f3d3).
@@ -92,11 +95,59 @@ class RewordGroundsFromTheRule(unittest.TestCase):
         g = rw_grounds([rw_row(), row("a", OLD), row("b", OLD)])
         self.assertFalse(self.ok(g, current=OLD))
 
-    def test_reword_on_reword_is_refused(self):
-        """R2 on top of R1 (itself a reword of A/B): two reword rows."""
+    def test_reword_on_reword_needs_the_blind_pair(self):
+        """R2 on top of R1 (itself a reword of A/B) with one blind row: refused."""
         third = "4444444444444444"
         g = rw_grounds([rw_row("r2", h=third, base_hash=NEW), rw_row("r1"), row("a", OLD)],
                        base_hash=NEW, statement_hash=third)
+        self.assertFalse(self.ok(g, current=third))
+
+    def test_a_reword_chain_is_accepted(self):
+        """#127: A, B on OLD; R1 OLD -> NEW; R2 NEW -> third: proved on third."""
+        third = "4444444444444444"
+        g = rw_grounds([rw_row("r2", h=third, base_hash=NEW), rw_row("r1"), row("a", OLD),
+                        row("b", OLD)], base_hash=NEW, statement_hash=third, root_hash=OLD)
+        self.assertTrue(self.ok(g, current=third))
+        self.assertFalse(self.ok(g, current=NEW))
+        # three links
+        fourth = "5555555555555555"
+        g3 = rw_grounds([rw_row("r3", h=fourth, base_hash=third),
+                         rw_row("r2", h=third, base_hash=NEW), rw_row("r1"), row("a", OLD),
+                         row("b", OLD)], base_hash=third, statement_hash=fourth)
+        self.assertTrue(self.ok(g3, current=fourth))
+        g3["modulo"] = ["paper:lem:a"]
+        self.assertTrue(self.ok(g3, "proved-modulo", current=fourth))
+
+    def test_a_broken_reword_chain_is_refused(self):
+        third, fourth = "4444444444444444", "5555555555555555"
+        base = [row("a", OLD), row("b", OLD)]
+        cases = {
+            # R2 checked against the root's wording, not R1's: two links on OLD
+            "fork": [rw_row("r2", h=third, base_hash=OLD), rw_row("r1")] + base,
+            # a missing middle link: R3 rests on third, which no link confirmed
+            "missing link": [rw_row("r3", h=fourth, base_hash=third), rw_row("r1")] + base,
+            # a GAP link
+            "gap link": [rw_row("r2", h=third, base_hash=NEW), rw_row("r1", verdict="GAP")]
+            + base,
+            # a link whose scope exceeds the proof
+            "exceeds link": [rw_row("r2", h=third, base_hash=NEW), rw_row("r1",
+                                                                          scope="exceeds")]
+            + base,
+            # the blind rows on two hashes
+            "split root": [rw_row("r2", h=third, base_hash=NEW), rw_row("r1"),
+                           row("a", OLD), row("b", "3" * 16)],
+            # a loop back to the root
+            "loop": [rw_row("r2", h=OLD, base_hash=NEW), rw_row("r1")] + base,
+        }
+        last = {"missing link": fourth, "loop": OLD}
+        for why, rows in cases.items():
+            with self.subTest(why=why):
+                cur = last.get(why, third)
+                g = rw_grounds(rows, base_hash=rows[0]["base_hash"], statement_hash=cur)
+                self.assertFalse(self.ok(g, current=cur), why)
+        # grounds.root_hash must be the blind rows' hash
+        g = rw_grounds([rw_row("r2", h=third, base_hash=NEW), rw_row("r1")] + base,
+                       base_hash=NEW, statement_hash=third, root_hash="3" * 16)
         self.assertFalse(self.ok(g, current=third))
 
     def test_scope_exceeds_and_non_confirmed_are_refused(self):
@@ -203,12 +254,36 @@ class RewordRecordsInANotebook(unittest.TestCase):
         self.land(self.RWP, "R.md", self.RW.format(h=NEW, bp=self.BASE, bh=OLD))
         self.assertTrue(self.problems(self.RWP, "R.md"))
 
-    def test_reword_on_a_reword_pass_is_refused(self):
+    def test_reword_on_a_confirmed_reword_pass_carries_proved(self):
+        """#127: R2 against the wording R1 confirmed, R1 against the blind pair."""
         self.base()
         self.land(self.RWP, "R.md", self.RW.format(h=NEW, bp=self.BASE, bh=OLD))
         p2 = "2026-10-20-T-0400-reword"
         self.land(p2, "R.md", self.RW.format(h="4" * 16, bp=self.RWP, bh=NEW)
                   .replace("rv-R", "rv-R2"))
+        self.assertEqual(self.problems(p2, "R.md"), [])
+        p3 = "2026-10-25-T-0500-reword"
+        self.land(p3, "R.md", self.RW.format(h="5" * 16, bp=p2, bh="4" * 16)
+                  .replace("rv-R", "rv-R3"))
+        self.assertEqual(self.problems(p3, "R.md"), [])
+
+    def test_a_broken_reword_chain_is_refused(self):
+        self.base()
+        self.land(self.RWP, "R.md", self.RW.format(h=NEW, bp=self.BASE, bh=OLD))
+        p2 = "2026-10-20-T-0400-reword"
+        # R2 compared against the root's wording, not the one R1 confirmed
+        self.land(p2, "R.md", self.RW.format(h="4" * 16, bp=self.RWP, bh=OLD)
+                  .replace("rv-R", "rv-R2"))
+        self.assertTrue(self.problems(p2, "R.md"))
+        # R1 not CONFIRMED: R2 stands on nothing
+        self.land(p2, "R.md", self.RW.format(h="4" * 16, bp=self.RWP, bh=NEW)
+                  .replace("rv-R", "rv-R2"))
+        self.land(self.RWP, "R.md", self.RW.format(h=NEW, bp=self.BASE, bh=OLD)
+                  .replace("verdict: CONFIRMED", "verdict: GAP"))
+        self.assertTrue(self.problems(p2, "R.md"))
+        # R1's own base broken (one blind run)
+        self.land(self.RWP, "R.md", self.RW.format(h=NEW, bp=self.BASE, bh=OLD))
+        (self.subj / self.BASE / "B.md").unlink()
         self.assertTrue(self.problems(p2, "R.md"))
 
     def test_finding_a_reword_run_beside_one_blind_run_is_not_a_pair(self):

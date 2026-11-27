@@ -3,23 +3,28 @@
 Usage:
 
     py error_ledger.py [hook]                    # PostToolUseFailure hook, event on stdin
-    py error_ledger.py report [--days 7 | --since YYYY-MM-DD] [--json] [--repo O/N] [--workspace PATH]
+    py error_ledger.py report [--days 7 | --since YYYY-MM-DD] [--json] [--local] [--repo O/N] [--workspace PATH]
     py error_ledger.py settle [--packet P-NNNN] [--quiet-days 7] [--repo O/N] [--workspace PATH]
     py error_ledger.py resolve [SIG ...] [--family NAME] [--note TEXT] [--by WHO] [--commit SHA] [--version V] [--repo O/N] [--workspace PATH]
     py error_ledger.py sync [--repo OWNER/NAME] [--dry-run] [--workspace PATH]
     py error_ledger.py migrate [--repo OWNER/NAME] [--dry-run] [--skip-resolved] [--workspace PATH]
 
 **Where the errors go (academy#95).** When workspace.json names ``errors.repo``
-(``"errors": {"repo": "OWNER/NAME"}``) the error classes are GitHub issues of that repo,
-labelled ``error-class`` (``error_issues.py``): the hook appends to a local **spool**
+(``"errors": {"repo": "OWNER/NAME"}``) the error FAMILIES are GitHub issues of that repo,
+labelled ``error-family`` (``error_issues.py``): the hook appends to a local **spool**
 that is never committed (``errors.spool``, else ``$ACADEMY_ERRORS_SPOOL``, else
 ``<user cache>/academy/errors/<workspace key>/<instance>.jsonl``), still offline and
-still never failing a tool call; ``sync`` posts the spool's new records (one comment per
-class per sync, a cursor so nothing is posted twice, a closed issue reopened on
-recurrence with ``regression`` or ``stale-code``); ``report``, ``resolve`` and ``settle``
-read and close the issues; ``migrate`` imports the git ledger once. Without
-``errors.repo``, or without ``gh``, everything below holds as before (``report`` then
-reads the git ledger and the spool together).
+still never failing a tool call; ``sync`` posts the spool's new records, one issue per
+family (``family_of``, checked against an allowlist; one comment per family per sync, a
+cursor so nothing is posted twice, a closed issue reopened on recurrence with
+``regression`` or ``stale-code``); ``report``, ``resolve --family`` and ``settle`` read and
+close the issues; ``migrate`` imports the git ledger once, by family. The repo may be
+public, so an issue carries the family, counts, dates, roles, shell causes and code
+versions only: messages, details, commands, paths, signatures, sessions, instance names,
+packet ids and resolve notes stay in the spool and the git ledger (``report --local``
+reads them; a resolve's note and resolver go to the spool). Without ``errors.repo``, or
+without ``gh``, everything below holds as before (``report`` then reads the git ledger and
+the spool together).
 
 The git ledger is ``<board>/.errors/<instance>.jsonl`` (one file per instance, so two
 machines never merge-conflict; the board's SessionStart commit carries it). It is
@@ -31,7 +36,8 @@ append-only; each line is one JSON record:
     {"t": "resolve", "ts", "sig", "note", "by", ["commit"], ["version"]}   # the class is closed
 
 An *error class* is a signature: the tool plus the first line of the message with
-paths, ids, numbers and hex normalised away. A class is **open** from its first
+paths, ids, numbers and hex normalised away. A *family* (``family``) folds classes by
+verb and reason; one no rule names is its signature masked again (``mask``). A class is **open** from its first
 error record after its last ``resolve`` record. The weekly cycle:
 
 1. ``hook`` accumulates every failed tool call, all week, silently (it never fails a
@@ -96,6 +102,8 @@ RE_CLAIM = re.compile(r"(?<![\w@/.:])[a-z][a-z0-9]*:[A-Za-z][\w.-]*(?::[\w.-]+)*
 RE_INSTANCE = re.compile(r"\b(?:author|researcher|expert|scientist)@[a-z0-9][a-z0-9-]*")
 RE_HOST = re.compile(r"(?i)(\b(?:enotfound|eai_again|econnrefused|host)\s+)[a-z0-9.-]+\.[a-z]{2,}\b")
 RE_WS = re.compile(r"\s+")
+#: the record time ``_stamp`` writes; a record with another ``ts`` is skipped when read
+RE_STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")
 
 
 def _now():
@@ -254,6 +262,7 @@ def read_dirs(roots):
     out = []
     seen = set()
     paths = []
+    dropped = 0
     for root in roots:
         try:
             paths += [os.path.join(root, n) for n in sorted(os.listdir(root))
@@ -269,12 +278,18 @@ def read_dirs(roots):
                     continue
                 if not (isinstance(rec, dict) and rec.get("ts") and rec.get("t")):
                     continue
+                if not RE_STAMP.fullmatch(str(rec["ts"])):
+                    dropped += 1    # a malformed time (fractional seconds, Z): unreadable
+                    continue
                 if rec["t"] == "error":     # identical duplicates count once
                     key = json.dumps(rec, sort_keys=True)
                     if key in seen:
                         continue
                     seen.add(key)
                 out.append(rec)
+    if dropped:
+        print("error_ledger: %d record(s) with a malformed time skipped (not "
+              "YYYY-MM-DDTHH:MM:SS)" % dropped, file=sys.stderr)
     out.sort(key=lambda r: r["ts"])
     return out
 
@@ -388,9 +403,15 @@ def classes(records):
     last_resolve = {}
     last_commit = {}
     last_version = {}
+    #: family -> (ts, commit, version) of its last family resolve (a record of a family
+    #: issue closed by ``resolve --family`` or ``settle``, ``_local_family_resolves``)
+    fam_resolve = {}
     settles = []
     for r in records:
-        if r["t"] == "resolve" and r.get("sig"):
+        if r["t"] == "resolve" and not r.get("sig") and r.get("families"):
+            for f in r["families"]:
+                fam_resolve[f] = (r["ts"], r.get("commit") or "", r.get("version") or "")
+        elif r["t"] == "resolve" and r.get("sig"):
             last_resolve[r["sig"]] = r["ts"]
             last_commit[r["sig"]] = r.get("commit") or ""
             last_version[r["sig"]] = r.get("version") or ""
@@ -400,7 +421,13 @@ def classes(records):
     for r in records:
         if r["t"] != "error" or not r.get("sig") or is_benign(r):
             continue
-        if r["ts"] <= last_resolve.get(r["sig"], ""):
+        fix = (last_resolve.get(r["sig"], ""), last_commit.get(r["sig"], ""),
+               last_version.get(r["sig"], ""))
+        if fam_resolve:
+            fr = fam_resolve.get(family_of(r["sig"], r))
+            if fr and fr[0] > fix[0]:
+                fix = fr
+        if r["ts"] <= fix[0]:
             continue
         c = out.setdefault(r["sig"], {"sig": r["sig"], "tool": r.get("tool", "?"),
                                       "msg": r.get("msg", ""), "count": 0,
@@ -408,6 +435,7 @@ def classes(records):
                                       "first": r["ts"], "last": r["ts"],
                                       "weeks": set(), "recs": []})
         c["recs"].append(r)
+        c["fix"] = fix[1:]
         c["count"] += 1
         c["sessions"].add(r.get("session") or "?")
         c["instances"].add(r.get("instance") or "?")
@@ -416,9 +444,9 @@ def classes(records):
     for c in out.values():
         c["reported"] = any(u >= c["first"] for u in settles)
         # an error after a resolve that named its fixing commit: the fix did not hold
-        c["regression_commit"] = last_commit.get(c["sig"], "")
+        fix = c.pop("fix")
+        c["regression_commit"] = fix[0]
         # ... unless every error since came from code older than the fix
-        fix = (last_commit.get(c["sig"], ""), last_version.get(c["sig"], ""))
         c["stale"] = bool(any(fix)) and all(has_fix(r, *fix) is False for r in c["recs"])
     return out
 
@@ -447,17 +475,60 @@ FAMILY_RULES = [
 ]
 
 
+#: the message part of a signature is cut at this length (``signature``)
+SIG_MSG_MAX = 100
+#: the masks ``family`` applies again to a signature no rule names, in this order: a
+#: ledger line keeps the signature its hook made, and older hooks masked less (academy#95:
+#: claim labels, slugs, bib keys and repo paths were still in old signatures)
+FAMILY_MASKS = (
+    (re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://\S+"), "<path>"),                    # a URL
+    (re.compile(r"(?<![\w<:\\/])[\w.@~-]+(?:[\\/][\w.@<>~-]+)+"), "<path>"),     # a/b, a\b
+    (RE_PATH, "<path>"),                                                          # /a/b, c:\a
+    (re.compile(r"(?<![\w<])[\w.<>-]*\.(?:txt|md|py|jsonl?|tex|bib|pdf|sh|ps1|ya?ml|toml|"
+                r"html|csv|log)\b"), "<path>"),                                   # a file
+    (re.compile(r"(['\"`]).*?\1"), "<q>"),                                        # quoted
+    (re.compile(r"[\"`]\S*"), "<q>"),                       # an unpaired quote, to its word's end
+    (RE_HOST, r"\1<host>"),
+    (RE_INSTANCE, "<instance>"),
+    (re.compile(r"[\w.+-]*@[\w.-]+"), "<instance>"),                              # x@y
+    (RE_CLAIM, "<claim>"),
+    (RE_ID, "<id>"),
+    (re.compile(r"\b[a-z]+-(?:<n>|\d+)(?![\w<])"), "<id>"),                       # FND-3
+    (RE_NUM, "<n>"),
+    (re.compile(r"\b[a-z]+<n>[\w.]*"), "<id>"),                                   # abc12, d1
+    (re.compile(r"(?<![a-z0-9])[a-z0-9]+(?:[-_][a-z0-9]+){2,}(?![\w>])"), "<id>"),  # a slug
+)
+
+
+def mask(text):
+    """``text`` with paths, URLs, files, quoted strings, hosts, instances, claim labels,
+    ids, numbers, letter-number keys and slugs (three or more ``-``/``_`` parts) masked."""
+    for pat, rep in FAMILY_MASKS:
+        text = pat.sub(rep, text)
+    return RE_WS.sub(" ", text).strip()
+
+
 def family(sig):
     """A coarser label for a class signature: the verb and the reason, without the
-    normalised target (id, status, path, host). Falls back to the signature itself.
-    The class keys (``signature``) are not touched; this only groups them for reading."""
+    normalised target (id, status, path, host). The tool is its last ``__`` part (an MCP
+    tool without its server). A signature no rule names falls back to itself, masked
+    again (``mask``) and, when the signature was cut at ``SIG_MSG_MAX``, without its cut
+    last word (``...``). The class keys (``signature``) are not touched; this only groups
+    them for reading, and it is what an error issue may say (``error_issues``)."""
     tool, sep, msg = sig.partition(": ")
     if not sep:
         return sig
+    tool = tool.rsplit("__", 1)[-1]
+    if re.fullmatch(r"\(unlisted family [0-9a-f]{12}\)", msg):
+        return "%s: %s" % (tool, msg)      # a family of an issue (error_issues), as posted
     for pat, reason in FAMILY_RULES:
         if pat.search(msg):
-            return "%s: %s" % (tool.rsplit("__", 1)[-1], reason)
-    return sig
+            return "%s: %s" % (tool, reason)
+    cut = len(msg) >= SIG_MSG_MAX
+    if cut:
+        msg = re.sub(r"\s*\S*$", "", msg)
+    msg = mask(msg)
+    return "%s: %s%s" % (tool, msg, " ..." if cut else "")
 
 
 BASH_EXIT_SIG = "Bash: exit code <n>"
@@ -704,7 +775,8 @@ def render_markdown(rep, every=False):
     """The report as Markdown. The class table lists the classes with an error in the
     window (or a regression) and counts the rest; ``every`` lists them all."""
     w = rep["window"]
-    out = ["# Errors %s .. %s" % (w["start"], w["end"]), "",
+    out = ["# Errors %s .. %s" % (w["start"], w["end"]), ""] + (
+        [rep["note"], ""] if rep.get("note") else []) + [
            "%d error(s) in the window; %d open class(es), %d recurring."
            % (rep["errors_in_window"], rep["open_classes"], len(rep["recurring"])), ""]
     if rep.get("benign_in_window"):
@@ -884,10 +956,18 @@ def _issues():
     return error_issues
 
 
-def _transport(repo):
+def errors_posters(ws):
+    """workspace.json ``errors.posters``: further GitHub accounts whose comments on the
+    error issues are read (beyond the repo's owners, members and collaborators)."""
+    cfg = ws.get("errors") if isinstance(ws, dict) and isinstance(ws.get("errors"), dict) else {}
+    got = cfg.get("posters") or []
+    return [str(x) for x in got] if isinstance(got, list) else []
+
+
+def _transport(repo, ws=None):
     if TRANSPORT is not None:
         return TRANSPORT(repo)
-    return _issues().transport(repo)
+    return _issues().transport(repo, posters=errors_posters(ws))
 
 
 def issue_repo(a, ws):
@@ -911,6 +991,8 @@ def _print_report(rep, a):
             for r in b["classes"]:
                 r["issue"] = nums.get(r["sig"])
             b["source"] = rep["source"]
+            if rep.get("note"):
+                b["note"] = rep["note"]
         if rep.get("unsynced") is not None:
             b["unsynced"] = rep["unsynced"]
         print(json.dumps(b, ensure_ascii=False))
@@ -938,8 +1020,12 @@ def main(argv=None):
     p.add_argument("--all", action="store_true",
                    help="the Markdown class table lists every open class, also those with "
                         "no error in the window")
-    p.add_argument("--repo", help="read the error-class issues of OWNER/NAME (default: "
+    p.add_argument("--repo", help="read the error-family issues of OWNER/NAME (default: "
                                   "workspace.json errors.repo)")
+    p.add_argument("--local", action="store_true",
+                   help="read this machine's git ledger and spool, not the issues: the "
+                        "classes with their messages, sessions and instances (the issues "
+                        "hold families only)")
     p.add_argument("--workspace")
     p = sub.add_parser("settle")
     p.add_argument("--packet", help="the usage packet of the weekly review (required with "
@@ -963,13 +1049,13 @@ def main(argv=None):
     p.add_argument("--instance")
     p.add_argument("--repo")
     p.add_argument("--workspace")
-    p = sub.add_parser("sync", help="post the local spool's new errors to the error-class "
+    p = sub.add_parser("sync", help="post the local spool's new errors to the error-family "
                                     "issues of errors.repo")
     p.add_argument("--repo")
     p.add_argument("--dry-run", action="store_true",
                    help="say what would be posted; contacts no one, moves no cursor")
     p.add_argument("--workspace")
-    p = sub.add_parser("migrate", help="one-off: import the git ledger's classes as issues")
+    p = sub.add_parser("migrate", help="one-off: import the git ledger as family issues")
     p.add_argument("--repo")
     p.add_argument("--dry-run", action="store_true",
                    help="count what would be imported; contacts no one")
@@ -1002,9 +1088,9 @@ def main(argv=None):
         else:
             start = now - _dt.timedelta(days=a.days if a.days is not None else 7)
         rep = None
-        if repo:
+        if repo and not a.local:
             try:
-                rep = _issues().report(_transport(repo), start, now)
+                rep = _issues().report(_transport(repo, ws), start, now)
                 rep["unsynced"] = _issues().pending(spool_dir(ws))
             except Exception as e:      # offline: the local files, said so
                 print("error_ledger: issues of %s not read (%s); reporting the local "
@@ -1015,20 +1101,27 @@ def main(argv=None):
     elif a.cmd == "settle":
         if repo:
             iss = _issues()
-            t = _transport(repo)
+            t = _transport(repo, ws)
             res = iss.sync(spool_dir(ws), t)
             if res["error"]:
                 print("error_ledger: sync before the settle failed (%s); nothing closed"
                       % res["error"], file=sys.stderr)
                 return 1
-            closed = iss.settle(t, a.quiet_days, a.packet)
+            try:
+                closed = iss.settle(t, a.quiet_days)
+            except (iss.GhError, iss.Unsafe) as e:
+                print("error_ledger: settle stopped (%s)" % e, file=sys.stderr)
+                return 1
+            # the packet id stays local: an issue never names it
+            _local_family_resolves(ws, iss, instance, closed, "settle",
+                                   "quiet for %d days" % a.quiet_days)
             append_file(spool_file(spool_dir(ws), instance),
                         {"t": "settle", "ts": _stamp(_now()), "upto": _stamp(_now()),
                          "packet": a.packet or "", "closed": len(closed)})
             print("settled%s: %d issue(s) closed by silence"
                   % ((" " + a.packet) if a.packet else "", len(closed)))
-            for sig, number in closed:
-                print("  closed #%s: %s" % (number, sig))
+            for fam, number in closed:
+                print("  closed #%s: %s" % (number, fam))
             return 0
         if not a.packet:
             print("error_ledger: settle --packet P-NNNN is required with the git ledger (%s)"
@@ -1045,18 +1138,26 @@ def main(argv=None):
                 print("error_ledger: nothing to resolve (no signature or family given)",
                       file=sys.stderr)
                 return 1
-            closed, missing = _issues().resolve(_transport(repo), a.sig, a.family, a.note,
-                                                a.by, a.commit, version)
-            for sig in missing:
-                print("error_ledger: no open issue for %r (run sync first?)" % sig,
+            iss = _issues()
+            try:
+                closed, missing = iss.resolve(_transport(repo, ws), a.sig, a.family, a.by,
+                                              a.commit, version)
+            except (iss.GhError, iss.Unsafe) as e:
+                print("error_ledger: resolve stopped (%s)" % e, file=sys.stderr)
+                return 1
+            for name in missing:
+                print("error_ledger: %s" % (iss.shell_hint(name) or
+                                            "no open issue for %r (run sync first?)" % name),
                       file=sys.stderr)
             if not closed:
                 print("error_ledger: nothing to resolve (no open issue matched)",
                       file=sys.stderr)
                 return 1
-            print("resolved %d class(es)" % len(closed))
-            for sig, number in closed:
-                print("  closed #%s: %s" % (number, sig))
+            # the note, and who wrote it, stay local: an issue never carries them
+            _local_family_resolves(ws, iss, instance, closed, a.by, a.note, a.commit, version)
+            print("resolved %d family issue(s)" % len(closed))
+            for fam, number in closed:
+                print("  closed #%s: %s" % (number, fam))
             return 0
         now = _stamp(_now())
         sigs = list(a.sig)
@@ -1085,6 +1186,23 @@ def main(argv=None):
     return 0
 
 
+def _local_family_resolves(ws, iss, instance, closed, by, note, commit="", version=""):
+    """For each family issue closed (``[(family, number)]``), a resolve record in the local
+    spool naming the local families it covers (``families``: the posted family and every
+    local ``family_of`` that posts as it, e.g. the raw families of an unlisted one), so
+    ``report --local`` closes those classes too (``classes``)."""
+    local = [r for r in local_records(ws) if r["t"] == "error" and r.get("sig")]
+    for fam, number in closed:
+        raws = {family_of(r["sig"], r) for r in local
+                if str(iss.public_family(family_of(r["sig"], r))) == fam}
+        rec = {"t": "resolve", "ts": _stamp(_now()), "family": fam, "issue": number,
+               "families": sorted(raws | {fam}), "by": by, "note": note}
+        for k, v in (("commit", commit), ("version", version)):
+            if v:
+                rec[k] = v
+        append_file(spool_file(spool_dir(ws), instance), rec)
+
+
 def _main_issues(a, ws, board, repo, why_not):
     """``sync`` and ``migrate``."""
     if not repo:
@@ -1096,18 +1214,22 @@ def _main_issues(a, ws, board, repo, why_not):
             why_not, ", the spool is kept" if a.cmd == "sync" else ""), file=sys.stderr)
         return 1
     iss = _issues()
-    t = None if a.dry_run else _transport(repo)
+    t = None if a.dry_run else _transport(repo, ws)
     if a.cmd == "sync":
         spool = spool_dir(ws)
         res = iss.sync(spool, t, dry_run=a.dry_run)
         verb = "would post" if a.dry_run else "posted"
-        print("sync %s (%s): %d record(s) of %d class(es) %s%s" % (
-            repo, spool, res["records"], res["classes"], verb,
+        print("sync %s (%s): %d record(s) of %d family(ies) %s%s" % (
+            repo, spool, res["records"], res["families"], verb,
             " (offline: existing issues not looked up)" if a.dry_run else ""))
         for row in res["posted"]:
             print("  %s%s %s x%d: %s" % (row["action"], (" #%s" % row["issue"]) if row["issue"]
                                          else "", ("[%s]" % row["tag"]) if row["tag"] else "",
-                                         row["count"], row["sig"]))
+                                         row["count"], row["family"]))
+        if res.get("skipped"):
+            print("error_ledger: %d spool record(s) with a malformed time skipped (not "
+                  "YYYY-MM-DDTHH:MM:SS); they stay in the spool" % res["skipped"],
+                  file=sys.stderr)
         if res["error"]:
             print("error_ledger: sync stopped (%s); the next sync finishes the batch"
                   % res["error"], file=sys.stderr)
@@ -1116,15 +1238,17 @@ def _main_issues(a, ws, board, repo, why_not):
     try:
         res = iss.migrate(read_all(board), t, dry_run=a.dry_run,
                           skip_resolved=a.skip_resolved, log=print if a.verbose else None)
-    except iss.GhError as e:
+    except (iss.GhError, iss.Unsafe) as e:
         print("error_ledger: migrate stopped (%s); run it again to finish (an issue already "
               "there is completed, not duplicated)" % e, file=sys.stderr)
         return 1
     print("migrate %s -> %s%s" % (os.path.join(board, LEDGER_DIR), repo,
                                   " (dry run: contacts no one)" if a.dry_run else ""))
-    print("  classes: %d (open %d, of them regression %d, stale code %d; resolved %d)" % (
-        res["classes"], res["open"], res["regression"], res["stale_code"], res["resolved"]))
-    print("  records: %d error(s), %d resolve(s)" % (res["errors"], res["resolves"]))
+    print("  families: %d (open %d, of them regression %d, stale code %d; resolved %d; "
+          "unlisted %d)" % (res["families"], res["open"], res["regression"], res["stale_code"],
+                            res["resolved"], res["unlisted"]))
+    print("  records: %d error(s), %d resolve(s); %d with a malformed time skipped"
+          % (res["errors"], res["resolves"], res["skipped"]))
     print("  to import: %d issue(s) (%d resolved skipped), %d comment(s), about %d write(s)"
           % (res["to_import"], res["skipped_resolved"], res["comments"], res["writes"]))
     if not a.dry_run:

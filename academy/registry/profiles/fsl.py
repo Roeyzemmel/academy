@@ -42,6 +42,7 @@ from pathlib import Path
 
 from ..core import fm, legacy_fm, workspace, federation, projection, schema, grounds as _grounds
 from ..core import stale as _stale
+from ..core import structure
 from ..core.edit import Doc
 from ..core.model import Record, Store
 
@@ -64,7 +65,7 @@ STATUS_BLURB = {
     "superseded": "replaced by `superseded_by`; kept for history",
     "dropped": "no longer pursued",
 }
-EVIDENCE_KINDS = ("experiment", "audit", "verdict", "hand", "citation", "note")
+EVIDENCE_KINDS = ("experiment", "audit", "verdict", "hand", "citation", "note", "discharge")
 LIST_FIELDS = ("bears_on", "depends_on", "falsifies", "evidence", "history", "open", "tags")
 SCALAR_FIELDS = ("id", "title", "status", "where", "supersedes", "superseded_by")
 REQUIRED = ("id", "title", "status", "history")
@@ -234,6 +235,24 @@ def paper_established(base):
             pass
         return "established"
     return _cached(("established", base), scan)
+
+
+def paper_texts(base):
+    """The texts of base/sections/*.tex, read once per cache generation."""
+    return _cached(("texts", base), lambda: _paper_texts(Path(base)))
+
+
+def body_parts(c, repo, rules=None):
+    """``(hypotheses, items)`` body texts of record ``c`` (#127, core/structure.py): the
+    paper's from the LaTeX environment carrying its label (no hypotheses), the lab's from
+    the body's ``**H<n>.**`` / ``**C<n>.**`` lines."""
+    cid = str(c.fields.get("id") or "")
+    if rules is None and ":" in cid:
+        rules = workspace.rule_set(cid.split(":", 1)[0], repo)
+    if rules == "paper":
+        env = _paper_statement(Path(repo), cid.split(":", 1)[1], paper_texts(Path(repo)))
+        return {}, structure.paper_items(env or "")
+    return structure.nb_parts(c.body)
 
 
 def _is_foreign(ns, repo):
@@ -580,6 +599,13 @@ def _check_v2(c, repo, root, by_id, e, w):
             c.fields, extra_fields=V2_EXTRA,
             status_kinds=V2_STATUS_KINDS.get(rules, schema.STATUS_KINDS)):
         (e if level == "error" else w)(msg)
+    if structure.has_structure(c.fields):
+        bh, bi = body_parts(c, repo, rules)
+        for level, msg in structure.check(
+                c.fields, bh, bi, paper=rules == "paper",
+                status_kinds=V2_STATUS_KINDS.get(rules, schema.STATUS_KINDS),
+                problems=() if rules == "paper" else structure.nb_problems(c.body)):
+            (e if level == "error" else w)(msg)
     if not isinstance(cid, str) or not ID_RE.match(cid):
         if isinstance(cid, str):
             e(f"id `{cid}` is not `<ns>:<name>`")
@@ -915,6 +941,27 @@ def _paper_statement(home_, label, texts=None):
 class FslStore(Store):
     profile = "fsl-claims"
 
+    @property
+    def paper_items(self):
+        return workspace.rule_set(self.ns, self.home) == "paper"
+
+    def body_parts(self, rid):
+        """paper: the ``\\label{it:..}`` items of the statement's environment (#127);
+        lab: the body's ``**H<n>.**`` / ``**C<n>.**`` lines."""
+        c = self.claim_by_name.get(rid)
+        if c is None:
+            return {}, {}
+        if self.paper_items:
+            if self._cache_texts and self._texts is None:
+                self._texts = _paper_texts(Path(self.home))
+            env = _paper_statement(self.home, rid, self._texts)
+            return {}, structure.paper_items(env or "")
+        return structure.nb_parts(c.body)
+
+    def body_parse(self, rid):
+        c = self.claim_by_name.get(rid)
+        return structure.nb_parse(c.body if c is not None else "")
+
     def __init__(self, ns, home_, claims=None):
         """``claims``: the home's claims as already loaded (``check``, ``render``), so a
         store over them needs no second read of the registry. Such a short-lived store also
@@ -1013,6 +1060,17 @@ def find_claim(repo, cid):
     return p, root
 
 
+def _supersedes_of(repo, cid):
+    """The ``supersedes`` of the record ``cid`` of this repo (None when there is none or
+    it cannot be read): the next step of a chain of renames (#127)."""
+    try:
+        path, _root = find_claim(repo, cid)
+        rec = parse_text(path.read_text(encoding="utf-8"), path, fallback=False)
+    except Exception:           # noqa: BLE001 -- another namespace, or unreadable
+        return None
+    return rec.fields.get("supersedes")
+
+
 def statement_hash(repo, cid):
     ns, name = cid.split(":", 1)
     st = federation.store(ns, Path(repo))
@@ -1020,16 +1078,22 @@ def statement_hash(repo, cid):
 
 
 def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=False,
-               date=None):
+               date=None, item=None):
     """Set ``cid``'s status: the one mutation path for lab/paper records.
 
     ``grounds`` is checked by :func:`core.grounds.check_grounds` (plan section 8) against
     the claim's current statement hash, and its review records by
     :func:`core.grounds.check_verdict_refs` against the claim and its ``supersedes``
-    (reword grounds whose base pass is filed under a superseded id, T-0476); ``evidence`` rows (``kind | ref | verdict |
+    (reword grounds whose base pass is filed under a superseded id, T-0476, directly or
+    through a chain of renames, #127); ``evidence`` rows (``kind | ref | verdict |
     note``) are appended first. Writes the status line and a history row (newest first)
     and nothing else. Refuses, leaving the file untouched, when the grounds fail or the
-    result would not pass ``check``. Returns the old status."""
+    result would not pass ``check``. Returns the old status.
+
+    A structured record (#127): ``item`` sets that one item, on grounds checked against
+    the item's hash (``core.itemedit``), and returns the item's old status; a discharge
+    goes per item; without ``item`` a status change sets every item to it (a pass on the
+    whole statement covers each item), so the derived status is the one set."""
     repo = Path(repo)
     if status not in STATUSES:
         raise Refused(f"status must be one of: {', '.join(STATUSES)}")
@@ -1037,6 +1101,22 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     claim = parse_text(path.read_text(encoding="utf-8"), path, fallback=False)
     if claim.dialect_error:
         raise Refused("requote the file first")
+    structured = claim.v2 and "items" in claim.fields
+    if item is not None or (structured and (grounds or {}).get("basis") == "discharge"):
+        from ..core import itemedit
+        try:
+            if item is None:
+                itemedit.discharge(cid, repo, date=date)
+                return claim.state
+            return itemedit.set_item(cid, repo, item, status, grounds, note=note,
+                                     human=human, date=date)["old"]
+        except itemedit.Refused as exc:
+            raise Refused(str(exc))
+    grounds, dis = _discharge_grounds(repo, cid, claim, status, grounds)
+    if dis is not None:
+        note = "; ".join(x for x in ((note or "").strip(),
+                                      "" if grounds.get("basis") == "discharge"
+                                      else grounds_note(dis)) if x) or None
     lifecycle = status in ("superseded", "dropped")
     if lifecycle and grounds and grounds.get("basis") != "human":
         ok, why = bool(str(grounds.get("note") or note or "").strip()), \
@@ -1047,7 +1127,8 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
         # a reword pass on a renamed record may stand on a base pass filed under an id
         # this record supersedes (T-0476): the record's own `supersedes` decides
         why = _grounds.check_verdict_refs(grounds, lambda ref: resolve_ref(ref, repo), cid,
-                                          supersedes=claim.fields.get("supersedes"))
+                                          supersedes=claim.fields.get("supersedes"),
+                                          supersedes_of=lambda i: _supersedes_of(repo, i))
         ok = not why
     if not ok:
         raise Refused("the grounds do not support %s -> %s:\n- %s"
@@ -1055,6 +1136,8 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     held = [str(r) for r in (claim.fields.get("evidence") or [])]
     evidence = _new_rows([_row_for(claim, r) for r in evidence], held)
     evidence = evidence + _verdict_rows(grounds, evidence + held)
+    if dis is not None:
+        evidence.append(_discharge_mod().evidence_row(dis))
     evidence = [_row_for(claim, r) for r in evidence]
     for row in evidence:
         _validate_row(row, repo, claim.v2)
@@ -1070,6 +1153,12 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
             doc.set_scalar("lifecycle", status, after=V2_AFTER[:V2_AFTER.index("lifecycle")])
         else:
             doc.set_scalar("status", status, after=("form", "title") if claim.v2 else ("title",))
+        if structured and not lifecycle:
+            mods = [str(m) for m in (grounds or {}).get("modulo") or []]
+            items, _p = structure.parse_items(claim.fields)
+            doc.set_map("items", {k: structure.item_value(
+                status, mods if status == "proved-modulo" else ()) for k in items},
+                after=V2_AFTER)
         if claim.v2 and not lifecycle:
             # the record's `modulo` is the grounds' missing inputs: written with
             # proved-modulo, dropped with proved (the schema refuses either without it)
@@ -1111,6 +1200,61 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
             _cache.clear()
         raise
     return old
+
+
+def _discharge_mod():
+    from ..core import discharge
+    return discharge
+
+
+def grounds_note(assessment):
+    return _discharge_mod().history_note(assessment)
+
+
+#: a run id named in a history row's review summary (``CONFIRMED rv-1, CONFIRMED rv-2``)
+_RE_HIST_RUN = re.compile(r"\b(?:CONFIRMED|PLAUSIBLE|GAP|DISPROVED)\s+([^\s,();]+)")
+
+
+def _modulo_pass_runs(claim):
+    """The run ids of the review that carried the record to its current proved-modulo
+    (its newest proved-modulo history row), as a set (empty when none is named)."""
+    for h in claim.fields.get("history") or []:
+        _d, st, note = schema.history_cells(h)
+        if st == "proved-modulo":
+            return set(_RE_HIST_RUN.findall(note))
+        if st:
+            return set()
+    return set()
+
+
+def _discharge_grounds(repo, cid, claim, status, grounds):
+    """``(grounds, assessment or None)``: a discharge (#127) -- grounds of basis
+    ``discharge``, or proof grounds carrying ``discharge`` -- is assessed again here
+    (``core.discharge``), never taken from the caller, and refused unless every input of
+    the record's ``modulo`` is established; the grounds are rebuilt from that
+    assessment. Proof grounds for ``proved`` that rest on the very review that carried
+    the record to proved-modulo, without a discharge, are refused: that is a discharge,
+    whose inputs must be checked."""
+    g = grounds or {}
+    if status == "proved" and (g.get("basis") == "discharge" or g.get("discharge")):
+        federation.CACHE.clear()
+        a = _discharge_mod().assess(cid, repo)
+        if not a["dischargeable"]:
+            raise Refused("%s cannot be discharged:\n- %s" % (cid, "\n- ".join(a["problems"])))
+        if g.get("basis") == "discharge":
+            return _discharge_mod().grounds(a), a
+        return dict(g, modulo=a["modulo"], discharge=a["inputs"]), a
+    if status == "proved" and g.get("basis") == "proof" and claim.v2 \
+            and claim.state == "proved-modulo" and claim.modulo:
+        held = _modulo_pass_runs(claim)
+        runs = {str(v.get("run_id") or "").strip() for v in g.get("verdicts") or []
+                if isinstance(v, dict)}
+        if held and runs and runs <= held:
+            raise Refused("the grounds are the review that carried %s to proved-modulo "
+                          "(modulo %s): proved on it is a discharge, applied once every "
+                          "input is proved (registry.py discharge %s, or grounds basis "
+                          "discharge)" % (cid, ", ".join(claim.modulo), cid))
+    return grounds, None
 
 
 def _new_rows(rows, held):
