@@ -324,6 +324,57 @@ class ConfigValidation(unittest.TestCase):
                       "\n".join(self.probs(statusLevels=[{"name": "x", "kind": "draft"}])))
 
 
+#: the reword level (#137): a mark on a settled statement, generated from the stale list
+REWORDED = {"name": "reworded", "kind": "mark", "command": "\\Reworded",
+            "strike": "\\Struck", "colour": "violet", "requires": "stale",
+            "generated": True, "statuses": ["proved", "proved-modulo"]}
+
+
+class MarkLevelConfig(unittest.TestCase):
+    """#137: ``author.statusLevels`` may hold one level of kind ``mark`` (``requires:
+    "stale"``, ``generated: true``): no colour of a statement, so neither R1 nor the
+    colour machinery reads it."""
+
+    def setUp(self):
+        import _academy as ac
+        self.ac = ac
+        self.addCleanup(cp.configure, None)
+
+    def levels(self, **mark):
+        return [dict(lv) for lv in cp.DEFAULT_STATUS_LEVELS] + [dict(REWORDED, **mark)]
+
+    def test_the_reworded_level_validates(self):
+        self.assertEqual([], self.ac.validate_author({"statusLevels": self.levels()}))
+        lv = self.ac.author_mark_level({"statusLevels": self.levels()})
+        self.assertEqual(("reworded", "\\Reworded", "\\Struck"),
+                         (lv["name"], lv["command"], lv["strike"]))
+        self.assertIsNone(self.ac.author_mark_level({}))          # opt-in: not a default
+        self.assertIsNone(self.ac.author_mark_level(
+            {"statusLevels": [dict(lv) for lv in cp.DEFAULT_STATUS_LEVELS]}))
+
+    def test_a_bad_mark_level_is_named(self):
+        cases = ((dict(requires="proved"), "requires must be \"stale\""),
+                 (dict(generated=False), "generated must be true"),
+                 (dict(env="reworded"), "a mark level has no env"),
+                 (dict(command="\\Violet"), "command must be \\Reworded"),
+                 (dict(strike="\\Gone"), "strike must be \\Struck"))
+        for change, frag in cases:
+            text = "\n".join(self.ac.validate_author({"statusLevels": self.levels(**change)}))
+            self.assertIn(frag, text, change)
+        two = self.levels() + [dict(REWORDED, name="again")]
+        self.assertIn("at most one level of kind mark",
+                      "\n".join(self.ac.validate_author({"statusLevels": two})))
+
+    def test_the_mark_is_no_colour_of_a_statement(self):
+        cp.configure({"statusLevels": self.levels()})
+        self.assertNotIn("reworded", cp.LEVEL_KIND)
+        self.assertNotIn("reworded", cp.LEVEL_ORDER)
+        self.assertNotIn("\\Reworded{", cp.COLOUR_COMMANDS)
+        self.assertEqual("reworded", cp.MARK_LEVEL["name"])
+        cp.configure(None)
+        self.assertIsNone(cp.MARK_LEVEL)
+
+
 class MarginOverflowScan(unittest.TestCase):
     """R7 must not run one synctex lookup per clipped fragment (a paper with
     ~1600 clipped margin lines took a quarter of an hour: the scan 'hung')."""

@@ -261,7 +261,7 @@ def author_provenance(config):
 # ----------------------------------------------------------------------------
 
 #: what a draft level means: proved or cited in full; not yet (blocks R1); not a claim
-LEVEL_KINDS = ("established", "unestablished", "commentary")
+LEVEL_KINDS = ("established", "unestablished", "commentary", "mark")
 PREAMBLE_POLICIES = ("propose", "locked", "free")
 
 #: the default levels, as ``author.statusLevels`` would spell them
@@ -408,6 +408,41 @@ def _str_list(val):
     return isinstance(val, list) and all(isinstance(x, str) and x for x in val)
 
 
+def _mark_level_problems(where, lv):
+    """Problems with a level of kind ``mark`` (#137): the reword marks, generated from the
+    stale list; its macros are the ones every statement hash ignores."""
+    probs = []
+    if lv.get("env"):
+        probs.append("%s: a mark level has no env (its marks are inline, generated)" % where)
+    if lv.get("command") != REWORD_MARK_COMMANDS[0]:
+        probs.append("%s.command must be %s (the macro every statement hash ignores)"
+                     % (where, REWORD_MARK_COMMANDS[0]))
+    if lv.get("strike") not in (None, REWORD_MARK_COMMANDS[1]):
+        probs.append("%s.strike must be %s (the macro every statement hash ignores)"
+                     % (where, REWORD_MARK_COMMANDS[1]))
+    if lv.get("requires") != "stale":
+        probs.append('%s.requires must be "stale" (a mark stands only on a stale settled '
+                     "claim)" % where)
+    if lv.get("generated") is not True:
+        probs.append("%s.generated must be true (reword_marks.py writes the marks; they "
+                     "are never typed)" % where)
+    return probs
+
+
+def author_mark_level(config_or_block):
+    """The home's reword level (#137): the ``author.statusLevels`` entry of kind ``mark``
+    with ``strike`` filled in (default ``\\Struck``), or None when the home has none (the
+    level is opt-in, never a default)."""
+    a = _author_block(config_or_block)
+    for lv in a.get("statusLevels") or []:
+        if isinstance(lv, dict) and lv.get("kind") == "mark":
+            out = dict(lv)
+            out["command"] = out.get("command") or REWORD_MARK_COMMANDS[0]
+            out["strike"] = out.get("strike") or REWORD_MARK_COMMANDS[1]
+            return out
+    return None
+
+
 def validate_author(block):
     """Problems with the tex-convention keys of an ``author`` block (docs/config.md)."""
     probs = []
@@ -439,11 +474,15 @@ def validate_author(block):
                 if kind in ("unestablished", "commentary") and not (lv.get("env")
                                                                    or lv.get("command")):
                     probs.append("%s: a %s level needs an env or a command" % (where, kind))
+                if kind == "mark":
+                    probs += _mark_level_problems(where, lv)
                 if lv.get("statuses") is not None and not isinstance(lv["statuses"], list):
                     probs.append("%s.statuses must be a list of registry statuses" % where)
             if kinds.count("established") != 1:
                 probs.append("author.statusLevels needs exactly one level of kind "
                              "established")
+            if kinds.count("mark") > 1:
+                probs.append("author.statusLevels has at most one level of kind mark")
     for key in AUTHOR_TEX_DEFAULTS:
         if block.get(key) is not None and not isinstance(block[key], dict):
             probs.append("author.%s must be an object" % key)

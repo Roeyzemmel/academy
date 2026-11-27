@@ -138,6 +138,8 @@ LEVEL_KIND: Dict[str, str] = {}
 LEVEL_COLOUR: Dict[str, str] = {}
 SKETCH_LEVELS: Set[str] = set()
 LEVEL_ORDER: List[str] = []
+#: the reword level (``author.statusLevels`` entry of kind ``mark``, #137), or None
+MARK_LEVEL: Optional[dict] = None
 ACCEPTED_BIB_WARNINGS: Tuple[str, ...] = ()
 MAIN_RESULTS: Dict[str, object] = dict(DEFAULT_MAIN_RESULTS)
 #: W4 (opt-in, ``author.labels.enforcePrefixes``): the typed prefixes a label may carry
@@ -174,7 +176,7 @@ def configure(author: Optional[dict] = None) -> None:
     global REGISTRY_DEFAULT, DEFINITION_ENVS, LEVEL_KIND, LEVEL_COLOUR, SKETCH_LEVELS
     global LEVEL_ORDER, ESTABLISHED, ACCEPTED_BIB_WARNINGS, MAIN_RESULTS, RE_REF
     global QUESTION_ENVS
-    global NOTE_MAX_LINES, LABEL_PREFIXES, ENFORCE_LABEL_PREFIXES
+    global NOTE_MAX_LINES, LABEL_PREFIXES, ENFORCE_LABEL_PREFIXES, MARK_LEVEL
     a = author if isinstance(author, dict) else {}
     th = a.get("theorems") if isinstance(a.get("theorems"), dict) else {}
     THEOREM_ENVS = set(th.get("all") or DEFAULT_THEOREM_ENVS)
@@ -182,7 +184,9 @@ def configure(author: Optional[dict] = None) -> None:
     COMMENTARY_ENVS = set(th.get("commentary") or DEFAULT_COMMENTARY_ENVS)
     DEFINITION_ENVS = set(th.get("definitions") or DEFAULT_DEFINITION_ENVS)
     QUESTION_ENVS = set(th.get("questions") or DEFAULT_QUESTION_ENVS)
-    levels = _ac.author_status_levels(a)
+    # a level of kind mark (#137: the reword marks) colours no statement
+    MARK_LEVEL = _ac.author_mark_level(a)
+    levels = [lv for lv in _ac.author_status_levels(a) if lv.get("kind") != "mark"]
     ESTABLISHED = next((lv["name"] for lv in levels if lv.get("kind") == "established"),
                        "established")
     LEVEL_ORDER = [str(lv["name"]) for lv in levels]
