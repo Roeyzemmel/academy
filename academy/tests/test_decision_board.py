@@ -7,6 +7,7 @@ Run from the repo root:  py -m unittest discover academy/tests
 import io
 import json
 import os
+import subprocess
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -349,6 +350,110 @@ class MultiSelectTests(BoardCase):
                           "--ticked", "T-0001", "--unticked", "T-0003,T-0005"])
         self.assertEqual(rc, 0)
         self.assertEqual(len(json.loads(out.getvalue())), 3)
+
+
+# ----------------------------------------------------------------------------
+# (4) an edit to a pinned statement: "accept and release <labels>"
+# ----------------------------------------------------------------------------
+
+class PinnedReleaseTests(BoardCase):
+    def setUp(self):
+        super().setUp()
+        self.home = self.ws["instances"]["author@main"]["home"]
+        os.makedirs(self.home, exist_ok=True)
+        self._orig = dc._pinned_labels
+        dc._pinned_labels = lambda home: {"lem:x", "thm:y"} if home == self.home else set()
+
+    def tearDown(self):
+        dc._pinned_labels = self._orig
+        super().tearDown()
+
+    def release_file(self):
+        return os.path.join(self.home, ".claude", "pinned-release.txt")
+
+    def test_an_edit_of_a_pinned_statement_offers_accept_and_release(self):
+        self.blocked(kind="apply", to="author@main", title="Weaken the hypothesis of lem:x",
+                     refs=["paper:lem:x"])
+        self.blocked(kind="apply", to="author@main", title="Rename prop:z", refs=["paper:prop:z"])
+        items = dc.pending_decisions(self.board, workspace=self.ws)
+        self.assertEqual(items[0]["pinned"], ["lem:x"])
+        self.assertIn("(release) Accept and release lem:x",
+                      [o["label"] for o in items[0]["options"]])
+        self.assertFalse(items[1].get("pinned"))
+
+    def test_a_pinned_edit_is_never_accepted_under_the_policy(self):
+        self.policy("apply")
+        self.blocked(kind="apply", to="author@main", title="Edit lem:x", refs=["paper:lem:x"])
+        self.assertEqual(dc.apply_policy(self.board, self.ws, date=DATE), [])
+
+    def test_release_appends_the_lines_with_the_word_and_the_ticket(self):
+        self.blocked(kind="apply", to="author@main", title="Edit lem:x and thm:y",
+                     refs=["paper:lem:x"])
+        out = dc.record(self.board, "T-0001", "release", comment="the new wording is fine",
+                        workspace=self.ws, date=DATE)
+        self.assertEqual(out["status"], "accepted")
+        self.assertEqual(out["released"], ["lem:x", "thm:y"])
+        with open(self.release_file(), encoding="utf-8") as fh:
+            lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].startswith("lem:x"))
+        self.assertIn("T-0001", lines[0])
+        self.assertIn("the new wording is fine", lines[0])
+        self.assertEqual(meta_of(self.board, "T-0001")["decision_choice"],
+                         "accept and release lem:x, thm:y")
+        # read back by the author's own parser (one label per line, '#' comments), run as
+        # a script: its folder is not put on this suite's path (it has a pre_tool_use too)
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); import pinned; "
+                "print(sorted(pinned.released(sys.argv[2])))")
+        p = subprocess.run([sys.executable, "-c", code, os.path.dirname(dc.AUTHOR_PINNED),
+                            self.home], capture_output=True, text=True)
+        self.assertEqual(p.stdout.strip(), "['lem:x', 'thm:y']", p.stderr)
+
+    def test_release_on_a_ticket_with_no_pinned_label_is_refused(self):
+        self.blocked(kind="apply", to="author@main", title="Rename prop:z", refs=["paper:prop:z"])
+        with self.assertRaises(ac.AcademyError):
+            dc.record(self.board, "T-0001", "release", workspace=self.ws, date=DATE)
+        self.assertFalse(os.path.exists(self.release_file()))
+
+    def test_the_real_reader_finds_no_pin_in_a_home_without_reviews(self):
+        dc._pinned_labels = self._orig
+        dc._PINS.pop(self.home, None)
+        self.assertEqual(dc._pinned_labels(self.home), set())
+        self.assertEqual(dc._pinned_labels(os.path.join(self.tmp, "nowhere")), set())
+
+    def test_a_plain_proceed_does_not_release(self):
+        self.blocked(kind="apply", to="author@main", title="Edit lem:x", refs=["paper:lem:x"])
+        dc.record(self.board, "T-0001", "proceed", workspace=self.ws, date=DATE)
+        self.assertFalse(os.path.exists(self.release_file()))
+
+
+class DecideGuardTests(unittest.TestCase):
+    def setUp(self):
+        import decide_guard
+        self.g = decide_guard
+
+    def ev(self, cmd, agent=None):
+        e = {"tool_name": "Bash", "tool_input": {"command": cmd}}
+        if agent:
+            e["agent_type"] = agent
+        return e
+
+    def test_an_agent_may_not_record(self):
+        for cmd in ("py /a/academy/scripts/decisions.py record T-1 --choice release",
+                    "python3 decisions.py --board b select --ticked T-1",
+                    "py decisions.py policy", "py decisions.py undo T-1",
+                    "py decisions.py record-batch answers.json"):
+            v = self.g.decide(self.ev(cmd, "academy:secretary"))
+            self.assertEqual(v[0], "deny", cmd)
+
+    def test_reading_and_the_main_session_pass(self):
+        self.assertIsNone(self.g.decide(self.ev("py decisions.py batches --json",
+                                                "academy:secretary")))
+        self.assertIsNone(self.g.decide(self.ev("py decisions.py policy --dry-run",
+                                                "academy:secretary")))
+        self.assertIsNone(self.g.decide(self.ev("py decisions.py record T-1 --choice a")))
+        self.assertIsNone(self.g.decide({"tool_name": "Edit", "agent_type": "x:y",
+                                         "tool_input": {}}))
 
 
 if __name__ == "__main__":

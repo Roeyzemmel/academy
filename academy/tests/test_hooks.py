@@ -884,7 +884,7 @@ class HooksJsonTests(unittest.TestCase):
         for name in ("session_start.py", "mcp_write_gate.py", "generated_view_guard.py",
                      "script_path_guard.py", "ship_guard.py", "pre_tool_use.py",
                      "ticket_edit_check.py", "explainer_write_guard.py",
-                     "role_write_guard.py", "touch_record.py"):
+                     "role_write_guard.py", "touch_record.py", "decide_guard.py"):
             with open(os.path.join(SCRIPTS, name), encoding="utf-8") as fh:
                 text = fh.read()
             self.assertIn("import _academy as ac", text, name)
@@ -957,7 +957,7 @@ def _dispatcher():
 class PreToolUseDispatcherTests(unittest.TestCase):
     def test_tool_selects_the_guards_of_the_former_matchers(self):
         d = _dispatcher()
-        shell = ("script_path_guard", "ship_guard", "generated_view_guard")
+        shell = ("script_path_guard", "ship_guard", "generated_view_guard", "decide_guard")
         edit = ("explainer_write_guard", "role_write_guard", "generated_view_guard")
         for tool in ("Bash", "PowerShell"):
             self.assertEqual(d.guards_for(tool), shell)
@@ -979,14 +979,15 @@ class PreToolUseDispatcherTests(unittest.TestCase):
                     raise v
                 return v
             return fn
-        names = ("script_path_guard", "ship_guard", "generated_view_guard",
+        names = ("script_path_guard", "ship_guard", "generated_view_guard", "decide_guard",
                  "explainer_write_guard", "role_write_guard")
         return {n: make(n) for n in names}
 
     def test_order_and_all_pass(self):
         d, calls = _dispatcher(), []
         self.assertIsNone(d.decide({"tool_name": "Bash"}, self.fakes({}, calls)))
-        self.assertEqual(calls, ["script_path_guard", "ship_guard", "generated_view_guard"])
+        self.assertEqual(calls, ["script_path_guard", "ship_guard", "generated_view_guard",
+                                 "decide_guard"])
         calls.clear()
         self.assertIsNone(d.decide({"tool_name": "Write"}, self.fakes({}, calls)))
         self.assertEqual(calls, ["explainer_write_guard", "role_write_guard",

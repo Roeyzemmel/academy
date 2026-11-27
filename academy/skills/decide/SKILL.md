@@ -102,6 +102,12 @@ phrases the questions. Neither one asks the human or records on its own.
    the alternative on the ticket as `decision_choice`, which the agent that resumes it
    reads (#86); an alternative such as "drop the note" is what to do, so it accepts the
    ticket, and only `decline` rejects it.
+   An item with `pinned` is an edit of statements a CONFIRMED review pinned in an Author
+   home: say which labels are pinned, and keep its `(release) Accept and release <labels>`
+   option. On that answer, `record <id> --choice release --comment "<the human's word>"`
+   accepts the ticket and appends one line per label to that home's
+   `.claude/pinned-release.txt` with the word and the ticket id (only the main session may:
+   `decide_guard`). A plain proceed releases nothing.
    `decisions.py stalled-rulings` lists rulings answered but not delivered (no
    follow-up yet, or a record interrupted); `record <id> --choice <a-c>` files or
    completes theirs.

@@ -73,6 +73,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -304,6 +305,84 @@ def _ruling(board, t, workspace):
         return None, None
 
 
+# ----------------------------------------------------------------------------
+# Pinned statements (#86 ruling 4): "accept and release <labels>"
+# ----------------------------------------------------------------------------
+
+#: the Author plugin's pin reader (a sibling plugin of this one); absent, nothing is pinned
+AUTHOR_PINNED = os.path.join(os.path.dirname(PLUGIN), "author", "scripts", "pinned.py")
+#: the Author home's release list (author/scripts/pinned.py RELEASE_REL)
+RELEASE_REL = os.path.join(".claude", "pinned-release.txt")
+RE_LABEL = re.compile(r"(?<![A-Za-z0-9])((?:%s):[A-Za-z0-9][\w.:-]*)" % "|".join(
+    sorted(set(rulinglib.LABEL_PREFIXES) | {"quest", "problem", "exc", "exer"},
+           key=len, reverse=True)))
+_PINS = {}
+
+
+def _pinned_labels(home):
+    """The labels pinned (and not released) in an Author home: ``pinned.py --labels``, read
+    once per home and run; an empty set when the Author plugin or the home is missing."""
+    if home not in _PINS:
+        out = set()
+        if os.path.isfile(AUTHOR_PINNED) and os.path.isdir(home):
+            try:
+                p = subprocess.run([sys.executable, AUTHOR_PINNED, "--home", home, "--labels"],
+                                   capture_output=True, text=True, timeout=120,
+                                   encoding="utf-8")
+                if p.returncode == 0:
+                    out = {ln.strip() for ln in p.stdout.splitlines() if ln.strip()}
+            except (OSError, subprocess.SubprocessError):
+                pass
+        _PINS[home] = out
+    return _PINS[home]
+
+
+def _author_home(t, workspace):
+    """The home of the Author the ticket's edit is for: its receiver, or for a ticket to
+    the human its sender, when that is an Author instance."""
+    insts = (workspace or {}).get("instances") or {}
+    for who in (t.get("to"), t.get("from") if t.get("to") == ac.HUMAN else None):
+        inst = insts.get(str(who or ""))
+        if inst and inst.get("role") == "author" and inst.get("home"):
+            return inst["home"]
+    return None
+
+
+def pinned_of(t, workspace):
+    """``(home, labels)``: the pinned statements a ticket's title, ask or refs name, in the
+    Author home it edits; ``(home, [])`` when it names none."""
+    home = _author_home(t, workspace)
+    if not home:
+        return None, []
+    text = " ".join([str(t.get("title") or ""), str(t.get("ask") or "")]
+                    + [str(r) for r in (t.get("refs") or [])])
+    named = {m.group(1).rstrip(".:") for m in RE_LABEL.finditer(text)}
+    if not named:
+        return home, []
+    return home, sorted(named & _pinned_labels(home))
+
+
+def release_pins(home, labels, tid, comment, date):
+    """Append the human's release of ``labels`` to ``<home>/.claude/pinned-release.txt``:
+    one line per label not already listed, with the ticket and the human's word. The file
+    stays the human's: this is their answer on /academy:decide (``decide_guard`` keeps an
+    agent from running ``record``; ``pinned_guard`` still refuses a tool edit of it)."""
+    path = os.path.join(home, RELEASE_REL)
+    have = set()
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as fh:
+            have = {ln.split("#", 1)[0].strip() for ln in fh}
+    word = " ".join(str(comment or "").split()) or "accepted the edit"
+    new = [lab for lab in labels if lab not in have]
+    if new:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8", newline="\n") as fh:
+            for lab in new:
+                fh.write("%s  # released by the human on /academy:decide (%s, %s): %s\n"
+                         % (lab, tid, date, word))
+    return new
+
+
 def _ticket_items(board, instance=None, to_human=False, workspace=None):
     items = []
     if to_human:
@@ -322,15 +401,24 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
         # alternatives named without letters ("drop the note, or a lookup and a remark",
         # #86): asked as such, never as a bare proceed; a ruling keeps its own four
         alts = {} if (own or r) else rulinglib.alternatives(t.get("ask"))
+        _home, pins = pinned_of(t, workspace)
+        options = (rulinglib.own_option_dicts(own) if own
+                   else rulinglib.options(r) if r
+                   else rulinglib.alternative_dicts(alts) if alts
+                   else _ticket_options(t))
+        if pins:
+            options = options + [{
+                "label": "(release) Accept and release %s" % ", ".join(pins),
+                "description": "Accept the edit and release the pin of %s (pinned by a "
+                               "CONFIRMED review): appended to the Author's %s with your "
+                               "word" % (", ".join(pins), RELEASE_REL.replace(os.sep, "/"))}]
         items.append({
             "id": t["id"],
             "instance": inst,
             "title": t.get("title"),
             "question": _ticket_question(t),
-            "options": (rulinglib.own_option_dicts(own) if own
-                        else rulinglib.options(r) if r
-                        else rulinglib.alternative_dicts(alts) if alts
-                        else _ticket_options(t)),
+            "options": options,
+            "pinned": pins or None,
             "ruling": {k: r[k] for k in ("subject", "pass", "union", "intersection", "keeper")}
             if r else None,
             "recommendation": None,
@@ -626,6 +714,15 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
     alts = {} if own else rulinglib.alternatives(meta.get("ask"))
     c = str(choice or "").strip().lower().strip("()")
     no_action = action in (None, "")
+    released = None
+    if c in ("release", "accept and release"):
+        # #86 ruling 4: accept the edit of a pinned statement and release its pin
+        home, pins = pinned_of(meta, workspace)
+        if not pins:
+            raise ac.AcademyError("%s names no pinned statement of an Author home: nothing to "
+                                  "release (record proceed or decline)" % tid)
+        own, alts, c, choice = {}, {}, "proceed", "proceed"
+        released = (home, pins)
     if (own or alts) and no_action and c in PROCEED_WORDS + ("accept",) and (
             alts or c != "accept"):
         # #86 comment 1: a ticket that names alternatives takes one of them, never a bare
@@ -661,6 +758,9 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
                                   "decline)" % (tid, choice, action))
         proceed = answers.pop()
         text = "human decision: %s" % ("proceed" if proceed else "decline")
+        if released:
+            chosen = "accept and release %s" % ", ".join(released[1])
+            text = "human decision: %s (the pinned statement's edit is accepted)" % chosen
     if comment.strip():
         text += " -- " + " ".join(comment.split())
     boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
@@ -676,7 +776,11 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
     reason = (comment.strip() or "declined via /academy:decide") if new in (
         "rejected", "cancelled") else ""
     boardlib.transition_ticket(board, tid, new, reason=reason, as_instance=ac.HUMAN, date=date)
-    return {"ref": tid, "status": new}
+    out = {"ref": tid, "status": new}
+    if released:
+        release_pins(released[0], released[1], tid, comment, date)
+        out["released"] = released[1]
+    return out
 
 
 def record(board, item_id, choice, comment="", workspace=None, date=None, action=None,

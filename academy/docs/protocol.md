@@ -750,7 +750,9 @@ literature lookup and a one-line remark") takes one of them or `decline`, never 
 The base plugin's hooks (`academy/hooks/hooks.json`) enforce parts of this protocol
 directly. Each script imports the vendored lib `scripts/_academy/`. The PreToolUse
 guards on shell and edit calls (`script_path_guard`, `ship_guard`,
-`generated_view_guard`, `explainer_write_guard`, `role_write_guard`) are not registered
+`generated_view_guard`, `decide_guard`, `explainer_write_guard`, `role_write_guard`;
+`decide_guard` denies a subagent the `decisions.py` verbs that record the human's answer,
+#86) are not registered
 one by one: `pre_tool_use.py` is registered once per matcher group (`Bash|PowerShell`,
 `Edit|Write|MultiEdit|NotebookEdit`) and calls each guard's `decide(event)` in one
 process, in that order per tool, the first denial winning and a guard that raises
