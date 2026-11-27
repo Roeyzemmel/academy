@@ -46,7 +46,8 @@ LIFECYCLES = ("active", "superseded", "dropped")
 UNSETTLED = ("open", "conjectured", "sketch", "supported")
 #: statuses a remark-form claim may omit (it states, it does not assert a result)
 STATUSLESS_FORMS = ("remark",)
-EVIDENCE_TYPES = ("experiment", "audit", "verdict", "hand", "citation", "note")
+#: ``discharge`` (#127): the row a mechanical discharge writes, naming its inputs
+EVIDENCE_TYPES = ("experiment", "audit", "verdict", "hand", "citation", "note", "discharge")
 
 FIELD_ORDER = ("id", "kind", "form", "title", "status", "statement", "modulo",
                "depends_on", "bears_on", "supersedes", "lifecycle", "aliases", "domain",

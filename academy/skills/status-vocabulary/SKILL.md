@@ -72,6 +72,7 @@ checker enforces the draft side.
 |---|---|
 | Two CONFIRMED, distinct run ids, same statement hash, no inputs | `proved` |
 | Two CONFIRMED with named black-box inputs | `proved-modulo`, inputs in `modulo` |
+| `proved-modulo`, and every `modulo` input now established | `proved`, by discharge (below) |
 | Any PLAUSIBLE or GAP | no change; GAP files a repair |
 | DISPROVED, counterexample verified | `refuted` or `refuted-as-stated` |
 | Two SOUND (or SOUND MODULO the same assumption, recorded in the evidence note), commit hash, validation case reproduced, no counterexample | `supported` |
@@ -80,6 +81,18 @@ checker enforces the draft side.
 | The human's word | any status; the history line says so |
 
 Computation never reaches `proved` or `proved-modulo`.
+
+**Discharge is mechanical** (the human's ruling of 2026-11-27, #127). A `proved-modulo`
+record becomes `proved` once every input in its `modulo` is established: a record whose
+status is `proved` (not `proved-modulo`: a chain discharges bottom-up), a `bib:KEY#PIN`
+whose library card at that pinpoint says `match`, or a definition tagged `notation-only`.
+Free text, an unresolved id or an input still open holds it. The two CONFIRMED reviews
+that gave `proved-modulo` stay its evidence; the discharge adds one `discharge` evidence
+row naming each input and its status, and a history row `discharged: inputs X, Y proved`.
+It runs as `registry.py discharge [ID ...] [--all] [--input ID] [--dry-run]` or as
+`claims_set_status` with grounds `{basis: discharge}` (claim-keeper or the human), and
+no judgement enters it; the same reviews without a discharge do not carry the record to
+`proved`.
 
 **An attestation is the human's word, recorded.** When the human attests a status (for
 example "I checked this proof; mark it proved"), the words are recorded verbatim, with
