@@ -48,6 +48,17 @@ workspace.json). Under `--only`:
 - untracked nested repositories and worktrees, and submodule pointers, are never
   committed (they are listed as skipped).
 
+**Stacked, not forked** (#130, 2026-11-27). A ticket branch is started from whatever
+branch the checkout is on, so with parallel runs and the main session shipping between
+them, a new one could fork from a branch that lacks the other tickets' work. After its
+commit, a checkpoint therefore merges in every recent (7 days) local
+`<date>/<topic>/<role>` branch whose tip the ticket's branch and `main` both lack; ledger
+and counter conflicts are resolved as `sync` does. A branch it cannot merge stays a fork
+and is printed as `FORK: ...` with the reason: a real conflict (the merge is aborted), a
+worktree with other uncommitted changes (nothing is merged then), or, for `board`, a
+branch that changes files outside `board/`. `ship.py stack` lists the forks of the
+current branch (local and `origin/`) under its stack, and `status` counts them.
+
 **The manifest** (#101 part 1, 2026-11-20). Before each ticket that launches an agent, the
 inbox workflow's clerk runs `manifest.py snapshot --ticket <id> --run <run>`: every home's
 dirty set (each submodule, and the board's directory) with a content hash per path, written

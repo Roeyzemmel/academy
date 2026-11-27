@@ -116,6 +116,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1540,6 +1541,53 @@ def slug_id(cid):
     return s.strip("-.") or "item"
 
 
+def branches_holding(path, files=("decision.md", "A.md", "B.md")):
+    """The branches (local, then ``origin/``) of the repository holding ``path`` whose tree
+    has ``path/<file>`` for every one of ``files``, when the checked-out tree lacks one:
+    the pass was committed on another ticket branch that never reached this one (#130:
+    "the base pass has no decision.md" while the record sat on a forked branch). [] when
+    the checkout has them all, or git cannot tell."""
+    if all(os.path.isfile(os.path.join(path, f)) for f in files):
+        return []
+    top = path
+    while top and not os.path.isdir(top):
+        top = os.path.dirname(top)
+    try:
+        def git(*args, **kw):
+            if "input" not in kw:
+                kw["stdin"] = subprocess.DEVNULL
+            return subprocess.run(["git", "-C", top] + list(args), capture_output=True,
+                                  text=True, timeout=30, **kw)
+        root = git("rev-parse", "--show-toplevel").stdout.strip()
+        if not root:
+            return []
+        rel = os.path.relpath(os.path.abspath(path), root).replace(os.sep, "/")
+        refs = git("for-each-ref", "--sort=-committerdate", "--format=%(refname:short)",
+                   "refs/heads/", "refs/remotes/origin/").stdout.split()
+        refs = [r for r in refs if r not in ("origin", "origin/HEAD")]
+        if not refs:
+            return []
+        query = "".join("%s:%s/%s\n" % (r, rel, f) for r in refs for f in files)
+        out = git("cat-file", "--batch-check", input=query).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if len(out) != len(refs) * len(files):
+        return []
+    n = len(files)
+    return [r for k, r in enumerate(refs)
+            if not any(line.endswith(" missing") for line in out[k * n:(k + 1) * n])]
+
+
+def elsewhere(d):
+    """A note naming the branches that hold the pass ``d`` the checkout lacks, or ''."""
+    held = branches_holding(d)
+    if not held:
+        return ""
+    return ("; the pass is complete on %s, not on the checked-out branch: merge that branch "
+            "in (py scripts/ship.py sync, or a merge of the ticket branch) and retry"
+            % ", ".join(held[:3]) + (" and %d more" % (len(held) - 3) if len(held) > 3 else ""))
+
+
 def base_records(r_path, base_pass, base_dir=None, base_subject=None):
     """``(A, B, notes)``: the base pass's run records for the reword record at
     ``r_path``. The base pass is the sibling folder ``base_pass`` of the reword pass
@@ -1566,14 +1614,14 @@ def base_records(r_path, base_pass, base_dir=None, base_subject=None):
                          base_pass)
     shown = d.replace("\\", "/")
     if not os.path.isdir(d):
-        return None, None, ["the base pass folder %s is missing" % shown]
+        return None, None, ["the base pass folder %s is missing%s" % (shown, elsewhere(d))]
     if os.path.isfile(os.path.join(d, "abandoned.md")):
         return None, None, ["the base pass %s was abandoned, so its decision is missing"
                             % shown]
     notes = []
     if not os.path.isfile(os.path.join(d, "decision.md")):
         notes.append("the base pass %s has no decision.md: its table is recomputed from "
-                      "its runs" % shown)
+                      "its runs%s" % (shown, elsewhere(d)))
     recs = []
     for run in ("A", "B"):
         p = os.path.join(d, run + ".md")

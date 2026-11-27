@@ -146,6 +146,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import sys
 
 #: the academy checkout (marketplace root) this script belongs to
@@ -521,6 +522,7 @@ def stack_of(repo, branch=None):
 def cmd_stack(a):
     repo = repo_of(a.sub, a.repo)
     chain = stack_of(repo)
+    forks = fork_branches(repo, remote=True)
     if a.json:
         print(json.dumps(chain, indent=1))
         return
@@ -531,6 +533,13 @@ def cmd_stack(a):
             k, n, row["branch"], row["sha"][:7], "?" if row["ahead"] is None else row["ahead"],
             row["base"], "pushed" if row["pushed"] else "NOT pushed: 'push' first"))
         print("     pull request: head %s -> base %s" % (row["branch"], row["base"]))
+    if forks:
+        # the stack above shows only this branch's own chain; work committed on another
+        # recent ticket branch is not in it (#130: "a stack of 1 branch" hid eight forks)
+        print("FORKS: %d recent work branch(es) hold commits this tip lacks (merge them in, "
+              "or they never reach main with it):" % len(forks))
+        for f in forks:
+            print("     %s @ %s" % (f["branch"], f["sha"][:7]))
 
 
 # ----------------------------------------------------------------------------
@@ -1402,6 +1411,12 @@ def cmd_status(a):
                      if not l.startswith("??")])
         up = git(repo, "rev-list", "--count", "@{u}..HEAD", check=False) if b else ""
         flag = "ok" if BRANCH.match(b) else ("PROTECTED" if b in PROTECTED else "off-template")
+        if BRANCH.match(b) and prefix != ".":
+            # a superproject target counts the forks inside its own directory only
+            n = len([f for f in fork_branches(repo, remote=True)
+                     if not prefix or not _outside(repo, f["sha"], prefix)])
+            if n:
+                flag += ", %d fork(s): 'stack %s'" % (n, sub)
         print("%-28s %-44s dirty=%s unpushed=%s [%s]%s" % (sub, b or "(detached)", dirty, up or "-", flag,
                                                        (" (superproject, without the board and the submodules)"
                                                         if prefix == "." else
@@ -1551,7 +1566,7 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
     then refused and nothing is shipped there. Already on the ticket's branch, only the
     paths are committed. Always scoped (a dirty repo on main/master is refused)."""
     res = {"sub": sub, "branch": name, "sha": "", "files": 0, "status": "unchanged", "detail": "",
-           "names": [], "skipped": []}
+           "names": [], "skipped": [], "merged": [], "forks": []}
     given = bool(paths)
     if given:
         scoped = True
@@ -1647,7 +1662,15 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
         res["names"] = staged
         if staged:
             tip = git(repo, "rev-parse", "refs/heads/" + name)
-    if not res["files"]:  # no new commit: push only what the remote lacks
+    if tip and current(repo) == name:
+        # stack, don't fork: bring in the other recent ticket branches' work (#130)
+        try:
+            res["merged"], res["forks"] = merge_forks(repo, name, pathspec)
+        except Refuse as e:
+            res["merged"], res["forks"] = [], [{"branch": "?", "why": str(e)}]
+        if res["merged"]:
+            tip = git(repo, "rev-parse", "refs/heads/" + name)
+    if not res["files"] and not res.get("merged"):  # no new commit: push only what the remote lacks
         if not tip:
             res["sha"] = sha()
             return res
@@ -1671,6 +1694,124 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
     else:
         res["status"] = "pushed"
     return res
+
+
+# ----------------------------------------------------------------------------
+# Forks: work branches holding commits the current tip lacks (#130)
+# ----------------------------------------------------------------------------
+
+#: how far back a work branch counts as recent work a checkpoint stacks on (#130: the
+#: forks were 1 to 5 days old); older unmerged branches are left alone
+FORK_DAYS = 7
+
+
+def _main_ref(repo):
+    main = main_branch(repo)
+    return next((r for r in ("refs/remotes/origin/" + main, "refs/heads/" + main)
+                 if git(repo, "rev-parse", "--verify", "--quiet", r, check=False)), None)
+
+
+def _is_ancestor(repo, a, b):
+    return subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", a, b],
+                          capture_output=True, env=git_env(),
+                          stdin=subprocess.DEVNULL).returncode == 0
+
+
+def fork_branches(repo, ref="HEAD", remote=False, days=FORK_DAYS, now=None):
+    """The recent ``<date>/<topic>/<role>`` branches with commits ``ref`` lacks and main
+    lacks too, oldest first: ``[{branch, sha, remote}]``. Local branches always; with
+    ``remote`` also ``origin/`` ones that have no local branch of that name. A branch whose
+    tip is older than ``days`` is not counted (old unmerged work is the human's, not a
+    fork of today's stack)."""
+    head = git(repo, "rev-parse", "--verify", "--quiet", ref, check=False)
+    if not head:
+        return []
+    main = _main_ref(repo)
+    cutoff = (now if now is not None else time.time()) - days * 86400
+    pats = ["refs/heads/"] + (["refs/remotes/origin/"] if remote else [])
+    rows = git(repo, "for-each-ref", "--sort=committerdate",
+               "--format=%(refname)%09%(objectname)%09%(committerdate:unix)", *pats,
+               check=False).splitlines()
+    local = {r.split("\t")[0][len("refs/heads/"):] for r in rows
+             if r.startswith("refs/heads/")}
+    out, seen = [], set()
+    for row in rows:
+        parts = row.split("\t")
+        if len(parts) != 3 or not parts[2].strip().isdigit():
+            continue
+        full, sha, when = parts
+        is_remote = full.startswith("refs/remotes/origin/")
+        name = full[len("refs/remotes/origin/"):] if is_remote else full[len("refs/heads/"):]
+        if not BRANCH.match(name) or int(when) < cutoff or (is_remote and name in local):
+            continue
+        if sha in seen or sha == head or _is_ancestor(repo, sha, head):
+            continue
+        if main and _is_ancestor(repo, sha, main):
+            continue
+        seen.add(sha)
+        out.append({"branch": ("origin/" + name) if is_remote else name, "sha": sha[:12],
+                    "remote": is_remote})
+    return out
+
+
+def _outside(repo, ref, prefix):
+    """The files ``ref`` changes, over its merge base with HEAD, outside ``prefix/``."""
+    base = git(repo, "merge-base", "HEAD", ref, check=False)
+    if not base:
+        return ["(no common history)"]
+    names = git(repo, "diff", "--name-only", base, ref, check=False).splitlines()
+    return [n for n in names if n and not n.startswith(prefix.rstrip("/") + "/")]
+
+
+def merge_forks(repo, name, pathspec=None):
+    """Merge into ``name`` (checked out) every local fork of it (``fork_branches``), so the
+    checkpoint's tip holds the work committed on the other recent ticket branches instead
+    of forking from it (#130: eight library branches held decision records the tip
+    lacked). Ledgers and counters are resolved as ``sync`` does (``resolve_ledger``); any
+    other conflict aborts that merge and leaves the branch as a fork. Nothing is merged
+    while the worktree has uncommitted changes (an abort could not restore them), and in
+    a superproject target (``pathspec``) a branch changing files outside it is left as a
+    fork, so a board branch takes board files only. Returns ``(merged, forks)``: the
+    branches merged, and those still forked, each ``{branch, why}``."""
+    forks = fork_branches(repo, "refs/heads/" + name)
+    if not forks:
+        return [], []
+    if current(repo) != name:
+        return [], [dict(f, why="not checked out") for f in forks]
+    dirty = git(repo, "status", "--porcelain", "--untracked-files=no",
+                "--ignore-submodules=all", check=False).strip()
+    if dirty:
+        return [], [dict(f, why="the worktree has uncommitted changes") for f in forks]
+    merged, left = [], []
+    for f in forks:
+        b = f["branch"]
+        if pathspec:
+            out = _outside(repo, "refs/heads/" + b, pathspec)
+            if out:
+                left.append(dict(f, why="changes files outside %s/ (%s)"
+                                 % (pathspec.rstrip("/"), ", ".join(out[:3]))))
+                continue
+        if _is_ancestor(repo, "refs/heads/" + b, "HEAD"):
+            continue                 # an earlier merge of this loop brought it in
+        p = subprocess.run(["git", "-C", repo, "merge", "-q", "--no-ff", "--no-commit",
+                            "refs/heads/" + b], capture_output=True, text=True,
+                           env=git_env(), stdin=subprocess.DEVNULL)
+        if p.returncode and not merge_in_progress(repo):
+            left.append(dict(f, why="git merge failed: %s"
+                             % ((p.stderr or p.stdout).strip().splitlines() or ["?"])[-1]))
+            continue
+        for path in unmerged(repo):
+            resolve_ledger(repo, path)
+        rest = unmerged(repo)
+        if rest:
+            git(repo, "merge", "--abort", check=False)
+            left.append(dict(f, why="conflicts in %s" % ", ".join(rest[:3])))
+            continue
+        if merge_in_progress(repo):
+            git(repo, "commit", "-q", "-m", "Merge %s into %s (checkpoint: stack the ticket "
+                "branches, #130)" % (b, name))
+        merged.append(b)
+    return merged, left
 
 
 #: tests point this at a temp directory; None means ``~/.claude/projects``
@@ -1763,7 +1904,8 @@ def run_checkpoint(ticket, role, title, remote, only=None, touched=None, manifes
     branch the remote does not have. One dict per submodule: sub, branch, sha, files,
     status ("pushed" / "unchanged" / "push-failed" / "skipped"; a refused repo is
     "skipped" with a detail starting "refused: "), detail. Never touches main, never
-    merges, never forces; a refused or failed repo (including a Refuse raised inside
+    forces; merges only the other recent ticket branches into the ticket's branch
+    (``merge_forks``: merged, forks; #130); a refused or failed repo (including a Refuse raised inside
     ``checkpoint_repo``) does not stop the others. Also: names (the committed files) and
     skipped (untracked nested repos/worktrees and tracked submodule pointers left out,
     '/'-terminated).
@@ -1905,6 +2047,11 @@ def cmd_checkpoint(a):
             print("    +%d more" % (len(names) - NAMES_SHOWN))
         for p in r.get("skipped") or []:
             print("    skipped nested repo: %s (not committed)" % p)
+        for b in r.get("merged") or []:
+            print("    merged %s (stacked, not forked; #130)" % b)
+        for f in r.get("forks") or []:
+            print("    FORK: %s holds commits %s lacks (%s); merge it in by hand"
+                  % (f["branch"], r["branch"], f["why"]), file=sys.stderr)
     if bad:
         raise Refuse("checkpoint incomplete (commits made are kept locally); see the lines above")
 
