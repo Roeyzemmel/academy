@@ -21,6 +21,8 @@ Usage::
                                 [--comment TEXT]
     py decisions.py accept-recommended [--mechanical-only] [--dry-run] [--json]
     py decisions.py stalled-rulings [--json]
+    py decisions.py policy [--dry-run] [--json] [--instance X]
+    py decisions.py undo <T-id>
 
 ``record`` writes back via ``packets.decide_packet`` for a ``P-NNNN/Dk`` (or a bare
 ``P-NNNN`` with exactly one decision still pending), and via ``board.append_to_ticket``
@@ -40,6 +42,14 @@ keyword (re-run / accept / wait / split / decline); ``--action`` names the answe
 it does and is refused when it disagrees with the letter. A re-run ruling always files its
 re-run, even over an earlier ruling the claim-keeper acted on; any other answer over such
 an earlier, different one is refused unless ``--force``.
+
+**The routine policy (#86).** workspace.json's ``decisions.routine`` lists the categories
+the human accepts once, for good (ticket kinds, ``claim-status``, ``repair``;
+``routine_policy``). ``policy`` accepts every pending ticket of one of them that has
+nothing to choose (no ruling, no alternatives, no pinned statement), writes one thread
+line naming the policy and prints one digest line per category; ``undo`` reverts one such
+acceptance until an inbox run touches the ticket. ``review-experiment`` and a plain
+``decision`` are never routine.
 
 ``accept-recommended`` only ever applies a **packet's own recorded** ``Recommendation:``
 line -- a raw ticket carries no such recommendation, so ticket-sourced items are never
@@ -312,6 +322,8 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
             if r else None,
             "recommendation": None,
             "kind": _classify_ticket(t),
+            "category": category(t),
+            "own_options": bool(own),
             "unblocks": [str(b) for b in (t.get("blocks") or [])],
             "stale": None,
             "source": "ticket-human" if to_human else "ticket-blocked",
@@ -331,6 +343,150 @@ def pending_decisions(board, instance=None, workspace=None):
     items += _ticket_items(board, instance, to_human=True, workspace=workspace)
     items += _ticket_items(board, instance, to_human=False, workspace=workspace)
     return items
+
+
+# ----------------------------------------------------------------------------
+# The routine policy (#86): kinds the human accepts once, in workspace.json
+# ----------------------------------------------------------------------------
+
+#: the categories ``decisions.routine`` may name besides a ticket kind: a claim-status
+#: change (a ``decision`` ticket titled "Status of <id> -> <status>", claims_propose_status)
+#: and a repair (a ``prove`` / ``research`` ticket whose title or ask asks for a repair)
+EXTRA_CATEGORIES = ("claim-status", "repair")
+#: never accepted under a policy, whatever it says: an experiment review is always asked
+#: (the human's ruling, 2026-11-27), and a plain ``decision`` is the human's by definition
+NEVER_ROUTINE = ("review-experiment", "decision")
+RE_STATUS_TITLE = re.compile(r"^Status of \S+.*->\s*[a-z-]+")
+RE_REPAIR = re.compile(r"(?i)\brepair(?:s|ed|ing)?\b")
+#: the thread line a policy acceptance writes; ``undo`` looks for it
+POLICY_MARK = "accepted under the routine policy"
+RE_POLICY_WAS = re.compile(r"; was (open|blocked)\b")
+
+
+def routine_policy(workspace):
+    """The categories workspace.json's ``decisions.routine`` accepts without asking (a list:
+    ticket kinds, ``claim-status``, ``repair``); ``[]`` when it names none. An entry that is
+    no category, or one of ``NEVER_ROUTINE``, is refused: the policy is the human's, and a
+    typo in it would silently ask what they meant to accept (or accept what they did not)."""
+    raw = ((workspace or {}).get("decisions") or {}).get("routine") or []
+    if not isinstance(raw, list):
+        raise ac.AcademyError("workspace.json decisions.routine must be a list of kinds")
+    out = []
+    for c in raw:
+        c = str(c).strip()
+        if c in NEVER_ROUTINE:
+            raise ac.AcademyError("workspace.json decisions.routine: %r is never routine (it is "
+                                  "always asked)" % c)
+        if c not in ac.TICKET_KINDS and c not in EXTRA_CATEGORIES:
+            raise ac.AcademyError("workspace.json decisions.routine: %r is not a ticket kind "
+                                  "or one of %s" % (c, ", ".join(EXTRA_CATEGORIES)))
+        if c not in out:
+            out.append(c)
+    return out
+
+
+def category(t):
+    """The policy category of a ticket: ``claim-status``, ``repair`` or its kind."""
+    kind = t.get("kind") or "other"
+    title = str(t.get("title") or "")
+    if kind == "decision" and RE_STATUS_TITLE.match(title):
+        return "claim-status"
+    if kind in ("prove", "research") and RE_REPAIR.search(
+            title + " " + str(t.get("ask") or "")):
+        return "repair"
+    return kind
+
+
+def _routine(item, policy):
+    """True when the policy accepts ``item`` without asking: a ticket item of a policy
+    category with nothing to choose (no ruling, no alternatives, no pinned statement)."""
+    if item.get("source") not in ("ticket-human", "ticket-blocked"):
+        return False
+    if item.get("ruling") or item.get("own_options") or item.get("pinned"):
+        return False
+    return item.get("category") in policy
+
+
+def apply_policy(board, workspace, date=None, dry_run=False, instance=None):
+    """Accept every pending ticket the routine policy covers (``routine_policy``), as the
+    human's standing answer: a thread line ``accepted under the routine policy (...)`` and
+    the move to ``accepted``, written ``human (via main session)``. Returns
+    ``[{"id", "category", "was", "instance"}]`` (with ``dry_run`` what would be accepted).
+    Each acceptance can be undone (``undo``) until an inbox run touches the ticket."""
+    policy = routine_policy(workspace)
+    if not policy:
+        return []
+    date = date or ac.today()
+    out = []
+    for item in pending_decisions(board, instance, workspace):
+        if not _routine(item, policy):
+            continue
+        tid = item["id"]
+        was = "blocked" if item["source"] == "ticket-blocked" else "open"
+        if not dry_run:
+            boardlib.append_to_ticket(
+                board, tid, "%s (decisions.routine: %s; was %s%s); undo: decisions.py undo %s, "
+                "until an inbox run touches it" % (
+                    POLICY_MARK, item["category"], was,
+                    " waiting on human" if was == "blocked" else "", tid),
+                as_instance=ac.HUMAN, date=date, via=ac.VIA_SESSION)
+            boardlib.transition_ticket(board, tid, "accepted", as_instance=ac.HUMAN,
+                                       date=date, via=ac.VIA_SESSION)
+        out.append({"id": tid, "category": item["category"], "was": was,
+                    "instance": item.get("instance")})
+    return out
+
+
+def digest(done):
+    """One line for what the policy accepted, a group per category in first-seen order:
+    ``accepted under the policy: 12 verify (T-1, ...), 3 cite (...)``; ``""`` for none."""
+    groups = {}
+    for d in done:
+        groups.setdefault(d["category"], []).append(d["id"])
+    if not groups:
+        return ""
+    return "accepted under the policy: " + ", ".join(
+        "%d %s (%s)" % (len(ids), cat, ", ".join(ids)) for cat, ids in groups.items())
+
+
+def undo(board, tid, date=None):
+    """Revert a routine-policy acceptance of ``tid``: back to ``open`` (a ticket to the
+    human) or ``blocked`` waiting on the human, so the next /academy:decide asks it.
+
+    The undo window: the ticket is still ``accepted`` and nothing has been written on it
+    since the policy's line but that acceptance itself (no line by an instance or an
+    agent, no answer of the human's). Once an inbox run has touched it, the acceptance
+    stands: decline the ticket instead."""
+    date = date or ac.today()
+    _path, meta, body = boardlib.get_ticket(board, tid)
+    lines = ac.thread_lines(body)
+    idx = max((i for i, (_d, _w, t) in enumerate(lines) if t.startswith(POLICY_MARK)),
+              default=None)
+    if idx is None:
+        raise ac.AcademyError("%s was not accepted under the routine policy; nothing to undo"
+                              % tid)
+    if meta.get("status") != "accepted":
+        raise ac.AcademyError("%s is %s, not accepted: the undo window is closed (decline it "
+                              "instead)" % (tid, meta.get("status")))
+    for _d, who, text in lines[idx + 1:]:
+        if who not in (ac.HUMAN, ac.HUMAN_VIA_SESSION) or text.startswith(
+                ("human decision", "undo:")):
+            raise ac.AcademyError("%s: %s wrote on it after the policy accepted it (%r): the "
+                                  "undo window is closed (decline it instead)"
+                                  % (tid, who, text[:60]))
+    m = RE_POLICY_WAS.search(lines[idx][2])
+    was = m.group(1) if m else "blocked"
+    note = "undo: the routine-policy acceptance is reverted; asked again at the next decide"
+    boardlib.append_to_ticket(board, tid, note, as_instance=ac.HUMAN, date=date,
+                              via=ac.VIA_SESSION)
+    if was == "open":
+        boardlib.transition_ticket(board, tid, "open", reason="policy acceptance undone",
+                                   as_instance=ac.HUMAN, date=date, via=ac.VIA_SESSION)
+    else:
+        boardlib.transition_ticket(board, tid, "blocked", waiting_on=[ac.HUMAN],
+                                   reason="policy acceptance undone", as_instance=ac.HUMAN,
+                                   date=date, via=ac.VIA_SESSION)
+    return {"ref": tid, "status": was}
 
 
 # ----------------------------------------------------------------------------
@@ -572,6 +728,15 @@ def main(argv=None):
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("policy", help="accept the pending tickets the routine policy covers "
+                                      "(workspace.json decisions.routine); prints the digest")
+    p.add_argument("--instance"); p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("undo", help="revert a routine-policy acceptance, until an inbox run "
+                                    "touches the ticket")
+    p.add_argument("id")
+
     p = sub.add_parser("stalled-rulings", help="rulings the human answered that are not "
                                                "delivered (read-only)")
     p.add_argument("--json", action="store_true")
@@ -606,6 +771,18 @@ def main(argv=None):
                     raise ac.AcademyError("a packet decision takes --choice <letter> only")
             print(json.dumps(record(board, a.id, a.choice, a.comment, ws, action=a.action,
                                     force=a.force), ensure_ascii=False))
+        elif a.cmd == "policy":
+            done = apply_policy(board, ws, dry_run=a.dry_run, instance=a.instance)
+            if a.json:
+                print(_wire({"accepted": done, "digest": digest(done)}))
+            else:
+                line = digest(done)
+                print(("(dry run) " if a.dry_run and line else "") + (
+                    line or "nothing accepted under the policy"))
+        elif a.cmd == "undo":
+            if not ac.RE_TICKET_ID.match(a.id):
+                raise ac.AcademyError("undo takes a ticket id, not %r" % a.id)
+            print(json.dumps(undo(board, a.id), ensure_ascii=False))
         elif a.cmd == "stalled-rulings":
             rows = rulinglib.stalled(board, ws)
             if a.json:

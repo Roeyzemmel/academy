@@ -22,6 +22,14 @@ phrases the questions. Neither one asks the human or records on its own.
    Say so in the question ("work is proceeding on (a)"). The human still decides: the
    same option confirms it; another is recorded as overturning it, and a delivered
    ticket goes back to its receiver.
+0a. **The routine policy.** `py $S/decisions.py policy --json` accepts, as the human's
+   standing answer, every pending ticket whose kind workspace.json's `decisions.routine`
+   lists (docs/config.md; empty by default: then it accepts nothing). It never accepts a
+   ruling, a ticket that names alternatives, or an edit of a pinned statement. Keep its
+   `digest` ("accepted under the policy: 12 verify (T-..), 3 cite (..)") for the final
+   summary; do not ask these items. The human may revert any of them with
+   `py $S/decisions.py undo <T-id>` until an inbox run touches the ticket (say so with
+   the digest).
 1. **Batch.** `py $S/decisions.py batches --json [--instance X]` (a single id in
    `$ARGUMENTS` instead runs `list --json` and keeps only that one). If it reports no
    pending decisions, say so and stop.
@@ -89,7 +97,7 @@ phrases the questions. Neither one asks the human or records on its own.
    `py $S/decisions.py accept-recommended --mechanical-only` (no `--dry-run`) once,
    report what it accepted, and stop asking — do not also ask the mechanical batches
    individually.
-6. **Final summary.** One line per decision recorded (id, choice, and what
+6. **Final summary.** First the policy's digest line (step 0a) and the undo command, then one line per decision recorded (id, choice, and what
    `unblocks` named) and one line for anything left pending (skipped, or a
    `mechanical-only` accept that a substantive item was excluded from). Say plainly
    that nothing was started: the ticket or packet's owner picks the result up on its
