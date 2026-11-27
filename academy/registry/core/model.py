@@ -74,6 +74,12 @@ class Store:
         from . import structure
         return structure.nb_parts(self.statement_text(rid) or "")
 
+    def body_parse(self, rid):
+        """The full parse of record ``rid``'s statement (``structure.nb_parse``: parts,
+        the list form's numbering, problems)."""
+        from . import structure
+        return structure.nb_parse(self.statement_text(rid) or "")
+
     def structure(self, rid):
         """The structured view of record ``rid``, or None when it is not one: ``{"items":
         {key: (status, [modulo])}, "hypotheses": {H<n>: text}, "texts": {key: text},

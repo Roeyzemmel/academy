@@ -195,6 +195,11 @@ def _structure_cmd(repo, a):
     st = federation.store_from(rec.ns, repo)
     bh, bi = st.body_parts(rec.id)
     paper = bool(st.paper_items)
+    parsed = None if paper else st.body_parse(rec.id)
+    if parsed and parsed["problems"]:
+        print(f"structure: {rec.qid}: refused, its statement's parts cannot be read "
+              "without guessing:\n- " + "\n- ".join(parsed["problems"]), file=sys.stderr)
+        return 1
     path = Path(rec.file)
     try:
         from .core import fm as _fm
@@ -203,9 +208,12 @@ def _structure_cmd(repo, a):
         print(f"structure: {path} cannot be read ({exc})", file=sys.stderr)
         return 1
     if not bi:
+        if bh:
+            print(f"structure: {rec.qid}: hypotheses found ({', '.join(bh)}), but no items")
         print(f"structure: {rec.qid} has no items in its statement ("
               + ("no \\label{it:...} item in its environment" if paper else
-                 "no `**C<n>.**` line in its `## Statement`") + "): nothing to propose")
+                 "no `**C<n>.**` line and no enumerated list under a `**Claim.**` "
+                 "header in its `## Statement`") + "): nothing to propose")
         return 1
     prop = structure.propose(fields, bh, bi, paper=paper)
     from .core.edit import Doc
@@ -221,6 +229,12 @@ def _structure_cmd(repo, a):
                 lines.append(f"  {kk}: {_fm.format_list(v) if isinstance(v, list) else (fmt or _fm.format_scalar)(v)}")
     print(f"structure: {rec.qid} ({path})")
     print("\n".join(lines))
+    if parsed and parsed["numbering"]:
+        print("# the items as numbered in the statement (check the order): "
+              + ", ".join(f"{k} = {v}" for k, v in parsed["numbering"].items()))
+    if parsed:
+        print(f"# forms: hypotheses {parsed['forms']['hyps'] or 'none'}, "
+              f"items {parsed['forms']['items'] or 'none'}")
     if paper and "hypotheses" not in prop:
         print("# the tex labels no hypothesis: add `hypotheses:` (H<n>: its text) by hand")
     if not a.write:

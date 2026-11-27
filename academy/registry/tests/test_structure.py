@@ -325,3 +325,129 @@ class Homes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+GEO_FORM = """## Statement
+
+**Setting.** Some notation (H1)-(H3) is fixed below.
+
+**Hypotheses.** (H1)-(H2) at k = 2:
+- (H1) X is not a torus cover.
+- **(H2)** Q has no semi-corner,
+  and is compact.
+
+**Claim.**
+1. Either x and y are periodic,
+or f(x) = f(y).
+2. In the second case, N is irreducible.
+
+**Not asserted.** Anything else.
+"""
+
+ROMAN_FORM = """## Statement
+
+**Hypotheses.**
+- (H1) X is compact.
+- (H2) T is a torus.
+
+**Claim.** Assume (H1)-(H2).
+- **(i) Existence.** There is a covering f.
+- **(ii) Factorisation.** For every f:
+  - phi is not a square;
+  - f = p o q.
+
+**Not asserted.** More.
+"""
+
+
+class OldForms(unittest.TestCase):
+    """#127 phase 2: the forms the notebooks already use, read for the lazy migration."""
+
+    def test_paren_bullets_and_a_numbered_claim(self):
+        r = structure.nb_parse(GEO_FORM)
+        self.assertEqual(r["problems"], [])
+        self.assertEqual(r["forms"], {"hyps": "paren", "items": "list"})
+        self.assertEqual(r["hyps"], {"H1": "- (H1) X is not a torus cover.",
+                                     "H2": "- **(H2)** Q has no semi-corner,\nand is compact."})
+        self.assertEqual(r["items"], {"C1": "1. Either x and y are periodic,\nor f(x) = f(y).",
+                                      "C2": "2. In the second case, N is irreducible."})
+        self.assertEqual(r["numbering"], {"C1": "1.", "C2": "2."})
+        self.assertEqual(structure.hypothesis_value(r["hyps"]["H2"]),
+                         "Q has no semi-corner, and is compact.")
+
+    def test_roman_items_with_sub_bullets(self):
+        r = structure.nb_parse(ROMAN_FORM)
+        self.assertEqual(r["problems"], [])
+        self.assertEqual(list(r["items"]), ["C1", "C2"])
+        self.assertEqual(r["numbering"], {"C1": "(i)", "C2": "(ii)"})
+        self.assertIn("f = p o q.", r["items"]["C2"])
+        self.assertTrue(r["items"]["C2"].startswith("- **(ii) Factorisation.**"))
+
+    def test_letters_and_parenthesised_numbers(self):
+        for a, b in (("(a)", "(b)"), ("(1)", "(2)"), ("1)", "2)")):
+            r = structure.nb_parse("**Claims.**\n%s one.\n%s two.\n" % (a, b))
+            self.assertEqual((r["problems"], list(r["items"])), ([], ["C1", "C2"]), a)
+
+    def test_an_inline_paragraph_is_split_when_unambiguous(self):
+        r = structure.nb_parse("(H1) P is rational. (H2) X is conical, see [1].\n")
+        self.assertEqual(r["hyps"], {"H1": "(H1) P is rational.",
+                                     "H2": "(H2) X is conical, see [1]."})
+        bad = structure.nb_parse("(H1) P is rational, unlike (H3). (H2) X conical.\n")
+        self.assertIn("cannot be split unambiguously", " ".join(bad["problems"]))
+
+    def test_refusals(self):
+        prime = structure.nb_parse("**Hypotheses.**\n- (H1) a.\n- (H3') b.\n")
+        self.assertIn("(H3') has no H<n> key", " ".join(prime["problems"]))
+        mixed = structure.nb_parse("**H1.** a.\n\n**Claim.**\n1. one.\n2. two.\n")
+        self.assertIn("mixes", " ".join(mixed["problems"]))
+        self.assertEqual(mixed["items"], {})
+        both = structure.nb_parse("**C1.** a.\n\n**Claim.**\n1. one.\n")
+        self.assertIn("both as **C<n>.** markers and as a Claim list",
+                      " ".join(both["problems"]))
+        order = structure.nb_parse("**Claim.**\n1. one.\n3. three.\n")
+        self.assertIn("does not run 1, 2", " ".join(order["problems"]))
+        tfae = structure.nb_parse("**Claim.** The following are equivalent:\n1. a;\n2. b.\n")
+        self.assertIn("equivalence", " ".join(tfae["problems"]))
+        self.assertEqual(tfae["items"], {})
+
+    def test_the_marker_form_is_unchanged(self):
+        r = structure.nb_parse("**H1.** a.\n\n- **C1.** b;\n- **C2.** c\n  d.\n")
+        self.assertEqual((r["hyps"], r["items"], r["numbering"]),
+                         ({"H1": "a."}, {"C1": "b;", "C2": "c\n  d."}, {}))
+
+
+class OldFormHomes(Homes):
+    def test_structure_proposes_from_the_old_form_and_check_accepts_it(self):
+        text = NB.format(id="GEO-5", status="sketch", modulo="", struct="")
+        text = text.split("## Statement")[0] + GEO_FORM
+        p = write(self.nb / "objects" / "claim" / "GEO-5.md", text)
+        registry.clear_cache()
+        rc, out, err = quiet(cli.main, ["--repo", str(self.nb), "structure", "s1:GEO-5"])
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn('H2: "Q has no semi-corner, and is compact."', out)
+        self.assertIn("items:\n  C1: [sketch]\n  C2: [sketch]", out)
+        self.assertIn("C1 = 1., C2 = 2.", out)
+        rc, out, err = quiet(cli.main, ["--repo", str(self.nb), "structure", "s1:GEO-5",
+                                        "--write"])
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.nb_errors(), [])
+        s = federation.store("s1", self.nb).structure("GEO-5")
+        # the item text, and so its hash, is the text as written
+        self.assertEqual(s["texts"]["C2"], "2. In the second case, N is irreducible.")
+        self.assertEqual(s["hashes"]["C2"], structure.item_hash(
+            s["hypotheses"], "2. In the second case, N is irreducible."))
+        self.assertIn("items:", p.read_text(encoding="utf-8"))
+
+    def test_structure_refuses_a_statement_it_would_have_to_guess(self):
+        text = NB.format(id="GEO-6", status="sketch", modulo="", struct="")
+        p = write(self.nb / "objects" / "claim" / "GEO-6.md",
+                  text.split("## Statement")[0]
+                  + "## Statement\n\n**Hypotheses.**\n- (H1) a.\n- (H1') b.\n\n"
+                    "**Claim.**\n1. one.\n2. two.\n")
+        registry.clear_cache()
+        before = p.read_bytes()
+        rc, out, err = quiet(cli.main, ["--repo", str(self.nb), "structure", "s1:GEO-6",
+                                        "--write"])
+        self.assertEqual(rc, 1)
+        self.assertIn("(H1') has no H<n> key", err)
+        self.assertEqual(p.read_bytes(), before)

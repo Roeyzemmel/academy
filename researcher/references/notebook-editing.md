@@ -69,7 +69,13 @@ In the paper an item key is its `\label{it:KEY}` without the `it:` prefix, its t
 the `\item` that carries the label, and the hypotheses' texts are the frontmatter's.
 The migration is lazy: a new or reworded claim takes the form; an old record keeps its
 own until it is next touched, when `registry.py structure ID` proposes the fields from
-its body (each item at the record's status) and `--write` adds them. Never bulk-migrate.
+its body (each item at the record's status) and `--write` adds them. It also reads the
+older forms: `(H1) ...` lines or bullets (usually under `**Hypotheses.**`) and the
+enumerated list (`1.`, `(1)`, `(a)`, `(i)`) of a `**Claim.**` block, whose items become
+C1, C2, ... in order (the proposal prints the original numbering to check); the item
+texts, and so their hashes, are the lines as written. A mix of forms, a hypothesis
+labelled like `(H3')`, a list out of order, or an equivalence ("the following are
+equivalent") is refused: restructure such a statement by hand. Never bulk-migrate.
 `steps:` (a Lamport-style proof outline) is not part of the form.
 
 **Verbatim bodies.** Text migrated from an older source keeps its old labels, its old

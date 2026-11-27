@@ -604,7 +604,7 @@ def _check_v2(c, repo, root, by_id, e, w):
         for level, msg in structure.check(
                 c.fields, bh, bi, paper=rules == "paper",
                 status_kinds=V2_STATUS_KINDS.get(rules, schema.STATUS_KINDS),
-                dups=() if rules == "paper" else structure.nb_duplicates(c.body)):
+                problems=() if rules == "paper" else structure.nb_problems(c.body)):
             (e if level == "error" else w)(msg)
     if not isinstance(cid, str) or not ID_RE.match(cid):
         if isinstance(cid, str):
@@ -957,6 +957,10 @@ class FslStore(Store):
             env = _paper_statement(self.home, rid, self._texts)
             return {}, structure.paper_items(env or "")
         return structure.nb_parts(c.body)
+
+    def body_parse(self, rid):
+        c = self.claim_by_name.get(rid)
+        return structure.nb_parse(c.body if c is not None else "")
 
     def __init__(self, ns, home_, claims=None):
         """``claims``: the home's claims as already loaded (``check``, ``render``), so a

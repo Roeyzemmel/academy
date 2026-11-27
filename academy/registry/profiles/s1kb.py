@@ -709,7 +709,7 @@ def _check_v2(kb, e):
         st_text = statement_text(e)
         bh, bi = _structure.nb_parts(st_text)
         for level, msg in _structure.check(e.v2, bh, bi, status_kinds=_schema.STATUS_KINDS,
-                                           dups=_structure.nb_duplicates(st_text)):
+                                           problems=_structure.nb_problems(st_text)):
             (kb.error if level == "error" else kb.warn)(e.path, msg)
     v = e.v2
     want_kind = {"claim": ("claim", "conjecture", "question", "definition", "direction"),
