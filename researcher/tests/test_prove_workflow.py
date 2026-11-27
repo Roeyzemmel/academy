@@ -654,6 +654,22 @@ class RepairRecordTests(unittest.TestCase):
         self.assertNotIn("nothing filed for review", close)
         self.assertNotIn("ANOMALY", " ".join(res["notes"]))
 
+    def test_a_confirmed_reword_pass_is_the_reword_base(self):
+        """#127: the last confirmed pass may itself be a reword pass; the next reword
+        stands on it (its title names it, which the inbox reads as reword mode)."""
+        rp = "2026-11-05-T-0020-reword"
+        before = dict(self.BEFORE, confirmed_pass=rp)
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        check = dict(self.CHECK, title="Verify flat:GEO-3 (reword of %s)" % rp)
+        res, labels, calls = self.run_wf(self.plan(after, before=before, **{
+            "file record verify": [self.FILED], "check record verify": [check]}))
+        f = calls[labels.index("file record verify")]
+        self.assertIn("Verify flat:GEO-3 (reword of %s)" % rp, f["prompt"])
+        self.assertEqual(res["record_verify"], {"ticket": "T-0040", "mode": "reword",
+                                                "base_pass": rp})
+        self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+        self.assertIn("-reword pass included", calls[labels.index("repair before")]["prompt"])
+
     def test_a_changed_reviewed_proof_files_no_verify_and_says_the_status_is_stale(self):
         """Review of 62be9fa, point 2: after an incomplete attempt a changed proof would send an
         attempt the prover reported incomplete to a blind pass (a GAP, nothing gained). No

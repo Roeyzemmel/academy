@@ -201,6 +201,23 @@ class LandVerdictTests(unittest.TestCase):
         with open(p, encoding="utf-8") as fh:
             meta, _ = ac.read_frontmatter(fh.read())
         self.assertNotIn("base_subject", meta)
+        self.assertNotIn("root_pass", meta)
+        self.assertNotIn("root_hash", meta)
+
+    def test_a_reword_on_a_reword_keeps_its_chain_root(self):
+        """#127: the bundle of a reword on a reword gives root_pass / root_hash; kept."""
+        text = self.REWORD.replace("reword_scope: weaker",
+                                   "root_pass: 2026-09-01-T-0001\nroot_hash: 00112233aabbccdd\n"
+                                   "reword_scope: weaker")
+        code, out, err = fixtures.run_script("land_verdict.py",
+                                             stop_event("expert:rigor-reviewer", text))
+        self.assertEqual(code, 0, err)
+        p = os.path.join(self.sb.lib, "reviews", "paper", "lem-strip-bound",
+                         "2026-10-12-T-0347-reword", "R.md")
+        with open(p, encoding="utf-8") as fh:
+            meta, _ = ac.read_frontmatter(fh.read())
+        self.assertEqual((meta["root_pass"], meta["root_hash"], meta["base_pass"]),
+                         ("2026-09-01-T-0001", "00112233aabbccdd", "2026-09-28-T-0007"))
 
     def test_a_bare_base_subject_blocks(self):
         text = self.REWORD.replace("reword_scope: weaker", "base_subject: lem-strip-bound\n"

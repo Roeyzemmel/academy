@@ -694,6 +694,140 @@ class RewordTableTests(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class RewordChainTests(unittest.TestCase):
+    """#127 (the human's ruling, 2026-11-27: "rewording in general should have the
+    previous confirmed statement as reference"): a reword on a confirmed reword pass."""
+
+    P1, P2, P3 = "2026-10-12-T-0347-reword", "2026-10-20-T-0400-reword", \
+        "2026-10-25-T-0500-reword"
+
+    def link(self, rec_r, pass_, base):
+        """``rec_r`` as the base reword pass ``pass_``'s run R, standing on ``base``."""
+        r = dict(rec_r)
+        r["pass"] = pass_
+        r["file"] = "reviews/paper/lem-x/%s/R.md" % pass_
+        r["_base"] = base
+        return r
+
+    def chain2(self, r1_kw=None, modulo="none"):
+        a, b = rec("CONFIRMED", modulo=modulo), rec("CONFIRMED", run="B", modulo=modulo)
+        return self.link(rwrec(**(r1_kw or {})), self.P1, (a, b, []))
+
+    def test_a_reword_on_a_confirmed_reword_pass(self):
+        r1 = self.chain2()
+        r2 = rwrec(base_pass=self.P1, base_hash="def456", h="ghi789", run_id="rv-R2")
+        r = dt.decide(r2, base=(r1, None))
+        self.assertEqual((r["outcome"], r["proposed_status"]), ("confirmed", "proved"))
+        self.assertEqual(r["chain"], ["2026-09-28-T-0007", self.P1])
+        self.assertEqual((r["root_pass"], r["root_hash"]), ("2026-09-28-T-0007", "abc123"))
+        g = r["grounds"]
+        self.assertEqual([v["run_id"] for v in g["verdicts"]], ["rv-R2", "rv-R", "rv-A", "rv-B"])
+        self.assertEqual([(v.get("mode"), v.get("base_hash"), v.get("base_pass"))
+                          for v in g["verdicts"][:2]],
+                         [("reword", "def456", self.P1),
+                          ("reword", "abc123", "2026-09-28-T-0007")])
+        self.assertEqual((g["base_hash"], g["root_hash"], g["chain"]),
+                         ("def456", "abc123", ["2026-09-28-T-0007", self.P1]))
+        claims = ex.mcp_module("claims")
+        ok, why = claims.check_grounds("proved", g, "ghi789")
+        self.assertTrue(ok, why)
+        self.assertFalse(claims.check_grounds("proved", g, "def456")[0])
+        self.assertIn("chain", dt._text(r))
+
+    def test_a_three_link_chain_carries_every_modulo(self):
+        r1 = self.chain2(r1_kw={"modulo": "paper:lem:b"}, modulo="paper:lem:a")
+        r2 = self.link(rwrec(base_pass=self.P1, base_hash="def456", h="ghi789",
+                             run_id="rv-R2"), self.P2, (r1, None, []))
+        r3 = rwrec(base_pass=self.P2, base_hash="ghi789", h="jkl012", run_id="rv-R3",
+                   modulo="paper:lem:c")
+        r = dt.decide(r3, base=(r2, None))
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:a", "paper:lem:b", "paper:lem:c"])
+        self.assertEqual(r["chain"], ["2026-09-28-T-0007", self.P1, self.P2])
+        self.assertEqual([v["run_id"] for v in r["grounds"]["verdicts"]],
+                         ["rv-R3", "rv-R2", "rv-R", "rv-A", "rv-B"])
+        ok, why = ex.mcp_module("claims").check_grounds("proved-modulo", r["grounds"],
+                                                         "jkl012")
+        self.assertTrue(ok, why)
+
+    def test_a_broken_link_carries_nothing(self):
+        ok_r2 = dict(base_pass=self.P1, base_hash="def456", h="ghi789", run_id="rv-R2")
+        cases = {
+            # compared against the root's wording, not the one the link confirmed
+            "base_hash abc123 is not": (rwrec(**dict(ok_r2, base_hash="abc123")),
+                                        self.chain2()),
+            "not confirmed": (rwrec(**ok_r2), self.chain2({"verdict": "GAP",
+                                                           "blocking": "step 2"})),
+            "exceeds": (rwrec(**ok_r2), self.chain2({"scope": "exceeds"})),
+            "own base": (rwrec(**ok_r2), self.link(rwrec(), self.P1, None)),
+            "root base": (rwrec(**ok_r2),
+                          self.link(rwrec(), self.P1, (rec("CONFIRMED"),
+                                                       rec("GAP", run="B"), []))),
+            "run id": (rwrec(**dict(ok_r2, run_id="rv-A")), self.chain2()),
+            "belongs to pass": (rwrec(**dict(ok_r2, base_pass=self.P2)), self.chain2()),
+        }
+        for why, (r2, r1) in cases.items():
+            with self.subTest(why=why):
+                res = dt.decide(r2, base=(r1, None))
+                self.assertIn(res["outcome"], ("invalid-base",), res["anomalies"])
+                self.assertIsNone(res["proposed_status"])
+                self.assertIsNone(res["grounds"])
+
+    def test_a_named_root_must_be_the_chains(self):
+        r2 = rwrec(base_pass=self.P1, base_hash="def456", h="ghi789", run_id="rv-R2")
+        r2["root_pass"] = "2026-09-01-T-0001"
+        res = dt.decide(r2, base=(self.chain2(), None))
+        self.assertEqual(res["outcome"], "invalid-base")
+        self.assertTrue(any("root_pass" in x for x in res["anomalies"]), res["anomalies"])
+        r2["root_pass"], r2["root_hash"] = "2026-09-28-T-0007", "abc123"
+        self.assertEqual(dt.decide(r2, base=(self.chain2(), None))["outcome"], "confirmed")
+
+    def test_a_reword_record_beside_a_blind_run_is_still_no_base(self):
+        # a misfiled reword record as the base pass's A, with a blind B: not a link
+        res = dt.decide(rwrec(run_id="rv-R2", base_hash="def456", h="ghi789"),
+                        base=(rwrec(), rec("CONFIRMED", run="B")))
+        self.assertEqual(res["outcome"], "invalid-base")
+
+    def test_base_records_follow_the_chain_on_disk(self):
+        import shutil
+        d = tempfile.mkdtemp()
+        try:
+            subj = os.path.join(d, "reviews", "paper", "lem-x")
+
+            def put(pass_, name, text):
+                os.makedirs(os.path.join(subj, pass_), exist_ok=True)
+                p = os.path.join(subj, pass_, name)
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+                return p
+            for run in ("A", "B"):
+                put("2026-09-28-T-0007", run + ".md",
+                    "---\nsubject: paper:lem:x\npass: 2026-09-28-T-0007\nrun: %s\n"
+                    "run_id: rv-%s\nverdict: CONFIRMED\nmodulo: []\nmodel: claude-opus-5-5\n"
+                    "statement_hash: abc123\n---\n\nr\n" % (run, run))
+            rw = ("---\nsubject: paper:lem:x\npass: {p}\nrun: R\nrun_id: {rid}\n"
+                  "verdict: CONFIRMED\nmodulo: []\nmodel: claude-opus-5-5\n"
+                  "statement_hash: {h}\nmode: reword\nbase_pass: {bp}\nbase_hash: {bh}\n"
+                  "reword_scope: weaker\n---\n\nr\n")
+            put(self.P1, "R.md", rw.format(p=self.P1, rid="rv-R1", h="def456",
+                                           bp="2026-09-28-T-0007", bh="abc123"))
+            put(self.P2, "R.md", rw.format(p=self.P2, rid="rv-R2", h="ghi789",
+                                           bp=self.P1, bh="def456"))
+            r3 = put(self.P3, "R.md", rw.format(p=self.P3, rid="rv-R3", h="jkl012",
+                                                bp=self.P2, bh="ghi789"))
+            code, out, err = fixtures.run_script("decision_table.py", None, [r3, "--json"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(out["outcome"], "confirmed", out)
+            self.assertEqual(out["chain"], ["2026-09-28-T-0007", self.P1, self.P2])
+            # a loop: the first link names the last as its base
+            put(self.P1, "R.md", rw.format(p=self.P1, rid="rv-R1", h="def456",
+                                           bp=self.P2, bh="ghi789"))
+            code, out, err = fixtures.run_script("decision_table.py", None, [r3, "--json"])
+            self.assertEqual(out["outcome"], "invalid-base", out)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 class RewordBaseSubjectTests(unittest.TestCase):
     """T-0476: a reword run on a renamed record names the base pass's subject
     (``base_subject``, the superseded id) and the table reads the base there."""

@@ -109,8 +109,9 @@ subject-specific knowledge; it adds obligations and never removes one of the ste
 ## Reword mode (run R)
 
 Your brief says `run: R` and `mode: reword` and names a **bundle file** (written by
-`reviews.py reword-brief`). The statement was reviewed and decided CONFIRMED x2 (the
-**base pass**), and then its wording changed; the proof did not, or changed only in
+`reviews.py reword-brief`). The statement was reviewed and decided CONFIRMED x2, or
+confirmed by an earlier reword pass chained to such a pass (the **base pass**: the last
+confirmed one, #127), and then its wording changed; the proof did not, or changed only in
 wording. The human's rule (2026-10-12, T-0347): such a statement gets one informed reader,
 not a new proof check from scratch. You are that reader, and you are **not blind** to
 the base pass.
@@ -218,6 +219,8 @@ reword_scope: equivalent | weaker | covered | exceeds
 `statement_hash` is then the **new** statement's hash, as the bundle gives it. When the
 bundle also gives `base_subject: <ns:id>` (the statement's label was renamed, and the
 base pass is filed under the old id, T-0476), copy that line too, after `base_hash`.
+When it gives `root_pass` and `root_hash` (the base pass is itself a reword pass, #127:
+the chain's blind root), copy both lines too, after `base_hash` (and `base_subject`).
 
 In amend mode the block also carries, after `run: B`, the four lines the bundle gives:
 

@@ -51,9 +51,15 @@ Rules:
   superseded id. The grounds then name it as ``base_subject`` (a namespaced id; on the
   grounds and/or the rows, one value throughout), and :func:`check_verdict_refs`
   accepts base records whose ``subject`` is ``base_subject`` only when the claim being
-  changed lists that id in its ``supersedes`` (directly; not transitively). The reword
-  row's own record must still be about the claim, and must record the same
-  ``base_subject``;
+  changed lists that id in its ``supersedes``, directly or (#127, given the lookup)
+  through the records it supersedes. The reword row's own record must still be about
+  the claim, and must record the same ``base_subject``;
+* a reword **chain** (#127, the human's ruling of 2026-11-27: "rewording in general
+  should have the previous confirmed statement as reference"): the blind root's two
+  CONFIRMED rows on one hash, then reword rows each CONFIRMED with a carrying scope,
+  the first resting on the root's hash and each next one on the hash the previous link
+  confirmed, the last on the claim's current hash (:func:`reword_chain`); a missing,
+  forked or non-confirmed link, or a GAP or ``exceeds`` link, is refused;
 * computation: one commit hash for all, the validation case passed, and ``outcome``
   matching the target (supports -> supported, refutes -> refuted*).
 
@@ -102,6 +108,33 @@ def is_reword(d):
     return isinstance(d, dict) and str(d.get("mode") or "").strip().lower() == "reword"
 
 
+def _h(d, k="statement_hash"):
+    return str((d or {}).get(k) or "").strip()
+
+
+def reword_chain(rows):
+    """``(root, chain, left)`` of the rows of reword grounds (#127): ``root`` the one
+    statement hash of the blind rows ('' when they give none or several), ``chain`` the
+    reword rows in order from the root (each one's ``base_hash`` the previous link's
+    ``statement_hash``, the first's the root), ``left`` the reword rows the walk did not
+    reach (a broken or forked chain)."""
+    hashes = {_h(r) for r in rows if not is_reword(r)}
+    root = hashes.pop() if len(hashes) == 1 else ""
+    left = [r for r in rows if is_reword(r)]
+    chain, cur, seen = [], root, {root}
+    while cur and left:
+        nxt = [r for r in left if _h(r, "base_hash") == cur]
+        if len(nxt) != 1:
+            break
+        chain.append(nxt[0])
+        left.remove(nxt[0])
+        cur = _h(nxt[0])
+        if not cur or cur in seen:
+            break
+        seen.add(cur)
+    return root, chain, left
+
+
 def reword_problems(new_status, grounds, rows, statement_hash=None):
     """Why reword grounds do not carry ``new_status`` (empty when they do).
 
@@ -113,17 +146,30 @@ def reword_problems(new_status, grounds, rows, statement_hash=None):
     must be the claim's current one when it is known, and differ from ``base_hash``.
     Distinct run ids, roles, refs and ``modulo`` are checked by :func:`check_grounds`.
 
+    A chain (#127, the human's ruling of 2026-11-27: a reword has the previous confirmed
+    statement as reference): the blind root's two CONFIRMED rows on one hash, then
+    several reword rows, each CONFIRMED with a carrying scope, the first on the root's
+    hash, each next one's ``base_hash`` the previous link's ``statement_hash``
+    (:func:`reword_chain`), every reword row reached, the last on the claim's current
+    hash. ``grounds.base_hash`` is the last link's ``base_hash`` (the statement it was
+    checked against); ``grounds.root_hash``, when given, must be the blind rows' hash.
+
     ``base_subject`` (T-0476, a renamed record), when the grounds or any row name it,
-    must be one namespaced id, the same everywhere it is given; whether the claim
-    supersedes it is :func:`check_verdict_refs`' check (it knows the claim)."""
+    must be one namespaced id, the same everywhere it is given (on a chain each row names
+    its own); whether the claim supersedes it is :func:`check_verdict_refs`' check (it
+    knows the claim)."""
     probs = []
+    rw = [r for r in rows if is_reword(r)]
+    base = [r for r in rows if not is_reword(r)]
     named = [str(d.get("base_subject") or "").strip() for d in [grounds] + list(rows)
              if str(d.get("base_subject") or "").strip()]
-    if len(set(named)) > 1:
+    if len(rw) <= 1 and len(set(named)) > 1:
         probs.append("reword grounds name more than one base_subject (%s): the base pass "
                      "is filed under one id" % ", ".join(sorted(set(named))))
-    elif named and not RE_NS_ID.match(named[0]):
-        probs.append("base_subject %r is not a namespaced id (ns:id)" % named[0])
+    else:
+        for n in sorted(set(named)):
+            if not RE_NS_ID.match(n):
+                probs.append("base_subject %r is not a namespaced id (ns:id)" % n)
     if new_status not in ("proved", "proved-modulo"):
         probs.append("a reword review carries only proved / proved-modulo, not %r"
                      % new_status)
@@ -131,20 +177,49 @@ def reword_problems(new_status, grounds, rows, statement_hash=None):
     if not base_hash:
         probs.append("reword grounds need grounds.base_hash: the hash of the statement "
                      "the base pass reviewed")
-    rw = [r for r in rows if is_reword(r)]
-    base = [r for r in rows if not is_reword(r)]
-    if len(rw) != 1:
-        probs.append("reword grounds need exactly one reword verdict (mode: reword), "
-                     "%d given" % len(rw))
+    if not rw:
+        probs.append("reword grounds need at least one reword verdict (mode: reword), "
+                     "0 given")
     if len(base) < 2:
         probs.append("reword grounds need the base pass's two CONFIRMED verdicts on "
                      "base_hash, %d given" % len(base))
-    if base_hash and any(str(r.get("statement_hash") or "").strip() != base_hash
-                         for r in base):
-        probs.append("every base verdict must be given on base_hash %s (its own "
-                     "statement_hash)" % base_hash)
+    last = None
     if len(rw) == 1:
-        r = rw[0]
+        last = rw[0]
+        if base_hash and any(_h(r) != base_hash for r in base):
+            probs.append("every base verdict must be given on base_hash %s (its own "
+                         "statement_hash)" % base_hash)
+    elif len(rw) > 1:
+        root, chain, left = reword_chain(rows)
+        if not root:
+            probs.append("the blind verdicts under a reword chain must all be given on one "
+                         "statement hash, the blind root pass's")
+        elif left or not chain:
+            probs.append("the reword verdicts do not form one chain from the blind root's "
+                         "hash %s: %s (each link's base_hash must be the statement_hash the "
+                         "link before it confirmed)"
+                         % (root, ", ".join("%s on %s from %s"
+                                            % (r.get("run_id") or "?", _h(r) or "?",
+                                               _h(r, "base_hash") or "?")
+                                            for r in (left or rw))))
+        else:
+            last = chain[-1]
+            seen = [root] + [_h(r) for r in chain]
+            if len(set(seen)) != len(seen):
+                probs.append("the reword chain comes back to a wording it already "
+                             "confirmed (%s): that pass's own grounds apply"
+                             % " -> ".join(seen))
+            for r in chain[:-1]:
+                if str(r.get("reword_scope") or "").strip().lower() not in REWORD_SCOPES:
+                    probs.append("the reword link %s's reword_scope must be one of %s (got "
+                                 "%r)" % (r.get("run_id") or "?", ", ".join(REWORD_SCOPES),
+                                          r.get("reword_scope")))
+        rh = str(grounds.get("root_hash") or "").strip()
+        if root and rh and rh != root:
+            probs.append("grounds.root_hash %s is not the blind verdicts' hash %s"
+                         % (rh, root))
+    if last is not None:
+        r = last
         new = str(r.get("statement_hash") or grounds.get("statement_hash") or "").strip()
         given = str(grounds.get("statement_hash") or "").strip()
         if not new:
@@ -343,7 +418,34 @@ def _qualified(ids, ns):
     return out
 
 
-def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
+def supersedes_closure(claim_id, supersedes=(), supersedes_of=None, limit=64):
+    """The ids the claim supersedes, directly (``supersedes``, its own field) or, with
+    ``supersedes_of`` (id -> that record's ``supersedes``, or None when it cannot be
+    read), through the records it supersedes (a chain of renames, #127). Every entry is
+    also read in the namespace of the record that lists it (:func:`_qualified`)."""
+    ns_of = (lambda i: str(i).split(":", 1)[0] if ":" in str(i or "") else "")
+    out = set(_qualified(_ids(supersedes), ns_of(claim_id)))
+    out.discard(str(claim_id or ""))
+    if supersedes_of is None:
+        return out
+    todo, seen = sorted(out), set()
+    while todo and len(out) < limit:
+        cur = todo.pop(0)
+        if cur in seen:
+            continue
+        seen.add(cur)
+        try:
+            more = supersedes_of(cur)
+        except Exception:       # noqa: BLE001 -- an unreadable record ends its branch
+            more = None
+        for i in sorted(_qualified(_ids(more), ns_of(cur))):
+            if i not in out and i != str(claim_id or ""):
+                out.add(i)
+                todo.append(i)
+    return out
+
+
+def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=(), supersedes_of=None):
     """Problems (empty when fine) tying each verdict row of proof/computation ``grounds``
     to its review record on disk. ``resolve(ref)`` returns a path or None. Each record
     must exist and carry the row's ``verdict`` and ``run_id``; when it records them,
@@ -355,21 +457,29 @@ def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
     base row (not the reword row) whose ``base_subject`` (the row's, else the grounds')
     is the record's subject is accepted when ``supersedes`` -- the claim's own
     ``supersedes`` field, a scalar or a list, a bare entry read in the claim's
-    namespace -- lists that id. Once a base row is admitted so, the reword row's record
-    must record that same ``base_subject``."""
+    namespace -- lists that id, or (#127) when ``supersedes_of`` reaches it through the
+    records the claim supersedes (:func:`supersedes_closure`). Once a base row is
+    admitted so, the reword record resting on it (the one whose ``base_hash`` is that
+    row's hash) must record that same ``base_subject``, or be filed under it.
+
+    On a reword chain (#127) an earlier link's record (a reword row that is not the last
+    link) may be about such a superseded id too, on the same condition; each reword row
+    is compared with its own ``base_hash`` / ``base_pass`` (the grounds' stand in only
+    for the last link's)."""
     g = grounds or {}
     if g.get("basis") not in ("proof", "computation"):
         return []
     fit = PROOF_GRADERS if g["basis"] == "proof" else COMPUTATION_GRADERS
     sup = _ids(supersedes)
     claim_ns = str(claim_id or "").split(":", 1)[0] if ":" in str(claim_id or "") else ""
-    sup_full = _qualified(sup, claim_ns)
-    admitted = set()            # base_subjects through which a base row was admitted
+    sup_full = supersedes_closure(claim_id, supersedes, supersedes_of)
+    rows_all = [r for r in g.get("verdicts") or [] if isinstance(r, dict)]
+    many = sum(1 for r in rows_all if is_reword(r)) > 1
+    final_h = str(g.get("statement_hash") or "").strip()
+    admitted = []               # (base_subject, statement hash) of rows admitted so
     reword_recs = []            # (ref, record fields) of the reword rows
     probs = []
-    for r in g.get("verdicts") or []:
-        if not isinstance(r, dict):
-            continue
+    for r in rows_all:
         ref = str(r.get("ref") or "").strip()
         if not ref:
             continue            # check_grounds reports it
@@ -391,21 +501,34 @@ def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
         if f["run_id"] != str(r.get("run_id") or "").strip():
             probs.append("review record %s is run %s, the grounds say %s"
                          % (ref, f["run_id"], r.get("run_id")))
+        # the last link of a chain is the reword row on the grounds' statement hash
+        last = is_reword(r) and (not many or _h(r) == final_h)
         subj = f.get("subject")
         if claim_id and subj:
             want = {str(claim_id), str(claim_id).split(":", 1)[-1]}
             if subj not in want and subj.split(":", 1)[-1] not in want:
                 bs = str(r.get("base_subject") or g.get("base_subject") or "").strip()
-                if g.get("basis") == "proof" and is_reword(g) and not is_reword(r) \
-                        and bs and bs in _qualified([subj], claim_ns):
+                proof_rw = g.get("basis") == "proof" and is_reword(g)
+                if proof_rw and not is_reword(r) and bs \
+                        and bs in _qualified([subj], claim_ns):
                     if bs in sup_full:
-                        admitted.add(bs)
+                        admitted.append((bs, _h(r) or _h(f)))
                     else:
                         probs.append("review record %s is about base_subject %s, which "
                                      "%s does not list in supersedes (%s): a base pass "
                                      "of another record counts only for the record that "
                                      "supersedes it" % (ref, bs, claim_id,
                                                         ", ".join(sup) or "none"))
+                elif proof_rw and is_reword(r) and many and not last:
+                    # an earlier link filed under a superseded id (#127)
+                    q = _qualified([subj], claim_ns)
+                    hit = sorted(q & sup_full)
+                    if hit:
+                        admitted.append((hit[0], _h(r) or _h(f)))
+                    else:
+                        probs.append("review record %s (a link of the reword chain) is "
+                                     "about %s, which %s does not supersede (%s)"
+                                     % (ref, subj, claim_id, ", ".join(sup) or "none"))
                 else:
                     probs.append("review record %s is about %s, not %s"
                                  % (ref, subj, claim_id))
@@ -420,9 +543,10 @@ def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
         elif is_reword(r):
             reword_recs.append((ref, f))
             # the record must carry the reword run's own judgement and base, and they
-            # must be the row's (or the grounds')
+            # must be the row's (or, for the last link, the grounds')
             for k in ("base_hash", "reword_scope", "base_pass", "base_subject"):
-                want = str(r.get(k) or (g.get(k) if k != "reword_scope" else "") or "")
+                fb = g.get(k) if (k != "reword_scope" and last) else ""
+                want = str(r.get(k) or fb or "")
                 have = str(f.get(k) or "")
                 if not want:
                     continue
@@ -436,15 +560,22 @@ def check_verdict_refs(grounds, resolve, claim_id=None, supersedes=()):
         if who and who not in fit:
             probs.append("review record %s was written by %s, not a %s reviewer (%s)"
                          % (ref, who, g["basis"], " / ".join(fit)))
-    # a base pass of a superseded id counts only with a reword run that was told of it
-    for bs in sorted(admitted):
-        for ref, f in reword_recs:
+    # a base pass of a superseded id counts only with a reword run that was told of it:
+    # the reword record resting on the admitted row records it as base_subject, or (a
+    # chain link filed beside it) is about that id itself
+    for bs in sorted({b for b, _h0 in admitted}):
+        hashes = {h0 for b, h0 in admitted if b == bs}
+        resting = [(ref, f) for ref, f in reword_recs
+                   if not many or str(f.get("base_hash") or "").strip() in hashes]
+        for ref, f in resting:
             have = str(f.get("base_subject") or "").strip()
-            if have != bs:
-                probs.append("review record %s records %s, but the base rows stand on "
-                             "base_subject %s: the reword run must name the base pass's "
-                             "subject" % (ref, ("base_subject %s" % have) if have
-                                          else "no base_subject", bs))
+            if have == bs or (not have and bs in _qualified([f.get("subject") or ""],
+                                                            claim_ns) and many):
+                continue
+            probs.append("review record %s records %s, but the base rows stand on "
+                         "base_subject %s: the reword run must name the base pass's "
+                         "subject" % (ref, ("base_subject %s" % have) if have
+                                      else "no base_subject", bs))
     return probs
 
 

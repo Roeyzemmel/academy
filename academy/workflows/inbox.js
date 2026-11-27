@@ -734,11 +734,12 @@ async function handle(row, i) {
       // #85: a repair that reworded a reviewed statement files "Verify <claim> (reword of <pass>)"
       // (prove.js): reword mode over that base pass; any other title runs the blind pass
       const rw = /\(reword of (\d{4}-\d{2}-\d{2}(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?)\)/.exec(row.title || '')
-      const reword = rw && !/-reword$/.test(rw[1]) ? { mode: 'reword', base_pass: rw[1] } : {}
+      // #127: the base may be a confirmed reword pass (its chain ends in a blind pair)
+      const reword = rw ? { mode: 'reword', base_pass: rw[1] } : {}
       if (reword.mode) notes.push(`${row.id}: a reword verify over the base pass ${reword.base_pass} (from the title)`)
       const r = await workflow({ scriptPath: NESTED[rt.target] }, Object.assign({ models: await modelsMap(), nested: true, root: ROOT, claim, ticket: row.id }, reword))
       if (reword.mode && r && r.outcome === 'not-started') notes.push(`${row.id}: the reword pass over ${reword.base_pass} did not start (${r.reason || 'no reason given'}): ` +
-        `a reword ticket whose base pass is not CONFIRMED x2 needs a blind verify instead (the same ticket without "(reword of ...)" in its title)`)
+        `a reword ticket whose base pass (a blind pass, or a reword pass chained to one) is not CONFIRMED x2 needs a blind verify instead (the same ticket without "(reword of ...)" in its title)`)
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.proposed_status || '') : 'lost', nested: r }
     }
     const subject = firstRef(row, /^lab:\S+$/)

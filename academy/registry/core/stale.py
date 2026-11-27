@@ -26,8 +26,9 @@ this one) nothing is flagged.
 
 The reword ticket is filed only for a base pass the reword route accepts:
 ``reviews.base_decision`` (``base_records`` + ``decide`` on the base pass's ``A.md`` and
-``B.md``, never a relaunch file) must give ``confirmed`` / ``confirmed-modulo``; otherwise
-the claim is held and the reason says so.
+``B.md``, or on a reword base's ``R.md`` and its chain back to the blind root, never a
+relaunch file) must give ``confirmed`` / ``confirmed-modulo``; otherwise the claim is
+held and the reason says so.
 
 What follows from it:
 
@@ -38,15 +39,16 @@ What follows from it:
 * ``registry.py stale [--ns NS] [--section S] [--file-reword]`` lists them grouped by
   section and files one reword verify ticket per claim, titled
   ``Verify <claim> (reword of <base pass>)`` (the title the inbox passes to ``verify.js``
-  as ``mode: reword``, #85). The base pass is the last positive pass itself when it is
-  blind, else the base pass of that reword run (a reword is always checked against a
-  CONFIRMED x2 blind pass).
+  as ``mode: reword``, #85). The base pass is the last positive pass itself, blind or
+  reword (#127, the human's ruling of 2026-11-27: a reword has the previous confirmed
+  statement as reference; a reword base's chain ends in a CONFIRMED x2 blind pass).
 
 A stale claim is **held** (listed, never filed) when a later closed pass already
 reviewed the current statement without a positive outcome (it needs the human or a
-repair, not a reword), when a pass on it is still open, when its base pass name is
-not one the inbox reads, or when the base pass is filed under another id (a renamed
-record, T-0476: the title route passes no ``base_subject``). Nothing here reads the board; the command line does.
+repair, not a reword), when a pass on it is still open, or when its base pass name is
+not one the inbox reads. The base pass is always one of the claim's own passes, so the
+title route needs no ``base_subject`` (a renamed record's earlier passes are reached
+through the chain). Nothing here reads the board; the command line does.
 
 A ``proved`` / ``proved-modulo`` claim that has review passes but **no positive one** is
 reported too (kind ``unreviewed``): ``check`` warns "proved without a positive review
@@ -303,11 +305,19 @@ def positive(d):
 def reword_base_refusal(root, subject, base_pass):
     """Why the reword route would refuse ``base_pass`` of ``subject`` as its base ('' when
     it accepts it): the check of ``reviews.base_decision``, on the base pass's ``A.md``
-    and ``B.md``."""
+    and ``B.md``, or (#127) on a reword base's ``R.md`` with its chain."""
     dt = decision_table()
     d = subject_dir(root, subject) / base_pass
     try:
         a, b, notes = dt.base_records(None, base_pass, str(d))
+        if dt.is_link(a, b):
+            sub = a.get("_base") or (None, None, [])
+            res = dt.decide(a, None, base=sub[:2], base_notes=sub[2])
+            out = _outcome(res)
+            return "" if out.startswith("confirmed") else \
+                "the decision table gives %s on its R.md and its chain (%s)" % (
+                    out or "no outcome", "; ".join(res.get("anomalies") or []) or
+                    res.get("summary") or "no reason")
         if a is None or b is None:
             return "; ".join(notes) or "its runs A and B are missing"
         out = _outcome(dt.decide(a, b))
@@ -385,23 +395,19 @@ def find(store, root, only=None):
                 hold.append("the later pass %s reviewed the current statement and is not "
                             "positive: the human decides (a repair or a blind pass), not "
                             "a reword" % p["pass"])
-        base = last["base_pass"]
-        if not RE_BASE_PASS.match(base) or base.endswith("-reword"):
+        # #127: the next reword stands on the last positive pass itself, blind or reword
+        base = last["pass"]
+        if not RE_BASE_PASS.match(base):
             hold.append("the base pass %r is no name the inbox reads as a reword base: "
                         "file a blind verify" % base)
         else:
-            why = reword_base_refusal(root, last["base_subject"] or rec.qid, base)
+            why = reword_base_refusal(root, rec.qid, base)
             if why:
                 hold.append("the reword route (reviews.base_decision) would refuse the base "
                             "pass %s: %s; a blind verify instead" % (base, why))
-        if last["base_subject"] and last["base_subject"] != rec.qid:
-            hold.append("a renamed record: its base pass %s is filed under %s, which the "
-                        "inbox's reword title cannot pass on; run the reword pass by hand "
-                        "(/expert:verify, mode reword, base_subject %s)"
-                        % (base, last["base_subject"], last["base_subject"]))
         out.append(dict(base_item, **{
             "kind": "stale", "hash": h, "pass": last["pass"], "pass_hash": last["hash"],
-            "mode": last["mode"], "base_pass": base, "base_subject": last["base_subject"],
+            "mode": last["mode"], "base_pass": base, "base_subject": "",
             "hold": "; ".join(hold)}))
     out.sort(key=lambda i: (i["section"], i["qid"]))
     return out
@@ -426,8 +432,8 @@ def ticket_title(qid, base_pass):
 
 def ticket_ask(item):
     via = "" if item["mode"] == "blind" else \
-        " (its last positive pass is the reword pass %s, on hash %s)" % (item["pass"],
-                                                                         item["pass_hash"])
+        (" (its last positive pass is the reword pass %s, on hash %s: the new reword is "
+         "checked against the wording it confirmed)" % (item["pass"], item["pass_hash"]))
     sub = (" The base pass is filed under %s (base_subject)." % item["base_subject"]) \
         if item["base_subject"] else ""
     return ("Reword review of %s (mode reword, base_pass %s): its statement changed after "

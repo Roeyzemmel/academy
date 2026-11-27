@@ -212,12 +212,51 @@ class TestFind(StaleHomes):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["pass"], "2026-11-03-T-0005-reword")
         self.assertEqual(items[0]["pass_hash"], h1)
-        # a reword's base is always a blind CONFIRMED x2 pass, never a reword pass
-        self.assertEqual(items[0]["base_pass"], "2026-11-01-T-0001")
+        # #127: the next reword goes back to the last confirmed pass, here the reword
+        self.assertEqual(items[0]["base_pass"], "2026-11-03-T-0005-reword")
+        self.assertEqual(items[0]["hold"], "")
+        self.assertIn("(reword of 2026-11-03-T-0005-reword)",
+                      stale.ticket_title(items[0]["qid"], items[0]["base_pass"]))
+        self.assertTrue(INBOX_RE.search(stale.ticket_title(items[0]["qid"],
+                                                           items[0]["base_pass"])))
 
-    def test_a_renamed_record_is_held(self):
-        # T-0476: the base pass is filed under the superseded id; the title route the
-        # inbox reads passes no base_subject, so no ticket is filed for it
+    def test_a_three_link_chain_takes_the_last_reword_as_base(self):
+        """#127: blind -> reword -> reword, then a third change: the base is the second
+        reword; a broken chain (the first reword not confirmed) holds the claim."""
+        self.claim("prop:foo")
+        h0 = self.hash_of("prop:foo")
+        self.blind_pass("prop:foo", "2026-11-01-T-0001", h0)
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        h1 = self.hash_of("prop:foo")
+        d1 = self.reword_pass("prop:foo", "2026-11-03-T-0005-reword", "2026-11-01-T-0001",
+                              h0, h1)
+        self.tex["a.tex"] = self.tex["a.tex"].replace("very fine", "quite fine")
+        self._write_tex()
+        h2 = self.hash_of("prop:foo")
+        self.run_record("prop:foo", "2026-11-05-T-0007-reword", "R", h2,
+                        extra="mode: reword\nbase_pass: 2026-11-03-T-0005-reword\n"
+                              "base_hash: %s\nreword_scope: equivalent\n" % h1,
+                        run_id="rv-20261105-000001-r2")
+        write(self.lib / "reviews" / "paper" / "prop-foo" / "2026-11-05-T-0007-reword" /
+              "decision.md", "outcome `confirmed`\n")
+        self.assertEqual(self.found(), [])          # the second reword landed
+        self.tex["a.tex"] = self.tex["a.tex"].replace("quite fine", "rather fine")
+        self._write_tex()
+        items = self.found()
+        self.assertEqual([(i["pass"], i["base_pass"], i["pass_hash"], i["hold"])
+                          for i in items],
+                         [("2026-11-05-T-0007-reword", "2026-11-05-T-0007-reword", h2, "")])
+        # the middle link turns out GAP: the second reword stands on nothing
+        r = (d1 / "R.md").read_text(encoding="utf-8")
+        (d1 / "R.md").write_text(r.replace("verdict: CONFIRMED", "verdict: GAP"),
+                                 encoding="utf-8")
+        items = self.found()
+        self.assertEqual([i["pass"] for i in items], ["2026-11-01-T-0001"])
+
+    def test_a_renamed_record_is_not_held(self):
+        # T-0476 / #127: the base pass is filed under the superseded id, but the claim's
+        # own last positive pass (the reword under the new id) is the next base, so the
+        # title route needs no base_subject
         self.claim("prop:foo")
         h0 = self.hash_of("prop:foo")
         self.blind_pass("prop:old", "2026-11-01-T-0001", h0)     # under the old id
@@ -232,8 +271,8 @@ class TestFind(StaleHomes):
         self._write_tex()
         items = self.found()
         self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["base_subject"], "paper:prop:old")
-        self.assertIn("renamed record", items[0]["hold"])
+        self.assertEqual((items[0]["base_pass"], items[0]["base_subject"], items[0]["hold"]),
+                         ("2026-11-03-T-0005-reword", "", ""))
 
     def test_a_reword_run_outside_the_scopes_is_not_positive(self):
         self.claim("prop:foo")

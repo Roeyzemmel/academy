@@ -10,7 +10,8 @@
     py reviews.py new-pass SUBJECT --reword-of BASE [--ticket T-NNNN]
                                                       open a reword pass (T-0347) on a
                                                       statement reworded after BASE, a
-                                                      CONFIRMED x2 pass; name ends -reword
+                                                      CONFIRMED x2 pass or a confirmed
+                                                      reword pass (#127); name ends -reword
     py reviews.py new-pass SUBJECT --reword-of BASE --base-subject OLD_ID [--ticket T-NNNN]
                                                       the same, on a renamed record whose
                                                       base pass is filed under OLD_ID, an
@@ -41,7 +42,15 @@ pass decided CONFIRMED x2 gets one informed run, not a new blind pair. ``new-pas
 --reword-of BASE`` refuses unless BASE (a pass of the same subject) holds runs A and B
 whose decision table gives ``confirmed`` / ``confirmed-modulo`` and is not abandoned; it
 opens ``<date>-<ticket>-reword`` and notes ``reword_of`` and ``base_hash`` in its
-``.open`` note. ``reword-brief`` checks the old statement against ``base_hash`` and the
+``.open`` note.
+
+**A reword on a reword** (#127, the human's ruling of 2026-11-27: "rewording in general
+should have the previous confirmed statement as reference"). BASE may also be a reword
+pass whose run R the decision table confirms on its own chain, which must end in a
+blind CONFIRMED x2 pass (``base_decision``). The old statement is then the wording that
+R confirmed (its ``statement_hash`` is the new pass's ``base_hash``), so the word diff is
+the last step only; the ``.open`` note adds ``root_pass``, ``root_hash`` and ``chain``,
+and the bundle gives R the ``root_pass`` / ``root_hash`` lines to copy. ``reword-brief`` checks the old statement against ``base_hash`` and the
 new one against it (it must differ), and writes the bundle the reword run reads: the
 brief's fields (``run: R``, ``mode: reword``, ``base_pass``, ``base_hash``, the new
 ``statement_hash``), both statements, a word diff, the base pass's ``decision.md`` and
@@ -54,8 +63,9 @@ rewording, given one reword run). The record's id is its label, so a rename make
 record that ``supersedes`` the old id, while the CONFIRMED x2 base pass stays in the old
 id's folder. ``new-pass SUBJECT --reword-of BASE --base-subject OLD_ID`` reads the base
 pass under ``OLD_ID``'s folder, and refuses unless ``OLD_ID`` is namespaced and
-SUBJECT's current registry record lists it in ``supersedes`` (directly; read through the
-registry engine, so an unreadable record refuses too). The pass itself is opened under
+SUBJECT's current registry record supersedes it, directly or through the records it
+supersedes (a chain of renames, #127; read through the registry engine, so an unreadable
+record refuses too). The pass itself is opened under
 SUBJECT, and its ``.open`` note records ``base_subject``; ``reword-brief`` reads the base
 from there and tells run R to copy ``base_subject: OLD_ID`` into its VERDICT block, which
 ``land_verdict.py`` keeps and ``decision_table.py`` follows.
@@ -145,9 +155,24 @@ def base_decision(home, subject, base):
     """``(A, B, result)`` of the base pass ``base`` of ``subject`` (for a renamed record,
     ``subject`` is the base_subject, the superseded id): its run records and its
     decision table. Raises Refused unless it is a CONFIRMED x2 pass (``confirmed`` /
-    ``confirmed-modulo``), present and not abandoned."""
+    ``confirmed-modulo``), present and not abandoned, or (#127, the human's ruling of
+    2026-11-27: a reword has the previous confirmed statement as reference) a reword pass
+    whose run R the table confirms on its own chain back to a blind CONFIRMED x2 pass;
+    then ``(R, None, result)``, ``result`` carrying ``chain``, ``root_pass`` and
+    ``root_hash``. Either way ``A["statement_hash"]`` is the hash the base confirmed."""
     d = pass_dir(home, subject, base)
     a, b, notes = dt.base_records(None, base, d)
+    if dt.is_link(a, b):
+        sub = a.get("_base") or (None, None, [])
+        res = dt.decide(a, None, base=sub[:2], base_notes=sub[2])
+        if res["outcome"] not in ("confirmed", "confirmed-modulo"):
+            why = "; ".join(x for x in res.get("anomalies") or [] if x) or res["summary"]
+            raise Refused("the base pass %s of %s is a reword pass its decision table does "
+                          "not confirm (it gives %s: %s): a reword stands only on a "
+                          "confirmed pass whose chain ends in a CONFIRMED x2 blind pass; "
+                          "run a full blind pass instead" % (base, subject, res["outcome"],
+                                                            why))
+        return a, None, res
     if a is None or b is None:
         raise Refused("the base pass %s of %s cannot carry a reword: %s"
                       % (base, subject, "; ".join(notes) or "its runs A and B are missing"))
@@ -157,6 +182,16 @@ def base_decision(home, subject, base):
                       "reword needs a confirmed base; run a full blind pass instead"
                       % (base, subject, res["outcome"]))
     return a, b, res
+
+
+def base_chain(res, base, base_hash):
+    """``(chain, root_pass, root_hash)`` of a base pass's decision ``res`` (from
+    ``base_decision``): the passes from the blind root to ``base``; for a blind base,
+    ``base`` alone."""
+    chain = list(res.get("chain") or [])
+    if chain and res.get("mode") == "reword":
+        return chain + [base], res.get("root_pass") or chain[0], res.get("root_hash") or ""
+    return [base], base, base_hash
 
 
 def _registry_store(ns):
@@ -238,27 +273,58 @@ def registry_statement(subject):
     return text, h
 
 
+def supersedes_closure(subject, supersedes_of=None, limit=64):
+    """The ids ``subject``'s record supersedes, directly or through the records it
+    supersedes (a chain of renames), each read as given and in the superseding record's
+    namespace (a bare ``lem:x`` in a paper record is ``paper:lem:x``). None when
+    ``subject``'s own record cannot be read; a superseded record that cannot be read
+    ends its branch. ``supersedes_of`` (id -> list or None) replaces the registry
+    lookup."""
+    look = supersedes_of or registry_supersedes
+    first = look(subject)
+    if first is None:
+        return None
+    out, todo, sup = set(), [], first
+    cur = subject
+    while True:
+        ns = split_subject(cur)[0]
+        for x in sup or []:
+            x = str(x or "").strip()
+            for q in {x} | ({"%s:%s" % (ns, x)} if ns and not x.startswith(ns + ":")
+                           else set()):
+                if q and q != subject and q not in out:
+                    out.add(q)
+                    todo.append(q)
+        if not todo or len(out) >= limit:
+            return out
+        cur = todo.pop(0)
+        try:
+            sup = look(cur)
+        except Exception:        # an unreadable superseded record ends its branch
+            sup = None
+
+
 def check_base_subject(subject, base_subject, supersedes_of=None):
-    """Refused unless ``base_subject`` is a namespaced id that ``subject``'s record lists
-    in ``supersedes`` (T-0476). ``supersedes_of`` (subject -> list or None) replaces the
+    """Refused unless ``base_subject`` is a namespaced id that ``subject``'s record
+    supersedes (T-0476), directly or through a chain of renames (#127,
+    ``supersedes_closure``). ``supersedes_of`` (subject -> list or None) replaces the
     registry lookup."""
     if not split_subject(base_subject)[0]:
         raise Refused("--base-subject %r is not a namespaced id (ns:id): the id "
                       "the base pass is filed under" % base_subject)
     if base_subject == subject:
         return
-    sup = (supersedes_of or registry_supersedes)(subject)
-    if sup is None:
+    full = supersedes_closure(subject, supersedes_of)
+    if full is None:
         raise Refused("cannot read %s's registry record, so its supersedes cannot be "
                       "checked: a base pass of %s counts only for a record that "
                       "supersedes it" % (subject, base_subject))
-    ns = split_subject(subject)[0]
-    # a bare entry (``lem:x`` in a paper record) is read in the record's own namespace
-    full = set(sup) | set("%s:%s" % (ns, s) for s in sup if not s.startswith(ns + ":"))
     if base_subject not in full:
-        raise Refused("%s's record does not list %s in supersedes (it lists %s): a base "
-                      "pass filed under another id counts only for the record that "
-                      "supersedes it" % (subject, base_subject, ", ".join(sup) or "none"))
+        sup = (supersedes_of or registry_supersedes)(subject) or []
+        raise Refused("%s's record does not supersede %s, directly or through the records "
+                      "it supersedes (it lists %s): a base pass filed under another id "
+                      "counts only for the record that supersedes it"
+                      % (subject, base_subject, ", ".join(sup) or "none"))
 
 
 def open_pass(home, subject, ticket=None, now=None, reword_of=None, base_subject=None,
@@ -267,19 +333,24 @@ def open_pass(home, subject, ticket=None, now=None, reword_of=None, base_subject
     is already open (a rerun of the same step), and the name of the subject's one open
     pass when it was opened for the same ``ticket`` (a rerun on another day, #89).
     Raises Refused while another pass on the subject is open. ``reword_of`` opens a reword pass on that base pass (T-0347);
-    refused unless the base is CONFIRMED x2 (``base_decision``). ``base_subject``
+    refused unless the base is CONFIRMED x2, or a confirmed reword pass chained to one
+    (#127; ``base_decision``). The ``.open`` note records ``reword_of``, ``base_hash``
+    (the hash the base confirmed), the chain's ``root_pass`` / ``root_hash`` and
+    ``chain`` (root first). ``base_subject``
     (T-0476) reads the base pass under that id instead, refused unless ``subject``'s
     record supersedes it (``check_base_subject``)."""
     name = new_pass(ticket, now)
     base_hash = None
+    chain = None
     if base_subject and not reword_of:
         raise Refused("--base-subject names where a reword's base pass is filed: give "
                       "--reword-of <base pass> too")
     if reword_of:
         if base_subject:
             check_base_subject(subject, base_subject, supersedes_of)
-        a, _b, _res = base_decision(home, base_subject or subject, reword_of)
+        a, _b, res = base_decision(home, base_subject or subject, reword_of)
         base_hash = a.get("statement_hash") or ""
+        chain = base_chain(res, reword_of, base_hash)
         name += REWORD_SUFFIX
     others = [p for p in open_passes(home, subject) if p != name]
     mine = [p for p in others if ticket and _pass_ticket(home, subject, p) == ticket
@@ -301,6 +372,8 @@ def open_pass(home, subject, ticket=None, now=None, reword_of=None, base_subject
                                                 .strftime("%Y-%m-%d %H:%M")))
         if reword_of:
             fh.write("reword_of: %s\nbase_hash: %s\n" % (reword_of, base_hash))
+            fh.write("root_pass: %s\nroot_hash: %s\nchain: %s\n"
+                     % (chain[1], chain[2], " -> ".join(chain[0])))
         if base_subject:
             fh.write("base_subject: %s\n" % base_subject)
     return name
@@ -371,6 +444,7 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
     base_subject = note.get("base_subject") or ""
     a, b, res = base_decision(home, base_subject or subject, base)
     base_hash = a.get("statement_hash") or ""
+    chain, root_pass, root_hash = base_chain(res, base, base_hash)
     if current is not None:
         cur_text, cur_h = current(subject)
         if new_text is None:
@@ -408,7 +482,15 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
            "base_pass: %s" % base, "base_hash: %s" % base_hash]
     if base_subject:
         out.append("base_subject: %s" % base_subject)
+    if len(chain) > 1:
+        out += ["root_pass: %s" % root_pass, "root_hash: %s" % root_hash]
     out += ["statement_hash: %s" % new_h, "ticket: %s" % (ticket or "none"), "```", ""]
+    if len(chain) > 1:
+        out += ["The base pass is itself a reword pass (#127): it confirmed the wording "
+                "shown below as reviewed, and its chain goes back to the blind CONFIRMED "
+                "x2 pass %s (on %s): %s. The change to judge is only the last step, from "
+                "that confirmed wording to the statement now." % (root_pass, root_hash,
+                                                                  " -> ".join(chain)), ""]
     if base_subject:
         out += ["The statement's record supersedes %s (a renamed label): the base pass "
                 "was filed under that id, and reviewed the statement as it then read."
@@ -421,7 +503,8 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
             "", "## The change, word by word ([-removed-] {+added+})", "",
             word_diff(old_text, new_text), ""]
     sections = [("The base pass's decision", dec)] + \
-        [("The base pass's run %s" % r.get("run"), r.get("file")) for r in (a, b)]
+        [("The base pass's run %s" % r.get("run"), r.get("file")) for r in (a, b)
+         if r is not None]
     for title, path in sections:
         shown = str(path or "").replace("\\", "/")
         out += ["## %s (`%s`)" % (title, shown), ""]
@@ -545,7 +628,8 @@ def main(argv=None):
     n.add_argument("subject")
     n.add_argument("--ticket")
     n.add_argument("--reword-of", default=None,
-                   help="open a reword pass on this CONFIRMED x2 base pass (T-0347)")
+                   help="open a reword pass on this base pass: CONFIRMED x2 (T-0347), or a "
+                        "confirmed reword pass chained to one (#127)")
     n.add_argument("--base-subject", default=None,
                    help="with --reword-of: the id the base pass is filed under, when the "
                         "statement's label was renamed; SUBJECT's record must list it in "

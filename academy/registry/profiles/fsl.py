@@ -1013,6 +1013,17 @@ def find_claim(repo, cid):
     return p, root
 
 
+def _supersedes_of(repo, cid):
+    """The ``supersedes`` of the record ``cid`` of this repo (None when there is none or
+    it cannot be read): the next step of a chain of renames (#127)."""
+    try:
+        path, _root = find_claim(repo, cid)
+        rec = parse_text(path.read_text(encoding="utf-8"), path, fallback=False)
+    except Exception:           # noqa: BLE001 -- another namespace, or unreadable
+        return None
+    return rec.fields.get("supersedes")
+
+
 def statement_hash(repo, cid):
     ns, name = cid.split(":", 1)
     st = federation.store(ns, Path(repo))
@@ -1026,7 +1037,8 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     ``grounds`` is checked by :func:`core.grounds.check_grounds` (plan section 8) against
     the claim's current statement hash, and its review records by
     :func:`core.grounds.check_verdict_refs` against the claim and its ``supersedes``
-    (reword grounds whose base pass is filed under a superseded id, T-0476); ``evidence`` rows (``kind | ref | verdict |
+    (reword grounds whose base pass is filed under a superseded id, T-0476, directly or
+    through a chain of renames, #127); ``evidence`` rows (``kind | ref | verdict |
     note``) are appended first. Writes the status line and a history row (newest first)
     and nothing else. Refuses, leaving the file untouched, when the grounds fail or the
     result would not pass ``check``. Returns the old status."""
@@ -1047,7 +1059,8 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
         # a reword pass on a renamed record may stand on a base pass filed under an id
         # this record supersedes (T-0476): the record's own `supersedes` decides
         why = _grounds.check_verdict_refs(grounds, lambda ref: resolve_ref(ref, repo), cid,
-                                          supersedes=claim.fields.get("supersedes"))
+                                          supersedes=claim.fields.get("supersedes"),
+                                          supersedes_of=lambda i: _supersedes_of(repo, i))
         ok = not why
     if not ok:
         raise Refused("the grounds do not support %s -> %s:\n- %s"
