@@ -425,8 +425,10 @@ class InboxWorkflowTests(unittest.TestCase):
         res, a = args("Verify s1:GEO-3 (reword of 2026-11-01-T-0007)")
         self.assertEqual((a["claim"], a.get("mode"), a.get("base_pass")), ("s1:GEO-3", "reword", "2026-11-01-T-0007"))
         self.assertIn("reword", " ".join(res["notes"]))
-        for title in ("Verify s1:GEO-3", "Verify s1:GEO-3 (reword)", "Verify s1:GEO-3 (reword of the old text)",
-                      "Verify s1:GEO-3 (reword of 2026-11-01-T-0007-reword)"):
+        # #127: a confirmed reword pass is a base too (a reword on a reword)
+        res, a = args("Verify s1:GEO-3 (reword of 2026-11-01-T-0007-reword)")
+        self.assertEqual((a.get("mode"), a.get("base_pass")), ("reword", "2026-11-01-T-0007-reword"))
+        for title in ("Verify s1:GEO-3", "Verify s1:GEO-3 (reword)", "Verify s1:GEO-3 (reword of the old text)"):
             _res, a = args(title)
             self.assertNotIn("mode", a, title)
             self.assertNotIn("base_pass", a, title)

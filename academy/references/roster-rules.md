@@ -52,9 +52,13 @@ the ticket protocol is `docs/protocol.md`.
    unchanged or reworded only) needs one informed reword run instead of a new pair
    (the human's decision, 2026-10-12, T-0347): the base pass's two verdicts on the old hash plus a
    reword run CONFIRMED on the new hash, which saw the old and new statement and the
-   base pass and found the new wording covered by the proof, are the grounds. A reword
-   run is never one of a blind pair; when it finds the new wording claims more than
-   the proof gives, the statement takes a full blind pass.
+   base pass and found the new wording covered by the proof, are the grounds. The base is
+   the last confirmed pass (the human's ruling of 2026-11-27, #127: "rewording in general
+   should have the previous confirmed statement as reference"): a reword on a reword
+   checks the wording the earlier reword confirmed, and the grounds are the chain, each
+   link CONFIRMED on the hash the link before it confirmed, ending in the blind pair. A
+   reword run is never one of a blind pair; when it finds the new wording claims more
+   than the proof gives, the statement takes a full blind pass.
 5. **Only the status keeper changes a status** (`registry.statusKeeper`, default
    `claim-keeper`), and only with grounds, or on the human's word.
 6. **Only the human decides a packet.** Agents propose; `packets_decide` is

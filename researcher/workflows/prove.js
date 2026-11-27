@@ -211,7 +211,7 @@ const TICKET = { type: 'object', properties: { found: { type: 'boolean' }, to: {
 // a second one hashes the statement and that proof again. Nothing is required (#124): a
 // missing answer is unknown, and an unknown comparison files nothing and says how to check.
 const RECORD_BEFORE = { type: 'object', properties: {
-  confirmed_pass: { type: 'string', description: 'the claim\'s last pass (not a -reword pass) whose decision.md records confirmed or confirmed-modulo (reviews.py list <claim>), its name verbatim; else empty' },
+  confirmed_pass: { type: 'string', description: 'the claim\'s last pass (blind or -reword, #127) whose decision.md records confirmed or confirmed-modulo (reviews.py list <claim>), its name verbatim; else empty' },
   reviewed_proof: { type: 'string', description: 'the proof the claim\'s status rests on: the one that pass reviewed (its decision.md heading names it), else the record\'s proof: field; a path relative to the home' },
   reviewed_proof_hash: { type: 'string', description: 'the output of reviews.py hash --file <that file>, verbatim; empty when there is no such file' },
   proof: { type: 'string', description: 'the record\'s proof: field now, verbatim; else empty' } },
@@ -531,7 +531,7 @@ let recBefore = null
 if (recordCheck) {
   recBefore = await launch(STAGE('repair-before', [
     `This repair may edit the record of ${A.claim}: record what its status rests on now. Run \`${REVIEWS} list ${A.claim}\` (add --home <the library home, workspace_get> when it finds no reviews) ` +
-    'and read each pass\'s decision.md: confirmed_pass is the last pass, not one whose name ends in -reword, that records confirmed or confirmed-modulo (else empty). ' +
+    'and read each pass\'s decision.md: confirmed_pass is the last pass (a -reword pass included: a reword stands on the last confirmed pass, #127) that records confirmed or confirmed-modulo (else empty). ' +
     'reviewed_proof is the proof that pass reviewed (its decision.md heading names it), else the record\'s proof: field, as a path relative to the home; ' +
     `reviewed_proof_hash is the output of \`${REVIEWS} hash --file <home>/<reviewed_proof>\` (empty when there is no such file); proof is the record's proof: field now. Write nothing.`,
   ]), { label: 'repair before', phase: 'Attempt', agentType: CLERK, schema: RECORD_BEFORE, effort: 'low' })
@@ -753,7 +753,7 @@ async function recheckRecord() {
   const rhB = String(recBefore.reviewed_proof_hash || '').trim()
   const rhA = String(aft.reviewed_proof_hash || '').trim()
   const cp = String(recBefore.confirmed_pass || '').trim()
-  const base = RE_PASS.test(cp) && !/-reword$/.test(cp) ? cp : ''
+  const base = RE_PASS.test(cp) ? cp : ''
   if (cp && !base) out.notes.push(`the confirmed pass ${JSON.stringify(cp)} reported is no base pass name: no reword base`)
   // no reviewed proof named: with a confirmed pass a proof was reviewed and nothing was compared
   const proof = pBefore !== pAfter ? 'changed' : !reviewed ? (base ? 'unknown' : 'same') : !isHash(rhB) ? 'unknown' : rhA === rhB ? 'same' : 'changed'
