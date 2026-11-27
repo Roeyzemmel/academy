@@ -6,7 +6,6 @@ model: sonnet
 tier: medium
 effort: high
 fallback: opus
-maxTurns: 20
 skills: [academy:status-vocabulary, academy:honest-reporting]
 color: purple
 ---

@@ -51,6 +51,8 @@ MOVE = {"ok": True, "detail": ""}
 REPAIR_BEFORE = {"confirmed_pass": "2026-11-01-T-0007", "reviewed_proof": "proofs/GEO-3/attempt-1.md",
                  "reviewed_proof_hash": "aaaa1111bbbb", "proof": "proofs/GEO-3/attempt-1.md"}
 RELATED_NONE = {"related": [], "queries": ["registry.py find GEO"]}
+WAIVER_NONE = {"ok": True, "waived": False, "why": "no cowork on the ticket"}
+INPUTS_NONE = {"ok": True, "rows": []}
 
 
 def done(**kw):
@@ -70,6 +72,10 @@ class ProveTests(unittest.TestCase):
         # 2026-11-20: every run past the state stage has the related-statements clerk stage;
         # a plan that does not care gets an empty answer
         plan.setdefault("related", [RELATED_NONE])
+        # #126: the scoped-waiver stage (only before a falsifier would be filed) finds none, and
+        # the inputs stage (only for a complete attempt resting on unreviewed inputs) links none
+        plan.setdefault("waiver", [WAIVER_NONE])
+        plan.setdefault("inputs", [INPUTS_NONE])
         d = tempfile.mkdtemp(prefix="acad-pv-")
         self.addCleanup(shutil.rmtree, d, True)
         h = os.path.join(d, "h.js")
@@ -449,6 +455,29 @@ class ProveTests(unittest.TestCase):
         self.assertEqual(res["outcome"], "attempt-incomplete")
         self.assertNotIn("file verify", labels)
 
+    def test_an_incomplete_attempt_marks_the_ticket_partial_never_delivered(self):
+        """#100 part 1: the work done, the deliverable not met."""
+        res, labels, calls = self.run_wf({
+            "state": [state()], "attempt path": [{"path": "p.md"}], "attempt": ["x"],
+            "outcome": [{"exists": True, "outcome": "incomplete", "gaps": ["step 3"], "objects": []}],
+            "close": [MOVE]})
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        p = next(c for c in calls if c["label"] == "close")["prompt"]
+        self.assertIn("status partial", p)
+        self.assertIn("never deliver: true", p)
+        self.assertIn("partial: attempt p.md incomplete", p)
+        self.assertTrue(res["ticket_partial"])
+        self.assertFalse(res["ticket_delivered"])
+        # a complete attempt is still delivered
+        res, labels, calls = self.run_wf({
+            "state": [state()], "attempt path": [{"path": "p.md"}], "attempt": ["x"],
+            "outcome": [done()], "file verify": [{"ticket": "T-0020", "proposal": "", "refusal": ""}],
+            "check verify": [{"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3"]}],
+            "close": [MOVE]})
+        p = next(c for c in calls if c["label"] == "close")["prompt"]
+        self.assertIn("deliver: true", p)
+        self.assertNotIn("status partial", p)
+
     def test_already_proved_and_a_bad_verify_ticket(self):
         res, labels, _ = self.run_wf({"state": [state(status="proved", repair=False)]})
         self.assertEqual(res["outcome"], "already-proved")
@@ -654,6 +683,22 @@ class RepairRecordTests(unittest.TestCase):
         self.assertNotIn("nothing filed for review", close)
         self.assertNotIn("ANOMALY", " ".join(res["notes"]))
 
+    def test_a_confirmed_reword_pass_is_the_reword_base(self):
+        """#127: the last confirmed pass may itself be a reword pass; the next reword
+        stands on it (its title names it, which the inbox reads as reword mode)."""
+        rp = "2026-11-05-T-0020-reword"
+        before = dict(self.BEFORE, confirmed_pass=rp)
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        check = dict(self.CHECK, title="Verify flat:GEO-3 (reword of %s)" % rp)
+        res, labels, calls = self.run_wf(self.plan(after, before=before, **{
+            "file record verify": [self.FILED], "check record verify": [check]}))
+        f = calls[labels.index("file record verify")]
+        self.assertIn("Verify flat:GEO-3 (reword of %s)" % rp, f["prompt"])
+        self.assertEqual(res["record_verify"], {"ticket": "T-0040", "mode": "reword",
+                                                "base_pass": rp})
+        self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+        self.assertIn("-reword pass included", calls[labels.index("repair before")]["prompt"])
+
     def test_a_changed_reviewed_proof_files_no_verify_and_says_the_status_is_stale(self):
         """Review of 62be9fa, point 2: after an incomplete attempt a changed proof would send an
         attempt the prover reported incomplete to a blind pass (a GAP, nothing gained). No
@@ -841,12 +886,177 @@ class FalsifierOnFailureTests(unittest.TestCase):
             self.assertIn("falsifier filed: T-0030", close)
             self.assertNotIn("ANOMALY", " ".join(res["notes"]))
 
-    def test_undeclared_dependencies_after_the_fix_round_file_one_too(self):
+    def test_undeclared_dependencies_after_the_fix_round_file_none(self):
+        """Was ..._file_one_too: #126 (the human, 2026-11-21): an undeclared dependencies list is
+        bookkeeping, nothing in doubt to test; the attempt stays incomplete and files no falsifier."""
         o = done(dependencies_declared=False)
-        res, labels, _c = self.run_wf(self.plan(o, **{"fix dependencies": ["fixed"], "outcome (after fix)": [o],
-                                                     "file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+        res, labels, _c = self.run_wf(self.plan(o, **{"fix dependencies": ["fixed"], "outcome (after fix)": [o]}))
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        self.assertNotIn("file falsifier", labels)
+        self.assertIn("only the dependencies list is undeclared", res["falsifier_skipped"])
+
+    # ---- #126 (the human, 2026-11-21): a falsifier only for an unclear fix or a new assumption ----
+
+    def gap(self, text, cls, tagged=True, rests_on=()):
+        return {"text": text, "class": cls, "tagged": tagged, "rests_on": list(rests_on)}
+
+    def test_each_gap_class(self):
+        files = {"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}
+        cases = [
+            ("fix-unclear", True), ("needs-assumption", True),
+            ("fix-known", False), ("not-a-gap", False)]
+        for cls, filed in cases:
+            o = done(outcome="partial", gaps=[self.gap("step 3", cls)])
+            res, labels, calls = self.run_wf(self.plan(o, **(files if filed else {})))
+            self.assertEqual("file falsifier" in labels, filed, cls)
+            if filed:
+                f = next(c for c in calls if c["label"] == "file falsifier")["prompt"]
+                self.assertIn("[%s] step 3" % cls, f)               # the target names the class
+            else:
+                self.assertIn("no falsifier filed", " ".join(res["notes"]), cls)
+        # a mixed list files one, aimed at the unclear gap only
+        o = done(outcome="partial", gaps=[self.gap("cite LMW16", "fix-known"), self.gap("the bound at slope 2", "needs-assumption")])
+        res, labels, calls = self.run_wf(self.plan(o, **files))
+        f = next(c for c in calls if c["label"] == "file falsifier")["prompt"]
+        self.assertIn("the bound at slope 2", f)
+        self.assertNotIn("cite LMW16", f)
+
+    def test_a_failed_attempt_still_files_one_whatever_its_gaps(self):
+        o = done(outcome="failed", gaps=[self.gap("the induction does not close", "fix-known", tagged=False)])
+        res, labels, _c = self.run_wf(self.plan(o, **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+        self.assertIn("file falsifier", labels)
+
+    def test_complete_modulo_declared_inputs_goes_to_verify_with_no_falsifier(self):
+        """FND-34's shape: "None in this attempt. The attempt rests on flat:FND-48, which is
+        unreviewed": a dependency on a declared input is not a gap; the verify ask names it."""
+        o = done(gaps=[self.gap("None in this attempt. The attempt rests on flat:FND-48, which is unreviewed", "fix-known",
+                                tagged=False, rests_on=["flat:FND-48"])],
+                 dependencies=["flat:FND-48", "flat:FND-21"], inputs_listed=["flat:FND-48", "flat:FND-21"])
+        plan = dict(ProveTests.COMPLETE, state=[state(attack_exists=False, **self.NONE)], outcome=[o])
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertNotIn("file falsifier", labels)
+        self.assertEqual(res["inputs_to_settle"], ["flat:FND-48"])
+        self.assertIn("complete modulo the unreviewed inputs flat:FND-48", next(c for c in calls if c["label"] == "file verify")["prompt"])
+        # resting on an input the attempt does not declare is a fix-known gap: incomplete, still no falsifier
+        o2 = dict(o, dependencies=["flat:FND-21"], inputs_listed=["flat:FND-21"])
+        res, labels, _c = self.run_wf(self.plan(o2))
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        self.assertNotIn("file falsifier", labels)
+
+    def test_the_five_cowork_attempts_file_no_falsifier(self):
+        """The 2026-11-20/21 flat-structures cowork (T-1807, T-1822, T-1831, T-1832, T-1834):
+        each Gaps section says there is none in the argument; graded only on unreviewed inputs."""
+        nones = ["None.", "None in the argument from its stated inputs.", "none",
+                 "No gaps.", "None in the argument from its stated inputs; flat:FND-40 is open."]
+        for t in nones:
+            for item in (t, self.gap(t, "not-a-gap", tagged=False)):    # a legacy string, and the clerk's reading
+                o = done(gaps=[item])
+                plan = dict(ProveTests.COMPLETE, state=[state(attack_exists=False, **self.NONE)], outcome=[o])
+                res, labels, _c = self.run_wf(plan)
+                self.assertNotIn("file falsifier", labels, item)
+                self.assertEqual(res["outcome"], "verify-filed", item)
+
+    def test_an_unclassed_legacy_gap_is_read_conservatively(self):
+        o = done(outcome="partial", gaps=["step 4: the cylinder bound fails for slope 2"])
+        res, labels, _c = self.run_wf(self.plan(o, **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+        self.assertIn("file falsifier", labels)
+
+    def test_a_template_only_attempt_is_lost_with_no_falsifier(self):
+        """T-1806: the prover returned the empty template (outcome in-progress)."""
+        for o in (done(template_only=True, outcome="complete"),
+                  done(outcome="in-progress", dependencies_declared=False)):
+            res, labels, _c = self.run_wf(self.plan(o))
+            self.assertEqual(res["outcome"], "lost", o)
+            self.assertNotIn("file falsifier", labels)
+            self.assertNotIn("close", labels)                          # not delivered
+            self.assertIn("template", res["reason"])
+
+    def test_a_sentence_that_starts_with_none_is_still_a_gap(self):
+        """Review of c4cde59, finding 1: only an item that as a whole says "no gap" is dropped."""
+        for t in ("None of the cases k>=3 is handled.", "No gap-free route for n=2 is known.",
+                  "None of the three sublemmas is proved; the bound is unclear.",
+                  # review of 00254bc: text after "in"/"from", and a tail clause that names no id
+                  "None in the family F_k for k>=3 has been checked.",
+                  "None in the argument from its stated inputs, except step 3, which is unproved",
+                  "None from the cylinder case onward is proved",
+                  "None; step 4 is open (no route known)",
+                  "none in the argument; step 4 is still open"):
+            for item in (t, self.gap(t, "fix-known", tagged=False)):
+                res, labels, _c = self.run_wf(self.plan(done(gaps=[item]), **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+                self.assertEqual(res["outcome"], "attempt-incomplete", item)
+                self.assertEqual(res["gaps"], [t], item)
+        # a class the prover tagged stands, even on a "None"-shaped text
+        res, labels, _c = self.run_wf(self.plan(done(gaps=[self.gap("None.", "fix-unclear")]),
+                                                **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
+        self.assertIn("file falsifier", labels)
+
+    def test_a_failed_attempt_with_only_why_it_fails_is_not_lost(self):
+        """Finding 2: a failed outcome is never read as the template, and files its falsifier."""
+        o = done(outcome="failed", template_only=True, dependencies_declared=False)
+        res, labels, _c = self.run_wf(self.plan(o, **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}))
         self.assertEqual(res["outcome"], "attempt-incomplete")
         self.assertIn("file falsifier", labels)
+        # an in-progress attempt that names inputs is a written attempt, not the template
+        o = done(outcome="in-progress", dependencies_declared=False, inputs_listed=["flat:GEO-2"])
+        res, labels, _c = self.run_wf(self.plan(o))
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        self.assertIn("close", labels)
+
+    def test_a_dependency_gap_on_an_undeclared_input_gets_the_fix_round(self):
+        """Finding 4: complete, dependencies: missing, the only gap resting on a listed input:
+        the fix round declares it and the attempt goes to verify."""
+        g = self.gap("rests on flat:FND-48, unreviewed", "fix-known", tagged=False, rests_on=["flat:FND-48"])
+        before = done(gaps=[g], dependencies_declared=False, dependencies=[], inputs_listed=["flat:FND-48"])
+        after = done(gaps=[g], dependencies=["flat:FND-48"], inputs_listed=["flat:FND-48"])
+        plan = dict(ProveTests.COMPLETE, state=[state(attack_exists=False, **self.NONE)], outcome=[before],
+                    **{"fix dependencies": ["fixed"], "outcome (after fix)": [after]})
+        res, labels, _c = self.run_wf(plan)
+        self.assertIn("fix dependencies", labels)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertNotIn("file falsifier", labels)
+
+    def test_a_none_item_naming_its_input_still_names_it_to_settle(self):
+        g = self.gap("None in this attempt; it rests on flat:FND-48, which is unreviewed", "not-a-gap", tagged=False, rests_on=["flat:FND-48"])
+        o = done(gaps=[g], dependencies=["flat:FND-48"], inputs_listed=["flat:FND-48"])
+        plan = dict(ProveTests.COMPLETE, state=[state(attack_exists=False, **self.NONE)], outcome=[o])
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertEqual(res["inputs_to_settle"], ["flat:FND-48"])
+
+    def test_the_amendment_path_under_the_rule(self):
+        """Finding 7: an incomplete amendment with fix-known gaps only stays blocked and files
+        none; complete modulo declared inputs is delivered; needs-assumption files one."""
+        amend = ProveTests.AMEND
+        o = done(outcome="partial", gaps=[self.gap("cite LMW16 Thm 11 by pinpoint", "fix-known")])
+        plan = dict(amend, outcome=[o], block=[MOVE]); plan.pop("close")
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "amendment-incomplete")
+        self.assertNotIn("file falsifier", labels)
+        self.assertEqual(labels[-1], "block")
+        o = done(gaps=[self.gap("rests on bib:LMW16#Thm11", "fix-known", rests_on=["bib:LMW16#Thm11"])],
+                 dependencies=["bib:LMW16#Thm11"], inputs_listed=["bib:LMW16#Thm11"])
+        res, labels, _c = self.run_wf(dict(amend, outcome=[o]))
+        self.assertEqual(res["outcome"], "amendment-delivered")
+        o = done(outcome="partial", gaps=[self.gap("needs k odd", "needs-assumption")])
+        plan = dict(amend, outcome=[o], block=[MOVE], **{"file falsifier": [self.FILED_F], "check falsifier": [self.CHECK_F]}); plan.pop("close")
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(labels[-3:], ["file falsifier", "check falsifier", "block"])
+
+    def test_the_result_line_names_the_inputs_when_only_dependencies_remain(self):
+        g = self.gap("rests on flat:FND-48", "fix-known", rests_on=["flat:FND-48"])
+        o = done(outcome="partial", gaps=[g], dependencies=["flat:FND-48"], inputs_listed=["flat:FND-48"])
+        res, labels, calls = self.run_wf(self.plan(o))
+        self.assertEqual(res["outcome"], "attempt-incomplete")
+        self.assertIn("none but the unreviewed inputs flat:FND-48", calls[-1]["prompt"])
+
+    def test_the_outcome_stage_asks_for_the_gap_classes(self):
+        _r, _l, calls = self.run_wf(self.plan(done(outcome="partial", gaps=[self.gap("g", "fix-known")])))
+        c = next(c for c in calls if c["label"] == "outcome")
+        for w in ("fix-known", "fix-unclear", "needs-assumption", "not-a-gap", "template_only", "rests_on"):
+            self.assertIn(w, c["prompt"])
+        self.assertEqual(c["schema"]["properties"]["gaps"]["items"]["properties"]["class"]["enum"],
+                         ["fix-known", "fix-unclear", "needs-assumption", "not-a-gap"])
 
     def test_a_bad_falsifier_ticket_is_an_anomaly_and_a_refusal_a_note(self):
         res, _l, _c = self.run_wf(self.plan(done(outcome="failed", gaps=["g"]), **{"file falsifier": [self.FILED_F],
@@ -956,3 +1166,92 @@ class ShipTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class ScopedWaiverAndInputsTests(unittest.TestCase):
+    """#126, points 4 and 2 (2026-11-27): a cowork- or config-scoped waiver of the human's
+    stops a falsifier; a complete attempt's unreviewed inputs get their own ticket or are
+    linked to the one open."""
+    run_wf = ProveTests.run_wf
+    plan = FalsifierOnFailureTests.plan
+    NONE = FalsifierOnFailureTests.NONE
+    FILES = {"file falsifier": [FalsifierOnFailureTests.FILED_F],
+             "check falsifier": [FalsifierOnFailureTests.CHECK_F]}
+    LINE = "- 2026-11-19 human: none of the flat-structure falsifiers for now"
+
+    def failed(self):
+        return done(outcome="failed", gaps=["step 4: the bound fails"])
+
+    def test_a_cowork_waiver_files_no_falsifier(self):
+        w = {"ok": True, "waived": True, "source": "cowork", "scope": "flat-structures", "line": self.LINE}
+        res, labels, calls = self.run_wf(self.plan(self.failed(), waiver=[w]))
+        self.assertIn("waiver", labels)
+        self.assertNotIn("file falsifier", labels)
+        self.assertIn("cowork flat-structures", res["falsifier_skipped"])
+        self.assertEqual(res["falsifier_waiver"]["line"], self.LINE)
+        w_call = next(c for c in calls if c["label"] == "waiver")["prompt"]
+        self.assertIn("prove_inputs.py waiver --claim flat:GEO-3 --ticket T-0010 --home /h/nb", w_call)
+
+    def test_a_waiver_without_the_human_line_or_source_does_not_count(self):
+        for w in ({"ok": True, "waived": True, "source": "cowork", "scope": "x",
+                   "line": "- 2026-11-19 human (via main session): no falsifiers"},
+                  {"ok": True, "waived": True, "source": "ticket", "scope": "x", "line": self.LINE},
+                  {"ok": False, "waived": False}):
+            res, labels, _c = self.run_wf(self.plan(self.failed(), waiver=[w], **self.FILES))
+            self.assertIn("file falsifier", labels, w)
+
+    def test_no_waiver_stage_when_no_falsifier_would_be_filed(self):
+        res, labels, _c = self.run_wf(dict(ProveTests.COMPLETE, state=[state(**self.NONE)]))
+        self.assertNotIn("waiver", labels)
+
+    def complete_on(self, *inputs):
+        gaps = [{"text": "None; it rests on %s, unreviewed" % i, "class": "fix-known", "tagged": False,
+                 "rests_on": [i]} for i in inputs]
+        o = done(gaps=gaps, dependencies=list(inputs), inputs_listed=list(inputs))
+        return dict(ProveTests.COMPLETE, state=[state(attack_exists=False, **self.NONE)], outcome=[o])
+
+    def test_inputs_get_a_verify_a_prove_or_a_link(self):
+        rows = [{"id": "flat:FND-48", "status": "sketch", "action": "verify", "to": "expert@t", "ticket": ""},
+                {"id": "flat:FND-49", "status": "open", "action": "prove", "to": "researcher@flat", "ticket": ""},
+                {"id": "flat:FND-50", "status": "sketch", "action": "link", "ticket": "T-0040", "to": ""},
+                {"id": "flat:FND-51", "status": "proved", "action": "none", "ticket": "", "to": ""}]
+        plan = self.complete_on("flat:FND-48", "flat:FND-49", "flat:FND-50", "flat:FND-51")
+        plan.update({"inputs": [{"ok": True, "rows": rows}],
+                     "file inputs": [{"filed": [{"id": "flat:FND-48", "ticket": "T-0041"},
+                                                {"id": "flat:FND-49", "ticket": "T-0042"}]}],
+                     "check inputs": [{"tickets": [
+                         {"id": "T-0041", "found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:FND-48", "flat:GEO-3"]},
+                         {"id": "T-0042", "found": True, "to": "researcher@flat", "kind": "prove", "refs": ["flat:FND-49"]}]}]})
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertEqual(labels[-4:], ["inputs", "file inputs", "check inputs", "close"])
+        f = next(c for c in calls if c["label"] == "file inputs")
+        self.assertEqual(f["agentType"], "researcher:lead-researcher")
+        self.assertIn('kind verify, title "Verify flat:FND-48"', f["prompt"])
+        self.assertIn('kind prove, title "Prove flat:FND-49"', f["prompt"])
+        self.assertNotIn("FND-50", f["prompt"])
+        self.assertNotIn("FND-51", f["prompt"])
+        self.assertEqual(sorted((t["id"], t["ticket"]) for t in res["input_tickets"]),
+                         [("flat:FND-48", "T-0041"), ("flat:FND-49", "T-0042"), ("flat:FND-50", "T-0040")])
+        self.assertIn("inputs: flat:FND-50 by T-0040", calls[-1]["prompt"])
+        self.assertNotIn("ANOMALY: the ticket", " ".join(res["notes"]))
+
+    def test_a_wrong_filed_ticket_is_an_anomaly_and_not_counted(self):
+        rows = [{"id": "flat:FND-48", "status": "sketch", "action": "verify", "to": "expert@t", "ticket": ""}]
+        plan = self.complete_on("flat:FND-48")
+        plan.update({"inputs": [{"ok": True, "rows": rows}],
+                     "file inputs": [{"filed": [{"id": "flat:FND-48", "ticket": "T-0041"}]}],
+                     "check inputs": [{"tickets": [{"id": "T-0041", "found": True, "to": "expert@t",
+                                                    "kind": "prove", "refs": ["flat:FND-48"]}]}]})
+        res, _labels, _c = self.run_wf(plan)
+        self.assertIn("ANOMALY: the ticket T-0041", " ".join(res["notes"]))
+        self.assertEqual(res["input_tickets"], [])
+
+    def test_only_links_need_no_filing_stage(self):
+        rows = [{"id": "flat:FND-48", "status": "sketch", "action": "link", "ticket": "T-0040", "to": ""}]
+        plan = self.complete_on("flat:FND-48")
+        plan["inputs"] = [{"ok": True, "rows": rows}]
+        res, labels, _c = self.run_wf(plan)
+        self.assertNotIn("file inputs", labels)
+        self.assertEqual(res["input_tickets"], [{"id": "flat:FND-48", "ticket": "T-0040", "action": "link"}])

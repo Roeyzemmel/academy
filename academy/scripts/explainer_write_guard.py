@@ -11,13 +11,20 @@ limit mechanical instead of a sentence in its prompt:
   ``<board>/deep-dives/`` (board from workspace.json) -> allowed;
 * anything else the explainer tries to write -> denied, with the reason.
 
-Every other caller passes silently (the explainer is the only agent this hook scopes).
+The ``secretary`` (also read-only) is scoped the same way (#86): its one output is its
+phrasing of a batch of pending decisions, ``batch-<n>.phrased.json`` next to the batch
+file ``decisions.py batches --out`` wrote (one result was lost in transit when it only
+returned it); it writes nothing else.
+
+Every other caller passes silently (the explainer and the secretary are the only agents
+this hook scopes).
 A hook bug never blocks an edit: a malformed event or an unreadable workspace is
 silence, except that the explainer is then denied, because it has no other file to
 write.
 """
 
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -37,9 +44,25 @@ def deep_dive_dir(ws=None):
     return os.path.join(os.path.abspath(ws["board"]), OUTPUT_DIR)
 
 
+SECRETARY = "secretary"
+RE_PHRASED = re.compile(r"^batch-\d+\.phrased\.json$")
+
+
+def _secretary(event):
+    path = ac.edited_path(event) or ""
+    if ac.tool_name(event) == "Write" and RE_PHRASED.match(os.path.basename(path)):
+        return None
+    return ("deny", "academy: the secretary is read-only and writes only its phrasing of a "
+                    "batch, batch-<n>.phrased.json next to the batch file it was given, "
+                    "with the Write tool (%s %s was refused)."
+                    % (ac.tool_name(event) or "?", path))
+
+
 def decide(event, ws=None):
     """``None`` or ``("deny", reason)`` for one PreToolUse event."""
     ns, bare = ac.agent_identity(event)
+    if bare == SECRETARY and ns in NAMESPACES:
+        return _secretary(event)
     if bare != AGENT or ns not in NAMESPACES:
         return None
     path = ac.edited_path(event)

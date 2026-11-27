@@ -99,6 +99,10 @@ CACHE_VERSION = 2          # 2: the cache holds asked_at (when its last read beg
 ID_MILESTONE = "id:"
 #: numbers tried, one after the other, before reserve_id gives up
 RESERVE_TRIES = 100
+#: the label of the status ``partial`` (#100 part 1), created at its first write
+PARTIAL_LABEL = "status:partial"
+PARTIAL_LABEL_COLOR = "fbca04"
+PARTIAL_LABEL_DESCRIPTION = "Work done, deliverable not met: the sender reopens, closes or cancels it"
 
 
 def slim(issue):
@@ -359,6 +363,22 @@ class GithubBoardStore(ac.BoardStore):
             return None
 
     # -- writing -------------------------------------------------------------
+    def _ensure_partial_label(self):
+        """Create the ``status:partial`` label on the repository at the first partial write
+        (#100 part 1: a status newer than the board's migration); idempotent: a label that
+        exists (422 ``already_exists``, or the mock's "already exists") is fine, and it is
+        tried once per store."""
+        if getattr(self, "_partial_label_done", False) or not hasattr(self.t, "create_label"):
+            return
+        try:
+            self.t.create_label(PARTIAL_LABEL, PARTIAL_LABEL_COLOR, PARTIAL_LABEL_DESCRIPTION)
+        except Exception as exc:                     # noqa: BLE001 -- the issue write decides
+            if "already" not in str(exc).lower():
+                # GitHub makes a missing label on the issue write itself (default colour)
+                sys.stderr.write("warning: could not create the label %s: %s\n"
+                                 % (PARTIAL_LABEL, exc))
+        self._partial_label_done = True
+
     def save(self, meta, body, ref=None, relocate=False):
         """Write a ticket into its issue. Order, so that a failure half way leaves a state
         a retry repairs: the thread comments first (an entry such as ``reopened:`` exists
@@ -407,6 +427,8 @@ class GithubBoardStore(ac.BoardStore):
                 self.t.remove_dependency(n, bc.ticket_number(w))
         want = {"title": e["title"], "body": e["body"], "labels": e["labels"],
                 "state": e["state"], "state_reason": e["state_reason"]}
+        if PARTIAL_LABEL in want["labels"]:
+            self._ensure_partial_label()
         have_issue = {"title": cur.get("title"), "body": bc.strip_footer(cur.get("body") or ""),
                       "labels": sorted(bc.label_names(cur.get("labels"))),
                       "state": cur.get("state"), "state_reason": cur.get("state_reason")}

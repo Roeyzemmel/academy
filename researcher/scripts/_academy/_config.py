@@ -417,6 +417,15 @@ def validate_author(block):
     ml = notes.get("maxLines")
     if ml is not None and not (isinstance(ml, int) and not isinstance(ml, bool) and ml >= 1):
         probs.append("author.notes.maxLines must be a positive integer")
+    lc = notes.get("lineChars")
+    if lc is not None and not (isinstance(lc, int) and not isinstance(lc, bool) and lc >= 1):
+        probs.append("author.notes.lineChars must be a positive integer")
+    ma = notes.get("maxAge")
+    if ma is not None and not (isinstance(ma, int) and not isinstance(ma, bool) and ma >= 0):
+        probs.append("author.notes.maxAge must be a non-negative integer (days; 0: never)")
+    for sub in ("enforce", "typed"):
+        if notes.get(sub) is not None and not isinstance(notes.get(sub), bool):
+            probs.append("author.notes.%s must be true or false" % sub)
     return probs
 
 

@@ -505,7 +505,9 @@ class ShipCheckpointHookTests(Board):
                              "expert@t": {"role": "expert", "home": self.ws + "/library",
                                           "domains": ["d"]},
                              "author@t": {"role": "author", "home": self.ws + "/a",
-                                          "domains": ["d"]}}}
+                                          "domains": ["d"]}},
+               # checkpoint tests: #100's artefact check has its own (test_delivery_artefacts)
+               "artefactCheck": False}
         doc.update(extra)
         with open(os.path.join(self.ws, "workspace.json"), "w") as f:
             json.dump(doc, f)
@@ -866,6 +868,27 @@ class ShipCheckpointHookTests(Board):
         self.assertEqual(self.check("T-0001", instance="expert@t")[0], 0)
         self.assertEqual(self.calls(), [])
         self.assertEqual(self.ledger(), [("a/references.bib", None)])
+
+    def lease(self, target, run_id, instances):
+        import socket
+        import time
+        d = os.path.join(self.ws, ".academy", "leases")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, target + ".json"), "w") as f:
+            json.dump({"target": target, "run": run_id, "pid": None, "host": socket.gethostname(),
+                       "started": time.time(), "heartbeat": time.time(), "instances": instances}, f)
+
+    def test_the_run_leasing_the_instances_home_is_passed_on(self):
+        # #102: the run names the checkpoint's branch (one per run); #96: its own leases
+        self.lease("library", "inbox-other-1", ["expert@t"])
+        self.put("T-0001", status="delivered")
+        self.check("T-0001")
+        self.assertNotIn("--run", self.calls()[0]["argv"])
+        self.lease("home", "inbox-mine-20261127T101010-abcd", [INST])
+        self.put("T-0002", status="delivered")
+        self.check("T-0002")
+        argv = self.calls()[1]["argv"]
+        self.assertEqual(argv[argv.index("--run") + 1], "inbox-mine-20261127T101010-abcd")
 
     def test_timeout_is_90_seconds(self):
         self.assertEqual(core.SHIP_TIMEOUT, 90)

@@ -11,7 +11,7 @@ import re
 
 from ._base import (
     BOARD_BACKENDS, ConfigError, HUMAN, PLUGINS, RE_INSTANCE, ROLES, _norm, _same_file,
-    env_home_name, repo_root)
+    env_home_name, repo_root, run_pin_source)
 from ._config import (
     DEFAULT_MIN_TIER, DEFAULT_MODEL_TIERS, DEFAULT_NAMED_PRIMARIES, DEFAULT_PRIMARY_MODELS,
     MODEL_RANK, TIERS, VERSIONLESS, _read_json)
@@ -90,7 +90,8 @@ def load_workspace(path=None):
     """Load workspace.json: ``{"instances": {...}, "board": ..., "human": {...}}``.
 
     Lookup order: ``path``; ``$ACADEMY_WORKSPACE``; ``<repo_root()>/workspace.json``;
-    ``<repo_root()>/../workspace.json`` (the academy checked out inside the workspace).
+    ``<repo_root()>/../workspace.json`` (the academy checked out inside the workspace);
+    for a workflow run's pinned code, the one beside the checkout it was pinned from.
     ``$ACADEMY_BOARD`` and ``$ACADEMY_HOME_<INSTANCE>`` override the file's ``board`` and
     instance homes, but only for the file ``$ACADEMY_ENV_WORKSPACE`` names (the one the
     workspace bootstrap derived them from), never for a fixture. Raises ConfigError if none is readable or the file is malformed.
@@ -98,6 +99,8 @@ def load_workspace(path=None):
     candidates = [path, os.environ.get("ACADEMY_WORKSPACE"),
                   os.path.join(repo_root(), "workspace.json"),
                   os.path.join(repo_root(), os.pardir, "workspace.json")]
+    if run_pin_source():           # a run's pinned code: the workspace of its checkout (#97)
+        candidates.append(os.path.join(run_pin_source(), os.pardir, "workspace.json"))
     chosen = next((c for c in candidates if c and os.path.isfile(c)), None)
     if not chosen:
         raise ConfigError("workspace.json not found" + (

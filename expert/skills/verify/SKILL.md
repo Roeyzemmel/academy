@@ -36,7 +36,9 @@ Pass no `model` override.
 
 **Reword mode** (`mode: "reword"`, T-0347): the statement's text changed after a pass that
 decided `confirmed` / `confirmed-modulo`, and the proof is unchanged or changed only in
-wording. One informed run R replaces the blind pair. Find the base with
+wording. One informed run R replaces the blind pair. The base is the last confirmed pass,
+blind or reword (#127: a reword on a reword compares the wording the earlier reword
+confirmed; the chain ends in a CONFIRMED x2 blind pass). Find it with
 `py ${CLAUDE_PLUGIN_ROOT}/scripts/reviews.py list <id>`; for a renamed label, give the old
 id as `base_subject` (T-0476). A verify ticket titled `Verify <claim> (reword of <pass>)`
 (the one `/researcher:prove` files when a repair reworded a reviewed statement, #85) is run

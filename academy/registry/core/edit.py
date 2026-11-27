@@ -9,8 +9,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .fm import FrontmatterError, format_list, format_scalar, parse_scalar, parse_value, \
-    _is_skippable
+from .fm import FrontmatterError, double_quote, format_list, format_scalar, needs_quotes, \
+    parse_scalar, parse_value, _is_skippable
 
 
 class Doc:
@@ -108,6 +108,24 @@ class Doc:
         self.insert(at, f"{key}:")
         for n, it in enumerate(items, 1):
             self.insert(at + n, f"  - {self.fmt(it)}")
+
+    def set_map(self, key, mapping, after=()):
+        """Make map field ``key`` exactly ``mapping`` (``{k: scalar or list}``, one
+        ``  k: value`` line each, in its order); an empty mapping drops it."""
+        at = None
+        i = self.find(key)
+        if i is not None:
+            at = i
+            self.remove(key)
+        if not mapping:
+            return
+        if at is None:
+            at = self._after(after)
+        self.insert(at, f"{key}:")
+        for n, (k, v) in enumerate(mapping.items(), 1):
+            kk = double_quote(k) if (needs_quotes(k) or ":" in k or "#" in k) else k
+            val = format_list(v) if isinstance(v, list) else self.fmt(v)
+            self.insert(at + n, f"  {kk}: {val}")
 
     def list_items(self, key):
         """The items of list field ``key`` as written (inline or block), or None."""

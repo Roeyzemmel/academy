@@ -151,6 +151,7 @@ const JOURNAL = { type: 'object', properties: { exists: { type: 'boolean' }, pat
 const TRIGGER = { type: 'object', properties: { exists: { type: 'boolean' }, kind: { type: 'string', enum: ['attempt', 'verdict', 'other'] },
   outcome: { type: 'string', description: 'an attempt: its frontmatter\'s outcome: field, verbatim; else empty' },
   gaps: { type: 'number', description: 'an attempt: how many gaps it lists' },
+  falsifying_gaps: { type: 'number', description: 'an attempt: how many of its Gaps items are fix-unclear or needs-assumption (#126: the item\'s tag, else your reading; resting on a registry statement is fix-known)' },
   verdict: { type: 'string', enum: ['CONFIRMED', 'PLAUSIBLE', 'GAP', 'DISPROVED', ''], description: 'a verify ticket or review: the verdict it reports; else empty' } },
   required: ['exists', 'kind', 'outcome', 'gaps', 'verdict'] }
 const REG = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code as printed by the shell' },
@@ -181,7 +182,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   const skipped = lines.find(l => /checkpoint not run/.test(l))
   const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
   const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
-    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : m && !/^(delivered|rejected|partial)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
     : bad ? { status: 'refused', detail: bad.trim() }
     : skipped ? { status: 'not-run', detail: skipped.trim() }
     : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
@@ -233,10 +234,11 @@ const lead = await launch(
   'or run /researcher:prove: make sure the item is a registry claim of this instance (a question that names none: register it with claims_new, status open, ' +
   'the statement as asked), write the prover brief in today\'s journal, file no ticket for the attempt, and return step prove with the claim id; ' +
   `the workflow hands /researcher:prove <claim>${T ? ' with ticket ' + T : ''} to the main session, which delivers ${T ? 'the ticket' : 'the attempt'}. ` +
-  'Only then falsify: an item whose attempt (proofs/<id>/attempt-<n>.md) failed or came back incomplete, or whose proof got a GAP verdict, and that has no ' +
+  'Only then falsify: an item whose attempt (proofs/<id>/attempt-<n>.md) failed, or came back incomplete with a gap whose fix is unclear or that needs a new hypothesis in the statement ' +
+  '(tagged [fix-unclear] or [needs-assumption]; never for [fix-known] gaps, an undeclared dependencies list, or an attempt complete modulo unreviewed inputs, #126), or whose proof got a GAP verdict, and that has no ' +
   'falsifier on record or pending, gets its smallest falsifier (you file the experiment ticket to the Scientist: a probe for one named example, a search for a family ' +
   'or a range, with the claim id, what refutes it, a validation case and the unsettled inputs), and after names that attempt or verify ticket; ' +
-  'never file a falsifier for an item with no failed or incomplete attempt and no GAP verdict. ' +
+  'never file a falsifier for an item with no such attempt and no GAP verdict. ' +
   'Update the direction\'s lists and today\'s journal (notebook.py journal --create); new questions or claims become unsettled objects. ' +
   'Return per item the step, the tickets filed, the objects made, the notebook files updated, the claim (step prove) and after (step falsify); ' +
   'your report, and what the next run would pick.',
@@ -258,6 +260,7 @@ const add = (k, x) => {
   if (x && !art[k].includes(x)) art[k].push(x)
 }
 const prove = []                      // {claim} | {claim, why}: the prove steps to hand back
+const incomplete = []                 // #100: items whose falsifier followed an attempt not complete
 for (const it of moved) {
   seen[it.item] = (seen[it.item] || 0) + 1
   if (seen[it.item] > 1) out.anomalies.push(`${it.item} was moved more than one step`)
@@ -289,16 +292,27 @@ for (const it of moved) {
     // never before an attempt: the attempt or verify ticket named in after must have failed, be incomplete, or carry a GAP
     const trig = String(it.after || '').trim()
     const tr = trig ? await clerk('trigger', [`Read ${trig} (an attempt file under the home, or a verify ticket with tickets_get): ` +
-      'whether it exists; for an attempt, its frontmatter\'s outcome: field verbatim and how many gaps it lists; for a verify ticket or review, the verdict it reports. Write nothing.'],
+      'whether it exists; for an attempt, its frontmatter\'s outcome: field verbatim, how many gaps it lists and how many of them are fix-unclear or needs-assumption (falsifying_gaps: the item\'s tag, else your reading; ' +
+      'resting on a registry statement is fix-known, "None" is no gap); for a verify ticket or review, the verdict it reports. Write nothing.'],
       TRIGGER, `trigger ${it.item}`, 'Check') : null
     if (trig && !tr) return Object.assign(out, { outcome: 'lost', reason: `the trigger check of ${it.item} returned nothing (a limit?): nothing further launched` })
-    const afterAttempt = !!tr && tr.exists && ((tr.kind === 'attempt' && !(tr.outcome === 'complete' && !(tr.gaps > 0))) || tr.verdict === 'GAP')
+    // #126: an attempt triggers one only when failed or with a fix-unclear / needs-assumption gap
+    // (a clerk answer without the count falls back to the gap count, read conservatively)
+    // a clerk answer without the count: read as none, with an anomaly for the human (the raw
+    // gap count would count a "None." item: review of c4cde59, finding 3)
+    const fKnown = typeof tr?.falsifying_gaps === 'number'
+    const fGaps = fKnown ? tr.falsifying_gaps : 0
+    if (tr && tr.exists && tr.kind === 'attempt' && !fKnown && tr.outcome !== 'failed') {
+      out.anomalies.push(`${it.item}: the trigger check of ${trig} did not report falsifying_gaps: read as none (#126); the human decides whether the falsifier stays`)
+    }
+    const afterAttempt = !!tr && tr.exists && ((tr.kind === 'attempt' && (tr.outcome === 'failed' || fGaps > 0)) || tr.verdict === 'GAP')
     if (!afterAttempt) {
-      out.anomalies.push(`${it.item}: a falsifier filed before an attempt (${trig ? trig + ' is no failed or incomplete attempt and no GAP verdict' : 'no attempt or GAP verdict named'}): ` +
+      out.anomalies.push(`${it.item}: a falsifier filed before an attempt (${trig ? trig + ' is no failed attempt, has no fix-unclear or needs-assumption gap (#126) and is no GAP verdict' : 'no attempt or GAP verdict named'}): ` +
         `${it.tickets.join(', ') || 'no ticket'}; the human decides whether it stays`)
       continue
     }
     if (!it.tickets.length) { out.anomalies.push(`${it.item}: a falsify step without an experiment ticket`); continue }
+    if (tr.kind === 'attempt') incomplete.push(`${it.item} (${trig} ${tr.outcome || 'without outcome'})`)
     for (const tid of it.tickets) {
       const t = await clerk('get', [`tickets_get ${tid} and return its to, kind and refs.`], TICKET, `get ${tid}`, 'Check')
       const short = it.item.split(':').pop()
@@ -346,8 +360,18 @@ if (prove.length) {
   if (out.artefacts.length) {
     const steps = moved.map(i => `${i.item}: ${i.step}`).join('; ')
     const result = `${steps || 'answered'}; artefacts: ${out.artefacts.join(', ')}`.replace(/"/g, "'").slice(0, 240)
-    const m = await clerk('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result}".`], MOVE, 'close', 'Check')
-    out.ticket_delivered = !!(m && m.ok)
+    if (incomplete.length) {
+      // #100 part 1: the attempt behind the falsifier is not complete: the work is done and
+      // the deliverable is not met, so the ticket goes partial (its sender decides), never delivered
+      const pr = `partial: attempt not complete for ${incomplete.join(', ')}; ${result}`.replace(/"/g, "'").slice(0, 240)
+      const m = await clerk('close', [`Mark ${T} partial (tickets_update status partial, never deliver: true) with result "${pr}".`], MOVE, 'close', 'Check')
+      out.ticket_partial = !!(m && m.ok)
+      out.ticket_delivered = false
+      out.outcome = 'partial'
+    } else {
+      const m = await clerk('close', [`Deliver ${T} (tickets_update deliver: true) with result "${result}".`], MOVE, 'close', 'Check')
+      out.ticket_delivered = !!(m && m.ok)
+    }
   } else {
     await clerk('note', [`Leave ${T} in-progress (make no status move) and append to its thread the note "explore: no artefact (no ticket filed, no direction item or object updated, ` +
       `no attempt): not delivered; ${oneLine(String(lead.report || '').split('\n')[0], 160)}".`], MOVE, 'note', 'Check')
@@ -357,6 +381,6 @@ if (prove.length) {
   }
 }
 if (!out.outcome) out.outcome = out.anomalies.length ? 'moved (with anomalies)' : 'moved'
-if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!out.ticket_delivered, instance: A.instance, topic: 'explore-' + (A.direction || ''),
+if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!(out.ticket_delivered || out.ticket_partial), instance: A.instance, topic: 'explore-' + (A.direction || ''),
   only: '<home submodule> board', agentType: CLERK, phase: 'Check', notes: out.notes })
 return out

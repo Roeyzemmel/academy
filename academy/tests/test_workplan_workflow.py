@@ -35,8 +35,9 @@ async function workflow(ref, a) {
 }
 const budget = { total: null, spent: () => 0, remaining: () => Infinity }
 const body = new Function('args', 'agent', 'phase', 'log', 'workflow', 'budget', 'return (async () => {' + src + '})()')
-// the max-tier launch models as the inbox passes them (T-1682); a test passes models: null to resolve them
-body(Object.assign({ models: { 'expert:rigor-reviewer': 'fable', 'expert:referee': 'fable', 'researcher:experiment-reviewer': 'fable', 'researcher:prover': 'fable' } }, plan.__args), agent, () => {}, () => {}, workflow, budget).then(
+// the max-tier launch models as the inbox passes them (T-1682); a test passes models: null to resolve them;
+// pin: false, the code pin (#97) has its own tests (test_workflow_code_pin.py)
+body(Object.assign({ models: { 'expert:rigor-reviewer': 'fable', 'expert:referee': 'fable', 'researcher:experiment-reviewer': 'fable', 'researcher:prover': 'fable' }, pin: false }, plan.__args), agent, () => {}, () => {}, workflow, budget).then(
   r => console.log(JSON.stringify({ result: r, calls })),
   e => console.log(JSON.stringify({ error: String(e), calls })))
 """

@@ -56,9 +56,11 @@ happen again.
    `budget.runs` is a note from its sender and gates nothing. (Before, the limit was a
    number guessed on each ticket when it was filed, 1 on 916 of 1201 tickets, and a route
    that needed more blocked its ticket on the human.)
-8. **Turn caps.** Agents that can wander carry `maxTurns`. A capped agent returns a
-   partial result: record what is unfinished and move on. Neither relaunch it nor
-   raise the cap. Graders whose verdict is worthless when cut off have no cap.
+8. **No turn caps** (the human, 2026-11-27, #129). No agent carries `maxTurns`; an
+   agent is bounded by its effort level, and a workflow by its stage count and its
+   lost-run handling. A run that still ends without a report (a usage limit, an API
+   error) is recorded as such: the inbox continues an empty writer result once and then
+   reports it unfinished.
 9. **Short briefs.** Point the agent at the ticket, packet or object id; it reads the
    files. Text pasted into a brief is paid again on every turn of the agent.
 

@@ -43,6 +43,41 @@ knowing beyond the obvious:
 
 Body: `## Statement`, `## Proof` (a one-line pointer to the `proof:` attempt), `## Notes`.
 
+**Structured records (optional, #127).** A statement with several conclusions may name
+its hypotheses and its items, so that each conclusion carries its own status, modulo
+and hash (a whole proposition is no longer held back by one item's inputs, and a
+reworded item invalidates only its own reviews). Two map fields:
+
+```
+hypotheses:
+  H1: "P is a rational polygon"        # its text, or the definition it uses
+  H2: DEF-4
+items:
+  C1: [proved]                         # [status, modulo input, ...]
+  C2: [proved-modulo, GEO-9]
+```
+
+and in `## Statement` one line per part, `**H1.** ...` / `**C1.** ...` (a `- ` bullet
+before it is allowed); a part runs to the next part's marker, a blank line or a heading.
+Every `items` key has its `**C<n>.**` line and every such line a key; the same for the
+hypotheses. The record's `status` is the one its items derive (every item `proved` ->
+`proved`; every item `proved` or `proved-modulo` -> `proved-modulo`, `modulo` the union
+of the items'; otherwise the weakest item status), and `registry.py check` refuses a
+mismatch. Each item's hash covers the hypotheses' texts and its own text:
+`registry.py statement ID --items` lists them (the whole-statement hash is unchanged).
+In the paper an item key is its `\label{it:KEY}` without the `it:` prefix, its text is
+the `\item` that carries the label, and the hypotheses' texts are the frontmatter's.
+The migration is lazy: a new or reworded claim takes the form; an old record keeps its
+own until it is next touched, when `registry.py structure ID` proposes the fields from
+its body (each item at the record's status) and `--write` adds them. It also reads the
+older forms: `(H1) ...` lines or bullets (usually under `**Hypotheses.**`) and the
+enumerated list (`1.`, `(1)`, `(a)`, `(i)`) of a `**Claim.**` block, whose items become
+C1, C2, ... in order (the proposal prints the original numbering to check); the item
+texts, and so their hashes, are the lines as written. A mix of forms, a hypothesis
+labelled like `(H3')`, a list out of order, or an equivalence ("the following are
+equivalent") is refused: restructure such a statement by hand. Never bulk-migrate.
+`steps:` (a Lamport-style proof outline) is not part of the form.
+
 **Verbatim bodies.** Text migrated from an older source keeps its old labels, its old
 status words, its old paths and its original numbering; inside such a block a bare
 "Prop. 1.6" means that block's own document, as named in `source`. Never reword it.

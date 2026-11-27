@@ -170,7 +170,16 @@ const FOR_VERIFY = { type: 'object', properties: { found: { type: 'boolean' }, k
   required: ['found', 'kind', 'refs', 'status', 'waiting_on', 'this_parent'] }
 const OUTCOME = { type: 'object', properties: {
   exists: { type: 'boolean' }, outcome: { type: 'string', description: 'the attempt frontmatter\'s outcome: field, verbatim' },
-  gaps: { type: 'array', items: { type: 'string' } }, objects: { type: 'array', items: { type: 'string' }, description: 'claims the attempt names (partial results)' },
+  // #126: each gap with its class, so the code files a falsifier only where the fix is unclear
+  // or the statement must gain a hypothesis (a legacy plain-string item is read as unclassed)
+  gaps: { type: 'array', items: { type: 'object', properties: {
+    text: { type: 'string', description: 'the item, verbatim' },
+    class: { type: 'string', enum: ['fix-known', 'fix-unclear', 'needs-assumption', 'not-a-gap'] },
+    tagged: { type: 'boolean', description: 'the class is written on the item in the file ([fix-known] ...); false when it is your reading' },
+    rests_on: { type: 'array', items: { type: 'string' }, description: 'the registry ids the item says the proof rests on, verbatim (else empty)' } },
+    required: ['text', 'class'] } },
+  template_only: { type: 'boolean', description: 'every section (Statement as attempted, Strategy, Proof, Inputs, Gaps, Why it fails) holds nothing but the template\'s comments (the prover wrote nothing)' },
+  objects: { type: 'array', items: { type: 'string' }, description: 'claims the attempt names (partial results)' },
   dependencies_declared: { type: 'boolean', description: 'the frontmatter has a dependencies: key (the code decides whether an empty list declares them)' },
   dependencies: { type: 'array', items: { type: 'string' }, description: 'the frontmatter\'s dependencies: items, verbatim, in order' },
   inputs_listed: { type: 'array', items: { type: 'string' }, description: 'the registry ids and bib:<key>#<pinpoint> citations named in its "## Inputs and their status" section, verbatim' },
@@ -202,7 +211,7 @@ const TICKET = { type: 'object', properties: { found: { type: 'boolean' }, to: {
 // a second one hashes the statement and that proof again. Nothing is required (#124): a
 // missing answer is unknown, and an unknown comparison files nothing and says how to check.
 const RECORD_BEFORE = { type: 'object', properties: {
-  confirmed_pass: { type: 'string', description: 'the claim\'s last pass (not a -reword pass) whose decision.md records confirmed or confirmed-modulo (reviews.py list <claim>), its name verbatim; else empty' },
+  confirmed_pass: { type: 'string', description: 'the claim\'s last pass (blind or -reword, #127) whose decision.md records confirmed or confirmed-modulo (reviews.py list <claim>), its name verbatim; else empty' },
   reviewed_proof: { type: 'string', description: 'the proof the claim\'s status rests on: the one that pass reviewed (its decision.md heading names it), else the record\'s proof: field; a path relative to the home' },
   reviewed_proof_hash: { type: 'string', description: 'the output of reviews.py hash --file <that file>, verbatim; empty when there is no such file' },
   proof: { type: 'string', description: 'the record\'s proof: field now, verbatim; else empty' } },
@@ -213,6 +222,18 @@ const RECORD_AFTER = { type: 'object', properties: {
   proof: { type: 'string', description: 'the record\'s proof: field now, verbatim; else empty' } },
   required: [] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok'] }
+// #126, points 2 and 4: what prove_inputs.py says (the script decides; the code checks)
+const WAIVER = { type: 'object', properties: { ok: { type: 'boolean' }, waived: { type: 'boolean' },
+  source: { type: 'string', description: 'cowork or config, verbatim from the script' }, scope: { type: 'string' },
+  line: { type: 'string', description: 'the human\'s line, verbatim from the script' }, why: { type: 'string' } }, required: ['ok', 'waived'] }
+const INPUT_ROWS = { type: 'object', properties: { ok: { type: 'boolean' }, rows: { type: 'array', items: { type: 'object', properties: {
+  id: { type: 'string' }, status: { type: 'string' }, action: { type: 'string', enum: ['none', 'link', 'verify', 'prove'] },
+  ticket: { type: 'string' }, to: { type: 'string' }, why: { type: 'string' } }, required: ['id', 'action'] } } }, required: ['ok', 'rows'] }
+const FILED_MANY = { type: 'object', properties: { filed: { type: 'array', items: { type: 'object', properties: {
+  id: { type: 'string', description: 'the input the ticket is for' }, ticket: { type: 'string' }, refusal: { type: 'string' } }, required: ['id', 'ticket'] } } }, required: ['filed'] }
+const TICKETS = { type: 'object', properties: { tickets: { type: 'array', items: { type: 'object', properties: {
+  id: { type: 'string' }, found: { type: 'boolean' }, to: { type: 'string' }, kind: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } },
+  required: ['id', 'found'] } } }, required: ['tickets'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
 // workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
@@ -235,7 +256,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   const skipped = lines.find(l => /checkpoint not run/.test(l))
   const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
   const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
-    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : m && !/^(delivered|rejected|partial)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
     : bad ? { status: 'refused', detail: bad.trim() }
     : skipped ? { status: 'not-run', detail: skipped.trim() }
     : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
@@ -294,9 +315,20 @@ const fallbackLine = () => MODEL_FALLBACKS.length ? `; model fallback: ${MODEL_F
 const out = { claim: A.claim, ticket: T || null, notes: [], launch_models: LAUNCH_MODELS, model_fallbacks: MODEL_FALLBACKS }
 const MODEL_STAGE = { agentType: CLERK, phase: 'Attempt', notes: out.notes }
 const end = async () => {
-  if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!out.ticket_delivered, instance: A.instance, topic: 'prove-' + A.claim,
+  if (!A.nested) out.ship = await ship({ role: 'researcher', ticket: T, done: !!(out.ticket_delivered || out.ticket_partial), instance: A.instance, topic: 'prove-' + A.claim,
     only: '<home submodule> board', agentType: CLERK, phase: 'File', notes: out.notes })
   return out
+}
+// #100 part 1 (the human's ruling, 2026-11-20): an attempt that is not complete is the work
+// done with the deliverable not met: the ticket goes partial (its sender reopens, closes or
+// cancels it), never delivered
+const markPartial = async (result, note) => {
+  if (!T) return
+  const m = await launch(STAGE('partial', [`Mark ${T} partial (tickets_update status partial, never deliver: true) with result "${('partial: ' + result + fallbackLine()).replace(/"/g, "'")}"` +
+    (note ? ` and, in the same call, note "${String(note).replace(/"/g, "'")}"` : '') + '.']),
+    { label: 'close', phase: 'File', agentType: CLERK, schema: MOVE, effort: 'low' })
+  out.ticket_partial = !!(m && m.ok)
+  out.ticket_delivered = false
 }
 const deliver = async (result, note) => {
   if (!T) return
@@ -363,7 +395,7 @@ if (forVerify) {
 }
 if (/^proved$/.test(st.status) && !repair) {
   return Object.assign(out, { outcome: 'already-proved', already_proved: true,
-    reason: `${A.claim} is proved and the ticket asks for no repair: nothing attempted, the ticket left as it was (rerun with mode repair, or deliver or cancel it)` })
+    reason: `${A.claim} is proved and the ticket asks for no repair: nothing attempted, the ticket left as it was (rerun with mode repair, or deliver it with a result starting "already proved: ", the marker --check accepts for no attempt (#100), or cancel it)` })
 }
 // #117: a falsifier on a declared input or the parent lead counts when it covers the claim, and
 // so does the human's waiver; checked in code against what the stage reported. Since 2026-11-20
@@ -510,7 +542,7 @@ let recBefore = null
 if (recordCheck) {
   recBefore = await launch(STAGE('repair-before', [
     `This repair may edit the record of ${A.claim}: record what its status rests on now. Run \`${REVIEWS} list ${A.claim}\` (add --home <the library home, workspace_get> when it finds no reviews) ` +
-    'and read each pass\'s decision.md: confirmed_pass is the last pass, not one whose name ends in -reword, that records confirmed or confirmed-modulo (else empty). ' +
+    'and read each pass\'s decision.md: confirmed_pass is the last pass (a -reword pass included: a reword stands on the last confirmed pass, #127) that records confirmed or confirmed-modulo (else empty). ' +
     'reviewed_proof is the proof that pass reviewed (its decision.md heading names it), else the record\'s proof: field, as a path relative to the home; ' +
     `reviewed_proof_hash is the output of \`${REVIEWS} hash --file <home>/<reviewed_proof>\` (empty when there is no such file); proof is the record's proof: field now. Write nothing.`,
   ]), { label: 'repair before', phase: 'Attempt', agentType: CLERK, schema: RECORD_BEFORE, effort: 'low' })
@@ -534,6 +566,11 @@ if (proved === null) return Object.assign(out, { outcome: 'lost', reason: 'the p
 // ---- File: by the file, not by the summary ------------------------------------------------
 phase('File')
 const readOutcome = label => launch(STAGE('attempt-outcome', [`Read ${p.path}: return its frontmatter's outcome: field verbatim, its gaps, the claims it names, ` +
+  'whether every section ("Statement as attempted", "Strategy", "Proof", "Inputs and their status", "Gaps", "Why it fails") holds nothing but the template\'s comments (template_only), ' +
+  'each item of its "## Gaps" section as {text, class, tagged, rests_on} (#126): class is the tag written on the item ([fix-known], [fix-unclear], [needs-assumption]; tagged true), ' +
+  'else your reading of it (tagged false) under this rule: fix-known = a routine step, a missing citation, or the proof resting on an existing registry statement (open, sketch or proved-modulo: that is a dependency, settled by its own ticket); ' +
+  'fix-unclear = no route to close it is known; needs-assumption = closing it needs a hypothesis the statement does not carry now (a new assumption in the statement itself; resting on a registered statement is not one); ' +
+  'not-a-gap = the item says there is no gap ("None", "none in the argument from its stated inputs"); rests_on = the registry ids the item says the proof rests on. ' +
   'whether the frontmatter has a dependencies: key and its items verbatim, the registry ids and bib:<key>#<pinpoint> citations its "## Inputs and their status" section names, ' +
   'and which of those the section marks as not used by the proof. Write nothing.']),
   { label, phase: 'File', agentType: CLERK, schema: OUTCOME, effort: 'low' })
@@ -553,14 +590,58 @@ const depCheck = o => {
     : undeclared.length ? [`inputs not in its dependencies: ${undeclared.join(', ')}`] : []
   return { deps, used, gaps }
 }
+// #126 (the human, 2026-11-21): the gaps by class. not-a-gap items are dropped; a fix-known
+// item that rests only on registry statements the attempt declares as dependencies is a
+// dependency, not a gap (it is settled by those statements' own tickets, and the verify pass
+// gives proved-modulo); only fix-unclear and needs-assumption items (and an item with no class,
+// a legacy plain string, read conservatively) call for a falsifier
+const GAP_CLASSES = ['fix-known', 'fix-unclear', 'needs-assumption', 'not-a-gap']
+// the whole item says there is no gap: "None.", "No gaps.", "None in the argument from its
+// stated inputs", optionally "; flat:X is open"; never a sentence that only starts with "None"
+// ("None of the cases k>=3 is handled": review of c4cde59, finding 1)
+// closed vocabulary (review of 00254bc): "in the argument / this attempt / the proof", "from its
+// stated inputs", and a tail clause only of the form "; <ns:id> is open|unreviewed|a sketch|proved-modulo"
+const NONE_TEXT = /^\s*(none|no gaps?)(\s+(in|from)\s+(the|this)\s+(argument|attempt|proof)(\s+from\s+its\s+stated\s+inputs)?)?\s*(;\s*[\w-]+:[\w.:-]+\s+is\s+(open|unreviewed|a sketch|proved-modulo))?\.?\s*$/i
+const normGap = g => {
+  const x = typeof g === 'string' ? { text: g } : (g || {})
+  const text = String(x.text || '').trim()
+  let cls = String(x.class || '').trim().toLowerCase()
+  if (!GAP_CLASSES.includes(cls)) cls = ''
+  // "None." written as an item, unclassed or read (not tagged) as fix-known, is not a gap; a
+  // class the prover tagged on the item stands as written (finding 6)
+  if (!x.tagged && (cls === '' || cls === 'fix-known') && NONE_TEXT.test(text) && !clean(x.rests_on).length) cls = 'not-a-gap'
+  return { text, class: cls, tagged: !!x.tagged, rests_on: clean(x.rests_on) }
+}
+const classify = (x, deps) => {
+  const all = (x.gaps || []).map(normGap).filter(g => g.text || g.class)
+  const real = all.filter(g => g.class !== 'not-a-gap')
+  const isDep = g => g.class === 'fix-known' && g.rests_on.length && g.rests_on.every(r => deps.some(d => sameRef(d, r)))
+  return { all, real, dependency: real.filter(isDep), blocking: real.filter(g => !isDep(g)),
+    falsifying: real.filter(g => g.class !== 'fix-known') }
+}
 let o = await readOutcome('outcome')
 if (!o || !o.exists) return Object.assign(out, { outcome: 'unfinished', reason: 'the attempt file is missing or unreadable' })
-const completeNoGaps = x => x.outcome === 'complete' && !(x.gaps || []).length
+// #126, point 3: an attempt the prover left as the template (it wrote nothing) is lost, never
+// incomplete, and gets no falsifier; the template's own outcome (in-progress) with nothing in
+// the file reads the same. A failed outcome is never read so (its Why it fails may be all it
+// wrote, and a failed attempt files a falsifier: review of c4cde59, finding 2)
+const untouched = x => String(x.outcome || '').trim() !== 'failed' && (!!x.template_only ||
+  (/^(|in-progress)$/.test(String(x.outcome || '').trim()) && !(x.gaps || []).length && !x.dependencies_declared &&
+   !(x.objects || []).length && !(x.inputs_listed || []).length))
+if (untouched(o)) {
+  out.notes.push(`the attempt ${p.path} is the template only (outcome ${o.outcome || 'none'}): the prover wrote nothing; no falsifier, not delivered`)
+  return Object.assign(out, { outcome: 'lost', reason: `the prover left ${p.path} as the template (nothing written): nothing further filed, the ticket left as it was` +
+    `${recordCheck ? ' and the repaired record not re-checked' : ''}; relaunch the attempt` })
+}
+const completeNoGaps = x => x.outcome === 'complete' && !classify(x, depCheck(x).deps).blocking.length
 let dc = depCheck(o)
 let fixed = false
 // review of fd04646, finding 3: a complete attempt whose only defect is its dependencies list
-// gets one fix round: the prover fixes the frontmatter of the same file, the clerk reads it again
-if (completeNoGaps(o) && dc.gaps.length) {
+// gets one fix round: the prover fixes the frontmatter of the same file, the clerk reads it again.
+// #126: a fix-known gap resting on an input the Inputs section lists counts as the dependency it
+// will be once declared (review of c4cde59, finding 4)
+const preFix = x => { const d = depCheck(x); return x.outcome === 'complete' && !classify(x, clean(d.deps.concat(d.used))).blocking.length }
+if (preFix(o) && dc.gaps.length) {
   fixed = true
   const fx = await launchMax(`Your attempt ${p.path} on ${A.claim} is complete, but its frontmatter's dependencies are not declared: ${dc.gaps.join('; ')}. ` +
     'Fix the frontmatter of that same attempt file, nothing else: its dependencies: key lists every registry id and bib:<key>#<pinpoint> the proof uses ' +
@@ -574,15 +655,59 @@ if (completeNoGaps(o) && dc.gaps.length) {
     : dc.gaps.length ? `one fix round left the dependencies undeclared: ${dc.gaps.join('; ')}`
     : 'one fix round declared the dependencies')
 }
-out.gaps = o.gaps
 const deps = dc.deps
 const depGaps = dc.gaps
+const gc = classify(o, deps)
+const gapText = g => (g.class ? `[${g.class}] ` : '') + g.text
+out.gaps = gc.real.map(g => g.text)
+out.gap_classes = gc.all
 out.dependencies = deps
+// a not-a-gap item that names what the proof rests on ("None; it rests on flat:FND-48") names an input to settle too
+const restsOn = gc.dependency.concat(gc.all.filter(g => g.class === 'not-a-gap' && g.rests_on.length))
+if (restsOn.length) {
+  out.inputs_to_settle = clean([].concat(...restsOn.map(g => g.rests_on)))
+  out.notes.push(`gaps that are dependencies (fix-known, resting on declared inputs): settled by those inputs' own verify or prove tickets, no falsifier: ${out.inputs_to_settle.join(', ')}`)
+}
+const dropped = gc.all.filter(g => g.class === 'not-a-gap')
+if (dropped.length) out.notes.push(`Gaps items read as no gap: ${dropped.map(g => JSON.stringify(oneLine(g.text, 120))).join('; ')}`)
+// #126: whether this attempt calls for a falsifier. A failed attempt does (its route failed);
+// otherwise only a fix-unclear or needs-assumption gap; undeclared dependencies, fix-known gaps
+// and a dependency on unreviewed inputs never do
+const falsifierWhy = () => {
+  if (String(o.outcome || '').trim() === 'failed') return { file: true, targets: gc.real.map(gapText) }
+  if (gc.falsifying.length) return { file: true, targets: gc.falsifying.map(gapText) }
+  return { file: false, why: gc.real.length || depGaps.length
+    ? 'no gap is fix-unclear or needs-assumption (#126): ' + (gc.blocking.length ? 'fix-known gaps only' : depGaps.length ? 'only the dependencies list is undeclared' : 'only dependencies on declared inputs')
+    : 'no gap listed and the outcome is not failed (#126)' }
+}
+// #126, point 4: a waiver scoped wider than the ticket (the ticket's cowork plan, or the home's
+// researcher.falsifierWaivers), read by prove_inputs.py, not by the stage; it counts only as the
+// human's dated line ("- YYYY-MM-DD human: ..."), as a ticket waiver does. Asked only when a
+// falsifier would be filed (no stage otherwise)
+const RE_HUMAN_LINE = /^\s*-?\s*\d{4}-\d{2}-\d{2} human:\s*\S/
+async function scopedWaiver() {
+  const wv = await launch(STAGE('waiver', [`Run \`py ${AR}/researcher/scripts/prove_inputs.py waiver --claim ${A.claim}${T ? ' --ticket ' + T : ''} --home ${A.home} --json\` ` +
+    '(python3 where there is no py) and return its fields verbatim (ok true when it ran). Write nothing.']),
+    { label: 'waiver', phase: 'File', agentType: CLERK, schema: WAIVER, effort: 'low' })
+  if (wv && wv.ok && wv.waived && /^(cowork|config)$/.test(wv.source || '') && RE_HUMAN_LINE.test(wv.line || '')) {
+    const on = (wv.source === 'cowork' ? 'cowork ' : 'scope ') + (wv.scope || '?')
+    out.falsifier_waiver = { source: wv.source, scope: wv.scope || '', line: wv.line }
+    return `falsifiers waived by the human for ${on} (${oneLine(wv.line, 160)})`
+  }
+  if (wv && wv.ok && wv.waived) out.notes.push('a scoped waiver was reported without its source or the human\'s dated line: not counted')
+  else if (!wv || !wv.ok) out.notes.push('the scoped-waiver check did not run: none counted')
+  return ''
+}
 // A failed or incomplete attempt triggers the falsifier (2026-11-20): filed by lead-researcher,
 // a liaison toward the Scientist (the prover is none), checked by the clerk; it changes no delivery
-async function fileFalsifier(gl) {
+async function fileFalsifier() {
+  const fw = falsifierWhy()
+  if (!fw.file) { out.notes.push('no falsifier filed: ' + fw.why); out.falsifier_skipped = fw.why; return '' }
+  const gl = fw.targets
   if (counts) { out.notes.push(`no falsifier filed: one is on record (${src}${out.falsifier.on ? ' ' + out.falsifier.on : ''})`); return '' }
   if (falsifierPending) { out.notes.push(`no falsifier filed: ${falsifierPending} is pending (${st.falsifier_pending_status || 'status unknown'})`); return '' }
+  const waived = await scopedWaiver()
+  if (waived) { out.notes.push(`no falsifier filed: ${waived} (#126)`); out.falsifier_skipped = waived; return '' }
   const target = gl.length ? gl.join('; ') : `the attempt's outcome ${o.outcome || 'without outcome'}, no gap listed`
   const r = await launch(`WORKFLOW STAGE file-falsifier of the academy-prove workflow (lead-researcher, workflow mode): do this only and return the structured result; launch no agent. ` +
     `Claim: ${A.claim}. Home: ${A.home}. The proof attempt ${p.path} is ${o.outcome || 'without outcome'} and ${A.claim} has no falsifier on record and none pending. ` +
@@ -639,7 +764,7 @@ async function recheckRecord() {
   const rhB = String(recBefore.reviewed_proof_hash || '').trim()
   const rhA = String(aft.reviewed_proof_hash || '').trim()
   const cp = String(recBefore.confirmed_pass || '').trim()
-  const base = RE_PASS.test(cp) && !/-reword$/.test(cp) ? cp : ''
+  const base = RE_PASS.test(cp) ? cp : ''
   if (cp && !base) out.notes.push(`the confirmed pass ${JSON.stringify(cp)} reported is no base pass name: no reword base`)
   // no reviewed proof named: with a confirmed pass a proof was reviewed and nothing was compared
   const proof = pBefore !== pAfter ? 'changed' : !reviewed ? (base ? 'unknown' : 'same') : !isHash(rhB) ? 'unknown' : rhA === rhB ? 'same' : 'changed'
@@ -704,8 +829,8 @@ if (forVerify && (!completeNoGaps(o) || depGaps.length)) {
   // an incomplete amendment is not delivered: the verify pass would take a delivered repair
   // for the amendment; the human decides
   out.outcome = 'amendment-incomplete'
-  const fid = await fileFalsifier((o.gaps || []).concat(depGaps))
-  const gl = ((o.gaps || []).concat(depGaps).join('; ') || 'none listed').replace(/"/g, "'")
+  const fid = await fileFalsifier()
+  const gl = (gc.blocking.map(gapText).concat(depGaps).join('; ') || 'none listed').replace(/"/g, "'")
   if (T) {
     const m = await launch(STAGE('block', [`Block ${T}: tickets_update status blocked, waiting_on [human], reason "the amendment attempt ${p.path} for the verify pass of ${forVerify} is ${o.outcome || 'without outcome'} (gaps: ${gl}): ${forVerify} stays blocked on this repair; the human decides${falsLine(fid)}".`]),
       { label: 'block', phase: 'File', agentType: CLERK, schema: MOVE, effort: 'low' })
@@ -722,15 +847,17 @@ if (forVerify) {
 if (!completeNoGaps(o) || depGaps.length) {
   out.outcome = 'attempt-incomplete'
   if (depGaps.length) out.dependency_gaps = depGaps
-  const gl = (o.gaps || []).concat(o.outcome === 'complete' ? depGaps : [])
-  const fid = await fileFalsifier(gl)
+  const gl = gc.blocking.map(gapText).concat(o.outcome === 'complete' ? depGaps : [])
+  if (!gl.length && out.inputs_to_settle) gl.push(`none but the unreviewed inputs ${out.inputs_to_settle.join(', ')}`)
+  const fid = await fileFalsifier()
   const rec = recordCheck ? await recheckRecord() : { clause: '' }
   // review of 62be9fa, point 3: the line says what was filed (the attempt itself never is)
-  await deliver(`attempt ${p.path} ${o.outcome || 'without outcome'}${o.outcome === 'complete' && depGaps.length ? ' but its dependencies are not declared' + (fixed ? ' after one fix round' : '') : ''}; ` +
+  await markPartial(`attempt ${p.path} ${o.outcome || 'without outcome'}${o.outcome === 'complete' && depGaps.length ? ' but its dependencies are not declared' + (fixed ? ' after one fix round' : '') : ''}; ` +
     `gaps: ${gl.join('; ') || 'none listed'}; ${rec.ticket ? 'the attempt is filed for no review' : 'nothing filed for review'}${falsLine(fid)}${rec.clause}`, rec.note)
   return await end()
 }
-const depAsk = deps.length ? `dependencies: ${deps.join('; ')}` : 'dependencies: none declared'
+const depAsk = (deps.length ? `dependencies: ${deps.join('; ')}` : 'dependencies: none declared') +
+  (out.inputs_to_settle ? `; complete modulo the unreviewed inputs ${out.inputs_to_settle.join(', ')} (the attempt's Gaps rest only on them)` : '')
 const f = await launchMax(`Your attempt ${p.path} on ${A.claim} is complete. File exactly one verify ticket to the Expert instance (tickets_create: kind verify, ` +
   `title "Verify ${A.claim}", ask "${oneLine(`Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?${repair ? ' (a repair of the ' + st.status + ' claim)' : ''} ` +
     `${depAsk}. ${falsifierLine}.`, 4000)}", deliverable "A verification packet with two verdicts, or one negative verdict.", ` +
@@ -758,7 +885,55 @@ if (missingRefs.length) out.notes.push(`ANOMALY: the verify ticket ${f.ticket} d
 out.verify_ticket = f.ticket
 out.proposal = f.proposal || null
 out.outcome = 'verify-filed'
+// #126, point 2: the unreviewed inputs the attempt rests on get their own verify or prove ticket,
+// or the open one that already settles them is named; prove_inputs.py decides which, lead-researcher
+// files (a liaison toward the Expert, and the same role toward a Researcher), the clerk checks
+const inputsClause = await settleInputs(f.ticket)
 const fal = out.falsifier && out.falsifier.source !== 'claim' ? `; falsifier accepted: ${out.falsifier.source}${out.falsifier.on ? ' ' + out.falsifier.on : ''}` : ''
 await deliver(`complete attempt ${p.path}; verify ticket ${f.ticket}${f.proposal ? '; sketch proposed (' + f.proposal + ')' : ''}${fal}` +
-  `${counts ? '' : '; no falsifier on record'}; ${depAsk}`)
+  `${counts ? '' : '; no falsifier on record'}; ${depAsk}${inputsClause}`)
 return await end()
+
+async function settleInputs(verifyTicket) {
+  const ids = out.inputs_to_settle || []
+  if (!ids.length) return ''
+  const r = await launch(STAGE('inputs', [`Run \`py ${AR}/researcher/scripts/prove_inputs.py inputs --claim ${A.claim} --ids ${ids.join(' ')}${A.instance ? ' --instance ' + A.instance : ''} --json\` ` +
+    '(from the home; python3 where there is no py) and return its rows verbatim as rows (ok true when it ran). Write nothing.']),
+    { label: 'inputs', phase: 'File', agentType: CLERK, schema: INPUT_ROWS, effort: 'low' })
+  if (!r || !r.ok) { out.notes.push('the unreviewed inputs were not looked up: no ticket filed or linked for them'); return '; inputs not looked up' }
+  const rows = (r.rows || []).filter(x => ids.some(i => sameRef(String(i), String(x.id || '').trim())))
+  const linked = rows.filter(x => x.action === 'link' && /^T-\d{4,}$/.test(String(x.ticket || '')))
+  const want = rows.filter(x => (x.action === 'verify' && /^expert@/.test(x.to || '')) || (x.action === 'prove' && /^researcher@/.test(x.to || '')))
+  const odd = rows.filter(x => !linked.includes(x) && !want.includes(x) && x.action !== 'none')
+  if (odd.length) out.notes.push(`input rows not acted on (no ticket or receiver of the right role): ${odd.map(x => x.id + ' ' + x.action).join(', ')}`)
+  out.input_tickets = linked.map(x => ({ id: x.id, ticket: x.ticket, action: 'link' }))
+  if (want.length) {
+    const spec = want.map(x => x.action === 'verify'
+      ? `- ${x.id}: tickets_create to ${x.to}, kind verify, title "Verify ${x.id}", ask "Review ${x.id}: an unreviewed input (${x.status || 'sketch'}) that the complete attempt on ${A.claim} rests on (its verify ticket ${verifyTicket})", deliverable "A verification packet with two verdicts, or one negative verdict.", refs [${x.id}, ${A.claim}]${T ? ', parent ' + T : ''}`
+      : `- ${x.id}: tickets_create to ${x.to}, kind prove, title "Prove ${x.id}", ask "Take ${x.id} to a reviewable proof: an input (${x.status || 'status unknown'}) that the complete attempt on ${A.claim} rests on (its verify ticket ${verifyTicket})", deliverable "A complete proof attempt with its verify ticket, or the gaps.", refs [${x.id}, ${A.claim}]${T ? ', parent ' + T : ''}`).join('\n')
+    const fr = await launch(`WORKFLOW STAGE file-inputs of the academy-prove workflow (lead-researcher, workflow mode): do this only and return the structured result; launch no agent. ` +
+      `Claim: ${A.claim}. Home: ${A.home}.${A.instance ? ' File from ' + A.instance + '.' : ''} File exactly these tickets, one each, nothing else, and set no status:\n${spec}\n` +
+      'Return, for each input, the ticket id; a refusal verbatim instead of an id.',
+      { label: 'file inputs', phase: 'File', agentType: LEAD, schema: FILED_MANY, effort: 'low' })
+    const got = ((fr && fr.filed) || []).filter(x => /^T-\d{4,}$/.test(String(x.ticket || '').trim()))
+    for (const x of want) if (!got.some(g => sameRef(String(g.id || ''), x.id))) {
+      const why = ((fr && fr.filed) || []).find(g => sameRef(String(g.id || ''), x.id))
+      out.notes.push(`the ${x.action} ticket for the input ${x.id} was not filed: ${why ? why.refusal || 'no ticket id' : fr ? 'not returned' : 'the stage returned nothing'}`)
+    }
+    if (got.length) {
+      const ck = await launch(STAGE('get-inputs', [`tickets_get each of ${got.map(g => g.ticket).join(', ')} and return, for each, its id, found, to, kind and refs. Write nothing.`]),
+        { label: 'check inputs', phase: 'File', agentType: CLERK, schema: TICKETS, effort: 'low' })
+      for (const g of got) {
+        const x = want.find(w => sameRef(String(g.id || ''), w.id))
+        const c = ((ck && ck.tickets) || []).find(t => String(t.id || '').trim() === String(g.ticket).trim())
+        if (!x || !c || !c.found || c.kind !== x.action || c.to !== x.to || !(c.refs || []).some(rf => sameRef(String(rf).trim(), x.id))) {
+          out.notes.push(`ANOMALY: the ticket ${g.ticket} for the input ${g.id} is not a ${x ? x.action : '?'} ticket to ${x ? x.to : '?'} naming it`)
+          continue
+        }
+        out.input_tickets.push({ id: x.id, ticket: g.ticket, action: x.action })
+      }
+    }
+  }
+  if (!out.input_tickets.length) return ''
+  return '; inputs: ' + out.input_tickets.map(t => `${t.id} ${t.action === 'link' ? 'by' : t.action} ${t.ticket}`).join(', ')
+}

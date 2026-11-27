@@ -112,6 +112,10 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("thm", cp.THEOREM_ENVS)
         self.assertTrue(cp.RE_CLAUDE.search("\\Claude {x}"))
         self.assertTrue(cp.RE_CLAUDE.search("\\cl{x}"))
+        # #110: a typed note, \\Claude[kind]{...}, is a machine note too
+        self.assertTrue(cp.RE_CLAUDE.search("\\Claude[await]{T-0001}"))
+        self.assertTrue(cp.RE_CLAUDE.search("\\Claude [prov] {x}"))
+        self.assertFalse(cp.RE_CLAUDE.search("\\claim{x}"))
         self.assertEqual(cp.COLOUR_COMMANDS, {"\\Sketch{": "sketch",
                                               "\\Conjectural{": "conjectural",
                                               "\\Meta{": "meta"})
@@ -304,6 +308,18 @@ class ConfigValidation(unittest.TestCase):
                      "preamble.policy", "notes.maxLines", "bib.acceptedWarnings",
                      "author.labels must be an object", "mainResults.labels"):
             self.assertIn(frag, text)
+
+    def test_the_note_switches_are_typed(self):
+        self.assertEqual([], self.probs(notes={"maxLines": 3, "lineChars": 40,
+                                               "enforce": True, "typed": False}))
+        text = "\n".join(self.probs(notes={"lineChars": 0, "enforce": "false",
+                                           "typed": "yes"}))
+        for frag in ("notes.lineChars", "notes.enforce", "notes.typed"):
+            self.assertIn(frag, text)
+        self.assertIn("notes.lineChars", "\n".join(self.probs(notes={"lineChars": True})))
+        self.assertEqual([], self.probs(notes={"maxAge": 0}))
+        self.assertIn("notes.maxAge", "\n".join(self.probs(notes={"maxAge": -1})))
+        self.assertIn("notes.maxAge", "\n".join(self.probs(notes={"maxAge": "14"})))
         self.assertIn("kind must be one of",
                       "\n".join(self.probs(statusLevels=[{"name": "x", "kind": "draft"}])))
 
@@ -394,3 +410,48 @@ class QuestionTests(unittest.TestCase):
             "\\begin{lem}\\label{lem:b}\nB, by \\cref{lem:a}.\n\\end{lem}\n"
             "\\begin{lem}\\label{lem:a}\nA, by \\cref{lem:b}.\n\\end{lem}\n")
         self.assertIn("circular dependency", out)
+
+
+class ItemReferenceTests(unittest.TestCase):
+    """#127: R1 on a reference to an item (``\\cref{it:x}``) of another statement: the
+    item's registry status when the record has ``items``, else the statement's colour
+    (a warning)."""
+
+    BODY = ("\\begin{sketch}\n\\begin{prop}\\label{prop:u}\nThen\n\\begin{enumerate}\n"
+            "\\item compact \\label{it:compact}\n\\item finite \\label{it:finite}\n"
+            "\\end{enumerate}\n\\end{prop}\n\\end{sketch}\n"
+            "\\begin{lem}\\label{lem:a}\nBy \\cref{it:compact}, A.\n\\end{lem}\n"
+            "\\begin{proof}\nDone.\n\\end{proof}\n"
+            "\\begin{lem}\\label{lem:b}\nBy \\cref{it:finite}, B.\n\\end{lem}\n"
+            "\\begin{proof}\nDone.\n\\end{proof}\n")
+
+    def check(self, record=None):
+        tmp = tempfile.mkdtemp(prefix="cp-items-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.makedirs(os.path.join(tmp, "sections"))
+        with open(os.path.join(tmp, "main.tex"), "w", encoding="utf-8") as fh:
+            fh.write("\\documentclass{amsart}\n\\begin{document}\n"
+                     "\\input{sections/a}\n\\end{document}\n")
+        with open(os.path.join(tmp, "sections", "a.tex"), "w", encoding="utf-8") as fh:
+            fh.write(self.BODY)
+        if record is not None:
+            os.makedirs(os.path.join(tmp, "claims", "paper"))
+            with open(os.path.join(tmp, "claims", "paper", "prop__u.md"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(record)
+        code, out, err = run("--root", tmp, "--no-log", "--no-registry")
+        return out + err
+
+    def test_without_item_statuses_the_colour_gives_a_warning(self):
+        out = self.check()
+        self.assertIn("lem:a: [R1] established lem references item it:compact of sketch "
+                      "prop:u", out)
+        self.assertIn("no item status in the registry", out)
+
+    def test_the_item_status_decides(self):
+        out = self.check("---\nid: paper:prop:u\nstatus: sketch\nitems:\n"
+                         "  compact: [proved]\n  finite: [sketch]\nlifecycle: active\n"
+                         "---\n")
+        self.assertNotIn("lem:a: [R1]", out)
+        self.assertIn("lem:b: [R1] established lem references item it:finite of prop:u, "
+                      "whose registry status is sketch", out)

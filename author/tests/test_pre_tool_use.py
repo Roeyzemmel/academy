@@ -16,7 +16,8 @@ if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 import pre_tool_use as d  # noqa: E402
 
-GUARDS = ("bib_gate", "pinned_guard", "preamble_guard", "notation_scope_guard")
+GUARDS = ("bib_gate", "pinned_guard", "preamble_guard", "notation_scope_guard",
+          "note_length_guard")
 
 
 class DispatcherTests(unittest.TestCase):

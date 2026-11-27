@@ -11,13 +11,14 @@ first denial:
 tool                       guards, in order
 =========================  ==================================================
 Edit, Write, MultiEdit     bib_gate, pinned_guard, preamble_guard,
-                           notation_scope_guard
+                           notation_scope_guard, note_length_guard
 NotebookEdit               notation_scope_guard
 =========================  ==================================================
 
 The selection is the matchers the guards had as separate hooks (only
 notation_scope_guard covered NotebookEdit); the order is that of their former
-registration. All four guards have the same contract (a denial, or silence: none emits
+registration; ``note_length_guard`` (#110: ``author.notes.maxLines`` at write time) came
+later and runs last. All the guards have the same contract (a denial, or silence: none emits
 context, an "ask", or exits with 2), so results combine simply: the first denial wins
 and later guards do not run; with no denial nothing is printed and the exit code is 0.
 A guard that raises, or cannot be imported, is skipped with one line on stderr and the
@@ -33,7 +34,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _academy as ac  # noqa: E402
 
-EDIT = ("bib_gate", "pinned_guard", "preamble_guard", "notation_scope_guard")
+EDIT = ("bib_gate", "pinned_guard", "preamble_guard", "notation_scope_guard",
+        "note_length_guard")
 #: tool name -> the guards (module names in this folder) it runs, in order
 GUARDS = {
     "Edit": EDIT,

@@ -64,6 +64,47 @@ class Store:
         t = self.statement_text(rid)
         return statement_hash_of(t) if t is not None else None
 
+    # -- structured records (#127; core/structure.py) -------------------------
+    paper_items = False     #: whether the items are a tex environment's \label{it:..}
+
+    def body_parts(self, rid):
+        """``(hypotheses, items)`` texts of record ``rid``'s statement (``{key: text}``):
+        here its ``**H<n>.**`` / ``**C<n>.**`` lines; a profile whose statements are
+        LaTeX environments overrides it."""
+        from . import structure
+        return structure.nb_parts(self.statement_text(rid) or "")
+
+    def body_parse(self, rid):
+        """The full parse of record ``rid``'s statement (``structure.nb_parse``: parts,
+        the list form's numbering, problems)."""
+        from . import structure
+        return structure.nb_parse(self.statement_text(rid) or "")
+
+    def structure(self, rid):
+        """The structured view of record ``rid``, or None when it is not one: ``{"items":
+        {key: (status, [modulo])}, "hypotheses": {H<n>: text}, "texts": {key: text},
+        "hashes": {key: item hash}, "status": derived, "modulo": derived}``."""
+        from . import structure
+        r = self.records.get(rid)
+        if r is None or not structure.has_structure(r.fields):
+            return None
+        bh, bi = self.body_parts(rid)
+        if self.paper_items:
+            bh = {}
+        hyps = structure.hypothesis_texts(r.fields, bh)
+        items, _p = structure.parse_items(r.fields)
+        st, mod = structure.derive(items)
+        texts = {k: bi.get(k) for k in items}
+        return {"items": items, "hypotheses": hyps, "texts": texts,
+                "hashes": structure.item_hashes(hyps, {k: t for k, t in texts.items()
+                                                       if t is not None}),
+                "status": st, "modulo": mod}
+
+    def item_hash(self, rid, key):
+        """The hash of item ``key`` of record ``rid`` (None when it has no such item)."""
+        s = self.structure(rid)
+        return (s or {}).get("hashes", {}).get(key)
+
 
 def statement_hash_of(text):
     """sha256 of the whitespace-normalised text, 16 hex digits."""

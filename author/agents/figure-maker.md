@@ -5,7 +5,6 @@ model: sonnet
 tier: medium
 effort: medium
 fallback: opus
-maxTurns: 30
 tools: Read, Grep, Glob, Bash, PowerShell, Edit, Write, Skill, mcp__plugin_academy_academy__domain_get, mcp__plugin_academy_academy__config_get, mcp__plugin_academy_academy__claims_show, mcp__plugin_academy_academy__queue_status, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__tickets_update, mcp__academy__domain_get, mcp__academy__config_get, mcp__academy__claims_show, mcp__academy__queue_status, mcp__academy__tickets_get, mcp__academy__tickets_create, mcp__academy__tickets_update
 skills: [academy:notation-discipline, academy:honest-reporting, author:paper-method]
 color: purple

@@ -34,7 +34,7 @@
     "claims_set_status": {
       "allow": ["claim-keeper"],
       "deny": ["@readonly"],
-      "substance": "The server re-checks the grounds per kind (plan section 8, registry/core/grounds.py): proof -> two agreeing verdicts with distinct run ids, graders other than the producer (grader_role != producer_role), and the claim's current statement hash; computation -> two agreeing experiment verdicts with distinct run ids and graders other than the producer, the result's commit hash and a passed validation case, and only supported/refuted/refuted-as-stated; or the human's word, quoted verbatim (basis human). Without grounds only the human may set a status. The change is applied by the registry engine (line-preserving) and refused if the record would then fail its check."
+      "substance": "The server re-checks the grounds per kind (plan section 8, registry/core/grounds.py): proof -> two agreeing verdicts with distinct run ids, graders other than the producer (grader_role != producer_role), and the claim's current statement hash; computation -> two agreeing experiment verdicts with distinct run ids and graders other than the producer, the result's commit hash and a passed validation case, and only supported/refuted/refuted-as-stated; or the human's word, quoted verbatim (basis human). Without grounds only the human may set a status. Basis discharge (#127): proved-modulo -> proved only, the record's modulo inputs resolved by the server (each proved, a card pinpoint whose card says match, or a notation-only definition), never taken from the caller; proof grounds that are the review which gave proved-modulo do not carry it to proved without one. The change is applied by the registry engine (line-preserving) and refused if the record would then fail its check."
     },
     "queue_add": {
       "allow": ["experimenter", "developer"],
@@ -77,7 +77,7 @@
     },
     "fields": {
       "system": ["id", "from", "created", "updated"],
-      "human_only": ["to"],
+      "human_only": ["to", "decision_choice"],
       "sender": ["title", "kind", "ask", "deliverable", "refs", "priority", "budget", "parent", "blocks", "agenda", "domain", "final_to", "campaign", "cowork"],
       "receiver": ["status", "result", "waiting_on", "blocked_by", "reopen_if", "packets"]
     },
@@ -89,9 +89,10 @@
     "transitions": {
       "open": {"accepted": ["receiver"], "rejected": ["receiver"], "blocked": ["receiver"], "cancelled": ["sender"]},
       "accepted": {"in-progress": ["receiver"], "blocked": ["receiver"], "rejected": ["receiver"], "cancelled": ["sender"]},
-      "in-progress": {"delivered": ["receiver"], "blocked": ["receiver"], "accepted": ["receiver"], "rejected": ["receiver"], "cancelled": ["sender"]},
+      "in-progress": {"delivered": ["receiver"], "partial": ["receiver"], "blocked": ["receiver"], "accepted": ["receiver"], "rejected": ["receiver"], "cancelled": ["sender"]},
       "blocked": {"accepted": ["receiver"], "in-progress": ["receiver"], "cancelled": ["sender"]},
-      "delivered": {"closed": ["sender"], "in-progress": ["sender"]},
+      "delivered": {"closed": ["sender"], "in-progress": ["sender"], "partial": ["receiver"]},
+      "partial": {"in-progress": ["sender"], "closed": ["sender"], "cancelled": ["sender"], "blocked": ["sender"]},
       "closed": {},
       "rejected": {},
       "cancelled": {}

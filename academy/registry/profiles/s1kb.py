@@ -246,6 +246,7 @@ from ..core import projection as _projection  # noqa: E402
 from ..core import schema as _schema  # noqa: E402
 from ..core import workspace as _workspace  # noqa: E402
 from ..core import stale as _stale  # noqa: E402
+from ..core import structure as _structure  # noqa: E402
 from ..core.edit import Doc as _Doc  # noqa: E402
 
 #: s1's own fields, kept beside the core ones in schema v2 (the home's data: the
@@ -704,6 +705,12 @@ def _check_v2(kb, e):
     extra = S1_EXTENSION
     for level, msg in _schema.check_record(e.v2, extra_fields=extra):
         (kb.error if level == "error" else kb.warn)(e.path, msg)
+    if _structure.has_structure(e.v2):
+        st_text = statement_text(e)
+        bh, bi = _structure.nb_parts(st_text)
+        for level, msg in _structure.check(e.v2, bh, bi, status_kinds=_schema.STATUS_KINDS,
+                                           problems=_structure.nb_problems(st_text)):
+            (kb.error if level == "error" else kb.warn)(e.path, msg)
     v = e.v2
     want_kind = {"claim": ("claim", "conjecture", "question", "definition", "direction"),
                  "assumption": ("assumption",), "example": ("example",),
@@ -728,13 +735,13 @@ def _check_v2(kb, e):
         if bare and ":" not in bare and (kb.rules.looks_like_id(bare) or s != bare
                                          or lookup(kb, bare)[0] is not None):
             _check_ref(kb, e, "modulo", bare)
-        elif s and _schema.looks_like_id(s):
-            pass
+        elif s and (_schema.looks_like_id(s) or s.startswith("bib:")):
+            pass            # another home's id; a card pinpoint (discharged by its card)
         else:
-            # plan section 6: `modulo: [ids]`, promoted along the graph once the target
-            # is proved; free text cannot be followed
+            # plan section 6: `modulo: [ids]`, discharged along the graph once the
+            # target is proved (registry.py discharge, #127); free text cannot be followed
             kb.warn(e.path, f"modulo: {str(item)[:60]!r} is not a record id, so the claim "
-                            "cannot be promoted along the graph when its input is proved")
+                            "cannot be discharged along the graph when its input is proved")
     for key in ("supersedes", "bears_on"):
         for ref in v.get(key) or []:
             if isinstance(ref, str) and ":" not in ref:
@@ -1940,11 +1947,14 @@ def _ids(kb, v):
             for x in vals} - {None}
 
 
-def _reword_file_problems(kb, vrel, meta, eid, label, need, human=False):
+def _reword_file_problems(kb, vrel, meta, eid, label, need, human=False, _seen=()):
     """A reword record (``mode: reword``, T-0347) carries ``eid`` to proved /
     proved-modulo when it is CONFIRMED with a ``reword_scope`` the grounds accept and its
     base pass -- the sibling folder ``base_pass`` -- holds two landed runs on ``eid``
-    giving CONFIRMED on ``base_hash``, and none contrary."""
+    giving CONFIRMED on ``base_hash``, and none contrary; or (#127, a reword on a
+    reword) holds no blind run and one reword record on ``eid`` CONFIRMED on
+    ``base_hash`` (the wording it confirmed), itself carrying ``eid`` by this same rule,
+    back to a blind pair."""
     from ..core import grounds as _g
     probs = []
     if need != "CONFIRMED":
@@ -1969,7 +1979,7 @@ def _reword_file_problems(kb, vrel, meta, eid, label, need, human=False):
         return probs
     if folder is None or not folder.is_dir():
         return probs + [f"{vrel}: its base pass {base_pass} is not beside it"]
-    good, bad = [], []
+    good, bad, links = [], [], []
     for f in sorted(folder.glob("*.md")):
         try:
             m, _ = _meta_of_file(f, f.name)
@@ -1978,7 +1988,7 @@ def _reword_file_problems(kb, vrel, meta, eid, label, need, human=False):
         if not m.get("run_id") or eid not in _ids(kb, m.get("subject")):
             continue
         if str(m.get("mode") or "").strip().lower() == "reword":
-            bad.append(f"{m['run_id']} is a reword run, not a blind one")
+            links.append((f, m))
             continue
         if str(m["run_id"]) == str(meta.get("run_id") or ""):
             bad.append(f"{m['run_id']} is the reword run's own run id")
@@ -1988,6 +1998,29 @@ def _reword_file_problems(kb, vrel, meta, eid, label, need, human=False):
             bad.append(f"{m['run_id']} {w}")
         elif _fits(w, need) and str(m.get("statement_hash") or "").strip() == base_hash:
             good.append(str(m["run_id"]))
+    if links and not good and not bad:
+        # a reword base (#127): its one reword record, confirmed on base_hash, is checked
+        # by this same rule against its own base
+        key = str(folder.resolve())
+        if len(links) != 1:
+            return probs + [f"the reword base pass {base_pass} holds {len(links)} reword "
+                            "records: one run R is its decision"]
+        f, m = links[0]
+        if key in _seen or len(_seen) >= 32:
+            return probs + [f"the reword chain through {base_pass} loops or is too long"]
+        if str(m["run_id"]) == str(meta.get("run_id") or ""):
+            return probs + [f"{m['run_id']} is the reword run's own run id"]
+        if str(m.get("statement_hash") or "").strip() != base_hash:
+            probs.append(f"the reword base pass {base_pass}'s run R confirmed statement "
+                         f"{m.get('statement_hash') or '(none)'}, not base_hash {base_hash}")
+        link_rel = vrel.rsplit("/", 2)[0] + "/" + base_pass + "/" + f.name \
+            if vrel.count("/") >= 2 else f"{base_pass}/{f.name}"
+        sub = _reword_file_problems(kb, link_rel, m, eid, label, need, human,
+                                    tuple(_seen) + (key,))
+        return probs + [f"the reword base pass {base_pass} does not carry {eid}: {x}"
+                        for x in sub]
+    if links:
+        bad.extend(f"{m['run_id']} is a reword run, not a blind one" for _f, m in links)
     if len(set(good)) < 2:
         probs.append(f"the base pass {base_pass} needs two landed runs giving CONFIRMED on "
                      f"{eid} with statement_hash {base_hash}; it has {len(set(good))}")
@@ -2099,12 +2132,24 @@ def rewrite_status_v2(p: Path, label, vrow, note, old, human=None, modulo=None):
     The record's ``modulo`` moves with the status, as in the fsl profile (the schema
     refuses ``proved`` with one and ``proved-modulo`` without): ``proved`` drops it;
     ``proved-modulo`` writes ``modulo`` when given (the missing inputs) and otherwise
-    keeps the record's own (T-0361)."""
+    keeps the record's own (T-0361). A structured record's items all take the new
+    status (#127; one item at a time is ``core.itemedit``)."""
     doc = _Doc(p, _fm.format_scalar_single)
     after = V2_ORDER
     if label in _schema.LIFECYCLES:
         doc.set_scalar("lifecycle", label, after=after[:after.index("lifecycle")])
     else:
+        try:
+            fields, _b = _fm.split_document(p.read_text(encoding="utf-8"), str(p))
+        except FrontmatterError:
+            fields = {}
+        if isinstance(fields.get("items"), dict):
+            # a structured record (#127): a whole-record change sets every item to it
+            mods = list(modulo or fields.get("modulo") or []) \
+                if label == "proved-modulo" else []
+            doc.set_map("items", {k: _structure.item_value(label, mods)
+                                  for k in fields["items"]},
+                        after=after[:after.index("evidence")])
         doc.set_scalar("status", label, after=("form", "kind", "title"))
         if label == "proved":
             doc.remove("modulo")
@@ -2128,6 +2173,49 @@ def rewrite_status_v2(p: Path, label, vrow, note, old, human=None, modulo=None):
         today(), label, f"status {old} → {label} ({why})"),
         first=True, after=("evidence",))
     doc.save()
+
+
+def discharge(root, text, date=None):
+    """Discharge (#127) the schema-v2 claim ``text``: proved-modulo -> proved once every
+    input of its ``modulo`` is established (``core.discharge``, assessed here, never
+    taken from a caller). Writes the status, removes ``modulo``, adds the ``discharge``
+    evidence row and a history row; the kb must still build, else the file is put back
+    byte for byte. Returns the assessment; raises ValueError with the reasons."""
+    from ..core import discharge as _dis
+    from ..core import federation as _fed
+    from ..core import grounds as _gr
+    kb = load_kb(root)
+    eid, _ = lookup(kb, text)
+    if eid is None:
+        raise ValueError(f"no entity or alias matches '{text}'")
+    e = kb.entities[eid]
+    if e.v2 is None:
+        raise ValueError(f"{eid} is a schema-v1 record: it keeps no modulo list to follow")
+    ns = _own_prefixes(kb)[0][:-1]
+    _fed.CACHE.clear()
+    a = _dis.assess(f"{ns}:{eid}", Path(kb.root))
+    if not a["dischargeable"]:
+        raise ValueError(f"{ns}:{eid} cannot be discharged:\n- " + "\n- ".join(a["problems"]))
+    ok, why = _gr.check_grounds("proved", _dis.grounds(a))
+    if not ok:
+        raise ValueError("the discharge grounds fail:\n- " + "\n- ".join(why))
+    path = kb.root / e.path
+    before = path.read_bytes()
+    doc = _Doc(path, _fm.format_scalar_single)
+    doc.set_scalar("status", "proved", after=("form", "kind", "title"))
+    doc.remove("modulo")
+    doc.add_item("evidence", _dis.evidence_row(a), after=V2_ORDER[:V2_ORDER.index("evidence")])
+    doc.add_item("history", _schema.history_row(date or today(), "proved", _dis.history_note(a)),
+                 first=True, after=("evidence",))
+    doc.save()
+    built = load_kb(root)
+    if do_build(built, quiet=True):
+        path.write_bytes(before)
+        first = "; first error: " + built.errors[0] if built.errors else ""
+        raise ValueError(f"refused: the kb does not build with {eid} at proved{first}; "
+                         f"{e.path} unchanged")
+    _fed.CACHE.clear()
+    return a
 
 
 def cmd_set_status(args) -> int:
@@ -2753,6 +2841,8 @@ def _edges_of(kb, e):
         for ref in e.v2.get("modulo") or []:
             if isinstance(ref, str) and lookup(kb, ref)[0]:
                 yield lookup(kb, ref)[0], "modulo"
+            elif isinstance(ref, str) and _schema.looks_like_id(ref.strip()):
+                yield ref.strip(), "modulo"         # another home's input (#127)
     for p in e.meta.get("cleared_by", []) if isinstance(e.meta.get("cleared_by"), list) else []:
         yield verdict_id(kb, p), "cleared_by"
     lvl = e.meta.get("level")

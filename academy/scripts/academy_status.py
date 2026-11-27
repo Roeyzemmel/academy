@@ -146,12 +146,15 @@ def summary(board, workspace, since, include_instances=True):
         "blocked_on_human": [t for t in live if t.get("status") == "blocked"
                              and ac.HUMAN in [str(w) for w in (t.get("waiting_on") or [])]],
         "packets": [p for p in packetlib.list_packets(board, only_open=True)],
+        # #100: the work done, the deliverable not met; the human sent it, so it is theirs
+        "partial_from_human": [t for t in live if t.get("status") == ac.PARTIAL
+                               and t.get("from") == ac.HUMAN],
     }
     flight = collections.defaultdict(collections.Counter)
     for t in live:
         if t.get("to") != ac.HUMAN:
             flight[t.get("to")][t.get("status")] += 1
-    back_tickets = [t for t in tickets if t.get("status") == "delivered"
+    back_tickets = [t for t in tickets if t.get("status") in ac.BACK
                     and str(t.get("updated") or "") >= since]
     back_packets = [p for p in packetlib.list_packets(board)
                     if str(p.get("created") or "") >= since]
@@ -220,12 +223,16 @@ def render(s, usage_line=None, cap=SCREEN_ROWS):
         out.append("OVERDUE")
         out += ["  " + ln for ln in s["overdue"]]
     n = s["needs_you"]
-    count = len(n["tickets_to_human"]) + len(n["blocked_on_human"]) + len(n["packets"])
+    partial = n.get("partial_from_human") or []
+    count = (len(n["tickets_to_human"]) + len(n["blocked_on_human"]) + len(n["packets"])
+             + len(partial))
     out.append("NEEDS YOU (%d)" % count)
     for rows, tag, what, key, fmt in (
             (n["tickets_to_human"], "ticket ", "tickets to you", "from", _t),
             (n["blocked_on_human"], "blocked", "tickets blocked on you", "to", _t),
-            (n["packets"], "packet ", "packets", "instance", _p)):
+            (n["packets"], "packet ", "packets", "instance", _p),
+            (partial, "partial", "partial tickets you sent (reopen, close or cancel)", "to",
+             _t)):
         shown, more = _cut(rows, cap, what, key)
         out += ["  %s %s" % (tag, fmt(r)) for r in shown]
         if more:
@@ -239,9 +246,9 @@ def render(s, usage_line=None, cap=SCREEN_ROWS):
         out.append("  %-20s %s" % (inst, ", ".join("%s %d" % kv for kv in sorted(counts.items()))))
     cb = s["came_back"]
     out.append("CAME BACK since %s (%d)" % (s["since"], len(cb["tickets"]) + len(cb["packets"])))
-    shown, more = _cut(cb["tickets"], cap, "delivered tickets", "to")
+    shown, more = _cut(cb["tickets"], cap, "delivered or partial tickets", "to")
     for t in shown:
-        out.append("  delivered " + _t(t) + (" -- %s" % _short(t.get("result"))
+        out.append("  %-9s " % t.get("status") + _t(t) + (" -- %s" % _short(t.get("result"))
                                              if t.get("result") else ""))
     if more:
         out.append(more)

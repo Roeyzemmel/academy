@@ -1,7 +1,9 @@
 """T-0347, the reword pass, tested by test-engineer from the ticket's rule (not from the
 code's output): one informed run R; R CONFIRMED (scope equivalent / weaker / covered) on
 a base pass CONFIRMED x2 on ``base_hash`` => confirmed, propose proved, recolour; R GAP or
-``exceeds`` => a full blind pass; anything else carries nothing. Hashes are computed here
+``exceeds`` => a full blind pass; anything else carries nothing. Since #127 (the human's
+ruling, 2026-11-27) the base may also be a confirmed reword pass, whose R's wording is
+then the old statement. Hashes are computed here
 independently (sha256 of the whitespace-collapsed text, first 16 hex digits, as the
 registry's ``statement_hash_of`` docstring states)."""
 
@@ -91,10 +93,35 @@ class RewordTable(Base):
         self.base_pass(a=blind("A", h="0" * 16), b=blind("B", h="0" * 16))
         self.assertEqual(self.table(reword())["outcome"], "invalid-base")
 
-    def test_reword_on_a_reword_pass_carries_nothing(self):
+    def test_reword_on_a_confirmed_reword_pass_carries_the_chain(self):
+        """#127 (the human's ruling, 2026-11-27): a reword stands on the previous confirmed
+        statement, here the first reword's wording; the chain ends in the blind pair."""
         self.base_pass()
         self.put("2026-10-12-T-0347-reword", "R.md", reword())
         self.put("2026-10-12-T-0347-reword", "decision.md", "outcome: confirmed\n")
+        third = "Let $M$ be a compact translation surface; every point of $M$ is lit."
+        res = self.table(reword(base_pass="2026-10-12-T-0347-reword", base_hash=H_NEW,
+                                h=h16(third), run_id="rv-R2"),
+                         pass_="2026-10-20-T-0400-reword")
+        self.assertEqual((res["outcome"], res["proposed_status"]), ("confirmed", "proved"))
+        self.assertEqual(res["chain"], ["2026-09-28-T-0007", "2026-10-12-T-0347-reword"])
+        self.assertEqual((res["root_pass"], res["root_hash"]), ("2026-09-28-T-0007", H_OLD))
+        g = res["grounds"]
+        self.assertEqual([v["run_id"] for v in g["verdicts"]], ["rv-R2", "rv-R", "rv-A", "rv-B"])
+        claims = __import__("_expert").mcp_module("claims")
+        self.assertTrue(claims.check_grounds("proved", g, h16(third))[0])
+        # every row matches its landed record, each link with its own base
+        self.assertEqual(claims._grounds.check_verdict_refs(g, lambda ref: ref, SUBJ), [])
+        # against the first wording (the blind root's hash) it is no link: invalid
+        res = self.table(reword(base_pass="2026-10-12-T-0347-reword", base_hash=H_OLD,
+                                h=h16(third), run_id="rv-R2"),
+                         pass_="2026-10-20-T-0400-reword")
+        self.assertEqual((res["outcome"], res["proposed_status"]), ("invalid-base", None))
+
+    def test_reword_on_a_reword_pass_that_is_not_confirmed_carries_nothing(self):
+        self.base_pass()
+        self.put("2026-10-12-T-0347-reword", "R.md", reword(verdict="GAP", scope="exceeds"))
+        self.put("2026-10-12-T-0347-reword", "decision.md", "outcome: full-pass-needed\n")
         third = "Let $M$ be a compact translation surface; every point of $M$ is lit."
         res = self.table(reword(base_pass="2026-10-12-T-0347-reword", base_hash=H_NEW,
                                 h=h16(third), run_id="rv-R2"),
@@ -135,10 +162,44 @@ class RewordPassCli(Base):
         return fixtures.run_script("reviews.py", args=list(args) + ["--home", self.sb.lib],
                                    env={"ACADEMY_WORKSPACE": self.sb.ws_path})
 
-    def test_new_pass_refuses_a_reword_pass_as_base(self):
+    def test_new_pass_takes_a_confirmed_reword_pass_as_base(self):
+        """#127: the base may be the last confirmed reword pass; its R's statement_hash is
+        the new pass's base_hash, and the note names the chain's blind root."""
         self.base_pass()
         self.put("2026-10-12-T-0347-reword", "R.md", reword())
         self.put("2026-10-12-T-0347-reword", "decision.md", "outcome: confirmed\n")
+        code, name, err = self.cli("new-pass", SUBJ, "--ticket", "T-0400", "--reword-of",
+                                   "2026-10-12-T-0347-reword")
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(self.sdir, ".open", name), encoding="utf-8") as fh:
+            note = fh.read()
+        for want in ("reword_of: 2026-10-12-T-0347-reword", "base_hash: %s" % H_NEW,
+                     "root_pass: 2026-09-28-T-0007", "root_hash: %s" % H_OLD):
+            self.assertIn(want, note)
+        # the brief compares the first reword's wording (not the root's) to the new one
+        third = NEW.replace("is illuminated", "is lit")
+        code, out, err = self.cli("reword-brief", SUBJ, name, "--old-text", OLD,
+                                  "--new-text", third)
+        self.assertEqual(code, 1, out)
+        code, out, err = self.cli("reword-brief", SUBJ, name, "--old-text", NEW,
+                                  "--new-text", third)
+        self.assertEqual(code, 0, err)
+        for line in ("base_pass: 2026-10-12-T-0347-reword", "base_hash: %s" % H_NEW,
+                     "root_pass: 2026-09-28-T-0007", "statement_hash: %s" % h16(third),
+                     "[-illuminated.-] {+lit.+}"):
+            self.assertIn(line, out)
+
+    def test_new_pass_refuses_a_reword_pass_that_is_not_confirmed(self):
+        self.base_pass()
+        self.put("2026-10-12-T-0347-reword", "R.md", reword(verdict="GAP", scope="exceeds"))
+        self.put("2026-10-12-T-0347-reword", "decision.md", "outcome: full-pass-needed\n")
+        code, out, err = self.cli("new-pass", SUBJ, "--ticket", "T-0400", "--reword-of",
+                                  "2026-10-12-T-0347-reword")
+        self.assertEqual(code, 1, out)
+        self.assertIn("does not confirm", err)
+        # a confirmed R whose own base broke (the blind root abandoned) is no base either
+        self.put("2026-10-12-T-0347-reword", "R.md", reword())
+        self.put("2026-09-28-T-0007", "abandoned.md", "dead\n")
         code, out, err = self.cli("new-pass", SUBJ, "--ticket", "T-0400", "--reword-of",
                                   "2026-10-12-T-0347-reword")
         self.assertEqual(code, 1, out)

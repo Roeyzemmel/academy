@@ -19,6 +19,7 @@ Shared references beside it: `references/registry.md` (the `lab` / `paper` recor
 
 | Skill | What it does |
 |---|---|
+| /academy:audit | Read-only audit: board and registry states that contradict their evidence. Use for "audit". |
 | /academy:board | List, show, file, move and sync tickets on the academy board as the human. Use for "show the board", "what's open for the expert", "show T-0007", "close that ticket", "file a ticket to ...", "sync the board", or any ticket id. |
 | /academy:board-migrate | Move the file board to GitHub Issues, or check it: export the manifest, push in bulk over REST (resumable), verify zero drift from a byte-exact dump, cut over. Use for "migrate the board to GitHub", "board preflight", "verify the GitHub board". |
 | /academy:citation-discipline | How to rely on published work: cite before reproving, quote verbatim with the source version, check the real hypotheses, never invent references or pinpoints. Use whenever a literature result is stated, cited, applied or added to a bibliography. |
@@ -28,7 +29,7 @@ Shared references beside it: `references/registry.md` (the `lab` / `paper` recor
 | /academy:desk | The human's front desk: classifies a plain-language request and routes it (clerk answer, deep-dive, role skill or confirmed ticket); with no argument, one screen of what needs the human. Use as the default cross-role entry point, or for "what's going on". |
 | /academy:honest-reporting | How to report finished work so nothing unverified passes as established: status first, checked versus assumed kept apart, machine notes on judgement calls, failures stated plainly. Use at the end of any task that produces a report, packet or summary. |
 | /academy:inbox | Work every instance's board inbox in one run, in a fixed order (Author, Expert, Researcher, Scientist), one ticket at a time under the 3-item cap; --campaign T or --cowork S takes only that workplan's tickets. Use for "work all the inboxes". |
-| /academy:init | Create a new academy instance: scaffold the home's .claude/academy.json, register it in workspace.json, add .gitattributes and a board folder, and for a Researcher the notebook layout. Use for "/academy:init researcher@<domain>", "add a research domain". |
+| /academy:init | Create a new academy instance: scaffold the home's .claude/academy.json, register it in workspace.json, and for a Researcher the notebook layout. Use for "/academy:init researcher@<domain>", "add a research domain". |
 | /academy:maintain | Measured maintenance round on the academy plugins: survey, fix, gate. |
 | /academy:notation-discipline | Which notation wins (paper style.md > writing-style.md > domain pack) and who changes it. Use whenever a symbol is written or changed, or documents disagree on notation. |
 | /academy:review | Review open packets across all instances: render one private HTML dashboard, put each pending decision to the human, and write each answer back to the packet and its ticket. Use for "review", "show me the packets", "let's go through the decisions". |
@@ -36,5 +37,6 @@ Shared references beside it: `references/registry.md` (the `lab` / `paper` recor
 | /academy:status | Health of the academy as a whole: per instance, whether its home exists and .claude/academy.json is valid and matches workspace.json, plus ticket and packet counts. Use for "academy status", "is everything configured". Per role: /<role>:status. |
 | /academy:status-vocabulary | The one mapping between draft colours, registry claim statuses, and review verdict words (CONFIRMED / PLAUSIBLE / GAP / DISPROVED; SOUND / SOUND MODULO / GAP / BROKEN). Use whenever a status, colour or verdict is written, read or proposed. |
 | /academy:usage | Report Claude Code usage by instance, role and agent (turns, cache, models, limit failures) for a session or window; --weekly files a usage packet. Use for "usage this week", "how much did that run cost", "did we hit the limit". |
+| /academy:weekly-review | One private weekly page: paper changes, statements ready, real decisions, merges, problems. |
 
 <!-- skills:end -->
