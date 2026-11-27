@@ -97,6 +97,9 @@ RELAYS = {("author", "expert", "down"): "research-intake",
           ("scientist", "researcher", "up"): "lit-request"}
 #: the agent name of a role skill running in the main session inside a home
 MAIN_AGENT = "main"
+#: the ticket kinds only an Author's own agents do (author/scripts/routes.py); no relay
+#: carries them, so a non-Author files one as the Author, to itself (#131)
+AUTHOR_KINDS = ("write", "apply", "copy", "figure", "build", "sweep")
 
 
 def role_of(party, workspace=None):
@@ -180,7 +183,7 @@ def released_waits(meta, status_of):
 
 
 def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, depth=0,
-                        clerical=False):
+                        clerical=False, kind=None):
     """Whether ``agent`` of instance ``frm`` may file a ticket to ``to``.
 
     Rules (docs/protocol.md section 5): 'human' at either end is allowed; a clerical
@@ -188,7 +191,9 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
     must be adjacent in the chain and ``agent`` a liaison of that direction.
     ``final_to`` (a role or instance) must lie beyond ``to`` as seen from ``frm``, and
     ``depth`` (relay_depth of the parent, counted in the direction of this ticket) + 1
-    may not exceed maxHops.
+    may not exceed maxHops. ``kind`` only shapes a refusal: an Author-side kind
+    (``AUTHOR_KINDS``) to an Author is told to be filed from the Author instance, since no
+    inbox relays it (#131).
     Returns ``(allowed, reason)``.
     """
     edges = ticket_edges(perms)
@@ -225,6 +230,11 @@ def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, de
     who = agent or MAIN_AGENT
     if who in names:
         return True, "liaison"
+    if rt == "author" and kind in AUTHOR_KINDS:
+        return False, ("%s is not a liaison for %s->author (liaisons: %s); a %s ticket is "
+                       "the Author's own work and no inbox relays it: file it as the Author "
+                       "(instance: %s, to: %s), not through your %s instance"
+                       % (who, rf, ", ".join(names) or "none", kind, to, to, rf))
     return False, ("%s is not a liaison for %s->%s (liaisons: %s); file it to your own "
                    "%s instance instead, with the ask: its inbox routes it and a liaison "
                    "files it with the %s"

@@ -184,13 +184,13 @@ def create_ticket(ctx, a, clerical=False):
     depth = ac.relay_depth(ctx.store, parent, sender, to, final_to,
                            ac.ticket_edges(ctx.perms)["chain"], ctx.workspace) \
         if final_to and parent else 0
-    ok, why = ac.ticket_edge_allowed(sender, to, agent, ctx.perms, ctx.workspace,
-                                     final_to, depth, clerical=clerical)
-    if not ok:
-        raise ToolError("refused: " + why)
     kind = a.get("kind") or "other"
     if kind not in ac.TICKET_KINDS:
         kind = "other"
+    ok, why = ac.ticket_edge_allowed(sender, to, agent, ctx.perms, ctx.workspace,
+                                     final_to, depth, clerical=clerical, kind=kind)
+    if not ok:
+        raise ToolError("refused: " + why)
     prio = a.get("priority") or "normal"
     if prio not in ac.PRIORITIES:
         raise ToolError("priority must be one of %s" % ", ".join(ac.PRIORITIES))
