@@ -267,6 +267,10 @@ def find_claim(root, ticket):
 
 
 def _mf_pid_alive(pid):
+    # On Windows os.kill(pid, 0) is not a probe: signal 0 is CTRL_C_EVENT, so it sends a
+    # Ctrl+C to that process group. There the claim's age alone decides (claim_live).
+    if os.name == "nt":
+        return True
     try:
         os.kill(int(pid), 0)
     except ProcessLookupError:
