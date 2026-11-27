@@ -59,14 +59,16 @@ TRANSITIONS = {
 #: ticket frontmatter fields by owner (mirrors permissions.json "tickets.fields")
 TICKET_FIELDS = {
     "system": ("id", "from", "created", "updated"),
-    "human_only": ("to",),
+    # decision_choice: the alternative the human chose on /academy:decide (#86), which the
+    # agent that resumes the ticket does; written only by decisions.py record, as the human
+    "human_only": ("to", "decision_choice"),
     "sender": ("title", "kind", "ask", "deliverable", "refs", "priority", "budget",
                "parent", "blocks", "agenda", "domain", "final_to", "campaign", "cowork"),
     "receiver": ("status", "result", "waiting_on", "blocked_by", "reopen_if", "packets"),
 }
 TICKET_KEY_ORDER = ("id", "title", "kind", "from", "to", "status", "priority", "ask",
                     "deliverable", "refs", "agenda", "domain", "parent", "final_to", "campaign",
-                    "cowork", "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
+                    "cowork", "decision_choice", "blocks", "waiting_on", "blocked_by", "reopen_if", "budget", "result",
                     "packets", "created", "updated")
 REQUIRED_TICKET_FIELDS = ("id", "title", "kind", "from", "to", "status", "ask",
                           "deliverable", "priority", "budget", "created", "updated")
@@ -478,6 +480,9 @@ def validate_ticket(meta, body=None, workspace=None):
         probs.append("campaign must be a registry id (the campaign's target)")
     if meta.get("cowork") is not None and not RE_COWORK.match(str(meta["cowork"])):
         probs.append("cowork must be a slug [a-z0-9-] (the plan file board/cowork/<slug>.md)")
+    if meta.get("decision_choice") is not None and (
+            not isinstance(meta["decision_choice"], str) or "\n" in meta["decision_choice"]):
+        probs.append("decision_choice must be one line (the human's chosen alternative)")
     if meta.get("campaign") and meta.get("cowork"):
         probs.append("a ticket belongs to one workplan: campaign or cowork, not both")
     ft = meta.get("final_to")

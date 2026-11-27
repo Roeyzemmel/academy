@@ -42,7 +42,8 @@ no write tool at all: you return text.
   option's line. If a `recommendation` is given, that option's label gets
   `(Recommended)` appended and it is listed **first**; the source ids are still
   whatever `decisions.py` gave them (`(a)`, `(b)`, …, or `proceed`/`decline` for a
-  ticket). A `(more)` entry (options omitted for space) is kept as the last option,
+  plain ticket). A ticket whose ask names alternatives carries them as `(a)`, `(b)`, …
+  and a `(decline)`: phrase each alternative as itself; never add a plain "Proceed". A `(more)` entry (options omitted for space) is kept as the last option,
   worded as an invitation to say so in free text rather than a real choice.
 - `flag`: when `stale` is set, one plain sentence naming the other packet and why it
   might already be answered differently; otherwise omit the key.

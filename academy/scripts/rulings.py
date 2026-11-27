@@ -485,6 +485,53 @@ def own_options(meta, body=None):
     return _lettered(m.group(1)) if m else {}
 
 
+#: what presents alternatives without letters (#86, T-0896: "drop the note, or a literature
+#: lookup and a one-line remark"): the text after the last cue of a sentence
+RE_ALT_CUE = re.compile(r"(?i):|\b(?:either|whether to|whether|decide|choose|pick|one of|"
+                        r"options?|alternatives?)\b")
+RE_ALT_SPLIT = re.compile(r"(?i),\s*or\s+|\s*;\s*or\s+")
+RE_EITHER = re.compile(r"(?i)^either\s+(.+?)\s+or\s+(.+)$")
+
+
+def alternatives(text):
+    """The alternatives an ask names without letters, ``{"a": ..., "b": ...}``, or ``{}``.
+
+    A sentence presents them after a cue (``RE_ALT_CUE``: a ':', "either", "whether to",
+    "Decide", "Choose" ...), or as a question: "A, or B[, or C]" or "either A or B". Each
+    alternative needs real text (``_substantial``, two words or more); a plain "or" with no
+    comma inside a statement ("proved or refuted") is not a choice put to the human. A
+    keyword heuristic, like the lettered options': the listing shows what it read, and
+    ``record`` stores the alternative chosen (``decision_choice``)."""
+    t = " ".join(str(text or "").replace("`", "").split())
+    for sent in reversed(re.split(r"(?<=[.?!])\s+", t)):
+        cues = list(RE_ALT_CUE.finditer(sent))
+        if cues:
+            seg = sent[cues[-1].end():]
+            if cues[-1].group(0).lower() == "either":
+                seg = "either " + seg
+        elif sent.endswith("?"):
+            seg = sent
+        else:
+            continue
+        seg = seg.strip().rstrip(".?!").strip()
+        m = RE_EITHER.match(seg)
+        parts = [m.group(1), m.group(2)] if m else RE_ALT_SPLIT.split(seg)
+        parts = [p.strip(" ,;") for p in parts]
+        if not 2 <= len(parts) <= 4:
+            continue
+        if all(_substantial(p) and len(p.split()) >= 2 for p in parts):
+            return {chr(ord("a") + i): p for i, p in enumerate(parts)}
+    return {}
+
+
+def alternative_dicts(alts):
+    """The alternatives as decisions.py shows them, each its own label, then a decline."""
+    out = [{"label": "(%s) %s" % (k, v[:48]), "description": v} for k, v in alts.items()]
+    out.append({"label": "(decline) Decline",
+                "description": "None of these: reject or hold the ticket; nothing proceeds."})
+    return out
+
+
 #: a negation; it reaches the first keyword after it in its clause ("do not, under any
 #: circumstances, take proved but re-run": proved), and no further ("no wait, re-run": wait)
 RE_NEG = re.compile(r"(?i)\b(?:not|don't|dont|never|without|no)\b")

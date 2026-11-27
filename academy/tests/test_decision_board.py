@@ -20,6 +20,7 @@ sys.path.insert(0, HERE)
 import academy_common as ac  # noqa: E402
 import board as bd  # noqa: E402
 import decisions as dc  # noqa: E402
+import rulings as rl  # noqa: E402
 from test_decisions import DATE, DecisionsCase  # noqa: E402
 
 LATER = "2026-09-29"
@@ -177,6 +178,114 @@ class PolicyCLITests(BoardCase):
             rc = dc.main(["--board", self.board, "--workspace", self.ws_path, "policy"])
         self.assertEqual(rc, 0)
         self.assertIn("accepted under the policy: 1 verify (T-0001)", out.getvalue())
+
+
+# ----------------------------------------------------------------------------
+# (2) real options: alternatives without letters, no bare proceed, the stored choice
+# ----------------------------------------------------------------------------
+
+ALT_ASK = ("rmk:x cites no source for the bound. Decide: drop the note, or a literature "
+           "lookup and a one-line remark.")
+
+
+class AlternativesParseTests(unittest.TestCase):
+    def test_comma_or_after_a_cue(self):
+        self.assertEqual(rl.alternatives(ALT_ASK),
+                         {"a": "drop the note",
+                          "b": "a literature lookup and a one-line remark"})
+
+    def test_either_or(self):
+        self.assertEqual(rl.alternatives("Either keep the hypothesis or weaken it to PA-5w?"),
+                         {"a": "keep the hypothesis", "b": "weaken it to PA-5w"})
+
+    def test_three_alternatives(self):
+        self.assertEqual(sorted(rl.alternatives(
+            "Choose: cite LMW16, or reprove it here, or drop the remark.").values()),
+            ["cite LMW16", "drop the remark", "reprove it here"])
+
+    def test_no_cue_no_alternatives(self):
+        # a plain "or" inside a statement is not a choice put to the human
+        self.assertEqual(rl.alternatives("Verify that the set is finite, or empty."), {})
+        self.assertEqual(rl.alternatives("Check lem:x is proved or refuted."), {})
+        self.assertEqual(rl.alternatives(""), {})
+
+    def test_slight_parts_are_no_alternatives(self):
+        self.assertEqual(rl.alternatives("Decide: yes, or no."), {})
+
+
+class RealOptionsTests(BoardCase):
+    def test_alternatives_are_the_options_with_a_decline(self):
+        self.blocked(kind="note", ask=ALT_ASK)
+        it = dc.pending_decisions(self.board, workspace=self.ws)[0]
+        labels = [o["label"] for o in it["options"]]
+        self.assertTrue(labels[0].startswith("(a) drop the note"), labels)
+        self.assertTrue(labels[1].startswith("(b) a literature lookup"), labels)
+        self.assertEqual(labels[-1], "(decline) Decline")
+        self.assertTrue(it["own_options"])
+
+    def test_a_bare_proceed_is_refused_when_alternatives_exist(self):
+        self.blocked(kind="note", ask=ALT_ASK)
+        for word in ("proceed", "yes", "accept"):
+            with self.assertRaises(ac.AcademyError) as cm:
+                dc.record(self.board, "T-0001", word, date=DATE)
+            self.assertIn("drop the note", str(cm.exception))
+        self.assertEqual(meta_of(self.board, "T-0001")["status"], "blocked")
+
+    def test_the_chosen_alternative_is_stored_on_the_ticket(self):
+        self.blocked(kind="note", ask=ALT_ASK)
+        out = dc.record(self.board, "T-0001", "b", date=DATE)
+        m = meta_of(self.board, "T-0001")
+        self.assertEqual(out["status"], "accepted")
+        self.assertEqual(m["status"], "accepted")
+        self.assertEqual(m["decision_choice"], "(b) a literature lookup and a one-line remark")
+        self.assertTrue(any("(b) a literature lookup" in t for t in texts(self.board, "T-0001")))
+        path, meta, body = bd.get_ticket(self.board, "T-0001")
+        self.assertEqual(ac.validate_ticket(meta, body), [])
+
+    def test_a_drop_alternative_proceeds_it_does_not_reject(self):
+        self.blocked(kind="note", ask=ALT_ASK)
+        dc.record(self.board, "T-0001", "a", date=DATE)
+        m = meta_of(self.board, "T-0001")
+        self.assertEqual((m["status"], m["decision_choice"]), ("accepted", "(a) drop the note"))
+
+    def test_decline_still_declines(self):
+        self.blocked(kind="note", ask=ALT_ASK)
+        self.assertEqual(dc.record(self.board, "T-0001", "decline", date=DATE)["status"],
+                         "cancelled")
+
+    def test_lettered_options_refuse_a_bare_proceed_and_store_the_letter(self):
+        self.ticket(to="human", kind="question", as_instance="expert@main",
+                    ask="Which? Options: (a) keep the remark as it is; (b) cut the remark "
+                        "entirely.")
+        with self.assertRaises(ac.AcademyError):
+            dc.record(self.board, "T-0001", "proceed", date=DATE)
+        dc.record(self.board, "T-0001", "a", date=DATE)
+        self.assertEqual(meta_of(self.board, "T-0001")["decision_choice"],
+                         "(a) keep the remark as it is")
+
+    def test_a_plain_proceed_stores_proceed(self):
+        self.blocked(kind="verify")
+        dc.record(self.board, "T-0001", "proceed", date=DATE)
+        self.assertEqual(meta_of(self.board, "T-0001")["decision_choice"], "proceed")
+
+    def test_the_choice_is_a_human_only_field(self):
+        self.assertIn("decision_choice", ac.TICKET_FIELDS["human_only"])
+        perms = ac.load_permissions(os.path.join(PLUGIN, "permissions.json"))
+        self.assertIn("decision_choice", perms["tickets"]["fields"]["human_only"])
+
+    def test_a_policy_acceptance_stores_its_choice_and_undo_clears_it(self):
+        self.policy("verify")
+        self.blocked(kind="verify")
+        dc.apply_policy(self.board, self.ws, date=DATE)
+        self.assertEqual(meta_of(self.board, "T-0001")["decision_choice"],
+                         "proceed (routine policy)")
+        dc.undo(self.board, "T-0001", date=LATER)
+        self.assertNotIn("decision_choice", meta_of(self.board, "T-0001"))
+
+    def test_a_ticket_naming_alternatives_is_asked_not_accepted(self):
+        self.policy("note")
+        self.blocked(kind="note", ask=ALT_ASK)
+        self.assertEqual(dc.apply_policy(self.board, self.ws, date=DATE), [])
 
 
 if __name__ == "__main__":

@@ -262,6 +262,7 @@ The keys are written in this order (`TICKET_KEY_ORDER`). No other keys are allow
 | `final_to` | role \| instance \| empty | no | sender | The role (or instance) the request is really for; set on relayed tickets; a receiver whose role is not `final_to` hands the ticket to its relay |
 | `campaign` | registry id \| empty | no | sender | The target of the campaign this ticket belongs to; `inbox.py --campaign <target>` lists only such tickets. Omitted unless set |
 | `cowork` | slug \| empty | no | sender | The cowork this ticket belongs to (`/academy:cowork`, plan `<board>/cowork/<slug>.md`); `inbox.py --cowork <slug>` lists only such tickets. At most one of `campaign` and `cowork`. Omitted unless set |
+| `decision_choice` | str, one line \| empty | no | human only | What the human chose on `/academy:decide` (`decisions.py record`, #86): `(b) <the alternative's text>` for a ticket whose ask named alternatives (lettered, or "A, or B"), `proceed` for a plain acceptance, `proceed (routine policy)` for one under `decisions.routine`. The agent that resumes the ticket does that alternative and does not ask it again. Omitted unless set |
 | `blocks` | list of ticket ids | no | sender (server mirrors) | Tickets waiting on this one |
 | `waiting_on` | list of ticket ids, instances or `human` | iff `blocked` | receiver | What the receiver waits for |
 | `budget` | map `{runs: int >= 1}`, optionally `max_model: fable\|opus\|sonnet\|haiku` | yes | sender | A note from the sender on how much the ticket is expected to take; it gates nothing (the run's budget does, `references/budget.md` rule 7). Default `runs` from `academy.json` `budget.ticketDefault`. The model is not the sender's: an agent runs on its agent file's `model:`. `max_model`, if given, is an advisory note and never blocks a route |
@@ -709,7 +710,11 @@ plain `proved` while both runs list inputs needs `--action intersection` or `--f
 own option the keyword reading cannot class is refused on a ruling until `--action` names it.
 A decline is always recorded and rejects the ruling; it undoes nothing already done. The
 listing reads a ruling's options with its body and a plain ticket's from its ask line,
-as `record` does; a plain ticket still takes `proceed` / `decline`.
+as `record` does; a plain ticket still takes `proceed` / `decline`, except that a ticket
+whose ask names alternatives (lettered, or unlettered: "Decide: drop the note, or a
+literature lookup and a one-line remark") takes one of them or `decline`, never a bare
+`proceed` (#86). The chosen alternative is stored on the ticket as `decision_choice`
+(section 3), which the resuming agent reads.
 
 ### 6.4 A research request from the Author
 

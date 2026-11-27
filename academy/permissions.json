@@ -77,7 +77,7 @@
     },
     "fields": {
       "system": ["id", "from", "created", "updated"],
-      "human_only": ["to"],
+      "human_only": ["to", "decision_choice"],
       "sender": ["title", "kind", "ask", "deliverable", "refs", "priority", "budget", "parent", "blocks", "agenda", "domain", "final_to", "campaign", "cowork"],
       "receiver": ["status", "result", "waiting_on", "blocked_by", "reopen_if", "packets"]
     },

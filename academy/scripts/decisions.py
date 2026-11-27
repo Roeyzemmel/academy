@@ -51,6 +51,13 @@ line naming the policy and prints one digest line per category; ``undo`` reverts
 acceptance until an inbox run touches the ticket. ``review-experiment`` and a plain
 ``decision`` are never routine.
 
+**Alternatives (#86).** A ticket whose ask names alternatives without letters ("Decide:
+drop the note, or a literature lookup and a one-line remark"; ``rulings.alternatives``)
+is listed with them and a decline; ``record`` takes one of their letters or a decline,
+never a bare ``proceed`` (nor on a ticket with lettered options), and stores the choice on
+the ticket as ``decision_choice`` (a human-only field the resuming agent reads; plain
+``proceed`` for a ticket with nothing to choose).
+
 ``accept-recommended`` only ever applies a **packet's own recorded** ``Recommendation:``
 line -- a raw ticket carries no such recommendation, so ticket-sourced items are never
 auto-accepted; they always go through ``record`` with an explicit choice.
@@ -311,19 +318,24 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
         # a ticket's own lettered options are what its letters mean (#125): a ruling's read
         # with its body, a plain ticket's from its ask line, as record reads them
         own = rulinglib.own_options(t, ticket[2] if r else None)
+        # alternatives named without letters ("drop the note, or a lookup and a remark",
+        # #86): asked as such, never as a bare proceed; a ruling keeps its own four
+        alts = {} if (own or r) else rulinglib.alternatives(t.get("ask"))
         items.append({
             "id": t["id"],
             "instance": inst,
             "title": t.get("title"),
             "question": _ticket_question(t),
             "options": (rulinglib.own_option_dicts(own) if own
-                        else rulinglib.options(r) if r else _ticket_options(t)),
+                        else rulinglib.options(r) if r
+                        else rulinglib.alternative_dicts(alts) if alts
+                        else _ticket_options(t)),
             "ruling": {k: r[k] for k in ("subject", "pass", "union", "intersection", "keeper")}
             if r else None,
             "recommendation": None,
             "kind": _classify_ticket(t),
             "category": category(t),
-            "own_options": bool(own),
+            "own_options": bool(own or alts),
             "unblocks": [str(b) for b in (t.get("blocks") or [])],
             "stale": None,
             "source": "ticket-human" if to_human else "ticket-blocked",
@@ -432,6 +444,7 @@ def apply_policy(board, workspace, date=None, dry_run=False, instance=None):
                 as_instance=ac.HUMAN, date=date, via=ac.VIA_SESSION)
             boardlib.transition_ticket(board, tid, "accepted", as_instance=ac.HUMAN,
                                        date=date, via=ac.VIA_SESSION)
+            _set_choice(board, tid, "proceed (routine policy)")
         out.append({"id": tid, "category": item["category"], "was": was,
                     "instance": item.get("instance")})
     return out
@@ -479,6 +492,7 @@ def undo(board, tid, date=None):
     note = "undo: the routine-policy acceptance is reverted; asked again at the next decide"
     boardlib.append_to_ticket(board, tid, note, as_instance=ac.HUMAN, date=date,
                               via=ac.VIA_SESSION)
+    _set_choice(board, tid, None)
     if was == "open":
         boardlib.transition_ticket(board, tid, "open", reason="policy acceptance undone",
                                    as_instance=ac.HUMAN, date=date, via=ac.VIA_SESSION)
@@ -513,7 +527,24 @@ def batches(items, size=4):
 # ----------------------------------------------------------------------------
 
 #: the generic answers a plain ticket always takes, own options or not
-GENERIC_WORDS = ("proceed", "yes", "y", "decline", "no", "n")
+PROCEED_WORDS = ("proceed", "yes", "y")
+DECLINE_WORDS = ("decline", "no", "n")
+GENERIC_WORDS = PROCEED_WORDS + DECLINE_WORDS
+
+
+def _set_choice(board, tid, value):
+    """Write (or, with ``None``, clear) the ticket's ``decision_choice``: the alternative the
+    human chose, which the agent resuming the ticket reads and does (#86). A human-only
+    field (``ac.TICKET_FIELDS``), written here as the human's answer."""
+    store = ac.as_store(board)
+    path, meta, body = store.get(tid)
+    if value is None:
+        if "decision_choice" not in meta:
+            return path
+        meta.pop("decision_choice")
+    else:
+        meta["decision_choice"] = " ".join(str(value).split())[:300]
+    return store.save(meta, body, path)
 
 
 def _is_proceed(choice):
@@ -540,13 +571,34 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
         return rulinglib.record(board, r, choice, comment, workspace=workspace, date=date,
                                 ticket=ticket, action=action, force=force)
     own = rulinglib.own_options(meta)            # the ask line, as the listing reads it
-    word = str(choice or "").strip().lower() in GENERIC_WORDS and action in (None, "")
+    alts = {} if own else rulinglib.alternatives(meta.get("ask"))
+    c = str(choice or "").strip().lower().strip("()")
+    no_action = action in (None, "")
+    if (own or alts) and no_action and c in PROCEED_WORDS + ("accept",) and (
+            alts or c != "accept"):
+        # #86 comment 1: a ticket that names alternatives takes one of them, never a bare
+        # proceed (T-0896: "proceed" recorded no option, and the agent blocked again)
+        raise ac.AcademyError(
+            "%s names alternatives: %s. Record one of their letters (or decline), not a "
+            "bare %r" % (tid, "; ".join("(%s) %s" % kv for kv in (own or alts).items()),
+                         choice))
+    word = c in GENERIC_WORDS and no_action
+    chosen = "proceed"
     if own and not word:
         # the ticket's own letters (#125): its (b) is its (b), not the generic decline
         letter, cls, option, _act = rulinglib.pick_own(own, choice, action, tid)
         proceed = cls != "decline"
+        chosen = "(%s) %s" % (letter, " ".join(option.split()))
         text = "human decision: (%s) %s [the ticket's own (%s): %s]" % (
             letter, cls, letter, " ".join(option.split())[:120])
+    elif alts and c in alts and no_action:
+        # an alternative is what to do, never a decline of the ticket ("drop the note")
+        proceed, chosen = True, "(%s) %s" % (c, alts[c])
+        text = "human decision: %s [one of the ticket's alternatives]" % chosen
+    elif alts and not (c in DECLINE_WORDS or str(action or "").lower() == "decline"):
+        raise ac.AcademyError("%s names alternatives: %s. --choice takes one of their letters "
+                              "or decline" % (tid, "; ".join("(%s) %s" % kv
+                                                             for kv in alts.items())))
     else:
         if choice in (None, "") and action in (None, ""):
             raise ac.AcademyError("%s: name the answer with --choice or --action" % tid)
@@ -560,6 +612,8 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
     if comment.strip():
         text += " -- " + " ".join(comment.split())
     boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
+    if proceed:
+        _set_choice(board, tid, chosen)
     old = meta.get("status")
     if old == "blocked":
         new = "accepted" if proceed else "cancelled"

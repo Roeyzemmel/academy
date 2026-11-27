@@ -87,6 +87,13 @@ phrases the questions. Neither one asks the human or records on its own.
    the human states the list (`--action intersection`, or `--force` for plain `proved`).
    When in doubt, pass `--action` with the letter: a disagreement is refused, never
    guessed.
+   A ticket whose ask names **alternatives without letters** ("Decide: drop the note, or
+   a literature lookup and a one-line remark") is listed with them as `(a)`, `(b)`, ...
+   and a `(decline)`; ask for one of them, never a bare proceed (`record` refuses
+   `proceed` on any ticket with alternatives, lettered or not). `record --choice b` stores
+   the alternative on the ticket as `decision_choice`, which the agent that resumes it
+   reads (#86); an alternative such as "drop the note" is what to do, so it accepts the
+   ticket, and only `decline` rejects it.
    `decisions.py stalled-rulings` lists rulings answered but not delivered (no
    follow-up yet, or a record interrupted); `record <id> --choice <a-c>` files or
    completes theirs.
