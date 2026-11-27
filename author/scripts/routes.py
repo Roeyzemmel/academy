@@ -91,6 +91,12 @@ RE_NEEDS_ARGUMENT = re.compile(
     r"|\b(add|drop|weaken|strengthen) (a |the )?hypothes"
     # removing an exception strengthens the statement (T-0368, review of badbc50)
     r"|\b(remove|drop|without) (the |its |an |any )?([\w-]+ )?exceptions?\b(?! list)")
+#: an ask that says outright it needs no argument (#128, T-1948: "EDITORIAL ONLY: it needs
+#: no new argument", routed to research twice on "add the hypothesis")
+RE_EDITORIAL = re.compile(
+    r"(?i)\beditorial(?:\s+only|\s*:)|\b(?:needs?|requires?|with) no (?:new )?(?:argument|proof)s?\b"
+    r"|\bno new (?:argument|proof)s? (?:is )?(?:needed|required)\b"
+    r"|\bis not a new argument\b")
 #: the self kinds whose ask is checked for a missing argument (``check_filed``)
 WRITER_KINDS = ("write", "apply", "copy", "note")
 #: the kinds with no work of their own: math-writer triages them (#92)
@@ -135,6 +141,10 @@ RULES = (
      ", ".join(ROUTED_WRITER_KINDS), "agent", "(the kind's)",
      "land it: a ref, a wait, or the newest child (none still out, not unproved) "
      "delivered it"),
+    ("a missing argument asked separately (`separate_argument`)",
+     ", ".join(ROUTED_WRITER_KINDS), "agent", "(the kind's)",
+     "an argument child still out that the ticket does not wait on: do the rest, file "
+     "nothing new"),
     ("a missing argument, not delivered (`needs_argument`)", ", ".join(ROUTED_WRITER_KINDS),
      "research", "expert", "file `research` to the Expert, final_to researcher; park on it"),
 )
@@ -169,8 +179,12 @@ def decided_edit(meta, human=None):
 
 def needs_argument(meta):
     """True when a ticket's title or ask asks for an argument that does not exist yet
-    (a missing step, a new proof or lemma, a hypothesis change): Researcher work."""
+    (a missing step, a new proof or lemma, a hypothesis change): Researcher work. Never
+    when the ask says it needs none (``RE_EDITORIAL``: "editorial only", "needs no new
+    argument"; #128)."""
     text = " ".join(str(meta.get(k) or "") for k in ("title", "ask"))
+    if RE_EDITORIAL.search(text):
+        return False
     return bool(RE_NEEDS_ARGUMENT.search(text))
 
 
@@ -267,6 +281,33 @@ def delivered_argument(meta, ticket_of=None):
             kids = []
         return _child_argument(kids)
     return ""
+
+
+def separate_argument(meta, ticket_of=None):
+    """The argument child (``research`` or ``prove``, ``parent`` this ticket) still out
+    that this ticket does not wait on, or '': the argument is asked separately, so the
+    ticket is the writer's and never routes to research again (#128: T-1948 filed T-1949,
+    which does not block it, and was then routed to research a second time and blocked on
+    the human). A child named in ``waiting_on`` or ``blocks`` does not count: that is a
+    ticket parked on its argument."""
+    own = str(meta.get("id") or "").strip()
+    if not own:
+        return ""
+    if ticket_of is None:
+        ticket_of = _workspace_tickets()
+    children = getattr(ticket_of, "children", None)
+    if children is None:
+        return ""
+    try:
+        kids = list(children(own) or ())
+    except Exception:    # a routing table answers even when the board cannot
+        return ""
+    waits = {_ticket_num(w) for w in _as_list(meta.get("waiting_on"))}
+    waits |= {_ticket_num(w) for w in _as_list(meta.get("blocks"))}
+    out = [t for t in kids if _asks_argument(t)
+           and t.get("status") not in DELIVERED_STATUSES + ("rejected", "cancelled")
+           and _ticket_num(t.get("id")) not in waits]
+    return str(min(out, key=lambda m: _ticket_num(m.get("id")) or 0).get("id")) if out else ""
 
 
 def _as_list(v):
@@ -463,6 +504,14 @@ def route(meta, ticket_of=None):
             return {"how": how, "target": target,
                     "why": "land the argument: %s, so it exists (the ask's wording is "
                            "not a missing argument)" % said}
+        sep = separate_argument(meta, ticket_of)
+        if sep:
+            how, target, _why = KIND_ROUTES[kind]
+            return {"how": how, "target": target,
+                    "why": "the argument is asked separately in %s, which this ticket does "
+                           "not wait on: do the rest of the ask and file nothing new for "
+                           "the argument; if what remains needs it, block this ticket "
+                           "waiting on %s (#128)" % (sep, sep)}
         return research_route("the ask needs an argument nobody has delivered")
     if kind in KIND_ROUTES:
         how, target, why = KIND_ROUTES[kind]
