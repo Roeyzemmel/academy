@@ -231,5 +231,21 @@ class TestStartWorktree(Base):
         self.assertTrue(run(self.sub, "rev-parse", "--verify", "refs/heads/" + name))
 
 
+    def test_an_academy_worktree_names_its_own_academy_root(self):
+        """#138: ACADEMY_ROOT names the main checkout; a new academy worktree says to use its own."""
+        os.makedirs(os.path.join(self.sub, "academy", "scripts"))
+        with open(os.path.join(self.sub, "academy", "scripts", "ship.py"), "w") as fh:
+            fh.write("# stub\n")
+        run(self.sub, "add", "academy/scripts/ship.py")
+        run(self.sub, "commit", "-q", "-m", "an academy checkout")
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"ACADEMY_ROOT": self.sub}):
+            rc, out, err = self.ship("start", "sub", "topic", "--role", "human", "--worktree")
+        self.assertEqual(rc, 0, err)
+        wt = os.path.join(self.sub, ".claude", "worktrees",
+                          ship.branch_name("topic", "human").replace("/", "-"))
+        self.assertIn("ACADEMY_ROOT=%s" % wt, out)
+        run(self.sub, "worktree", "remove", "--force", wt)
+
 if __name__ == "__main__":
     unittest.main()
