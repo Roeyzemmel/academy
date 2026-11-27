@@ -351,10 +351,10 @@ T1948 = {
     "id": "T-1948", "kind": "write", "from": "author@t", "to": "author@t",
     "status": "accepted",
     "title": "defn:flat-structure: drop the discreteness clause; state \"Sigma_S discrete\" "
-             "only where used (Roey 2026-11-23, P-0500 D1)",
+             "only where used (the human 2026-11-23, P-0500 D1)",
     "ask": "Remove \", which is required to be discrete in $S$\" from the completion clause "
            "of defn:flat-structure (l.112) and add the hypothesis \"$\\Sigma_S$ discrete\" "
-           "only to the statements whose proofs use it (Roey's option 1, 2026-11-23)",
+           "only to the statements whose proofs use it (the human's option 1, 2026-11-23)",
     "refs": ["paper:defn:flat-structure", "P-0500"], "waiting_on": [], "blocks": ["T-1950"],
 }
 
