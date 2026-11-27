@@ -432,6 +432,28 @@ class TestRegistryChanges(FixtureCase):
         self.assertTrue(any("researcher@r1" in n and "shallow" in n for n in notes), notes)
 
 
+class TestStructuredRecord(unittest.TestCase):
+    """#127 with #107: a record carrying hypotheses and per-item statuses (``items``) is read
+    like any other: its derived status, its statement hash."""
+
+    def test_a_record_with_items_loads(self):
+        d = tempfile.mkdtemp(prefix="academy-weekly-items-")
+        self.addCleanup(shutil.rmtree, d, True)
+        write(os.path.join(d, ".claude", "academy.json"), json.dumps({
+            "schema": 1, "role": "researcher", "instance": "researcher@r1", "ns": "nb",
+            "registry": {"profile": "notebook"}}))
+        text = nb_claim("C-3", "proved-modulo").replace(
+            "evidence: []", "modulo:\n  - nb:C-2\nhypotheses:\n  H1: compact\nitems:\n"
+            "  C1: [proved]\n  C2: [proved-modulo, nb:C-2]\nevidence: []").replace(
+            "It holds.", "**H1.** the surface is compact.\n\n**C1.** one.\n**C2.** two.")
+        write(os.path.join(d, "objects", "claim", "C-3.md"), text)
+        write(os.path.join(d, "objects", "claim", "C-2.md"), nb_claim("C-2", "conjectured"))
+        recs = wr._load_records("nb", d, {})
+        self.assertEqual(recs["C-3"]["status"], "proved-modulo")
+        self.assertTrue(recs["C-3"]["hash"])
+        self.assertIsNotNone(wr._reg("profiles").store_for("nb", d).structure("C-3"))
+
+
 class TestReady(FixtureCase):
     def _ready(self):
         changes = wr.registry_changes(self.fx.ws, SINCE, UNTIL, notes=[])
