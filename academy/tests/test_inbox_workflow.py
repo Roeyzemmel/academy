@@ -1070,3 +1070,57 @@ class ClerkMoveVocabularyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class TurnLimitTests(unittest.TestCase):
+    """#129: a writer that returns an empty result (stopped at its turn limit, T-1972, T-1984)
+    gets one continuation run; a second empty one is reported as such, not as worked."""
+    run_wf = InboxWorkflowTests.run_wf
+    UNFINISHED = {"exit": 3, "status": "in-progress", "detail": ""}
+
+    def plan(self, writer, check):
+        return {"list": [{"instances": [inst("author@t", [row("T-1")])]}], "sweep author@t": ["0 notes"],
+                "T-1 start": [OK], "math-writer T-1": writer[:1], "math-writer T-1 (continue)": writer[1:],
+                "check T-1": [check], "close author@t": [OK]}
+
+    def test_an_empty_result_is_continued_once(self):
+        res, labels, calls = self.run_wf(self.plan(["", "delivered T-1"], DONE))
+        self.assertEqual(labels[labels.index("math-writer T-1") + 1], "math-writer T-1 (continue)")
+        cont = next(c for c in calls if c["label"] == "math-writer T-1 (continue)")
+        self.assertEqual(cont["agentType"], "author:math-writer")
+        self.assertIn("stopped without a report, most likely at its turn limit", cont["prompt"])
+        self.assertIn("git status and git diff in /h/author@t", cont["prompt"])
+        self.assertEqual(res["taken"][0]["outcome"], "worked")
+        self.assertIn("relaunched once", " ".join(res["notes"]))
+
+    def test_two_empty_results_are_reported_as_a_turn_limit_stop(self):
+        res, labels, _ = self.run_wf(self.plan(["  ", ""], self.UNFINISHED))
+        self.assertEqual(labels.count("math-writer T-1 (continue)"), 1)
+        self.assertEqual(res["taken"][0]["outcome"], "unfinished")
+        self.assertIn("stopped twice without a report", res["taken"][0]["detail"])
+
+    def test_a_result_is_never_continued(self):
+        res, labels, _ = self.run_wf(self.plan(["delivered T-1"], DONE))
+        self.assertNotIn("math-writer T-1 (continue)", labels)
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class SweepScopeTests(unittest.TestCase):
+    """#129: the note sweep runs only when the run takes one of the Author's tickets."""
+    run_wf = InboxWorkflowTests.run_wf
+
+    def test_no_author_ticket_no_sweep(self):
+        rows = [row("T-1", how="reject", target=None, kind="prove", to="expert@t")]
+        plan = {"list": [{"instances": [inst("author@t", []), inst("expert@t", rows)]}],
+                "T-1 reject": [OK], "check T-1": [DONE]}
+        res, labels, _ = self.run_wf(plan)
+        self.assertNotIn("sweep author@t", labels)
+        self.assertIn("author@t: no sweep (no ticket of it to take in this run)", res["notes"])
+
+    def test_sweep_false_skips_it(self):
+        plan = {"list": [{"instances": [inst("author@t", [row("T-1")])]}], "T-1 start": [OK],
+                "math-writer T-1": ["done"], "check T-1": [DONE], "close author@t": [OK]}
+        res, labels, _ = self.run_wf(plan, sweep=False)
+        self.assertNotIn("sweep author@t", labels)
+        self.assertEqual(res["taken"][0]["outcome"], "worked")
