@@ -1074,7 +1074,7 @@ def statement_hash(repo, cid):
 
 
 def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=False,
-               date=None):
+               date=None, item=None):
     """Set ``cid``'s status: the one mutation path for lab/paper records.
 
     ``grounds`` is checked by :func:`core.grounds.check_grounds` (plan section 8) against
@@ -1084,7 +1084,12 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     through a chain of renames, #127); ``evidence`` rows (``kind | ref | verdict |
     note``) are appended first. Writes the status line and a history row (newest first)
     and nothing else. Refuses, leaving the file untouched, when the grounds fail or the
-    result would not pass ``check``. Returns the old status."""
+    result would not pass ``check``. Returns the old status.
+
+    A structured record (#127): ``item`` sets that one item, on grounds checked against
+    the item's hash (``core.itemedit``), and returns the item's old status; a discharge
+    goes per item; without ``item`` a status change sets every item to it (a pass on the
+    whole statement covers each item), so the derived status is the one set."""
     repo = Path(repo)
     if status not in STATUSES:
         raise Refused(f"status must be one of: {', '.join(STATUSES)}")
@@ -1092,6 +1097,17 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     claim = parse_text(path.read_text(encoding="utf-8"), path, fallback=False)
     if claim.dialect_error:
         raise Refused("requote the file first")
+    structured = claim.v2 and "items" in claim.fields
+    if item is not None or (structured and (grounds or {}).get("basis") == "discharge"):
+        from ..core import itemedit
+        try:
+            if item is None:
+                itemedit.discharge(cid, repo, date=date)
+                return claim.state
+            return itemedit.set_item(cid, repo, item, status, grounds, note=note,
+                                     human=human, date=date)["old"]
+        except itemedit.Refused as exc:
+            raise Refused(str(exc))
     grounds, dis = _discharge_grounds(repo, cid, claim, status, grounds)
     if dis is not None:
         note = "; ".join(x for x in ((note or "").strip(),
@@ -1133,6 +1149,12 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
             doc.set_scalar("lifecycle", status, after=V2_AFTER[:V2_AFTER.index("lifecycle")])
         else:
             doc.set_scalar("status", status, after=("form", "title") if claim.v2 else ("title",))
+        if structured and not lifecycle:
+            mods = [str(m) for m in (grounds or {}).get("modulo") or []]
+            items, _p = structure.parse_items(claim.fields)
+            doc.set_map("items", {k: structure.item_value(
+                status, mods if status == "proved-modulo" else ()) for k in items},
+                after=V2_AFTER)
         if claim.v2 and not lifecycle:
             # the record's `modulo` is the grounds' missing inputs: written with
             # proved-modulo, dropped with proved (the schema refuses either without it)

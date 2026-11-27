@@ -1517,7 +1517,7 @@ class TestRegistryBackend(McpTestBase):
     def tearDown(self):
         for h in (self.homes["scientist@t"], self.homes["researcher@t"]):
             for d in ("claims", "results", "experiments", "audits", "tools", "computation",
-                      "kb", "site", "STATUS.md", "INDEX.md", "OPEN.md"):
+                      "kb", "site", "STATUS.md", "INDEX.md", "OPEN.md", "notes"):
                 p = os.path.join(h, d)
                 if os.path.isdir(p):
                     shutil.rmtree(p)
@@ -1569,6 +1569,37 @@ class TestRegistryBackend(McpTestBase):
         self.assertTrue(err)
         self.assertIn("computation never establishes", msg)
         self.assertIn("status: supported", self.lab_text())
+
+    def test_set_one_item_of_a_structured_record(self):
+        """#127: claims_set_status with item sets that item; the record's status is
+        derived; claims_show gives the items with their hashes."""
+        lab = self.homes["scientist@t"]
+        write(os.path.join(lab, "notes", "st.md"), "n\n")
+        path = os.path.join(lab, "claims", "lab", "st.md")
+        write(path, "---\nid: lab:st\nkind: claim\ntitle: two parts\nstatus: sketch\n"
+                    "lifecycle: active\nhypotheses:\n  H1: compact\nitems:\n"
+                    "  C1: [proved]\n  C2: [sketch]\nevidence:\n"
+                    "  - hand | notes/st.md | - | - | seed\nhistory:\n"
+                    "  - 2026-11-20 | sketch | created\n---\n**H1.** compact.\n\n"
+                    "**C1.** one.\n**C2.** two.\n")
+        s = self.server("researcher@t")
+        err, res = s.call("claims_show", id="lab:st")
+        self.assertFalse(err, res)
+        self.assertEqual(res["structure"]["items"]["C2"]["status"], "sketch")
+        self.assertEqual(len(res["structure"]["items"]["C2"]["hash"]), 16)
+        err, msg = s.call("claims_set_status", id="lab:st", status="proved", item="C9",
+                          grounds={"basis": "human", "quote": "it holds"})
+        self.assertTrue(err)
+        self.assertIn("no item C9", msg)
+        err, res = s.call("claims_set_status", id="lab:st", status="proved", item="C2",
+                          grounds={"basis": "human", "quote": "C2 holds"})
+        self.assertFalse(err, res)
+        self.assertEqual((res["old"], res["record"]), ("sketch", "proved"))
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("status: proved\n", text)
+        self.assertIn("  C2: [proved]", text)
+        self.assertEqual(res["check"]["exit"], 0, res)
 
     def test_set_status_refused_by_the_record_check(self):
         # the human's word passes, but `refuted-as-stated` without `superseded_by` fails

@@ -448,7 +448,9 @@ def _discharge_cmd(repo, a):
             word = "dischargeable" if i["dischargeable"] else "held"
         print(f"- {i['id']}  {i['status'] or '-'}  {word}")
         for x in i["inputs"]:
-            print(f"    {'ok ' if x['established'] else 'no '} {discharge.explain(x)}")
+            print(f"    {'ok ' if x['established'] else 'no '} "
+                  f"{('item ' + x['item'] + ': ') if x.get('item') else ''}"
+                  f"{discharge.explain(x)}")
         if not i["inputs"] and i["problems"]:
             for p in i["problems"]:
                 print(f"    {p}")

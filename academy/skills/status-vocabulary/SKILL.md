@@ -100,8 +100,12 @@ status its items give: every item `proved` -> `proved`; every item `proved` or
 `proved-modulo` -> `proved-modulo`, its `modulo` the union of the items' inputs;
 otherwise the weakest item status, in the order refuted, refuted-as-stated, open,
 conjectured, sketch, supported, proved-modulo, proved. Reviews, the decision table, the
-keeper and the discharge then work per item; `registry.py check` refuses a record whose
-status is not the derived one. A record without `items` is unchanged.
+keeper and the discharge then work per item: `claims_set_status` with `item` sets one
+item on grounds checked against that item's hash (the hypotheses' texts and the item's
+own, so another item's rewording leaves it standing), a status change without `item`
+sets every item, and a discharge carries each item whose own inputs are established to
+`proved`. `registry.py check` refuses a record whose status is not the derived one. A
+record without `items` is unchanged.
 
 **An attestation is the human's word, recorded.** When the human attests a status (for
 example "I checked this proof; mark it proved"), the words are recorded verbatim, with
