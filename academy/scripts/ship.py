@@ -1687,9 +1687,15 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
         if staged:
             tip = git(repo, "rev-parse", "refs/heads/" + name)
     if tip and current(repo) == name:
-        # stack, don't fork: bring in the other recent ticket branches' work (#130)
+        # stack, don't fork: bring in the other recent ticket branches' work (#130); not in
+        # a checkout another live run holds the lease of (#96): a merge would move its tree
+        holder = lease_holder(sub, run)
         try:
-            res["merged"], res["forks"] = merge_forks(repo, name, pathspec)
+            if holder:
+                res["forks"] = [dict(f, why="not merged: %s is leased by %s" % (sub, holder))
+                                for f in fork_branches(repo, "refs/heads/" + name)]
+            else:
+                res["merged"], res["forks"] = merge_forks(repo, name, pathspec)
         except Refuse as e:
             res["merged"], res["forks"] = [], [{"branch": "?", "why": str(e)}]
         if res["merged"]:

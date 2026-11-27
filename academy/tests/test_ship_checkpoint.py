@@ -1510,6 +1510,21 @@ class TestCheckpointStacks(CheckpointBase):
         with open(os.path.join(self.sub, ".errors", "other.jsonl"), encoding="utf-8") as f:
             self.assertEqual(f.read(), '{"a": 1}\n{"c": 3}\n{"b": 2}\n')
 
+    def test_a_checkout_leased_by_another_run_merges_no_forks(self):
+        # #96 with #130: a merge would move the tree of the run that holds the checkout
+        self.ticket("T-0001", "one.txt")
+        run(self.sub, "switch", "-q", "main")
+        run(self.sub, "switch", "-q", "-c", self.branch(ticket="T-0002"))
+        TestCheckpointLeases.lease(self, "sub", "inbox-elsewhere-1")
+        self.write(self.sub, "two.txt")
+        rc, out, err = self.cp("--ticket", "T-0002", "--only", "sub")
+        self.assertEqual(rc, 0, out + err)
+        self.assertNotIn("merged %s" % self.branch(ticket="T-0001"), out)
+        self.assertIn("FORK: %s" % self.branch(ticket="T-0001"), err)
+        self.assertIn("leased by run inbox-elsewhere-1", err)
+        self.assertEqual([f["branch"] for f in ship.fork_branches(self.sub)],
+                         [self.branch(ticket="T-0001")])
+
     def test_nothing_is_merged_over_uncommitted_work(self):
         self.ticket("T-0001", "one.txt")
         run(self.sub, "switch", "-q", "main")
