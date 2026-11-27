@@ -114,29 +114,37 @@ class ManifestEndToEnd(unittest.TestCase):
             code = core.run(args, "expert@t", self.board, 3, lambda m: {}, out=out)
         return code, out.getvalue(), err.getvalue()
 
-    def head(self, repo):
-        return (run(repo, "log", "-1", "--format=%s"),
-                sorted(run(repo, "show", "--name-only", "--format=", "HEAD").splitlines()))
+    def head(self, repo, rev="HEAD"):
+        return (run(repo, "log", "-1", "--format=%s", rev),
+                sorted(run(repo, "show", "--name-only", "--format=", rev).splitlines()))
 
     def test_a_delivered_verify_commits_in_every_home_it_wrote_to(self):
         self.ticket("delivered")
         self.snapshot()
         self.work()
+        root_head, root_branch = run(self.root, "rev-parse", "HEAD"), run(self.root, "branch", "--show-current")
         code, out, err = self.check()
         self.assertEqual(code, 0, out + err)
         name = self.ship.branch_name(TID, "expert")
         self.assertEqual(self.head(self.lib), ("T-1481: checkpoint", [
             "reviews/paper/lem-x/.open", "reviews/paper/lem-x/pass-1/A.md"]))
         self.assertEqual(self.head(self.paper), ("T-1481: checkpoint", ["claims/paper/lem-x.md"]))
-        self.assertEqual(self.head(self.root), ("T-1481: checkpoint", [
+        # the board: committed onto the ticket's branch, the superproject's checkout not moved (#96)
+        self.assertEqual(self.head(self.root, name), ("T-1481: checkpoint", [
             "board/.ids/next-packet", "board/packets/P-0433.md"]))
-        for repo, remote in ((self.lib, self.lib_remote), (self.paper, self.paper_remote),
-                             (self.root, self.root_remote)):
+        self.assertEqual((run(self.root, "rev-parse", "HEAD"), run(self.root, "branch", "--show-current")),
+                         (root_head, root_branch))
+        self.assertEqual(run(self.root_remote, "rev-parse", "refs/heads/" + name),
+                         run(self.root, "rev-parse", name))
+        for repo, remote in ((self.lib, self.lib_remote), (self.paper, self.paper_remote)):
             self.assertEqual(run(repo, "branch", "--show-current"), name)
             self.assertEqual(run(remote, "rev-parse", "refs/heads/" + name),
                              run(repo, "rev-parse", "HEAD"))
-            # the superproject's moved submodule pointers are never the checkpoint's
-            self.assertEqual(run(repo, "status", "--porcelain", "--", "board" if repo == self.root else "."), "")
+            self.assertEqual(run(repo, "status", "--porcelain", "--", "."), "")
+        # the board files stay dirty against the superproject's HEAD, as committed onto the
+        # branch; the shipped ledger names them, so the stop check passes over them
+        self.assertEqual(sorted(ac.shipped_paths(self.root, "board")),
+                         [".ids/next-packet", "packets/P-0433.md"])
         self.assertEqual(ac.find_claim(self.root, TID), (None, None))
         self.assertIsNone(ac.load_pending(self.root, TID))
         self.assertTrue(out.strip().endswith("T-1481: delivered (delivered)"), out)
@@ -209,9 +217,10 @@ class ManifestEndToEnd(unittest.TestCase):
         code, out, err = self.check()
         self.assertEqual(code, 3, out + err)
         msg = "WIP: T-1481 unfinished (in-progress)"
-        for repo in (self.lib, self.paper, self.root):
-            self.assertEqual(self.head(repo)[0], msg)
         name = self.ship.branch_name(TID, "expert")
+        for repo in (self.lib, self.paper):
+            self.assertEqual(self.head(repo)[0], msg)
+        self.assertEqual(self.head(self.root, name)[0], msg)      # the board's, HEAD not moved
         self.assertEqual(run(self.lib_remote, "rev-parse", "refs/heads/" + name),
                          run(self.lib, "rev-parse", "HEAD"))
 

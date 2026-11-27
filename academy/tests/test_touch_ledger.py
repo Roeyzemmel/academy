@@ -47,6 +47,20 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(sorted(r["path"] for _, r in ac.touch_entries(self.root)),
                          [os.path.abspath("/x/b.md"), os.path.abspath("/x/c.md")])
 
+    def test_an_entry_naming_its_instance_is_claimed_only_by_that_instance(self):
+        # #96: two concurrent runs never share an instance; a ticket whose instance is not
+        # known takes only the entries that name none
+        ac.record_touch(self.root, ["/x/mine.md"], "researcher", "researcher@a")
+        ac.record_touch(self.root, ["/x/theirs.md"], "researcher", "researcher@b")
+        ac.record_touch(self.root, ["/x/anon.md"], "researcher")
+        self.assertEqual([r["path"] for _, r in ac.claim_touches(self.root, "T-0001", "researcher")],
+                         [os.path.abspath("/x/anon.md")])
+        self.assertEqual([r["path"] for _, r in ac.claim_touches(self.root, "T-0002", "researcher",
+                                                                 "researcher@a")],
+                         [os.path.abspath("/x/mine.md")])
+        self.assertEqual([r["path"] for _, r in ac.touch_entries(self.root) if not r["ticket"]],
+                         [os.path.abspath("/x/theirs.md")])
+
     def test_workspaces_do_not_share_a_ledger(self):
         ac.record_touch(self.root, ["/x/a.bib"], "expert")
         self.assertEqual(ac.touch_entries(os.path.join(self.tmp, "other")), [])

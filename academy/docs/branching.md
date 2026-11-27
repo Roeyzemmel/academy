@@ -21,7 +21,8 @@ the human reviewer is and anything particular to it.
   such a branch overrides a home's "nobody commits" line for that branch only.
 - The board's files are ordinary commits too: of the board submodule, or, when `board/`
   is a plain directory of the superproject, of `board/` paths in the superproject on a
-  template branch. `ship.py`'s target `board` stages and commits nothing outside the
+  template branch (a checkpoint commits them onto the ticket's branch without switching
+  the superproject's checkout: "Parallel runs" below). `ship.py`'s target `board` stages and commits nothing outside the
   board's directory, and never a submodule pointer, whatever else is dirty or staged.
   With `board.backend` `github` the tickets live on GitHub (changed through the board
   tools), but packets and deep-dives stay files and are committed this way; every
@@ -54,9 +55,8 @@ dirty set (each submodule, and the board's directory) with a content hash per pa
 as the run's claim `<workspace>/.academy/run-claims/<run>-<id>.json` (a self-ignoring
 directory; one file per run and ticket, so concurrent runs never overwrite each other's
 claim; a home whose `git status` fails is recorded as such and nothing of it is claimed:
-the check says so). Two runs working at once in one checkout can still attribute each
-other's files to their tickets: a snapshot diff cannot tell who changed a path. The
-ticket's `--check` diffs it: the paths that were clean before the ticket, or whose content
+the check says so). A snapshot diff cannot tell who changed a path, so two runs working at
+once in one checkout are kept apart by leases ("Parallel runs" below). The ticket's `--check` diffs it: the paths that were clean before the ticket, or whose content
 changed during it, plus the ticket's touch-ledger entries, are its manifest
 (`.academy/manifests/<id>.json`), and `ship.py checkpoint --manifest <file>` commits exactly
 those, in **every** home that has any (a verify's evidence row in the paper's claim record
@@ -67,9 +67,42 @@ the manifest for the next `--check`. A ticket that ends blocked, unfinished or l
 committed and pushed too, as `WIP: <id> unfinished (<outcome>)`. A ticket the inbox did not
 snapshot (a standalone skill run, `snapshot: false`) is checkpointed by `--only` as before.
 
+**Parallel runs** (#96, the human's choice 2026-11-27: leases, one checkout). Two inbox
+runs may work at once in one checkout when their instance sets are disjoint (say the
+Author and the Expert in one, the Researchers and the Scientist in another):
+
+- **Leases.** After its listing, the inbox workflow's clerk runs `manifest.py lease take
+  --prefix inbox-<only-set> --instances <listed> --pid $PPID`: a lease for the run on the
+  home submodule of each instance, `<workspace>/.academy/leases/<target>.json` = `{target,
+  run, pid, host, started, heartbeat, instances}`, taken under a create-exclusive lock. It
+  prints the run's id first (the prefix, a UTC timestamp and a random suffix: every run's
+  is its own; `args.run_id` names it instead), and the claims use the same id. A home
+  another live run holds is not taken: that instance is **skipped** for this run, and the
+  run's notes say so. A lease is live while its heartbeat (each ticket's snapshot and check) is
+  younger than 30 minutes; one that names a pid of this host is live while that process
+  exists, up to 6 hours after the last heartbeat (one ticket can outlast 30 minutes); a
+  stale lease is taken over. The run releases its leases at its end, early stops included
+  (`manifest.py lease release --run <run>`; `lease list` shows them all).
+- **The board never moves the checkout.** The board is shared, not leased: a checkpoint
+  commits its paths onto the ticket's branch with git plumbing (a temporary index read
+  from the branch's tip, or from HEAD for a new branch; `write-tree`, `commit-tree`,
+  `update-ref`) and pushes that ref. The superproject's HEAD, index and working tree stay
+  as they were, whatever branch it is on (`main` included: nothing is committed there).
+  The committed files stay dirty against that HEAD until the branch is merged; they are
+  listed with their content hash in `.academy/shipped/board.json`, so the stop check and a
+  later `--only board` checkpoint pass over a file committed and unchanged since.
+- **A leased home is never switched.** `ship.py checkpoint` refuses to switch a submodule
+  whose lease is another live run's (the run is `--run`, or the manifest's `run`; without
+  one every live lease is another's); the ticket's part stays in its pending manifest for
+  the next `--check`.
+- **Attribution.** A touch-ledger entry that names its instance is claimed only by a ticket
+  of that instance (role-only matching is left for entries with none), and the stop check
+  passes over every home a live run holds.
+
 **The stop check** (`stop_check.py`, a `Stop` hook of the academy plugin, opt-in with
 `"stopCheck": true` in workspace.json) lists the dirty paths of every home except those a
-live claim's run changed since its snapshot; a claim older than 6 hours, or whose pid of
+live claim's run changed since its snapshot, the homes a live run holds the lease of, and
+the board files committed without moving the checkout and unchanged since; a claim older than 6 hours, or whose pid of
 this host is gone, is stale, hides nothing and is removed at the next snapshot or `--check`.
 A file above 5 MB is compared by size and mtime, not hashed. By hand: `manifest.py unclaimed`. Claude
 Code's own cloud stop check (`~/.claude/stop-hook-git-check.sh`) is not the academy's and
