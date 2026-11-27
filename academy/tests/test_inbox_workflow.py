@@ -1071,3 +1071,30 @@ class ClerkMoveVocabularyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class WaitRouteTests(unittest.TestCase):
+    """#128 (the human's ruling, 2026-11-27): a ticket whose argument is already asked in an
+    open child is parked on it by a clerk move; no agent, no research ticket."""
+    run_wf = InboxWorkflowTests.run_wf
+
+    def test_a_wait_route_blocks_on_the_child(self):
+        r = row("T-1948", how="wait", target="T-1949")
+        plan = {"list": [{"instances": [inst("author@t", [r])]}], "sweep author@t": ["0 notes"],
+                "T-1948 block-on": [OK], "check T-1948": [{"exit": 3, "status": "blocked", "detail": ""}],
+                "close author@t": [OK]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertNotIn("math-writer T-1948", labels)
+        self.assertNotIn("math-writer T-1948 (research)", labels)
+        move = next(c for c in calls if c["label"] == "T-1948 block-on")["prompt"]
+        self.assertIn("waiting_on [T-1949]", move)
+        self.assertEqual(res["taken"][0]["outcome"], "waiting on T-1949")
+
+    def test_a_wait_route_without_a_ticket_goes_to_main(self):
+        r = row("T-1948", how="wait", target="")
+        plan = {"list": [{"instances": [inst("author@t", [r])]}], "sweep author@t": ["0 notes"],
+                "close author@t": [OK]}
+        res, _labels, _ = self.run_wf(plan)
+        stop = res["for_main"] or next(g for g in res["gates"] if g["ticket"] == "T-1948")
+        self.assertIn("names no ticket", stop["why"])

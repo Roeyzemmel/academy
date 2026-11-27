@@ -325,12 +325,70 @@ class ReturnLegTests(unittest.TestCase):
         self.assertIn("T-1664", r["why"])
 
     def test_a_child_not_back_or_an_experiment_child_does_not_count(self):
-        for status, final_to in (("in-progress", "researcher"), ("cancelled", "researcher"),
-                                 ("delivered", "scientist")):
+        for status, final_to in (("cancelled", "researcher"), ("delivered", "scientist")):
             board = [BOARD_1494[0], dict(BOARD_1494[1], status=status, final_to=final_to)]
             r = self.route(T1494, board)
             self.assertEqual(("research", "expert"), (r["how"], r["target"]),
                              (status, final_to))
+
+    def test_a_child_still_out_is_never_filed_again(self):
+        # #128: a research child still out that the parent does not wait on is the
+        # argument asked separately; the parent goes to its writer, never to research
+        board = [BOARD_1494[0], dict(BOARD_1494[1], status="in-progress")]
+        r = self.route(T1494, board)
+        self.assertEqual(("wait", "T-1664"), (r["how"], r["target"]))
+        self.assertIn("block this ticket waiting on it", r["why"])
+        # a parent that waits on it (or blocks it) is parked on it: not separate
+        for field in ("waiting_on", "blocks"):
+            meta = dict(T1494, **{field: ["T-1664"]})
+            self.assertEqual("", routes.separate_argument(
+                meta, routes.TicketLookup(lambda: list(board))), field)
+
+
+#: T-1948 as filed (2026-11-23): editorial, its research child T-1949 separate
+T1948 = {
+    "id": "T-1948", "kind": "write", "from": "author@t", "to": "author@t",
+    "status": "accepted",
+    "title": "defn:flat-structure: drop the discreteness clause; state \"Sigma_S discrete\" "
+             "only where used (the human 2026-11-23, P-0500 D1)",
+    "ask": "Remove \", which is required to be discrete in $S$\" from the completion clause "
+           "of defn:flat-structure (l.112) and add the hypothesis \"$\\Sigma_S$ discrete\" "
+           "only to the statements whose proofs use it (the human's option 1, 2026-11-23)",
+    "refs": ["paper:defn:flat-structure", "P-0500"], "waiting_on": [], "blocks": ["T-1950"],
+}
+
+
+class EditorialTests(unittest.TestCase):
+    """#128: T-1948, an editorial write ticket, was routed to research twice."""
+
+    def route(self, meta, board=()):
+        with unittest.mock.patch.object(routes, "_registry_status", return_value=None):
+            return routes.route(meta, ticket_of=routes.TicketLookup(lambda: list(board)))
+
+    def test_the_first_run_files_research_without_a_marker(self):
+        r = self.route(T1948)                    # "add the hypothesis": as before
+        self.assertEqual("research", r["how"])
+
+    def test_an_editorial_marker_routes_to_the_writer(self):
+        for line in ("EDITORIAL ONLY: it needs no new argument.",
+                     "Editorial: drop the clause.", "This needs no argument.",
+                     "Adding a hypothesis is not a new argument.",
+                     "No new argument is needed."):
+            meta = dict(T1948, ask=T1948["ask"] + ". " + line)
+            self.assertFalse(routes.needs_argument(meta), line)
+            r = self.route(meta)
+            self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]), line)
+
+    def test_a_marker_does_not_hide_a_real_ask(self):
+        for line in ("Fill the gap with a new argument.", "the editorial board asks"):
+            self.assertTrue(routes.needs_argument(dict(T1948, ask=line + " Prove that X.")),
+                            line)
+
+    def test_a_ticket_needing_the_argument_t1949_asks_waits_on_it(self):
+        board = [{"id": "T-1949", "kind": "research", "status": "open", "to": "expert@t",
+                  "final_to": "researcher", "parent": "T-1948"}]
+        r = self.route(dict(T1948, ask="Prove that the marked set is discrete."), board)
+        self.assertEqual(("wait", "T-1949"), (r["how"], r["target"]))
 
     def test_a_child_still_out_holds_an_older_delivered_one(self):
         """T-0876 (review of badbc50): an older closed child (another gap) does not land
@@ -341,7 +399,10 @@ class ReturnLegTests(unittest.TestCase):
                  {"id": "T-0881", "kind": "research", "status": "closed",
                   "final_to": "researcher", "parent": "T-0876", "result": "a proof"}]
         self.assertEqual("", routes.delivered_argument(meta, routes.TicketLookup(lambda: board)))
-        self.assertEqual("research", self.route(meta, board)["how"])
+        # not landed, and not filed again either (#128): the writer, told to wait on T-0880
+        r = self.route(meta, board)
+        self.assertEqual(("wait", "T-0880"), (r["how"], r["target"]))
+        self.assertNotIn("delivered", r["why"])
 
     def test_only_the_newest_child_counts(self):
         older = {"id": "T-0010", "kind": "research", "status": "closed",
