@@ -353,6 +353,116 @@ class ConfigValidation(unittest.TestCase):
                       "\n".join(self.probs(statusLevels=[{"name": "x", "kind": "draft"}])))
 
 
+#: the reword level (#137): a mark on a settled statement, generated from the stale list
+REWORDED = {"name": "reworded", "kind": "mark", "command": "\\Reworded",
+            "strike": "\\Struck", "colour": "violet", "requires": "stale",
+            "generated": True, "statuses": ["proved", "proved-modulo"]}
+
+
+class MarkLevelConfig(unittest.TestCase):
+    """#137: ``author.statusLevels`` may hold one level of kind ``mark`` (``requires:
+    "stale"``, ``generated: true``): no colour of a statement, so neither R1 nor the
+    colour machinery reads it."""
+
+    def setUp(self):
+        import _academy as ac
+        self.ac = ac
+        self.addCleanup(cp.configure, None)
+
+    def levels(self, **mark):
+        return [dict(lv) for lv in cp.DEFAULT_STATUS_LEVELS] + [dict(REWORDED, **mark)]
+
+    def test_the_reworded_level_validates(self):
+        self.assertEqual([], self.ac.validate_author({"statusLevels": self.levels()}))
+        lv = self.ac.author_mark_level({"statusLevels": self.levels()})
+        self.assertEqual(("reworded", "\\Reworded", "\\Struck"),
+                         (lv["name"], lv["command"], lv["strike"]))
+        self.assertIsNone(self.ac.author_mark_level({}))          # opt-in: not a default
+        self.assertIsNone(self.ac.author_mark_level(
+            {"statusLevels": [dict(lv) for lv in cp.DEFAULT_STATUS_LEVELS]}))
+
+    def test_a_bad_mark_level_is_named(self):
+        cases = ((dict(requires="proved"), "requires must be \"stale\""),
+                 (dict(generated=False), "generated must be true"),
+                 (dict(env="reworded"), "a mark level has no env"),
+                 (dict(command="\\Violet"), "command must be \\Reworded"),
+                 (dict(strike="\\Gone"), "strike must be \\Struck"))
+        for change, frag in cases:
+            text = "\n".join(self.ac.validate_author({"statusLevels": self.levels(**change)}))
+            self.assertIn(frag, text, change)
+        two = self.levels() + [dict(REWORDED, name="again")]
+        self.assertIn("at most one level of kind mark",
+                      "\n".join(self.ac.validate_author({"statusLevels": two})))
+
+    def test_the_mark_is_no_colour_of_a_statement(self):
+        cp.configure({"statusLevels": self.levels()})
+        self.assertNotIn("reworded", cp.LEVEL_KIND)
+        self.assertNotIn("reworded", cp.LEVEL_ORDER)
+        self.assertNotIn("\\Reworded{", cp.COLOUR_COMMANDS)
+        self.assertEqual("reworded", cp.MARK_LEVEL["name"])
+        cp.configure(None)
+        self.assertIsNone(cp.MARK_LEVEL)
+
+
+class RewordMarkRules(unittest.TestCase):
+    """#137: with the mark level, W5 (a stale settled claim without marks) and R8 (marks
+    on a claim that is not stale); the stale list is the registry's (injected here)."""
+
+    BODY = ("\\begin{prop}\\label{prop:a}\nA \\Struck{old} \\Reworded{new} one.\n"
+            "\\end{prop}\n\\begin{proof}\nOk.\n\\end{proof}\n"
+            "\\begin{lem}\\label{lem:b}\nPlain.\n\\end{lem}\n"
+            "\\begin{proof}\nOk.\n\\end{proof}\n")
+
+    def paper(self):
+        tmp = tempfile.mkdtemp(prefix="cp-marks-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.makedirs(os.path.join(tmp, "sections"))
+        with open(os.path.join(tmp, "main.tex"), "w", encoding="utf-8") as fh:
+            fh.write("\\documentclass{amsart}\n\\begin{document}\n"
+                     "\\input{sections/a}\n\\end{document}\n")
+        with open(os.path.join(tmp, "sections", "a.tex"), "w", encoding="utf-8") as fh:
+            fh.write(self.BODY)
+        return tmp, cp.build_paper(tmp)
+
+    def setUp(self):
+        self.addCleanup(cp.configure, None)
+        cp.configure({"statusLevels": [dict(lv) for lv in cp.DEFAULT_STATUS_LEVELS]
+                      + [dict(REWORDED)]})
+
+    def stale(self, *labels):
+        return {lab: {"status": "proved", "pass": "2026-11-01-T-0001"} for lab in labels}
+
+    def test_marks_on_a_stale_claim_pass_and_a_stale_claim_without_them_warns(self):
+        root, paper = self.paper()
+        got = cp.rule_reword_marks(paper, root, stale=self.stale("prop:a", "lem:b"))
+        self.assertEqual([(f.kind, f.severity, f.label) for f in got], [("W5", "W", "lem:b")])
+
+    def test_marks_on_a_claim_that_is_not_stale_are_a_violation(self):
+        root, paper = self.paper()
+        got = cp.rule_reword_marks(paper, root, stale=self.stale())
+        self.assertEqual([(f.kind, f.severity, f.label) for f in got], [("R8", "V", "prop:a")])
+
+    def test_any_label_of_the_statement_names_its_claim(self):
+        # a statement keeps an old label: the stale record may be the second one
+        self.BODY = ("\\begin{prop}\\label{prop:new}\\label{prop:old}\nA \\Reworded{b}.\n"
+                     "\\end{prop}\n\\begin{proof}\nOk.\n\\end{proof}\n"
+                     "\\begin{lem}\\label{lem:c}\\label{lem:d}\nC.\n\\end{lem}\n"
+                     "\\begin{proof}\nOk.\n\\end{proof}\n")
+        root, paper = self.paper()
+        got = cp.rule_reword_marks(paper, root, stale=self.stale("prop:old", "lem:d"))
+        self.assertEqual([(f.kind, f.label) for f in got], [("W5", "lem:c")])
+
+    def test_without_the_mark_level_nothing_is_checked(self):
+        root, paper = self.paper()
+        cp.configure(None)
+        self.assertEqual(cp.rule_reword_marks(paper, root, stale=self.stale()), [])
+
+    def test_the_marks_colour_nothing(self):
+        _root, paper = self.paper()
+        st = paper.by_label["prop:a"]
+        self.assertEqual((st.colour, st.partly), (cp.ESTABLISHED, []))
+
+
 class MarginOverflowScan(unittest.TestCase):
     """R7 must not run one synctex lookup per clipped fragment (a paper with
     ~1600 clipped margin lines took a quarter of an hour: the scan 'hung')."""

@@ -44,7 +44,7 @@ from ..core import fm, legacy_fm, workspace, federation, projection, schema, gro
 from ..core import stale as _stale
 from ..core import structure
 from ..core.edit import Doc
-from ..core.model import Record, Store
+from ..core.model import Record, Store, strip_marks
 
 #: the repo used when a function is called without one (the shim sets its own lab)
 ROOT = Path.cwd()
@@ -922,7 +922,8 @@ def _paper_texts(home_):
 
 
 def _paper_statement(home_, label, texts=None):
-    """The LaTeX environment that carries ``\\label{label}`` in sections/*.tex, or None.
+    """The LaTeX environment that carries ``\\label{label}`` in sections/*.tex, or None,
+    without its reword marks (``model.strip_marks``, #137): the text a review is given on.
     ``texts``: those files' texts, read once by the caller."""
     for text in (texts if texts is not None else _paper_texts(home_)):
         i = text.find("\\label{%s}" % label)
@@ -934,7 +935,8 @@ def _paper_statement(home_, label, texts=None):
         b = begins[-1]
         env = b.group(1)
         end = text.find("\\end{%s}" % env, i)
-        return text[b.start():(end + len(env) + 6) if end >= 0 else i]
+        # the reword marks are not part of the statement (#137)
+        return strip_marks(text[b.start():(end + len(env) + 6) if end >= 0 else i])
     return None
 
 

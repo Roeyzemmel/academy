@@ -66,6 +66,12 @@ the Scientist is a `research` ticket to the Expert with `final_to`, which the Ex
 `research-intake` relays. Which agents may file to the Expert is `academy/permissions.json`
 `tickets.edges`, described in `docs/protocol.md` section 5.1.
 
+A settled statement reworded after its review is at the draft level **reworded** (#137):
+it keeps its status colour, and `scripts/reword_marks.py` writes violet `\Reworded{...}` marks
+on the words changed since the reviewed text and `\Struck{...}` on the removed ones, from
+`registry.py stale` and the paper's git history, and removes them when the reword pass
+confirms; every statement hash ignores the marks (`draft-colours.md`).
+
 `/author:presync` also builds a coloured-diff PDF against the last shared version (`scripts/paper_diff.py`, latexdiff; needs `latexdiff` and `latexmk`, base: `author.diff.base` or the newest `shared-*` / `round-*` / `submitted-*` tag).
 
 Scripts and formats: `references/scripts.md`, `references/formats.md`; what the Author
