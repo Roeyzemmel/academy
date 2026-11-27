@@ -222,6 +222,18 @@ const RECORD_AFTER = { type: 'object', properties: {
   proof: { type: 'string', description: 'the record\'s proof: field now, verbatim; else empty' } },
   required: [] }
 const MOVE = { type: 'object', properties: { ok: { type: 'boolean' }, detail: { type: 'string' } }, required: ['ok'] }
+// #126, points 2 and 4: what prove_inputs.py says (the script decides; the code checks)
+const WAIVER = { type: 'object', properties: { ok: { type: 'boolean' }, waived: { type: 'boolean' },
+  source: { type: 'string', description: 'cowork or config, verbatim from the script' }, scope: { type: 'string' },
+  line: { type: 'string', description: 'the human\'s line, verbatim from the script' }, why: { type: 'string' } }, required: ['ok', 'waived'] }
+const INPUT_ROWS = { type: 'object', properties: { ok: { type: 'boolean' }, rows: { type: 'array', items: { type: 'object', properties: {
+  id: { type: 'string' }, status: { type: 'string' }, action: { type: 'string', enum: ['none', 'link', 'verify', 'prove'] },
+  ticket: { type: 'string' }, to: { type: 'string' }, why: { type: 'string' } }, required: ['id', 'action'] } } }, required: ['ok', 'rows'] }
+const FILED_MANY = { type: 'object', properties: { filed: { type: 'array', items: { type: 'object', properties: {
+  id: { type: 'string', description: 'the input the ticket is for' }, ticket: { type: 'string' }, refusal: { type: 'string' } }, required: ['id', 'ticket'] } } }, required: ['filed'] }
+const TICKETS = { type: 'object', properties: { tickets: { type: 'array', items: { type: 'object', properties: {
+  id: { type: 'string' }, found: { type: 'boolean' }, to: { type: 'string' }, kind: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } },
+  required: ['id', 'found'] } } }, required: ['tickets'] }
 
 // ---- Ship (docs/workflows.md, "Shipping is a step of the workflow"): the same block in every
 // workflow that writes. Standalone only (a nested run's parent ships), run once, never retried. A
@@ -657,6 +669,24 @@ const falsifierWhy = () => {
     ? 'no gap is fix-unclear or needs-assumption (#126): ' + (gc.blocking.length ? 'fix-known gaps only' : depGaps.length ? 'only the dependencies list is undeclared' : 'only dependencies on declared inputs')
     : 'no gap listed and the outcome is not failed (#126)' }
 }
+// #126, point 4: a waiver scoped wider than the ticket (the ticket's cowork plan, or the home's
+// researcher.falsifierWaivers), read by prove_inputs.py, not by the stage; it counts only as the
+// human's dated line ("- YYYY-MM-DD human: ..."), as a ticket waiver does. Asked only when a
+// falsifier would be filed (no stage otherwise)
+const RE_HUMAN_LINE = /^\s*-?\s*\d{4}-\d{2}-\d{2} human:\s*\S/
+async function scopedWaiver() {
+  const wv = await launch(STAGE('waiver', [`Run \`py ${AR}/researcher/scripts/prove_inputs.py waiver --claim ${A.claim}${T ? ' --ticket ' + T : ''} --home ${A.home} --json\` ` +
+    '(python3 where there is no py) and return its fields verbatim (ok true when it ran). Write nothing.']),
+    { label: 'waiver', phase: 'File', agentType: CLERK, schema: WAIVER, effort: 'low' })
+  if (wv && wv.ok && wv.waived && /^(cowork|config)$/.test(wv.source || '') && RE_HUMAN_LINE.test(wv.line || '')) {
+    const on = (wv.source === 'cowork' ? 'cowork ' : 'scope ') + (wv.scope || '?')
+    out.falsifier_waiver = { source: wv.source, scope: wv.scope || '', line: wv.line }
+    return `falsifiers waived by the human for ${on} (${oneLine(wv.line, 160)})`
+  }
+  if (wv && wv.ok && wv.waived) out.notes.push('a scoped waiver was reported without its source or the human\'s dated line: not counted')
+  else if (!wv || !wv.ok) out.notes.push('the scoped-waiver check did not run: none counted')
+  return ''
+}
 // A failed or incomplete attempt triggers the falsifier (2026-11-20): filed by lead-researcher,
 // a liaison toward the Scientist (the prover is none), checked by the clerk; it changes no delivery
 async function fileFalsifier() {
@@ -665,6 +695,8 @@ async function fileFalsifier() {
   const gl = fw.targets
   if (counts) { out.notes.push(`no falsifier filed: one is on record (${src}${out.falsifier.on ? ' ' + out.falsifier.on : ''})`); return '' }
   if (falsifierPending) { out.notes.push(`no falsifier filed: ${falsifierPending} is pending (${st.falsifier_pending_status || 'status unknown'})`); return '' }
+  const waived = await scopedWaiver()
+  if (waived) { out.notes.push(`no falsifier filed: ${waived} (#126)`); out.falsifier_skipped = waived; return '' }
   const target = gl.length ? gl.join('; ') : `the attempt's outcome ${o.outcome || 'without outcome'}, no gap listed`
   const r = await launch(`WORKFLOW STAGE file-falsifier of the academy-prove workflow (lead-researcher, workflow mode): do this only and return the structured result; launch no agent. ` +
     `Claim: ${A.claim}. Home: ${A.home}. The proof attempt ${p.path} is ${o.outcome || 'without outcome'} and ${A.claim} has no falsifier on record and none pending. ` +
@@ -842,7 +874,55 @@ if (missingRefs.length) out.notes.push(`ANOMALY: the verify ticket ${f.ticket} d
 out.verify_ticket = f.ticket
 out.proposal = f.proposal || null
 out.outcome = 'verify-filed'
+// #126, point 2: the unreviewed inputs the attempt rests on get their own verify or prove ticket,
+// or the open one that already settles them is named; prove_inputs.py decides which, lead-researcher
+// files (a liaison toward the Expert, and the same role toward a Researcher), the clerk checks
+const inputsClause = await settleInputs(f.ticket)
 const fal = out.falsifier && out.falsifier.source !== 'claim' ? `; falsifier accepted: ${out.falsifier.source}${out.falsifier.on ? ' ' + out.falsifier.on : ''}` : ''
 await deliver(`complete attempt ${p.path}; verify ticket ${f.ticket}${f.proposal ? '; sketch proposed (' + f.proposal + ')' : ''}${fal}` +
-  `${counts ? '' : '; no falsifier on record'}; ${depAsk}`)
+  `${counts ? '' : '; no falsifier on record'}; ${depAsk}${inputsClause}`)
 return await end()
+
+async function settleInputs(verifyTicket) {
+  const ids = out.inputs_to_settle || []
+  if (!ids.length) return ''
+  const r = await launch(STAGE('inputs', [`Run \`py ${AR}/researcher/scripts/prove_inputs.py inputs --claim ${A.claim} --ids ${ids.join(' ')}${A.instance ? ' --instance ' + A.instance : ''} --json\` ` +
+    '(from the home; python3 where there is no py) and return its rows verbatim as rows (ok true when it ran). Write nothing.']),
+    { label: 'inputs', phase: 'File', agentType: CLERK, schema: INPUT_ROWS, effort: 'low' })
+  if (!r || !r.ok) { out.notes.push('the unreviewed inputs were not looked up: no ticket filed or linked for them'); return '; inputs not looked up' }
+  const rows = (r.rows || []).filter(x => ids.some(i => sameRef(String(i), String(x.id || '').trim())))
+  const linked = rows.filter(x => x.action === 'link' && /^T-\d{4,}$/.test(String(x.ticket || '')))
+  const want = rows.filter(x => (x.action === 'verify' && /^expert@/.test(x.to || '')) || (x.action === 'prove' && /^researcher@/.test(x.to || '')))
+  const odd = rows.filter(x => !linked.includes(x) && !want.includes(x) && x.action !== 'none')
+  if (odd.length) out.notes.push(`input rows not acted on (no ticket or receiver of the right role): ${odd.map(x => x.id + ' ' + x.action).join(', ')}`)
+  out.input_tickets = linked.map(x => ({ id: x.id, ticket: x.ticket, action: 'link' }))
+  if (want.length) {
+    const spec = want.map(x => x.action === 'verify'
+      ? `- ${x.id}: tickets_create to ${x.to}, kind verify, title "Verify ${x.id}", ask "Review ${x.id}: an unreviewed input (${x.status || 'sketch'}) that the complete attempt on ${A.claim} rests on (its verify ticket ${verifyTicket})", deliverable "A verification packet with two verdicts, or one negative verdict.", refs [${x.id}, ${A.claim}]${T ? ', parent ' + T : ''}`
+      : `- ${x.id}: tickets_create to ${x.to}, kind prove, title "Prove ${x.id}", ask "Take ${x.id} to a reviewable proof: an input (${x.status || 'status unknown'}) that the complete attempt on ${A.claim} rests on (its verify ticket ${verifyTicket})", deliverable "A complete proof attempt with its verify ticket, or the gaps.", refs [${x.id}, ${A.claim}]${T ? ', parent ' + T : ''}`).join('\n')
+    const fr = await launch(`WORKFLOW STAGE file-inputs of the academy-prove workflow (lead-researcher, workflow mode): do this only and return the structured result; launch no agent. ` +
+      `Claim: ${A.claim}. Home: ${A.home}.${A.instance ? ' File from ' + A.instance + '.' : ''} File exactly these tickets, one each, nothing else, and set no status:\n${spec}\n` +
+      'Return, for each input, the ticket id; a refusal verbatim instead of an id.',
+      { label: 'file inputs', phase: 'File', agentType: LEAD, schema: FILED_MANY, effort: 'low' })
+    const got = ((fr && fr.filed) || []).filter(x => /^T-\d{4,}$/.test(String(x.ticket || '').trim()))
+    for (const x of want) if (!got.some(g => sameRef(String(g.id || ''), x.id))) {
+      const why = ((fr && fr.filed) || []).find(g => sameRef(String(g.id || ''), x.id))
+      out.notes.push(`the ${x.action} ticket for the input ${x.id} was not filed: ${why ? why.refusal || 'no ticket id' : fr ? 'not returned' : 'the stage returned nothing'}`)
+    }
+    if (got.length) {
+      const ck = await launch(STAGE('get-inputs', [`tickets_get each of ${got.map(g => g.ticket).join(', ')} and return, for each, its id, found, to, kind and refs. Write nothing.`]),
+        { label: 'check inputs', phase: 'File', agentType: CLERK, schema: TICKETS, effort: 'low' })
+      for (const g of got) {
+        const x = want.find(w => sameRef(String(g.id || ''), w.id))
+        const c = ((ck && ck.tickets) || []).find(t => String(t.id || '').trim() === String(g.ticket).trim())
+        if (!x || !c || !c.found || c.kind !== x.action || c.to !== x.to || !(c.refs || []).some(rf => sameRef(String(rf).trim(), x.id))) {
+          out.notes.push(`ANOMALY: the ticket ${g.ticket} for the input ${g.id} is not a ${x ? x.action : '?'} ticket to ${x ? x.to : '?'} naming it`)
+          continue
+        }
+        out.input_tickets.push({ id: x.id, ticket: g.ticket, action: x.action })
+      }
+    }
+  }
+  if (!out.input_tickets.length) return ''
+  return '; inputs: ' + out.input_tickets.map(t => `${t.id} ${t.action === 'link' ? 'by' : t.action} ${t.ticket}`).join(', ')
+}
