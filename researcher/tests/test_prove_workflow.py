@@ -51,6 +51,8 @@ MOVE = {"ok": True, "detail": ""}
 REPAIR_BEFORE = {"confirmed_pass": "2026-11-01-T-0007", "reviewed_proof": "proofs/GEO-3/attempt-1.md",
                  "reviewed_proof_hash": "aaaa1111bbbb", "proof": "proofs/GEO-3/attempt-1.md"}
 RELATED_NONE = {"related": [], "queries": ["registry.py find GEO"]}
+WAIVER_NONE = {"ok": True, "waived": False, "why": "no cowork on the ticket"}
+INPUTS_NONE = {"ok": True, "rows": []}
 
 
 def done(**kw):
@@ -70,6 +72,10 @@ class ProveTests(unittest.TestCase):
         # 2026-11-20: every run past the state stage has the related-statements clerk stage;
         # a plan that does not care gets an empty answer
         plan.setdefault("related", [RELATED_NONE])
+        # #126: the scoped-waiver stage (only before a falsifier would be filed) finds none, and
+        # the inputs stage (only for a complete attempt resting on unreviewed inputs) links none
+        plan.setdefault("waiver", [WAIVER_NONE])
+        plan.setdefault("inputs", [INPUTS_NONE])
         d = tempfile.mkdtemp(prefix="acad-pv-")
         self.addCleanup(shutil.rmtree, d, True)
         h = os.path.join(d, "h.js")
@@ -1121,3 +1127,92 @@ class ShipTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class ScopedWaiverAndInputsTests(unittest.TestCase):
+    """#126, points 4 and 2 (2026-11-27): a cowork- or config-scoped waiver of the human's
+    stops a falsifier; a complete attempt's unreviewed inputs get their own ticket or are
+    linked to the one open."""
+    run_wf = ProveTests.run_wf
+    plan = FalsifierOnFailureTests.plan
+    NONE = FalsifierOnFailureTests.NONE
+    FILES = {"file falsifier": [FalsifierOnFailureTests.FILED_F],
+             "check falsifier": [FalsifierOnFailureTests.CHECK_F]}
+    LINE = "- 2026-11-19 human: none of the flat-structure falsifiers for now"
+
+    def failed(self):
+        return done(outcome="failed", gaps=["step 4: the bound fails"])
+
+    def test_a_cowork_waiver_files_no_falsifier(self):
+        w = {"ok": True, "waived": True, "source": "cowork", "scope": "flat-structures", "line": self.LINE}
+        res, labels, calls = self.run_wf(self.plan(self.failed(), waiver=[w]))
+        self.assertIn("waiver", labels)
+        self.assertNotIn("file falsifier", labels)
+        self.assertIn("cowork flat-structures", res["falsifier_skipped"])
+        self.assertEqual(res["falsifier_waiver"]["line"], self.LINE)
+        w_call = next(c for c in calls if c["label"] == "waiver")["prompt"]
+        self.assertIn("prove_inputs.py waiver --claim flat:GEO-3 --ticket T-0010 --home /h/nb", w_call)
+
+    def test_a_waiver_without_the_human_line_or_source_does_not_count(self):
+        for w in ({"ok": True, "waived": True, "source": "cowork", "scope": "x",
+                   "line": "- 2026-11-19 human (via main session): no falsifiers"},
+                  {"ok": True, "waived": True, "source": "ticket", "scope": "x", "line": self.LINE},
+                  {"ok": False, "waived": False}):
+            res, labels, _c = self.run_wf(self.plan(self.failed(), waiver=[w], **self.FILES))
+            self.assertIn("file falsifier", labels, w)
+
+    def test_no_waiver_stage_when_no_falsifier_would_be_filed(self):
+        res, labels, _c = self.run_wf(dict(ProveTests.COMPLETE, state=[state(**self.NONE)]))
+        self.assertNotIn("waiver", labels)
+
+    def complete_on(self, *inputs):
+        gaps = [{"text": "None; it rests on %s, unreviewed" % i, "class": "fix-known", "tagged": False,
+                 "rests_on": [i]} for i in inputs]
+        o = done(gaps=gaps, dependencies=list(inputs), inputs_listed=list(inputs))
+        return dict(ProveTests.COMPLETE, state=[state(attack_exists=False, **self.NONE)], outcome=[o])
+
+    def test_inputs_get_a_verify_a_prove_or_a_link(self):
+        rows = [{"id": "flat:FND-48", "status": "sketch", "action": "verify", "to": "expert@t", "ticket": ""},
+                {"id": "flat:FND-49", "status": "open", "action": "prove", "to": "researcher@flat", "ticket": ""},
+                {"id": "flat:FND-50", "status": "sketch", "action": "link", "ticket": "T-0040", "to": ""},
+                {"id": "flat:FND-51", "status": "proved", "action": "none", "ticket": "", "to": ""}]
+        plan = self.complete_on("flat:FND-48", "flat:FND-49", "flat:FND-50", "flat:FND-51")
+        plan.update({"inputs": [{"ok": True, "rows": rows}],
+                     "file inputs": [{"filed": [{"id": "flat:FND-48", "ticket": "T-0041"},
+                                                {"id": "flat:FND-49", "ticket": "T-0042"}]}],
+                     "check inputs": [{"tickets": [
+                         {"id": "T-0041", "found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:FND-48", "flat:GEO-3"]},
+                         {"id": "T-0042", "found": True, "to": "researcher@flat", "kind": "prove", "refs": ["flat:FND-49"]}]}]})
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "verify-filed")
+        self.assertEqual(labels[-4:], ["inputs", "file inputs", "check inputs", "close"])
+        f = next(c for c in calls if c["label"] == "file inputs")
+        self.assertEqual(f["agentType"], "researcher:lead-researcher")
+        self.assertIn('kind verify, title "Verify flat:FND-48"', f["prompt"])
+        self.assertIn('kind prove, title "Prove flat:FND-49"', f["prompt"])
+        self.assertNotIn("FND-50", f["prompt"])
+        self.assertNotIn("FND-51", f["prompt"])
+        self.assertEqual(sorted((t["id"], t["ticket"]) for t in res["input_tickets"]),
+                         [("flat:FND-48", "T-0041"), ("flat:FND-49", "T-0042"), ("flat:FND-50", "T-0040")])
+        self.assertIn("inputs: flat:FND-50 by T-0040", calls[-1]["prompt"])
+        self.assertNotIn("ANOMALY: the ticket", " ".join(res["notes"]))
+
+    def test_a_wrong_filed_ticket_is_an_anomaly_and_not_counted(self):
+        rows = [{"id": "flat:FND-48", "status": "sketch", "action": "verify", "to": "expert@t", "ticket": ""}]
+        plan = self.complete_on("flat:FND-48")
+        plan.update({"inputs": [{"ok": True, "rows": rows}],
+                     "file inputs": [{"filed": [{"id": "flat:FND-48", "ticket": "T-0041"}]}],
+                     "check inputs": [{"tickets": [{"id": "T-0041", "found": True, "to": "expert@t",
+                                                    "kind": "prove", "refs": ["flat:FND-48"]}]}]})
+        res, _labels, _c = self.run_wf(plan)
+        self.assertIn("ANOMALY: the ticket T-0041", " ".join(res["notes"]))
+        self.assertEqual(res["input_tickets"], [])
+
+    def test_only_links_need_no_filing_stage(self):
+        rows = [{"id": "flat:FND-48", "status": "sketch", "action": "link", "ticket": "T-0040", "to": ""}]
+        plan = self.complete_on("flat:FND-48")
+        plan["inputs"] = [{"ok": True, "rows": rows}]
+        res, labels, _c = self.run_wf(plan)
+        self.assertNotIn("file inputs", labels)
+        self.assertEqual(res["input_tickets"], [{"id": "flat:FND-48", "ticket": "T-0040", "action": "link"}])
