@@ -152,10 +152,11 @@ class ExploreTests(unittest.TestCase):
         self.assertTrue(res["ticket_delivered"])
 
     def test_a_falsifier_after_an_incomplete_attempt_marks_the_ticket_partial(self):
-        """#100 part 1: the attempt is not complete, so the deliverable is not met."""
+        """#100 part 1: the attempt is not complete, so the deliverable is not met (its gap is
+        a falsifying one, #126: only then does an incomplete attempt call for a falsifier)."""
         lead = {"items": [item("Q", "falsify", tickets=["T-1"], after="proofs/Q/attempt-2.md")], "report": "r", "next_picks": []}
         res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
-                                                     "trigger Q": [dict(FAILED, outcome="incomplete", gaps=1)], "get T-1": [GOOD_FALSIFIER], "close": [OK]},
+                                                     "trigger Q": [dict(FAILED, outcome="incomplete", gaps=1, falsifying_gaps=1)], "get T-1": [GOOD_FALSIFIER], "close": [OK]},
                                       dict(H, ticket="T-0600"))
         self.assertIsNone(err, err)
         self.assertEqual(res["outcome"], "partial")
