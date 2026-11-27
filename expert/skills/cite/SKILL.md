@@ -43,7 +43,9 @@ The librarian's fetches stay on the allowlist of sources (`scripts/source_guard.
   Author files it (a `verify` ticket back here if an argument now rests on a wrong reading).
 - **Unreachable** (paywalled, image-only, no text): the entry may still be added, but the
   card records how it was read. Anything resting on it stays an unverified input until a
-  human reads it. Say that plainly.
+  human reads it. Say that plainly. The parked tickets are collected into the human's reading
+  list, `<library>/views/reading-list.md`, by `py <expert scripts>/reading_list.py --write` (#108):
+  per source, exactly what to read, the claims it blocks and the statements resting on them.
 - **`ship`** (a standalone run; docs/workflows.md): with a ticket, its checkpoint ran once
   (`inbox.py --check`); without one it is `not-run` with the `checkpoint` command to run
   from the workspace root. With a ticket the Author home's `references.bib` ships with it
