@@ -42,7 +42,7 @@ Before the kind, `route` applies these rules, in order (the first that matches w
 | the human's decided edit (`decided_edit`), needing an argument | question, other | agent | `math-writer` | make the decided change; file `research` for the argument |
 | the human's decided edit (`decided_edit`) | question, other | agent | `math-editor` | the edit is already decided, as an `apply` ticket |
 | a missing argument, delivered (`delivered_argument`, `proved_source`) | write, copy, note, question, other | agent | (the kind's) | land it: a ref, a wait, or the newest child (none still out, not unproved) delivered it |
-| a missing argument asked separately (`separate_argument`) | write, copy, note, question, other | agent | (the kind's) | an argument child still out that the ticket does not wait on: do the rest, file nothing new |
+| a missing argument asked separately (`separate_argument`) | write, copy, note, question, other | wait | (the child) | an argument child still out that the ticket does not wait on: block on it, file nothing new |
 | a missing argument, not delivered (`needs_argument`) | write, copy, note, question, other | research | `expert` | file `research` to the Expert, final_to researcher; park on it |
 <!-- /routes:rules -->
 

@@ -142,8 +142,8 @@ RULES = (
      "land it: a ref, a wait, or the newest child (none still out, not unproved) "
      "delivered it"),
     ("a missing argument asked separately (`separate_argument`)",
-     ", ".join(ROUTED_WRITER_KINDS), "agent", "(the kind's)",
-     "an argument child still out that the ticket does not wait on: do the rest, file "
+     ", ".join(ROUTED_WRITER_KINDS), "wait", "(the child)",
+     "an argument child still out that the ticket does not wait on: block on it, file "
      "nothing new"),
     ("a missing argument, not delivered (`needs_argument`)", ", ".join(ROUTED_WRITER_KINDS),
      "research", "expert", "file `research` to the Expert, final_to researcher; park on it"),
@@ -286,7 +286,7 @@ def delivered_argument(meta, ticket_of=None):
 def separate_argument(meta, ticket_of=None):
     """The argument child (``research`` or ``prove``, ``parent`` this ticket) still out
     that this ticket does not wait on, or '': the argument is asked separately, so the
-    ticket is the writer's and never routes to research again (#128: T-1948 filed T-1949,
+    ticket waits on it and never routes to research again (#128: T-1948 filed T-1949,
     which does not block it, and was then routed to research a second time and blocked on
     the human). A child named in ``waiting_on`` or ``blocks`` does not count: that is a
     ticket parked on its argument."""
@@ -506,12 +506,11 @@ def route(meta, ticket_of=None):
                            "not a missing argument)" % said}
         sep = separate_argument(meta, ticket_of)
         if sep:
-            how, target, _why = KIND_ROUTES[kind]
-            return {"how": how, "target": target,
-                    "why": "the argument is asked separately in %s, which this ticket does "
-                           "not wait on: do the rest of the ask and file nothing new for "
-                           "the argument; if what remains needs it, block this ticket "
-                           "waiting on %s (#128)" % (sep, sep)}
+            # the human's ruling (2026-11-27, #128): park the ticket on the argument already
+            # asked, never file it again and never launch the writer before it is back
+            return {"how": "wait", "target": sep,
+                    "why": "the argument is asked in %s, still out: block this ticket waiting "
+                           "on it, file nothing new (#128)" % sep}
         return research_route("the ask needs an argument nobody has delivered")
     if kind in KIND_ROUTES:
         how, target, why = KIND_ROUTES[kind]

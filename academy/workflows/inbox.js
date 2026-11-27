@@ -147,7 +147,7 @@ const NESTED_COST = { 'expert:verify': 3, 'researcher:review-experiment': 3, 're
   'researcher:prove': 2, 'researcher:generalize': 2, 'expert:cite': 1, 'expert:domain': 1, 'expert:referee': 1, 'author:notes': 1 }
 function costOf(row, i) {
   const rt = row.route || {}
-  if (row.return || row.released || rt.how === 'reject' || rt.how === 'human') return 0   // clerk moves only
+  if (row.return || row.released || rt.how === 'reject' || rt.how === 'human' || rt.how === 'wait') return 0   // clerk moves only
   if (i.role === 'expert' && rt.target === 'clerk') return 2            // the clerk, and the librarian if it escalates
   if (i.role === 'scientist' && rt.target === 'developer') return 4     // developer and test-engineer, two rounds
   if (rt.how === 'skill') return NESTED_COST[rt.target] || 1
@@ -635,6 +635,12 @@ async function handle(row, i) {
   if (rt.how === 'reject') {
     await move(row, inst, `reject: rejected, with reason "${why}"`)
     return { outcome: 'rejected', detail: why }
+  }
+  if (rt.how === 'wait') {
+    // #128: the argument is already asked (an open child the ticket did not wait on): park on it
+    if (!/^T-\d{4,}$/.test(String(rt.target || ''))) return { for_main: { why: `${row.id}: the route says wait but names no ticket`, ticket: row.id, instance: inst } }
+    const m = await move(row, inst, `block-on: blocked, waiting_on [${rt.target}], reason "${why}"`)
+    return { outcome: m && m.ok ? `waiting on ${rt.target}` : 'unfinished', detail: why, parked: !!(m && m.ok) }
   }
   if (rt.how === 'human') {
     if (i.role === 'author' || i.role === 'scientist')

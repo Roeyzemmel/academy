@@ -336,9 +336,8 @@ class ReturnLegTests(unittest.TestCase):
         # argument asked separately; the parent goes to its writer, never to research
         board = [BOARD_1494[0], dict(BOARD_1494[1], status="in-progress")]
         r = self.route(T1494, board)
-        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
-        self.assertIn("asked separately in T-1664", r["why"])
-        self.assertIn("block this ticket waiting on T-1664", r["why"])
+        self.assertEqual(("wait", "T-1664"), (r["how"], r["target"]))
+        self.assertIn("block this ticket waiting on it", r["why"])
         # a parent that waits on it (or blocks it) is parked on it: not separate
         for field in ("waiting_on", "blocks"):
             meta = dict(T1494, **{field: ["T-1664"]})
@@ -385,12 +384,11 @@ class EditorialTests(unittest.TestCase):
             self.assertTrue(routes.needs_argument(dict(T1948, ask=line + " Prove that X.")),
                             line)
 
-    def test_the_second_run_with_t1949_out_goes_to_the_writer(self):
+    def test_a_ticket_needing_the_argument_t1949_asks_waits_on_it(self):
         board = [{"id": "T-1949", "kind": "research", "status": "open", "to": "expert@t",
                   "final_to": "researcher", "parent": "T-1948"}]
-        r = self.route(T1948, board)
-        self.assertEqual(("agent", "math-writer"), (r["how"], r["target"]))
-        self.assertIn("T-1949", r["why"])
+        r = self.route(dict(T1948, ask="Prove that the marked set is discrete."), board)
+        self.assertEqual(("wait", "T-1949"), (r["how"], r["target"]))
 
     def test_a_child_still_out_holds_an_older_delivered_one(self):
         """T-0876 (review of badbc50): an older closed child (another gap) does not land
@@ -403,9 +401,8 @@ class EditorialTests(unittest.TestCase):
         self.assertEqual("", routes.delivered_argument(meta, routes.TicketLookup(lambda: board)))
         # not landed, and not filed again either (#128): the writer, told to wait on T-0880
         r = self.route(meta, board)
-        self.assertEqual("math-writer", r["target"])
+        self.assertEqual(("wait", "T-0880"), (r["how"], r["target"]))
         self.assertNotIn("delivered", r["why"])
-        self.assertIn("waiting on T-0880", r["why"])
 
     def test_only_the_newest_child_counts(self):
         older = {"id": "T-0010", "kind": "research", "status": "closed",
