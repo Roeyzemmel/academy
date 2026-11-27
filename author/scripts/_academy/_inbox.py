@@ -15,7 +15,7 @@ from ._base import (
 from ._config import instance_for_home, load_config
 from ._workspace import load_workspace
 from ._touched import claim_touches, drop_touches
-from ._manifest import (ManifestError, find_claim, load_pending, manifest_changed,
+from ._manifest import (ManifestError, find_claim, lease_heartbeat, load_pending, manifest_changed,
                         manifest_targets, merge_manifest, prune_claims, release_claim,
                         save_pending)
 from ._tickets import is_dead_route, relay_return_ready
@@ -527,7 +527,15 @@ class inbox_core(object):
                    "nothing of it is claimed: commit its part by hand\n" % (tid, target))
             (out or sys.stderr).write(msg)
         repos = merge_manifest(changed, (pending or {}).get("repos"), touches)
-        path = save_pending(root, tid, repos)
+        # #96: the run the ticket was worked in rides along: ship.py never switches a home
+        # leased by another live run, and this run's own leases are its to switch
+        run = (claim or {}).get("run") or (pending or {}).get("run")
+        if run:
+            try:
+                lease_heartbeat(root, run)          # the run is alive: its check is a heartbeat
+            except (ManifestError, OSError):
+                pass
+        path = save_pending(root, tid, repos, run=run)
         if claim_file:
             release_claim(claim_file)
         if not repos:
@@ -568,7 +576,7 @@ class inbox_core(object):
                 done.add(m.group(1))
         if p.returncode == 0:
             done |= set(repos)
-        save_pending(root, tid, {t: ps for t, ps in repos.items() if t not in done})
+        save_pending(root, tid, {t: ps for t, ps in repos.items() if t not in done}, run=run)
         drop_touches([f for t, fs in by_target.items() if t in done for f in fs])
         if p.returncode != 0:
             sys.stderr.write("warning: checkpoint for %s exited %d (see its output); its "

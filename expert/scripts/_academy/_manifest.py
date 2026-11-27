@@ -14,8 +14,9 @@ dirty now that were clean at the snapshot or whose content changed since: the ti
 manifest ``{target: [paths relative to the target]}``. A path already dirty before the
 ticket and unchanged is not claimed (it is not the ticket's work); nothing is claimed in a
 home listed in ``failed``. A file above ``MANIFEST_HASH_CAP`` is compared by size and mtime.
-Concurrent runs in one checkout can still attribute each other's files: a snapshot diff
-cannot tell who changed a path.
+A snapshot diff cannot tell who changed a path: concurrent runs in one checkout are kept
+apart by the run leases at the end of this module (#96), one per home, so they never
+share an instance.
 
 The inbox's ``--check`` turns the claim into a *pending manifest*
 (``.academy/manifests/<ticket>.json``), releases the claim, and hands the manifest to
@@ -23,7 +24,8 @@ The inbox's ``--check`` turns the claim into a *pending manifest*
 refused or failed repo is retried by the next ``--check`` of the same ticket.
 
 The stop check (``unclaimed_dirty``) skips the paths a *live* claim's run changed since its
-snapshot and flags every other dirty path. A claim is live while it is younger than
+snapshot, the homes a live run holds the lease of, and the board files committed onto a
+ticket's branch without moving the checkout, and flags every other dirty path. A claim is live while it is younger than
 ``CLAIM_MAX_HOURS`` and, when it names a pid of this host, that process exists.
 
 ``.academy/`` carries its own ``.gitignore`` (``*``), so none of this is ever committed or
@@ -223,7 +225,12 @@ def manifest_snapshot(root, ticket, run=None, board="board", pid=None, now=None)
     and never claimed from. Stale claims are removed first. Returns the claim."""
     _mf_check_name(ticket, "ticket id")
     run = run or "inbox"
+    _mf_check_name(run, "run id")
     prune_claims(root)
+    try:
+        lease_heartbeat(root, run, now)         # #96: each ticket's snapshot is its run's heartbeat
+    except ManifestError:
+        pass
     failed = []
     claim = {"run": run, "ticket": ticket, "started": time.time() if now is None else now,
              "pid": int(pid) if pid else None, "host": socket.gethostname(),
@@ -291,10 +298,13 @@ def claim_live(claim, now=None, max_hours=None):
         return False
     if now - started > hours * 3600:
         return False
-    pid = claim.get("pid")
-    if pid and claim.get("host") == socket.gethostname() and not _mf_pid_alive(pid):
-        return False
-    return True
+    return not _mf_proc_gone(claim)
+
+
+def _mf_proc_gone(doc):
+    """Whether ``doc`` (a claim or a lease) names a pid of this host that no longer exists."""
+    pid = doc.get("pid")
+    return bool(pid and doc.get("host") == socket.gethostname() and not _mf_pid_alive(pid))
 
 
 def manifest_changed(root, claim, state=None):
@@ -342,12 +352,17 @@ def merge_manifest(*parts):
     return {t: sorted(ps) for t, ps in out.items() if ps}
 
 
-def save_pending(root, ticket, repos):
-    """Write (or, with no paths left, remove) ``ticket``'s pending manifest; its path."""
+def save_pending(root, ticket, repos, run=None):
+    """Write (or, with no paths left, remove) ``ticket``'s pending manifest; its path.
+    ``run``: the inbox run the ticket was worked in (``ship.py checkpoint`` reads it: a
+    home leased by that run is its own, #96)."""
     path = pending_path(root, ticket)
     repos = merge_manifest(repos)
     if repos:
-        _mf_write(path, {"ticket": ticket, "repos": repos})
+        doc = {"ticket": ticket, "repos": repos}
+        if run:
+            doc["run"] = run
+        _mf_write(path, doc)
     else:
         release_claim(path)
     return path
@@ -355,16 +370,254 @@ def save_pending(root, ticket, repos):
 
 def unclaimed_dirty(root, board="board", now=None, max_hours=None):
     """``{target: [paths]}``: every dirty path of every home except those a live claim's
-    run changed since its snapshot (the stop check). Stale claims count for nothing."""
+    run changed since its snapshot, every path of a home a live run holds the lease of
+    (#96: that run's --check ships them), and the board paths a checkpoint committed onto a
+    ticket's branch without moving the checkout (``shipped_paths``, unchanged since): the
+    stop check. Stale claims and leases count for nothing."""
     state = manifest_state(root, board)
     skip = {}
     for _f, c in run_claims(root):
         if claim_live(c, now, max_hours):
             for target, paths in manifest_changed(root, c, state).items():
                 skip.setdefault(target, set()).update(paths)
+    leased = {lease.get("target") for lease in live_leases(root, now)}
+    shipped = shipped_paths(root, "board")
     out = {}
     for target, paths in state.items():
-        left = sorted(p for p in paths if p not in skip.get(target, ()))
+        if target in leased:        # a live run's home: its own --check ships what is there
+            continue
+        done = shipped if target == "board" else {}
+        left = sorted(p for p in paths if p not in skip.get(target, ())
+                      and not (p in done and done[p] == paths[p]))
         if left:
             out[target] = left
     return out
+
+
+# ---- Run leases (#96) ------------------------------------------------------------------------
+# Two inbox runs with disjoint instance sets may work in one checkout at once. Each run takes a
+# *lease* on the home submodule of every instance it runs: ``.academy/leases/<target>.json`` =
+# ``{target, run, pid, host, started, heartbeat, instances}``. A lease is live while its
+# heartbeat is younger than ``LEASE_TIMEOUT_MINUTES``; one that names a pid of this host is
+# live while that process exists, up to ``CLAIM_MAX_HOURS`` after the last heartbeat
+# (``claim_live``'s host and pid rule). A target leased by another live run is not
+# taken: the inbox skips that instance for the run. The board is never leased: while another
+# live run holds a lease, a checkpoint commits it onto the ticket's branch without moving
+# the checkout (ship.py); alone, it switches as before. Every read and
+# write of the leases holds ``.academy/leases/.lock`` (create-exclusive, as ``IdLock``).
+
+#: minutes after the last heartbeat (each ticket's snapshot) when a lease is stale
+LEASE_TIMEOUT_MINUTES = 30
+#: seconds after which the leases' lock file belongs to a crashed process and is broken
+LEASE_LOCK_STALE = 30.0
+
+
+def lease_dir(root):
+    return os.path.join(manifest_dir(root), "leases")
+
+
+def lease_key(target):
+    """The file name of ``target``'s lease (a submodule path, '/' made '__')."""
+    key = str(target or "").strip().strip("/").replace("\\", "/").replace("/", "__")
+    return _mf_check_name(key, "lease target")
+
+
+def lease_path(root, target):
+    return os.path.join(lease_dir(root), lease_key(target) + ".json")
+
+
+class _LeaseLock(object):
+    def __init__(self, root, timeout=10.0):
+        self.path = os.path.join(lease_dir(root), ".lock")
+        self.timeout = timeout
+
+    def __enter__(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        deadline = time.monotonic() + self.timeout
+        while True:
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write("%d %f\n" % (os.getpid(), time.time()))
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - os.path.getmtime(self.path) > LEASE_LOCK_STALE:
+                        os.remove(self.path)
+                        continue
+                except OSError:
+                    continue
+                if time.monotonic() > deadline:
+                    raise ManifestError("could not lock %s" % self.path)
+                time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        release_claim(self.path)
+        return False
+
+
+def lease_live(lease, now=None, timeout_minutes=None):
+    """Whether ``lease``'s run is still going: when it names a pid of this host, that
+    process exists and the heartbeat is younger than ``CLAIM_MAX_HOURS`` (one ticket, a
+    nested verify say, can outlast the timeout between two heartbeats); otherwise its
+    heartbeat is younger than ``LEASE_TIMEOUT_MINUTES``."""
+    now = time.time() if now is None else now
+    minutes = LEASE_TIMEOUT_MINUTES if timeout_minutes is None else timeout_minutes
+    try:
+        beat = float(lease.get("heartbeat") or lease.get("started") or 0)
+    except (TypeError, ValueError):
+        return False
+    if _mf_proc_gone(lease):
+        return False
+    pid_here = bool(lease.get("pid")) and lease.get("host") == socket.gethostname() and os.name != "nt"
+    return now - beat <= (CLAIM_MAX_HOURS * 3600 if pid_here else minutes * 60)
+
+
+def read_lease(root, target):
+    """The lease of ``target`` (live or not), or None."""
+    doc = _mf_read(lease_path(root, target))
+    return doc if doc and doc.get("run") else None
+
+
+def leases(root):
+    """Every lease of the workspace, live or not, sorted by target."""
+    try:
+        names = sorted(n for n in os.listdir(lease_dir(root)) if n.endswith(".json"))
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        doc = _mf_read(os.path.join(lease_dir(root), n))
+        if doc and doc.get("run"):
+            out.append(doc)
+    return out
+
+
+def live_leases(root, now=None):
+    return [lease for lease in leases(root) if lease_live(lease, now)]
+
+
+def lease_holder(root, target, run=None, now=None):
+    """The live lease of ``target`` held by a run other than ``run``, else None."""
+    lease = read_lease(root, target)
+    if lease and lease_live(lease, now) and lease.get("run") != run:
+        return lease
+    return None
+
+
+def describe_lease(lease, now=None):
+    now = time.time() if now is None else now
+    try:
+        age = int(max(0, now - float(lease.get("heartbeat") or 0)) // 60)
+    except (TypeError, ValueError):
+        age = -1
+    return "run %s (%s%s, heartbeat %s min ago)" % (
+        lease.get("run"), "pid %s on " % lease["pid"] if lease.get("pid") else "",
+        lease.get("host") or "?", age if age >= 0 else "?")
+
+
+def lease_take(root, run, targets, instances=None, pid=None, now=None):
+    """Take a lease for run ``run`` on each of ``targets`` (``{target: [instances]}`` or a
+    list). A target with no lease, a stale one, or one of ``run`` already is taken (a stale
+    lease is taken over); one leased by another live run is not. Returns ``(taken,
+    refused)``: ``[targets]`` and ``{target: lease}``."""
+    _mf_check_name(run, "run id")
+    now = time.time() if now is None else now
+    if not isinstance(targets, dict):
+        targets = {t: list(instances or []) for t in targets}
+    taken, refused = [], {}
+    with _LeaseLock(root):
+        for target, insts in targets.items():
+            path = lease_path(root, target)
+            old = read_lease(root, target)
+            if old and old.get("run") != run and lease_live(old, now):
+                refused[target] = old
+                continue
+            started = old.get("started") if old and old.get("run") == run else now
+            _mf_write(path, {"target": target, "run": run, "pid": int(pid) if pid else None,
+                             "host": socket.gethostname(), "started": started,
+                             "heartbeat": now, "instances": sorted(set(insts or []))})
+            taken.append(target)
+    return taken, refused
+
+
+def lease_heartbeat(root, run, now=None):
+    """Refresh the heartbeat of every lease ``run`` holds; the targets refreshed."""
+    _mf_check_name(run, "run id")
+    now = time.time() if now is None else now
+    done = []
+    if not os.path.isdir(lease_dir(root)):
+        return done
+    with _LeaseLock(root):
+        for lease in leases(root):
+            if lease.get("run") == run and lease.get("target"):
+                _mf_write(lease_path(root, lease["target"]), dict(lease, heartbeat=now))
+                done.append(lease["target"])
+    return done
+
+
+def lease_release(root, run, targets=None):
+    """Remove the leases ``run`` holds (of ``targets`` only, when given); the targets
+    released. Another run's lease is never removed."""
+    _mf_check_name(run, "run id")
+    done = []
+    if not os.path.isdir(lease_dir(root)):
+        return done
+    with _LeaseLock(root):
+        for lease in leases(root):
+            t = lease.get("target")
+            if lease.get("run") == run and t and (targets is None or t in targets):
+                release_claim(lease_path(root, t))
+                done.append(t)
+    return done
+
+
+def instance_target(root, home):
+    """The lease target of an instance whose home is ``home``: its path relative to the
+    workspace root (a submodule path), else the home's directory name (an attached checkout
+    outside the root); None without a home."""
+    if not home:
+        return None
+    h, top = os.path.realpath(str(home)), os.path.realpath(str(root))
+    rel = os.path.relpath(h, top).replace(os.sep, "/")
+    if rel == "." or rel.startswith(".."):
+        return os.path.basename(h.rstrip(os.sep)) or None
+    return rel
+
+
+# ---- Board paths committed without moving the checkout (#96) -----------------------------------
+# A checkpoint commits the board onto the ticket's branch with a temporary index, so the
+# checkout's HEAD keeps its branch and the committed files stay dirty against it until that
+# branch is merged. ``.academy/shipped/<target>.json`` = ``{path: content hash}`` records them, so
+# the stop check and a later ``--only board`` checkpoint pass over a file committed and unchanged
+# since.
+
+
+def shipped_file(root, target):
+    return os.path.join(manifest_dir(root), "shipped", lease_key(target) + ".json")
+
+
+def shipped_paths(root, target):
+    """``{path relative to the target: content hash}`` committed without moving the checkout."""
+    doc = _mf_read(shipped_file(root, target))
+    paths = (doc or {}).get("paths")
+    return paths if isinstance(paths, dict) else {}
+
+
+def record_shipped(root, target, prefix, committed, dirty=None):
+    """Record ``committed`` (``[paths relative to the target]``, each hashed now) as committed
+    onto a ticket's branch without moving the checkout; ``prefix`` is the target's directory
+    relative to ``root``. With ``dirty`` (the target's dirty paths now) the entries no longer
+    dirty -- merged since, or reverted -- are dropped. Returns the recorded map."""
+    full = shipped_file(root, target)
+    paths = dict(shipped_paths(root, target))
+    if dirty is not None:
+        keep = set(dirty)
+        paths = {p: h for p, h in paths.items() if p in keep}
+    for p in committed:
+        paths[p] = manifest_hash(_mf_full(str(root), prefix, p))
+    if paths:
+        _mf_write(full, {"target": target, "paths": paths})
+    else:
+        release_claim(full)
+    return paths

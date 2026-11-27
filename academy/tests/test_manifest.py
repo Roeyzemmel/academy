@@ -196,6 +196,62 @@ class StopCheckTests(Base):
         self.assertEqual(hook({"cwd": self.root}), (0, ""))
 
 
+class LeaseTests(Base):
+    """#96: run leases on the homes, so two runs with disjoint instance sets share a checkout."""
+
+    def test_a_lease_is_taken_refused_while_live_and_taken_over_when_stale(self):
+        taken, refused = ac.lease_take(self.root, "run-a", {"sub": ["author@t"]}, pid=os.getpid())
+        self.assertEqual((taken, refused), (["sub"], {}))
+        lease = ac.read_lease(self.root, "sub")
+        self.assertEqual((lease["run"], lease["instances"], lease["pid"]), ("run-a", ["author@t"], os.getpid()))
+        self.assertTrue(os.path.isfile(os.path.join(self.root, ".academy", "leases", "sub.json")))
+        taken, refused = ac.lease_take(self.root, "run-b", ["sub", "other"])
+        self.assertEqual(taken, ["other"])
+        self.assertEqual(refused["sub"]["run"], "run-a")
+        self.assertEqual(ac.lease_holder(self.root, "sub", "run-b")["run"], "run-a")
+        self.assertIsNone(ac.lease_holder(self.root, "sub", "run-a"))      # its own
+        # with its pid alive here, a long ticket between two heartbeats keeps it, up to the hours cap
+        later = time.time() + (ac.LEASE_TIMEOUT_MINUTES + 1) * 60
+        self.assertEqual(ac.lease_take(self.root, "run-b", ["sub"], now=later)[0], [])
+        self.assertFalse(ac.lease_live(ac.read_lease(self.root, "sub"),
+                                       now=time.time() + (ac.CLAIM_MAX_HOURS + 1) * 3600))
+        # with no pid, stale by its heartbeat: taken over
+        ac.lease_release(self.root, "run-a")
+        ac.lease_take(self.root, "run-a", ["sub"])
+        self.assertEqual(ac.lease_take(self.root, "run-b", ["sub"], now=later), (["sub"], {}))
+        self.assertEqual(ac.read_lease(self.root, "sub")["run"], "run-b")
+
+    def test_a_lease_whose_pid_is_gone_is_stale(self):
+        p = subprocess.Popen([sys.executable, "-c", "pass"])
+        p.wait()
+        ac.lease_take(self.root, "run-a", ["sub"], pid=p.pid)
+        self.assertFalse(ac.lease_live(ac.read_lease(self.root, "sub")))
+        self.assertEqual(ac.lease_take(self.root, "run-b", ["sub"]), (["sub"], {}))
+
+    def test_the_snapshot_heartbeats_and_release_removes_only_its_own(self):
+        start = time.time() - 20 * 60
+        ac.lease_take(self.root, "run-a", ["sub"], now=start)
+        ac.lease_take(self.root, "run-b", ["other"], now=start)
+        ac.manifest_snapshot(self.root, "T-0001", run="run-a")
+        self.assertGreater(ac.read_lease(self.root, "sub")["heartbeat"], start + 60)
+        self.assertEqual(ac.read_lease(self.root, "sub")["started"], start)
+        self.assertEqual(ac.read_lease(self.root, "other")["heartbeat"], start)
+        self.assertEqual(ac.lease_release(self.root, "run-a"), ["sub"])
+        self.assertEqual([x["target"] for x in ac.leases(self.root)], ["other"])
+
+    def test_the_stop_check_leaves_a_leased_home_and_shipped_board_files_alone(self):
+        ac.lease_take(self.root, "run-a", ["sub"])
+        self.put(self.sub, "theirs.md")
+        self.put(self.other, "loose.md")
+        self.put(self.root, "board/packets/P-1.md")
+        ac.record_shipped(self.root, "board", "board", ["packets/P-1.md"])
+        self.assertEqual(ac.unclaimed_dirty(self.root), {"other": ["loose.md"]})
+        self.put(self.root, "board/packets/P-1.md", "changed since its commit\n")
+        self.assertEqual(ac.unclaimed_dirty(self.root), {"board": ["packets/P-1.md"], "other": ["loose.md"]})
+        ac.lease_release(self.root, "run-a")
+        self.assertIn("sub", ac.unclaimed_dirty(self.root))
+
+
 class CliTests(Base):
     def cli(self, *argv):
         ws = os.path.join(self.root, "workspace.json")
@@ -215,6 +271,41 @@ class CliTests(Base):
         self.assertEqual((code, out.strip()), (0, "(nothing unclaimed)"))
         code, out, err = self.cli("diff", "--ticket", "T-9999")
         self.assertEqual(code, 1)
+
+    def test_lease_take_makes_a_unique_run_and_skips_a_leased_instance(self):
+        ws = os.path.join(self.root, "workspace.json")
+        with open(ws, "w", encoding="utf-8") as f:
+            json.dump({"board": "board", "instances": {
+                "author@t": {"role": "author", "home": os.path.join(self.root, "sub"), "domains": ["d"]},
+                "expert@t": {"role": "expert", "home": os.path.join(self.root, "other"), "domains": ["d"]},
+                # an attached checkout outside the workspace: leased by its directory's name
+                "researcher@t": {"role": "researcher", "home": os.path.join(self.tmp, "lab"),
+                                 "domains": ["d"]}}}, f)
+        code, out, err = self.cli("lease", "take", "--prefix", "inbox-author@t", "--instances",
+                                  "author@t", "--pid", str(os.getpid()))
+        self.assertEqual(code, 0, err)
+        lines = out.splitlines()
+        self.assertRegex(lines[0], r"^run inbox-author@t-\d{8}T\d{6}-[0-9a-f]{4}$")
+        self.assertEqual(lines[1], "leased author@t: sub")
+        first = lines[0].split()[1]
+        code, out, err = self.cli("lease", "take", "--prefix", "inbox-all", "--instances",
+                                  "author@t,expert@t", "--instances", "researcher@t")
+        self.assertEqual(code, 0, err)
+        lines = out.splitlines()
+        second = lines[0].split()[1]
+        self.assertNotEqual(first, second)
+        self.assertRegex(lines[1], r"^skipped author@t: sub is leased by run %s \(pid " % first)
+        self.assertEqual(lines[2:], ["leased expert@t: other", "leased researcher@t: lab"])
+        code, out, err = self.cli("lease", "list")
+        self.assertEqual(code, 0, err)
+        self.assertIn("sub: run %s" % first, out)
+        code, out, err = self.cli("lease", "heartbeat", "--run", second)
+        self.assertEqual(out.strip(), "heartbeat of run %s: lab other" % second)
+        code, out, err = self.cli("lease", "release", "--run", second)
+        self.assertEqual(out.strip(), "released for run %s: lab other" % second)
+        code, out, err = self.cli("lease", "take", "--run", second, "--targets", "sub")
+        self.assertIn("skipped sub: leased by run %s" % first, out)
+        self.assertEqual(self.cli("lease", "release")[0], 2)            # needs --run
 
 
 class PidProbeTests(unittest.TestCase):

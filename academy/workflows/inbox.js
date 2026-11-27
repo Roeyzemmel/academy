@@ -322,8 +322,21 @@ const RELAY_OUT = { type: 'object', properties: {
 // the instances it works. snapshot: false (args) runs without it, as before: --check then ships the ticket's
 // repos by --only.
 const SNAPSHOT = A.snapshot !== false
-const RUN_ID = ('inbox-' + String(A.run_id || ((A.only && A.only.length) ? A.only.join('+') : 'all')))
-  .replace(/[^A-Za-z0-9@+._-]/g, '-').slice(0, 100)
+// #96 (the human's choice, 2026-11-27: "Leases, one checkout"): two runs with disjoint instance
+// sets may work in one checkout at once. After the listing, the clerk takes a lease for this run
+// on the home of every listed instance (manifest.py lease take); an instance whose home another
+// live run holds is skipped for this run (a note says so), never waited for. Each ticket's
+// snapshot heartbeats the run's leases; the run releases them at its end, early stops included
+// (a run that dies leaves them to go stale: its pid gone, or 30 minutes without a heartbeat
+// when the pid cannot be checked).
+// The run id is made unique by that stage (the prefix below, a timestamp and a random suffix:
+// a script has no clock of its own); args.run_id names it instead. The leases and the claims
+// use the same id. leases: false (args) runs without them, with the prefix as the run id.
+const LEASES = A.leases !== false
+const RUN_BASE = ('inbox-' + String(A.run_id || ((A.only && A.only.length) ? A.only.join('+') : 'all')))
+  .replace(/[^A-Za-z0-9@+._-]/g, '-').slice(0, 90)
+let RUN_ID = RUN_BASE
+const LEASE = { held: false, skipped: new Map() }
 const SNAP = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
   output: { type: 'string', description: 'the command output, verbatim' } }, required: ['exit'] }
 const withDetail = r => (r && typeof r === 'object' && typeof r.detail !== 'string') ? Object.assign({}, r, { detail: '' }) : r
@@ -335,15 +348,52 @@ const clerk = async (stage, lines, schema, label) => {
 }
 // a stage that throws (no structured output) is a failed snapshot or check, never a failed run
 const tryClerk = async (stage, lines, schema, label) => { try { return await clerk(stage, lines, schema, label) } catch (e) { return null } }
+const PID_NOTE = '$PPID is left for the shell to expand (the session\'s process, whose end ends the claim and the leases)'
 async function snapshot(row) {
-  const r = await tryClerk('snapshot', [`py ${ROOT}/academy/scripts/manifest.py snapshot --ticket ${row.id} --run ${RUN_ID}`,
-    'Run it once (python3 where there is no py). Return the exit code the shell printed and the output verbatim.'], SNAP, `snapshot ${row.id}`)
+  const r = await tryClerk('snapshot', [`py ${ROOT}/academy/scripts/manifest.py snapshot --ticket ${row.id} --run ${RUN_ID} --pid $PPID`,
+    `Run it once, as written (python3 where there is no py; ${PID_NOTE}). Return the exit code the shell printed and the output verbatim.`], SNAP, `snapshot ${row.id}`)
   const ok = !!(r && r.exit === 0)
   if (!ok) notes.push(`${row.id}: no snapshot before it (${r ? String(r.output || '').replace(/\s+/g, ' ').slice(0, 120) : 'the stage returned nothing'}); its checkpoint ships its repos by --only, as before`)
   return ok
 }
 const checkCmd = (row, i) => [`py ${ROOT}/${i.role}/scripts/inbox.py --instance ${i.name} --check ${row.id}`,
   'Run it once. Return the exit code the shell printed (echo $?), the ticket status, and the whole output verbatim in output.']
+// #96: the leases. take: the run's id and the instances it may run; release: at the end
+async function takeLeases(xs) {
+  if (!LEASES || !xs.length) return xs
+  const r = await tryClerk('lease', [`py ${ROOT}/academy/scripts/manifest.py lease take ${A.run_id ? '--run' : '--prefix'} ${RUN_BASE} ` +
+    `--instances ${xs.map(i => i.name).join(',')} --pid $PPID`,
+  `Run it once, as written (python3 where there is no py; ${PID_NOTE}). Return the exit code the shell printed and the output verbatim.`], SNAP, 'lease take')
+  const text = String((r && r.output) || '')
+  const m = /^run (\S+)\s*$/m.exec(text)
+  const id = m && m[1]
+  if (!r || r.exit !== 0 || !id || !/^[A-Za-z0-9@+._-]{1,120}$/.test(id) || !id.startsWith(RUN_BASE)) {
+    notes.push(`no leases taken (${r ? text.replace(/\s+/g, ' ').slice(0, 120) || 'exit ' + r.exit : 'the stage returned nothing'}): ` +
+      `this run works unleased as run ${RUN_ID}; a concurrent run in this checkout is not kept off its homes (#96)`)
+    return xs
+  }
+  RUN_ID = id
+  LEASE.held = true
+  for (const line of text.split(/\r?\n/)) {
+    const k = /^skipped (\S+): (.*)$/.exec(line.trim())
+    if (k && xs.some(i => i.name === k[1])) LEASE.skipped.set(k[1], k[2])
+  }
+  for (const [name, why] of LEASE.skipped) notes.push(`${name} is skipped this run: ${why} (#96: its home is another live run's)`)
+  out.leases = { run: RUN_ID, skipped: [...LEASE.skipped.keys()] }
+  return xs.filter(i => !LEASE.skipped.has(i.name))
+}
+async function releaseLeases() {
+  if (!LEASE.held) return
+  LEASE.held = false
+  let r = null
+  try {
+    // record: tried after a stop as well (a usage limit makes it fail, and the leases then go stale)
+    r = await launch(`WORKFLOW STAGE lease of the academy-inbox workflow.\npy ${ROOT}/academy/scripts/manifest.py lease release --run ${RUN_ID}\n` +
+      'Run it once (python3 where there is no py). Return the exit code the shell printed and the output verbatim.',
+    { label: 'lease release', phase: 'Close', agentType: CLERK, schema: SNAP, effort: 'low', record: true })
+  } catch (e) { r = null }
+  if (!r || r.exit !== 0) notes.push(`the leases of run ${RUN_ID} were not released (they go stale in 30 minutes): py ${ROOT}/academy/scripts/manifest.py lease release --run ${RUN_ID}`)
+}
 const move = (row, inst, what, label) => clerk('move', [`ticket: ${row.id}`, `act as: ${inst}`, what], MOVE, label || `${row.id} ${what.split(':')[0]}`)
 
 const notes = []
@@ -394,7 +444,7 @@ async function listAll(pass) {
     }
     for (const b of bad) notes.push(`ANOMALY: ${b} after the retry: its tickets are not taken this pass; inbox.py --instance ${b.split(':')[0]} --json lists them`)
   }
-  const xs = listed.instances.filter(i => !A.only || A.only.includes(i.name))
+  const xs = listed.instances.filter(i => (!A.only || A.only.includes(i.name)) && !LEASE.skipped.has(i.name))
   // a later listing can come back with home '' (live run 2026-11-17: the second pass lost every home and the
   // nested prove threw 'args.home must be the Researcher home', ending the run): keep the last home seen
   for (const i of xs) { if (i.home) knownHome[i.name] = i.home; else if (knownHome[i.name]) i.home = knownHome[i.name] }
@@ -428,7 +478,10 @@ const LIMIT_WHY = 'three agent launches in a row returned nothing: most likely a
   'the session\'s own error names the reset time; resume after it). Nothing further launched (#115)'
 let insts = await listAll(1)
 if (!insts) return Object.assign(out, listFailed ? { stopped: listFailed, list_failed: true } : { stopped: 'the list stage returned nothing (a usage limit?)', usage_limit: LAUNCH_LIMIT.stopped })
+insts = await takeLeases(insts)
 let lastInsts = insts
+// from here on every way out releases the run's leases (#96)
+try {
 
 // ---- Sweep (the Author's, before any ticket; counts against no cap) -------------------
 phase('Sweep')
@@ -1001,4 +1054,7 @@ out.cap = CAP
 if (insts.some(i => i.role === 'author') && taken.some(t => roleOf(t.instance) === 'author'))
   notes.push('Author: run check_paper.py (`py ' + ROOT + '/author/scripts/check_paper.py --root <home>`) from the home and relay its summary; launch tex-engineer once if an agent reported the build not clean')
 return out
+} finally {
+  await releaseLeases()
+}
 } finally { await pinEnd() }

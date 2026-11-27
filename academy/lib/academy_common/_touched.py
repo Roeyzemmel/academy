@@ -21,9 +21,10 @@ One entry is one small JSON file in a directory of this machine, outside every r
 workspace root, so concurrent writers never rewrite a shared file. An entry is
 ``{path, role, instance, agent, via, created, ticket}``; ``ticket`` is empty until the
 inbox's ``--check`` of a finished ticket of that role claims it (``claim_touches``):
-the inbox works one ticket at a time per instance, so the unclaimed entries of the role
-are that ticket's writes. A claimed entry stays with its ticket until its repo was
-shipped (``drop_touches``), so a refused or failed ship is retried by the next
+the inbox works one ticket at a time per instance, and two concurrent runs never share an
+instance (their leases, #96), so the unclaimed entries of the ticket's instance (and those
+of its role that name no instance) are that ticket's writes. A claimed entry stays with
+its ticket until its repo was shipped (``drop_touches``), so a refused or failed ship is retried by the next
 ``--check`` of the same ticket and never taken by another one. Entries older than
 ``TOUCH_TTL_DAYS`` are pruned. Only the main session's own edits are never recorded:
 it is the human, and the human's work is never swept up.
@@ -130,8 +131,10 @@ def touch_entries(root, now=None):
 
 def claim_touches(root, ticket, role, instance=None, now=None):
     """The entries of ticket ``ticket``: those already claimed for it, and every unclaimed
-    entry of ``role`` (whose instance is ``instance`` or unknown), which are claimed for
-    it now. ``[(entry file, record)]``."""
+    entry of ``role`` it may take, which are claimed for it now. ``[(entry file,
+    record)]``. An entry that names its instance is taken only by a ticket of that same
+    instance (#96: two live runs never share an instance, so a concurrent run's entries are
+    never this ticket's); an entry with no instance is matched by its role alone."""
     mine = []
     for p, rec in touch_entries(root, now):
         if rec.get("ticket") == ticket:
@@ -139,7 +142,7 @@ def claim_touches(root, ticket, role, instance=None, now=None):
             continue
         if rec.get("ticket") or rec.get("role") != role:
             continue
-        if instance and rec.get("instance") and rec.get("instance") != instance:
+        if rec.get("instance") and rec.get("instance") != instance:
             continue
         rec = dict(rec, ticket=ticket)
         tmp = p + ".tmp"

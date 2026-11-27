@@ -80,8 +80,9 @@ def child(cid, parent, frm, to, kind, final_to):
 class InboxWorkflowTests(unittest.TestCase):
     def run_wf(self, plan, **args):
         # as the skills pass it; models=None: not given; snapshot: the #101 tests turn it on;
-        # pin: the code pin (#97) has its own tests (test_workflow_code_pin.py)
-        a = {"root": "/academy", "models": {}, "snapshot": False, "pin": False}
+        # pin: the code pin (#97) has its own tests (test_workflow_code_pin.py); leases: the #96
+        # tests turn them on
+        a = {"root": "/academy", "models": {}, "snapshot": False, "pin": False, "leases": False}
         a.update(args)
         plan = dict(plan, __args=a)
         d = tempfile.mkdtemp(prefix="acad-inwf-")
@@ -112,6 +113,54 @@ class InboxWorkflowTests(unittest.TestCase):
                                   only=["author@t"])
         self.assertIn("--run inbox-author@t",
                       next(c["prompt"] for c in calls if c["label"] == "snapshot T-1"))
+
+    def test_leases_unique_run_id_and_a_leased_instance_skipped(self):
+        # #96: the lease stage names the run (unique) and the instances another run holds;
+        # those are skipped, the claims use the same run id, and the leases are released
+        listed = {"instances": [inst("author@t", [row("T-1")]),
+                                inst("expert@t", [row("T-2", to="expert@t")])]}
+        lease = {"exit": 0, "output": "run inbox-all-20261127T101500-ab12\n"
+                 "leased author@t: paper\n"
+                 "skipped expert@t: library is leased by run inbox-expert@t-x (pid 7 on h, heartbeat 2 min ago)\n"}
+        snap = {"exit": 0, "output": "ok"}
+        plan = {"list": [listed], "lease take": [lease], "sweep author@t": ["0 notes"],
+                "snapshot T-1": [snap], "T-1 start": [OK], "math-writer T-1": ["done"],
+                "check T-1": [DONE], "close author@t": [OK],
+                "lease release": [{"exit": 0, "output": "released"}]}
+        res, labels, calls = self.run_wf(plan, snapshot=True, leases=True)
+        self.assertEqual(labels[:3], ["list", "lease take", "sweep author@t"])   # before the sweep
+        self.assertEqual(labels[-1], "lease release")
+        self.assertEqual([t["id"] for t in res["taken"]], ["T-1"])               # T-2 not taken
+        self.assertIn("expert@t is skipped this run: library is leased by run inbox-expert@t-x", " ".join(res["notes"]))
+        self.assertEqual(res["leases"], {"run": "inbox-all-20261127T101500-ab12", "skipped": ["expert@t"]})
+        take = next(c["prompt"] for c in calls if c["label"] == "lease take")
+        self.assertIn("manifest.py lease take --prefix inbox-all --instances author@t,expert@t --pid $PPID", take)
+        snapp = next(c["prompt"] for c in calls if c["label"] == "snapshot T-1")
+        self.assertIn("snapshot --ticket T-1 --run inbox-all-20261127T101500-ab12 --pid $PPID", snapp)
+        rel = next(c["prompt"] for c in calls if c["label"] == "lease release")
+        self.assertIn("lease release --run inbox-all-20261127T101500-ab12", rel)
+        # args.run_id names the run: --run, not --prefix
+        _, _, calls = self.run_wf(dict(plan, **{"lease take": [dict(lease, output=lease["output"].replace(
+            "inbox-all-20261127T101500-ab12", "inbox-mine"))], "snapshot T-1": [snap],
+            "lease release": [OK]}), snapshot=True, leases=True, run_id="mine")
+        self.assertIn("lease take --run inbox-mine ", next(c["prompt"] for c in calls if c["label"] == "lease take"))
+
+    def test_leases_are_released_on_an_early_stop_and_a_failed_take_runs_unleased(self):
+        listed = {"instances": [inst("author@t", [row("T-1")])]}
+        lease = {"exit": 0, "output": "run inbox-all-x1\nleased author@t: paper\n"}
+        plan = {"list": [listed], "lease take": [lease], "sweep author@t": [None],
+                "lease release": [{"exit": 0, "output": "released"}]}
+        res, labels, _ = self.run_wf(plan, leases=True)
+        self.assertIn("the sweep of author@t was lost", res["stopped"])
+        self.assertEqual(labels[-1], "lease release")
+        # a take that fails (or names no run of this prefix): no leases, no release, a note
+        plan = {"list": [listed], "lease take": [{"exit": 0, "output": "run someone-else-1\n"}],
+                "sweep author@t": ["0 notes"], "T-1 start": [OK], "math-writer T-1": ["done"],
+                "check T-1": [DONE], "close author@t": [OK]}
+        res, labels, _ = self.run_wf(plan, leases=True)
+        self.assertNotIn("lease release", labels)
+        self.assertIn("no leases taken", " ".join(res["notes"]))
+        self.assertEqual(res["taken"][0]["id"], "T-1")
 
     def test_a_failed_snapshot_is_a_note_and_the_ticket_goes_on(self):
         plan = {"list": [{"instances": [inst("author@t", [row("T-1")])]}], "sweep author@t": ["0 notes"],

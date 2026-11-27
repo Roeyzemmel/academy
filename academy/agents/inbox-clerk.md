@@ -42,6 +42,10 @@ leg the child's `from` when you close the child. A refusal is returned verbatim 
 - **snapshot**: run the `manifest.py snapshot` command given, once, before the ticket's
   route, and return its exit code and output verbatim. It records the homes' dirty set as
   the run's claim (files under the workspace's `.academy/`, which nothing commits).
+- **lease** (#96): run the `manifest.py lease take` (after the listing) or `lease release`
+  (at the run's end) command given, once, exactly as written (`$PPID` is for the shell to
+  expand), and return its exit code and output verbatim. It writes only the run's leases
+  under the workspace's `.academy/`; a `skipped` line is the workflow's to act on, not yours.
 - **check**: run the `--check` command given and return its exit code (0 finished,
   3 unfinished), the ticket's status and the output. The check also runs the academy's
   `ship.py checkpoint` for a finished ticket (and, for a snapshotted one, its manifest, as

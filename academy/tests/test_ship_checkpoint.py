@@ -756,6 +756,116 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.assertIn("--paths are relative to board/", err)
         self.assertEqual(self.files(self.root), ["board/.errors/x.jsonl"])
 
+    def foreign_run(self):
+        """Another inbox run's live lease in the workspace (#96): the board is then committed
+        with plumbing, without moving the checkout."""
+        TestCheckpointLeases.lease(self, "other", "inbox-elsewhere-1")
+
+    def checkout_state(self):
+        """HEAD, its branch, the index and the working tree's status of the superproject."""
+        return (run(self.root, "rev-parse", "HEAD"), ship.current(self.root),
+                run(self.root, "ls-files", "-s", "--", "board"),
+                run(self.root, "status", "--porcelain", "--untracked-files=all"))
+
+    def test_board_is_committed_with_plumbing_and_the_checkout_never_changes(self):
+        # #96: two runs share the superproject; one's board commit must not move the other
+        self.foreign_run()
+        self.on_template()
+        run(self.root, "add", "-A", "--", "docs")                 # something staged, not board's
+        self.write(self.root, os.path.join("docs", "d.md"), "dirty outside\n")
+        self.write(self.root, os.path.join("board", "packets", "P-1.md"), "one\n")
+        run(self.root, "add", os.path.join("board", "packets", "P-1.md"))     # staged in the real index
+        self.write(self.root, os.path.join("board", "README.md"), "changed\n")
+        os.makedirs(os.path.join(self.root, "board", "gone"))
+        before = self.checkout_state()
+        m = os.path.join(self._tmp.name, "m.json")
+        with open(m, "w", encoding="utf-8") as f:
+            json.dump({"repos": {"board": ["packets/P-1.md", "README.md"]}}, f)
+        rc, out, err = self.cp("--ticket", "T-0059", "--manifest", m)
+        self.assertEqual(rc, 0, out + err)
+        name = self.branch()
+        self.assertEqual(self.checkout_state(), before)          # HEAD, index, working tree
+        self.assertEqual(self.files(self.root, name), ["board/README.md", "board/packets/P-1.md"])
+        self.assertEqual(run(self.root, "rev-parse", name + "^"), before[0])   # from HEAD: new branch
+        self.assertEqual(run(self.root_remote, "rev-parse", "refs/heads/" + name),
+                         run(self.root, "rev-parse", name))
+        self.assertEqual(run(self.root, "show", name + ":board/README.md"), "changed")
+        # the same ticket again, after one more change: onto the branch's tip, still not moved
+        self.write(self.root, os.path.join("board", "packets", "P-1.md"), "two\n")
+        os.remove(os.path.join(self.root, "board", "README.md"))
+        before, tip = self.checkout_state(), run(self.root, "rev-parse", name)
+        rc, out, err = self.cp("--ticket", "T-0059", "--manifest", m)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.checkout_state(), before)
+        self.assertEqual(run(self.root, "rev-parse", name + "^"), tip)
+        self.assertEqual(self.files(self.root, name), ["board/README.md", "board/packets/P-1.md"])
+        self.assertEqual(run(self.root, "ls-tree", "-r", "--name-only", name, "--", "board"),
+                         "board/packets/P-1.md")                 # README.md deleted there
+        self.assertEqual(run(self.root_remote, "rev-parse", "refs/heads/" + name),
+                         run(self.root, "rev-parse", name))
+        self.assertIn("pushed", out)
+
+    def test_board_on_its_own_ticket_branch_keeps_index_and_head_consistent(self):
+        self.foreign_run()
+        name = self.branch()
+        run(self.root, "switch", "-q", "-c", name)
+        self.write(self.root, os.path.join("board", "p.md"))
+        rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.files(self.root), ["board/p.md"])           # HEAD is that branch
+        self.assertEqual(run(self.root, "status", "--porcelain", "--", "board"), "")
+
+    def test_a_later_ticket_does_not_recommit_an_earlier_tickets_board_files(self):
+        self.foreign_run()
+        self.write(self.root, os.path.join("board", "p.md"))
+        rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("board/p.md", run(self.root, "status", "--porcelain", "--untracked-files=all"))
+        self.write(self.root, os.path.join("board", "q.md"))
+        rc, out, err = self.cp("--ticket", "T-0060", "--only", "board")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.files(self.root, self.branch(ticket="T-0060")), ["board/q.md"])
+        self.write(self.root, os.path.join("board", "p.md"), "changed after\n")   # changed since: due
+        rc, out, err = self.cp("--ticket", "T-0061", "--only", "board")
+        self.assertEqual(self.files(self.root, self.branch(ticket="T-0061")), ["board/p.md"])
+
+    def test_the_same_checkpoint_switches_alone_and_uses_plumbing_beside_another_run(self):
+        # the human's ruling (2026-11-27): plumbing only in parallel
+        self.on_template()
+        self.write(self.root, os.path.join("board", "p.md"))
+        rc, out, err = self.cp("--ticket", "T-0059", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(ship.current(self.root), self.branch())          # switched, as before
+        self.assertEqual(run(self.root, "status", "--porcelain", "--", "board"), "")
+        # its own lease is no other run's: still switching
+        TestCheckpointLeases.lease(self, "sub", "inbox-mine-1")
+        self.write(self.root, os.path.join("board", "q.md"))
+        rc, out, err = self.cp("--ticket", "T-0060", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(ship.current(self.root), self.branch(ticket="T-0060"))
+        # another run's live lease: the same command commits without moving the checkout
+        self.foreign_run()
+        self.write(self.root, os.path.join("board", "r.md"))
+        head = run(self.root, "rev-parse", "HEAD")
+        rc, out, err = self.cp("--ticket", "T-0061", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual((ship.current(self.root), run(self.root, "rev-parse", "HEAD")),
+                         (self.branch(ticket="T-0060"), head))
+        self.assertEqual(self.files(self.root, self.branch(ticket="T-0061")), ["board/r.md"])
+        self.assertEqual(run(self.root_remote, "rev-parse", "refs/heads/" + self.branch(ticket="T-0061")),
+                         run(self.root, "rev-parse", self.branch(ticket="T-0061")))
+        # a dirty board on main is refused when alone, and committed beside another run
+        run(self.root, "switch", "-q", "main")
+        self.write(self.root, os.path.join("board", "s.md"))
+        rc, out, err = self.cp("--ticket", "T-0062", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(ship.current(self.root), "main")
+        os.remove(os.path.join(self.root, ".academy", "leases", "other.json"))
+        self.write(self.root, os.path.join("board", "t.md"))
+        rc, out, err = self.cp("--ticket", "T-0063", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 1)
+        self.assertIn("REFUSED: dirty on main", out)
+
     def test_start_board_branches_the_superproject(self):
         rc, out, err = self.run_ship("start", "board", "notes")
         self.assertEqual(rc, 0, err)
@@ -961,6 +1071,64 @@ class TestCheckpointOnly(CheckpointBase):
         self.assertIn("fresh", run(self.sub, "status", "--porcelain"))
         self.assertEqual(run(self.remote, "rev-parse", "refs/heads/" + name),
                          run(self.sub, "rev-parse", "HEAD"))
+
+
+class TestCheckpointLeases(CheckpointBase):
+    """#96: a checkout whose lease belongs to another live run is never switched."""
+
+    def lease(self, target, run_id, heartbeat=None, pid=None):
+        d = os.path.join(self.root, ".academy", "leases")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(self.root, ".academy", ".gitignore"), "w", encoding="utf-8") as f:
+            f.write("*\n")                            # as manifest_dir writes it
+        import socket
+        import time
+        now = time.time() if heartbeat is None else heartbeat
+        with open(os.path.join(d, target + ".json"), "w", encoding="utf-8") as f:
+            json.dump({"target": target, "run": run_id, "pid": pid, "host": socket.gethostname(),
+                       "started": now, "heartbeat": now, "instances": ["author@t"]}, f)
+
+    def setUp(self):
+        super().setUp()
+        run(self.sub, "switch", "-q", "-c", ship.branch_name("T-0001", "author"))
+        self.write(self.sub, "theirs.md", "the other run's work\n")
+
+    def test_a_repo_leased_by_another_live_run_is_refused_not_switched(self):
+        self.lease("sub", "inbox-author@t-1")
+        cur = ship.current(self.sub)
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "expert", "--only", "sub")
+        self.assertEqual(rc, 1)
+        self.assertIn("REFUSED: sub is leased by run inbox-author@t-1", out)
+        self.assertEqual(ship.current(self.sub), cur)
+        self.assertEqual(run(self.sub, "status", "--porcelain"), "?? theirs.md")
+        self.assertEqual(self.remote_branches(self.remote), ["refs/heads/main"])
+
+    def test_its_own_run_and_a_stale_lease_switch_as_before(self):
+        self.lease("sub", "inbox-author@t-1")
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "author", "--only", "sub",
+                               "--run", "inbox-author@t-1")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(ship.current(self.sub), ship.branch_name("T-0059", "author"))
+        self.lease("other", "inbox-x", heartbeat=1000.0)                 # stale: long ago
+        run(self.other, "switch", "-q", "-c", ship.branch_name("T-0002", "author"))
+        self.write(self.other, "o.md")
+        rc, out, err = self.cp("--ticket", "T-0060", "--role", "author", "--only", "other")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(ship.current(self.other), ship.branch_name("T-0060", "author"))
+
+    def test_the_manifest_names_its_run(self):
+        self.lease("sub", "inbox-a-1")
+        m = os.path.join(self._tmp.name, "m.json")
+        with open(m, "w", encoding="utf-8") as f:
+            json.dump({"run": "inbox-a-1", "repos": {"sub": ["theirs.md"]}}, f)
+        rc, out, err = self.cp("--ticket", "T-0059", "--role", "author", "--manifest", m)
+        self.assertEqual(rc, 0, out + err)
+        with open(m, "w", encoding="utf-8") as f:
+            json.dump({"run": "inbox-b-2", "repos": {"sub": ["more.md"]}}, f)
+        self.write(self.sub, "more.md")
+        rc, out, err = self.cp("--ticket", "T-0070", "--role", "author", "--manifest", m)
+        self.assertEqual(rc, 1)
+        self.assertIn("leased by run inbox-a-1", out)
 
 
 class TestCheckpointTouched(CheckpointBase):
