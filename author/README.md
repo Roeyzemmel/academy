@@ -49,7 +49,7 @@ the notation-auditor edits only the home's `.claude/rules/style.md`, or a home's
 an edit that adds a machine note longer than `author.notes.maxLines`, and not already in the
 paper, is refused), `pinned_guard` (PreToolUse edits: nobody, the main session included, changes the
 environment of a statement a CONFIRMED review pinned, `scripts/pinned.py`; the proof is
-free; only the human releases a pin in `.claude/pinned-release.txt`), `preamble_guard`
+free; only the human releases a pin in `.claude/pinned-release.txt`, by hand or by "accept and release" on `/academy:decide`), `preamble_guard`
 (PreToolUse edits: under `author.preamble.policy` `propose` or `locked`, no tool edit of
 the preamble; the human releases a file in `.claude/preamble-release.txt`),
 `commit_gate` (Bash|PowerShell, scoped by

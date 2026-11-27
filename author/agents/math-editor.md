@@ -35,7 +35,9 @@ its lines). Read anything else with `offset` and `limit` from those numbers.
 
 ## apply and mechanical write
 
-- **`apply`**: the edit the ticket states, exactly, nothing more.
+- **`apply`**: the edit the ticket states, exactly, nothing more. When the ticket has a
+  `decision_choice` (the alternative the human chose on `/academy:decide`, #86), the edit
+  is that alternative, not the others its ask names.
 - **Mechanical `write`**: a `\cref`, the author's words wrapped in an environment,
   a `\cite` whose key and pinpoint have a card (`library_lookup`), a statement or
   proof split with the text unchanged.

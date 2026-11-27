@@ -163,6 +163,8 @@ def decided_edit(meta, human=None):
     kind. Only the human's decision, already taken: not a choice still open ("Decide the
     repair", "to be decided"), not one still wanted ("needs <name>'s decision between A and
     B", "awaiting the human's decision"), not another's ("the reviewer decided on T-12")."""
+    if _chosen(meta).startswith("(") or _chosen(meta).startswith("accept and release"):
+        return True             # an alternative the human chose on /academy:decide (#86)
     names = ["the human"] + [n for n in [human or _human()] if n and n != "the human"]
     who = "(?:%s)" % "|".join(re.escape(n) for n in names)
     text = " ".join(str(meta.get(k) or "") for k in ("title", "ask"))
@@ -175,6 +177,13 @@ def decided_edit(meta, human=None):
                       r"|\b(?:as|already) decided by %s\b|\bdecided by %s\b"
                       % (who, who, who))
     return bool(past.search(text))
+
+
+def _chosen(meta):
+    """The human's answer on /academy:decide (``decision_choice``, #86), or ``""``; a
+    "not now" is no answer."""
+    c = " ".join(str(meta.get("decision_choice") or "").split())
+    return "" if c.startswith("not now") else c
 
 
 def needs_argument(meta):
@@ -468,7 +477,22 @@ def _human():
 
 def route(meta, ticket_of=None):
     """``{how, target, why}`` for a ticket to the Author. ``ticket_of`` (``ticket_lookup``)
-    reads the tickets the refs name; default: the workspace's board."""
+    reads the tickets the refs name; default: the workspace's board.
+
+    A ``question`` / ``other`` the human accepted on /academy:decide (``decision_choice``,
+    #86) is not put back to the human: a chosen alternative is a decided edit
+    (``decided_edit``), and a plain acceptance keeps its writer, told not to block on the
+    human for it again (10 such tickets came straight back as gates, 2026-11-19)."""
+    r = _route(meta, ticket_of)
+    choice = _chosen(meta)
+    if choice and (meta.get("kind") or "other") in TRIAGE_KINDS and r["how"] == "agent":
+        r = dict(r, why=r["why"] + "; the human accepted it on /academy:decide (decision_"
+                 "choice: %s): do it, and never block on the human or file a decision "
+                 "ticket for the same choice" % choice)
+    return r
+
+
+def _route(meta, ticket_of=None):
     meta = dict(meta, refs=[str(r) for r in _as_list(meta.get("refs"))
                             if isinstance(r, (str, int))])
     kind = meta.get("kind") or "other"

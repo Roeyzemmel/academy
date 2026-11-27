@@ -739,7 +739,7 @@ async function leadResearcher(row, i) {
   if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail || 'no reason given' : 'lost') }
   const r = await launch(
     `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
-    'Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ' +
+    'Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ' + chosen(row) +
     `An earlier run may have worked this ticket already: first read the ticket's thread (tickets_get ${row.id}), the tickets filed for it (tickets_list parent ${row.id}) ` +
     'and the journal, and go on from there; never file a falsifier, lookup or cite ticket a second time. ' +
     'You run inside a workflow: the Agent and Workflow tools are not available here, so you cannot launch prover or run /researcher:prove, ' +
@@ -790,6 +790,12 @@ async function leadResearcher(row, i) {
       `run /researcher:prove ${claim} with ticket ${row.id} from the main session (the Workflow prove.js with args)` +
       (falsifier ? '' : '; no falsifier on record: the attempt goes ahead and a failed attempt or a GAP verdict triggers one'),
     args: { claim, ticket: row.id, home: i.home, instance: inst, root: ROOT } }) }
+}
+
+// #86: what the human chose on /academy:decide (the ticket's decision_choice), told to the
+// agent that resumes the ticket so it does that and does not ask it again
+function chosen(row) {
+  return row.decision_choice ? `The human already decided this ticket on /academy:decide (its decision_choice): ${row.decision_choice}. Do that; do not ask the human again or block on the same choice. ` : ''
 }
 
 async function handle(row, i) {
@@ -945,7 +951,7 @@ async function handle(row, i) {
     }
     return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.notes || []).join('; ') : 'lost', nested: r }
   }
-  if (rt.how === 'skill') return { for_main: { why: `the skill ${rt.target} runs in the main session`, ticket: row.id, instance: inst, skill: rt.target } }
+  if (rt.how === 'skill') return { for_main: { why: `the skill ${rt.target} runs in the main session` + (row.decision_choice ? ` (the human chose: ${row.decision_choice})` : ''), ticket: row.id, instance: inst, skill: rt.target } }
   if (rt.how === 'agent' && i.role === 'researcher' && rt.target === 'lead-researcher' && !row.return) return leadResearcher(row, i)
   if (rt.how === 'agent') {
     const type = `${i.role}:${rt.target}`
@@ -957,7 +963,7 @@ async function handle(row, i) {
     const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py --home ' + i.home + '`; the statements to leave byte for byte)' : ''))
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail || 'no reason given' : 'lost') }
     const work = `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
-      `Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ` +
+      `Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ` + chosen(row) +
       (i.role === 'author' ? (st.detail ? `Pinned statements, to leave byte for byte: ${st.detail}\n` : `Pinned statements: the start stage returned none; run \`py ${ROOT}/author/scripts/pinned.py --home ${i.home}\` before editing and leave those byte for byte.\n`) +
         (taken.length ? `Earlier tickets of this run: ${JSON.stringify(taken.map(t => [t.id, t.outcome, t.detail]))}\n` : '') : '') +
       `Finish by delivering it (tickets_update deliver: true, result one line) or, if you cannot, blocked with waiting_on and the reason.`

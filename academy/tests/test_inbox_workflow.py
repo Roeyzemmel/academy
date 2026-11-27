@@ -191,6 +191,21 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(labels[-2:], ["T-1 interrupted", "check T-1"])
         self.assertIn("nothing further launched", res["stopped"])
 
+    def test_the_human_s_choice_reaches_the_agent(self):
+        # #86: decision_choice (decisions.py record) is told to the agent resuming the ticket
+        r = dict(row("T-1", kind="question"), decision_choice="(b) a literature lookup")
+        plan = {"list": [{"instances": [inst("author@t", [r, row("T-2")])]}],
+                "sweep author@t": ["0 notes"],
+                "T-1 start": [OK], "math-writer T-1": ["done"], "check T-1": [DONE],
+                "T-2 start": [OK], "math-writer T-2": ["done"], "check T-2": [DONE],
+                "close author@t": [OK]}
+        _res, _labels, calls = self.run_wf(plan)
+        p1 = next(c["prompt"] for c in calls if c["label"] == "math-writer T-1")
+        p2 = next(c["prompt"] for c in calls if c["label"] == "math-writer T-2")
+        self.assertIn("decision_choice): (b) a literature lookup", p1)
+        self.assertIn("do not ask the human again", p1)
+        self.assertNotIn("decision_choice", p2)
+
     def test_order_cap_and_sweep_first(self):
         listed = {"instances": [
             inst("expert@t", [row("T-2", target="research-intake", kind="research", ret=True,

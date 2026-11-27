@@ -22,28 +22,68 @@ phrases the questions. Neither one asks the human or records on its own.
    Say so in the question ("work is proceeding on (a)"). The human still decides: the
    same option confirms it; another is recorded as overturning it, and a delivered
    ticket goes back to its receiver.
-1. **Batch.** `py $S/decisions.py batches --json [--instance X]` (a single id in
-   `$ARGUMENTS` instead runs `list --json` and keeps only that one). If it reports no
-   pending decisions, say so and stop.
+0a. **The routine policy.** `py $S/decisions.py policy --json` accepts, as the human's
+   standing answer, every pending ticket whose kind workspace.json's `decisions.routine`
+   lists (docs/config.md; empty by default: then it accepts nothing). It never accepts a
+   ruling, a ticket that names alternatives, or an edit of a pinned statement. Keep its
+   `digest` ("accepted under the policy: 12 verify (T-..), 3 cite (..)") for the final
+   summary; do not ask these items. The human may revert any of them with
+   `py $S/decisions.py undo <T-id>` until an inbox run touches the ticket (say so with
+   the digest).
+1. **Batch.** `py $S/decisions.py batches --json --out <D> [--instance X]`, with `<D>` a
+   fresh folder of the session's scratchpad (`decide-<date>`): each batch is also written
+   to `<D>/batch-<n>.json` (a single id in `$ARGUMENTS` instead runs `list --json` and
+   keeps only that one). If it reports no pending decisions, say so and stop. A duplicate
+   ruling ticket (a `decision` ticket to the human that names a pending packet decision,
+   `P-NNNN D<k>`) is not listed: it is folded into that packet item (`folded`), and
+   recording the packet decision delivers it with the same answer.
 2. **Phrase.** Dispatch one `secretary` subagent per batch (or all batches at once if
-   there are few) with that batch's JSON in its brief. It returns the array described
-   in its own file — `header` (≤12 chars), `question`, `options` (recommended first,
-   marked), and `flag` for a stale or contradictory recommendation. Report a
-   limit error or empty result and stop (`references/budget.md` rule 4); never
-   relaunch.
+   there are few) with that batch's JSON and its file `<D>/batch-<n>.json` in its brief.
+   It writes its array to `<D>/batch-<n>.phrased.json` and returns it — `header` (≤12
+   chars), `question`, `options` (recommended first, marked), and `flag` for a stale or
+   contradictory recommendation. Read the phrasing back from the files:
+   `py $S/decisions.py phrased <D>` (`missing` batches and `problems` name what has no
+   phrasing; ask those items from the batch file as they are, plainly). Report a limit
+   error and stop (`references/budget.md` rule 4); never relaunch.
 3. **Ask, batch by batch.** For each phrased batch, one `AskUserQuestion` call, at
    most four questions (`decisions.py batches` already sized them so), using the
    secretary's `header`/`question`/`options` verbatim. Show any `flag` as part of the
    question text, not hidden. The human may answer free text ("other") on any question, or
    decline to answer (skip it — nothing is recorded for a skipped question).
-4. **Record before asking the next batch.** For every answered question in the batch,
-   immediately:
-   `py $S/decisions.py record <id> --choice <letter|proceed|decline> [--action <rerun|accept|wait|split|decline>] [--force] [--comment "<note or free text>"]`
+   **Free text** that picks none of the options is recorded as a lead, not as a decision:
+   `py $S/decisions.py lead <id> "<their words>"` (a `lead:` thread line on the ticket, a
+   packet's on its ticket); the item stays pending. Free text given with an option goes
+   with it as `--lead`.
+   **A clarification** (the human asks back: "what is X?", "which file?") is not answered
+   in the middle of the batches: note it, leave that item unrecorded, and go on to the next
+   batch. After the last batch, answer the clarifications together and put those items
+   again.
+   **A multi-select batch** (its items carry `multiselect` and `select`, the claim): the
+   proofs, experiments and tests, grouped by claim. Ask it as ONE question with
+   `multiSelect: true`, "Tick the ones to run" (the claim named in the question), one
+   option per item (its title and what it costs). A batch of one item is asked as "Run
+   it" / "Not now". Record it with one command:
+   `py $S/decisions.py select --ticked T-1,T-2 --unticked T-3`: ticked ones proceed;
+   unticked ones stay on the board as they are, with a `human decision: not now` line, and
+   are not asked again until another day (they are not rejected).
+4. **Record in the background, then ask the next batch.** Write the batch's answers to
+   `<D>/answers-<n>.json` (a JSON list: `{"id", "choice", "action"?, "comment"?, "lead"?,
+   "force"?}` per answer, `{"id", "lead"}` for a lead alone, `{"ticked": [..], "unticked":
+   [..]}` for a multi-select batch) and run
+   `py $S/decisions.py record-batch <D>/answers-<n>.json` in the background (one allowlisted
+   command for the whole batch; the academy's permission template carries the rule), then
+   ask the next batch at once. Read `<D>/answers-<n>.results.json` before the final
+   summary: an answer it refused (`error`) is put again, with the refusal. One answer
+   alone may still be recorded directly:
+   `py $S/decisions.py record <id> --choice <letter|proceed|decline|release> [--action <rerun|accept|wait|split|decline>] [--force] [--comment "<note or free text>"] [--lead "<free text>"]`
+   A packet that asks no decision (informational) is acknowledged with `record P-NNNN`
+   and no `--choice` (or any plain "ok").
    — a `P-NNNN` id records through `packets.py decide` (echoed into its ticket's
    thread); a `T-NNNN` id transitions the ticket as human (`accepted`/`rejected` from
    `open`, `accepted`/`cancelled` from `blocked`, with the comment as the reason for a
-   decline). Do this before moving to the next batch, so an interrupted run loses
-   nothing already answered.
+   decline). The answers file is written before the next batch is asked, so an
+   interrupted run loses nothing already answered (`record-batch` on it again records what
+   is missing; an answer already recorded is refused, not doubled).
    These lines read plain `human`: they carry the human's own answer, so pass their
    free text verbatim as the `--comment`. Any other move this skill makes on a ticket
    (a note, a block) is the session's: `board.py ... --via session`, written
@@ -79,6 +119,19 @@ phrases the questions. Neither one asks the human or records on its own.
    the human states the list (`--action intersection`, or `--force` for plain `proved`).
    When in doubt, pass `--action` with the letter: a disagreement is refused, never
    guessed.
+   A ticket whose ask names **alternatives without letters** ("Decide: drop the note, or
+   a literature lookup and a one-line remark") is listed with them as `(a)`, `(b)`, ...
+   and a `(decline)`; ask for one of them, never a bare proceed (`record` refuses
+   `proceed` on any ticket with alternatives, lettered or not). `record --choice b` stores
+   the alternative on the ticket as `decision_choice`, which the agent that resumes it
+   reads (#86); an alternative such as "drop the note" is what to do, so it accepts the
+   ticket, and only `decline` rejects it.
+   An item with `pinned` is an edit of statements a CONFIRMED review pinned in an Author
+   home: say which labels are pinned, and keep its `(release) Accept and release <labels>`
+   option. On that answer, `record <id> --choice release --comment "<the human's word>"`
+   accepts the ticket and appends one line per label to that home's
+   `.claude/pinned-release.txt` with the word and the ticket id (only the main session may:
+   `decide_guard`). A plain proceed releases nothing.
    `decisions.py stalled-rulings` lists rulings answered but not delivered (no
    follow-up yet, or a record interrupted); `record <id> --choice <a-c>` files or
    completes theirs.
@@ -89,7 +142,7 @@ phrases the questions. Neither one asks the human or records on its own.
    `py $S/decisions.py accept-recommended --mechanical-only` (no `--dry-run`) once,
    report what it accepted, and stop asking — do not also ask the mechanical batches
    individually.
-6. **Final summary.** One line per decision recorded (id, choice, and what
+6. **Final summary.** First the policy's digest line (step 0a) and the undo command, then one line per decision recorded (id, choice, and what
    `unblocks` named) and one line for anything left pending (skipped, or a
    `mechanical-only` accept that a substantive item was excluded from). Say plainly
    that nothing was started: the ticket or packet's owner picks the result up on its

@@ -58,7 +58,10 @@ its lines). Read anything else with `offset` and `limit` from those numbers.
   one-line ask, which is what `/academy:decide` shows), and this ticket `blocked`,
   `waiting_on: [<that id>]`. A change the human decided that needs an argument (it adds
   or drops a hypothesis, removes an exception): make it in the conjecture colour and file
-  the `research` ticket. Deliver with the answer as the one-line result.
+  the `research` ticket. Deliver with the answer as the one-line result. A ticket with
+  a `decision_choice` was already answered by the human on `/academy:decide` (an
+  alternative, or `proceed`): do what it says, and never block it on the human or file a
+  `decision` ticket for that same choice again (#86).
 - A ticket asking for an illustration is not yours: report it for `figure-maker`.
 
 **Rules that override everything else**

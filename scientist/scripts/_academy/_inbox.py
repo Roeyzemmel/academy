@@ -241,7 +241,8 @@ class inbox_core(object):
                 "parent": m.get("parent") or "", "final_to": m.get("final_to") or "",
                 "title": m.get("title"), "agenda": m.get("agenda"),
                 "budget": m.get("budget"), "refs": m.get("refs") or [],
-                "campaign": m.get("campaign"), "cowork": m.get("cowork"), "route": r, "return": bool(m.get("_return")),
+                "campaign": m.get("campaign"), "cowork": m.get("cowork"),
+                "decision_choice": m.get("decision_choice"), "route": r, "return": bool(m.get("_return")),
                 "over_budget": over, "blocked": m.get("_blocked"), "path": m.get("_path")}
 
     @staticmethod

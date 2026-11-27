@@ -27,7 +27,9 @@ changes a pinned environment; writer and editor briefs start from this script's 
 
 Only the human releases a pin: a label listed in ``<home>/.claude/pinned-release.txt``
 (one label per line, ``#`` comments allowed) is not enforced. That file is edited by
-hand; the guard refuses a tool edit of it.
+hand, or written by the human's answer "accept and release <labels>" on /academy:decide
+(the academy's ``decisions.py record --choice release``, run only by the main session:
+``decide_guard``; #86); the guard refuses a tool edit of it.
 
 The recorded hash was taken by the review-chair on the text it pinned (the registry's
 statement, or the environment's text); ``current_hash`` here is the same computation

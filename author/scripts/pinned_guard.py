@@ -8,8 +8,10 @@ around its ``\\label``) changes or disappears, the edit is denied. The proof bod
 everything outside the environment, stays free.
 
 The guard holds for every caller, the main session included: a pinned statement changes
-only when the human releases it by hand, in ``<home>/.claude/pinned-release.txt``. A tool
-edit of that file is denied too. A repair of the statement is the Researcher's: file a
+only when the human releases it, in ``<home>/.claude/pinned-release.txt``: by hand, or by
+answering "accept and release <labels>" on /academy:decide (the academy's ``decisions.py
+record``, which only the main session may run: its ``decide_guard``; #86). A tool edit of
+that file is denied too, for every caller. A repair of the statement is the Researcher's: file a
 ``research`` ticket (``final_to: researcher``) with the finding and its falsifier.
 
 Silent outside an Author home and for an edit it cannot simulate. A guard bug never
@@ -79,7 +81,8 @@ def decide(event, ws=None, library=None):
     full = os.path.normcase(os.path.abspath(path))
     if full == os.path.normcase(os.path.abspath(os.path.join(home, pn.RELEASE_REL))):
         return ("deny", "pinned_guard: %s is the human's release list of pinned statements; "
-                        "only the human edits it, by hand." % pn.RELEASE_REL)
+                        "only the human edits it, by hand or by answering 'accept and "
+                        "release' on /academy:decide." % pn.RELEASE_REL)
     if not _is_tex(path, home, cfg):
         return None
     pins = pn.enforced(home, cfg, ws, library)

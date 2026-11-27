@@ -699,12 +699,15 @@ class TestListingMatchesRecord(RulingCase):
         self.assertEqual(["(a) Proceed", "(b) Decline"], [o["label"] for o in item["options"]])
         self.assertEqual("rejected", self.record("T-0002", "b")["status"])
 
-    def test_proceed_and_decline_stay_valid_on_a_plain_ticket_with_options(self):
-        """Finding 7: the generic words still work next to the ticket's own letters."""
+    def test_decline_stays_valid_and_a_bare_proceed_is_refused_next_to_options(self):
+        """Finding 7: decline still works next to the ticket's own letters; a bare proceed
+        does not (#86 comment 1: it records no option and the agent blocks again)."""
         ask = "Redeploy fsq.sh? (a) redeploy now; (b) re-run the checks first; (c) drop it."
         self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
                     ask=ask, refs=[])
-        self.assertEqual("accepted", self.record("T-0002", "proceed")["status"])
+        with self.assertRaises(ac.AcademyError):
+            self.record("T-0002", "proceed")
+        self.assertEqual("accepted", self.record("T-0002", "a")["status"])
         self.ticket(to="human", as_instance="expert@main", kind="decision", title="Redeploy?",
                     ask=ask, refs=[])
         self.assertEqual("rejected", self.record("T-0003", "decline")["status"])
