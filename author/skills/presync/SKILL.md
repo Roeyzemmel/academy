@@ -12,7 +12,8 @@ serially (`${CLAUDE_PLUGIN_ROOT}/../academy/references/budget.md`). Scripts: `$S
 
 1. **The checker, strict**: `py $S/check_paper.py --strict` from the home. Relay it;
    fix nothing yet.
-2. **`/author:sweep`**: clears machine notes whose question is answered. First, because
+2. **`/author:sweep --full`**: clears machine notes whose question is answered (every tex
+   file read; cached verdicts older than `author.notes.maxAge` re-judged). First, because
    every later pass reads the margins.
 3. **`/author:audit-notation`**: before the referee, so the referee does not report
    clashes already known.

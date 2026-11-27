@@ -7,8 +7,9 @@ description: 'Work the paper''s inbox (replaces /author:next): sweep the machine
 
 The main session **orchestrates and relays only**; every edit happens in an agent. The
 inbox rules are code: `/academy:inbox`'s workflow (`<academy plugin>/workflows/inbox.js`,
-docs/workflows.md) runs the machine-note sweep first (`note-sweeper`, no cap; only when the
-run takes one of this Author's tickets, and not with `sweep: false`, #129), takes at
+docs/workflows.md) runs the machine-note sweep first (only when the run takes one of this
+Author's tickets, and not with `sweep: false`, #129; then the plan by script, `sweep.py plan`,
+and `note-sweeper` only when the plan lists work; no cap), takes at
 most `budget.itemsPerRun` tickets in `inbox.py`'s order (in progress, returned tickets to
 **land**, **released** blocked tickets, then by agenda position, priority, id), one at a
 time, with the `--check` checkpoint after each, and closes the delivered self-tickets.

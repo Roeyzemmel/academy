@@ -112,6 +112,10 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("thm", cp.THEOREM_ENVS)
         self.assertTrue(cp.RE_CLAUDE.search("\\Claude {x}"))
         self.assertTrue(cp.RE_CLAUDE.search("\\cl{x}"))
+        # #110: a typed note, \\Claude[kind]{...}, is a machine note too
+        self.assertTrue(cp.RE_CLAUDE.search("\\Claude[await]{T-0001}"))
+        self.assertTrue(cp.RE_CLAUDE.search("\\Claude [prov] {x}"))
+        self.assertFalse(cp.RE_CLAUDE.search("\\claim{x}"))
         self.assertEqual(cp.COLOUR_COMMANDS, {"\\Sketch{": "sketch",
                                               "\\Conjectural{": "conjectural",
                                               "\\Meta{": "meta"})
@@ -304,6 +308,18 @@ class ConfigValidation(unittest.TestCase):
                      "preamble.policy", "notes.maxLines", "bib.acceptedWarnings",
                      "author.labels must be an object", "mainResults.labels"):
             self.assertIn(frag, text)
+
+    def test_the_note_switches_are_typed(self):
+        self.assertEqual([], self.probs(notes={"maxLines": 3, "lineChars": 40,
+                                               "enforce": True, "typed": False}))
+        text = "\n".join(self.probs(notes={"lineChars": 0, "enforce": "false",
+                                           "typed": "yes"}))
+        for frag in ("notes.lineChars", "notes.enforce", "notes.typed"):
+            self.assertIn(frag, text)
+        self.assertIn("notes.lineChars", "\n".join(self.probs(notes={"lineChars": True})))
+        self.assertEqual([], self.probs(notes={"maxAge": 0}))
+        self.assertIn("notes.maxAge", "\n".join(self.probs(notes={"maxAge": -1})))
+        self.assertIn("notes.maxAge", "\n".join(self.probs(notes={"maxAge": "14"})))
         self.assertIn("kind must be one of",
                       "\n".join(self.probs(statusLevels=[{"name": "x", "kind": "draft"}])))
 

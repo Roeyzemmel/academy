@@ -326,7 +326,7 @@ workspace.json (`registry/core/workspace.instance_home`, a worktree sibling firs
 | `colours` | map status → colour name | Older form of the levels' colours (used only without `statusLevels`) |
 | `preamble` | `{file, end, extraFiles, policy}` | The preamble: `file` (default `main`) up to `end` (default `\begin{document}`), plus `extraFiles` (default none). `policy`: `propose` (default: changes are filed as a proposal for the human), `locked` (the human's alone) or `free`; under `propose` and `locked` `preamble_guard` refuses tool edits of the region, and the human releases a file by hand in `.claude/preamble-release.txt` |
 | `labels` | `{prefixes, refCommand}` | Typed label prefixes (default `thm lem prop cor defn eq sec fig`) and the reference command (default `cref`, `Cref` implied; the checker also reads `\ref` and `\eqref`) |
-| `notes` | `{maxLines}` | The machine-note cap in lines (default 3), quoted by the writers, the sweep and R7 |
+| `notes` | `{maxLines, lineChars, enforce, typed, maxAge}` | The machine-note cap in margin lines (`maxLines`, default 3), quoted by the writers, the sweep and R7, and, when `enforce` is `true` (opt-in; default false), enforced at write time by `note_length_guard` (an edit adding a longer machine note is refused; narrowing passes, and so does a note already in the paper's tex, moved or copied: insert the new copy before deleting the old); `lineChars` (default 30) is the plain-text characters per margin line of that estimate. `typed` (default false): the paper's machine-note macro takes an optional kind, `\Claude[kind]{...}` with kind `prov`, `await`, `human` or `check` (#110), so the writers may write it; the sweep (`sweep.py`) and the checker read typed notes either way. `maxAge` (days, default 14; 0: forever): how long the sweep's cached "checked, still open" verdict holds before the note is judged again |
 | `figures` | `{dir, include}` | Standalone figure directory (default `tikz`) and include command (default `\includestandalone`) |
 | `bib` | `{acceptedWarnings}` | Bib keys whose BibTeX `Warning--` lines are accepted (default none); the checker's BUILD line counts them apart |
 | `mainResults` | `{file, labels}` | The registry's "blocking" section: the `thm:` statements of `file` (default `sections/introduction.tex`) and the `labels` listed (default none) |
@@ -601,8 +601,10 @@ notebook (`nb`) and a lab (`lab`). The tests read these blocks, so they stay val
   `established | unestablished | commentary`, exactly one `established` level (with no
   env or command) and an env or a command on every other; or `preamble`, `labels`,
   `notes`, `figures`, `bib`, `mainResults` is not an object, `preamble.policy` is outside
-  `propose | locked | free`, a list key is not a list of strings, or `notes.maxLines` is
-  not a positive integer (`academy_common.validate_author`);
+  `propose | locked | free`, a list key is not a list of strings, `notes.maxLines` or `notes.lineChars`
+  is not a positive integer, `notes.maxAge` is not a non-negative integer, or `notes.enforce` or
+  `notes.typed` is not a boolean
+  (`academy_common.validate_author`);
 - for a scientist: any profile `kind` is outside `wsl | local | ssh` (a profile with
   `worker` may omit it), an ssh profile has no `host`, a wsl profile has no `distro`,
   a `worker` is empty, or a `policy` entry names no existing profile. Whether the

@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: '/academy:inbox and every role inbox (only: [instance]). args: {root: <academy repo>, n?, cap?, only?: [instance], campaign?, cowork?, ids?: [T-NNNN], sweep?: false (skip the Author\'s note sweep)}',
   phases: [
     { title: 'List', detail: 'each instance\'s inbox.py --json' },
-    { title: 'Sweep', detail: 'the Author\'s machine-note sweep, before any ticket' },
+    { title: 'Sweep', detail: 'the Author\'s machine-note sweep, before any ticket and only when the run takes one of its tickets: the plan by script, the note-sweeper only when it lists work' },
     { title: 'Tickets', detail: 'one ticket at a time, by route, then its checkpoint' },
     { title: 'Close', detail: 'the Author\'s delivered self-tickets' },
   ],
@@ -347,7 +347,7 @@ const withDetail = r => (r && typeof r === 'object' && typeof r.detail !== 'stri
 const clerk = async (stage, lines, schema, label) => {
   const r = await launch(
     `WORKFLOW STAGE ${stage} of the academy-inbox workflow.\n` + lines.filter(Boolean).join('\n'),
-    { label: label || stage, phase: stage === 'list' ? 'List' : (stage === 'close-self' ? 'Close' : 'Tickets'), agentType: CLERK, schema, effort: 'low' })
+    { label: label || stage, phase: stage === 'list' ? 'List' : (stage === 'close-self' ? 'Close' : (stage === 'sweep-plan' ? 'Sweep' : 'Tickets')), agentType: CLERK, schema, effort: 'low' })
   return schema === MOVE || schema === CHECK ? withDetail(r) : r
 }
 // a stage that throws (no structured output) is a failed snapshot or check, never a failed run
@@ -488,6 +488,14 @@ let lastInsts = insts
 try {
 
 // ---- Sweep (the Author's, before any ticket; counts against no cap) -------------------
+// #98 point 1: the sweep's plan is a script (author/scripts/sweep.py: the notes of the tex files
+// changed since the last sweep, minus the verdicts it cached, acted on by kind, #110). The
+// note-sweeper is launched only when the plan lists work; a plan with nothing to do records
+// itself. A plan stage that fails launches nothing (the sweeper's procedure needs the plan):
+// a note says so. A plan warning (the last plan was never recorded) becomes a note. Cached
+// verdicts expire after author.notes.maxAge days (the script's default, 14).
+const SWEEP_PLAN = { type: 'object', properties: { exit: { type: 'number', description: 'the exit code the shell printed' },
+  output: { type: 'string', description: 'the first line of the output, verbatim' } }, required: ['exit'] }   // #124: output asked, not required (read as '')
 phase('Sweep')
 for (const i of insts.filter(i => i.role === 'author')) {
   // #129: the sweep (40 to 80 tool calls, usually 0 to 5 notes retired) runs only for a run that
@@ -497,7 +505,25 @@ for (const i of insts.filter(i => i.role === 'author')) {
     notes.push(`${i.name}: no sweep (${A.sweep === false ? 'sweep: false' : 'no ticket of it to take in this run'})`)
     continue
   }
-  const s = await launch(`Run the machine-note sweep of ${i.name} (home ${i.home}) as /author:sweep does, and report the counts per section.`,
+  const sp = await tryClerk('sweep-plan', [`From ${i.home} run \`py ${ROOT}/author/scripts/sweep.py --home ${i.home} plan\` once (python3 where there is no py). ` +
+    'Return the exit code the shell printed and the first line of its output verbatim.'], SWEEP_PLAN, `sweep plan ${i.name}`)
+  const line = sp ? String(sp.output || '').trim().split('\n')[0] : ''
+  const todo = sp && sp.exit === 0 ? /^sweep: todo (\d+)\b/.exec(line) : null
+  if (todo && Number(todo[1]) === 0) {
+    out.sweep = (out.sweep || []).concat([{ instance: i.name, report: line }])
+    continue
+  }
+  if (!todo) {
+    // review of 38e8803: the note-sweeper works from the plan, so without one it is not launched
+    const why = `the sweep plan of ${i.name} ${sp ? `printed no plan line (exit ${sp.exit}: ${line.slice(0, 120)})` : 'returned nothing'}`
+    notes.push(`${why}: the note-sweeper was not run; run /author:sweep once the plan works`)
+    out.sweep = (out.sweep || []).concat([{ instance: i.name, report: `not swept: ${why}` }])
+    continue
+  }
+  const warned = /; WARNING: (.*)$/.exec(line)
+  if (warned) notes.push(`${i.name} sweep: ${warned[1]}`)
+  const s = await launch(`Run the machine-note sweep of ${i.name} (home ${i.home}) as /author:sweep does` +
+    ` (its plan: ${line}). End with \`sweep.py record\`.` + ' Report the counts per section.',
     { label: `sweep ${i.name}`, phase: 'Sweep', agentType: 'author:note-sweeper' })
   if (s === null) return Object.assign(out, { stopped: `the sweep of ${i.name} was lost (a limit?): nothing further launched` })
   out.sweep = (out.sweep || []).concat([{ instance: i.name, report: s }])
