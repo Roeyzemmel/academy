@@ -77,7 +77,7 @@ branches to merge after each night. Now:
   a raw `git tag` that makes, moves or deletes one.
 - **Review per issue.** `py scripts/ship.py tickets <sub> [<branch>]` lists a branch's
   ticket commits over `main`, oldest first: tag, commit, subject, files (`--json` too).
-  `git show ticket/T-NNNN/1` is one ticket's change. The run branch merges as any template
+  `git show ticket/T-NNNN/1` is one ticket's change. Like `stack`, it is allowlisted (it only reads). The run branch merges as any template
   branch (`merge <sub> <branch> --sha <tip>`); `stack` and `status` treat it as one.
 - **Code tickets** keep a branch of their own: the developer works in a worktree it
   started (`ship.py start <sub> <topic> --worktree`, a branch named for the ticket) and
@@ -290,7 +290,7 @@ everything but the board and the submodules; never a submodule pointer; not part
   go on in the new worktree. Read the push's own exit status and last lines when it
   ends (a pipe through `tail` hides a refusal). `commit`, `push` and `ship` take the
   same `--repo`.
-- `status`, `start`, `commit`, `push`, `ship`, `stack` and `checkpoint` are allowlisted (the
+- `status`, `start`, `commit`, `push`, `ship`, `stack`, `tickets` and `checkpoint` are allowlisted (the
   workspace bootstrap renders the rules from `templates/workspace/permissions.json` into
   `.claude/settings.local.json`).
 - `merge`, `publish` and `accept-baseline` are not: they always raise a permission
