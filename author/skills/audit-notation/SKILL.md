@@ -1,6 +1,6 @@
 ---
 name: audit-notation
-description: 'Audit the paper''s notation against its style.md and the domain pack, report clashes, record the draft''s notation in style.md where no decision exists, ticket domain changes to the Expert. Read-only on tex. Use after new notation or before a coauthor round.'
+description: 'Audit the paper''s notation against its style.md and the domain pack, report clashes, record the draft''s notation in style.md where no decision exists, ticket domain changes to the Expert. Use after new notation or before a coauthor round.'
 ---
 
 # /author:audit-notation
