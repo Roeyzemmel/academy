@@ -149,7 +149,8 @@ class TestCheckpoint(CheckpointBase):
         self.assertEqual(by["other"]["status"], "unchanged")
         self.assertEqual(by["other"]["files"], 0)
         for r in results:
-            self.assertEqual(set(r), {"sub", "branch", "sha", "files", "status", "detail", "names", "skipped"})
+            self.assertEqual(set(r), {"sub", "branch", "sha", "files", "status", "detail", "names", "skipped",
+                                      "merged", "forks"})
         self.assertEqual(by["sub"]["names"], ["b.txt"])
         self.assertEqual(by["other"]["names"], [])
         self.assertEqual(ship.current(self.other), "main")
@@ -1280,3 +1281,104 @@ class TestCheckpointUsage(CheckpointBase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+class TestCheckpointStacks(CheckpointBase):
+    """#130: a checkpoint branch started from main (or from a branch without the other
+    recent ticket branches) merges their work in instead of forking from it."""
+
+    def ticket(self, tid, name, text="x\n"):
+        if ship.current(self.sub) == "main":          # --only refuses a dirty main
+            run(self.sub, "switch", "-q", "-c", self.branch(ticket=tid))
+        self.write(self.sub, name, text)
+        rc, out, err = self.cp("--ticket", tid, "--only", "sub")
+        self.assertEqual(rc, 0, err)
+        return out, err
+
+    def test_a_second_ticket_started_from_main_stacks_on_the_first(self):
+        self.ticket("T-0001", "one.txt")
+        first = run(self.sub, "rev-parse", "HEAD")
+        run(self.sub, "switch", "-q", "main")          # the main session moved the checkout
+        run(self.sub, "switch", "-q", "-c", self.branch(ticket="T-0002"))
+        out, err = self.ticket("T-0002", "two.txt")
+        self.assertIn("merged %s" % self.branch(ticket="T-0001"), out)
+        self.assertNotIn("FORK", err)
+        tip = run(self.sub, "rev-parse", "HEAD")
+        self.assertTrue(ship._is_ancestor(self.sub, first, tip))
+        self.assertEqual(run(self.remote, "rev-parse", "refs/heads/" + self.branch(ticket="T-0002")), tip)
+        self.assertEqual(ship.fork_branches(self.sub), [])
+        self.assert_main_untouched()
+
+    def test_a_conflict_is_left_as_a_reported_fork(self):
+        self.ticket("T-0001", "same.txt", "one\n")
+        run(self.sub, "switch", "-q", "main")
+        run(self.sub, "switch", "-q", "-c", self.branch(ticket="T-0002"))
+        out, err = self.ticket("T-0002", "same.txt", "two\n")
+        self.assertIn("FORK: %s" % self.branch(ticket="T-0001"), err)
+        self.assertIn("conflicts in same.txt", err)
+        self.assertFalse(ship.merge_in_progress(self.sub))
+        self.assertEqual(run(self.sub, "status", "--porcelain"), "")
+        with open(os.path.join(self.sub, "same.txt"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "two\n")
+
+    def test_counters_and_ledgers_are_resolved_as_sync_does(self):
+        self.write(self.sub, ".ids/next-packet", "471\n")
+        self.write(self.sub, ".errors/other.jsonl", '{"a": 1}\n')
+        run(self.sub, "add", "-A")
+        run(self.sub, "commit", "-q", "-m", "base")
+        run(self.sub, "push", "-q", "origin", "main")
+        self.write(self.sub, ".ids/next-packet", "473\n")
+        self.write(self.sub, ".errors/other.jsonl", '{"a": 1}\n{"b": 2}\n')
+        self.cp("--ticket", "T-0001")
+        run(self.sub, "switch", "-q", "main")
+        run(self.sub, "switch", "-q", "-c", self.branch(ticket="T-0002"))
+        self.write(self.sub, ".ids/next-packet", "472\n")
+        self.write(self.sub, ".errors/other.jsonl", '{"a": 1}\n{"c": 3}\n')
+        rc, out, err = self.cp("--ticket", "T-0002")
+        self.assertEqual(rc, 0, err)
+        self.assertIn("merged", out)
+        with open(os.path.join(self.sub, ".ids", "next-packet"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "473\n")
+        with open(os.path.join(self.sub, ".errors", "other.jsonl"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"a": 1}\n{"c": 3}\n{"b": 2}\n')
+
+    def test_nothing_is_merged_over_uncommitted_work(self):
+        self.ticket("T-0001", "one.txt")
+        run(self.sub, "switch", "-q", "main")
+        name = self.branch(ticket="T-0002")
+        run(self.sub, "switch", "-q", "-c", name)
+        self.write(self.sub, "a.txt", "not this ticket's\n")
+        merged, forks = ship.merge_forks(self.sub, name)
+        self.assertEqual(merged, [])
+        self.assertEqual([f["branch"] for f in forks], [self.branch(ticket="T-0001")])
+        self.assertIn("uncommitted", forks[0]["why"])
+
+    def test_a_scoped_target_takes_branches_inside_its_directory_only(self):
+        self.ticket("T-0001", "outside.txt")
+        run(self.sub, "switch", "-q", "main")
+        name = self.branch(ticket="T-0002")
+        run(self.sub, "switch", "-q", "-c", name)
+        merged, forks = ship.merge_forks(self.sub, name, pathspec="board")
+        self.assertEqual(merged, [])
+        self.assertIn("outside board/", forks[0]["why"])
+
+    def test_old_and_merged_branches_are_not_forks(self):
+        self.ticket("T-0001", "one.txt")
+        run(self.sub, "switch", "-q", "main")
+        self.assertEqual(len(ship.fork_branches(self.sub)), 1)
+        self.assertEqual(ship.fork_branches(self.sub, now=ship.time.time() + 30 * 86400), [])
+        run(self.sub, "merge", "-q", "--no-ff", "-m", "m", self.branch(ticket="T-0001"))
+        run(self.sub, "push", "-q", "origin", "main")
+        run(self.sub, "fetch", "-q", "origin")
+        run(self.sub, "switch", "-q", "-c", "2026-01-01/other/human", self.main[self.sub])
+        self.assertEqual(ship.fork_branches(self.sub), [])
+
+    def test_stack_names_the_forks(self):
+        self.ticket("T-0001", "one.txt")
+        run(self.sub, "switch", "-q", "main")
+        run(self.sub, "switch", "-q", "-c", self.branch(ticket="T-0002"))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ship.main(["stack", "sub"])
+        self.assertIn("FORKS: 1", out.getvalue())
+        self.assertIn(self.branch(ticket="T-0001"), out.getvalue())

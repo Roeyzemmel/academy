@@ -149,8 +149,9 @@ def base_decision(home, subject, base):
     d = pass_dir(home, subject, base)
     a, b, notes = dt.base_records(None, base, d)
     if a is None or b is None:
-        raise Refused("the base pass %s of %s cannot carry a reword: %s"
-                      % (base, subject, "; ".join(notes) or "its runs A and B are missing"))
+        raise Refused("the base pass %s of %s cannot carry a reword: %s%s"
+                      % (base, subject, "; ".join(notes) or "its runs A and B are missing",
+                         dt.elsewhere(d)))
     res = dt.decide(a, b)
     if res["outcome"] not in ("confirmed", "confirmed-modulo"):
         raise Refused("the base pass %s of %s is not CONFIRMED x2 (its table gives %s): a "

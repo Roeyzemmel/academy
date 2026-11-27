@@ -1827,3 +1827,57 @@ class DefinitionRuleReviewTests(unittest.TestCase):
         # a lemma with the same mark is still a verify-input
         r = self.run_("paper:lem:a [CHECK]", "paper:lem:a [CHECK]")
         self.assertEqual([i["kind"] for i in r["file_items"]], ["verify-input"])
+
+
+class BasePassOnAnotherBranchTests(unittest.TestCase):
+    """#130: a base pass committed on a forked ticket branch was reported as "has no
+    decision.md"; the note now names the branch that holds it."""
+
+    def git(self, *args):
+        import subprocess
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        subprocess.run(["git", "-C", self.repo] + list(args), check=True, env=env,
+                       capture_output=True)
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = self._tmp.name
+        self.git("init", "-q", "-b", "main")
+        self.d = os.path.join(self.repo, "reviews", "paper", "lem-x", "2026-11-23-T-1957")
+        os.makedirs(self.d)
+        for f in ("A.md", "B.md"):
+            with open(os.path.join(self.d, f), "w") as fh:
+                fh.write("run\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "runs")
+        self.git("switch", "-q", "-c", "2026-11-23/t-1957/expert")
+        with open(os.path.join(self.d, "decision.md"), "w") as fh:
+            fh.write("decision\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "decision")
+        self.git("switch", "-q", "main")
+
+    def test_the_note_names_the_branch_holding_the_decision(self):
+        self.assertEqual(dt.branches_holding(self.d), ["2026-11-23/t-1957/expert"])
+        _a, _b, notes = dt.base_records(None, "x", self.d)
+        self.assertIn("has no decision.md", notes[0])
+        self.assertIn("complete on 2026-11-23/t-1957/expert", notes[0])
+
+    def test_a_missing_folder_names_it_too(self):
+        self.git("switch", "-q", "--orphan", "empty")
+        import shutil
+        shutil.rmtree(os.path.join(self.repo, "reviews"), ignore_errors=True)
+        _a, _b, notes = dt.base_records(None, "x", self.d)
+        self.assertIn("folder", notes[0])
+        self.assertIn("2026-11-23/t-1957/expert", notes[0])
+
+    def test_no_note_when_the_checkout_has_it_or_no_branch_does(self):
+        self.git("switch", "-q", "2026-11-23/t-1957/expert")
+        self.assertEqual(dt.branches_holding(self.d), [])
+        self.git("switch", "-q", "main")
+        self.git("branch", "-q", "-D", "2026-11-23/t-1957/expert")
+        self.assertEqual(dt.branches_holding(self.d), [])
+        self.assertEqual(dt.elsewhere(self.d), "")
