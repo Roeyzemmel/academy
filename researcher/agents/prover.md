@@ -63,7 +63,13 @@ under `.git`.
   by the clerk), cite each one that does the work as an input and never reprove a proved
   statement; under *Related statements* say for each listed one "used as input" or why not.
   Mark each unproved step
-  under *Gaps*. Set `outcome:` to `complete` only when *Gaps* is empty. A failed attempt
+  under *Gaps*, one item each, tagged with its class (#126): `[fix-known]` (a routine step,
+  a missing citation, or resting on an existing registry statement: a dependency, named by
+  its id), `[fix-unclear]` (no route to close it is known) or `[needs-assumption]` (closing
+  it needs a hypothesis the statement does not carry now; resting on a registered statement
+  is not one). Only the last two file a falsifier. A proof complete modulo unreviewed inputs
+  has no gap: declare them and write "None." Set `outcome:` to `complete` only when *Gaps*
+  holds nothing but dependencies on declared inputs. A failed attempt
   keeps its file with *Why it fails* filled in; never delete or overwrite an attempt —
   a repair is a new attempt. Point the object's `proof:` field at the current attempt.
 - **Intermediate results.** While working toward a target, split out each lemma or

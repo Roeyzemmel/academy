@@ -94,7 +94,8 @@ class ExploreTests(unittest.TestCase):
         order = lp[lp.index("ONE step"):]
         self.assertLess(order.index("prior art first"), order.index("then prove"))
         self.assertLess(order.index("then prove"), order.index("Only then falsify"))
-        self.assertIn("never file a falsifier for an item with no failed or incomplete attempt and no GAP verdict", lp)
+        self.assertIn("never file a falsifier for an item with no such attempt and no GAP verdict", lp)
+        self.assertIn("[fix-unclear] or [needs-assumption]", lp)                # #126
         with open(os.path.join(WF, "explore.js"), encoding="utf-8") as fh:
             src = fh.read()
         self.assertNotIn("falsify, prior art", src)
@@ -122,6 +123,25 @@ class ExploreTests(unittest.TestCase):
                                   dict(H, ticket="T-0600"))
         self.assertIsNone(err, err)
         self.assertIn("before an attempt", " ".join(res["anomalies"]))
+        # #126: an incomplete attempt whose gaps are all fix-known (or rest on declared inputs) does not either
+        lead = {"items": [item("Q", "falsify", tickets=["T-1"], after="proofs/Q/attempt-2.md")], "report": "r", "next_picks": []}
+        res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
+                                                 "trigger Q": [dict(FAILED, outcome="partial", gaps=2, falsifying_gaps=0)], "get T-1": [GOOD_FALSIFIER], "note": [OK]},
+                                  dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertIn("no fix-unclear or needs-assumption gap", " ".join(res["anomalies"]))
+        # ... and one with a needs-assumption gap does
+        res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
+                                                 "trigger Q": [dict(FAILED, outcome="partial", gaps=2, falsifying_gaps=1)], "get T-1": [GOOD_FALSIFIER], "close": [OK]},
+                                  dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertEqual(res["anomalies"], [])
+        # ... and a clerk answer without falsifying_gaps is read as none, with an anomaly saying so
+        res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
+                                                 "trigger Q": [dict(FAILED, outcome="partial", gaps=1)], "get T-1": [GOOD_FALSIFIER], "note": [OK]},
+                                  dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertIn("did not report falsifying_gaps", " ".join(res["anomalies"]))
         # a GAP verdict does
         lead = {"items": [item("Q", "falsify", tickets=["T-1"], after="T-0900")], "report": "r", "next_picks": []}
         res, labels, _, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
