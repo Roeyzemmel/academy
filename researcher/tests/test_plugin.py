@@ -76,8 +76,8 @@ class PluginTests(unittest.TestCase):
                         r"__(claims_(new|attach_evidence|propose_status|set_status)|"
                         r"tickets_(create|update)|packets_(create|decide)|queue_add)$", t)])
                     self.assertIn(name, perms["groups"]["readonly"])
-                else:
-                    self.assertTrue(fm.get("maxTurns"))
+                # #129 (the human, 2026-11-27): no agent carries a turn cap
+                self.assertNotIn("maxTurns", fm, name)
         self.assertEqual(frontmatter(os.path.join(PLUGIN, "agents",
                                                   "experiment-reviewer.md"))[0]["effort"], "xhigh")
 

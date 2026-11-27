@@ -1,7 +1,7 @@
 export const meta = {
   name: 'academy-inbox',
   description: 'Work the board inboxes in the fixed order (Author, Expert, Researcher, Scientist), at most three tickets, serially: routes, relay legs and their conclusions, checkpoints, all in code',
-  whenToUse: '/academy:inbox and every role inbox (only: [instance]). args: {root: <academy repo>, n?, cap?, only?: [instance], campaign?, cowork?, ids?: [T-NNNN]}',
+  whenToUse: '/academy:inbox and every role inbox (only: [instance]). args: {root: <academy repo>, n?, cap?, only?: [instance], campaign?, cowork?, ids?: [T-NNNN], sweep?: false (skip the Author\'s note sweep)}',
   phases: [
     { title: 'List', detail: 'each instance\'s inbox.py --json' },
     { title: 'Sweep', detail: 'the Author\'s machine-note sweep, before any ticket' },
@@ -433,6 +433,13 @@ let lastInsts = insts
 // ---- Sweep (the Author's, before any ticket; counts against no cap) -------------------
 phase('Sweep')
 for (const i of insts.filter(i => i.role === 'author')) {
+  // #129: the sweep (40 to 80 tool calls, usually 0 to 5 notes retired) runs only for a run that
+  // takes one of this Author's tickets, and not at all with sweep: false (a cowork that runs the
+  // inbox per ticket sweeps once, on its last call)
+  if (A.sweep === false || !(i.rows || []).length) {
+    notes.push(`${i.name}: no sweep (${A.sweep === false ? 'sweep: false' : 'no ticket of it to take in this run'})`)
+    continue
+  }
   const s = await launch(`Run the machine-note sweep of ${i.name} (home ${i.home}) as /author:sweep does, and report the counts per section.`,
     { label: `sweep ${i.name}`, phase: 'Sweep', agentType: 'author:note-sweeper' })
   if (s === null) return Object.assign(out, { stopped: `the sweep of ${i.name} was lost (a limit?): nothing further launched` })
@@ -849,13 +856,27 @@ async function handle(row, i) {
     }
     const st = await move(row, inst, 'start: move it to in-progress' + (i.role === 'author' ? '; also return in detail the output of the Author home\'s pinned.py (`py ' + ROOT + '/author/scripts/pinned.py --home ' + i.home + '`; the statements to leave byte for byte)' : ''))
     if (!st || !st.ok) return { outcome: 'blocked', detail: 'could not start: ' + (st ? st.detail || 'no reason given' : 'lost') }
-    const r = await launch(
-      `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
+    const work = `WORKFLOW INBOX: ticket ${row.id} for ${inst} (home ${i.home}); it is already in-progress, so make no move to accepted or in-progress. ` +
       `Work it per your agent definition (the claim is in refs, the agenda entry in agenda). ` +
       (i.role === 'author' ? (st.detail ? `Pinned statements, to leave byte for byte: ${st.detail}\n` : `Pinned statements: the start stage returned none; run \`py ${ROOT}/author/scripts/pinned.py --home ${i.home}\` before editing and leave those byte for byte.\n`) +
         (taken.length ? `Earlier tickets of this run: ${JSON.stringify(taken.map(t => [t.id, t.outcome, t.detail]))}\n` : '') : '') +
-      `Finish by delivering it (tickets_update deliver: true, result one line) or, if you cannot, blocked with waiting_on and the reason.`,
-      { label: `${rt.target} ${row.id}`, phase: 'Tickets', agentType: type })
+      `Finish by delivering it (tickets_update deliver: true, result one line) or, if you cannot, blocked with waiting_on and the reason.`
+    let r = await launch(work, { label: `${rt.target} ${row.id}`, phase: 'Tickets', agentType: type })
+    // #129: an empty result (not null: the agent ran) is a run stopped mid-ticket, most likely at
+    // its turn limit (T-1972, T-1984); one continuation run picks up its partial edits, as the
+    // main session did by hand, and a second empty one is reported as such, not as "worked"
+    const empty = x => x !== null && !String(x).trim()
+    if (empty(r)) {
+      notes.push(`${row.id}: ${type} stopped without a report (most likely its turn limit, #129): relaunched once to finish from its partial edits`)
+      r = await launch(`WORKFLOW INBOX, continuation (#129): an earlier ${type} run on ${row.id} stopped without a report, most likely at its turn limit, ` +
+        `and may have left partial edits in the home's working tree (git status and git diff in ${i.home}; the ticket thread). Read them first, ` +
+        `keep what is done, do not redo it, and finish the ticket.\n` + work,
+      { label: `${rt.target} ${row.id} (continue)`, phase: 'Tickets', agentType: type })
+      if (empty(r)) {
+        return { outcome: 'unfinished', turn_limit: true,
+          detail: `${type} stopped twice without a report (most likely its turn limit, #129); partial edits, if any, are in ${i.home}'s working tree` }
+      }
+    }
     return r === null ? { lost: true } : { outcome: 'worked', detail: String(r).split('\n')[0] }
   }
   return { for_main: { why: `no workflow route for ${rt.how}:${rt.target}`, ticket: row.id, instance: inst } }

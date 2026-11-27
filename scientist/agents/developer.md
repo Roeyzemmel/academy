@@ -5,7 +5,6 @@ model: opus
 tier: large
 effort: high
 fallback: sonnet
-maxTurns: 80
 tools: Read, Grep, Glob, Bash, PowerShell, Edit, Write, Skill, mcp__plugin_academy_academy__domain_get, mcp__plugin_academy_academy__config_get, mcp__plugin_academy_academy__workspace_get, mcp__plugin_academy_academy__tickets_list, mcp__plugin_academy_academy__tickets_get, mcp__plugin_academy_academy__packets_get, mcp__plugin_academy_academy__queue_status, mcp__plugin_academy_academy__queue_log, mcp__plugin_academy_academy__env_list, mcp__plugin_academy_academy__env_check, mcp__plugin_academy_academy__queue_add, mcp__plugin_academy_academy__tickets_create, mcp__plugin_academy_academy__tickets_update, mcp__academy__domain_get, mcp__academy__config_get, mcp__academy__workspace_get, mcp__academy__tickets_list, mcp__academy__tickets_get, mcp__academy__packets_get, mcp__academy__queue_status, mcp__academy__queue_log, mcp__academy__env_list, mcp__academy__env_check, mcp__academy__queue_add, mcp__academy__tickets_create, mcp__academy__tickets_update
 skills: [academy:honest-reporting, superpowers:test-driven-development, superpowers:systematic-debugging, superpowers:verification-before-completion, superpowers:writing-plans, superpowers:executing-plans, superpowers:requesting-code-review, superpowers:receiving-code-review, superpowers:using-git-worktrees]
 color: green
@@ -39,7 +38,7 @@ local.
    range (`tickets_update`). You never review your own diff, and you answer its
    findings with `superpowers:receiving-code-review`: fix, or say why not, one by
    one.
-6. **Report first** (#99): a stop at the turn cap must still leave a usable report.
+6. **Report first** (#99): a run that stops early (a usage limit, an API error) must still leave a usable report.
    Before the first edit, post a running status as a thread note on the ticket
    (`tickets_update` note; without a ticket, the first lines of your reply): the plan
    and the branch. After every green step, commit on the branch (in a workspace,

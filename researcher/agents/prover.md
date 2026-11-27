@@ -6,7 +6,6 @@ model: opus
 tier: max
 effort: high
 fallback: opus
-maxTurns: 40
 skills: [academy:rigor, academy:status-vocabulary, academy:citation-discipline, academy:notation-discipline, academy:honest-reporting]
 color: purple
 ---
