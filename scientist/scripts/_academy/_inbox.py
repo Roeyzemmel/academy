@@ -300,6 +300,9 @@ class inbox_core(object):
     SHIP_TIMEOUT = 90
     #: the ticket states (``serial_checkpoint``) after which the role's work is finished
     SHIP_STATES = ("delivered", "rejected", PARTIAL)
+    #: a --ship-slug (#136 item 4): the slug a workflow names its ticket-free branch by
+    SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
+    TICKET_ID = re.compile(r"^T-\d+$")
 
     @staticmethod
     def ship_checkpoint(args, instance, board, r, role=None, out=None):
@@ -946,6 +949,11 @@ class inbox_core(object):
                         help="the serial checkpoint of one ticket (exit 3 if unfinished); a "
                              "finished ticket also runs the workspace's ship.py checkpoint "
                              "(commit and push the ticket's repos; docs/protocol.md section 4)")
+        ap.add_argument("--ship-slug", metavar="SLUG",
+                        help="a workflow run with no ticket (#136 item 4): run the workspace's "
+                             "ship.py checkpoint --ticket SLUG under --check's guards and scope "
+                             "(the workspace's board, \"shipCheckpoint\", the session inside the "
+                             "workspace and not in a worktree); prints 'SLUG: delivered (no ticket)'")
         return ap
 
     @staticmethod
@@ -957,6 +965,20 @@ class inbox_core(object):
         A --check that finds the ticket finished runs ``ship_checkpoint`` (``role`` is the
         wrapper's role when ``instance`` is not resolved)."""
         out = out or sys.stdout
+        slug = getattr(args, "ship_slug", None)
+        if slug:
+            # #136 item 4: a standalone workflow run without a ticket ships its work on
+            # <date>/<slug>/<role> through the same guards and scope as a ticket's --check,
+            # so a direct `ship.py checkpoint` (which would bypass them) is never needed
+            if not inbox_core.SLUG.match(slug) or inbox_core.TICKET_ID.match(slug.upper()):
+                out.write("--ship-slug: %r is not a lowercase slug (a ticket goes by --check)\n"
+                          % slug)
+                return 2
+            r = {"id": slug, "state": "delivered", "status": "no ticket", "unfinished": False,
+                 "problem": ""}
+            inbox_core.ship_checkpoint(args, instance, board, r, role=role, out=out)
+            out.write("%s: delivered (no ticket)\n" % slug)
+            return 0
         if args.check:
             r = inbox_core.check(board, args.check)
             # the status line comes after the checkpoint and the unpushed scan, so that it

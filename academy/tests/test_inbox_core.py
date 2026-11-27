@@ -545,6 +545,35 @@ class ShipCheckpointHookTests(Board):
                          os.path.normcase(os.path.realpath(self.ws)))
         self.assertEqual(err, "")
 
+    def slug(self, slug, instance=INST):
+        args = core.parser("d").parse_args(["--ship-slug", slug, "--workspace",
+                                            os.path.join(self.ws, "workspace.json")])
+        out, err = io.StringIO(), io.StringIO()
+        from unittest import mock
+        with mock.patch("sys.stderr", err):
+            code = core.run(args, instance, self.board, 3, route, out=out)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_ship_slug_runs_the_scoped_checkpoint_without_a_ticket(self):
+        """#136 item 4: a standalone workflow run with no ticket ships its slug's branch
+        through --check's guards and scope."""
+        code, out, err = self.slug("verify-paper-lem-x", instance="expert@t")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([c["argv"] for c in self.calls()],
+                         [["--workspace", os.path.realpath(self.ws), "checkpoint", "--ticket",
+                           "verify-paper-lem-x", "--role", "expert", "--only", "library", "board"]])
+        self.assertTrue(out.endswith("verify-paper-lem-x: delivered (no ticket)\n"), out)
+
+    def test_ship_slug_honours_ship_checkpoint_false_and_refuses_a_ticket_id(self):
+        self.write_ws(shipCheckpoint=False)
+        self.assertEqual(self.slug("explore-dir-3")[0], 0)
+        self.assertEqual(self.calls(), [])
+        self.write_ws()
+        code, out, _ = self.slug("t-0001")
+        self.assertEqual(code, 2)
+        self.assertIn("--check", out)
+        self.assertEqual(self.calls(), [])
+
     def test_closed_rejected_cancelled_run_checkpoint(self):
         for i, st in enumerate(("closed", "rejected", "cancelled"), 1):
             self.put("T-000%d" % i, status=st)

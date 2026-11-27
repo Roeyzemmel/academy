@@ -260,11 +260,13 @@ class ShipTests(unittest.TestCase):
         self.assertIsNone(err, err)
         self.assertNotIn("ship", labels)
 
-    def test_referee_without_a_ticket_is_not_run(self):
-        res, labels, _, err = run("referee.js", {"pdf": [PDF], "referee": ["r"], "find packet": [{"packet": "P-0500", "blocking": 0, "copy": "c"}]},
+    def test_referee_without_a_ticket_ships_the_slug_once(self):
+        # #136 item 4: through inbox.py --ship-slug, under --check's guards and scope
+        res, labels, _, err = run("referee.js", {"pdf": [PDF], "referee": ["r"], "find packet": [{"packet": "P-0500", "blocking": 0, "copy": "c"}],
+                                                 "ship": [{"status": "pushed", "output": "library 2026-11-27/referee-author-t/expert @ abc1234 (1 files) pushed\nreferee-author-t: delivered (no ticket)\n"}]},
                                   {"instance": "author@t", "nested": False})
-        self.assertNotIn("ship", labels)
-        self.assertEqual(res["ship"]["command"], "py scripts/ship.py checkpoint --ticket referee-author-t --role expert --only library board")
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "pushed")
 
     def test_domain_standalone_ships_once_refusal_returned(self):
         res, labels, _, err = run("domain.js", dict(self.DOM, ship=[shipped("T-0800", "library x @ a (0 files) REFUSED: off-template branch")] * 2),

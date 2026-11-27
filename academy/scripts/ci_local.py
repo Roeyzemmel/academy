@@ -328,6 +328,13 @@ def max_jobs(environ=None):
     return max(1, n)
 
 
+def is_academy_checkout(top):
+    """``top`` is a checkout of the academy repo (its marketplace manifest and the base
+    plugin's scripts): its steps then run with ``ACADEMY_ROOT=top`` (#138)."""
+    return (os.path.isfile(os.path.join(top, ".claude-plugin", "marketplace.json"))
+            and os.path.isfile(os.path.join(top, "academy", "scripts", "ci_local.py")))
+
+
 def _run_job(steps, top, bash, shim, timeout):
     """One job's steps, in order. Returns ``(ok, [(position, [lines])])``."""
     ok, failed, out = True, False, []
@@ -345,6 +352,10 @@ def _run_job(steps, top, bash, shim, timeout):
             continue
         env = dict(os.environ, CI="true", SHIP_GATE="1", **st["env"])
         env["PATH"] = shim + os.pathsep + env.get("PATH", "")
+        if is_academy_checkout(top) and "ACADEMY_ROOT" not in st["env"]:
+            # #138: the session's ACADEMY_ROOT names the main checkout; a worktree's (or any
+            # other checkout's) gate must test its own code, never the code that names
+            env["ACADEMY_ROOT"] = top
         try:
             p = subprocess.run([bash, "-e", "-c", st["run"]], cwd=st["cwd"], env=env,
                                capture_output=True, text=True, stdin=subprocess.DEVNULL,

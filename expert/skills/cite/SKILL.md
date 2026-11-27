@@ -82,8 +82,8 @@ card: the ticket stays parked, with a thread line saying exactly what is still m
   list, `<library>/views/reading-list.md`, by `py <expert scripts>/reading_list.py --write` (#108):
   per source, exactly what to read, the claims it blocks and the statements resting on them.
 - **`ship`** (a standalone run; docs/workflows.md): with a ticket, its checkpoint ran once
-  (`inbox.py --check`); without one it is `not-run` with the `checkpoint` command to run
-  from the workspace root. With a ticket the Author home's `references.bib` ships with it
+  (`inbox.py --check`); without one the run ships `cite-<key>` through `inbox.py --ship-slug`
+  (the same guards and scope, #136). With a ticket the Author home's `references.bib` ships with it
   (the touch ledger passes it as `--touched`, on the Expert's branch there); without one the
   notes say to add `--touched` for it. A refusal is reported, never retried.
 

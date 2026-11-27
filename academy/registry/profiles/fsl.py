@@ -1017,6 +1017,19 @@ def _human_name():
     return ((ws.get("human") or {}).get("name")) or "the human"
 
 
+def _hand_row(quote, where):
+    """The evidence row of the human's word, as the MCP tool claims_set_status writes it
+    (``hand | <where> | <name>'s word | - | "<quote>"``): ``set-status --human`` adds it
+    when no hand row is given, so a ``proved`` on the human's word is never refused for
+    "no evidence" (#132). Bars in the free text become the divides sign, as there."""
+    name = _human_name()
+    cells = ["hand", (where or "").strip() or name, "%s's word" % name, "-",
+             '"%s"' % str(quote).strip()]
+    cells[2:] = [c.replace("|", "∣") for c in cells[2:]]
+    cells[1] = cells[1].replace("|", "∣")
+    return " | ".join(cells)
+
+
 def _history_note(note, g):
     basis = _grounds.summary(g, _human_name())
     parts = [x for x in ((note or "").strip(), basis) if x]
@@ -1577,7 +1590,10 @@ def main(argv=None):
         try:
             # the command line cannot tell who runs it: --human claims the human's voice,
             # as the old claims.py did (not hooked; see the migration log's known limits)
-            old = set_status(repo, a.id, a.status, g, a.note, a.evidence, human=bool(a.human))
+            ev = list(a.evidence)
+            if a.human and not any(r.split("|")[0].strip() == "hand" for r in ev):
+                ev.append(_hand_row(a.human, a.where_said))
+            old = set_status(repo, a.id, a.status, g, a.note, ev, human=bool(a.human))
         except Refused as exc:
             print(f"set-status: refused: {exc}", file=sys.stderr)
             return 1

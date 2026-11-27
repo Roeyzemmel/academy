@@ -487,12 +487,14 @@ class ShipTests(unittest.TestCase):
         self.assertEqual(res["ship"]["status"], "refused")
         self.assertIn("ship stage was refused", " ".join(res["notes"]))
 
-    def test_no_ticket_is_not_run_with_the_command(self):
-        res, labels, _ = self.run_wf({"librarian": [card()], "validate": [OK], "packet": [{"packet": "P-0302", "error": ""}]},
+    def test_no_ticket_ships_the_slug_once(self):
+        # #136 item 4: through inbox.py --ship-slug, under --check's guards and scope
+        res, labels, _ = self.run_wf({"librarian": [card()], "validate": [OK], "packet": [{"packet": "P-0302", "error": ""}],
+                                      "ship": [{"status": "pushed", "output": "library 2026-11-27/cite-sw10/expert @ abc1234 (1 files) pushed\ncite-sw10: delivered (no ticket)\n"}]},
                                      ref="SW10", nested=False)
-        self.assertNotIn("ship", labels)
-        self.assertEqual(res["ship"]["status"], "not-run")
-        self.assertEqual(res["ship"]["command"], "py scripts/ship.py checkpoint --ticket cite-sw10 --role expert --only library board")
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "pushed")
+        self.assertEqual(res["ship"]["branches"], ["library 2026-11-27/cite-sw10/expert"])
         self.assertIn("--touched <that home's submodule>:references.bib", " ".join(res["notes"]))   # no ticket claims it
 
     def test_a_ticket_parked_on_the_human_does_not_ship(self):

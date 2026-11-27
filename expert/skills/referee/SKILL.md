@@ -36,5 +36,5 @@ judgement points go to the author untouched.
 The overall assessment paragraph in full, the counts per class and severity, the five
 findings the referee would fix first, the packet id and the copy's path. `outcome:
 unlanded` means the hook filed nothing: say so. Then `ship` (the ticket's checkpoint, run
-once; without a ticket `not-run` with the command; a refusal reported, never retried).
+once; without a ticket the slug's branch, through `inbox.py --ship-slug`, #136; a refusal reported, never retried).
 Never ask questions.

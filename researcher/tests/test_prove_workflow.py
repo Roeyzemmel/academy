@@ -1155,13 +1155,13 @@ class ShipTests(unittest.TestCase):
         self.assertEqual(res["ship"]["status"], "refused")
         self.assertIn("ship stage was refused", " ".join(res["notes"]))
 
-    def test_no_ticket_is_not_run_with_the_command(self):
-        plan = dict(self.PLAN)
+    def test_no_ticket_ships_the_slug_once(self):
+        # #136 item 4: through inbox.py --ship-slug, under --check's guards and scope
+        plan = dict(self.PLAN, ship=[{"status": "pushed", "output": "home 2026-11-27/prove-flat-geo-3/researcher @ abc1234 (1 files) pushed\nprove-flat-geo-3: delivered (no ticket)\n"}])
         del plan["close"]
         res, labels, _ = self.run_wf(plan, ticket=None, nested=False)
-        self.assertNotIn("ship", labels)
-        self.assertEqual(res["ship"]["command"],
-                         "py scripts/ship.py checkpoint --ticket prove-flat-geo-3 --role researcher --only <home submodule> board")
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "pushed")
 
 
 if __name__ == "__main__":
