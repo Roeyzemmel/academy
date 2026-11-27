@@ -6,7 +6,6 @@ model: sonnet
 tier: medium
 effort: medium
 fallback: opus
-maxTurns: 45
 memory: project
 skills: [academy:citation-discipline, academy:notation-discipline, academy:honest-reporting, academy:status-vocabulary]
 color: green

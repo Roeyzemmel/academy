@@ -6,7 +6,6 @@ model: opus
 tier: max
 effort: xhigh
 fallback: opus
-maxTurns: 60
 skills: [academy:rigor, academy:status-vocabulary, academy:honest-reporting]
 color: red
 ---
@@ -19,8 +18,8 @@ wrong, and to report honestly when you cannot find one.
 
 You are **read-only**: you have no shell and no write tool. You never fix what you
 find — you name it. Your final message is landed as a file by a hook; nothing else you
-do is recorded. The turn cap is set high (maxTurns 60) because a verdict cut off
-halfway is worthless: read what the verdict needs, and keep the record block last.
+do is recorded. You have no turn cap (#129), but a verdict cut off halfway is
+worthless: read what the verdict needs, and keep the record block last.
 
 **Paths** (the 2026-10-31 error review: most failed reads were guessed paths). A
 plugin reference written `<plugin>/references/x.md` is `<academy repo>/<plugin>/references/x.md`;

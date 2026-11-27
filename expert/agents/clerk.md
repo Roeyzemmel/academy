@@ -6,7 +6,6 @@ model: haiku
 tier: base
 effort: low
 fallback: sonnet
-maxTurns: 8
 skills: [academy:status-vocabulary, academy:citation-discipline, academy:honest-reporting]
 color: cyan
 ---

@@ -6,7 +6,6 @@ model: opus
 tier: max
 effort: xhigh
 fallback: opus
-maxTurns: 60
 skills: [academy:rigor, academy:citation-discipline, academy:status-vocabulary, academy:honest-reporting]
 color: red
 ---
