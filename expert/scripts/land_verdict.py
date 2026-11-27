@@ -68,13 +68,22 @@ REWORD_KEYS = dt.REWORD_FIELDS
 AMEND_KEYS = ("mode", "base_pass", "base_hash", "amended_with")
 
 
-def record_keys(reword, base_subject=False, amend=False, suggests=False, chain=False):
+#: a structured record's per-item reading (#127), written after ``gap_class`` only when the
+#: block gives it; a record without it is unchanged
+ITEM_KEYS = dt.ITEM_FIELDS
+
+
+def record_keys(reword, base_subject=False, amend=False, suggests=False, chain=False,
+                items=()):
     """The record's keys in order; ``base_subject`` (T-0476) only when the block gave one,
     so a reword record of the same subject is unchanged; ``root_pass`` / ``root_hash``
     (#127, a reword on a reword: the chain's blind root) only when the block gave them;
     ``add_dependency`` only when the block suggests one, the amend keys only for an amend
-    run."""
+    run; ``items`` (#127): the per-item keys the block gave."""
     keys = RECORD_KEYS
+    if items:
+        i = keys.index("gap_class") + 1
+        keys = keys[:i] + tuple(k for k in ITEM_KEYS if k in items) + keys[i:]
     if suggests:
         i = keys.index("modulo") + 1
         keys = keys[:i] + ("add_dependency",) + keys[i:]
@@ -90,7 +99,7 @@ def record_keys(reword, base_subject=False, amend=False, suggests=False, chain=F
 
 ASK = ("Close your report with the VERDICT block, exactly in the shape your "
        "instructions give (VERDICT, then subject, pass, run, verdict, modulo, model, "
-       "statement_hash, blocking, gap_class, ticket; add_dependency when you suggest one; in reword mode also mode, base_pass, "
+       "statement_hash, blocking, gap_class, ticket; add_dependency when you suggest one; items and hypotheses_used when the statement names its items; in reword mode also mode, base_pass, "
        "base_hash, reword_scope, and base_subject, root_pass, root_hash when the bundle gives them; in amend mode also mode, base_pass, base_hash, "
        "amended_with), as the last thing in your final message. "
        "The hook that lands your verdict reads only that block.")
@@ -245,6 +254,10 @@ def land(event, text, home, now=None, report=None):
     suggests = bool(rec.get("add_dependency"))
     if suggests:
         meta["add_dependency"] = rec["add_dependency"]
+    given = tuple(k for k in ITEM_KEYS
+                  if str(block.get(k) or "").strip().lower() not in dt.NONE_WORDS)
+    for k in given:
+        meta[k] = str(block.get(k)).strip()
     prior = _same_run(folder, key, body)
     if prior:
         path, old, same_body = prior
@@ -269,7 +282,8 @@ def land(event, text, home, now=None, report=None):
                       "pass folder once pass and statement hash are known"
                       % (" and ".join(probs), "is" if len(probs) == 1 else "are"))
     ac.atomic_write(path, ac.write_frontmatter(
-        {k: meta[k] for k in record_keys(reword, bool(bsubj), amend, suggests, chain)}, body))
+        {k: meta[k] for k in record_keys(reword, bool(bsubj), amend, suggests, chain,
+                                         given)}, body))
     return path
 
 

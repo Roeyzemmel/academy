@@ -58,6 +58,16 @@ whose reviews folder holds the base pass. The base is then read from
 set (``registry.core.grounds.check_verdict_refs``) and when the pass is opened
 (``reviews.py new-pass --base-subject``), not here.
 
+A **structured record** (#127, the human's ruling of 2026-11-27: "Hypotheses + items")
+is decided per item when its runs carry ``items:`` (``C1 CONFIRMED; C2 CONFIRMED modulo
+X; C3 GAP``): each item by the table above on its own entries, the whole outcome
+derived (``decide_items``: all confirmed -> ``confirmed``; all confirmed or
+confirmed-modulo -> ``confirmed-modulo`` with the union; an item awaiting B ->
+``awaiting-b``; else ``per-item``, with ``items`` and ``proposed_items``). Each item's
+grounds carry ``item`` and ``item_hash``. A run without ``items:`` on a structured
+record falls back to the whole-statement decision, with ``items_note``. A run A that is
+CONFIRMED on at least one item launches B (``should_launch_b``).
+
 Mechanical rules applied before the table:
 
 * The primaries are workspace.json's ``grading.primaryModels``, equal in authority
@@ -150,8 +160,12 @@ MAX_CHAIN = 32
 #: is an amend run's list of the dependencies the amendment added (``mode: amend``, with
 #: ``base_pass`` and ``base_hash`` naming run A of the same pass)
 AMEND_FIELDS = ("add_dependency", "amended_with")
+#: a structured record's per-item reading (#127): ``items`` (``C1 CONFIRMED; C2 CONFIRMED
+#: modulo paper:lem:x; C3 GAP``) and ``hypotheses_used`` (the H's the proof used)
+ITEM_FIELDS = ("items", "hypotheses_used")
 FIELDS = ("subject", "pass", "run", "run_id", "verdict", "modulo", "model",
-          "statement_hash", "blocking", "ticket", "gap_class") + REWORD_FIELDS + AMEND_FIELDS
+          "statement_hash", "blocking", "ticket", "gap_class") + REWORD_FIELDS + AMEND_FIELDS \
+    + ITEM_FIELDS
 LIST_FIELDS = ("modulo",) + AMEND_FIELDS
 #: a reword run's reading of the new wording against the proof as reviewed: ``equivalent``
 #: (the same content), ``weaker`` (implied by the old statement), ``covered`` (claims more
@@ -170,7 +184,7 @@ RE_NS = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
             "single-negative", "degraded", "invalid-pair", "no-change", "incomplete",
             "full-pass-needed", "invalid-base", "awaiting-amendment", "invalid-amend",
-            "new-pass-after-amendment", "settle-dependencies")
+            "new-pass-after-amendment", "settle-dependencies", "per-item")
 
 
 # ----------------------------------------------------------------------------
@@ -327,10 +341,10 @@ def parse_record(text):
         if block is not None:
             fields = dict(fields or {})
             fields.update(block)
-    elif any(not fields.get(k) for k in ("gap_class",) + AMEND_FIELDS):
+    elif any(not fields.get(k) for k in ("gap_class",) + AMEND_FIELDS + ITEM_FIELDS):
         # a landed record keeps the report (and its VERDICT block) as its body
         block = parse_verdict_block(text) or {}
-        for k in ("gap_class",) + AMEND_FIELDS:
+        for k in ("gap_class",) + AMEND_FIELDS + ITEM_FIELDS:
             if not fields.get(k) and block.get(k):
                 fields[k] = block[k]
     rec = {k: "" for k in FIELDS}
@@ -359,7 +373,61 @@ def parse_record(text):
     rec["mode"] = rec["mode"].strip().lower()
     sc = rec["reword_scope"].strip().lower()
     rec["reword_scope"] = sc if sc in REWORD_SCOPES else ""
+    rec["items"], rec["item_problems"] = parse_items(rec["items"])
+    hu = rec["hypotheses_used"]
+    rec["hypotheses_used"] = [] if str(hu).strip().lower() in NONE_WORDS \
+        else [h.strip() for h in re.split(r"[,;\s]+", str(hu)) if h.strip()]
     return rec
+
+
+RE_ITEM_MODULO = re.compile(r"(?i)^modulo\b\s*")
+
+
+def parse_items(v):
+    """``({key: {"verdict": W, "modulo": [...]}}, problems)`` of a VERDICT block's
+    ``items:`` line (#127): entries separated by ``;``, each ``KEY VERDICT [modulo a, b]``
+    (``KEY:`` and an ``it:`` prefix on a paper label are read past). Empty for none."""
+    if isinstance(v, dict):
+        return v, []
+    s = str(v or "").strip()
+    if s.lower() in NONE_WORDS:
+        return {}, []
+    out, probs = {}, []
+    depth, cur, parts = 0, [], []
+    for ch in s:
+        if ch in _OPEN:
+            depth += 1
+        elif ch in _CLOSE:
+            depth = max(0, depth - 1)
+        elif ch == ";" and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+            continue
+        cur.append(ch)
+    parts.append("".join(cur))
+    for part in parts:
+        toks = part.strip().split(None, 2)
+        if not toks:
+            continue
+        key = toks[0].rstrip(":")
+        if key.startswith("it:"):
+            key = key[3:]
+        word = norm_verdict(toks[1]) if len(toks) > 1 else ""
+        if not key or not word:
+            probs.append("items entry %r is not `KEY VERDICT [modulo ids]`" % part.strip())
+            continue
+        rest = toks[2] if len(toks) > 2 else ""
+        mod = []
+        if rest.strip():
+            if not RE_ITEM_MODULO.match(rest.strip()):
+                probs.append("items entry %r: after the verdict only `modulo ids`"
+                             % part.strip())
+            else:
+                mod = _split_list(RE_ITEM_MODULO.sub("", rest.strip(), count=1))
+        if key in out:
+            probs.append("items entry %s is given twice" % key)
+        out[key] = {"verdict": word, "modulo": mod}
+    return out, probs
 
 
 def is_reword(rec):
@@ -1125,10 +1193,14 @@ def effective(rec, primary=None):
 
 
 def should_launch_b(rec_a, primary=None):
-    """Run B is launched only after a positive run A (CONFIRMED on a primary)."""
+    """Run B is launched only after a positive run A (CONFIRMED on a primary): on a
+    structured record (#127), A CONFIRMED on at least one item."""
     if not rec_a or rec_a["problems"]:
         return False
-    return effective(rec_a, primary)[0] == "CONFIRMED"
+    if effective(rec_a, primary)[0] == "CONFIRMED":
+        return True
+    return is_primary(rec_a.get("model"), primary) and any(
+        (it or {}).get("verdict") == "CONFIRMED" for it in (rec_a.get("items") or {}).values())
 
 
 GRADER_ROLE = "expert"    # every proof review here is run by an Expert instance
@@ -1232,7 +1304,7 @@ def _canon_chain(rec, canon, depth=0):
 
 def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
            kind_of=None, base=None, base_notes=(), canon=None, exists=None, links_of=None,
-           tags_of=None):
+           tags_of=None, items_of=None):
     """Apply the table (``_decide``) and give every item to file its ``route``
     (``follow_up``). ``kind_of`` (qid -> registry kind or None) replaces the registry
     lookup that decides which inputs are definitions, ``tags_of`` (qid -> the record's
@@ -1255,7 +1327,12 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
     ``registry_links``) is the registry's reach for two CONFIRMED runs' differing inputs
     (#121): ``reduce_differing`` drops what it shows mechanically, and ``input_facts``
     gives what is left its admissibility facts (``exists`` reads existence there, and a
-    None from it is "not shown"); without it nothing is dropped."""
+    None from it is "not shown"); without it nothing is dropped.
+
+    ``items_of`` (qid -> ``{"hash": whole hash, "items": {key: {"hash", "status"}}}`` or
+    None; the CLI passes ``registry_items``) names a structured record's items (#127):
+    a blind pass whose runs carry ``items:`` is then decided per item
+    (:func:`decide_items`)."""
     rec_a = _canon_rec(rec_a, canon)
     rec_b = _canon_rec(rec_b, canon)
     dep_notes = []
@@ -1264,6 +1341,187 @@ def decide(rec_a, rec_b=None, established=(), primary=None, producer_role=None,
     res = _decide_canon(rec_a, rec_b, established, primary, producer_role, kind_of, base,
                         base_notes, canon, links_of, exists, tags_of)
     res["anomalies"] = dep_notes + list(res.get("anomalies") or [])
+    if not is_reword(rec_a) and not (is_amend(rec_a) or is_amend(rec_b)):
+        res = decide_items(res, rec_a, rec_b, established, primary, producer_role,
+                           kind_of, links_of, exists, canon, tags_of, items_of)
+    return res
+
+
+# ----------------------------------------------------------------------------
+# Per-item decisions (#127)
+# ----------------------------------------------------------------------------
+
+def registry_items(qid):
+    """``{"hash": whole hash, "items": {key: {"hash", "status", "modulo"}}}`` of a
+    structured record (#127) through the registry engine; None when it is not one or
+    cannot be read."""
+    ns, _, name = str(qid or "").partition(":")
+    if not name:
+        return None
+    try:
+        plugin = os.path.join(ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import federation, workspace as rws
+        info = rws.namespaces().get(ns)
+        home = info and info.get("home")
+        if not home or not os.path.isdir(str(home)):
+            return None
+        st = federation.store(ns, home)
+        rid, exact = st.lookup(name)
+        if rid is None or not exact:
+            return None
+        sv = st.structure(rid)
+        if not sv:
+            return None
+        return {"hash": st.statement_hash(rid),
+                "items": {k: {"hash": sv["hashes"].get(k), "status": v[0],
+                              "modulo": list(v[1])} for k, v in sv["items"].items()}}
+    except Exception:        # an unreadable registry: decided as a whole statement
+        return None
+
+
+def _item_rec(rec, key):
+    """Run ``rec`` read on item ``key`` alone: that item's verdict and modulo."""
+    if rec is None:
+        return None
+    it = (rec.get("items") or {}).get(key)
+    out = dict(rec)
+    out.pop("_eff", None)
+    out["items"] = {}
+    out["add_dependency"] = []
+    out["verdict"] = it["verdict"]
+    out["raw_verdict"] = it["verdict"]
+    out["modulo"] = list(it.get("modulo") or [])
+    if it["verdict"] in ("CONFIRMED", "PLAUSIBLE"):
+        out["blocking"] = ""
+    return out
+
+
+#: how far a per-item outcome has come: the whole outcome is the least-advanced
+_ITEM_FINAL = ("confirmed", "confirmed-modulo")
+
+
+def decide_items(res, rec_a, rec_b=None, established=(), primary=None, producer_role=None,
+                 kind_of=None, links_of=None, exists=None, canon=None, tags_of=None,
+                 items_of=None):
+    """The table per item (#127, the human's ruling of 2026-11-27): when the runs carry
+    ``items:``, each item is decided from the two runs' entries for it by the same rules
+    (:func:`_decide` on the item's verdict and modulo), and the whole outcome is derived:
+    every item confirmed -> ``confirmed``; every item confirmed or confirmed-modulo ->
+    ``confirmed-modulo``, modulo the union; an item awaiting B -> ``awaiting-b`` (B reviews
+    every item); every item the same other outcome -> that outcome; else ``per-item``
+    (no whole status; ``items`` lists each item's outcome and ``proposed_items`` the item
+    statuses to set). A run without ``items:`` on a structured record leaves today's
+    whole-statement decision, with a note. Each item's grounds carry ``item`` and, when
+    the runs' statement hash is the record's current one, ``item_hash`` (the keeper
+    checks it against the item's hash)."""
+    recs = [r for r in (rec_a, rec_b) if r is not None and not r.get("problems")]
+    if not recs:
+        return res
+    subject = (rec_a or {}).get("subject") or ""
+    reg = items_of(subject) if items_of is not None and subject else None
+    with_items = [r for r in recs if r.get("items")]
+    for r in recs:
+        for p in r.get("item_problems") or ():
+            res["anomalies"].append("run %s items: %s" % (r.get("run") or "?", p))
+    if not with_items:
+        if reg:
+            res["items_note"] = ("the record is structured (items %s) but no run gave an "
+                                 "`items:` line: decided on the whole statement"
+                                 % ", ".join(reg["items"]))
+            res["anomalies"].append(res["items_note"])
+        return res
+    keys = list(reg["items"]) if reg else list(with_items[0]["items"])
+    short = [r for r in recs if set(keys) - set(r.get("items") or {})]
+    if short:
+        res["items_note"] = ("run %s gave no `items:` entry for %s: decided on the whole "
+                             "statement" % (", ".join(r.get("run") or "?" for r in short),
+                                            ", ".join(sorted(set(keys) - set(
+                                                short[0].get("items") or {})))))
+        res["anomalies"].append(res["items_note"])
+        return res
+    extra = sorted(set().union(*[set(r["items"]) for r in recs]) - set(keys))
+    if extra:
+        res["anomalies"].append("items %s are not items of the record: ignored"
+                                % ", ".join(extra))
+    hyps = sorted(set().union(*[set(r.get("hypotheses_used") or ()) for r in recs]))
+    res["hypotheses_used"] = {r.get("run") or "?": list(r.get("hypotheses_used") or ())
+                              for r in recs}
+    whole_now = (reg or {}).get("hash")
+    run_hash = next((r.get("statement_hash") for r in recs if r.get("statement_hash")), "")
+    per = {}
+    for k in keys:
+        ia, ib = _item_rec(rec_a, k), _item_rec(rec_b, k)
+        r = _decide(ia, ib, established, primary, producer_role, kind_of, links_of,
+                    exists, canon, tags_of)
+        _route_items(r, ia, ib, producer_role)
+        g = r.get("grounds")
+        if g:
+            g["item"] = k
+            ih = ((reg or {}).get("items") or {}).get(k, {}).get("hash")
+            if ih and whole_now and run_hash == whole_now:
+                g["item_hash"] = ih
+            elif reg:
+                r["anomalies"].append("item %s: the statement changed since the runs (hash "
+                                      "%s, now %s): its grounds carry no item_hash"
+                                      % (k, run_hash or "?", whole_now or "?"))
+        per[k] = r
+    res["items"] = {k: {key: r.get(key) for key in (
+        "outcome", "proposed_status", "modulo", "pending_inputs", "grounds", "summary",
+        "file_items", "anomalies")} for k, r in per.items()}
+    res["proposed_items"] = {k: [r["proposed_status"]] + list(
+        r["modulo"] if r["proposed_status"] == "proved-modulo" else [])
+        for k, r in per.items() if r.get("proposed_status")}
+    outs = [r["outcome"] for r in per.values()]
+    union = []
+    for r in per.values():
+        for m in r.get("modulo") or ():
+            if m not in union and r["outcome"] == "confirmed-modulo":
+                union.append(m)
+    note = "; ".join("%s %s" % (k, r["outcome"]) for k, r in per.items())
+    if hyps:
+        note += "; hypotheses used: %s" % ", ".join(hyps)
+    res["file_items"] = [dict(it, item=k, text="item %s: %s" % (k, it.get("text") or ""))
+                         for k, r in per.items() for it in r.get("file_items") or ()]
+    whole = _grounds(recs, union, "per item (#127): " + note,
+                     producer_role_for(subject, producer_role)) if all(
+        o in _ITEM_FINAL for o in outs) else None
+    if all(o == "confirmed" for o in outs):
+        res.update(outcome="confirmed", proposed_status="proved", recolour=True, modulo=[],
+                   pending_inputs=[], grounds=whole, launch_b=False,
+                   summary="every item CONFIRMED x2: propose proved (%s)" % note)
+    elif all(o in _ITEM_FINAL for o in outs):
+        pend = sorted(set(m for m in union if m not in set(established or ())))
+        res.update(outcome="confirmed-modulo", proposed_status="proved-modulo",
+                   modulo=union, pending_inputs=pend, recolour=not pend, grounds=whole,
+                   launch_b=False,
+                   summary="every item CONFIRMED x2, modulo %s: propose proved-modulo "
+                           "(%s)" % (", ".join(union), note))
+    elif "awaiting-b" in outs:
+        res.update(outcome="awaiting-b", launch_b=True, proposed_status=None, grounds=None,
+                   recolour=False,
+                   summary="item(s) %s CONFIRMED in A: launch run B with the identical "
+                           "brief (it reviews every item; %s)"
+                           % (", ".join(k for k, r in per.items()
+                                        if r["outcome"] == "awaiting-b"), note))
+    elif len(set(outs)) == 1:
+        one = next(iter(per.values()))
+        res.update(outcome=outs[0], proposed_status=None, grounds=None, recolour=False,
+                   launch_b=False, needs_human=one.get("needs_human", False),
+                   summary="every item %s (%s)" % (outs[0], note))
+    else:
+        res.update(outcome="per-item", proposed_status=None, grounds=None, recolour=False,
+                   launch_b=False,
+                   needs_human=any(r.get("needs_human") for r in per.values()),
+                   summary="decided per item: %s; set the proposed item statuses (the "
+                           "record's status is derived from them)" % note)
+    # B after a GAP A is the sequencing of a structured record, not an anomaly
+    res["anomalies"] = [a for a in res["anomalies"]
+                        if "was launched after a non-positive run A" not in a]
+    for k, r in per.items():
+        res["anomalies"].extend("item %s: %s" % (k, a) for a in r.get("anomalies") or ()
+                                if "was launched after a non-positive run A" not in a)
     return res
 
 
@@ -2192,6 +2450,14 @@ def _text(res):
     if res.get("kept_definitions"):
         out.append("kept definitions (inputs of both runs, no notation-only tag): %s"
                    % ", ".join(res["kept_definitions"]))
+    for k, r in (res.get("items") or {}).items():
+        out.append("item %s: %s%s%s" % (k, r["outcome"],
+                                         (" -> propose %s" % r["proposed_status"])
+                                         if r.get("proposed_status") else "",
+                                         (" modulo %s" % ", ".join(r["modulo"]))
+                                         if r.get("modulo") else ""))
+    if res.get("items_note"):
+        out.append("items: %s" % res["items_note"])
     for it in res["file_items"]:
         r = it.get("route") or {}
         out.append("file (%s, run %s%s): %s%s" % (
@@ -2254,7 +2520,7 @@ def main(argv=None):
         return 2
     res = decide(ra, rb, _split_list(args.established), args.primary, args.producer_role,
                  base=base, base_notes=notes, exists=registry_exists,
-                 links_of=registry_links)
+                 links_of=registry_links, items_of=registry_items)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
