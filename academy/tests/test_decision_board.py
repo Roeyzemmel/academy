@@ -456,5 +456,225 @@ class DecideGuardTests(unittest.TestCase):
                                          "tool_input": {}}))
 
 
+# ----------------------------------------------------------------------------
+# (5) the rest: folded rulings, leads, session files, record-batch, ack, permissions
+# ----------------------------------------------------------------------------
+
+INFO_BODY = """
+## Summary
+
+For the record.
+
+## Produced
+
+- Nothing.
+
+## Established vs assumed
+
+- **Established:** none.
+
+## Evidence
+
+- n/a
+
+## Decisions needed
+
+None.
+
+## Machine notes
+
+None.
+
+## Decision
+"""
+
+
+class FoldTests(BoardCase):
+    def test_a_duplicate_ruling_ticket_is_folded_into_its_packet_question(self):
+        self.packet(kind="notation")
+        self.ticket(to="human", kind="decision", as_instance="expert@main",
+                    title="Recolour paper:lem:x now? (P-0001 D1)", ask="Rule on P-0001 D1.")
+        self.ticket(to="human", kind="decision", as_instance="expert@main",
+                    title="Something else", ask="Spend a run?")
+        items = dc.pending_decisions(self.board, workspace=self.ws)
+        self.assertEqual([i["id"] for i in items], ["P-0001/D1", "T-0002"])
+        self.assertEqual(items[0]["folded"], ["T-0001"])
+        out = dc.record(self.board, "P-0001/D1", "a", workspace=self.ws, date=DATE)
+        self.assertEqual(out["folded"], ["T-0001"])
+        m = meta_of(self.board, "T-0001")
+        self.assertEqual(m["status"], "delivered")
+        self.assertIn("P-0001 D1", m["result"])
+        self.assertEqual(m["decision_choice"], "(a) Yes, recolour now.")
+        self.assertEqual(meta_of(self.board, "T-0002")["status"], "open")
+
+    def test_a_bare_packet_id_folds_when_it_has_one_pending_decision(self):
+        self.packet(kind="notation")
+        self.ticket(to="human", kind="decision", as_instance="expert@main",
+                    title="Decide P-0001", ask="Please rule on P-0001.")
+        items = dc.pending_decisions(self.board, workspace=self.ws)
+        self.assertEqual([i["id"] for i in items], ["P-0001/D1"])
+
+    def test_no_internal_key_reaches_the_listing(self):
+        self.ticket(to="human", kind="decision", as_instance="expert@main", title="P-0009 D1")
+        self.assertNotIn("_mentions", dc.pending_decisions(self.board, workspace=self.ws)[0])
+
+    def test_a_decided_packet_folds_nothing(self):
+        self.packet(kind="notation")
+        dc.record(self.board, "P-0001/D1", "a", date=DATE)
+        self.ticket(to="human", kind="decision", as_instance="expert@main",
+                    title="Rule on P-0001 D1", ask="Rule on P-0001 D1.")
+        self.assertEqual([i["id"] for i in dc.pending_decisions(self.board,
+                                                                 workspace=self.ws)],
+                         ["T-0001"])
+
+    def test_a_work_ticket_naming_a_packet_is_not_folded(self):
+        self.packet(kind="notation")
+        self.blocked(kind="write", to="author@main", title="Agenda pass (P-0001 D1)")
+        ids = [i["id"] for i in dc.pending_decisions(self.board, workspace=self.ws)]
+        self.assertEqual(ids, ["P-0001/D1", "T-0001"])
+
+
+class AckTests(BoardCase):
+    def test_a_packet_with_no_decision_takes_a_plain_acknowledgement(self):
+        for n, word in enumerate((None, "ok", "proceed", "yes", "ack"), 1):
+            self.packet(body=INFO_BODY, kind="usage", subject=[], status_before=None,
+                        status_proposed=None, title="usage %d" % n)
+            out = dc.record(self.board, "P-%04d" % n, word, date=DATE)
+            self.assertTrue(out["decided"], word)
+
+    def test_the_cli_needs_no_choice_for_it(self):
+        self.packet(body=INFO_BODY, kind="usage", subject=[], status_before=None,
+                    status_proposed=None)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = dc.main(["--board", self.board, "--workspace", self.ws_path, "record",
+                          "P-0001"])
+        self.assertEqual(rc, 0)
+        self.assertTrue(json.loads(out.getvalue())["decided"])
+
+    def test_a_packet_that_asks_still_needs_its_letter(self):
+        self.packet(kind="notation")
+        with self.assertRaises(ac.AcademyError):
+            dc.record(self.board, "P-0001", None, date=DATE)
+
+
+class LeadTests(BoardCase):
+    def test_free_text_is_recorded_as_a_lead_line(self):
+        self.blocked(kind="verify")
+        dc.lead(self.board, "T-0001", "try the  Veech group\n of the L", date=DATE)
+        self.assertIn("lead: try the Veech group of the L", texts(self.board, "T-0001"))
+        self.assertEqual(meta_of(self.board, "T-0001")["status"], "blocked")   # not decided
+
+    def test_record_with_a_lead(self):
+        self.blocked(kind="verify")
+        dc.record(self.board, "T-0001", "proceed", lead="check EX-EW first", date=DATE)
+        t = texts(self.board, "T-0001")
+        self.assertIn("lead: check EX-EW first", t)
+
+    def test_a_packet_lead_goes_to_its_ticket(self):
+        path = self.ticket(to="expert@main", kind="verify")
+        tid = bd.read_ticket(path)[0]["id"]
+        self.packet(kind="notation", ticket=tid)
+        dc.lead(self.board, "P-0001/D1", "prefer (b) next time", date=DATE)
+        self.assertIn("lead: prefer (b) next time", texts(self.board, tid))
+
+
+class SessionFileTests(BoardCase):
+    def test_batches_written_and_the_phrasing_read_back(self):
+        self.blocked(kind="verify", title="one")
+        self.blocked(kind="cite", title="two")
+        out_dir = os.path.join(self.tmp, "decide")
+        bs = dc.batches(dc.pending_decisions(self.board, workspace=self.ws), size=1)
+        paths = dc.write_batches(bs, out_dir)
+        self.assertEqual([os.path.basename(p) for p in paths], ["batch-1.json", "batch-2.json"])
+        res = dc.read_phrased(out_dir)
+        self.assertEqual(res["missing"], [1, 2])
+        with open(os.path.join(out_dir, "batch-1.phrased.json"), "w", encoding="utf-8") as fh:
+            json.dump([{"id": bs[0][0]["id"], "header": "T-1", "question": "q?",
+                        "options": [{"label": "(a) Proceed"}]}], fh)
+        with open(os.path.join(out_dir, "batch-2.phrased.json"), "w", encoding="utf-8") as fh:
+            fh.write("not json")
+        res = dc.read_phrased(out_dir)
+        self.assertEqual(res["missing"], [2])
+        self.assertEqual(res["batches"][0]["phrased"][0]["header"], "T-1")
+        self.assertIn("2", " ".join(res["problems"]))
+
+    def test_phrasing_that_drops_an_id_is_a_problem(self):
+        self.blocked(kind="verify", title="one")
+        self.blocked(kind="cite", title="two")
+        out_dir = os.path.join(self.tmp, "decide")
+        dc.write_batches(dc.batches(dc.pending_decisions(self.board, workspace=self.ws)),
+                         out_dir)
+        with open(os.path.join(out_dir, "batch-1.phrased.json"), "w", encoding="utf-8") as fh:
+            json.dump([{"id": "T-0001", "header": "h", "question": "q", "options": []}], fh)
+        res = dc.read_phrased(out_dir)
+        self.assertTrue(any("T-0002" in p for p in res["problems"]), res)
+
+
+class RecordBatchTests(BoardCase):
+    def test_answers_recorded_in_one_call_with_a_results_file(self):
+        self.blocked(kind="verify")
+        self.blocked(kind="prove", to="researcher@r1", refs=["s1:A"])
+        self.blocked(kind="test", to="researcher@r1", refs=["s1:A"])
+        self.blocked(kind="cite")
+        answers = os.path.join(self.tmp, "answers-1.json")
+        with open(answers, "w", encoding="utf-8") as fh:
+            json.dump([{"id": "T-0001", "choice": "proceed", "lead": "fast"},
+                       {"ticked": ["T-0002"], "unticked": ["T-0003"]},
+                       {"id": "T-0004", "choice": "maybe"},
+                       {"id": "T-0099", "choice": "proceed"}], fh)
+        res = dc.record_batch(self.board, answers, workspace=self.ws, date=DATE)
+        self.assertEqual([r.get("error") is None for r in res["results"]],
+                         [True, True, False, False])
+        self.assertTrue(os.path.isfile(res["path"]))
+        with open(res["path"], encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["results"], res["results"])
+        self.assertEqual(meta_of(self.board, "T-0001")["status"], "accepted")
+        self.assertEqual(meta_of(self.board, "T-0002")["status"], "accepted")
+        self.assertEqual(meta_of(self.board, "T-0004")["status"], "blocked")
+
+
+class SecretaryWriteTests(unittest.TestCase):
+    def test_the_secretary_writes_only_its_phrasing(self):
+        import explainer_write_guard as g
+        ev = lambda tool, path: {"tool_name": tool, "agent_type": "academy:secretary",  # noqa: E731
+                                 "tool_input": {"file_path": path}}
+        self.assertIsNone(g.decide(ev("Write", "/s/decide/batch-3.phrased.json"), ws={}))
+        for tool, path in (("Write", "/s/decide/batch-3.json"), ("Edit", "/s/batch-1.phrased.json"),
+                           ("Write", "/h/.claude/pinned-release.txt")):
+            self.assertEqual(g.decide(ev(tool, path), ws={})[0], "deny", (tool, path))
+        self.assertIsNone(g.decide({"tool_name": "Write", "agent_type": "author:math-writer",
+                                    "tool_input": {"file_path": "/x.tex"}}, ws={}))
+
+
+class RecordTwiceTests(BoardCase):
+    def test_a_second_run_of_the_same_answers_changes_nothing(self):
+        self.blocked(kind="verify")
+        self.packet(kind="notation")
+        answers = os.path.join(self.tmp, "answers-1.json")
+        with open(answers, "w", encoding="utf-8") as fh:
+            json.dump([{"id": "T-0001", "choice": "proceed"},
+                       {"id": "P-0001/D1", "choice": "a"}], fh)
+        dc.record_batch(self.board, answers, workspace=self.ws, date=DATE)
+        before = texts(self.board, "T-0001")
+        _p, _m, pbody = dc.packetlib.get_packet(self.board, "P-0001")
+        res = dc.record_batch(self.board, answers, workspace=self.ws, date=DATE)
+        self.assertTrue(res["results"][0].get("error"))
+        self.assertEqual(texts(self.board, "T-0001"), before)
+        self.assertEqual(dc.packetlib.get_packet(self.board, "P-0001")[2], pbody)
+
+
+class PermissionTemplateTests(unittest.TestCase):
+    def test_bulk_record_is_allowlisted_once(self):
+        path = os.path.join(PLUGIN, "templates", "workspace", "permissions.json")
+        with open(path, encoding="utf-8") as fh:
+            table = json.load(fh)
+        for key in ("common",):          # the root's own key stays ship.py-only
+            rules = table[key]
+            for verb in ("record-batch", "record", "select"):
+                self.assertIn("Bash(py {ROOT}/academy/scripts/decisions.py %s:*)" % verb,
+                              rules, (key, verb))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -242,6 +242,23 @@ class UnroutedKindTests(unittest.TestCase):
         r = self.route(dict(T0351, ask="Reword item 2 per the human's word of 2026-11-15."))
         self.assertEqual("math-editor", r["target"])
 
+    def test_the_human_s_chosen_alternative_is_a_decided_edit(self):
+        """#86: an accepted question/other is not bounced back as a gate. The alternative the
+        human chose on /academy:decide (decision_choice) makes it a decided edit; a plain
+        acceptance keeps the writer, told not to block on the human for it again."""
+        ask = "Decide: drop the note, or a literature lookup and a one-line remark."
+        meta = dict(T0351, ask=ask, decision_choice="(a) drop the note")
+        self.assertTrue(routes.decided_edit(meta, human="Ada"))
+        self.assertEqual("math-editor", self.route(meta)["target"])
+        r = self.route(dict(T0351, decision_choice="proceed"))
+        self.assertEqual("math-writer", r["target"])
+        self.assertIn("accepted it", r["why"])
+        self.assertIn("never block on the human", r["why"])
+        for choice in ("not now (2026-11-27)", None):
+            m = dict(T0351, ask=ask, decision_choice=choice)
+            self.assertFalse(routes.decided_edit(m, human="Ada"))
+            self.assertNotIn("accepted it", self.route(m)["why"])
+
     def test_a_choice_still_open_is_not_a_decided_edit(self):
         for ask in ("Decide the repair: restrict the hypothesis, or recolour.",
                     "The wording is to be decided; see the reviewer's decision table.",

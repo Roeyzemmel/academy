@@ -24,6 +24,9 @@ Usage::
     py decisions.py policy [--dry-run] [--json] [--instance X]
     py decisions.py undo <T-id>
     py decisions.py select --ticked T-1,T-2 --unticked T-3 [--comment TEXT]
+    py decisions.py batches --json --out DIR        then  py decisions.py phrased DIR
+    py decisions.py record-batch DIR/answers-<n>.json
+    py decisions.py lead <id> TEXT
 
 ``record`` writes back via ``packets.decide_packet`` for a ``P-NNNN/Dk`` (or a bare
 ``P-NNNN`` with exactly one decision still pending), and via ``board.append_to_ticket``
@@ -58,6 +61,14 @@ is listed with them and a decline; ``record`` takes one of their letters or a de
 never a bare ``proceed`` (nor on a ticket with lettered options), and stores the choice on
 the ticket as ``decision_choice`` (a human-only field the resuming agent reads; plain
 ``proceed`` for a ticket with nothing to choose).
+
+**The rest of #86.** A ``decision`` ticket to the human that only repeats a pending packet
+decision (it names ``P-NNNN D<k>``) is folded into that packet item (``folded``) and
+delivered when the packet decision is recorded. Free text is a ``lead:`` thread line
+(``lead``, ``record --lead``). ``batches --out`` writes the batches for the secretary,
+whose phrasing ``phrased`` reads back; ``record-batch`` records a file of answers in one
+call and writes its results next to it (a second run refuses what is already recorded).
+A packet that asks no decision is acknowledged by ``record`` with no ``--choice``.
 
 ``accept-recommended`` only ever applies a **packet's own recorded** ``Recommendation:``
 line -- a raw ticket carries no such recommendation, so ticket-sourced items are never
@@ -426,6 +437,7 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
             "ticket_kind": t.get("kind"),
             "claim": next((str(x) for x in (t.get("refs") or []) if x), None),
             "category": category(t),
+            "_mentions": _mentions(t),
             "not_now": _not_now_date(t),
             "own_options": bool(own or alts),
             "unblocks": [str(b) for b in (t.get("blocks") or [])],
@@ -456,6 +468,81 @@ def _selectable(item):
             and not item.get("ruling") and not item.get("own_options"))
 
 
+#: a packet decision a ticket names: "P-0006 D2", "P-0006/D2", or a bare "P-0006"
+RE_PACKET_MENTION = re.compile(r"\b(P-\d{4,})(?:\s*/?\s*D(\d+)\b)?")
+
+
+def _mentions(t):
+    text = " ".join(str(t.get(k) or "") for k in ("title", "ask"))
+    return [(m.group(1), int(m.group(2)) if m.group(2) else None)
+            for m in RE_PACKET_MENTION.finditer(text)]
+
+
+def _foldable(item):
+    """A ticket that only duplicates a packet's question: a ``decision`` ticket to the
+    human (not a ruling, nothing of its own to choose)."""
+    return (item.get("source") == "ticket-human" and item.get("ticket_kind") == "decision"
+            and not item.get("ruling") and not item.get("own_options")
+            and not item.get("pinned"))
+
+
+def _fold(items):
+    """Fold each duplicate ruling ticket into the pending packet decision it names (#86):
+    the ticket leaves the list and the packet item carries it in ``folded``; recording the
+    packet decision delivers it (``_deliver_folded``). A bare ``P-NNNN`` folds only into a
+    packet with exactly one pending decision; a work ticket naming a packet never folds."""
+    pend = {}
+    for i in items:
+        if i.get("source") == "packet":
+            pid = str(i["ref"]).split("@", 1)[0]
+            pend.setdefault(pid, []).append(i)
+    out, folded = [], set()
+    for i in items:
+        if _foldable(i):
+            for pid, k in i.get("_mentions") or ():
+                cands = pend.get(pid) or []
+                hit = [p for p in cands if k is not None and p["id"].endswith("/D%d" % k)]
+                if k is None and len(cands) == 1:
+                    hit = cands
+                if hit:
+                    hit[0].setdefault("folded", []).append(i["id"])
+                    folded.add(i["id"])
+                    break
+    for i in items:
+        if i["id"] not in folded:
+            i.pop("_mentions", None)
+            out.append(i)
+    return out
+
+
+def _deliver_folded(board, pid, k, letter, option, date, bare_ok=False):
+    """Deliver the duplicate ruling tickets that name packet decision ``pid`` D``k`` (or the
+    bare ``pid`` when ``bare_ok``: it was the packet's only pending decision), with the
+    human's answer to it (the listing folded them into it)."""
+    done = []
+    base = pid.split("@", 1)[0]
+    for t in boardlib.list_tickets(board, to=ac.HUMAN, status="open"):
+        item = {"id": t["id"], "source": "ticket-human", "ticket_kind": t.get("kind"),
+                "own_options": bool(rulinglib.own_options(t)
+                                    or rulinglib.alternatives(t.get("ask")))}
+        named = [kk for p, kk in _mentions(t) if p == base]
+        if not _foldable(item) or not (k in named or (bare_ok and None in named)):
+            continue
+        if rulinglib.RE_ABOUT_INPUTS.search(" ".join(str(t.get(x) or "") for x in (
+                "title", "ask"))) and rulinglib.find_ruling(board, t["id"]):
+            continue                                 # a ruling of its own is never folded
+        chosen = "(%s) %s" % (letter, option) if option else "(%s)" % letter
+        boardlib.append_to_ticket(board, t["id"], "human decision: answered in %s D%d: %s "
+                                  "(this ticket duplicated the packet's question)"
+                                  % (base, k, chosen), as_instance=ac.HUMAN, date=date)
+        _set_choice(board, t["id"], chosen)
+        boardlib.transition_ticket(board, t["id"], "delivered", as_instance=ac.HUMAN,
+                                   date=date, result="answered in %s D%d: %s"
+                                   % (base, k, " ".join(chosen.split())[:200]))
+        done.append(t["id"])
+    return done
+
+
 def pending_decisions(board, instance=None, workspace=None, date=None):
     """Every pending decision (a)+(b)+(c) above, as a list of item dicts.
 
@@ -466,6 +553,7 @@ def pending_decisions(board, instance=None, workspace=None, date=None):
     items = _packet_items(board, instance)
     items += _ticket_items(board, instance, to_human=True, workspace=workspace)
     items += _ticket_items(board, instance, to_human=False, workspace=workspace)
+    items = _fold(items)
     if date:
         # "not now" on that day (an unticked multi-select item, #86): asked another day
         items = [i for i in items if i.get("not_now") != date]
@@ -763,16 +851,18 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
             text = "human decision: %s (the pinned statement's edit is accepted)" % chosen
     if comment.strip():
         text += " -- " + " ".join(comment.split())
-    boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
-    if proceed:
-        _set_choice(board, tid, chosen)
     old = meta.get("status")
     if old == "blocked":
         new = "accepted" if proceed else "cancelled"
     elif old == "open" and meta.get("to") == ac.HUMAN:
         new = "accepted" if proceed else "rejected"
     else:
+        # checked before anything is written: a second record of the same answer (a
+        # record-batch run again) is refused and leaves the ticket as it is
         raise ac.AcademyError("%s is not a pending human decision (status %s)" % (tid, old))
+    boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
+    if proceed:
+        _set_choice(board, tid, chosen)
     reason = (comment.strip() or "declined via /academy:decide") if new in (
         "rejected", "cancelled") else ""
     boardlib.transition_ticket(board, tid, new, reason=reason, as_instance=ac.HUMAN, date=date)
@@ -783,8 +873,43 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
     return out
 
 
+#: what acknowledges a packet that asks no decision (no ``--choice ack`` needed, #86)
+ACK_WORDS = ("", "none", "ack", "ok", "okay", "yes", "y", "proceed", "accept", "noted", "seen",
+             "acknowledge", "acknowledged", "a")
+
+
+def lead_line(board, tid, text, date=None):
+    """Record a free-text answer of the human's as a ``lead:`` thread line on the ticket
+    (#86): their own words, collapsed to one line; it decides nothing."""
+    text = " ".join(str(text or "").split())
+    if not text:
+        raise ac.AcademyError("%s: an empty lead" % tid)
+    boardlib.append_to_ticket(board, tid, "lead: " + text, as_instance=ac.HUMAN,
+                              date=date or ac.today())
+    return tid
+
+
+def _lead_packet(board, pid, text, date):
+    _p, meta, _b = packetlib.get_packet(board, pid)
+    tid = meta.get("ticket")
+    if not tid:
+        raise ac.AcademyError("%s has no ticket to carry the lead" % pid)
+    return lead_line(board, tid, text, date)
+
+
+def lead(board, item_id, text, date=None):
+    """The ``lead`` verb: a free-text answer recorded on the item's ticket (a packet's: its
+    ``ticket``), the item left pending."""
+    m = RE_PACKET_DECISION_ID.match(str(item_id))
+    if m or RE_PACKET_ID.match(str(item_id)):
+        return _lead_packet(board, m.group(1) if m else item_id, text, date or ac.today())
+    if ac.RE_TICKET_ID.match(str(item_id)):
+        return lead_line(board, item_id, text, date)
+    raise ac.AcademyError("id must look like P-0001/D1, P-0001 or T-0001, not %r" % item_id)
+
+
 def record(board, item_id, choice, comment="", workspace=None, date=None, action=None,
-           force=False):
+           force=False, lead=None):
     """Write back the human's answer to one pending decision. Returns a small dict.
 
     For a ticket, ``choice`` is a letter (its own when its ask carries lettered options,
@@ -795,9 +920,32 @@ def record(board, item_id, choice, comment="", workspace=None, date=None, action
     m = RE_PACKET_DECISION_ID.match(str(item_id))
     if m:
         pid, k = m.group(1), int(m.group(2))
+        _p, _meta, pbody = packetlib.get_packet(board, pid)
+        asked = ac.packet_decisions(pbody)
+        before = sorted(x for x in asked if x not in ac.packet_answers(pbody))
+        if not asked and k == 0 and str(choice or "").strip().lower().strip("()") in ACK_WORDS:
+            choice = "ack"           # #86: a packet that asks nothing takes a plain ack
+        prior = ac.packet_answers(pbody).get(k)
+        try:
+            same = prior and prior[0].strip("()") == packetlib._choice_letter(choice)
+        except ac.AcademyError:
+            same = False
+        if same:
+            # the same answer again (a record-batch run twice): refused, nothing doubled
+            raise ac.AcademyError("%s D%d is already recorded as %s" % (pid, k, prior[0]))
         path, kk, decided = packetlib.decide_packet(board, pid, choice, decision=k,
                                                      comment=comment, date=date)
-        return {"ref": pid, "decision": kk, "decided": decided, "path": path}
+        out = {"ref": pid, "decision": kk, "decided": decided, "path": path}
+        if kk and kk in asked:
+            letter = str(packetlib._choice_letter(choice)).strip("()")
+            folded = _deliver_folded(board, pid, kk, letter,
+                                     asked[kk]["options"].get(letter), date,
+                                     bare_ok=before == [kk])
+            if folded:
+                out["folded"] = folded
+        if lead:
+            out["lead"] = _lead_packet(board, pid, lead, date)
+        return out
     if RE_PACKET_ID.match(str(item_id)):
         _path, meta, body = packetlib.get_packet(board, item_id)
         asked, answers = ac.packet_decisions(body), ac.packet_answers(body)
@@ -807,9 +955,14 @@ def record(board, item_id, choice, comment="", workspace=None, date=None, action
             raise ac.AcademyError(
                 "%s has %d pending decision(s); name one as %s/D<k>"
                 % (item_id, len(pending), item_id))
-        return record(board, "%s/D%d" % (item_id, pending[0]), choice, comment, workspace, date)
+        return record(board, "%s/D%d" % (item_id, pending[0]), choice, comment, workspace, date,
+                      lead=lead)
     if ac.RE_TICKET_ID.match(str(item_id)):
-        return _record_ticket(board, item_id, choice, comment, date, workspace, action, force)
+        out = _record_ticket(board, item_id, choice, comment, date, workspace, action, force)
+        if lead:
+            lead_line(board, item_id, lead, date)
+            out["lead"] = item_id
+        return out
     raise ac.AcademyError(
         "id must look like P-0001/D1, P-0001 or T-0001, not %r" % item_id)
 
@@ -845,6 +998,105 @@ def select(board, ticked=(), unticked=(), comment="", date=None):
         _set_choice(board, tid, "not now (%s)" % date)
         out.append({"ref": tid, "status": boardlib.get_ticket(board, tid)[1].get("status")})
     return out
+
+
+# ----------------------------------------------------------------------------
+# Session files (#86): the batches, the secretary's phrasing, the answers
+# ----------------------------------------------------------------------------
+
+def write_batches(bs, out_dir):
+    """Write each batch to ``<out_dir>/batch-<n>.json`` (the secretary's input; it writes
+    its phrasing next to it as ``batch-<n>.phrased.json``, so a result lost in transit is
+    read back from the file). Returns the paths."""
+    os.makedirs(out_dir, exist_ok=True)
+    paths = []
+    for n, b in enumerate(bs, 1):
+        path = os.path.join(out_dir, "batch-%d.json" % n)
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(_wire(b) + "\n")
+        paths.append(path)
+    return paths
+
+
+def _phrased_ids(rows):
+    ids = []
+    for r in rows:
+        if isinstance(r, dict):
+            ids += [str(x) for x in (r.get("ids") or [])] if r.get("multiselect") else [
+                str(r.get("id"))]
+    return ids
+
+
+def read_phrased(out_dir):
+    """The secretary's phrasing of every batch in ``out_dir``: ``{"batches": [{"n",
+    "items", "phrased"}], "missing": [n...], "problems": [...]}``. A batch whose phrased
+    file is absent or unreadable is ``missing``; one whose phrasing leaves out an item is
+    a problem named by id (the skill asks those items from the batch file as they are)."""
+    out = {"batches": [], "missing": [], "problems": []}
+    names = sorted((int(m.group(1)), f) for f in os.listdir(out_dir)
+                   for m in [re.match(r"^batch-(\d+)\.json$", f)] if m) if os.path.isdir(
+        out_dir) else []
+    for n, f in names:
+        with open(os.path.join(out_dir, f), encoding="utf-8") as fh:
+            items = json.load(fh)
+        ph = os.path.join(out_dir, "batch-%d.phrased.json" % n)
+        rows = None
+        if os.path.isfile(ph):
+            try:
+                with open(ph, encoding="utf-8") as fh:
+                    rows = json.load(fh)
+            except ValueError as exc:
+                out["problems"].append("batch %d: the phrased file is not JSON (%s)" % (n, exc))
+        if not isinstance(rows, list):
+            out["missing"].append(n)
+            out["batches"].append({"n": n, "items": items, "phrased": None})
+            continue
+        lost = [str(i["id"]) for i in items if str(i["id"]) not in _phrased_ids(rows)]
+        if lost:
+            out["problems"].append("batch %d: no phrasing for %s" % (n, ", ".join(lost)))
+        out["batches"].append({"n": n, "items": items, "phrased": rows})
+    return out
+
+
+def record_batch(board, path, workspace=None, date=None):
+    """Record a file of answers in one call (#86: bulk ``record`` under one permission
+    rule, run in the background while the next batch is asked). ``path`` holds a JSON list;
+    each entry is ``{"id", "choice"?, "action"?, "comment"?, "lead"?, "force"?}`` (a
+    ``record``), ``{"id", "lead"}`` alone (a lead, nothing decided) or ``{"ticked": [...],
+    "unticked": [...]}`` (a ``select``). An entry that fails is reported and the rest go
+    on. The results are written to ``<path>.results.json`` (``answers-1.json`` ->
+    ``answers-1.results.json``), which the skill reads back."""
+    date = date or ac.today()
+    with open(path, encoding="utf-8") as fh:
+        entries = json.load(fh)
+    if not isinstance(entries, list):
+        raise ac.AcademyError("%s: a JSON list of answers" % path)
+    results = []
+    for e in entries:
+        try:
+            if not isinstance(e, dict):
+                raise ac.AcademyError("an answer is an object, not %r" % (e,))
+            if "ticked" in e or "unticked" in e:
+                r = {"select": select(board, e.get("ticked") or [], e.get("unticked") or [],
+                                      e.get("comment") or "", date=date)}
+            elif e.get("lead") and e.get("choice") in (None, "") and not e.get("action"):
+                r = {"ref": e["id"], "lead": lead(board, e["id"], e["lead"], date=date)}
+            else:
+                r = record(board, e.get("id"), e.get("choice"), e.get("comment") or "",
+                           workspace, date, action=e.get("action"),
+                           force=bool(e.get("force")), lead=e.get("lead"))
+            r = dict(r, id=e.get("id")) if e.get("id") else r
+        except (ac.AcademyError, OSError, KeyError) as exc:
+            r = {"id": (e or {}).get("id") if isinstance(e, dict) else None,
+                 "error": str(exc)}
+        r.pop("path", None)
+        results.append(r)
+    stem = path[:-5] if path.endswith(".json") else path
+    out_path = stem + ".results.json"
+    with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump({"results": results}, fh, ensure_ascii=False, indent=1)
+        fh.write("\n")
+    return {"results": results, "path": out_path}
 
 
 def accept_recommended(board, mechanical_only=False, dry_run=False, workspace=None, date=None):
@@ -947,6 +1199,19 @@ def main(argv=None):
     p = sub.add_parser("batches", help="pending decisions grouped into batches")
     p.add_argument("--size", type=int, default=4); p.add_argument("--json", action="store_true")
     p.add_argument("--instance")
+    p.add_argument("--out", help="also write each batch to OUT/batch-<n>.json (the "
+                                 "secretary writes OUT/batch-<n>.phrased.json)")
+
+    p = sub.add_parser("phrased", help="read back the secretary's phrasing of the batches "
+                                       "in a --out directory")
+    p.add_argument("dir")
+
+    p = sub.add_parser("record-batch", help="record a JSON file of answers in one call; the "
+                                            "results go to <file>.results.json")
+    p.add_argument("file")
+
+    p = sub.add_parser("lead", help="record a free-text answer as a lead: thread line")
+    p.add_argument("id"); p.add_argument("text")
 
     p = sub.add_parser("record", help="record the human's answer to one decision")
     p.add_argument("id")
@@ -959,6 +1224,7 @@ def main(argv=None):
                    help="record a ruling's answer over an earlier, different one that was "
                         "acted on (a re-run needs no --force)")
     p.add_argument("--comment", default="")
+    p.add_argument("--lead", help="the human's free text, also recorded as a lead: line")
 
     p = sub.add_parser("accept-recommended", help="accept every packet's own recommendation")
     p.add_argument("--mechanical-only", action="store_true")
@@ -1004,6 +1270,8 @@ def main(argv=None):
                 print("%d pending decision(s)" % len(items))
         elif a.cmd == "batches":
             bs = batches(pending_decisions(board, a.instance, ws, date=ac.today()), a.size)
+            if a.out:
+                write_batches(bs, a.out)
             if a.json:
                 print(_wire(bs))
             else:
@@ -1012,13 +1280,25 @@ def main(argv=None):
                     for i in b:
                         print("  " + _fmt_item(i))
         elif a.cmd == "record":
-            if a.choice is None and a.action is None:
+            packet = RE_PACKET_DECISION_ID.match(a.id) or RE_PACKET_ID.match(a.id)
+            if a.choice is None and a.action is None and not packet:
                 raise ac.AcademyError("record needs --choice or --action")
-            if RE_PACKET_DECISION_ID.match(a.id) or RE_PACKET_ID.match(a.id):
-                if a.choice is None or a.action is not None:
-                    raise ac.AcademyError("a packet decision takes --choice <letter> only")
+            if packet and a.action is not None:
+                raise ac.AcademyError("a packet decision takes --choice <letter> only (none "
+                                      "for a packet that asks no decision)")
             print(json.dumps(record(board, a.id, a.choice, a.comment, ws, action=a.action,
-                                    force=a.force), ensure_ascii=False))
+                                    force=a.force, lead=a.lead), ensure_ascii=False))
+        elif a.cmd == "phrased":
+            print(_wire(read_phrased(a.dir)))
+        elif a.cmd == "record-batch":
+            res = record_batch(board, a.file, ws)
+            bad = [r for r in res["results"] if r.get("error")]
+            print("%d answer(s) recorded, %d refused; results: %s" % (
+                len(res["results"]) - len(bad), len(bad), res["path"]))
+            for r in bad:
+                print("  %s: %s" % (r.get("id") or "-", r["error"]))
+        elif a.cmd == "lead":
+            print(json.dumps({"lead": lead(board, a.id, a.text)}, ensure_ascii=False))
         elif a.cmd == "policy":
             done = apply_policy(board, ws, dry_run=a.dry_run, instance=a.instance)
             if a.json:
