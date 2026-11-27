@@ -1824,15 +1824,43 @@ class TestRegistryBackend(McpTestBase):
             self.assertIn("verdict | reviews/pm/%s.md | CONFIRMED | r%s | grader "
                           "rigor-reviewer" % (r, r), got)        # a v2 record's rows
         self.assertIn("| proved-modulo | proof review (CONFIRMED rA, CONFIRMED rB)", got)
-        # the same verdicts carry it on to proved once the input is in, and modulo goes
+        # the same verdicts do not carry it on to proved by themselves: that is a
+        # discharge (#127), applied by the server once every input is proved
         err, msg = set_to("proved", dict(g, modulo=["lab:ew"]))
         self.assertTrue(err)
-        err, res = set_to("proved", g)
+        err, msg = set_to("proved", g)
+        self.assertTrue(err)
+        self.assertIn("is a discharge", msg)
+        err, msg = set_to("proved", {"basis": "discharge"})
+        self.assertTrue(err)
+        self.assertIn("lab:ew is open", msg)                 # the input is still open
+        self.assertIn("status: proved-modulo", text())
+        # an input that is proved: the discharge writes proved, drops modulo, and adds
+        # one discharge row and a history row; the reviews stay
+        write(os.path.join(lab, "claims", "lab", "pmin.md"),
+              "---\nid: lab:pmin\nkind: claim\ntitle: PM input\nstatus: proved\n"
+              "lifecycle: active\nevidence:\n  - verdict | reviews/pm/A.md | CONFIRMED "
+              "| rA | grader rigor-reviewer\nhistory:\n  - 2026-09-28 | proved | the "
+              "human's word\n---\nBody.\n")
+        write(path, text().replace("  - lab:ew\n", "  - lab:pmin\n"))
+        # the keeper finds it as a `modulo` dependant of the input
+        err, res = s.call("claims_deps", id="lab:pmin", reverse=True)
         self.assertFalse(err, res)
+        self.assertIn(("lab:pm", "modulo"), [(e["from"], e["rel"]) for e in res["edges"]])
+        err, res = set_to("proved", {"basis": "discharge"})
+        self.assertFalse(err, res)
+        self.assertEqual((res["old"], res["new"]), ("proved-modulo", "proved"))
         got = text()
         self.assertIn("status: proved\n", got)
         self.assertNotIn("modulo:", got)
+        self.assertIn("discharge | lab:pmin | proved | - | inputs established", got)
+        self.assertIn("| proved | discharged: inputs lab:pmin proved", got)
         self.assertEqual(got.count("verdict | reviews/pm/A.md"), 1, got)
+        # only claim-keeper (or the human) discharges
+        err, msg = s.call("claims_set_status", caller="researcher:prover", id="lab:pm",
+                          status="proved", grounds={"basis": "discharge"})
+        self.assertTrue(err)
+        self.assertIn("not granted to prover", msg)
 
     def test_s1_set_status(self):
         s = self.server("researcher@t")

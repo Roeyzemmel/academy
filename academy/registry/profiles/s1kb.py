@@ -728,13 +728,13 @@ def _check_v2(kb, e):
         if bare and ":" not in bare and (kb.rules.looks_like_id(bare) or s != bare
                                          or lookup(kb, bare)[0] is not None):
             _check_ref(kb, e, "modulo", bare)
-        elif s and _schema.looks_like_id(s):
-            pass
+        elif s and (_schema.looks_like_id(s) or s.startswith("bib:")):
+            pass            # another home's id; a card pinpoint (discharged by its card)
         else:
-            # plan section 6: `modulo: [ids]`, promoted along the graph once the target
-            # is proved; free text cannot be followed
+            # plan section 6: `modulo: [ids]`, discharged along the graph once the
+            # target is proved (registry.py discharge, #127); free text cannot be followed
             kb.warn(e.path, f"modulo: {str(item)[:60]!r} is not a record id, so the claim "
-                            "cannot be promoted along the graph when its input is proved")
+                            "cannot be discharged along the graph when its input is proved")
     for key in ("supersedes", "bears_on"):
         for ref in v.get(key) or []:
             if isinstance(ref, str) and ":" not in ref:
@@ -2156,6 +2156,49 @@ def rewrite_status_v2(p: Path, label, vrow, note, old, human=None, modulo=None):
     doc.save()
 
 
+def discharge(root, text, date=None):
+    """Discharge (#127) the schema-v2 claim ``text``: proved-modulo -> proved once every
+    input of its ``modulo`` is established (``core.discharge``, assessed here, never
+    taken from a caller). Writes the status, removes ``modulo``, adds the ``discharge``
+    evidence row and a history row; the kb must still build, else the file is put back
+    byte for byte. Returns the assessment; raises ValueError with the reasons."""
+    from ..core import discharge as _dis
+    from ..core import federation as _fed
+    from ..core import grounds as _gr
+    kb = load_kb(root)
+    eid, _ = lookup(kb, text)
+    if eid is None:
+        raise ValueError(f"no entity or alias matches '{text}'")
+    e = kb.entities[eid]
+    if e.v2 is None:
+        raise ValueError(f"{eid} is a schema-v1 record: it keeps no modulo list to follow")
+    ns = _own_prefixes(kb)[0][:-1]
+    _fed.CACHE.clear()
+    a = _dis.assess(f"{ns}:{eid}", Path(kb.root))
+    if not a["dischargeable"]:
+        raise ValueError(f"{ns}:{eid} cannot be discharged:\n- " + "\n- ".join(a["problems"]))
+    ok, why = _gr.check_grounds("proved", _dis.grounds(a))
+    if not ok:
+        raise ValueError("the discharge grounds fail:\n- " + "\n- ".join(why))
+    path = kb.root / e.path
+    before = path.read_bytes()
+    doc = _Doc(path, _fm.format_scalar_single)
+    doc.set_scalar("status", "proved", after=("form", "kind", "title"))
+    doc.remove("modulo")
+    doc.add_item("evidence", _dis.evidence_row(a), after=V2_ORDER[:V2_ORDER.index("evidence")])
+    doc.add_item("history", _schema.history_row(date or today(), "proved", _dis.history_note(a)),
+                 first=True, after=("evidence",))
+    doc.save()
+    built = load_kb(root)
+    if do_build(built, quiet=True):
+        path.write_bytes(before)
+        first = "; first error: " + built.errors[0] if built.errors else ""
+        raise ValueError(f"refused: the kb does not build with {eid} at proved{first}; "
+                         f"{e.path} unchanged")
+    _fed.CACHE.clear()
+    return a
+
+
 def cmd_set_status(args) -> int:
     kb = load_kb(args.root)
     eid0, _ = lookup(kb, args.id)
@@ -2779,6 +2822,8 @@ def _edges_of(kb, e):
         for ref in e.v2.get("modulo") or []:
             if isinstance(ref, str) and lookup(kb, ref)[0]:
                 yield lookup(kb, ref)[0], "modulo"
+            elif isinstance(ref, str) and _schema.looks_like_id(ref.strip()):
+                yield ref.strip(), "modulo"         # another home's input (#127)
     for p in e.meta.get("cleared_by", []) if isinstance(e.meta.get("cleared_by"), list) else []:
         yield verdict_id(kb, p), "cleared_by"
     lvl = e.meta.get("level")

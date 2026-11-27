@@ -86,7 +86,17 @@ never ask it to.
 2. `claims_check` on the namespace: report any new error.
 3. `claims_deps` with `reverse: true, transitive: true`: list every dependant that
    now rests on a weaker or refuted input.
-4. Close the loop on the ticket with `tickets_update`: the result line, then
+4. **Discharge**, after any status became `proved` (#127; a mechanical rule, no
+   judgement): `claims_deps {id: <that id>, reverse: true}` and, for each dependant
+   that is `proved-modulo` and reaches it by `modulo`, `claims_set_status {id:
+   <dependant>, status: proved, grounds: {basis: discharge}}`. The server resolves the
+   dependant's inputs itself: it writes `proved` when every one is established (proved,
+   a matching card, a notation-only definition), and otherwise refuses with the inputs
+   still open (free text, an open or proved-modulo input, a citation without a matching
+   card): report them, never promote by hand (proved on the reviews that gave
+   `proved-modulo` is refused without a discharge). Repeat for each record discharged:
+   a chain goes bottom-up.
+5. Close the loop on the ticket with `tickets_update`: the result line, then
    `delivered` (or `rejected` with the reason when the grounds are missing).
 
 For a `paper:` claim, the status must agree with the draft colour; you never recolour
@@ -96,4 +106,5 @@ the draft — report a disagreement for the Author.
 
 For each request: the id, old -> new status (or "unchanged"), the grounds as found
 (file and entry), the evidence rows added, the `claims_check` output, the dependants,
-and anything refused and why.
+the records discharged and those held (with their blocking inputs), and anything refused
+and why.
