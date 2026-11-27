@@ -2008,6 +2008,22 @@ class BasePassOnAnotherBranchTests(unittest.TestCase):
         self.assertIn("folder", notes[0])
         self.assertIn("2026-11-23/t-1957/expert", notes[0])
 
+    def test_a_reword_base_on_another_branch_is_named(self):
+        # #127 with #130: a chain's reword link holds R.md and decision.md, no A or B
+        r = os.path.join(self.repo, "reviews", "paper", "lem-x", "2026-11-24-T-1960")
+        os.makedirs(r)
+        with open(os.path.join(r, "R.md"), "w") as fh:
+            fh.write("run\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "reword run")
+        self.git("switch", "-q", "-c", "2026-11-24/t-1960/expert")
+        with open(os.path.join(r, "decision.md"), "w") as fh:
+            fh.write("decision\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "reword decision")
+        self.git("switch", "-q", "main")
+        self.assertIn("complete on 2026-11-24/t-1960/expert", dt.elsewhere(r))
+
     def test_no_note_when_the_checkout_has_it_or_no_branch_does(self):
         self.git("switch", "-q", "2026-11-23/t-1957/expert")
         self.assertEqual(dt.branches_holding(self.d), [])

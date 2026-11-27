@@ -1865,9 +1865,16 @@ def branches_holding(path, files=("decision.md", "A.md", "B.md")):
             if not any(line.endswith(" missing") for line in out[k * n:(k + 1) * n])]
 
 
+#: the files of a complete reword pass (#127: a reword base has R.md, no A.md or B.md)
+REWORD_FILES = ("decision.md", "R.md")
+
+
 def elsewhere(d):
-    """A note naming the branches that hold the pass ``d`` the checkout lacks, or ''."""
+    """A note naming the branches that hold the pass ``d`` the checkout lacks, or '': a
+    blind pass (decision, A, B) or a reword pass (decision, R), as a chain's links are."""
     held = branches_holding(d)
+    if not held and not os.path.isfile(os.path.join(d, "A.md")):
+        held = branches_holding(d, REWORD_FILES)
     if not held:
         return ""
     return ("; the pass is complete on %s, not on the checked-out branch: merge that branch "
