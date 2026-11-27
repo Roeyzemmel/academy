@@ -224,6 +224,7 @@ const NESTED_COST = { 'expert:verify': 3, 'researcher:review-experiment': 3, 're
   'researcher:prove': 2, 'researcher:generalize': 2, 'expert:cite': 1, 'expert:domain': 1, 'expert:referee': 1, 'author:notes': 1 }
 function costOf(row, i) {
   const rt = row.route || {}
+  if (row.partial) return row.park ? 0 : 1                              // its sender's decider (#100 review, point 6); parked: a clerk move
   if (row.return || row.released || rt.how === 'reject' || rt.how === 'human' || rt.how === 'wait') return 0   // clerk moves only
   if (i.role === 'expert' && rt.target === 'clerk') return 2            // the clerk, and the librarian if it escalates
   if (i.role === 'scientist' && rt.target === 'developer') return 4     // developer and test-engineer, two rounds
@@ -271,7 +272,10 @@ const ROW = {
     budget_runs: { type: 'number' },
     // #124: why is asked for, never required (a clerk that leaves it out would lose the list); read as 'no reason given'
     route: { type: 'object', properties: { how: { type: 'string' }, target: { type: ['string', 'null'] }, why: { type: 'string' } }, required: ['how', 'target'] },
-    return: { type: 'boolean' }, released: { type: 'boolean' }, over_budget: { type: ['string', 'null'] },
+    return: { type: 'boolean' }, released: { type: 'boolean' },
+    partial: { type: 'boolean', description: 'a partial ticket this instance sent, back with it (#100); false when absent' },
+    reopens: { type: 'number', description: 'a partial row: its reopens so far; 0 when absent' },
+    park: { type: 'boolean', description: 'a partial row reopened twice: it goes to the human; false when absent' }, over_budget: { type: ['string', 'null'] },
   },
   required: ['id', 'kind', 'status', 'from', 'to', 'final_to', 'refs', 'budget_runs', 'route', 'return', 'released', 'over_budget'],
 }
@@ -291,7 +295,7 @@ const CHECK = { type: 'object', properties: { exit: { type: 'number', descriptio
   status: { type: 'string' }, output: { type: 'string', description: 'the command output, verbatim' }, detail: { type: 'string' } }, required: ['exit', 'status', 'output'] }
 // the check's verdict is read from its own first line ("T-NNNN: <state> (<status>)"), not from the clerk's reading
 // of it (live run 2026-10-31: a refused checkpoint made the clerk report exit 3 for a delivered ticket)
-const FINISHED = /^(delivered|closed|rejected|cancelled)$/
+const FINISHED = /^(delivered|partial|closed|rejected|cancelled)$/
 function readCheck(chk, id) {
   if (!chk) return null
   const m = new RegExp('^' + id + ': (\\S+) \\(([^)]+)\\)', 'm').exec(String(chk.output || ''))
@@ -427,7 +431,7 @@ async function listAll(pass) {
     // (live runs 2026-10-31: 304 rows, four instances lost): --ids filters in the script (the ids and their children)
     `py <academy>/<role>/scripts/inbox.py --instance <name> --json${A.ids && A.ids.length ? ' --ids ' + [...new Set([...A.ids, ...(A.follow ? [...followed, ...children] : [])])].join(',') : ''}${A.n ? ' --n ' + A.n : ''}${A.campaign ? ' --campaign ' + A.campaign : ''}${A.cowork ? ' --cowork ' + A.cowork : ''} (academy = ${ROOT}).`,
     'Return every instance (one entry each, even with no rows) with its "home" copied verbatim from the script\'s JSON (never a path you know otherwise: the workspace\'s checkout, #116), ' +
-    'and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent), and "waiting".',
+    'and every row of "take" with the fields asked (final_to empty when none; budget_runs from budget.runs, 1 when absent; released false when absent; partial, park false and reopens 0 when absent), and "waiting".',
   ]
   let listed = await clerk('list', lines, LIST, label)
   if (!listed) return null
@@ -543,7 +547,8 @@ async function relayReturn(row, inst) {
   // mechanical: no relay agent. The child is closed by its sender (this instance), the
   // parent goes blocked -> in-progress -> delivered (blocked -> delivered is no transition)
   const m = await move(row, inst,
-    'return-leg: tickets_get the ticket; its child is the id in waiting_on. tickets_get the child. If the child is delivered, ' +
+    'return-leg: tickets_get the ticket; its child is the id in waiting_on. tickets_get the child. If the child is partial (#100: work done, deliverable not met), ' +
+    'move it closed (act as the child\'s from), then move this ticket blocked -> in-progress -> partial (status partial, act as its receiver) with result "partial: <the child id>: <the child\'s result>" and stop. If the child is delivered, ' +
     'move it closed (act as the child\'s from). Then move this ticket blocked -> in-progress -> delivered (deliver: true) with result ' +
     '"child <id> <its status>[; packets <ids>]"; a rejected or cancelled child is named as such.', `${row.id} return leg`)
   return { outcome: m && m.ok ? 'delivered (return leg)' : 'unfinished', detail: m ? m.detail : 'lost' }
@@ -768,6 +773,21 @@ async function handle(row, i) {
     const r = await move(row, inst, 'release: blocked -> accepted (everything it waited on is back)')
     if (!r || !r.ok) return { outcome: 'unfinished', detail: 'release failed' }
   }
+  if (row.partial && row.park) {
+    // re-review of ca04c0e, finding B: partial again after two reopens: the human decides
+    const m = await move(row, inst, `block-human: blocked, waiting_on ["human"], reason "${why.replace(/"/g, "'").slice(0, 300)}"`, `${row.id} park`)
+    return { outcome: m && m.ok ? 'parked on the human' : 'unfinished', detail: why }
+  }
+  if (row.partial) {
+    // review of dd0fcd1, point 6: a partial ticket this instance sent (to another or to itself) is back with it
+    const choices = row.reopens
+      ? 'It was reopened before: close it as it stands (status closed), or leave it partial and only append the thread note "partial: left for the human" (no status move); never reopen it again, and file nothing.'
+      : 'Reopen it for the receiver (tickets_update status in-progress with a reason saying what is still wanted), close it as it stands (status closed), or cancel it (status cancelled, with a reason). Make exactly one of these moves.'
+    const r = await launch(`WORKFLOW INBOX: the ticket ${row.id} that ${inst} sent to ${row.to} came back partial (the work done, the deliverable not met): ${why}. ` +
+      `Read it (tickets_get) and decide as its sender (instance=${inst}). ${choices} Return what you did and why in one line.`,
+      { label: `${rt.target} ${row.id} (partial)`, phase: 'Tickets', agentType: `${i.role}:${rt.target}` })
+    return r === null ? { lost: true } : { outcome: 'partial decided', detail: String(r).split('\n')[0] }
+  }
   if (rt.how === 'reject' && !rt.why) {      // a terminal move needs its reason: without one the human decides (review of 0da42c3)
     return { for_main: { why: `${row.id}: the route says reject but gives no reason; reject it with one, or route it`, ticket: row.id, instance: inst } }
   }
@@ -866,7 +886,7 @@ async function handle(row, i) {
       const claim = firstRef(row, /^[a-z][a-z0-9]*:\S+$/) || firstRef(row, /^[A-Z][A-Z0-9]*-\S+$/)
       if (!claim) return { for_main: { why: 'a prove ticket whose refs name no claim', ticket: row.id, instance: inst } }
       const r = await workflow({ scriptPath: NESTED[rt.target] }, { models: await modelsMap(), nested: true, root: ROOT, claim, ticket: row.id, home: i.home, instance: inst })
-      if (r && r.already_proved) return { for_main: { why: `${claim} is proved and the ticket was not read as a repair (#85): if it asks for one, run prove.js with these args (mode repair); else deliver or cancel ${row.id} (still in-progress)`,
+      if (r && r.already_proved) return { for_main: { why: `${claim} is proved and the ticket was not read as a repair (#85): if it asks for one, run prove.js with these args (mode repair); else deliver ${row.id} with a result starting "already proved: " (the marker --check accepts for a delivery with no attempt, #100) or cancel it (still in-progress)`,
         ticket: row.id, instance: inst, skill: 'researcher:prove', claim, mode: 'repair', handback: 'prove',
         args: { claim, ticket: row.id, home: i.home, instance: inst, root: ROOT, mode: 'repair' } } }
       return { outcome: r ? r.outcome : 'unfinished', detail: r ? (r.verify_ticket || r.reason || '') : 'lost', nested: r }
@@ -1015,8 +1035,19 @@ for (let pass = 1; pass <= MAX_PASSES; pass++) {
       // a ticket that ends blocked is parked (on its child, on the human, on a dead route): --check's exit 3 is
       // then its expected end, not unfinished work (live run 2026-10-31 closed the Expert on it)
       const parkedOk = chk && chk.exit === 3 && chk.status === 'blocked'
-      const unfinished = !chk || (chk.exit === 3 && !parkedOk)
+      // #100 review, point 5: a delivery without its artefact is moved to partial by --check itself
+      // (exit 0); one it could not move is that ticket's matter, never the instance's unfinished work
+      const noArtefact = !!chk && /no artefact/.test(String(chk.output || ''))
+      // point 6: a partial ticket its sender reopened is the receiver's in-progress work again
+      const reopened = !!row.partial && !!chk && chk.status === 'in-progress'
+      const unfinished = !chk || (chk.exit === 3 && !parkedOk && !noArtefact && !reopened)
       let outcome = unfinished ? 'unfinished' : res.outcome
+      if (noArtefact) {
+        const why = (String(chk.output).split(/\r?\n/).find(l => /no artefact/.test(l)) || '').trim().slice(0, 300)
+        outcome = chk.status === 'partial' ? 'partial (no artefact)' : 'delivered without its artefact'
+        notes.push(`${row.id}: ${chk.status === 'partial' ? 'delivered without its artefact, moved to partial by --check' : 'delivered without its artefact and could not be moved to partial: mark it partial by hand'}: ${why}`)
+        if (chk.exit === 3) stuck.add(row.id)
+      }
       if (unfinished) {
         stuck.add(row.id)
         const n = (unfinishedBy.get(i.name) || 0) + 1

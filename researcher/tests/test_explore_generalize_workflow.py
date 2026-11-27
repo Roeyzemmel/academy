@@ -151,6 +151,20 @@ class ExploreTests(unittest.TestCase):
         self.assertEqual(res["anomalies"], [])
         self.assertTrue(res["ticket_delivered"])
 
+    def test_a_falsifier_after_an_incomplete_attempt_marks_the_ticket_partial(self):
+        """#100 part 1: the attempt is not complete, so the deliverable is not met."""
+        lead = {"items": [item("Q", "falsify", tickets=["T-1"], after="proofs/Q/attempt-2.md")], "report": "r", "next_picks": []}
+        res, labels, calls, err = run("explore.js", {"start": [OK], "lead": [lead], "journal": [dict(JOURNAL, mentions=["Q"], found=["T-1"])],
+                                                     "trigger Q": [dict(FAILED, outcome="incomplete", gaps=1)], "get T-1": [GOOD_FALSIFIER], "close": [OK]},
+                                      dict(H, ticket="T-0600"))
+        self.assertIsNone(err, err)
+        self.assertEqual(res["outcome"], "partial")
+        self.assertTrue(res["ticket_partial"])
+        self.assertFalse(res["ticket_delivered"])
+        p = next(c for c in calls if c["label"] == "close")["prompt"]
+        self.assertIn("status partial", p)
+        self.assertIn("proofs/Q/attempt-2.md incomplete", p)
+
     def test_a_prove_step_is_handed_back_never_delivered(self):
         """#87: the lead cannot launch prover inside the run; the prove step comes back as
         /researcher:prove with its args, the way the inbox hands back a lead (T-1271)."""

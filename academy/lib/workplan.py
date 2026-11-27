@@ -42,7 +42,8 @@ import os
 import re
 
 KINDS = ("campaign", "cowork")
-TERMINAL = ("delivered", "closed", "rejected", "cancelled")
+#: a partial ticket (#100: work done, deliverable not met) is back: the next actor is its sender
+TERMINAL = ("delivered", "partial", "closed", "rejected", "cancelled")
 OPEN = ("open", "accepted", "in-progress", "blocked")
 STATES = ("ACTIVE", "WAITING", "PAUSE", "DONE")
 HUMAN = "human"

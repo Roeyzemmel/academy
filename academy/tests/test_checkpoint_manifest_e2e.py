@@ -53,7 +53,8 @@ class ManifestEndToEnd(unittest.TestCase):
             json.dump({"board": self.board.replace("\\", "/"), "instances": {
                 "expert@t": {"role": "expert", "home": self.lib, "domains": ["d"]},
                 "author@t": {"role": "author", "home": self.paper, "domains": ["d"],
-                             "ns": "paper"}}}, f)
+                             "ns": "paper"}},
+                "artefactCheck": False}, f)  # checkpoint tests: #100's artefact check has its own (test_delivery_artefacts)
         self.root_remote = os.path.join(self.tmp, "root-remote.git")
         run(self.tmp, "init", "-q", "--bare", "-b", "main", self.root_remote)
         run(self.root, "remote", "add", "origin", self.root_remote)

@@ -54,7 +54,8 @@ class Base(unittest.TestCase):
 
     def write_ws(self, **extra):
         ws = {"board": self.board.replace("\\", "/"), "instances": {
-            INST: {"role": "scientist", "home": self.lab, "domains": ["d"]}}}
+            INST: {"role": "scientist", "home": self.lab, "domains": ["d"]}},
+            "artefactCheck": False}  # checkpoint tests: #100's artefact check has its own (test_delivery_artefacts)
         ws.update(extra)
         with open(self.ws_path, "w") as f:
             json.dump(ws, f)

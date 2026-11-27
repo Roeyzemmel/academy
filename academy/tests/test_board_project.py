@@ -30,11 +30,13 @@ class TestSpec(unittest.TestCase):
              "experiment", "test", "code", "notation", "referee", "build", "figure",
              "decision", "question", "research", "note", "write", "apply", "copy",
              "sweep", "other"], names(bp.build(), "Kind"))
-        self.assertEqual(["Todo", "Accepted", "In Progress", "Delivered", "Done", "Blocked"],
+        self.assertEqual(["Todo", "Accepted", "In Progress", "Delivered", "Done", "Blocked",
+                          "Partial"],
                          names(bp.build(), "Status"))
         self.assertEqual({"open": "Todo", "accepted": "Accepted", "in-progress": "In Progress",
                           "delivered": "Delivered", "blocked": "Blocked", "closed": "Done",
-                          "rejected": "Done", "cancelled": "Done"}, bp.STATUS_OPTIONS)
+                          "rejected": "Done", "cancelled": "Done", "partial": "Partial"},
+                         bp.STATUS_OPTIONS)
         self.assertEqual(["author", "researcher", "expert", "scientist", "human"],
                          names(bp.build(), "Role"))
 

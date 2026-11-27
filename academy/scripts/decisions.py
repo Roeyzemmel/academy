@@ -320,6 +320,36 @@ def _ticket_items(board, instance=None, to_human=False, workspace=None):
     return items
 
 
+#: the answers to a partial ticket the human sent (#100 part 1): (a) send it back to its
+#: receiver to finish (partial -> in-progress), (b) take what was done (partial -> closed)
+PARTIAL_OPTIONS = [
+    {"label": "(a) Proceed", "description": "Send it back to its receiver to finish the "
+                                            "deliverable (partial -> in-progress)."},
+    {"label": "(b) Decline", "description": "Take what was done and close it as it stands "
+                                            "(partial -> closed); cancel it on the board if "
+                                            "nothing of it is wanted."},
+]
+
+
+def _partial_items(board, instance=None):
+    """The partial tickets the human sent (#100): the work done, the deliverable not met,
+    and the next move is the sender's."""
+    items = []
+    for t in boardlib.list_tickets(board, status=ac.PARTIAL):
+        if t.get("from") != ac.HUMAN or (instance and t.get("to") != instance):
+            continue
+        items.append({
+            "id": t["id"], "instance": t.get("to"), "title": t.get("title"),
+            "question": "%s came back partial (%s): finish it or take it as it stands?"
+                        % (t["id"], " ".join(str(t.get("result") or "no result").split())[:200]),
+            "options": PARTIAL_OPTIONS, "ruling": None, "recommendation": None,
+            "kind": _classify_ticket(t),
+            "unblocks": [str(b) for b in (t.get("blocks") or [])],
+            "stale": None, "source": "ticket-partial", "ref": t["id"],
+        })
+    return items
+
+
 def pending_decisions(board, instance=None, workspace=None):
     """Every pending decision (a)+(b)+(c) above, as a list of item dicts.
 
@@ -330,6 +360,7 @@ def pending_decisions(board, instance=None, workspace=None):
     items = _packet_items(board, instance)
     items += _ticket_items(board, instance, to_human=True, workspace=workspace)
     items += _ticket_items(board, instance, to_human=False, workspace=workspace)
+    items += _partial_items(board, instance)
     return items
 
 
@@ -376,6 +407,8 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
                    force=False):
     ticket = boardlib.get_ticket(board, tid)
     path, meta, body = ticket
+    if meta.get("status") == ac.PARTIAL and meta.get("from") == ac.HUMAN:
+        return _record_partial(board, tid, meta, choice, comment, date, action)
     r = None
     if meta.get("kind") == "decision" and meta.get("to") == ac.HUMAN:
         r = rulinglib.find_ruling(board, tid, workspace, ticket=ticket)
@@ -413,6 +446,28 @@ def _record_ticket(board, tid, choice, comment, date, workspace=None, action=Non
         raise ac.AcademyError("%s is not a pending human decision (status %s)" % (tid, old))
     reason = (comment.strip() or "declined via /academy:decide") if new in (
         "rejected", "cancelled") else ""
+    boardlib.transition_ticket(board, tid, new, reason=reason, as_instance=ac.HUMAN, date=date)
+    return {"ref": tid, "status": new}
+
+
+def _record_partial(board, tid, meta, choice, comment, date, action):
+    """The human's answer to a partial ticket they sent: proceed reopens it for its receiver
+    (``partial -> in-progress``, the comment or a default as the reason), decline closes it
+    as it stands."""
+    given = [x for x in (choice, action) if x not in (None, "")]
+    if not given:
+        raise ac.AcademyError("%s: name the answer with --choice or --action" % tid)
+    answers = {_is_proceed(x) for x in given}
+    if len(answers) > 1:
+        raise ac.AcademyError("%s: --choice and --action disagree" % tid)
+    proceed = answers.pop()
+    text = "human decision: %s" % ("proceed (finish it)" if proceed else "decline (close it)")
+    if comment.strip():
+        text += " -- " + " ".join(comment.split())
+    boardlib.append_to_ticket(board, tid, text, as_instance=ac.HUMAN, date=date)
+    new = "in-progress" if proceed else "closed"
+    reason = (comment.strip() or "the human sent it back to finish via /academy:decide") \
+        if proceed else ""
     boardlib.transition_ticket(board, tid, new, reason=reason, as_instance=ac.HUMAN, date=date)
     return {"ref": tid, "status": new}
 

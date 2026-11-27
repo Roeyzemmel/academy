@@ -33,7 +33,9 @@ import board_codec as bc  # noqa: E402
 
 #: ticket status -> option of the Project's Status field
 STATUS_OPTIONS = dict({"open": "Todo", "accepted": "Accepted", "in-progress": "In Progress",
-                       "delivered": "Delivered", "blocked": "Blocked"},
+                       "delivered": "Delivered", "blocked": "Blocked",
+                       # #100: work done, deliverable not met; the sender's to decide
+                       "partial": "Partial"},
                       **{s: "Done" for s in ac.TERMINAL})
 #: ticket priority -> option of the Priority field
 PRIORITY_OPTIONS = {"high": "P0", "normal": "P1", "low": "P2"}

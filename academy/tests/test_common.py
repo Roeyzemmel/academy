@@ -708,7 +708,7 @@ class TicketTests(TempDir):
             self.assertTrue(ok("in-progress", new, {"receiver"}), new)
             self.assertFalse(ok("in-progress", new, {"sender"}), new)
             self.assertFalse(ok("in-progress", new, set()), new)
-        self.assertEqual(["accepted", "blocked", "delivered", "rejected"],
+        self.assertEqual(["accepted", "blocked", "delivered", "partial", "rejected"],
                          ac.allowed_moves("in-progress", {"receiver"}))
         self.assertEqual(["cancelled"], ac.allowed_moves("in-progress", {"sender"}))
         self.assertFalse(ac.reason_needed("in-progress", "accepted"))

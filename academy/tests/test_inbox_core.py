@@ -505,7 +505,9 @@ class ShipCheckpointHookTests(Board):
                              "expert@t": {"role": "expert", "home": self.ws + "/library",
                                           "domains": ["d"]},
                              "author@t": {"role": "author", "home": self.ws + "/a",
-                                          "domains": ["d"]}}}
+                                          "domains": ["d"]}},
+               # checkpoint tests: #100's artefact check has its own (test_delivery_artefacts)
+               "artefactCheck": False}
         doc.update(extra)
         with open(os.path.join(self.ws, "workspace.json"), "w") as f:
             json.dump(doc, f)

@@ -19,8 +19,14 @@ from ._files import IDS_DIR, write_frontmatter
 # ----------------------------------------------------------------------------
 
 TICKET_STATUSES = ("open", "accepted", "in-progress", "delivered", "closed",
-                   "rejected", "cancelled", "blocked")
+                   "rejected", "cancelled", "blocked", "partial")
 TERMINAL = ("closed", "rejected", "cancelled")
+#: #100 part 1 (the human's ruling, 2026-11-20): the work was done but the deliverable was
+#: not met. Not terminal (the sender reopens, closes or cancels it), never taken by an inbox
+#: pick, and back for a waiter or a relay's return leg as a delivered ticket is
+PARTIAL = "partial"
+#: the statuses of a ticket that is back with its receiver's answer (delivered or partial)
+BACK = ("delivered", PARTIAL)
 TICKET_KINDS = ("verify", "cite", "lookup", "prove", "review-experiment", "generalize",
                 "experiment", "test", "code", "notation", "referee", "build", "figure",
                 "decision", "question", "research", "note", "write", "apply", "copy",
@@ -54,6 +60,16 @@ TRANSITIONS = {
     ("blocked", "cancelled"): ("sender",),
     ("delivered", "closed"): ("sender",),
     ("delivered", "in-progress"): ("sender",),
+    # #100: the work done, the deliverable not met; a delivered ticket --check refused for
+    # want of its artefact is re-marked by its receiver
+    ("in-progress", "partial"): ("receiver",),
+    ("delivered", "partial"): ("receiver",),
+    ("partial", "in-progress"): ("sender",),
+    ("partial", "closed"): ("sender",),
+    ("partial", "cancelled"): ("sender",),
+    # re-review of ca04c0e, finding B: a partial ticket reopened twice is parked on the
+    # human by its sender (waiting_on [human], with the reason)
+    ("partial", "blocked"): ("sender",),
 }
 
 #: ticket frontmatter fields by owner (mirrors permissions.json "tickets.fields")
@@ -150,7 +166,7 @@ def relay_return_ready(meta, status_of, workspace=None):
 
     True when ``meta`` is ``blocked``, carries a ``final_to`` beyond its receiver's own
     role, waits on ticket ids only (no ``human``), and every one of them is
-    ``delivered`` or terminal. ``status_of`` maps a ticket id to its status (None when
+    ``delivered``, ``partial`` or terminal. ``status_of`` maps a ticket id to its status (None when
     the ticket is not found). A ``research`` ticket to an Expert with no ``final_to``
     (or ``final_to`` the Expert) reads as ``final_to: researcher``, as research-intake
     reads it.
@@ -171,7 +187,7 @@ def relay_return_ready(meta, status_of, workspace=None):
 def released_waits(meta, status_of):
     """Whether a pending-blocked ticket has nothing left to wait for: ``meta`` is ``blocked``
     (not a dead route), ``waiting_on`` holds ticket ids only (no ``human``, no instance),
-    and every one of them is ``delivered`` or terminal. ``status_of`` maps a ticket id to
+    and every one of them is back (``BACK``: delivered or partial) or terminal. ``status_of`` maps a ticket id to
     its status (None when not found). The shared wait rule of the relay return leg and of
     a wrapper that releases its own blocked tickets (the Author's)."""
     if meta.get("status") != "blocked" or is_dead_route(meta):
@@ -179,7 +195,7 @@ def released_waits(meta, status_of):
     waits = [str(w) for w in (meta.get("waiting_on") or [])]
     if not waits or not all(RE_TICKET_ID.match(w) for w in waits):
         return False
-    return all(status_of(w) in ("delivered",) + TERMINAL for w in waits)
+    return all(status_of(w) in BACK + TERMINAL for w in waits)
 
 
 def ticket_edge_allowed(frm, to, agent, perms, workspace=None, final_to=None, depth=0,
@@ -328,7 +344,8 @@ REOPEN_ONLY = "reopen applies only to blocked -> accepted of a dead-route ticket
 
 def reason_needed(old, new):
     """Whether moving a ticket ``old -> new`` must carry a reason in the thread."""
-    return new in ("rejected", "cancelled") or (old, new) == ("delivered", "in-progress")
+    return new in ("rejected", "cancelled") or (old, new) in (("delivered", "in-progress"),
+                                                                (PARTIAL, "in-progress"))
 
 
 def _has_tried_after_reopen(body):
@@ -516,7 +533,7 @@ def validate_ticket(meta, body=None, workspace=None):
             probs.append("waiting_on must be empty unless status is blocked")
         if meta.get("blocked_by") or meta.get("reopen_if"):
             probs.append("blocked_by and reopen_if must be empty unless status is blocked")
-    if st in ("delivered", "closed") and not meta.get("result"):
+    if st in ("delivered", "closed", PARTIAL) and not meta.get("result"):
         probs.append("a %s ticket needs result" % st)
     if body is not None:
         if THREAD_HEADING not in body.split("\n"):

@@ -154,7 +154,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   const skipped = lines.find(l => /checkpoint not run/.test(l))
   const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
   const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
-    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : m && !/^(delivered|rejected|partial)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
     : bad ? { status: 'refused', detail: bad.trim() }
     : skipped ? { status: 'not-run', detail: skipped.trim() }
     : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }

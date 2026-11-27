@@ -164,7 +164,7 @@ async function ship(s) {   // {role, ticket, done, instance, topic, only, agentT
   const skipped = lines.find(l => /checkpoint not run/.test(l))
   const branches = rows.filter(x => /^pushed/.test(x[3])).map(x => x[1] + ' ' + x[2])
   const res = !r ? { status: 'not-run', detail: 'the ship stage returned nothing' }
-    : m && !/^(delivered|rejected)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
+    : m && !/^(delivered|rejected|partial)$/.test(m[1]) ? { status: 'not-run', detail: `${s.ticket} is ${m[1]}: no checkpoint for an unfinished ticket` }
     : bad ? { status: 'refused', detail: bad.trim() }
     : skipped ? { status: 'not-run', detail: skipped.trim() }
     : branches.length ? { status: 'pushed', detail: `pushed ${branches.join(', ')}`, branches }
@@ -284,7 +284,8 @@ if (T && !c.reachable) {
   return await end()
 }
 if (T) {
-  const result = `${c.key}, ${c.pinpoint || 'no pinpoint'}, verdict ${c.verdict}, card ${c.card}`.replace(/"/g, "'")
+  // the card first (#100 review: the result is cut at 240 characters, and --check reads the card from it)
+  const result = `card ${c.card}; ${c.key}, ${c.pinpoint || 'no pinpoint'}, verdict ${c.verdict}`.replace(/"/g, "'")
   const m = await clerk('move', [`ticket: ${T}`, ask.instance ? `act as: ${ask.instance}` : '',
     `deliver: deliver: true with result "${result.slice(0, 240)}"` + (out.packet ? ` and fields.packets [${out.packet}]` : '')], MOVE, 'deliver', 'Land')
   out.ticket_delivered = !!(m && m.ok)

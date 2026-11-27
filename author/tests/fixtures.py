@@ -102,7 +102,10 @@ class Sandbox(object):
                                  "domains": ["dom"], "ns": "s1"},
                 "scientist@t": {"role": "scientist", "home": self.other,
                                 "domains": ["dom"], "ns": "lab"}},
-            "board": self.board, "human": {"name": "Ada", "noteMacro": "\\Ada"}}))
+            "board": self.board, "human": {"name": "Ada", "noteMacro": "\\Ada"},
+            # the fixture tickets carry no artefacts: #100's check has its own tests
+            # (academy/tests/test_delivery_artefacts.py)
+            "artefactCheck": False}))
         self.env = dict(os.environ, ACADEMY_WORKSPACE=self.workspace,
                         ACADEMY_CALLER_DIR=os.path.join(self.root, "callers"),
                         PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")

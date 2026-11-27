@@ -18,7 +18,9 @@ from ._touched import claim_touches, drop_touches
 from ._manifest import (ManifestError, find_claim, lease_heartbeat, load_pending, manifest_changed,
                         manifest_targets, merge_manifest, prune_claims, release_claim,
                         save_pending)
-from ._tickets import is_dead_route, relay_return_ready
+from ._tickets import (PARTIAL, append_thread, format_who, is_dead_route, relay_return_ready,
+                       validate_ticket)
+from ._artefacts import delivery_artefact
 from ._store import FileBoardStore, as_store, board_dir, open_store, status_lookup
 
 # ----------------------------------------------------------------------------
@@ -50,6 +52,19 @@ class inbox_core(object):
     PRIORITY = {"high": 0, "normal": 1, "low": 2}
     RETURN_WHY = ("return leg: the child is back; close it and deliver this ticket "
                   "with a result pointing at it")
+    #: review of dd0fcd1, point 6: a partial ticket this instance sent comes back to it
+    PARTIAL_WHY = ("came back partial (work done, deliverable not met): decide as its sender: "
+                   "reopen it for the receiver (partial -> in-progress, with the reason), "
+                   "close it as it stands (partial -> closed) or cancel it (with the reason)")
+    #: re-review of ca04c0e, finding B: the thread lines that count toward the cap on a
+    #: partial ticket's cycles (a reopen, or a decider leaving it for the human)
+    REOPEN_LINE = "status partial -> in-progress"
+    LEFT_LINE = "partial: left for the human"
+    #: the cycles after which the row goes to the human (blocked, waiting_on [human])
+    PARTIAL_CAP = 2
+    #: the agent of each role that decides a partial ticket its instance sent
+    PARTIAL_DECIDERS = {"author": "math-writer", "researcher": "lead-researcher",
+                        "expert": "research-intake", "scientist": "experimenter"}
 
     is_dead_route = staticmethod(is_dead_route)
 
@@ -139,6 +154,11 @@ class inbox_core(object):
                                  if position_first else
                                  (m["_group"], prio(m), pos(m), num(m))))
         rows = [inbox_core._row(m, route) for m in pool]
+        if return_legs:
+            back = inbox_core.partial_rows(store, instance, campaign=campaign, cowork=cowork)
+            first = next((i for i, r in enumerate(rows) if r["status"] != "in-progress"),
+                         len(rows))
+            rows[first:first] = back
         if extra:
             first = next((i for i, r in enumerate(rows) if r["status"] != "in-progress"),
                          len(rows))
@@ -148,6 +168,50 @@ class inbox_core(object):
             n = max(1, int(limit))
             rows = rows[:n if (campaign or cowork) else min(n, inbox_core.MAX)]
         return rows, total
+
+    @staticmethod
+    def partial_rows(board, instance, campaign=None, cowork=None):
+        """The partial tickets ``instance`` sent, to another instance or to itself (review of
+        dd0fcd1, point 6; re-review of ca04c0e, finding C), as return rows (``return`` and
+        ``partial`` true): its decider agent (``PARTIAL_DECIDERS``) reopens, closes or
+        cancels each. The cap (finding B): ``reopens`` counts the thread's reopen lines and
+        the decider's "left for the human" notes; after one, the decider may only close it
+        or leave it for the human; at ``PARTIAL_CAP`` the row is ``park``: it goes to the
+        human (blocked, waiting_on [human], with the reason). A partial ticket the human
+        sent stays the human's (desk, /academy:decide)."""
+        out = []
+        role = instance.split("@", 1)[0] if "@" in str(instance) else None
+        store = as_store(board)
+        for _ref, m in store.iter_meta():
+            if m.get("status") != PARTIAL or m.get("from") != instance:
+                continue
+            if campaign and m.get("campaign") != campaign:
+                continue
+            if cowork and m.get("cowork") != cowork:
+                continue
+            try:
+                body = store.get(m["id"])[2] or ""
+            except Exception:                        # noqa: BLE001 -- unreadable: no count
+                body = ""
+            n = body.count(inbox_core.REOPEN_LINE) + body.count(inbox_core.LEFT_LINE)
+            got = "%s: %s" % (m.get("to"), " ".join(str(m.get("result") or "no result").split())[:200])
+            if n >= inbox_core.PARTIAL_CAP:
+                rt = {"how": "human", "target": "human",
+                      "why": "reopened twice: close or ask the human; partial again after %d "
+                             "reopens or hand-offs (%s): parked on the human" % (n, got)}
+            else:
+                rt = {"how": "agent", "target": inbox_core.PARTIAL_DECIDERS.get(role, "human"),
+                      "why": "%s (%s)%s" % (inbox_core.PARTIAL_WHY, got, (
+                          "; reopened once already: close it, or leave it partial with the "
+                          "thread note '%s' and file nothing; never reopen it again"
+                          % inbox_core.LEFT_LINE) if n else "")}
+            row = inbox_core.extra_row(m, rt, returned=True)
+            row["partial"] = True
+            row["reopens"] = n
+            row["park"] = n >= inbox_core.PARTIAL_CAP
+            out.append(row)
+        out.sort(key=lambda r: (inbox_core.prio(r), inbox_core.num(r)))
+        return out
 
     @staticmethod
     def takeable(row):
@@ -199,7 +263,8 @@ class inbox_core(object):
     def serial_checkpoint(meta):
         """Where a ticket stands after its route ran, and whether it is settled.
 
-        Settled: delivered (with a result), blocked with its reason, rejected. A ticket
+        Settled: delivered (with a result), partial (with a result: the work done, the
+        deliverable not met; #100), blocked with its reason, rejected. A ticket
         still open, accepted or in-progress is *unfinished*: report it, do not take
         another ticket while it is (it comes first in the next run).
         """
@@ -209,6 +274,10 @@ class inbox_core(object):
             state = "delivered"
             if not meta.get("result"):
                 problem = "delivered without a result"
+        elif st == PARTIAL:
+            state = PARTIAL
+            if not meta.get("result"):
+                problem = "partial without a result (what was done, what is missing)"
         elif st in ("rejected", "cancelled"):
             state = "rejected"
         elif st == "blocked":
@@ -229,7 +298,7 @@ class inbox_core(object):
     #: still returns its own result in time
     SHIP_TIMEOUT = 90
     #: the ticket states (``serial_checkpoint``) after which the role's work is finished
-    SHIP_STATES = ("delivered", "rejected")
+    SHIP_STATES = ("delivered", "rejected", PARTIAL)
 
     @staticmethod
     def ship_checkpoint(args, instance, board, r, role=None, out=None):
@@ -678,7 +747,7 @@ class inbox_core(object):
         ``unpushed_branches`` with how to push it; [] when nothing is unpushed. Only for
         the workspace's own board; ``"unpushedCheck": false`` in workspace.json switches
         it off. Never raises (a failure is one warning line on stderr and no hold)."""
-        if r.get("unfinished") or r.get("state") != "delivered":
+        if r.get("unfinished") or r.get("state") not in ("delivered", PARTIAL):
             return []
         try:
             ws = load_workspace(getattr(args, "workspace", None))
@@ -710,6 +779,81 @@ class inbox_core(object):
             lines.append("  (delivered is reported once this work is pushed; then run "
                          "--check %s again)" % r["id"])
         return lines
+
+    #: the line --check prints after a delivery it refused and could not move to partial
+    PARTIAL_HINT = ("  -> finish the work and deliver it again, or re-mark it partial "
+                    "(tickets_update status partial, the result saying what was done and "
+                    "what is missing; the sender then reopens, closes or cancels it)")
+    #: the agent name of the thread lines --check writes as the receiver
+    CHECK_AGENT = "inbox-check"
+
+    @staticmethod
+    def artefact_problem(args, board, r):
+        """The missing artefact of ``r`` as a line (``artefact_check``'s ``problem``), or None."""
+        return inbox_core.artefact_check(args, board, r).get("problem")
+
+    @staticmethod
+    def artefact_check(args, board, r):
+        """After the checkpoint of a *delivered* ticket ``r`` (status delivered, no problem):
+        ``{"problem", "warn"}``. ``problem`` is the artefact its kind needs
+        (``delivery_artefact``, #100 part 1) when it is missing, as ``"a <kind> ticket
+        without <what>: <why>"``; ``warn`` a line when it is missing on purpose (the result
+        opens with a marker: declined, already proved, dropped, ...). Both None when it is
+        there, the kind needs none, or the check is off (``"artefactCheck": false`` in
+        workspace.json). Only for the workspace's own board, whose homes it reads (as
+        ``unpushed_check``). Never raises."""
+        none = {"problem": None, "warn": None}
+        if r.get("unfinished") or r.get("status") != "delivered":
+            return none
+        try:
+            try:
+                ws = load_workspace(getattr(args, "workspace", None))
+            except (AcademyError, OSError):
+                return none
+            if ws.get("artefactCheck") is False or not ws.get("board") or \
+                    not _same_file(board_dir(board), ws["board"]):
+                return none
+            _ref, meta, body = as_store(board).get(r["id"])
+            res = delivery_artefact(meta, body, ws)
+        except Exception as exc:                     # noqa: BLE001 -- never break --check
+            sys.stderr.write("warning: artefact check for %s failed: %s: %s\n"
+                             % (r.get("id"), type(exc).__name__, exc))
+            return none
+        if res.get("marker"):
+            return {"problem": None,
+                    "warn": "WARN: %s delivered without %s, on purpose: the result says %r"
+                            % (r["id"], res["need"], res["marker"])}
+        if res["ok"]:
+            return none
+        return {"problem": "a %s ticket without %s: %s" % (res["kind"], res["need"],
+                                                           res["why"]), "warn": None}
+
+    @staticmethod
+    def mark_partial(board, tid, problem, date=None):
+        """Move the delivered ticket ``tid`` to ``partial`` as its receiver, after --check
+        found its artefact missing (review of dd0fcd1, point 5): a thread line naming what
+        is missing, then the move; the result stays (what was done). True when written;
+        False, with one warning line, when the ticket moved meanwhile or the write fails."""
+        try:
+            store = as_store(board)
+            ref, meta, body = store.get(tid)
+            if meta.get("status") != "delivered":
+                return False
+            from ._base import today
+            date = date or today()
+            who = format_who(meta.get("to"), inbox_core.CHECK_AGENT)
+            body = append_thread(body, who, "no artefact: %s" % problem, date)
+            body = append_thread(body, who, "status delivered -> %s" % PARTIAL, date)
+            meta = dict(meta, status=PARTIAL, updated=date)
+            probs = validate_ticket(meta, body)
+            if probs:
+                raise AcademyError("; ".join(probs))
+            store.save(meta, body, ref)
+            return True
+        except Exception as exc:                     # noqa: BLE001 -- never break --check
+            sys.stderr.write("warning: could not move %s to partial: %s: %s\n"
+                             % (tid, type(exc).__name__, exc))
+            return False
 
     @staticmethod
     def _session_inside(root):
@@ -770,7 +914,21 @@ class inbox_core(object):
             # can say unfinished: the workflow reads the first "<id>: <state> (<status>)"
             inbox_core.ship_checkpoint(args, instance, board, r, role=role, out=out)
             held = inbox_core.unpushed_check(args, board, r)
-            if held:
+            # #100 part 1: after the checkpoint (a code ticket's artefact is its commit); a
+            # delivery without it is moved to partial here, as its receiver (review of dd0fcd1)
+            art = inbox_core.artefact_check(args, board, r)
+            missing, warn = art.get("problem"), art.get("warn")
+            if missing and inbox_core.mark_partial(board, r["id"], missing):
+                r = dict(r, status=PARTIAL, state=PARTIAL, unfinished=False,
+                         problem="no artefact: " + missing)
+                status = PARTIAL
+                held = held + ["  -> moved delivered -> partial by --check (as %s's receiver): "
+                               "its sender reopens, closes or cancels it" % r["id"]]
+            elif missing:
+                r = dict(r, state="unfinished", unfinished=True, problem="no artefact: " + missing)
+                status = "%s, no artefact" % r["status"]
+                held = held + [inbox_core.PARTIAL_HINT]
+            elif held:
                 r = dict(r, state="unfinished", unfinished=True,
                          problem="work of %s is not on a remote" % r["id"])
                 status = "%s, unpushed" % r["status"]
@@ -778,7 +936,7 @@ class inbox_core(object):
                 status = r["status"]
             out.write("%s: %s (%s)%s\n" % (r["id"], r["state"], status,
                                            ("; " + r["problem"]) if r["problem"] else ""))
-            for line in held:
+            for line in held + ([warn] if warn else []):
                 out.write(line + "\n")
             return 3 if r["unfinished"] else 0
         cowork = getattr(args, "cowork", None)

@@ -253,6 +253,88 @@ class InboxWorkflowTests(unittest.TestCase):
         self.assertEqual(res["count"], 0)
         self.assertEqual(labels, ["list"])
 
+    # ---- #100 part 1, review of dd0fcd1 (points 5 and 6) ------------------------------------
+
+    NO_ART = ("{id}: partial (partial); no artefact: a prove ticket without a proof attempt: "
+              "no attempt named\n  -> moved delivered -> partial by --check")
+    NO_ART_UNMOVED = ("{id}: unfinished (delivered, no artefact); no artefact: a prove ticket "
+                      "without a proof attempt: no attempt named\n  -> finish the work")
+
+    def test_a_delivery_moved_to_partial_is_noted_and_not_unfinished(self):
+        rows = [row(t, how="reject", target=None, kind="prove", to="expert@t") for t in ("T-1", "T-2", "T-3")]
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}]}
+        for t in ("T-1", "T-2", "T-3"):
+            plan["%s reject" % t] = [OK]
+            plan["check %s" % t] = [{"exit": 0, "status": "partial", "output": self.NO_ART.format(id=t)}]
+        res, labels, _ = self.run_wf(plan)
+        self.assertIn("T-3 reject", labels)                      # two in a row closed nothing
+        self.assertEqual(["partial (no artefact)"] * 3, [t["outcome"] for t in res["taken"]])
+        notes = " ".join(res["notes"])
+        self.assertIn("T-1: delivered without its artefact, moved to partial by --check", notes)
+        self.assertIn("a prove ticket without a proof attempt", notes)
+        self.assertNotIn("left 2 tickets unfinished", notes)
+
+    def test_a_refusal_check_could_not_move_never_closes_the_instance(self):
+        rows = [row(t, how="reject", target=None, kind="prove", to="expert@t") for t in ("T-1", "T-2", "T-3")]
+        plan = {"list": [{"instances": [inst("expert@t", rows)]}]}
+        for t in ("T-1", "T-2", "T-3"):
+            plan["%s reject" % t] = [OK]
+            plan["check %s" % t] = [{"exit": 3, "status": "delivered", "output": self.NO_ART_UNMOVED.format(id=t)}]
+        res, labels, _ = self.run_wf(plan)
+        self.assertIn("T-3 reject", labels)                      # not counted toward unfinishedBy
+        self.assertNotIn("left 2 tickets unfinished", " ".join(res["notes"]))
+        self.assertIn("could not be moved to partial", " ".join(res["notes"]))
+
+    def test_a_partial_return_row_runs_the_senders_decider(self):
+        r = dict(row("T-7", target="lead-researcher", kind="experiment", frm="researcher@u",
+                     to="scientist@x", ret=True), partial=True)
+        r["status"] = "partial"
+        nxt = row("T-8", how="reject", target=None, kind="prove", to="researcher@u")
+        nxt2 = row("T-9", how="reject", target=None, kind="prove", to="researcher@u")
+        plan = {"list": [{"instances": [inst("researcher@u", [r, nxt, nxt2])]}],
+                "lead-researcher T-7 (partial)": ["reopened: the table is still wanted"],
+                # reopened: the receiver's in-progress work again, not unfinished
+                "check T-7": [{"exit": 3, "status": "in-progress", "output": "T-7: unfinished (in-progress)"}],
+                "T-8 reject": [OK], "check T-8": [{"exit": 3, "status": "open", "detail": ""}],
+                "T-9 reject": [OK], "check T-9": [DONE]}
+        res, labels, calls = self.run_wf(plan)
+        c = next(c for c in calls if c["label"] == "lead-researcher T-7 (partial)")
+        self.assertEqual(c["agentType"], "researcher:lead-researcher")
+        self.assertIn("came back partial", c["prompt"])
+        self.assertIn("instance=researcher@u", c["prompt"])
+        self.assertNotIn("T-7 start", labels)                    # no move of its own before
+        self.assertEqual("partial decided", res["taken"][0]["outcome"])
+        self.assertIn("T-9 reject", labels)                      # T-7 and T-8 are not two unfinished
+        # the list stage asks for the flag (a clerk transcribes only the fields asked)
+        lst = next(c for c in calls if c["label"] == "list")
+        self.assertIn("partial", lst["schema"]["properties"]["instances"]["items"]["properties"]["rows"]["items"]["properties"])
+        self.assertIn("partial, park false and reopens 0 when absent", lst["prompt"])
+
+    def test_a_partial_row_reopened_once_may_not_be_reopened_and_twice_goes_to_the_human(self):
+        """Re-review of ca04c0e, finding B."""
+        r = dict(row("T-7", target="lead-researcher", kind="prove", frm="researcher@u",
+                     to="researcher@u", ret=True), partial=True, reopens=1)
+        plan = {"list": [{"instances": [inst("researcher@u", [r])]}],
+                "lead-researcher T-7 (partial)": ["closed it"],
+                "check T-7": [{"exit": 0, "status": "closed", "output": "T-7: rejected (closed)"}]}
+        res, labels, calls = self.run_wf(plan)
+        p = next(c for c in calls if c["label"] == "lead-researcher T-7 (partial)")["prompt"]
+        self.assertIn("never reopen it again", p)
+        self.assertIn("partial: left for the human", p)
+        self.assertNotIn("status in-progress", p)
+        r = dict(row("T-7", how="human", target="human", kind="prove", frm="researcher@u",
+                     to="researcher@u", ret=True), partial=True, reopens=2, park=True)
+        r["route"]["why"] = "reopened twice: close or ask the human; parked on the human"
+        plan = {"list": [{"instances": [inst("researcher@u", [r])]}],
+                "T-7 park": [OK],
+                "check T-7": [{"exit": 3, "status": "blocked", "output": "T-7: blocked (blocked)"}]}
+        res, labels, calls = self.run_wf(plan)
+        self.assertNotIn("lead-researcher T-7 (partial)", labels)  # no decider: the human decides
+        p = next(c for c in calls if c["label"] == "T-7 park")["prompt"]
+        self.assertIn('block-human: blocked, waiting_on ["human"]', p)
+        self.assertIn("reopened twice: close or ask the human", p)
+        self.assertEqual("parked on the human", res["taken"][0]["outcome"])
+
     def test_unfinished_closes_the_instance_and_lost_stops_the_run(self):
         rows = [row("T-1", how="human", target="human", kind="decision", to="expert@t"),
                 row("T-2", how="reject", target=None, kind="prove", to="expert@t")]
