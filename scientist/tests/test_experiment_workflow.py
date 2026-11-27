@@ -256,9 +256,11 @@ class ShipTests(unittest.TestCase):
     def test_other_legs_never_ship_and_no_ticket_is_not_run(self):
         res, labels, _, err = self.run_wf({"lab home": [HOME], "design": [DESIGN]}, mode="design", claim="lab:x", ticket="T-1", nested=False)
         self.assertNotIn("ship", res)
-        res, labels, _, err = self.run_wf({"file": self.FILE["file"]}, mode="file", stem="2026-11-13_x", nested=False)
-        self.assertNotIn("ship", labels)
-        self.assertIn("--ticket report-2026-11-13-x --role scientist", res["ship"]["command"])
+        # #136 item 4: the file leg with no ticket ships its slug once (inbox.py --ship-slug)
+        res, labels, _, err = self.run_wf({"file": self.FILE["file"], "ship": [{"status": "pushed", "output": "home 2026-11-27/report-2026-11-13-x/scientist @ abc1234 (1 files) pushed\nreport-2026-11-13-x: delivered (no ticket)\n"}]},
+                                          mode="file", stem="2026-11-13_x", nested=False)
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "pushed")
 
 
 if __name__ == "__main__":

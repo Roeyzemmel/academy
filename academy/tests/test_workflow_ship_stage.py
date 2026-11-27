@@ -5,7 +5,7 @@ same block (``const SHIP`` and ``async function ship``). This pins that the bloc
 identical in each, and reads ``inbox.py --check``'s output the way the inbox does: the
 ticket's state from its first line, the repos from ship.py's lines, a refusal returned (never
 retried), nothing run for an unfinished ticket or under ``"shipCheckpoint": false``, and the
-command for the session when no ticket exists. The per-workflow runs (standalone ships once,
+a ticket-free run shipped through ``inbox.py --ship-slug`` (#136 item 4). The per-workflow runs (standalone ships once,
 nested never) are in each plugin's workflow tests.
 """
 import json
@@ -166,11 +166,24 @@ class ReadTheCheck(unittest.TestCase):
         self.assertEqual(res["status"], "not-run")
         self.assertIn("--check T-0904", res["command"])
 
-    def test_no_ticket_launches_nothing_and_names_a_template_branch_command(self):
-        res, calls = self.ship({"ticket": "", "topic": "cite-Masur Tabachnikov:2002"})
-        self.assertEqual(calls, [])
-        self.assertEqual(res["command"],
-                         "py scripts/ship.py checkpoint --ticket cite-masur-tabachnikov-2002 --role expert --only library board")
+    def test_no_ticket_ships_the_slug_through_the_inbox_guards(self):
+        """#136 item 4: a run without a ticket ships its slug's branch once, through
+        inbox.py --ship-slug (the --check guards and scope), and reads it like a check."""
+        text = ("library 2026-11-27/cite-masur-tabachnikov-2002/expert @ abc (1 files) pushed\n"
+                "cite-masur-tabachnikov-2002: delivered (no ticket)\n")
+        res, calls = self.ship({"ticket": "", "topic": "cite-Masur Tabachnikov:2002", "done": False},
+                               [self.out(text)])
+        self.assertEqual(len(calls), 1)
+        self.assertIn("`py /acad/expert/scripts/inbox.py --ship-slug cite-masur-tabachnikov-2002 2>&1`",
+                      calls[0]["prompt"])
+        self.assertEqual(res["status"], "pushed")
+        self.assertEqual(res["branches"], ["library 2026-11-27/cite-masur-tabachnikov-2002/expert"])
+
+    def test_no_ticket_under_ship_checkpoint_false_is_not_run_with_the_command(self):
+        res, _ = self.ship({"ticket": "", "topic": "verify-paper:lem:x"},
+                           [self.out("verify-paper-lem-x: delivered (no ticket)\n")])
+        self.assertEqual(res["status"], "not-run")
+        self.assertIn("--ship-slug verify-paper-lem-x", res["command"])
 
     def test_a_lost_stage_is_not_run(self):
         res, _ = self.ship({}, [None])

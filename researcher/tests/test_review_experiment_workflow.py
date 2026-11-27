@@ -312,12 +312,14 @@ class ShipTests(unittest.TestCase):
         self.assertEqual(res["ship"]["status"], "refused")
         self.assertIn("ship stage was refused", " ".join(res["notes"]))
 
-    def test_no_ticket_is_not_run(self):
-        plan = dict(self.PLAN)
+    def test_no_ticket_ships_the_slug_once(self):
+        # #136 item 4: through inbox.py --ship-slug, under --check's guards and scope
+        plan = dict(self.PLAN, ship=[{"status": "pushed", "output": "home 2026-11-27/review-lab-ew-check/researcher @ abc1234 (1 files) pushed\nreview-lab-ew-check: delivered (no ticket)\n"}])
         del plan["close"]
         res, calls = self.run_wf(plan, ticket=None, nested=False)
-        self.assertNotIn("ship", [c["label"] for c in calls])
-        self.assertIn("--ticket review-lab-ew-check --role researcher", res["ship"]["command"])
+        self.assertEqual([c["label"] for c in calls].count("ship"), 1)
+        self.assertIn("--ship-slug review-lab-ew-check", [c for c in calls if c["label"] == "ship"][0]["prompt"])
+        self.assertEqual(res["ship"]["status"], "pushed")
 
 
 class LaunchGuardTests(unittest.TestCase):

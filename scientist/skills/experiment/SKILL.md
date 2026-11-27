@@ -53,8 +53,8 @@ name the scripts' paths. Between the legs this session asks with `AskUserQuestio
 5. **`file`** (`{mode: "file", stem, job, env, ticket}`): `report.py file` writes the
    `experiment-report` packet and the `review-experiment` ticket to the Researcher that
    owns the claim's namespace (say which and why), and the ticket is delivered. The leg
-   ends with `ship`: the ticket's checkpoint, run once (no ticket: `not-run` with the
-   command); a refusal is reported, never retried. The other legs end at a human gate and
+   ends with `ship`: the ticket's checkpoint, run once (no ticket: the slug's branch, through
+   `inbox.py --ship-slug`, #136); a refusal is reported, never retried. The other legs end at a human gate and
    ship nothing.
 
 **A surprising result is a bug until shown otherwise** (`superpowers:systematic-debugging`).

@@ -224,22 +224,25 @@ detail, branches?, command?}`:
   without a stage, with the `--check` command: the inbox would not ship it either.
 - A refusal (off-template branch, commit gate, push gate, timeout) is returned with the
   command, and one sentence goes into the workflow's `notes`. Nothing retries it.
-- Without a ticket nothing is run (a direct `ship.py checkpoint` would bypass the scoping,
-  the worktree guard and `"shipCheckpoint": false`): `not-run` with `py scripts/ship.py
-  checkpoint --ticket <slug> --role <role> --only <targets>` for the session to run from the
-  workspace root. The slug is one the run already has (`cite-<key>`, `verify-<claim>`,
+- Without a ticket (#136 item 4, 2026-11-27: nine ticket-free verify runs each needed the
+  checkpoint by hand) the one clerk stage runs `<role>/scripts/inbox.py [--instance I]
+  --ship-slug <slug>` instead: `ship.py checkpoint --ticket <slug>` under exactly `--check`'s
+  guards and scope (the workspace's board, `"shipCheckpoint": false`, the session inside the
+  workspace and not in a worktree), never a direct `ship.py checkpoint`, which would bypass
+  them. It prints `<slug>: delivered (no ticket)`, read like a check's first line; a guard
+  that stops it comes back `not-run` with the command. The slug is one the run already has (`cite-<key>`, `verify-<claim>`,
   `prove-<claim>`, `explore-<direction>`, `review-<subject>`, `referee-<instance>`,
   `report-<stem>`, `litwatch-<instance>`, `campaign-<target>`, the usage packet's id), so the
   branch is `<date>/<slug>/<role>`.
 
 | Workflow | Writes | Standalone `ship` |
 |---|---|---|
-| `cite` | library (card, index), the Author home's `references.bib`, board | ticket: the check, which ships the bib too (`--touched`); else `not-run`, with a note to add `--touched` for the bib |
-| `verify` | library (`reviews/`), registry evidence (in the home owning the claim), board | ticket: the check (the evidence through `--touched`); else `not-run` |
-| `referee` | library (`reviews/referee/`), board | ticket: the check; else `not-run` |
+| `cite` | library (card, index), the Author home's `references.bib`, board | ticket: the check, which ships the bib too (`--touched`); else `--ship-slug`, with a note to add `--touched` for the bib |
+| `verify` | library (`reviews/`), registry evidence (in the home owning the claim), board | ticket: the check (the evidence through `--touched`); else `--ship-slug` |
+| `referee` | library (`reviews/referee/`), board | ticket: the check; else `--ship-slug` |
 | `domain` | the academy repo's pack, board | the check (ships the board; the pack is the human's commit) |
-| `prove`, `explore` | the notebook, board | ticket: the check; else `not-run` |
-| `review-experiment` | the notebook, the claim-keeper's status and evidence (in the lab's registry), board | ticket: the check (the registry through `--touched`); else `not-run` |
+| `prove`, `explore` | the notebook, board | ticket: the check; else `--ship-slug` |
+| `review-experiment` | the notebook, the claim-keeper's status and evidence (in the lab's registry), board | ticket: the check (the registry through `--touched`); else `--ship-slug` |
 | `generalize` | the notebook, board | the check once the ticket is delivered (`mode: deliver` too) |
 | `experiment` | the lab | `file` leg only (the check); the other legs end at a human gate |
 | `notes` | tickets (board files on a file board) | `not-run` (no ticket) |

@@ -377,12 +377,14 @@ class ShipTests(unittest.TestCase):
         res, labels, _, err = run("explore.js", dict(self.Q, ship=[bad, bad]), dict(H, ticket="T-0600", nested=False))
         self.assertEqual((labels.count("ship"), res["ship"]["status"]), (1, "refused"))
 
-    def test_explore_by_direction_is_not_run_with_the_command(self):
+    def test_explore_by_direction_ships_the_slug_once(self):
+        # #136 item 4: through inbox.py --ship-slug, under --check's guards and scope
         res, labels, _, err = run("explore.js", {"direction": [DIR], "next": [NEXT], "journal": [JOURNAL],
-                                                 "lead": [{"items": [], "report": "r", "next_picks": []}]}, dict(H, direction="DIR-1", nested=False))
+                                                 "lead": [{"items": [], "report": "r", "next_picks": []}],
+                                                 "ship": [{"status": "pushed", "output": "home 2026-11-27/explore-dir-1/researcher @ abc1234 (1 files) pushed\nexplore-dir-1: delivered (no ticket)\n"}]}, dict(H, direction="DIR-1", nested=False))
         self.assertIsNone(err, err)
-        self.assertNotIn("ship", labels)
-        self.assertIn("--ticket explore-dir-1 --role researcher", res["ship"]["command"])
+        self.assertEqual(labels.count("ship"), 1)
+        self.assertEqual(res["ship"]["status"], "pushed")
 
     def test_generalize_ships_on_delivery_only(self):
         args = dict(H, ref="P-0009", ticket="T-7", mode="deliver", conjectures=["flat:CONJ-1"], nested=False)
