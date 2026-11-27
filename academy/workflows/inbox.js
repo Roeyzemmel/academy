@@ -466,6 +466,17 @@ async function listAll(pass) {
   if (A.ids && A.ids.length) for (const i of xs) i.rows = i.rows.filter(r => (A.ids.includes(r.id)
       || (A.follow && (children.has(r.id) || (r.parent && followed.has(r.parent)))))
     && !(r.blocked && !r.return && !r.released))   // --all lists pending blocked tickets too: those are not takeable
+  // #134: the ids are taken in the order given (a keeper proposal named after the one it rests on
+  // ran first, live run 2026-11-27); a followed child sits right after its parent, unlisted rows last
+  if (A.ids && A.ids.length) {
+    const rank = r => {
+      const k = A.ids.indexOf(r.id)
+      if (k >= 0) return k
+      const p = r.parent ? A.ids.indexOf(r.parent) : -1
+      return p >= 0 ? p + 0.5 : A.ids.length
+    }
+    for (const i of xs) i.rows = i.rows.map((r, n) => [rank(r), n, r]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2])
+  }
   // #92: whatever the listing gave (the clerk transcribes it), a row is taken only when the
   // inbox may take it: open, accepted or in-progress, or a return leg / released row
   const TAKEABLE = new Set(['open', 'accepted', 'in-progress'])
