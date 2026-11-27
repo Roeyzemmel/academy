@@ -288,7 +288,7 @@ class FromHumanTests(unittest.TestCase):
         self.assertIn("in-progress", up)
         dl = calls[6]["prompt"]
         self.assertIn("deliver: true", dl)
-        self.assertIn("HU95, Lemma 4.1, verdict match, card cards/HU95/lemma-4-1.md", dl)
+        self.assertIn("card cards/HU95/lemma-4-1.md; HU95, Lemma 4.1, verdict match, read from what a human handed back", dl)
         self.assertEqual(res["outcome"], "cited (human-supplied)")
         self.assertTrue(res["ticket_delivered"])
         self.assertEqual(res["handback"]["files"], ["HU95.human.md"])
