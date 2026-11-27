@@ -216,7 +216,8 @@ def _engine_statement_hash_of():
             from registry.core.model import statement_hash_of as fn
         except ImportError:
             def fn(text):
-                norm = " ".join(str(text or "").split())
+                # the reword marks are not part of the statement (#137)
+                norm = " ".join(ac.strip_reword_marks(str(text or "")).split())
                 return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
         _CACHE["fn"] = fn
     return _CACHE["fn"]
