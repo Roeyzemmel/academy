@@ -565,7 +565,8 @@ def plan(home, library=None, labels=None):
         row = {"qid": it["qid"], "label": label, "status": it["status"],
                "pass": it["pass"], "pass_hash": it["pass_hash"], "hash": it["hash"],
                "file": "", "lines": None, "recovered": None, "reason": "",
-               "word_diff": "", "report": None, "marked": None, "had_marks": False}
+               "word_diff": "", "report": None, "marked": None, "had_marks": False,
+               "env": None}
         loc = where(home, label)
         if loc is None:
             row["reason"] = "its environment is not in sections/*.tex"
@@ -573,6 +574,7 @@ def plan(home, library=None, labels=None):
             continue
         path, text, span = loc
         row["file"] = os.path.relpath(path, home).replace("\\", "/")
+        row["env"] = [row["file"], span[0]]
         row["lines"] = [_line(text, span[0]), _line(text, span[1] - 1)]
         current_raw = text[span[0]:span[1]]
         row["had_marks"] = has_marks(current_raw)
@@ -601,34 +603,62 @@ def plan(home, library=None, labels=None):
         else:
             row["marked"] = marked
         out.append(row)
+    _one_per_environment(out)
     stale_labels = {i["id"] for i in items}
     remove, kept = [], []
-    for label, path, text, span in marked_statements(home, store):
-        if label in stale_labels:
-            r = next((x for x in out if x["label"] == label), None)
-            if r is not None and r["marked"] is None and r["had_marks"]:
-                kept.append({"label": label, "file": os.path.relpath(path, home)
-                             .replace("\\", "/"), "reason": r["reason"]})
+    for path, text, span, rids in marked_statements(home, store):
+        rel = os.path.relpath(path, home).replace("\\", "/")
+        mine = [r for r in out if r["env"] == [rel, span[0]]]
+        if any(rid in stale_labels for rid in rids):
+            if mine and not any(r["marked"] is not None for r in mine):
+                kept.append({"label": mine[0]["label"], "file": rel,
+                             "reason": mine[0]["reason"]})
             continue
-        if labels and label not in labels:
+        if labels and not labels.intersection(rids):
             continue
-        remove.append({"label": label, "file": os.path.relpath(path, home).replace("\\", "/"),
+        remove.append({"label": rids[0], "labels": rids, "file": rel, "env": [rel, span[0]],
                        "lines": [_line(text, span[0]), _line(text, span[1] - 1)]})
     return {"items": out, "remove": remove, "kept": kept}
 
 
+def _one_per_environment(rows):
+    """Several stale records may share one environment (a statement with an old and a new
+    label). It is marked once: against the newest base pass among them (pass names start
+    with their date); the others say so and are not written."""
+    by_env = {}
+    for r in rows:
+        if r["marked"] is not None:
+            by_env.setdefault(tuple(r["env"]), []).append(r)
+    for group in by_env.values():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda r: (r["pass"], r["label"]), reverse=True)
+        keep = group[0]
+        for r in group[1:]:
+            if r["marked"] != keep["marked"]:
+                r["reason"] = ("its environment is %s's, marked against that record's base "
+                               "pass %s" % (keep["label"], keep["pass"]))
+            else:
+                r["reason"] = "its environment is %s's, marked once" % keep["label"]
+            r["marked"] = None
+            r["shared"] = keep["label"]
+
+
 def marked_statements(home, store):
-    """``(label, path, text, span)`` of every registry statement whose environment
-    carries a reword mark."""
+    """``(path, text, span, [record ids])`` of every registry statement environment that
+    carries a reword mark (an environment once, with every record whose label it holds)."""
     out = []
     for path in _sections(home):
         text = _read(path)
         if not has_marks(text):
             continue
+        envs = {}
         for rid in sorted(store.records):
             span = env_span(text, rid)
             if span and has_marks(text[span[0]:span[1]]):
-                out.append((rid, path, text, span))
+                envs.setdefault(span, []).append(rid)
+        for span in sorted(envs):
+            out.append((path, text, span, envs[span]))
     return out
 
 
@@ -646,42 +676,48 @@ def _preamble_defines(home, cfg):
 
 def apply(home, cfg, result):
     """Write the plan: marks on each markable stale statement, none on the statements no
-    longer stale. Returns the problems (a write undone)."""
-    edits = {}          # path -> [(start, end, new text)]
+    longer stale. A file is written only when its edits do not overlap, every edited
+    statement still hashes as before and the file without its marks is the file without
+    its marks before (nothing outside the marks changed); otherwise it is restored.
+    Returns the problems."""
+    edits = {}          # path -> {span: (new text, label)}
     for r in result["items"]:
         if r["marked"] is None:
             continue
-        loc = where(home, r["label"])
-        path, text, span = loc
-        edits.setdefault(path, []).append((span[0], span[1], r["marked"], r["label"],
-                                           r["hash"]))
+        path, text, span = where(home, r["label"])
+        edits.setdefault(path, {})[span] = (r["marked"], r["label"])
     for r in result["remove"]:
         loc = where(home, r["label"])
         if loc is None:
             continue
         path, text, span = loc
-        edits.setdefault(path, []).append(
-            (span[0], span[1], strip_in_place(text[span[0]:span[1]]), r["label"], None))
+        edits.setdefault(path, {}).setdefault(
+            span, (strip_in_place(text[span[0]:span[1]]), r["label"]))
     problems = []
     for path, rows in sorted(edits.items()):
+        rel = os.path.relpath(path, home)
         text = _read(path)
-        before_hash = {lab: hash_of(paper_statement(lab, [text]) or "")
-                       for _s, _e, _t, lab, _h in rows}
-        rows.sort(key=lambda x: x[0], reverse=True)
+        spans = sorted(rows)
+        if any(a[1] > b[0] for a, b in zip(spans, spans[1:])):
+            problems.append("%s: two statement environments overlap (%s); nothing written"
+                            % (rel, ", ".join(rows[sp][1] for sp in spans)))
+            continue
+        before = {lab: hash_of(paper_statement(lab, [text]) or "")
+                  for _t, lab in rows.values()}
         new = text
-        for s, e, t, _lab, _h in rows:
-            new = new[:s] + t + new[e:]
+        for sp in reversed(spans):
+            new = new[:sp[0]] + rows[sp][0] + new[sp[1]:]
         if new == text:
+            continue
+        moved = [lab for _t, lab in rows.values()
+                 if hash_of(paper_statement(lab, [new]) or "") != before[lab]]
+        if moved or strip_in_place(new) != strip_in_place(text):
+            problems.append("%s: %s; nothing written" % (
+                rel, "the statement hash of %s would move" % ", ".join(moved) if moved
+                else "the text outside the marks would change"))
             continue
         with open(path, "w", encoding="utf-8", newline="") as fh:
             fh.write(new)
-        bad = [lab for _s, _e, _t, lab, _h in rows
-               if hash_of(paper_statement(lab, [_read(path)]) or "") != before_hash[lab]]
-        if bad:
-            with open(path, "w", encoding="utf-8", newline="") as fh:
-                fh.write(text)
-            problems.append("%s: the statement hash of %s moved; the file was restored"
-                            % (os.path.relpath(path, home), ", ".join(bad)))
     return problems
 
 

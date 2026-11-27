@@ -23,7 +23,7 @@ import reword_marks as rm  # noqa: E402
 ENGINE = os.path.join(REPO, "academy")
 
 TEX_OLD = ("\\section{A}\n\n"
-           "\\begin{prop}[Lifting]\\label{prop:foo}\n"
+           "\\begin{prop}[Lifting]\\label{prop:foo} \\label{prop:alias}\n"
            "Let $X$ be a compact surface. Then every \\emph{flat morphism} lifts\n"
            "by \\cref{lem:bar}.\n"
            "\\end{prop}\n\n"
@@ -257,6 +257,35 @@ class RewordMarks(unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         self.assertIn("\\Struck{compact} \\Reworded{closed}", out)
 
+
+    def test_an_environment_with_two_records_is_marked_once_and_kept(self):
+        # prop:alias labels the same environment (an old label kept); it is not stale
+        self.sb.write(os.path.join(self.home, "claims", "paper", "prop__alias.md"),
+                      "---\nid: paper:prop:alias\ntitle: prop:alias\nstatus: sketch\n"
+                      "where: sections/a.tex\nhistory:\n  - 2026-11-02 | sketch | x\n---\n")
+        self.configure()
+        code, out, err = self.script("--apply")
+        self.assertEqual(code, 0, out + err)
+        once = self.sb.read(self.tex)
+        self.assertEqual(once.count("\\Reworded{closed}"), 1)
+        self.assertIn("\\begin{proof}\nEasy.\n\\end{proof}", once)
+        code, out, err = self.script("--apply")           # the alias's marks are the stale
+        self.assertEqual(code, 0, out + err)              # claim's: never removed
+        self.assertNotIn("its marks were removed", out)
+        self.assertEqual(self.sb.read(self.tex), once)
+        _code, cp_out = self.check_paper()
+        self.assertNotIn("[R8]", cp_out)
+        self.assertNotIn("[W5]", cp_out)
+
+    def test_apply_refuses_a_write_that_would_move_a_hash(self):
+        self.configure()
+        env = TEX_NEW[TEX_NEW.index("\\begin{prop}"):TEX_NEW.index("\\end{prop}") + 10]
+        bad = env.replace("closed", "\\Reworded{closed} extra")
+        result = {"items": [{"label": "prop:foo", "marked": bad}], "remove": [], "kept": []}
+        problems = rm.apply(self.home, {}, result)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("would move", problems[0])
+        self.assertEqual(self.sb.read(self.tex), TEX_NEW)
 
     def check_paper(self):
         res = subprocess.run([sys.executable, os.path.join(SCRIPTS, "check_paper.py"),
