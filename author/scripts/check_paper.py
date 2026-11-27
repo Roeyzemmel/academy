@@ -1256,7 +1256,11 @@ def rule_reword_marks(paper: Paper, root: Optional[str],
     out: List[Finding] = []
     for stmt in paper.statements:
         marked = _ac.RE_REWORD_MARK.search(stmt.body or "") is not None
-        item = stale.get(stmt.label)
+        # a statement may keep an old label: any of its labels names its claim (not the
+        # labels of its items)
+        labels = [stmt.label] + [lab.strip() for lab in RE_LABEL.findall(stmt.body or "")
+                                 if not lab.strip().startswith("it:")]
+        item = next((stale[lab] for lab in labels if lab in stale), None)
         if item is not None and not marked:
             out.append(Finding(
                 "W5", "W", stmt.file, stmt.line, stmt.label,

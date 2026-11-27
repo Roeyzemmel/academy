@@ -413,6 +413,16 @@ class RewordMarkRules(unittest.TestCase):
         got = cp.rule_reword_marks(paper, root, stale=self.stale())
         self.assertEqual([(f.kind, f.severity, f.label) for f in got], [("R8", "V", "prop:a")])
 
+    def test_any_label_of_the_statement_names_its_claim(self):
+        # a statement keeps an old label: the stale record may be the second one
+        self.BODY = ("\\begin{prop}\\label{prop:new}\\label{prop:old}\nA \\Reworded{b}.\n"
+                     "\\end{prop}\n\\begin{proof}\nOk.\n\\end{proof}\n"
+                     "\\begin{lem}\\label{lem:c}\\label{lem:d}\nC.\n\\end{lem}\n"
+                     "\\begin{proof}\nOk.\n\\end{proof}\n")
+        root, paper = self.paper()
+        got = cp.rule_reword_marks(paper, root, stale=self.stale("prop:old", "lem:d"))
+        self.assertEqual([(f.kind, f.label) for f in got], [("W5", "lem:c")])
+
     def test_without_the_mark_level_nothing_is_checked(self):
         root, paper = self.paper()
         cp.configure(None)
