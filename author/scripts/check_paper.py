@@ -40,7 +40,12 @@ What it does
 4. Writes the generated registry ``Drafts/statements.md`` (LF endings).
 5. Summarises the last build from ``.build/main.log`` / ``.build/main.blg`` and,
    if ``pdftotext`` is on PATH, counts ``??`` in ``.build/main.pdf``.
-6. **R7** (warning): scans the built PDF for a clipped fragment -- text whose box
+6. **W5 / R8** (#137, only with the reword level: an ``author.statusLevels`` entry of
+   kind ``mark``): a stale settled claim (``registry.py stale``) whose statement carries
+   no ``\\Reworded`` / ``\\Struck`` mark is a warning (W5: it reads as settled on its
+   current text); marks on a statement whose claim is not stale are a violation (R8).
+   ``reword_marks.py --apply`` writes and removes them. The marks colour no statement.
+7. **R7** (warning): scans the built PDF for a clipped fragment -- text whose box
    falls outside the page, the geometric signature of a margin note the column
    could not hold. Needs a build no older than the newest ``.tex`` under
    ``sections/``, ``tikz/`` or ``main.tex``, and ``pdftohtml`` plus ``synctex`` on
@@ -486,7 +491,7 @@ class RefUse:
 
 @dataclass
 class Finding:
-    kind: str             # "R1" ... "R6", "W1" ... "W4", "BUILD"
+    kind: str             # "R1" ... "R8", "W1" ... "W5", "BUILD"
     severity: str         # "V" (violation) or "W" (warning)
     file: str
     line: int
@@ -1222,6 +1227,51 @@ def rule_margin_overflow(root: str) -> List[Finding]:
     return out
 
 
+def stale_claims(root: str) -> Dict[str, dict]:
+    """``{label: stale item}`` of the paper's stale settled claims (the registry's
+    ``stale`` list, read through ``reword_marks.stale_items``). Raises when it cannot be
+    read (no workspace, no library, no engine)."""
+    import reword_marks
+    _store, items = reword_marks.stale_items(root)
+    return {str(i["id"]): i for i in items}
+
+
+def rule_reword_marks(paper: Paper, root: Optional[str],
+                      stale: Optional[Dict[str, dict]] = None) -> List[Finding]:
+    """W5 / R8 (#137), only with the home's reword level (``author.statusLevels`` entry of
+    kind ``mark``): a stale settled claim whose statement carries no reword mark reads as
+    settled on its current text (W5, a warning); a statement carrying reword marks whose
+    claim is not stale shows a reword that no longer stands (R8, a violation).
+    ``reword_marks.py --apply`` writes and removes them. When the stale list cannot be
+    read, a NOTE on stderr says so and nothing is checked."""
+    if MARK_LEVEL is None or root is None:
+        return []
+    if stale is None:
+        try:
+            stale = stale_claims(root)
+        except Exception as exc:        # noqa: BLE001 -- said, never fatal
+            print("NOTE: W5/R8 (reword marks) not checked: the stale list could not be "
+                  "read (%s)" % exc, file=sys.stderr)
+            return []
+    out: List[Finding] = []
+    for stmt in paper.statements:
+        marked = _ac.RE_REWORD_MARK.search(stmt.body or "") is not None
+        item = stale.get(stmt.label)
+        if item is not None and not marked:
+            out.append(Finding(
+                "W5", "W", stmt.file, stmt.line, stmt.label,
+                "%s %s reworded since its review pass %s carries no reword marks: it reads "
+                "as settled on its current text (`reword_marks.py --apply` writes them)"
+                % (item.get("status") or "settled", stmt.env, item.get("pass") or "?")))
+        elif item is None and marked:
+            out.append(Finding(
+                "R8", "V", stmt.file, stmt.line, stmt.label,
+                "%s carries reword marks (%s / %s) but its claim is not stale: they show a "
+                "reword that no longer stands (`reword_marks.py --apply` removes them)"
+                % (stmt.env, MARK_LEVEL.get("command"), MARK_LEVEL.get("strike"))))
+    return out
+
+
 def run_rules(paper: Paper, root: Optional[str] = None) -> List[Finding]:
     findings: List[Finding] = []
     findings.extend(paper.anomalies)
@@ -1234,6 +1284,7 @@ def run_rules(paper: Paper, root: Optional[str] = None) -> List[Finding]:
     findings.extend(rule_undefined_refs(paper))
     if root is not None:
         findings.extend(rule_margin_overflow(root))
+        findings.extend(rule_reword_marks(paper, root))
     findings.sort(key=lambda f: (f.file, f.line, f.kind))
     return findings
 

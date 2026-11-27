@@ -258,5 +258,39 @@ class RewordMarks(unittest.TestCase):
         self.assertIn("\\Struck{compact} \\Reworded{closed}", out)
 
 
+    def check_paper(self):
+        res = subprocess.run([sys.executable, os.path.join(SCRIPTS, "check_paper.py"),
+                              "--root", self.home, "--no-log", "--no-registry"],
+                             capture_output=True, env=self.env(), timeout=300)
+        return res.returncode, res.stdout.decode("utf-8") + res.stderr.decode("utf-8")
+
+    def test_check_paper_warns_on_a_stale_claim_without_marks(self):
+        self.configure()
+        _code, out = self.check_paper()
+        self.assertIn("prop:foo: [W5]", out)
+        self.assertIn("reword_marks.py --apply", out)
+        self.script("--apply")
+        _code, out = self.check_paper()
+        self.assertNotIn("[W5]", out)
+        self.assertNotIn("[R8]", out)
+
+    def test_check_paper_fails_marks_on_a_claim_that_is_not_stale(self):
+        self.configure()
+        self.script("--apply")
+        self.reword_pass("2026-11-05-T-0002-reword", "2026-11-01-T-0001", self.h_old,
+                         self.h_new)
+        code, out = self.check_paper()
+        self.assertEqual(code, 1, out)
+        self.assertIn("prop:foo: [R8]", out)
+        self.script("--apply")
+        code, out = self.check_paper()
+        self.assertNotIn("[R8]", out)
+
+    def test_check_paper_ignores_marks_without_the_mark_level(self):
+        self.configure(mark=False)
+        _code, out = self.check_paper()
+        self.assertNotIn("[W5]", out)
+
+
 if __name__ == "__main__":
     unittest.main()

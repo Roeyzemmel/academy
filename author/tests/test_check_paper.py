@@ -375,6 +375,55 @@ class MarkLevelConfig(unittest.TestCase):
         self.assertIsNone(cp.MARK_LEVEL)
 
 
+class RewordMarkRules(unittest.TestCase):
+    """#137: with the mark level, W5 (a stale settled claim without marks) and R8 (marks
+    on a claim that is not stale); the stale list is the registry's (injected here)."""
+
+    BODY = ("\\begin{prop}\\label{prop:a}\nA \\Struck{old} \\Reworded{new} one.\n"
+            "\\end{prop}\n\\begin{proof}\nOk.\n\\end{proof}\n"
+            "\\begin{lem}\\label{lem:b}\nPlain.\n\\end{lem}\n"
+            "\\begin{proof}\nOk.\n\\end{proof}\n")
+
+    def paper(self):
+        tmp = tempfile.mkdtemp(prefix="cp-marks-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.makedirs(os.path.join(tmp, "sections"))
+        with open(os.path.join(tmp, "main.tex"), "w", encoding="utf-8") as fh:
+            fh.write("\\documentclass{amsart}\n\\begin{document}\n"
+                     "\\input{sections/a}\n\\end{document}\n")
+        with open(os.path.join(tmp, "sections", "a.tex"), "w", encoding="utf-8") as fh:
+            fh.write(self.BODY)
+        return tmp, cp.build_paper(tmp)
+
+    def setUp(self):
+        self.addCleanup(cp.configure, None)
+        cp.configure({"statusLevels": [dict(lv) for lv in cp.DEFAULT_STATUS_LEVELS]
+                      + [dict(REWORDED)]})
+
+    def stale(self, *labels):
+        return {lab: {"status": "proved", "pass": "2026-11-01-T-0001"} for lab in labels}
+
+    def test_marks_on_a_stale_claim_pass_and_a_stale_claim_without_them_warns(self):
+        root, paper = self.paper()
+        got = cp.rule_reword_marks(paper, root, stale=self.stale("prop:a", "lem:b"))
+        self.assertEqual([(f.kind, f.severity, f.label) for f in got], [("W5", "W", "lem:b")])
+
+    def test_marks_on_a_claim_that_is_not_stale_are_a_violation(self):
+        root, paper = self.paper()
+        got = cp.rule_reword_marks(paper, root, stale=self.stale())
+        self.assertEqual([(f.kind, f.severity, f.label) for f in got], [("R8", "V", "prop:a")])
+
+    def test_without_the_mark_level_nothing_is_checked(self):
+        root, paper = self.paper()
+        cp.configure(None)
+        self.assertEqual(cp.rule_reword_marks(paper, root, stale=self.stale()), [])
+
+    def test_the_marks_colour_nothing(self):
+        _root, paper = self.paper()
+        st = paper.by_label["prop:a"]
+        self.assertEqual((st.colour, st.partly), (cp.ESTABLISHED, []))
+
+
 class MarginOverflowScan(unittest.TestCase):
     """R7 must not run one synctex lookup per clipped fragment (a paper with
     ~1600 clipped margin lines took a quarter of an hour: the scan 'hung')."""
