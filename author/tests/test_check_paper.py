@@ -34,6 +34,35 @@ class SelfTest(unittest.TestCase):
         self.assertIn("Self-test: 0 checks failed.", out)
 
 
+class CorruptedBuildTests(unittest.TestCase):
+    """#136 item 1: NUL bytes in the build's aux files (a container restart) are reported
+    as a corrupted build, not as undefined references in the paper."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.build = os.path.join(self.root, *cp._build_rel("log").split("/")[:-1])
+        os.makedirs(self.build)
+        with open(cp._build_path(self.root, "log"), "w", encoding="utf-8") as fh:
+            fh.write("LaTeX Warning: Reference `x' on page 1 undefined\n" * 3)
+
+    def test_nul_bytes_report_a_corrupted_build(self):
+        with open(cp._build_path(self.root, "aux"), "wb") as fh:
+            fh.write(b"\\relax\n\x00\x00\x00")
+        s = cp.summarise_build(self.root)
+        self.assertEqual(s.corrupted, [cp._build_rel("aux")])
+        self.assertEqual(s.undefined, 0)                    # the log is not counted
+        self.assertIn("corrupted build files", s.render())
+        self.assertIn("rebuild", s.render())
+
+    def test_a_clean_build_counts_as_before(self):
+        with open(cp._build_path(self.root, "aux"), "wb") as fh:
+            fh.write(b"\\relax\n")
+        s = cp.summarise_build(self.root)
+        self.assertEqual(s.corrupted, [])
+        self.assertEqual(s.undefined, 3)
+
+
 class RegistryViewTests(unittest.TestCase):
     """Every parsed statement has a row in the generated view (2026-11-13: the statements
     of a file that opens its own \\section, input after another section of main.tex,

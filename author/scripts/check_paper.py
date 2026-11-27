@@ -1271,8 +1271,15 @@ class BuildSummary:
     bibtex_accepted: int = 0
     qq: int = 0
     notes: List[str] = field(default_factory=list)
+    #: build files holding NUL bytes (#136: after a container restart): the counts
+    #: above then describe the corruption, not the paper, and are not counted
+    corrupted: List[str] = field(default_factory=list)
 
     def render(self) -> str:
+        if self.corrupted:
+            return ("BUILD: corrupted build files (NUL bytes in %s): the build is not "
+                    "checked; delete them (or %s) and rebuild"
+                    % (", ".join(self.corrupted), _build_rel("aux").rsplit("/", 1)[0] + "/"))
         if not self.present:
             return ("BUILD: nothing to check (no %s, .blg or .pdf)"
                     % _build_rel("log"))
@@ -1296,8 +1303,23 @@ def bib_warning_accepted(line: str) -> bool:
 
 
 def summarise_build(root: str) -> BuildSummary:
-    """Summarise .build/main.log, .build/main.blg and ?? in the PDF."""
+    """Summarise .build/main.log, .build/main.blg and ?? in the PDF.
+
+    Build files holding NUL bytes (#136: ``main.aux`` and ``main.out`` after a container
+    restart; pdflatex then dies on "invalid character" and the log fills with undefined
+    references) make the summary report corruption instead of counting it as defects."""
     summary = BuildSummary()
+    for ext in ("aux", "out", "toc", "log"):
+        path = _build_path(root, ext)
+        try:
+            with open(path, "rb") as handle:
+                if b"\x00" in handle.read():
+                    summary.corrupted.append(_build_rel(ext))
+        except OSError:
+            continue
+    if summary.corrupted:
+        summary.present = True
+        return summary
     log_path = _build_path(root, "log")
     if os.path.isfile(log_path):
         summary.present = True
@@ -1600,7 +1622,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     violations = report(findings, summary, registry_path, len(paper.statements))
     if summary is not None:
-        violations += summary.errors + summary.undefined + summary.qq
+        violations += summary.errors + summary.undefined + summary.qq + len(summary.corrupted)
     warnings = sum(1 for f in findings if f.severity == "W")
     if violations:
         return 1
