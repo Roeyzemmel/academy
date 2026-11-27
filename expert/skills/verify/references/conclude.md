@@ -113,6 +113,31 @@ the substitution in the ticket thread and the record. A run on any of the gradin
 primaries (`grading.primaryModels`, roster-rules.md) counts in full; a run on any other
 model the table reads as PLAUSIBLE, so nothing is proposed on it.
 
+## 1-items. A structured record: the decision per item (#127)
+
+A record with `items` (`registry.py statement <id> --items` lists them with their
+hashes) is reviewed per item: the brief lists its hypotheses H1, H2, ... and its items,
+and each run's verdict block carries `items: C1 CONFIRMED; C2 CONFIRMED modulo X; C3
+GAP` and `hypotheses_used:` (the reviewer's brief says how). The script decides each
+item from the two runs' entries by the same table (`items.<key>` in its JSON) and
+derives the whole outcome: every item `confirmed` -> `confirmed`; every item
+`confirmed` or `confirmed-modulo` -> `confirmed-modulo`, modulo the union; an item still
+awaiting B -> `awaiting-b` (`launch_b`: A CONFIRMED on at least one item launches B,
+which reviews every item); otherwise `per-item`: no whole status, and
+`proposed_items` gives the status of each item that has one. So a GAP on one item holds
+only that item: its repair is filed from `file_items` (each names its `item`), and the
+other items are proposed as decided. A run without `items:` on a structured record:
+the table decides on the whole statement and says so (`items_note`).
+
+Each item's grounds (`items.<key>.grounds`) carry `item` and `item_hash` (the item's
+hash now; absent, with an anomaly, when the statement moved since the runs: re-verify).
+Propose per item: one `claims_propose_status {id, item: <key>, status, grounds:
+<that item's grounds>}` per entry of `proposed_items`; the keeper sets each item and the
+record's status follows from them. With a `confirmed` / `confirmed-modulo` whole
+outcome the whole grounds still serve (`claims_propose_status` without `item` sets every
+item at once). An unused hypothesis (`hypotheses_used` missing one) is a finding for the
+record's `decision.md` and a `prove` ticket (class `hypothesis`) to the Researcher.
+
 ## 1a. The falsifier, on a GAP verdict
 
 The human's design (2026-11-20, as revised the same day): a falsifier (an experiment or

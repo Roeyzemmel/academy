@@ -230,6 +230,25 @@ base_hash: <as in the bundle>
 amended_with: <as in the bundle: the dependencies the amendment added>
 ```
 
+**A structured statement** (#127) names its parts: a notebook statement writes them as
+lines `**H1.** ...` (hypotheses) and `**C1.** ...` (conclusions, the items); a paper
+statement's items are its `\item ... \label{it:KEY}` (KEY is the label without `it:`),
+and the brief lists its hypotheses H1, H2, ... When the statement names its items,
+decide each item on its own and add two lines to the block, after `gap_class`:
+
+```
+items: <KEY word [modulo ids], the word one of the four; one entry per item, separated by ;>
+hypotheses_used: <the H's the proof of some item uses, comma-separated, or none>
+```
+
+for example `items: C1 CONFIRMED; C2 CONFIRMED modulo paper:lem:x; C3 GAP`. Every item
+gets an entry; an item's `modulo` lists only the inputs its own proof uses. The
+whole-run `verdict` is the weakest of the items' (GAP if any item is GAP) and `modulo`
+the union of theirs; `blocking` names the item (`C3: step 4 ...`). A hypothesis no
+item's proof uses is a finding (step 1): name it in the report, and give `gap_class:
+hypothesis` when it is the only one. A statement without named items: leave both
+lines out.
+
 `gap_class` says what the blocking finding touches, and so who repairs it
 (`academy/references/roster-rules.md`, "Role cut"): `hypothesis` (a hypothesis is
 missing, too weak or unused), `statement` (the conclusion or the formulation must

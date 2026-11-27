@@ -42,6 +42,7 @@ from pathlib import Path
 
 from ..core import fm, legacy_fm, workspace, federation, projection, schema, grounds as _grounds
 from ..core import stale as _stale
+from ..core import structure
 from ..core.edit import Doc
 from ..core.model import Record, Store
 
@@ -234,6 +235,24 @@ def paper_established(base):
             pass
         return "established"
     return _cached(("established", base), scan)
+
+
+def paper_texts(base):
+    """The texts of base/sections/*.tex, read once per cache generation."""
+    return _cached(("texts", base), lambda: _paper_texts(Path(base)))
+
+
+def body_parts(c, repo, rules=None):
+    """``(hypotheses, items)`` body texts of record ``c`` (#127, core/structure.py): the
+    paper's from the LaTeX environment carrying its label (no hypotheses), the lab's from
+    the body's ``**H<n>.**`` / ``**C<n>.**`` lines."""
+    cid = str(c.fields.get("id") or "")
+    if rules is None and ":" in cid:
+        rules = workspace.rule_set(cid.split(":", 1)[0], repo)
+    if rules == "paper":
+        env = _paper_statement(Path(repo), cid.split(":", 1)[1], paper_texts(Path(repo)))
+        return {}, structure.paper_items(env or "")
+    return structure.nb_parts(c.body)
 
 
 def _is_foreign(ns, repo):
@@ -580,6 +599,13 @@ def _check_v2(c, repo, root, by_id, e, w):
             c.fields, extra_fields=V2_EXTRA,
             status_kinds=V2_STATUS_KINDS.get(rules, schema.STATUS_KINDS)):
         (e if level == "error" else w)(msg)
+    if structure.has_structure(c.fields):
+        bh, bi = body_parts(c, repo, rules)
+        for level, msg in structure.check(
+                c.fields, bh, bi, paper=rules == "paper",
+                status_kinds=V2_STATUS_KINDS.get(rules, schema.STATUS_KINDS),
+                problems=() if rules == "paper" else structure.nb_problems(c.body)):
+            (e if level == "error" else w)(msg)
     if not isinstance(cid, str) or not ID_RE.match(cid):
         if isinstance(cid, str):
             e(f"id `{cid}` is not `<ns>:<name>`")
@@ -915,6 +941,27 @@ def _paper_statement(home_, label, texts=None):
 class FslStore(Store):
     profile = "fsl-claims"
 
+    @property
+    def paper_items(self):
+        return workspace.rule_set(self.ns, self.home) == "paper"
+
+    def body_parts(self, rid):
+        """paper: the ``\\label{it:..}`` items of the statement's environment (#127);
+        lab: the body's ``**H<n>.**`` / ``**C<n>.**`` lines."""
+        c = self.claim_by_name.get(rid)
+        if c is None:
+            return {}, {}
+        if self.paper_items:
+            if self._cache_texts and self._texts is None:
+                self._texts = _paper_texts(Path(self.home))
+            env = _paper_statement(self.home, rid, self._texts)
+            return {}, structure.paper_items(env or "")
+        return structure.nb_parts(c.body)
+
+    def body_parse(self, rid):
+        c = self.claim_by_name.get(rid)
+        return structure.nb_parse(c.body if c is not None else "")
+
     def __init__(self, ns, home_, claims=None):
         """``claims``: the home's claims as already loaded (``check``, ``render``), so a
         store over them needs no second read of the registry. Such a short-lived store also
@@ -1031,7 +1078,7 @@ def statement_hash(repo, cid):
 
 
 def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=False,
-               date=None):
+               date=None, item=None):
     """Set ``cid``'s status: the one mutation path for lab/paper records.
 
     ``grounds`` is checked by :func:`core.grounds.check_grounds` (plan section 8) against
@@ -1041,7 +1088,12 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     through a chain of renames, #127); ``evidence`` rows (``kind | ref | verdict |
     note``) are appended first. Writes the status line and a history row (newest first)
     and nothing else. Refuses, leaving the file untouched, when the grounds fail or the
-    result would not pass ``check``. Returns the old status."""
+    result would not pass ``check``. Returns the old status.
+
+    A structured record (#127): ``item`` sets that one item, on grounds checked against
+    the item's hash (``core.itemedit``), and returns the item's old status; a discharge
+    goes per item; without ``item`` a status change sets every item to it (a pass on the
+    whole statement covers each item), so the derived status is the one set."""
     repo = Path(repo)
     if status not in STATUSES:
         raise Refused(f"status must be one of: {', '.join(STATUSES)}")
@@ -1049,6 +1101,17 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
     claim = parse_text(path.read_text(encoding="utf-8"), path, fallback=False)
     if claim.dialect_error:
         raise Refused("requote the file first")
+    structured = claim.v2 and "items" in claim.fields
+    if item is not None or (structured and (grounds or {}).get("basis") == "discharge"):
+        from ..core import itemedit
+        try:
+            if item is None:
+                itemedit.discharge(cid, repo, date=date)
+                return claim.state
+            return itemedit.set_item(cid, repo, item, status, grounds, note=note,
+                                     human=human, date=date)["old"]
+        except itemedit.Refused as exc:
+            raise Refused(str(exc))
     grounds, dis = _discharge_grounds(repo, cid, claim, status, grounds)
     if dis is not None:
         note = "; ".join(x for x in ((note or "").strip(),
@@ -1090,6 +1153,12 @@ def set_status(repo, cid, status, grounds=None, note=None, evidence=(), human=Fa
             doc.set_scalar("lifecycle", status, after=V2_AFTER[:V2_AFTER.index("lifecycle")])
         else:
             doc.set_scalar("status", status, after=("form", "title") if claim.v2 else ("title",))
+        if structured and not lifecycle:
+            mods = [str(m) for m in (grounds or {}).get("modulo") or []]
+            items, _p = structure.parse_items(claim.fields)
+            doc.set_map("items", {k: structure.item_value(
+                status, mods if status == "proved-modulo" else ()) for k in items},
+                after=V2_AFTER)
         if claim.v2 and not lifecycle:
             # the record's `modulo` is the grounds' missing inputs: written with
             # proved-modulo, dropped with proved (the schema refuses either without it)

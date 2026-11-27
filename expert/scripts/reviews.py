@@ -2,6 +2,8 @@
 
     py reviews.py hash --claim NS:ID                  the registry engine's statement hash of
                                                       a record: the one to pin a pass on (T-0464)
+    py reviews.py hash --claim NS:ID --item KEY       the hash of one item of a structured
+                                                      record (#127: its hypotheses + its text)
     py reviews.py hash (--file F | --text T)          the hash of a given text (a statement no
                                                       longer in the registry: a reword old.txt)
     py reviews.py dir SUBJECT PASS [--home H]         the pass folder for a subject
@@ -609,6 +611,24 @@ def list_passes(home, subject):
     return out
 
 
+def registry_item_hashes(subject):
+    """``(whole hash, {item key: item hash})`` of a structured record (#127), read
+    through the registry engine; ``(None, {})`` when it cannot be read and ``(hash, {})``
+    for a record without items."""
+    ns, name = split_subject(subject)
+    st = _registry_store(ns) if ns else None
+    if st is None:
+        return None, {}
+    try:
+        rid, exact = st.lookup(name)
+        if rid is None or not exact:
+            return None, {}
+        s = st.structure(rid)
+        return st.statement_hash(rid), dict((s or {}).get("hashes") or {})
+    except Exception:
+        return None, {}
+
+
 def main(argv=None):
     ex.utf8_stdout()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -621,6 +641,8 @@ def main(argv=None):
     g.add_argument("--file", help="hash this text as given (a statement no longer in "
                                   "the registry, e.g. a reword pass's old.txt)")
     g.add_argument("--text")
+    h.add_argument("--item", help="with --claim: the hash of this item of a structured "
+                                  "record (#127)")
     d = sub.add_parser("dir")
     d.add_argument("subject")
     d.add_argument("pass_name")
@@ -696,6 +718,15 @@ def main(argv=None):
                 sys.stderr.write("reviews: refused: --claim %r is not a namespaced id "
                                  "(ns:id)\n" % args.claim)
                 return 1
+            if args.item:
+                _whole, items = registry_item_hashes(args.claim)
+                if args.item not in items:
+                    sys.stderr.write("reviews: refused: %s has no item %s (`py -m registry "
+                                     "statement %s --items` lists them)\n"
+                                     % (args.claim, args.item, args.claim))
+                    return 1
+                print(items[args.item])
+                return 0
             _text, h = registry_statement(args.claim)
             if h is None:
                 sys.stderr.write("reviews: refused: the registry engine cannot read the "

@@ -2015,3 +2015,101 @@ class BasePassOnAnotherBranchTests(unittest.TestCase):
         self.git("branch", "-q", "-D", "2026-11-23/t-1957/expert")
         self.assertEqual(dt.branches_holding(self.d), [])
         self.assertEqual(dt.elsewhere(self.d), "")
+
+
+def irec(verdict, items, run="A", hyps="H1, H2", **kw):
+    """A run with an ``items:`` line (#127) and ``hypotheses_used``."""
+    r = rec(verdict, run=run, **kw)
+    r["items"], r["item_problems"] = dt.parse_items(items)
+    r["hypotheses_used"] = [h.strip() for h in hyps.split(",") if h.strip()]
+    return r
+
+
+REG = {"hash": "abc123", "items": {"C1": {"hash": "h1" * 8, "status": "sketch"},
+                                   "C2": {"hash": "h2" * 8, "status": "sketch"},
+                                   "C3": {"hash": "h3" * 8, "status": "sketch"}}}
+
+
+def items_of(_qid):
+    return REG
+
+
+class ItemTests(unittest.TestCase):
+    """#127: the table per item, the whole outcome derived from the items'."""
+
+    def test_parse_items_line(self):
+        r = dt.parse_record(
+            "VERDICT\nsubject: paper:prop:x\nverdict: GAP\nitems: C1 CONFIRMED; it:c2 "
+            "CONFIRMED modulo paper:lem:x, bib:AW21#Thm1.3; C3: GAP\n"
+            "hypotheses_used: H1, H3\n")
+        self.assertEqual(r["items"], {
+            "C1": {"verdict": "CONFIRMED", "modulo": []},
+            "c2": {"verdict": "CONFIRMED", "modulo": ["paper:lem:x", "bib:AW21#Thm1.3"]},
+            "C3": {"verdict": "GAP", "modulo": []}})
+        self.assertEqual(r["hypotheses_used"], ["H1", "H3"])
+        self.assertEqual(r["item_problems"], [])
+        bad = dt.parse_record("VERDICT\nverdict: GAP\nitems: C1 maybe; C2 GAP extra\n")
+        self.assertEqual(len(bad["item_problems"]), 2)
+        self.assertFalse(bad["problems"])      # the whole verdict still reads
+
+    def test_every_item_confirmed_is_confirmed(self):
+        it = "C1 CONFIRMED; C2 CONFIRMED; C3 CONFIRMED"
+        r = dt.decide(irec("CONFIRMED", it), irec("CONFIRMED", it, run="B"),
+                      items_of=items_of)
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertEqual(r["proposed_items"],
+                         {"C1": ["proved"], "C2": ["proved"], "C3": ["proved"]})
+        self.assertEqual(r["items"]["C2"]["grounds"]["item"], "C2")
+        self.assertEqual(r["items"]["C2"]["grounds"]["item_hash"], "h2" * 8)
+
+    def test_one_item_modulo_keeps_the_others_proved(self):
+        it = "C1 CONFIRMED; C2 CONFIRMED modulo paper:lem:y; C3 CONFIRMED"
+        r = dt.decide(irec("CONFIRMED", it, modulo="paper:lem:y"),
+                      irec("CONFIRMED", it, run="B", modulo="paper:lem:y"),
+                      items_of=items_of)
+        self.assertEqual(r["outcome"], "confirmed-modulo")
+        self.assertEqual(r["modulo"], ["paper:lem:y"])
+        self.assertEqual(r["proposed_items"], {"C1": ["proved"],
+                                               "C2": ["proved-modulo", "paper:lem:y"],
+                                               "C3": ["proved"]})
+        self.assertEqual(r["grounds"]["modulo"], ["paper:lem:y"])
+
+    def test_a_gap_on_one_item_holds_only_that_item(self):
+        # A: GAP overall (C3), CONFIRMED on C1 and C2: B is launched for the items
+        ra = irec("GAP", "C1 CONFIRMED; C2 CONFIRMED; C3 GAP", blocking="step 4")
+        self.assertTrue(dt.should_launch_b(ra))
+        r = dt.decide(ra, items_of=items_of)
+        self.assertEqual(r["outcome"], "awaiting-b")
+        self.assertTrue(r["launch_b"])
+        rb = irec("CONFIRMED", "C1 CONFIRMED; C2 CONFIRMED; C3 CONFIRMED", run="B")
+        r = dt.decide(ra, rb, items_of=items_of)
+        self.assertEqual(r["outcome"], "per-item")
+        self.assertIsNone(r["proposed_status"])
+        self.assertEqual(r["items"]["C3"]["outcome"], "single-negative")
+        self.assertEqual(r["proposed_items"], {"C1": ["proved"], "C2": ["proved"]})
+        self.assertEqual([i["item"] for i in r["file_items"]], ["C3"])
+        self.assertIn("step 4", r["file_items"][0]["text"])
+
+    def test_a_run_without_items_falls_back_to_the_whole_statement(self):
+        r = dt.decide(rec("CONFIRMED"), rec("CONFIRMED", run="B"), items_of=items_of)
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertNotIn("items", r)
+        self.assertIn("decided on the whole statement", r["items_note"])
+        # one run with items, one without: the same fallback
+        it = "C1 CONFIRMED; C2 CONFIRMED; C3 CONFIRMED"
+        r = dt.decide(irec("CONFIRMED", it), rec("CONFIRMED", run="B"), items_of=items_of)
+        self.assertEqual(r["outcome"], "confirmed")
+        self.assertIn("gave no `items:` entry", r["items_note"])
+
+    def test_a_moved_statement_gives_item_grounds_without_item_hash(self):
+        it = "C1 CONFIRMED; C2 CONFIRMED; C3 CONFIRMED"
+        r = dt.decide(irec("CONFIRMED", it, h="old999"),
+                      irec("CONFIRMED", it, run="B", h="old999"), items_of=items_of)
+        self.assertNotIn("item_hash", r["items"]["C1"]["grounds"])
+        self.assertTrue(any("statement changed since the runs" in a for a in r["anomalies"]))
+
+    def test_unrecorded_items_without_registry(self):
+        it = "C1 CONFIRMED; C2 GAP"
+        r = dt.decide(irec("GAP", it, blocking="x"), irec("CONFIRMED", it, run="B"))
+        self.assertEqual(r["outcome"], "per-item")
+        self.assertNotIn("item_hash", r["items"]["C1"]["grounds"])

@@ -136,6 +136,12 @@ class ClaimsBackend(object):
     def discharge(self, cid):
         raise NotEnabled("a discharge (#127) needs the registry engine backend")
 
+    def set_item(self, cid, item, status, grounds, note=None):
+        raise NotEnabled("an item's status (#127) needs the registry engine backend")
+
+    def structure(self, cid):
+        return None
+
 
 def split_id(cid):
     m = RE_CLAIM_ID.match(str(cid or "").strip())
@@ -558,6 +564,41 @@ class RegistryBackend(ClaimsBackend):
                     self.fsl.registry_root(__import__("pathlib").Path(home)), cid).as_posix()])}
 
 
+    def set_item(self, cid, item, status, grounds, note=None):
+        """One item of a structured record (#127; ``registry.core.itemedit``): the
+        grounds checked against the item's hash, the record's status re-derived."""
+        from pathlib import Path
+        from registry.core import itemedit
+        ns, _ = split_id(cid)
+        home = self._home(ns)
+        grounds = self._canon_grounds(home, grounds)
+        try:
+            res = itemedit.set_item(cid, Path(home), item, status, grounds, note=note,
+                                    human=self.ctx.is_human)
+        except itemedit.Refused as exc:
+            raise ToolError("refused: %s" % exc)
+        finally:
+            self.federation.CACHE.clear()
+        res["check"] = self.check(ns)
+        return res
+
+    def structure(self, cid):
+        """A structured record's items (status, modulo, hash), hypotheses and derived
+        status (#127); None for a record without items."""
+        ns, rest = split_id(cid)
+        try:
+            st = self._store(ns)
+        except ToolError:
+            return None
+        rid, _ = st.lookup(rest)
+        sv = st.structure(rid) if rid else None
+        if not sv:
+            return None
+        return {"status": sv["status"], "modulo": sv["modulo"],
+                "hypotheses": sv["hypotheses"],
+                "items": {k: {"status": v[0], "modulo": list(v[1]),
+                              "hash": sv["hashes"].get(k)} for k, v in sv["items"].items()}}
+
     def discharge(self, cid):
         """proved-modulo -> proved once every modulo input is established (#127): the
         record is assessed here (``registry.core.discharge``), the caller's word on the
@@ -672,6 +713,17 @@ BACKEND_FACTORY = RegistryBackend
 # ----------------------------------------------------------------------------
 # Handlers
 # ----------------------------------------------------------------------------
+
+def _show_structured(ctx, a):
+    res = _show(ctx, a)
+    try:
+        sv = backend(ctx).structure(a["id"])
+    except Exception:        # noqa: BLE001 -- the show stands without it
+        sv = None
+    if sv and isinstance(res, dict):
+        res = dict(res, structure=sv)
+    return res
+
 
 def _show(ctx, a):
     return backend(ctx).show(a["id"], bool(a.get("full")))
@@ -818,10 +870,14 @@ def _propose(ctx, a):
     if a["status"] not in TARGETS:
         raise ToolError("%r is not a registry status or lifecycle move" % a["status"])
     to = _keeper_instance(ctx, ns)
-    ask = "Set %s to %s (claims_set_status)." % (cid, a["status"])
+    item = str(a.get("item") or "").strip()
+    ask = "Set %s%s to %s (claims_set_status%s)." % (
+        cid, (" item %s" % item) if item else "", a["status"],
+        (" with item %s" % item) if item else "")
     detail = (a.get("reason") or "").strip()
     return _tickets.create_ticket(ctx, {
-        "title": "Status of %s -> %s" % (cid, a["status"]),
+        "title": "Status of %s%s -> %s" % (cid, (" item %s" % item) if item else "",
+                                           a["status"]),
         "kind": "decision", "to": to, "ask": ask, "on_behalf_of": to,
         "deliverable": "The status is set with grounds, or the ticket is rejected "
                        "with the reason.",
@@ -840,6 +896,13 @@ def _set_status(ctx, a):
         raise ToolError("refused: only claim-keeper or the human sets a status")
     be = backend(ctx)
     g = a.get("grounds") or {}
+    item = str(a.get("item") or "").strip()
+    if item:
+        # one item of a structured record (#127): its grounds are checked against the
+        # item's hash by the engine (a discharge: the item's own modulo inputs)
+        if g.get("basis") == "human" and not ctx.is_human:
+            check_human_where(ctx, g)
+        return be.set_item(cid, item, status, a.get("grounds"), a.get("note"))
     if g.get("basis") == "discharge" or (status == "proved" and g.get("discharge")):
         # a discharge (#127): the record's own modulo inputs, resolved by the server
         if status != "proved":
@@ -967,9 +1030,17 @@ GROUNDS = {"type": "object", "description": "See check_grounds: basis (proof | "
                                             "resolves the record's modulo inputs and "
                                             "refuses unless every one is proved)"}
 
+ITEM = {"type": "string", "description": "A structured record's item key (#127: C1, ... "
+                                         "in a notebook; the paper's it: label without "
+                                         "it:): sets that item, on grounds checked "
+                                         "against the item's hash (the decision "
+                                         "table's items.<key>.grounds); the record's "
+                                         "status is derived from its items"}
+
 TOOLS = [
-    Tool("claims_show", "Show one claim (any namespace) with its evidence and back-links.",
-         obj({"id": ID, "full": B}, ["id"]), _show),
+    Tool("claims_show", "Show one claim (any namespace) with its evidence and back-links; "
+         "a structured record also its items (status, modulo, hash) and hypotheses.",
+         obj({"id": ID, "full": B}, ["id"]), _show_structured),
     Tool("claims_list", "List claims of one namespace, filtered by status / where / kind "
          "/ free text (a notebook namespace: its find command).",
          obj({"ns": NS, "status": S, "where": S, "kind": S, "text": S}, ["ns"]), _list),
@@ -1000,12 +1071,14 @@ TOOLS = [
              ["id", "row"]), _recorded(_attach, "claims_attach_evidence"), write=True),
     Tool("claims_propose_status", "Propose a status change: files a decision ticket to "
          "the claim-keeper's instance; changes nothing itself.",
-         obj({"instance": _tickets.ACTING, "id": ID, "status": S, "reason": S, "grounds": GROUNDS, "refs": L},
+         obj({"instance": _tickets.ACTING, "id": ID, "status": S, "reason": S, "grounds": GROUNDS, "refs": L,
+              "item": ITEM},
              ["id", "status"]), _propose, write=True),
     Tool("claims_set_status", "Set a claim's status, or move its lifecycle (superseded, "
          "dropped; with a note), as claim-keeper or the human. The server re-checks the "
          "grounds (plan section 8) and the review records they cite, and refuses without "
          "them.",
-         obj({"instance": _tickets.ACTING, "id": ID, "status": S, "grounds": GROUNDS, "note": S}, ["id", "status"]),
+         obj({"instance": _tickets.ACTING, "id": ID, "status": S, "grounds": GROUNDS, "note": S,
+              "item": ITEM}, ["id", "status"]),
          _recorded(_set_status, "claims_set_status"), write=True),
 ]

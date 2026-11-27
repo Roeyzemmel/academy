@@ -181,10 +181,12 @@ def assess(qid, repo):
                                % (qid, state, ": " + detail if detail else ""))
         return out
     out["id"], out["status"] = rec.qid, rec.status
+    store = federation.store_from(rec.ns, repo)
+    if rec.status == "proved-modulo" and store.structure(rec.id) is not None:
+        return _assess_items(out, rec, repo)
     if rec.status != "proved-modulo":
         out["problems"].append("status %s, not proved-modulo" % (rec.status or "none"))
         return out
-    store = federation.store_from(rec.ns, repo)
     modulo = modulo_of(store, rec.id)
     if modulo is None:
         out["problems"].append("a schema-v1 record keeps no modulo list to follow")
@@ -196,6 +198,28 @@ def assess(qid, repo):
     out["dischargeable"] = ok
     if not ok:
         out["problems"] = why
+    return out
+
+
+def _assess_items(out, rec, repo):
+    """A structured record (#127): discharged per item. ``items`` holds each
+    proved-modulo item's assessment; the record is dischargeable when one item is (its
+    items then become proved and the record is re-derived: proved once every item is)."""
+    from . import itemedit
+    per = itemedit.assess(rec.qid, repo)
+    out["items"] = per
+    out["modulo"] = sorted({m for a in per.values() for m in a["modulo"]})
+    out["inputs"] = []
+    seen = set()
+    for k, a in per.items():
+        for i in a["inputs"]:
+            if i["input"] not in seen:
+                seen.add(i["input"])
+                out["inputs"].append(dict(i, item=k))
+    out["dischargeable"] = any(a["dischargeable"] for a in per.values())
+    if not out["dischargeable"]:
+        out["problems"] = ["item %s: %s" % (k, "; ".join(a["problems"]))
+                           for k, a in per.items()] or ["no item is proved-modulo"]
     return out
 
 
@@ -282,6 +306,15 @@ def apply(qid, repo, date=None):
     store = federation.store_from(ns, repo)
     home = Path(store.home)
     date = date or datetime.date.today().isoformat()
+    if "items" in a:
+        from . import itemedit
+        try:
+            itemedit.discharge(a["id"], repo, date=date)
+        except itemedit.Refused as exc:
+            raise ValueError("refused: %s" % exc)
+        finally:
+            federation.CACHE.clear()
+        return a
     from ..profiles import s1kb, fsl      # late: the profiles import the core
     try:
         if getattr(store, "kb", None) is not None:

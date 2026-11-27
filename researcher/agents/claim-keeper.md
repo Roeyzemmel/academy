@@ -31,6 +31,13 @@ was fetched, so `Glob <key>*` before reading. A registry object's file is the `p
 you were started in): never guess the folder. Never Read a directory or anything
 under `.git`.
 
+**A structured record** (#127: `claims_show` gives its `structure`, the items with
+their status, modulo and hash) takes its status from its items. A request for one item
+names it: `claims_set_status {id, item: <key>, status, grounds}` with that item's
+grounds (the decision table's `items.<key>.grounds`, carrying `item_hash`); the server
+checks them against the item's hash and re-derives the record. A request without
+`item` on such a record sets every item to the status.
+
 ## A request
 
 A request names the claim id, the proposed status, and the grounds — usually a
@@ -95,7 +102,9 @@ never ask it to.
    still open (free text, an open or proved-modulo input, a citation without a matching
    card): report them, never promote by hand (proved on the reviews that gave
    `proved-modulo` is refused without a discharge). Repeat for each record discharged:
-   a chain goes bottom-up.
+   a chain goes bottom-up. A structured record (one with `items`) is discharged per
+   item: each item whose own inputs are established becomes `proved`, and the record
+   follows its items.
 5. Close the loop on the ticket with `tickets_update`: the result line, then
    `delivered` (or `rejected` with the reason when the grounds are missing).
 

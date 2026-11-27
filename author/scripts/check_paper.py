@@ -32,7 +32,11 @@ What it does
    innermost enclosing level environment, and records inline level macros
    (``\\Sketch{`` ...) as "partly" markers.
 3. Attaches the first following ``proof`` environment, collects cross-references
-   and citations, and applies the rules R1--R6 documented in ``CLAUDE.md``.
+   and citations, and applies the rules R1--R6 documented in ``CLAUDE.md``. R1 also
+   reads a reference to an item of another statement (``\\cref{it:x}``, #127): a
+   violation when the paper's structured record gives that item a status other than
+   proved / proved-modulo, a warning when no record gives one and the statement is
+   unestablished.
 4. Writes the generated registry ``Drafts/statements.md`` (LF endings).
 5. Summarises the last build from ``.build/main.log`` / ``.build/main.blg`` and,
    if ``pdftotext`` is on PATH, counts ``??`` in ``.build/main.pdf``.
@@ -686,6 +690,11 @@ class Paper:
     ref_uses: List[RefUse]
     anomalies: List[Finding]
     order: List[str]                               # section names in input order
+    #: ``it:`` label -> the label of the statement whose body defines it (#127)
+    item_owner: Dict[str, str] = field(default_factory=dict)
+    #: ``it:`` label -> its status in the registry's structured record (#127); empty
+    #: when no record has ``items``
+    item_status: Dict[str, str] = field(default_factory=dict)
 
 
 def collect_inputs(root: str) -> List[Tuple[str, str]]:
@@ -782,12 +791,64 @@ def build_paper(root: str) -> Paper:
     for stmt in statements:
         stmt.used_by = sorted(set(stmt.used_by))
 
-    return Paper(statements, by_label, all_labels, ref_uses, anomalies, order)
+    item_owner: Dict[str, str] = {}
+    for stmt in statements:
+        if stmt.label == "(unlabelled)":
+            continue
+        for lab in RE_LABEL.findall(stmt.body or ""):
+            lab = lab.strip()
+            if lab.startswith("it:") and lab not in item_owner:
+                item_owner[lab] = stmt.label
+    return Paper(statements, by_label, all_labels, ref_uses, anomalies, order,
+                 item_owner, registry_item_status(root, set(item_owner.values())))
+
+
+def registry_item_status(root: str, labels: Set[str]) -> Dict[str, str]:
+    """``{"it:KEY": status}`` from the paper's structured claim records (#127): the
+    ``items:`` map (``KEY: [status, modulo...]``, KEY the label without ``it:``) of
+    ``<registry root>/paper/<label>.md``. Read line by line; a record without items, or
+    one that cannot be read, gives nothing."""
+    reg = "claims"
+    try:
+        import json as _json
+        with open(os.path.join(root, ".claude", "academy.json"), encoding="utf-8-sig") as fh:
+            r = (_json.load(fh).get("registry") or {}).get("root")
+            if isinstance(r, str) and r:
+                reg = r
+    except (OSError, ValueError, AttributeError):
+        pass
+    out: Dict[str, str] = {}
+    for label in labels:
+        path = os.path.join(root, reg, "paper", label.replace(":", "__") + ".md")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.read().split("\n")
+        except OSError:
+            continue
+        inside = False
+        for ln in lines[1:]:
+            if ln.strip() == "---":
+                break
+            if not inside:
+                inside = ln.rstrip() == "items:"
+                continue
+            if not ln.startswith((" ", "\t")):
+                break
+            m = re.match(r"""^\s+(?:"([^"]+)"|'([^']+)'|(\S+?)):\s*\[\s*([A-Za-z-]+)""", ln)
+            if m:
+                key = m.group(1) or m.group(2) or m.group(3)
+                key = key[3:] if key.startswith("it:") else key
+                out["it:" + key] = m.group(4)
+    return out
 
 
 # --------------------------------------------------------------------------
 # Rules R1 - R6
 # --------------------------------------------------------------------------
+
+
+#: the registry statuses an established statement may rest on (the colour rule's black)
+ESTABLISHED_ITEM_STATUSES = ("proved", "proved-modulo")
 
 
 def rule_colour_propagation(paper: Paper) -> List[Finding]:
@@ -809,6 +870,26 @@ def rule_colour_propagation(paper: Paper) -> List[Finding]:
                                    msg + " -- definition on a sketched definition"))
             else:
                 out.append(Finding("R1", "V", stmt.file, stmt.line, stmt.label, msg))
+        # #127: a reference to an item of another statement (\cref{it:x})
+        for ref in stmt.also_refers:
+            owner_label = paper.item_owner.get(ref)
+            if owner_label is None or owner_label == stmt.label:
+                continue
+            owner = paper.by_label.get(owner_label)
+            st = paper.item_status.get(ref)
+            if st is not None:
+                if st not in ESTABLISHED_ITEM_STATUSES:
+                    out.append(Finding(
+                        "R1", "V", stmt.file, stmt.line, stmt.label,
+                        "%s %s references item %s of %s, whose registry status is %s"
+                        % (ESTABLISHED, stmt.env, ref, owner_label, st)))
+            elif owner is not None and is_unestablished(owner.colour) \
+                    and owner_label not in stmt.uses:
+                out.append(Finding(
+                    "R1", "W", stmt.file, stmt.line, stmt.label,
+                    "%s %s references item %s of %s %s (%s; no item status in the "
+                    "registry, so the statement's colour)"
+                    % (ESTABLISHED, stmt.env, ref, owner.colour, owner_label, owner.where)))
         if stmt.proof_sketched:
             detail = ("inside a %s environment" % stmt.proof_colour
                       if stmt.proof_colour != ESTABLISHED

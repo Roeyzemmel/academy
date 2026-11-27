@@ -246,6 +246,7 @@ from ..core import projection as _projection  # noqa: E402
 from ..core import schema as _schema  # noqa: E402
 from ..core import workspace as _workspace  # noqa: E402
 from ..core import stale as _stale  # noqa: E402
+from ..core import structure as _structure  # noqa: E402
 from ..core.edit import Doc as _Doc  # noqa: E402
 
 #: s1's own fields, kept beside the core ones in schema v2 (the home's data: the
@@ -704,6 +705,12 @@ def _check_v2(kb, e):
     extra = S1_EXTENSION
     for level, msg in _schema.check_record(e.v2, extra_fields=extra):
         (kb.error if level == "error" else kb.warn)(e.path, msg)
+    if _structure.has_structure(e.v2):
+        st_text = statement_text(e)
+        bh, bi = _structure.nb_parts(st_text)
+        for level, msg in _structure.check(e.v2, bh, bi, status_kinds=_schema.STATUS_KINDS,
+                                           problems=_structure.nb_problems(st_text)):
+            (kb.error if level == "error" else kb.warn)(e.path, msg)
     v = e.v2
     want_kind = {"claim": ("claim", "conjecture", "question", "definition", "direction"),
                  "assumption": ("assumption",), "example": ("example",),
@@ -2125,12 +2132,24 @@ def rewrite_status_v2(p: Path, label, vrow, note, old, human=None, modulo=None):
     The record's ``modulo`` moves with the status, as in the fsl profile (the schema
     refuses ``proved`` with one and ``proved-modulo`` without): ``proved`` drops it;
     ``proved-modulo`` writes ``modulo`` when given (the missing inputs) and otherwise
-    keeps the record's own (T-0361)."""
+    keeps the record's own (T-0361). A structured record's items all take the new
+    status (#127; one item at a time is ``core.itemedit``)."""
     doc = _Doc(p, _fm.format_scalar_single)
     after = V2_ORDER
     if label in _schema.LIFECYCLES:
         doc.set_scalar("lifecycle", label, after=after[:after.index("lifecycle")])
     else:
+        try:
+            fields, _b = _fm.split_document(p.read_text(encoding="utf-8"), str(p))
+        except FrontmatterError:
+            fields = {}
+        if isinstance(fields.get("items"), dict):
+            # a structured record (#127): a whole-record change sets every item to it
+            mods = list(modulo or fields.get("modulo") or []) \
+                if label == "proved-modulo" else []
+            doc.set_map("items", {k: _structure.item_value(label, mods)
+                                  for k in fields["items"]},
+                        after=after[:after.index("evidence")])
         doc.set_scalar("status", label, after=("form", "kind", "title"))
         if label == "proved":
             doc.remove("modulo")
