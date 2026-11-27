@@ -22,6 +22,9 @@ instances), the same as the Researcher notebook's object template
   from a verdict's ``modulo``; any other definition listed there stays an input (#103).
 * ``lifecycle``: active, superseded, dropped (a lifecycle, no longer a status). A record
   that is not active projects to ``n/a`` whatever its status.
+* ``hypotheses`` / ``items`` (optional, #127): a structured record's named hypotheses
+  and its conclusions, each item with its own status and modulo; the record's status is
+  the one its items derive (``core/structure.py``, checked by the profiles).
 * ``evidence`` rows: ``type | ref | verdict | run_id | note`` (``-`` for an empty cell).
 * ``history`` rows: ``YYYY-MM-DD | status | note``, newest first; the status cell is a
   status, a lifecycle word, or empty (an event that changed neither). The newest row
@@ -57,6 +60,10 @@ LIST_FIELDS = ("modulo", "depends_on", "bears_on", "supersedes", "aliases", "tag
 SCALAR_FIELDS = ("id", "kind", "form", "title", "status", "statement", "lifecycle",
                  "domain", "proof", "where")
 REQUIRED = ("id", "kind", "title", "lifecycle", "evidence", "history")
+#: the optional structured-claim maps (#127; core/structure.py): ``hypotheses`` (H<n>: its
+#: text or the definition it uses) and ``items`` (key: [status, modulo...]); a record
+#: without them is checked exactly as before
+STRUCT_FIELDS = ("hypotheses", "items")
 #: the lists written one item per line (rows and long free text)
 BLOCK_FIELDS = ("modulo", "evidence", "history")
 
@@ -140,7 +147,7 @@ def check_record(fields, *, extra_fields=(), status_kinds=STATUS_KINDS,
     for k in REQUIRED:
         if k not in fields:
             err(f"missing field '{k}'")
-    unknown = sorted(set(fields) - set(FIELD_ORDER) - set(extra_fields))
+    unknown = sorted(set(fields) - set(FIELD_ORDER) - set(extra_fields) - set(STRUCT_FIELDS))
     if unknown:
         err("unknown field(s): " + ", ".join(unknown))
     for k in LIST_FIELDS:
@@ -149,6 +156,9 @@ def check_record(fields, *, extra_fields=(), status_kinds=STATUS_KINDS,
     for k in SCALAR_FIELDS:
         if k in fields and not isinstance(fields[k], str):
             err(f"'{k}' must be a scalar")
+    for k in STRUCT_FIELDS:
+        if k in fields and not isinstance(fields[k], dict):
+            err(f"'{k}' must be a nested map")
     kind = fields.get("kind")
     if kind is not None and kind not in KINDS:
         err(f"kind '{kind}' is not one of: " + ", ".join(KINDS))

@@ -19,6 +19,15 @@ Commands of the engine itself, for every repo:
     py -m registry federation             which home serves each namespace from here
     py -m registry statement <ns:id>      the statement text a review is given on, and its
                                           hash (the one claims_set_status compares)
+    py -m registry statement <ns:id> --items
+                                          ... and, for a structured record (#127), one line
+                                          per item: key, status, modulo, item hash
+    py -m registry structure <ns:id> [--write]
+                                          the `hypotheses` / `items` frontmatter its body
+                                          suggests (the `**H<n>.**` / `**C<n>.**` lines; the
+                                          paper's `\\label{it:..}` items), each item at the
+                                          record's status; --write adds it to the record
+                                          (one record, never in bulk: lazy migration, #127)
     py -m registry requote [--write] [--report FILE]   the R2 requote (fsl-claims only)
     py -m registry stale [--ns NS] [--section S] [--json]
                                           the proved / proved-modulo claims whose statement
@@ -48,11 +57,11 @@ import os
 import sys
 from pathlib import Path
 
-from .core import discharge, federation, graph, stale, workspace
+from .core import discharge, federation, graph, stale, structure, workspace
 from .profiles import module
 
 ENGINE_COMMANDS = ("graph", "classes", "federation", "requote", "statement", "stale",
-                   "discharge")
+                   "discharge", "structure")
 
 
 def _pop_repo(argv):
@@ -85,6 +94,12 @@ def _engine(repo, argv):
     sub.add_parser("federation")
     st = sub.add_parser("statement")
     st.add_argument("id")
+    st.add_argument("--items", action="store_true",
+                    help="also each item's status, modulo and hash (a structured record)")
+    su = sub.add_parser("structure")
+    su.add_argument("id")
+    su.add_argument("--write", action="store_true",
+                    help="write the proposal into the record (default: print it)")
     sl = sub.add_parser("stale")
     sl.add_argument("--ns", help="one namespace (default: this repo's own, else every "
                                  "namespace reachable from it)")
@@ -144,8 +159,22 @@ def _engine(repo, argv):
             return 1
         st = federation.store_from(rec.ns, repo)
         print(f"hash: {st.statement_hash(rec.id)}")
+        if a.items:
+            s = st.structure(rec.id)
+            if s is None:
+                print("items: none (not a structured record)")
+            else:
+                print(f"derived: {s['status'] or '-'}"
+                      + (f" modulo {', '.join(s['modulo'])}" if s["modulo"] else ""))
+                for k, h in s["hypotheses"].items():
+                    print(f"{k}: {' '.join(h.split())}")
+                for k, (ist, mod) in s["items"].items():
+                    print(f"{k} {ist}{' ' + ', '.join(mod) if mod else ''} "
+                          f"hash {s['hashes'].get(k) or '(no text)'}")
         print(st.statement_text(rec.id))
         return 0
+    if a.cmd == "structure":
+        return _structure_cmd(repo, a)
     if a.cmd == "stale":
         return _stale_cmd(repo, a)
     if a.cmd == "discharge":
@@ -154,6 +183,81 @@ def _engine(repo, argv):
         from . import requote
         return requote.main(repo, write=a.write, report=a.report)
     return 1
+
+
+def _structure_cmd(repo, a):
+    """``structure ID [--write]``: the lazy migration of one record (#127)."""
+    state, rec, detail = federation.resolve(a.id, repo)
+    if rec is None:
+        print(f"structure: `{a.id}` does not resolve ({state}{': ' + detail if detail else ''})",
+              file=sys.stderr)
+        return 1
+    st = federation.store_from(rec.ns, repo)
+    bh, bi = st.body_parts(rec.id)
+    paper = bool(st.paper_items)
+    path = Path(rec.file)
+    try:
+        from .core import fm as _fm
+        fields, _body = _fm.split_document(path.read_text(encoding="utf-8"), str(path))
+    except Exception as exc:        # noqa: BLE001 -- said as is
+        print(f"structure: {path} cannot be read ({exc})", file=sys.stderr)
+        return 1
+    if not bi:
+        print(f"structure: {rec.qid} has no items in its statement ("
+              + ("no \\label{it:...} item in its environment" if paper else
+                 "no `**C<n>.**` line in its `## Statement`") + "): nothing to propose")
+        return 1
+    prop = structure.propose(fields, bh, bi, paper=paper)
+    from .core.edit import Doc
+    fmt = None
+    if st.profile == "fsl-claims":
+        fmt = _fm.format_scalar_single
+    lines = []
+    for key in ("hypotheses", "items"):
+        if key in prop:
+            lines.append(f"{key}:")
+            for k, v in prop[key].items():
+                kk = _fm.double_quote(k) if (_fm.needs_quotes(k) or ":" in k or "#" in k) else k
+                lines.append(f"  {kk}: {_fm.format_list(v) if isinstance(v, list) else (fmt or _fm.format_scalar)(v)}")
+    print(f"structure: {rec.qid} ({path})")
+    print("\n".join(lines))
+    if paper and "hypotheses" not in prop:
+        print("# the tex labels no hypothesis: add `hypotheses:` (H<n>: its text) by hand")
+    if not a.write:
+        print("(dry run: --write adds it to the record)")
+        return 0
+    before = path.read_bytes()
+    old_errs = _record_errors(st, rec, repo)
+    doc = Doc(path, fmt)
+    for key in ("hypotheses", "items"):
+        if key in prop:
+            doc.set_map(key, prop[key], after=("id", "kind", "form", "title", "status",
+                                               "statement", "modulo"))
+    doc.save()
+    federation.CACHE.clear()
+    added = [e for e in _record_errors(st, rec, repo) if e not in old_errs]
+    if added:
+        path.write_bytes(before)
+        federation.CACHE.clear()
+        print("structure: refused, the record would not pass check:\n" + "\n".join(added),
+              file=sys.stderr)
+        return 1
+    print("written")
+    return 0
+
+
+def _record_errors(st, rec, repo):
+    """The check errors of one record, read from disk, in its own home."""
+    home = Path(st.home)
+    if st.profile == "s1-kb":
+        from .profiles import s1kb
+        kb = s1kb.load_kb(home)
+        s1kb.run_check(kb)
+        rel = Path(rec.file).resolve().relative_to(home.resolve()).as_posix()
+        return [e for e in kb.errors if e.startswith(rel + ":") or e.startswith(rel + " ")]
+    from .profiles import fsl
+    errs, _w = fsl._check_one(Path(rec.file), home, fsl.registry_root(home))
+    return errs
 
 
 def _board():

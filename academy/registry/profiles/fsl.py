@@ -42,6 +42,7 @@ from pathlib import Path
 
 from ..core import fm, legacy_fm, workspace, federation, projection, schema, grounds as _grounds
 from ..core import stale as _stale
+from ..core import structure
 from ..core.edit import Doc
 from ..core.model import Record, Store
 
@@ -234,6 +235,24 @@ def paper_established(base):
             pass
         return "established"
     return _cached(("established", base), scan)
+
+
+def paper_texts(base):
+    """The texts of base/sections/*.tex, read once per cache generation."""
+    return _cached(("texts", base), lambda: _paper_texts(Path(base)))
+
+
+def body_parts(c, repo, rules=None):
+    """``(hypotheses, items)`` body texts of record ``c`` (#127, core/structure.py): the
+    paper's from the LaTeX environment carrying its label (no hypotheses), the lab's from
+    the body's ``**H<n>.**`` / ``**C<n>.**`` lines."""
+    cid = str(c.fields.get("id") or "")
+    if rules is None and ":" in cid:
+        rules = workspace.rule_set(cid.split(":", 1)[0], repo)
+    if rules == "paper":
+        env = _paper_statement(Path(repo), cid.split(":", 1)[1], paper_texts(Path(repo)))
+        return {}, structure.paper_items(env or "")
+    return structure.nb_parts(c.body)
 
 
 def _is_foreign(ns, repo):
@@ -580,6 +599,13 @@ def _check_v2(c, repo, root, by_id, e, w):
             c.fields, extra_fields=V2_EXTRA,
             status_kinds=V2_STATUS_KINDS.get(rules, schema.STATUS_KINDS)):
         (e if level == "error" else w)(msg)
+    if structure.has_structure(c.fields):
+        bh, bi = body_parts(c, repo, rules)
+        for level, msg in structure.check(
+                c.fields, bh, bi, paper=rules == "paper",
+                status_kinds=V2_STATUS_KINDS.get(rules, schema.STATUS_KINDS),
+                dups=() if rules == "paper" else structure.nb_duplicates(c.body)):
+            (e if level == "error" else w)(msg)
     if not isinstance(cid, str) or not ID_RE.match(cid):
         if isinstance(cid, str):
             e(f"id `{cid}` is not `<ns>:<name>`")
@@ -914,6 +940,23 @@ def _paper_statement(home_, label, texts=None):
 
 class FslStore(Store):
     profile = "fsl-claims"
+
+    @property
+    def paper_items(self):
+        return workspace.rule_set(self.ns, self.home) == "paper"
+
+    def body_parts(self, rid):
+        """paper: the ``\\label{it:..}`` items of the statement's environment (#127);
+        lab: the body's ``**H<n>.**`` / ``**C<n>.**`` lines."""
+        c = self.claim_by_name.get(rid)
+        if c is None:
+            return {}, {}
+        if self.paper_items:
+            if self._cache_texts and self._texts is None:
+                self._texts = _paper_texts(Path(self.home))
+            env = _paper_statement(self.home, rid, self._texts)
+            return {}, structure.paper_items(env or "")
+        return structure.nb_parts(c.body)
 
     def __init__(self, ns, home_, claims=None):
         """``claims``: the home's claims as already loaded (``check``, ``render``), so a

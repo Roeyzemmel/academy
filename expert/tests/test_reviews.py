@@ -508,6 +508,27 @@ class HashFromRegistryTests(unittest.TestCase):
         code, out, err = self.run_cli("hash", "--claim", "s1:GEO-1", "--text", "x")
         self.assertNotEqual(code, 0, out)
 
+    def test_hash_item_of_a_structured_record(self):
+        """#127: ``hash --claim ID --item KEY`` is the engine's item hash."""
+        self.sb.write("nbhome/objects/claim/GEO-2.md", S1_GEO.replace(
+            "id: GEO-1", "id: GEO-2").replace(
+            "status: open\n", "status: open\nhypotheses:\n  H1: Q a group\n"
+                              "items:\n  C1: [open]\n").replace(
+            "Let $Q$ be a group", "**H1.** $Q$ is a group.\n\n**C1.** Let $Q$ be a group"))
+        code, out, err = self.run_cli("hash", "--claim", "s1:GEO-2", "--item", "C1")
+        self.assertEqual(code, 0, err)
+        engine = os.path.join(os.path.dirname(fixtures.PLUGIN), "academy")
+        if engine not in sys.path:
+            sys.path.insert(0, engine)
+        from registry.core import federation
+        federation.CACHE.clear()
+        st = federation.store("s1", self.sb.path("nbhome"))
+        self.assertEqual(str(out), st.item_hash("GEO-2", "C1"))
+        self.assertNotEqual(str(out), st.statement_hash("GEO-2"))
+        code, out, err = self.run_cli("hash", "--claim", "s1:GEO-2", "--item", "C9")
+        self.assertEqual(code, 1, out)
+        self.assertIn("no item C9", err)
+
     def test_registry_statement_gives_the_text_and_its_hash(self):
         import decision_table as dt
         import reviews

@@ -246,6 +246,7 @@ from ..core import projection as _projection  # noqa: E402
 from ..core import schema as _schema  # noqa: E402
 from ..core import workspace as _workspace  # noqa: E402
 from ..core import stale as _stale  # noqa: E402
+from ..core import structure as _structure  # noqa: E402
 from ..core.edit import Doc as _Doc  # noqa: E402
 
 #: s1's own fields, kept beside the core ones in schema v2 (the home's data: the
@@ -704,6 +705,12 @@ def _check_v2(kb, e):
     extra = S1_EXTENSION
     for level, msg in _schema.check_record(e.v2, extra_fields=extra):
         (kb.error if level == "error" else kb.warn)(e.path, msg)
+    if _structure.has_structure(e.v2):
+        st_text = statement_text(e)
+        bh, bi = _structure.nb_parts(st_text)
+        for level, msg in _structure.check(e.v2, bh, bi, status_kinds=_schema.STATUS_KINDS,
+                                           dups=_structure.nb_duplicates(st_text)):
+            (kb.error if level == "error" else kb.warn)(e.path, msg)
     v = e.v2
     want_kind = {"claim": ("claim", "conjecture", "question", "definition", "direction"),
                  "assumption": ("assumption",), "example": ("example",),
