@@ -144,6 +144,20 @@ class TestSetStatus(Homes):
                        {"basis": "human", "quote": "stop", "where": "T-0007"})
         self.assertIn("(T-0007)", fsl.parse_text(self.p.read_text(encoding="utf-8")).history[0])
 
+    def test_cli_human_writes_the_hand_row(self):
+        """#132: `set-status --human Q --where-said W` writes the hand evidence row itself,
+        as claims_set_status does, so `supported` on the human's word is not refused."""
+        import contextlib, io
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            rc = fsl.main(["--repo", str(self.lab), "set-status", "lab:foo", "supported",
+                           "--human", "foo as stated", "--where-said", "T-0007"])
+        self.assertEqual(rc, 0)
+        c = fsl.parse_text(self.p.read_text(encoding="utf-8"), fallback=False)
+        self.assertEqual(c.status, "supported")
+        hand = [r for r in c.evidence if r.startswith("hand | T-0007 | Ada's word |")]
+        self.assertEqual(len(hand), 1, c.evidence)     # v1 folds the empty run cell, v2 keeps it
+        self.assertTrue(hand[0].endswith('"foo as stated"'), hand)
+
     def test_attach_evidence(self):
         fsl.attach_evidence(self.lab, "lab:foo", "audit | results/x.json | SOUND | run A")
         c = fsl.parse_text(self.p.read_text(encoding="utf-8"), fallback=False)
