@@ -1173,6 +1173,21 @@ class TicketEdgeTests(unittest.TestCase):
         self.assertIn("math-editor is not a liaison for author->expert", why)
         self.assertIn("file it to your own author instance instead", why)
 
+    def test_an_author_kind_is_told_to_file_as_the_author(self):
+        # #131: the advice "file it to your own expert instance" led to T-2007, which the
+        # Expert inbox rejects; an Author-side kind is filed as the Author instead
+        for kind in ac.AUTHOR_KINDS:
+            ok, why = ac.ticket_edge_allowed("expert@main", "author@main", "main",
+                                             EDGE_PERMS, kind=kind)
+            self.assertFalse(ok)
+            self.assertIn("file it as the Author (instance: author@main", why, kind)
+            self.assertNotIn("your own expert instance instead", why, kind)
+        ok, why = ac.ticket_edge_allowed("expert@main", "author@main", "main", EDGE_PERMS,
+                                         kind="question")
+        self.assertIn("file it to your own expert instance instead", why)
+        self.assertTrue(ac.ticket_edge_allowed("author@main", "author@main", "main",
+                                               EDGE_PERMS, kind="apply")[0])
+
     def test_exempt_and_clerical(self):
         self.assertTrue(self.ok("author@main", "researcher@s1", "claim-keeper"))
         self.assertTrue(self.ok("author@main", "researcher@s1", "math-editor", clerical=True))
