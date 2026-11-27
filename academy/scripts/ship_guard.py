@@ -10,8 +10,10 @@ cut by hand on off-template branches, past both gates). This hook makes the tool
 default: a shell command that would
 
 * commit (``git commit``),
-* push (``git push``), or
-* create a branch (``git switch -c|-C``, ``git checkout -b|-B``, ``git branch <new>``)
+* push (``git push``, tags included),
+* create a branch (``git switch -c|-C``, ``git checkout -b|-B``, ``git branch <new>``), or
+* make, move or delete a ticket tag (``git tag [-a|-f|-d] ticket/<id>/<n>``: a checkpoint
+  tags each ticket's commit so, #102; other tags and every read of them pass)
 
 in the workspace's superproject or in one of its submodule checkouts (or a worktree of
 one) is denied, and the reason gives the ship.py command that does it. Everything else
@@ -92,10 +94,21 @@ def git_calls(command, cwd, _depth=0):
     return out
 
 
+#: ``git tag`` switches that only read
+TAG_READS = ("-l", "--list", "-v", "--verify", "--contains", "--no-contains", "--points-at",
+             "--merged", "--no-merged", "--sort", "--format", "--column", "--no-column")
+
+
 def action_of(verb, args):
-    """``commit`` / ``push`` / ``branch`` (a new one) for a git call the tool owns, else None."""
+    """``commit`` / ``push`` / ``branch`` (a new one) / ``tag`` (a ticket tag made, moved or
+    deleted) for a git call the tool owns, else None."""
     if verb in ("commit", "push"):
         return verb
+    if verb == "tag":
+        if any(a in TAG_READS or a.split("=", 1)[0] in TAG_READS or a.startswith("-n")
+               for a in args):
+            return None
+        return "tag" if any(a.startswith("ticket/") for a in args if not a.startswith("-")) else None
     if verb in ("switch", "checkout") and any(a in BRANCH_FLAGS for a in args):
         return "branch"
     if verb == "branch":
@@ -160,6 +173,10 @@ def advice(action, target):
                     "CLAUDE.md, scripts/, docs/); a submodule pointer is never committed")
         return ("py scripts/ship.py commit %s -m \"...\" (--paths P... | --all); to record a "
                 "resolved merge: py scripts/ship.py sync %s --continue" % (target, target))
+    if action == "tag":
+        return ("py scripts/ship.py checkpoint --ticket <id> ...  makes the tag ticket/<id>/<n> "
+                "on each ticket's commit and pushes it with the branch; a ticket tag is never "
+                "made, moved or deleted by hand ('py scripts/ship.py tickets %s' lists them)" % target)
     if action == "push":
         return ("py scripts/ship.py push %s  (it runs the push gate; 'ship' is commit + push, "
                 "'stack %s' names the pull requests of a stack)" % (target, target))
@@ -197,7 +214,8 @@ def decide(event, workspace=None):
                         "git (nothing was run). From the workspace root %s:\n  %s\n"
                         "`py scripts/ship.py --help` lists the steps; docs/branching.md is "
                         "the protocol."
-                % ({"commit": "commit", "push": "push", "branch": "new branch"}[action],
+                % ({"commit": "commit", "push": "push", "branch": "new branch",
+                    "tag": "ticket tag"}[action],
                    root.replace("\\", "/"), advice(action, target)))
     return None
 

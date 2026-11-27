@@ -130,7 +130,9 @@ board/
   `T-\d{4,}-*.md` are ignored by every tool. `human/RESUME.md` and
   `human/SUMMARY.md` are free Markdown.
 - **Committing.** Tool writes do not commit. When the board is a directory of the
-  workspace, its changes are committed with the ticket's work, on the ticket's branch,
+  workspace, its changes are committed with the ticket's work, on the checkpoint's branch
+  (the inbox run's `<date>/run-<run>/<role>`, else the ticket's own; each ticket's commit
+  tagged `ticket/T-NNNN/<n>`, #102),
   by `ship.py checkpoint --ticket T-NNNN --role <role> --only board` (section 5, the
   inbox checkpoint; `docs/branching.md`); `session_start` never commits the workspace.
   Only a board that is a git repository of its own is committed by `session_start` and

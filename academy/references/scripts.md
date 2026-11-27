@@ -49,4 +49,6 @@ main session runs `packets.py decide`.
 Board commits: tool writes never commit. `session_start` commits pending board changes
 only when the board is a standalone clone; a board that is a plain directory of the
 workspace (or a submodule) is committed by `ship.py checkpoint --only board` (the inbox
-hook, and `/academy:board sync` on demand), on a `<date>/<ticket>/<role>` branch.
+hook, and `/academy:board sync` on demand), on the inbox run's `<date>/run-<run>/<role>`
+branch (#102; each ticket's commit tagged `ticket/<id>/<n>`), or, by hand without `--run`,
+on a `<date>/<ticket>/<role>` branch.

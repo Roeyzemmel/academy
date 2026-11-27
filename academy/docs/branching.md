@@ -22,7 +22,7 @@ the human reviewer is and anything particular to it.
 - The board's files are ordinary commits too: of the board submodule, or, when `board/`
   is a plain directory of the superproject, of `board/` paths in the superproject on a
   template branch (while another inbox run works in the checkout, a checkpoint commits
-  them onto the ticket's branch without switching it: "Parallel runs" below). `ship.py`'s target `board` stages and commits nothing outside the
+  them onto the checkpoint's branch without switching it: "Parallel runs" below). `ship.py`'s target `board` stages and commits nothing outside the
   board's directory, and never a submodule pointer, whatever else is dirty or staged.
   With `board.backend` `github` the tickets live on GitHub (changed through the board
   tools), but packets and deep-dives stay files and are committed this way; every
@@ -34,8 +34,10 @@ the human reviewer is and anything particular to it.
 
 ## After each inbox ticket: the checkpoint
 
-`py scripts/ship.py checkpoint --ticket <id> --role <role>` commits and pushes the
-ticket's work on `<date>/<ticket-id>/<role>`. An academy plugin with the checkpoint hook
+`py scripts/ship.py checkpoint --ticket <id> --role <role> [--run <run>]` commits and pushes
+the ticket's work on the checkpoint's branch: the run's `<date>/run-<run>/<role>` when the
+checkpoint knows its inbox run, else the ticket's own `<date>/<ticket-id>/<role>` (below).
+An academy plugin with the checkpoint hook
 runs it itself from the inbox's `--check` step, scoped with `--only` to the ticket's
 targets (its home's submodule, `board`, and `library` for the Expert), and only when the
 session runs inside that workspace (opt out: `"shipCheckpoint": false` in
@@ -49,11 +51,45 @@ workspace.json). Under `--only`:
 - untracked nested repositories and worktrees, and submodule pointers, are never
   committed (they are listed as skipped).
 
-**Stacked, not forked** (#130, 2026-11-27). A ticket branch is started from whatever
-branch the checkout is on, so with parallel runs and the main session shipping between
-them, a new one could fork from a branch that lacks the other tickets' work. After its
-commit, a checkpoint therefore merges in every recent (7 days) local
-`<date>/<topic>/<role>` branch whose tip the ticket's branch and `main` both lack; ledger
+**One branch per run, a commit and a tag per ticket** (#102; the human's ruling 2026-11-27:
+"Branch per run with tags/commits per issue"). One branch per ticket per repo left dozens of
+branches to merge after each night. Now:
+
+- **The run's branch.** When the checkpoint knows its run (`--run <run>`, or the manifest's
+  `run`; the inbox's `--check` passes the run of its claim, or the run whose live lease
+  names the instance), every repo's branch is `<date>/run-<slug of the run id>/<role>`, for
+  instance `2026-11-27/run-inbox-scientist-ts-20261127t231500-ab12/scientist`: one per repo
+  and role per run, and the run's tickets commit onto it in turn. The date is the day the
+  run **started** (UTC): the run id's `YYYYMMDDTHHMMSS` stamp (every id `lease take
+  --prefix` makes has one); for an id without one (`args.run_id`, `--run` by hand), the
+  earliest `started` of its leases; else today. A run past midnight keeps one branch; runs
+  without leases share the prefix id (`inbox-all`) and so one branch per day.
+- **Without a run** (a checkpoint by hand, an older caller) the branch is the ticket's own
+  `<date>/<ticket-id>/<role>`, as before.
+- **A commit and a tag per ticket.** Each checkpoint that commits is one commit (`<id>:
+  <title>`, or `WIP: <id> unfinished (<outcome>)`, with the `Ticket: OWNER/NAME#N` line),
+  tagged `ticket/<id>/<n>`: n is 1, 2, ... over the ticket's tags in the repo and on its
+  remote, so a WIP and then the finish are `/1` and `/2`. The tag is annotated (it carries
+  the ticket's subject, run and branch, its maker and its date, and a remote keeps it as
+  pushed) and goes with the branch in one `--atomic` push; one whose push failed goes with
+  the branch's next push. The tag stays on the ticket's commit when a later merge (forks,
+  below) moves the branch on. A ticket tag is made only by `ship.py`: the shell guard denies
+  a raw `git tag` that makes, moves or deletes one.
+- **Review per issue.** `py scripts/ship.py tickets <sub> [<branch>]` lists a branch's
+  ticket commits over `main`, oldest first: tag, commit, subject, files (`--json` too).
+  `git show ticket/T-NNNN/1` is one ticket's change. The run branch merges as any template
+  branch (`merge <sub> <branch> --sha <tip>`); `stack` and `status` treat it as one.
+- **Code tickets** keep a branch of their own: the developer works in a worktree it
+  started (`ship.py start <sub> <topic> --worktree`, a branch named for the ticket) and
+  pushes it itself; that never goes through `checkpoint`, and the maintenance round
+  (`/academy:maintain`) gives each task its own branch the same way.
+
+**Stacked, not forked** (#130, 2026-11-27). A checkpoint branch (a run's, or a ticket's)
+is started from whatever branch the checkout is on, so with parallel runs and the main
+session shipping between them, a new one could fork from a branch that lacks the other
+runs' or tickets' work (with one branch per run there are far fewer such forks, but a new
+run still starts one). After its commit, a checkpoint therefore merges in every recent (7 days) local
+`<date>/<topic>/<role>` branch whose tip the checkpoint's branch and `main` both lack; ledger
 and counter conflicts are resolved as `sync` does. A branch it cannot merge stays a fork
 and is printed as `FORK: ...` with the reason: a real conflict (the merge is aborted), a
 worktree with other uncommitted changes (nothing is merged then), or, for `board`, a
@@ -71,7 +107,7 @@ once in one checkout are kept apart by leases ("Parallel runs" below). The ticke
 changed during it, plus the ticket's touch-ledger entries, are its manifest
 (`.academy/manifests/<id>.json`), and `ship.py checkpoint --manifest <file>` commits exactly
 those, in **every** home that has any (a verify's evidence row in the paper's claim record
-included), on the ticket's branch. A path dirty before the ticket and unchanged is not the
+included), on the checkpoint's branch (the run's: the claim names it). A path dirty before the ticket and unchanged is not the
 ticket's and stays as it is. The rules above hold per home (a home dirty on `main` is
 refused, a home with other uncommitted work is not moved); a refused home's part stays in
 the manifest for the next `--check`. A ticket that ends blocked, unfinished or lost is
@@ -98,11 +134,11 @@ Author and the Expert in one, the Researchers and the Scientist in another):
   2026-11-27: plumbing only in parallel). The board is shared, not leased. With no live
   lease of another run in the workspace (the checkpoint's own run is `--run`, else the
   manifest's; a lease of an unknown run counts as another's), a checkpoint switches the
-  superproject to the ticket's branch and commits `board/` there, with the guards above
-  (a dirty board on `main` refused under `--only`, and so on). While another live run
-  holds a lease, it commits the board's paths onto the ticket's branch with git plumbing
+  superproject to the checkpoint's branch (the run's) and commits `board/` there, with the
+  guards above (a dirty board on `main` refused under `--only`, and so on). While another
+  live run holds a lease, it commits the board's paths onto that branch's ref with git plumbing
   instead (a temporary index read from the branch's tip, or from HEAD for a new branch;
-  `write-tree`, `commit-tree`, `update-ref`) and pushes that ref: the superproject's HEAD,
+  `write-tree`, `commit-tree`, `update-ref`), tags the commit, and pushes the ref and the tag: the superproject's HEAD,
   index and working tree stay as they were, whatever branch it is on (`main` included:
   nothing is committed there). Files committed that way stay dirty against that HEAD until
   the branch is merged; they are listed with their content hash in
@@ -152,13 +188,14 @@ Those files are shipped with the ticket, and nothing else there:
   own edits are the human's and are never recorded.
 - The `--check` of a finished ticket claims the role's unclaimed entries for that ticket
   (the inbox works one ticket at a time) and passes them as `--touched SUB:PATH`. In
-  each such repo only those paths are staged and committed, on the same
-  `<date>/<ticket-id>/<role>` branch, where role is the acting role (an Expert's bib entry
-  lands on `.../expert` in the paper repo), through that home's commit gate and push gate.
+  each such repo only those paths are staged and committed, on the same checkpoint
+  branch (the run's, else `<date>/<ticket-id>/<role>`), where role is the acting role (an
+  Expert's bib entry lands on `.../expert` in the paper repo), through that home's commit
+  gate and push gate.
 - The repo is refused, and nothing is shipped there, when it is on `main`, or when it
-  would have to switch to the ticket's branch while anything else in it is uncommitted
-  (a switch would carry that work onto the ticket's branch). Already on the ticket's
-  branch, only the paths are committed. The entries then stay with that ticket, so its
+  would have to switch to the checkpoint's branch while anything else in it is uncommitted
+  (a switch would carry that work onto it). Already on that branch, only the paths are
+  committed. The entries then stay with that ticket, so its
   next `--check` retries them and no other ticket takes them; a shipped repo's entries
   are dropped. Entries are pruned after 14 days.
 - `"shipCheckpoint": false` switches this off with the rest (nothing is recorded or
@@ -170,7 +207,10 @@ branch named for the ticket and ends with `py scripts/ship.py push <sub> --repo
 it delivered (exit 3, `unfinished (delivered, unpushed)`) while any local branch naming
 the ticket, in any submodule or the superproject, has commits on no remote, or its
 worktree has uncommitted changes; each such branch is listed with the command that pushes
-it. Opt out: `"unpushedCheck": false` in workspace.json.
+it. A run's branch does not name the ticket: there the ticket's tags (`ticket/<id>/<n>`) do,
+and a local branch holding one counts with the commits up to them that no remote has (a
+later ticket's commits and the run's uncommitted work are not this ticket's). Opt out:
+`"unpushedCheck": false` in workspace.json.
 
 When the hook says it did not run, or failed, run the scoped command it printed (with its
 `--only` and any `--touched`), from your own checkout's root. The unscoped run (no `--only`: every dirty

@@ -6,12 +6,13 @@
     py scripts/ship.py commit <sub> -m MSG (--paths P... | --all)
     py scripts/ship.py push   <sub> [--no-gate]
     py scripts/ship.py stack  <sub> [--json]                         # the branch's stack and the PRs to open
+    py scripts/ship.py tickets <sub> [<branch>] [--json]             # a run branch's ticket commits and tags
     py scripts/ship.py accept-baseline <sub>                         # Author homes: rewrite the gate baseline
     py scripts/ship.py ship   <sub> -m MSG (--paths P... | --all)    # commit + push
     py scripts/ship.py merge  <sub> <branch> --sha TIP [-m MSG] [--bump]   # reviewed branch -> local main
     py scripts/ship.py publish <sub> --sha MAIN_TIP                  # local main -> origin main
     py scripts/ship.py checkpoint --ticket T-NNNN [--role R] [--title T] [--remote NAME] [--only SUB...]
-                                  [--touched SUB:PATH...] | [--manifest FILE] [--wip OUTCOME]
+                                  [--touched SUB:PATH...] | [--manifest FILE] [--wip OUTCOME] [--run RUN]
 
 This is the academy plugin's ``academy/scripts/ship.py``; a workspace keeps a one-line shim
 at ``scripts/ship.py`` that runs it with ``--workspace <its root>`` and the same arguments,
@@ -60,7 +61,8 @@ merged tree in an Author home; refusal leaves the repo as it was) and never push
 submodule pointer is committed only by ``merge --bump``, as a separate commit.
 
 ``checkpoint`` ends an inbox ticket: in every checked-out submodule (and the superproject's
-``board/``) with uncommitted changes (``add -A``, .gitignore honoured) or unpushed commits on ``<date>/<ticket-id>/<role>``
+``board/``) with uncommitted changes (``add -A``, .gitignore honoured) or unpushed commits on
+the checkpoint's branch (below: the run's, else ``<date>/<ticket-id>/<role>``)
 it switches to that branch (changes carried along), runs the Author gate as ``commit``
 does, commits ``<TICKET>: <title>`` (plus the line in env ``SHIP_TRAILER`` if set) and
 pushes the branch to ``shipRemote`` from workspace.json (default ``origin``). One line
@@ -88,7 +90,7 @@ a dirty repo of the set that is on main/master is refused instead of moved. With
 another role's home, such as an Expert's entry in an Author home's references.bib or an
 evidence row in another home's registry) each such submodule outside ``--only`` is
 checkpointed too, for those paths only: they alone are staged and committed, on the same
-``<date>/<ticket-id>/<role>`` branch (the acting role's, given by ``--role``), through that
+checkpoint branch (the acting role's, given by ``--role``), through that
 home's commit gate and push gate; the repo is refused, and nothing is shipped there, when
 it is on main/master, or when it would have to switch branches while anything else in it
 is uncommitted (that work is not the ticket's).
@@ -101,6 +103,23 @@ never moved while other work there is uncommitted; a board path is relative to t
 directory, and the usage summary rides along); no other repo is looked at. A listed path that
 is no longer dirty is passed over. ``--wip OUTCOME`` commits as ``WIP: <ticket> unfinished
 (OUTCOME)``: the inbox ships an unfinished, blocked or lost ticket's manifest that way.
+
+**One branch per run, a commit and a tag per ticket (#102; the human's ruling 2026-11-27,
+"Branch per run with tags/commits per issue").** When the checkpoint knows its inbox run
+(``--run RUN``, or the manifest's ``run``) every repo's branch is the run's,
+``<date>/run-<slug of RUN>/<role>``: the run's tickets commit onto it in turn, one commit
+each (``<TICKET>: <title>`` or the WIP message, with its ``Ticket:`` line), so one run
+leaves one branch per repo and role to merge, not one per ticket. The date is the day the
+run started, UTC (the run id's ``YYYYMMDDTHHMMSS`` stamp; for an id without one, its leases'
+``started``; else today), so a run past midnight keeps one branch. Without a run (a
+checkpoint by hand, an older caller) the branch is the ticket's own
+``<date>/<ticket-id>/<role>``, as before. Either way each commit a checkpoint makes for a
+board ticket (``T-NNNN``; a standalone skill's ``--ticket <topic>`` gets none) gets the
+annotated tag ``ticket/<TICKET>/<n>`` (n = 1, 2, ... over that ticket's tags here and on the
+remote: a WIP and then the finish are /1 and /2), pushed with the branch in one ``--atomic``
+push; a tag whose push failed goes with the branch's next push. ``tickets <sub> [<branch>]``
+lists a branch's ticket commits, oldest first, to review a run branch per issue. A ticket
+tag is made only here: the shell guard (``ship_guard``) denies a raw ``git tag`` of one.
 
 **Stacks.** ``start`` branches from where the checkout is, so a second ``start`` on a
 template branch stacks on it; ``--on BRANCH`` names the base explicitly (a local branch,
@@ -430,6 +449,111 @@ def branch_name(topic, role, today=None):
     return name
 
 
+#: the UTC stamp ``manifest.py lease take --prefix`` puts in a run id (``new_run_id``)
+RUN_STAMP = re.compile(r"(?<![0-9])(\d{4})(\d{2})(\d{2})T\d{6}(?![0-9])")
+
+
+def run_date(run):
+    """The date a run's branch carries: the day the run started, UTC, so a run that goes
+    past midnight keeps one branch. Read from the run id's stamp (``<prefix>-YYYYMMDDTHHMMSS-
+    <hex>``, as the inbox makes it); for a run id without one (``--run`` named by hand, a run
+    without leases), the earliest ``started`` of the run's leases in the workspace; else
+    today (UTC)."""
+    m = RUN_STAMP.search(run or "")
+    if m:
+        try:
+            return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+        except ValueError:
+            pass
+    try:
+        starts = [float(l.get("started")) for l in _lib().leases(ROOT)
+                  if l.get("run") == run and l.get("started")]
+    except Exception:  # noqa: BLE001 -- no library, no lease: today
+        starts = []
+    when = datetime.datetime.fromtimestamp(min(starts), datetime.timezone.utc) if starts \
+        else datetime.datetime.now(datetime.timezone.utc)
+    return when.strftime("%Y-%m-%d")
+
+
+def run_branch_name(run, role):
+    """The branch every ticket of inbox run ``run`` checkpoints onto, in each repo (#102):
+    ``<run_date>/run-<slug of the run id>/<role>``, one per role per run."""
+    if role not in ROLES:
+        raise Refuse("role must be one of %s" % ", ".join(ROLES))
+    try:
+        topic = "run-" + slug(run or "")
+    except Refuse:
+        raise Refuse("run id %r has no usable characters" % run)
+    return branch_name(topic, role, today=run_date(run))
+
+
+def checkpoint_branch(ticket, role, run=None):
+    """A checkpoint's branch: the run's (``run_branch_name``) when the run is known, else
+    the ticket's own ``<date>/<ticket-id>/<role>`` (a by-hand checkpoint, an older caller)."""
+    return run_branch_name(run, role) if run else branch_name(ticket, role)
+
+
+# ----------------------------------------------------------------------------
+# Ticket tags: ticket/<T-NNNN>/<n> on each ticket's checkpoint commit (#102)
+# ----------------------------------------------------------------------------
+
+TAG_ROOT = "refs/tags/ticket/"
+
+
+def tag_ticket_id(ticket):
+    """The ticket id as its tags spell it: ``T-0059`` (a board id upper-cased)."""
+    t = str(ticket or "").strip()
+    return t.upper() if re.match(r"^[Tt]-\d+$", t) else t
+
+
+def ticket_tags(repo, ticket=None, merged=None):
+    """``[(tag, commit)]`` of the ticket tags of ``repo`` (``ticket``'s only, when given;
+    those whose commit ``merged`` contains, when given), by tag name."""
+    pat = TAG_ROOT + (tag_ticket_id(ticket) + "/" if ticket else "")
+    args = ["for-each-ref", "--format=%(refname)%09%(*objectname)%09%(objectname)"]
+    if merged:
+        args += ["--merged", merged]
+    out = []
+    for line in git(repo, *(args + [pat]), check=False).splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3:
+            out.append((parts[0][len("refs/tags/"):], parts[1] or parts[2]))
+    return out
+
+
+def _tag_number(name):
+    tail = name.rsplit("/", 1)[-1]
+    return int(tail) if tail.isdigit() else 0
+
+
+def tag_ticket(repo, ticket, commit, message, branch, remote, run=None):
+    """Make the annotated tag ``ticket/<T-NNNN>/<n>`` on ``commit`` (a board ticket id only:
+    a standalone skill run's ``--ticket <topic>`` gets no tag): ``n`` one more than the
+    highest of that ticket's tags here or on ``remote`` (a ticket checkpointed twice, a WIP
+    then its finish, gets /1 and /2). Annotated, not lightweight: the tag records who made
+    it, when, and the ticket's subject, run and branch, which ``tickets`` lists, and it
+    stays a real object a remote keeps as it was pushed. Returns the tag name, or '' with a
+    warning on stderr when git refuses (the commit is kept either way)."""
+    tid = tag_ticket_id(ticket)
+    if not re.match(r"^T-\d+$", tid):
+        return ""               # a topic checkpointed by a standalone skill run: no ticket
+    nums = [_tag_number(t) for t, _ in ticket_tags(repo, tid)]
+    out = git(repo, "ls-remote", "--tags", remote, TAG_ROOT + tid + "/*", check=False)
+    nums += [_tag_number(l.split("\t", 1)[1].replace("^{}", "")) for l in out.splitlines() if "\t" in l]
+    name = "ticket/%s/%d" % (tid, max(nums + [0]) + 1)
+    body = "%s\n\nBranch: %s%s" % (message.split("\n", 1)[0], branch,
+                                   ("\nRun: %s" % run) if run else "")
+    ref = ticket_ref(tid)
+    if ref:
+        body += "\nTicket: " + ref
+    try:
+        git(repo, "tag", "-a", "-m", body, name, commit)
+    except Refuse as e:
+        print("ship: warning: %s not tagged %s: %s" % (commit[:9], name, e), file=sys.stderr)
+        return ""
+    return name
+
+
 def current(repo):
     return git(repo, "branch", "--show-current")
 
@@ -547,6 +671,63 @@ def cmd_stack(a):
               "or they never reach main with it):" % len(forks))
         for f in forks:
             print("     %s @ %s" % (f["branch"], f["sha"][:7]))
+
+
+def branch_tickets(repo, branch=None):
+    """The ticket commits of ``branch`` (default: the current one; a local branch, else
+    ``origin/<branch>``) over main, oldest first: ``[{tag, ticket, n, sha, subject,
+    files}]``, one row per ticket tag (``ticket/<T-NNNN>/<n>``, #102) on a commit of the
+    branch that main lacks. ``(rows, others, tip)``: ``others`` counts the branch's
+    commits that carry no ticket tag (merges of other branches, commits made by hand)."""
+    b = branch or current(repo)
+    if not b:
+        raise Refuse("%s is on no branch; name the branch" % repo)
+    tip = ""
+    for r in ("refs/heads/" + b, "refs/remotes/origin/" + b):
+        tip = git(repo, "rev-parse", "--verify", "--quiet", r + "^{commit}", check=False)
+        if tip:
+            break
+    if not tip:
+        raise Refuse("%r is not a branch of %s" % (b, repo))
+    main = _main_ref(repo)
+    order = git(repo, "rev-list", "--reverse", tip, *(["--not", main] if main else []),
+                check=False).splitlines()
+    pos = {c: i for i, c in enumerate(order)}
+    rows = []
+    for tag, commit in ticket_tags(repo, merged=tip):
+        if commit not in pos:
+            continue
+        tid = tag[len("ticket/"):].rsplit("/", 1)[0]
+        rows.append({"tag": tag, "ticket": tid, "n": _tag_number(tag), "sha": commit[:12],
+                     "subject": git(repo, "log", "-1", "--format=%s", commit),
+                     "files": git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r",
+                                  "--root", commit, check=False).splitlines(),
+                     "_pos": pos[commit]})
+    rows.sort(key=lambda r: (r["_pos"], r["n"]))
+    for r in rows:
+        del r["_pos"]
+    tagged = {r["sha"] for r in rows}
+    others = sum(1 for c in order if c[:12] not in tagged)
+    return rows, others, tip
+
+
+def cmd_tickets(a):
+    """``tickets <sub> [<branch>]``: a run branch reviewed per issue -- each ticket's commit
+    with its tag, subject and files, oldest first (#102)."""
+    repo = repo_of(a.sub, a.repo)
+    branch = a.branch or current(repo)
+    rows, others, tip = branch_tickets(repo, branch)
+    if a.json:
+        print(json.dumps(rows, indent=1))
+        return
+    print("%s: %s @ %s: %d ticket commit(s) over main, oldest first%s"
+          % (a.sub, branch, tip[:9], len(rows),
+             "; %d other commit(s) (merges, work by hand)" % others if others else ""))
+    for r in rows:
+        print("  %s @ %s  %s  (%d file%s)" % (r["tag"], r["sha"][:9], r["subject"], len(r["files"]),
+                                             "" if len(r["files"]) == 1 else "s"))
+    if rows:
+        print("  (one ticket's change: git show <tag>; its files: git show --stat <tag>)")
 
 
 # ----------------------------------------------------------------------------
@@ -1558,7 +1739,7 @@ NAMES_SHOWN = 20
 
 
 def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=None, paths=None,
-                    run=None):
+                    run=None, ticket=None):
     """One repo of a checkpoint; returns its result dict (see ``run_checkpoint``).
 
     ``pathspec`` (a superproject target such as ``board``: the directory, relative to the
@@ -1579,11 +1760,15 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
     without switching the checkout, which that run shares (#96; the human's ruling
     2026-11-27, "plumbing only in parallel"); with no other run it is switched and
     committed as above. A repo whose lease (``.academy/leases``) belongs to a live run
-    other than ``run`` is never switched: it is refused (#96)."""
+    other than ``run`` is never switched: it is refused (#96).
+
+    ``ticket``: the commit made is tagged ``ticket/<ticket>/<n>`` (``tag_ticket``, #102), and
+    the tag is pushed with the branch (``push_tip``)."""
     if pathspec and foreign_lease(run):
-        return checkpoint_tree(sub, repo, name, message, remote, pathspec, paths)
+        return checkpoint_tree(sub, repo, name, message, remote, pathspec, paths, run=run,
+                               ticket=ticket)
     res = {"sub": sub, "branch": name, "sha": "", "files": 0, "status": "unchanged", "detail": "",
-           "names": [], "skipped": [], "merged": [], "forks": []}
+           "names": [], "skipped": [], "merged": [], "forks": [], "tags": []}
     given = bool(paths)
     if given:
         scoped = True
@@ -1686,6 +1871,8 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
         res["names"] = staged
         if staged:
             tip = git(repo, "rev-parse", "refs/heads/" + name)
+            tag = tag_ticket(repo, ticket, tip, message, name, remote, run) if ticket else ""
+            res["tags"] = [tag] if tag else []
     if tip and current(repo) == name:
         # stack, don't fork: bring in the other recent ticket branches' work (#130); not in
         # a checkout another live run holds the lease of (#96): a merge would move its tree
@@ -1709,10 +1896,20 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
 
 def push_tip(repo, name, tip, remote, res):
     """Push ``tip`` of branch ``name`` to ``remote`` through the push gate, unless the
-    remote has it already (with no new commit: ``res["files"]`` 0); ``res`` updated."""
-    if not res["files"]:
-        out = git(repo, "ls-remote", remote, "refs/heads/" + name, check=False)
-        if out and out.split()[0] == tip:
+    remote has it already (with no new commit: ``res["files"]`` 0); ``res`` updated. The
+    ticket tags on the branch's own commits (``tip``'s, not main's) that the remote lacks
+    go in the same push (``--atomic``: the branch and its tags land together or not at
+    all), so a tag whose push failed goes with the next checkpoint of the branch."""
+    main = _main_ref(repo)
+    on_main = {t for t, _ in ticket_tags(repo, merged=main)} if main else set()
+    mine = [t for t, _ in ticket_tags(repo, merged=tip) if t not in on_main]
+    missing = []
+    if mine or not res["files"]:
+        out = git(repo, "ls-remote", remote, "refs/heads/" + name,
+                  *["refs/tags/" + t for t in mine], check=False)
+        have = {l.split("\t", 1)[1]: l.split("\t", 1)[0] for l in out.splitlines() if "\t" in l}
+        missing = [t for t in mine if "refs/tags/" + t not in have]
+        if not res["files"] and have.get("refs/heads/" + name) == tip and not missing:
             res["sha"] = git(repo, "rev-parse", "--short", tip)
             return res
     assert BRANCH.match(name) and name not in PROTECTED, name
@@ -1722,8 +1919,10 @@ def push_tip(repo, name, tip, remote, res):
         res.update(status="push-failed", detail="not pushed, the commit is kept: "
                    + " / ".join(l.strip() for l in gate_lines[-6:]))
         return res
-    p = subprocess.run(["git", "-C", repo, "push", "-q", "--no-follow-tags", "--recurse-submodules=no",
-                        remote, "refs/heads/%s:refs/heads/%s" % (name, name)],
+    refs = ["refs/heads/%s:refs/heads/%s" % (name, name)] + \
+        ["refs/tags/%s:refs/tags/%s" % (t, t) for t in missing]
+    p = subprocess.run(["git", "-C", repo, "push", "-q", "--no-follow-tags", "--recurse-submodules=no"]
+                       + (["--atomic"] if missing else []) + [remote] + refs,
                        capture_output=True, text=True, env=git_env(), stdin=subprocess.DEVNULL)
     if p.returncode:
         lines = (p.stderr or p.stdout or "exit %d" % p.returncode).strip().splitlines()
@@ -1912,7 +2111,7 @@ def _status_paths(repo, specs):
     return out, skipped
 
 
-def checkpoint_tree(sub, repo, name, message, remote, pathspec, paths=None):
+def checkpoint_tree(sub, repo, name, message, remote, pathspec, paths=None, run=None, ticket=None):
     """A superproject target's checkpoint while another live run works in the checkout (the
     board, #96; ``checkpoint_repo`` uses it only then): its changes are committed onto
     ``name`` with git plumbing -- a temporary index (``GIT_INDEX_FILE``) read from the
@@ -1929,9 +2128,10 @@ def checkpoint_tree(sub, repo, name, message, remote, pathspec, paths=None):
     everything dirty under ``pathspec``. Untracked nested repositories and gitlinks are
     never committed. The branch of the checkout does not matter: main/master, a branch off
     the template, a detached HEAD are all fine, as nothing is committed there; a merge or
-    rebase under way is refused."""
+    rebase under way is refused. With ``ticket`` the new commit is tagged as in
+    ``checkpoint_repo`` (#102): the tag is a ref of its own, so the checkout stays unmoved."""
     res = {"sub": sub, "branch": name, "sha": "", "files": 0, "status": "unchanged", "detail": "",
-           "names": [], "skipped": [], "merged": [], "forks": []}
+           "names": [], "skipped": [], "merged": [], "forks": [], "tags": []}
     pre = pathspec.rstrip("/")
     try:
         ac = _lib()
@@ -2002,6 +2202,8 @@ def checkpoint_tree(sub, repo, name, message, remote, pathspec, paths=None):
         if staged:
             tip = new
             res["files"], res["names"] = len(staged), staged
+            tag = tag_ticket(repo, ticket, new, message, name, remote, run) if ticket else ""
+            res["tags"] = [tag] if tag else []
             on = git(repo, "symbolic-ref", "-q", "HEAD", check=False)
             if on == "refs/heads/" + name:
                 # the checkout is on that branch: its index follows the new commit there
@@ -2106,9 +2308,12 @@ def read_manifest(path):
 
 def run_checkpoint(ticket, role, title, remote, only=None, touched=None, manifest=None, wip=None,
                    run=None):
-    """Commit and push, on ``<date>/<ticket-id>/<role>``, every checked-out submodule that
+    """Commit and push, on the checkpoint's branch (``checkpoint_branch``: the run's
+    ``<date>/run-<run>/<role>`` when ``run`` is known, else the ticket's own
+    ``<date>/<ticket-id>/<role>``; #102), every checked-out submodule that
     has uncommitted changes (tracked or untracked, .gitignore honoured) or commits on that
-    branch the remote does not have. One dict per submodule: sub, branch, sha, files,
+    branch the remote does not have. Each commit made is tagged ``ticket/<ticket>/<n>``
+    (``tag_ticket``) and the tag pushed with the branch. One dict per submodule: sub, branch, sha, files,
     status ("pushed" / "unchanged" / "push-failed" / "skipped"; a refused repo is
     "skipped" with a detail starting "refused: "), detail. Never touches main, never
     forces; merges only the other recent ticket branches into the ticket's branch
@@ -2129,13 +2334,18 @@ def run_checkpoint(ticket, role, title, remote, only=None, touched=None, manifes
     ``paths``), on the same branch name, after the ``only`` targets.
 
     ``run`` (``--run``; with ``--manifest``, default the manifest's ``run``): the inbox run
-    the ticket was worked in. A submodule leased by another live run is never switched
-    (#96); without ``run`` every live lease is another run's."""
+    the ticket was worked in. It names the branch (one per run, #102), and a submodule
+    leased by another live run is never switched (#96); without ``run`` every live lease
+    is another run's."""
     t = (ticket or "").strip()
     if not TICKET.match(t):
         raise Refuse("ticket id %r is not a ticket id like T-0059 (letters, digits, '-')" % ticket)
+    if manifest is not None and not run:
+        run = manifest_run(manifest)
+    if run is not None:
+        run_branch_name(run, "human")  # a run id with nothing to slug is refused up front
     if role is not None:
-        branch_name(t, role)  # a bad --role is refused before anything is touched
+        checkpoint_branch(t, role, run)  # a bad --role is refused before anything is touched
     remote = remote or ship_remote()
     if not REMOTE.match(remote):
         raise Refuse("remote %r is not a plain remote name" % remote)
@@ -2156,7 +2366,7 @@ def run_checkpoint(ticket, role, title, remote, only=None, touched=None, manifes
     dirs = root_dirs()
     if manifest is not None:
         return manifest_checkpoint(t, role, message, remote, read_manifest(manifest), subs, dirs,
-                                   run=run or manifest_run(manifest))
+                                   run=run)
     extra = parse_touched(touched) if not isinstance(touched, dict) else dict(touched or {})
     if extra and only is None:
         raise Refuse("--touched needs --only (an unscoped run commits every dirty repo anyway)")
@@ -2176,12 +2386,12 @@ def run_checkpoint(ticket, role, title, remote, only=None, touched=None, manifes
             results.append({"sub": sub, "branch": "", "sha": "", "files": 0, "status": "skipped",
                             "detail": "not checked out"})
             continue
-        name = branch_name(t, role or default_role(repo))
+        name = checkpoint_branch(t, role or default_role(repo), run)
         try:
             results.append(checkpoint_repo(sub, repo, name, message, remote,
                                            scoped=only is not None,
                                            pathspec=None if sub in submodule_names() else dirs.get(sub),
-                                           run=run))
+                                           run=run, ticket=t))
         except Refuse as e:  # one repo's failure is its own result; the others go on
             results.append({"sub": sub, "branch": name, "sha": git(repo, "rev-parse", "--short", "HEAD", check=False),
                             "files": 0, "status": "skipped", "detail": "refused: %s" % e,
@@ -2193,10 +2403,10 @@ def run_checkpoint(ticket, role, title, remote, only=None, touched=None, manifes
             results.append({"sub": sub, "branch": "", "sha": "", "files": 0, "status": "skipped",
                             "detail": "not checked out"})
             continue
-        name = branch_name(t, role or default_role(repo))
+        name = checkpoint_branch(t, role or default_role(repo), run)
         try:
             results.append(checkpoint_repo(sub, repo, name, message, remote, scoped=True,
-                                           paths=paths, run=run))
+                                           paths=paths, run=run, ticket=t))
         except Refuse as e:
             results.append({"sub": sub, "branch": name, "sha": git(repo, "rev-parse", "--short", "HEAD", check=False),
                             "files": 0, "status": "skipped", "detail": "refused: %s" % e,
@@ -2229,7 +2439,7 @@ def manifest_checkpoint(t, role, message, remote, repos, subs, dirs, run=None):
             results.append({"sub": sub, "branch": "", "sha": "", "files": 0, "status": "skipped",
                             "detail": "not checked out", "names": [], "skipped": []})
             continue
-        name = branch_name(t, role or default_role(repo))
+        name = checkpoint_branch(t, role or default_role(repo), run)
         prefix = None if sub in submodule_names() else dirs.get(sub)
         paths = list(repos[sub])
         if prefix:
@@ -2242,7 +2452,7 @@ def manifest_checkpoint(t, role, message, remote, repos, subs, dirs, run=None):
                 paths += [e[3:] for e in raw.split("\0") if len(e) > 3 and e[3:] not in paths]
         try:
             results.append(checkpoint_repo(sub, repo, name, message, remote, scoped=True,
-                                           pathspec=prefix, paths=paths, run=run))
+                                           pathspec=prefix, paths=paths, run=run, ticket=t))
         except Refuse as e:
             results.append({"sub": sub, "branch": name, "sha": git(repo, "rev-parse", "--short", "HEAD", check=False),
                             "files": 0, "status": "skipped", "detail": "refused: %s" % e,
@@ -2271,6 +2481,8 @@ def cmd_checkpoint(a):
             print("    +%d more" % (len(names) - NAMES_SHOWN))
         for p in r.get("skipped") or []:
             print("    skipped nested repo: %s (not committed)" % p)
+        for tag in r.get("tags") or []:
+            print("    tag %s (this ticket's commit; 'tickets %s' lists a branch's)" % (tag, r["sub"]))
         for b in r.get("merged") or []:
             print("    merged %s (stacked, not forked; #130)" % b)
         for f in r.get("forks") or []:
@@ -2313,6 +2525,11 @@ def parser():
     c = sp.add_parser("stack", help="the current branch's stack and the pull requests to open")
     c.add_argument("sub"); c.add_argument("--json", action="store_true")
     c.set_defaults(fn=cmd_stack)
+    c = sp.add_parser("tickets", help="a branch's ticket commits and their tags, oldest first "
+                                      "(review a run branch per issue, #102)")
+    c.add_argument("sub"); c.add_argument("branch", nargs="?", help="default: the current branch")
+    c.add_argument("--json", action="store_true")
+    c.set_defaults(fn=cmd_tickets)
     c = sp.add_parser("merge", help="merge a reviewed branch into local main (no push)")
     c.add_argument("sub"); c.add_argument("branch")
     c.add_argument("--sha", required=True, help="the reviewed tip of origin/<branch> (>= 7 hex chars)")
@@ -2334,7 +2551,9 @@ def parser():
     c.add_argument("sub"); c.add_argument("--sha", required=True, help="the approved tip of local main")
     c.set_defaults(fn=cmd_publish)
     c = sp.add_parser("checkpoint", help="end of an inbox ticket: commit and push every touched repo "
-                                         "on <date>/<ticket-id>/<role>")
+                                         "on the run's <date>/run-<run>/<role> (with --run or the "
+                                         "manifest's run), else <date>/<ticket-id>/<role>; each "
+                                         "commit tagged ticket/<id>/<n>")
     c.add_argument("--ticket", required=True, help="the ticket id, e.g. T-0059")
     c.add_argument("--role", help="default: each repo's academy.json role, else human")
     c.add_argument("--title", help="commit message after '<TICKET>: ' (default: checkpoint)")
@@ -2355,7 +2574,8 @@ def parser():
     c.add_argument("--wip", metavar="OUTCOME",
                    help="the ticket is unfinished: commit as 'WIP: <ticket> unfinished (OUTCOME)'")
     c.add_argument("--run", metavar="RUN",
-                   help="the inbox run the ticket was worked in (default: the manifest's): a "
+                   help="the inbox run the ticket was worked in (default: the manifest's): its "
+                        "tickets share the branch <date>/run-<run>/<role> (#102), and a "
                         "submodule leased by another live run is never switched (#96)")
     c.set_defaults(fn=cmd_checkpoint)
     for x in sp.choices.values():

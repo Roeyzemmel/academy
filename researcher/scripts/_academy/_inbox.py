@@ -15,9 +15,9 @@ from ._base import (
 from ._config import instance_for_home, load_config
 from ._workspace import load_workspace
 from ._touched import claim_touches, drop_touches
-from ._manifest import (ManifestError, find_claim, lease_heartbeat, load_pending, manifest_changed,
-                        manifest_targets, merge_manifest, prune_claims, release_claim,
-                        save_pending)
+from ._manifest import (ManifestError, find_claim, lease_heartbeat, live_leases, load_pending,
+                        manifest_changed, manifest_targets, merge_manifest, prune_claims,
+                        release_claim, save_pending)
 from ._tickets import is_dead_route, relay_return_ready
 from ._store import FileBoardStore, as_store, board_dir, open_store, status_lookup
 
@@ -236,7 +236,9 @@ class inbox_core(object):
         """After ``--check`` found ticket ``r`` finished (delivered or closed, rejected or
         cancelled, with no problem), run the academy's ``ship.py --workspace <root>
         checkpoint --ticket <id> --role <role> --only <the ticket's repos>`` in the
-        workspace root, so the ticket's work is committed and pushed on its own branch
+        workspace root, so the ticket's work is committed and pushed (with ``--run`` when a
+        live lease names the instance, ``_lease_run``: on the run's branch, one per run, the
+        ticket's commit tagged ``ticket/<id>/<n>``, #102; else on the ticket's own branch)
         (``ship_script``: this academy checkout's ``academy/scripts/ship.py``, else
         ``$ACADEMY_ROOT``'s, else the workspace's ``scripts/ship.py`` shim).
 
@@ -428,12 +430,17 @@ class inbox_core(object):
             sys.stderr.write("checkpoint for %s cannot ship %s: in no submodule of %s; "
                              "commit it by hand\n"
                              % (r["id"], ", ".join(p for _, p in stray), root))
+        # #102: the run working this instance (its live lease names it) names the branch,
+        # one per run; #96: and its own leases are its to switch
+        run = inbox_core._lease_run(root, name)
         # every by-hand command is scoped: the unscoped manual run sweeps every dirty
         # submodule and is for the human or cloud session that owns the checkout
         by_hand = "py scripts/ship.py checkpoint --ticket %s --role %s --only %s" % (
             r["id"], role, " ".join(only) or "<your home submodule> board")
         if touched:
             by_hand += " --touched " + " ".join(touched)
+        if run:
+            by_hand += " --run " + run
         if not inbox_core._session_inside(root):
             sys.stderr.write("checkpoint not run: session is outside %s; run it by hand: %s\n"
                              % (root, by_hand))
@@ -451,7 +458,8 @@ class inbox_core(object):
                              % (r["id"], role, " ".join(touched)))
         import subprocess
         cmd = [sys.executable, ship, "--workspace", root, "checkpoint", "--ticket", r["id"],
-               "--role", role, "--only"] + only + (["--touched"] + touched if touched else [])
+               "--role", role, "--only"] + only + (["--touched"] + touched if touched else []) \
+            + (["--run", run] if run else [])
         # output goes to a file, not a pipe: a git grandchild holding a pipe open would
         # outlive the timeout's kill and hang the read
         with tempfile.TemporaryFile() as log:
@@ -485,6 +493,19 @@ class inbox_core(object):
                              "scripts/ship.py start <sub> <topic>, then re-run: %s\n"
                              % (r["id"], p.returncode, by_hand))
         return p.returncode
+
+    @staticmethod
+    def _lease_run(root, name):
+        """The run whose live lease names instance ``name`` (``.academy/leases``, #96), else
+        None: the inbox run this ticket's ``--check`` belongs to, when it took no snapshot."""
+        if not name:
+            return None
+        try:
+            runs = sorted({lease.get("run") for lease in live_leases(root)
+                           if name in (lease.get("instances") or []) and lease.get("run")})
+        except (ManifestError, OSError):
+            return None
+        return runs[0] if len(runs) == 1 else None
 
     @staticmethod
     def _manifest_target(targets, path):
@@ -627,8 +648,14 @@ class inbox_core(object):
         every local branch whose name names the ticket (``ticket_branch_re``; never
         main/master) with commits on no remote-tracking branch (no fetch: the refs as
         they are), or checked out in a linked worktree with uncommitted changes (untracked
-        files included). ``[{label, repo, branch, unpushed, dirty, worktree}]``; label is
-        the ship.py target (the submodule's path, ``workspace`` for the superproject).
+        files included). A run's branch (#102: ``<date>/run-<run>/<role>``, shared by the
+        run's tickets) does not name the ticket: the ticket's tags (``ticket/<id>/<n>``, one
+        on each of its checkpoint commits) do, and every local branch holding one counts
+        with the commits up to the ticket's tags that no remote has -- never a later
+        ticket's commits, and never uncommitted changes in its worktree, which are the
+        run's next ticket's. ``[{label, repo, branch, unpushed, dirty, worktree, current}]``;
+        label is the ship.py target (the submodule's path, ``workspace`` for the
+        superproject); current says the repo's own checkout is on that branch.
         A git call that fails counts as nothing found."""
         pat = inbox_core.ticket_branch_re(ticket)
         if not pat:
@@ -643,8 +670,19 @@ class inbox_core(object):
                                       "refs/heads")
             names = [b for b in out.splitlines() if not rc and b and b not in ("main", "master")
                      and pat.search(b)]
-            if not names:
+            rc, out = inbox_core._git(repo, "for-each-ref", "--format=%(*objectname) %(objectname)",
+                                      "refs/tags/ticket/%s/" % str(ticket).strip().upper())
+            tagged = sorted({(l.split() or [""])[0] for l in out.splitlines() if not rc and l.strip()})
+            by_tag = []
+            for c in tagged:
+                rc, out = inbox_core._git(repo, "for-each-ref", "--contains", c,
+                                          "--format=%(refname:lstrip=2)", "refs/heads")
+                by_tag += [b for b in out.splitlines() if not rc and b and b not in names
+                           and b not in by_tag and b not in ("main", "master")]
+            if not names and not by_tag:
                 continue
+            rc, out = inbox_core._git(repo, "branch", "--show-current")
+            here = out.strip() if not rc else ""
             # the linked worktrees on those branches (the first entry is the main one)
             rc, out = inbox_core._git(repo, "worktree", "list", "--porcelain")
             where, cur, first = {}, None, True
@@ -657,18 +695,24 @@ class inbox_core(object):
                     if cur is not None:
                         first = False
                     cur = None
-            for b in names:
-                rc, out = inbox_core._git(repo, "rev-list", "--count", "refs/heads/" + b,
-                                          "--not", "--remotes")
+            for b in names + by_tag:
+                named = b in names
+                if named:
+                    rc, out = inbox_core._git(repo, "rev-list", "--count", "refs/heads/" + b,
+                                              "--not", "--remotes")
+                else:                   # a run's branch: the ticket's commits only
+                    rc, out = inbox_core._git(repo, "rev-list", "--count", *tagged,
+                                              "--not", "--remotes")
                 ahead = int(out.strip() or 0) if not rc else 0
                 wt = where.get(b)
                 dirty = 0
-                if wt and os.path.isdir(wt):
+                if named and wt and os.path.isdir(wt):
                     rc, out = inbox_core._git(wt, "status", "--porcelain")
                     dirty = len(out.splitlines()) if not rc else 0
                 if ahead or dirty:
                     found.append({"label": label, "repo": repo, "branch": b,
-                                  "unpushed": ahead, "dirty": dirty, "worktree": wt or ""})
+                                  "unpushed": ahead, "dirty": dirty, "worktree": wt or "",
+                                  "current": b == here})
         return found
 
     @staticmethod
@@ -698,7 +742,11 @@ class inbox_core(object):
                 f["label"], f["branch"], f["unpushed"], f["dirty"],
                 (" " + f["worktree"]) if f["worktree"] else ""))
             push = "py scripts/ship.py push %s --repo %s" % (f["label"], f["worktree"])
-            if not (f["worktree"] and inbox_core.TEMPLATE_BRANCH.match(f["branch"])):
+            if (not f["worktree"] and f.get("current") and not f["dirty"]
+                    and inbox_core.TEMPLATE_BRANCH.match(f["branch"])):
+                # the checkpoint's own branch, checked out in the repo itself (a run branch)
+                lines.append("    -> py scripts/ship.py push %s" % f["label"])
+            elif not (f["worktree"] and inbox_core.TEMPLATE_BRANCH.match(f["branch"])):
                 lines.append("    -> not a <date>/<topic>/<role> branch in a worktree: ship.py "
                              "cannot push it; the human pushes it or moves its commits to one")
             elif f["dirty"]:

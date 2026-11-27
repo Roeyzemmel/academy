@@ -124,7 +124,7 @@ class ManifestEndToEnd(unittest.TestCase):
         self.work()
         code, out, err = self.check()
         self.assertEqual(code, 0, out + err)
-        name = self.ship.branch_name(TID, "expert")
+        name = self.ship.run_branch_name("inbox-all", "expert")    # #102: the run's branch
         self.assertEqual(self.head(self.lib), ("T-1481: checkpoint", [
             "reviews/paper/lem-x/.open", "reviews/paper/lem-x/pass-1/A.md"]))
         self.assertEqual(self.head(self.paper), ("T-1481: checkpoint", ["claims/paper/lem-x.md"]))
@@ -135,6 +135,8 @@ class ManifestEndToEnd(unittest.TestCase):
             self.assertEqual(run(repo, "branch", "--show-current"), name)
             self.assertEqual(run(remote, "rev-parse", "refs/heads/" + name),
                              run(repo, "rev-parse", "HEAD"))
+            self.assertEqual(run(repo, "rev-parse", "ticket/T-1481/1^{commit}"),
+                             run(repo, "rev-parse", "HEAD"))                  # #102: tagged
             # the superproject's moved submodule pointers are never the checkpoint's
             self.assertEqual(run(repo, "status", "--porcelain", "--", "board" if repo == self.root else "."), "")
         self.assertEqual(ac.find_claim(self.root, TID), (None, None))
@@ -143,7 +145,7 @@ class ManifestEndToEnd(unittest.TestCase):
 
     def test_a_path_dirty_before_the_ticket_is_not_committed(self):
         self.ticket("delivered")
-        run(self.lib, "switch", "-q", "-c", self.ship.branch_name(TID, "expert"))
+        run(self.lib, "switch", "-q", "-c", self.ship.run_branch_name("inbox-all", "expert"))
         self.put(self.lib, "notes/human.md", "the human's, before the ticket\n")
         self.snapshot()
         self.work()
@@ -211,7 +213,7 @@ class ManifestEndToEnd(unittest.TestCase):
         msg = "WIP: T-1481 unfinished (in-progress)"
         for repo in (self.lib, self.paper, self.root):
             self.assertEqual(self.head(repo)[0], msg)
-        name = self.ship.branch_name(TID, "expert")
+        name = self.ship.run_branch_name("inbox-all", "expert")
         self.assertEqual(run(self.lib_remote, "rev-parse", "refs/heads/" + name),
                          run(self.lib, "rev-parse", "HEAD"))
 
