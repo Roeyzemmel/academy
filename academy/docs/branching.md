@@ -21,8 +21,8 @@ the human reviewer is and anything particular to it.
   such a branch overrides a home's "nobody commits" line for that branch only.
 - The board's files are ordinary commits too: of the board submodule, or, when `board/`
   is a plain directory of the superproject, of `board/` paths in the superproject on a
-  template branch (a checkpoint commits them onto the ticket's branch without switching
-  the superproject's checkout: "Parallel runs" below). `ship.py`'s target `board` stages and commits nothing outside the
+  template branch (while another inbox run works in the checkout, a checkpoint commits
+  them onto the ticket's branch without switching it: "Parallel runs" below). `ship.py`'s target `board` stages and commits nothing outside the
   board's directory, and never a submodule pointer, whatever else is dirty or staged.
   With `board.backend` `github` the tickets live on GitHub (changed through the board
   tools), but packets and deep-dives stay files and are committed this way; every
@@ -83,14 +83,20 @@ Author and the Expert in one, the Researchers and the Scientist in another):
   exists, up to 6 hours after the last heartbeat (one ticket can outlast 30 minutes); a
   stale lease is taken over. The run releases its leases at its end, early stops included
   (`manifest.py lease release --run <run>`; `lease list` shows them all).
-- **The board never moves the checkout.** The board is shared, not leased: a checkpoint
-  commits its paths onto the ticket's branch with git plumbing (a temporary index read
-  from the branch's tip, or from HEAD for a new branch; `write-tree`, `commit-tree`,
-  `update-ref`) and pushes that ref. The superproject's HEAD, index and working tree stay
-  as they were, whatever branch it is on (`main` included: nothing is committed there).
-  The committed files stay dirty against that HEAD until the branch is merged; they are
-  listed with their content hash in `.academy/shipped/board.json`, so the stop check and a
-  later `--only board` checkpoint pass over a file committed and unchanged since.
+- **The board moves the checkout only when the run is alone** (the human's ruling,
+  2026-11-27: plumbing only in parallel). The board is shared, not leased. With no live
+  lease of another run in the workspace (the checkpoint's own run is `--run`, else the
+  manifest's; a lease of an unknown run counts as another's), a checkpoint switches the
+  superproject to the ticket's branch and commits `board/` there, with the guards above
+  (a dirty board on `main` refused under `--only`, and so on). While another live run
+  holds a lease, it commits the board's paths onto the ticket's branch with git plumbing
+  instead (a temporary index read from the branch's tip, or from HEAD for a new branch;
+  `write-tree`, `commit-tree`, `update-ref`) and pushes that ref: the superproject's HEAD,
+  index and working tree stay as they were, whatever branch it is on (`main` included:
+  nothing is committed there). Files committed that way stay dirty against that HEAD until
+  the branch is merged; they are listed with their content hash in
+  `.academy/shipped/board.json`, so the stop check and a later `--only board` checkpoint
+  pass over a file committed and unchanged since.
 - **A leased home is never switched.** `ship.py checkpoint` refuses to switch a submodule
   whose lease is another live run's (the run is `--run`, or the manifest's `run`; without
   one every live lease is another's); the ticket's part stays in its pending manifest for
@@ -102,7 +108,8 @@ Author and the Expert in one, the Researchers and the Scientist in another):
 **The stop check** (`stop_check.py`, a `Stop` hook of the academy plugin, opt-in with
 `"stopCheck": true` in workspace.json) lists the dirty paths of every home except those a
 live claim's run changed since its snapshot, the homes a live run holds the lease of, and
-the board files committed without moving the checkout and unchanged since; a claim older than 6 hours, or whose pid of
+the board files committed without moving the checkout (beside another run) and unchanged
+since; a claim older than 6 hours, or whose pid of
 this host is gone, is stale, hides nothing and is removed at the next snapshot or `--check`.
 A file above 5 MB is compared by size and mtime, not hashed. By hand: `manifest.py unclaimed`. Claude
 Code's own cloud stop check (`~/.claude/stop-hook-git-check.sh`) is not the academy's and

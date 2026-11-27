@@ -38,7 +38,7 @@ live while its heartbeat is younger than ``LEASE_TIMEOUT_MINUTES`` (30), or, whe
 a pid of this host, while that process exists, up to ``CLAIM_MAX_HOURS`` (6) after the last
 heartbeat; a stale one is taken over. ``snapshot --run RUN`` heartbeats the
 run's leases; ``release`` removes them (never another run's). The board is never leased:
-a checkpoint commits it without moving the checkout.
+while another run holds a lease, a checkpoint commits it without moving the checkout.
 
 The workspace is ``--workspace`` (a directory or its workspace.json), else the one the
 academy library finds (``$ACADEMY_WORKSPACE``, the checkout's workspace). Standard library

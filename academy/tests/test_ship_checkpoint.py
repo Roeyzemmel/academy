@@ -617,23 +617,20 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.write(self.root, os.path.join("docs", "d.md"), "dirty outside\n")
         self.write(self.root, os.path.join("docs", "staged.md"))
         run(self.root, "add", os.path.join("docs", "staged.md"))
-        head, cur = run(self.root, "rev-parse", "HEAD"), ship.current(self.root)
         rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
         self.assertEqual(rc, 0, err)
         name = self.branch()
-        # #96: committed onto the ticket's branch; the checkout's branch and HEAD stay
-        self.assertEqual((ship.current(self.root), run(self.root, "rev-parse", "HEAD")), (cur, head))
-        self.assertEqual(self.files(self.root, name), ["board/README.md", "board/packets/P-1.md"])
-        self.assertEqual(run(self.root, "rev-parse", name + "^"), head)
+        self.assertEqual(ship.current(self.root), name)
+        self.assertEqual(self.files(self.root), ["board/README.md", "board/packets/P-1.md"])
         self.assertEqual(run(self.root_remote, "rev-parse", "refs/heads/" + name),
-                         run(self.root, "rev-parse", name))
-        self.assertEqual(run(self.root, "log", "-1", "--format=%B", name),
+                         run(self.root, "rev-parse", "HEAD"))
+        self.assertEqual(run(self.root, "log", "-1", "--format=%B"),
                          "T-0059: checkpoint\n\nTicket: o/r#59")
         # everything outside board/ is as it was: the pointers, the staged file, the dirt
         self.assertEqual(sorted(run(self.root, "diff", "--cached", "--name-only").splitlines()),
                          ["docs/staged.md", "other"])
         self.assertEqual(sorted(run(self.root, "diff", "--name-only").splitlines()),
-                         ["board/README.md", "docs/d.md", "sub"])
+                         ["docs/d.md", "sub"])
         self.assertEqual(run(self.root_remote, "rev-parse", "main"),
                          run(self.root, "rev-parse", "main"))
         self.assertEqual(self.remote_branches(self.remote), ["refs/heads/main"])  # sub untouched
@@ -664,7 +661,7 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.write(self.root, os.path.join("board", "packets", "P-2.md"))
         rc, out, err = self.cp("--ticket", "T-0060", "--only", "board")
         self.assertEqual(rc, 0, err)
-        self.assertEqual(self.files(self.root, self.branch(ticket="T-0060")), ["board/packets/P-2.md"])
+        self.assertEqual(self.files(self.root), ["board/packets/P-2.md"])
         self.assertEqual(run(self.root, "diff", "--cached", "--name-only",
                              "--ignore-submodules=none").splitlines(), ["other"])
 
@@ -691,28 +688,26 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.write(self.root, os.path.join("board", "p.md"))
         rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
         self.assertEqual(rc, 0, err)
-        self.assertEqual(self.files(self.root, self.branch()), ["board/p.md"])
+        self.assertEqual(self.files(self.root), ["board/p.md"])
         self.assertIn("skipped nested repo: board/nested/", out)
         self.assertEqual(run(self.root, "diff", "--cached", "--name-only"), "")
 
-    def test_only_board_dirty_on_main_is_committed_onto_the_branch_main_untouched(self):
-        # #96: nothing is committed where the checkout is, so main is no reason to refuse
-        main = run(self.root, "rev-parse", "main")
+    def test_only_board_dirty_on_main_is_refused(self):
         self.write(self.root, os.path.join("board", "p.md"))
         rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
-        self.assertEqual(rc, 0, out + err)
-        self.assertEqual((ship.current(self.root), run(self.root, "rev-parse", "main")), ("main", main))
-        self.assertEqual(self.files(self.root, self.branch()), ["board/p.md"])
-        self.assertEqual(self.remote_branches(self.root_remote), ["refs/heads/" + self.branch(), "refs/heads/main"])
-        self.assertEqual(run(self.root_remote, "rev-parse", "main"), main)
+        self.assertEqual(rc, 1)
+        self.assertIn("REFUSED: dirty on main", out)
+        self.assertIn("py scripts/ship.py start board <topic>", out)
+        self.assertEqual(ship.current(self.root), "main")
+        self.assertEqual(self.remote_branches(self.root_remote), ["refs/heads/main"])
 
-    def test_superproject_on_an_off_template_branch_is_not_moved(self):
+    def test_superproject_on_an_off_template_branch_is_refused(self):
         run(self.root, "switch", "-q", "-c", "feature")
         self.write(self.root, os.path.join("board", "p.md"))
         rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
-        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(rc, 1)
+        self.assertIn("neither main/master nor a <date>/<topic>/<role> branch", out)
         self.assertEqual(ship.current(self.root), "feature")
-        self.assertEqual(self.files(self.root, self.branch()), ["board/p.md"])
 
     def test_manual_run_covers_board_and_the_submodules(self):
         self.drift_pointer()
@@ -721,12 +716,11 @@ class TestCheckpointBoardDir(CheckpointBase):
         rc, out, err = self.cp("--ticket", "T-0059")
         self.assertEqual(rc, 0, err)
         name = self.branch()
-        self.assertEqual(self.files(self.root, name), ["board/p.md"])
+        self.assertEqual(self.files(self.root), ["board/p.md"])
         self.assertEqual(self.files(self.sub), ["b.txt"])
         for repo, remote in ((self.root, self.root_remote), (self.sub, self.remote)):
             self.assertEqual(run(remote, "rev-parse", "refs/heads/" + name),
-                             run(repo, "rev-parse", name))
-        self.assertEqual(ship.current(self.root), "main")             # the superproject not moved
+                             run(repo, "rev-parse", "HEAD"))
         self.assertIn("other", run(self.root, "diff", "--cached", "--name-only"))
 
     def test_commit_and_ship_board(self):
@@ -761,6 +755,11 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.assertIn("--paths are relative to board/", err)
         self.assertEqual(self.files(self.root), ["board/.errors/x.jsonl"])
 
+    def foreign_run(self):
+        """Another inbox run's live lease in the workspace (#96): the board is then committed
+        with plumbing, without moving the checkout."""
+        TestCheckpointLeases.lease(self, "other", "inbox-elsewhere-1")
+
     def checkout_state(self):
         """HEAD, its branch, the index and the working tree's status of the superproject."""
         return (run(self.root, "rev-parse", "HEAD"), ship.current(self.root),
@@ -769,6 +768,7 @@ class TestCheckpointBoardDir(CheckpointBase):
 
     def test_board_is_committed_with_plumbing_and_the_checkout_never_changes(self):
         # #96: two runs share the superproject; one's board commit must not move the other
+        self.foreign_run()
         self.on_template()
         run(self.root, "add", "-A", "--", "docs")                 # something staged, not board's
         self.write(self.root, os.path.join("docs", "d.md"), "dirty outside\n")
@@ -805,6 +805,7 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.assertIn("pushed", out)
 
     def test_board_on_its_own_ticket_branch_keeps_index_and_head_consistent(self):
+        self.foreign_run()
         name = self.branch()
         run(self.root, "switch", "-q", "-c", name)
         self.write(self.root, os.path.join("board", "p.md"))
@@ -814,6 +815,7 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.assertEqual(run(self.root, "status", "--porcelain", "--", "board"), "")
 
     def test_a_later_ticket_does_not_recommit_an_earlier_tickets_board_files(self):
+        self.foreign_run()
         self.write(self.root, os.path.join("board", "p.md"))
         rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
         self.assertEqual(rc, 0, out + err)
@@ -825,6 +827,43 @@ class TestCheckpointBoardDir(CheckpointBase):
         self.write(self.root, os.path.join("board", "p.md"), "changed after\n")   # changed since: due
         rc, out, err = self.cp("--ticket", "T-0061", "--only", "board")
         self.assertEqual(self.files(self.root, self.branch(ticket="T-0061")), ["board/p.md"])
+
+    def test_the_same_checkpoint_switches_alone_and_uses_plumbing_beside_another_run(self):
+        # the human's ruling (2026-11-27): plumbing only in parallel
+        self.on_template()
+        self.write(self.root, os.path.join("board", "p.md"))
+        rc, out, err = self.cp("--ticket", "T-0059", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(ship.current(self.root), self.branch())          # switched, as before
+        self.assertEqual(run(self.root, "status", "--porcelain", "--", "board"), "")
+        # its own lease is no other run's: still switching
+        TestCheckpointLeases.lease(self, "sub", "inbox-mine-1")
+        self.write(self.root, os.path.join("board", "q.md"))
+        rc, out, err = self.cp("--ticket", "T-0060", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(ship.current(self.root), self.branch(ticket="T-0060"))
+        # another run's live lease: the same command commits without moving the checkout
+        self.foreign_run()
+        self.write(self.root, os.path.join("board", "r.md"))
+        head = run(self.root, "rev-parse", "HEAD")
+        rc, out, err = self.cp("--ticket", "T-0061", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual((ship.current(self.root), run(self.root, "rev-parse", "HEAD")),
+                         (self.branch(ticket="T-0060"), head))
+        self.assertEqual(self.files(self.root, self.branch(ticket="T-0061")), ["board/r.md"])
+        self.assertEqual(run(self.root_remote, "rev-parse", "refs/heads/" + self.branch(ticket="T-0061")),
+                         run(self.root, "rev-parse", self.branch(ticket="T-0061")))
+        # a dirty board on main is refused when alone, and committed beside another run
+        run(self.root, "switch", "-q", "main")
+        self.write(self.root, os.path.join("board", "s.md"))
+        rc, out, err = self.cp("--ticket", "T-0062", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(ship.current(self.root), "main")
+        os.remove(os.path.join(self.root, ".academy", "leases", "other.json"))
+        self.write(self.root, os.path.join("board", "t.md"))
+        rc, out, err = self.cp("--ticket", "T-0063", "--only", "board", "--run", "inbox-mine-1")
+        self.assertEqual(rc, 1)
+        self.assertIn("REFUSED: dirty on main", out)
 
     def test_start_board_branches_the_superproject(self):
         rc, out, err = self.run_ship("start", "board", "notes")
@@ -1039,6 +1078,8 @@ class TestCheckpointLeases(CheckpointBase):
     def lease(self, target, run_id, heartbeat=None, pid=None):
         d = os.path.join(self.root, ".academy", "leases")
         os.makedirs(d, exist_ok=True)
+        with open(os.path.join(self.root, ".academy", ".gitignore"), "w", encoding="utf-8") as f:
+            f.write("*\n")                            # as manifest_dir writes it
         import socket
         import time
         now = time.time() if heartbeat is None else heartbeat
@@ -1346,12 +1387,13 @@ class TestCheckpointUsage(CheckpointBase):
     def test_summary_is_written_and_committed_with_the_board(self):
         rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
         self.assertEqual(rc, 0, err)
-        self.assertEqual(self.files(self.root, self.branch()), ["board/.usage/workspace.%s.jsonl" % self.host()])
+        self.assertEqual(self.files(self.root), ["board/.usage/workspace.%s.jsonl" % self.host()])
         rec = json.loads(open(self.usage_file(), encoding="utf-8").read())
         self.assertEqual((rec["session"], rec["instance"], rec["turns"], rec["read"]), ("sess1", "workspace", 1, 700))
         text = open(self.usage_file(), encoding="utf-8").read()
         self.assertNotIn("SECRET-PROMPT", text)
         self.assertNotIn("/hidden/path", text)
+        self.assertEqual(run(self.root, "status", "--porcelain", "--", "board"), "")
 
     def test_unchanged_session_makes_no_second_record(self):
         self.cp("--ticket", "T-0059", "--only", "board")
@@ -1400,7 +1442,7 @@ class TestCheckpointUsage(CheckpointBase):
             rc, out, err = self.cp("--ticket", "T-0059", "--only", "board")
         self.assertEqual(rc, 0, err)
         self.assertIn("ship: warning: usage summary skipped: RuntimeError: boom", err)
-        self.assertEqual(self.files(self.root, self.branch()), ["board/p.md"])
+        self.assertEqual(self.files(self.root), ["board/p.md"])
 
 
 if __name__ == "__main__":

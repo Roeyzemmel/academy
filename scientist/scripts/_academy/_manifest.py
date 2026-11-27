@@ -399,8 +399,9 @@ def unclaimed_dirty(root, board="board", now=None, max_hours=None):
 # heartbeat is younger than ``LEASE_TIMEOUT_MINUTES``; one that names a pid of this host is
 # live while that process exists, up to ``CLAIM_MAX_HOURS`` after the last heartbeat
 # (``claim_live``'s host and pid rule). A target leased by another live run is not
-# taken: the inbox skips that instance for the run. The board is never leased: a checkpoint
-# commits it onto the ticket's branch without moving the checkout (ship.py). Every read and
+# taken: the inbox skips that instance for the run. The board is never leased: while another
+# live run holds a lease, a checkpoint commits it onto the ticket's branch without moving
+# the checkout (ship.py); alone, it switches as before. Every read and
 # write of the leases holds ``.academy/leases/.lock`` (create-exclusive, as ``IdLock``).
 
 #: minutes after the last heartbeat (each ticket's snapshot) when a lease is stale

@@ -221,11 +221,8 @@ class ShimTests(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertRegex(res.stdout, r"(?m)^board +main .*\[PROTECTED\] \(superproject, board/ only\)")
         res = self.shim("ship.py", "checkpoint", "--ticket", "T-1", "--only", "board")
-        # the board is committed onto the ticket's branch whatever the checkout is on (#96);
-        # there is no remote to push to: the push fails, the exit code is kept
-        self.assertEqual(res.returncode, 1)
-        self.assertRegex(res.stdout, r"(?m)^board \d{4}-\d{2}-\d{2}/t-1/human @ \S+ \(1 files\) PUSH FAILED")
-        self.assertEqual(run(self.root, "branch", "--show-current"), "main")
+        self.assertEqual(res.returncode, 1)               # dirty on main: refused, exit kept
+        self.assertIn("REFUSED: dirty on main", res.stdout)
 
     def test_ship_shim_without_an_academy_refuses(self):
         self.env["ACADEMY_ROOT"] = os.path.join(self.tmp, "none")

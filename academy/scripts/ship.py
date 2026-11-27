@@ -74,12 +74,13 @@ ticket's run, the manifest's ``run`` by default): then it is refused, never swit
 which branch it was left on and whether its changes are staged. Submodule pointers
 (tracked gitlinks) are never staged. ``board`` is in scope whatever ``board.backend`` is
 (with ``github`` the tickets are on GitHub, but packets and deep-dives are files there);
-as a plain directory of the superproject only ``board/`` paths are committed, whatever
-else is dirty or staged there, and the checkout is never switched (#96: another run may be
-working in it): they are committed onto the ticket's branch with git plumbing (a temporary
-index from the branch's tip, or HEAD for a new branch; ``write-tree``, ``commit-tree``,
-``update-ref``) and that ref is pushed; HEAD, the index and the working tree stay as they
-were, on whatever branch (``checkpoint_tree``).
+as a plain directory of the superproject only ``board/`` paths are staged and committed
+(``add -A -- board/``, ``commit -- board/``), whatever else is dirty or staged there. While
+another live inbox run holds a lease in the workspace (#96: that run works in the same
+checkout) the checkout is not switched instead: the board's paths are committed onto the
+ticket's branch with git plumbing (a temporary index from the branch's tip, or HEAD for a
+new branch; ``write-tree``, ``commit-tree``, ``update-ref``) and that ref is pushed; HEAD,
+the index and the working tree stay as they were, on whatever branch (``checkpoint_tree``).
 The academy plugin's ``inbox.py --check`` runs ``checkpoint --only <the ticket's repos>``
 itself after a finished ticket: with ``--only`` the other submodules are not touched and
 a dirty repo of the set that is on main/master is refused instead of moved. With
@@ -1516,10 +1517,13 @@ def checkpoint_repo(sub, repo, name, message, remote, scoped=False, pathspec=Non
     then refused and nothing is shipped there. Already on the ticket's branch, only the
     paths are committed. Always scoped (a dirty repo on main/master is refused).
 
-    A pathspec target is committed by ``checkpoint_tree`` instead: onto the ticket's
-    branch without switching the checkout (#96). A repo whose lease (``.academy/leases``)
-    belongs to a live run other than ``run`` is never switched: it is refused (#96)."""
-    if pathspec:
+    While another live run holds a lease anywhere in the workspace (``foreign_lease``), a
+    pathspec target is committed by ``checkpoint_tree`` instead: onto the ticket's branch
+    without switching the checkout, which that run shares (#96; the human's ruling
+    2026-11-27, "plumbing only in parallel"); with no other run it is switched and
+    committed as above. A repo whose lease (``.academy/leases``) belongs to a live run
+    other than ``run`` is never switched: it is refused (#96)."""
+    if pathspec and foreign_lease(run):
         return checkpoint_tree(sub, repo, name, message, remote, pathspec, paths)
     res = {"sub": sub, "branch": name, "sha": "", "files": 0, "status": "unchanged", "detail": "",
            "names": [], "skipped": []}
@@ -1679,6 +1683,20 @@ def lease_holder(sub, run=None):
         return ""
 
 
+def foreign_lease(run=None):
+    """A description of a live lease in the workspace held by a run other than ``run``
+    (any live lease when ``run`` is None), else '': another inbox run is working in this
+    checkout. No library, no lease."""
+    try:
+        ac = _lib()
+        for lease in ac.live_leases(ROOT):
+            if run is None or lease.get("run") != run:
+                return "%s: %s" % (lease.get("target"), ac.describe_lease(lease))
+    except Exception:  # noqa: BLE001 -- an unreadable lease is no lease
+        return ""
+    return ""
+
+
 def _status_paths(repo, specs):
     """``(paths, skipped)``: the entries of ``git status`` under ``specs`` (both sides of a
     rename), and the untracked nested repositories and tracked gitlinks among them."""
@@ -1706,7 +1724,8 @@ def _status_paths(repo, specs):
 
 
 def checkpoint_tree(sub, repo, name, message, remote, pathspec, paths=None):
-    """A superproject target's checkpoint (the board, #96): its changes are committed onto
+    """A superproject target's checkpoint while another live run works in the checkout (the
+    board, #96; ``checkpoint_repo`` uses it only then): its changes are committed onto
     ``name`` with git plumbing -- a temporary index (``GIT_INDEX_FILE``) read from the
     branch's tip, or from HEAD when the branch is new, the paths added from the working
     tree, ``write-tree``, ``commit-tree`` with that tip as parent, ``update-ref`` (compare and
