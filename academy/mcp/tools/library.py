@@ -2,8 +2,9 @@
 
 The library home is the Expert instance's home (the ``expert@...`` home of workspace.json): files
 named by bibliography key (``<key>.txt`` extraction, ``<key>.pdf``, ``<key>.src/``,
-``<key>.meta``), ``index.md`` (one table row per cached source) and, once they
-exist, ``cards/<key>/<pinpoint>.md``.
+``<key>.meta``), ``index.md`` (one table row per cached source), once they
+exist ``cards/<key>/<pinpoint>.md``, and what a human read of a source no session
+could reach (``<key>.human.md``, ``<key>.human/``; #108).
 
 Derived state lives in ``<library home>/.academy/`` (created with its own
 ``.gitignore`` of ``*``, so it is ignored whatever the home's git setup):
@@ -17,6 +18,7 @@ Everything here is read-only on the library's own files.
 """
 
 import datetime
+import hashlib
 import os
 import re
 import sqlite3
@@ -158,20 +160,30 @@ FOLD = {"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-
         "\u2014": "-", "\u2212": "-", "\u00a0": " ", "\u00ad": ""}
 
 
+LIGATURES = {"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl",
+             "\ufb05": "st", "\ufb06": "st"}
+
+
 def _fold(s):
     s = unicodedata.normalize("NFKC", s)
     return "".join(FOLD.get(c, c) for c in s)
 
 
-def normalise_text(s):
+def _fold_narrow(s):
+    """The fold for a text a human supplied (#108): ligatures and typographic quotes and
+    dashes only. No NFKC: n\u00b2 is not n2, x\u2081 is not x1, \u211d is not R."""
+    return "".join(FOLD.get(c, LIGATURES.get(c, c)) for c in s)
+
+
+def normalise_text(s, fold=_fold):
     """Extraction text -> one-space text; a hyphen at a line end becomes SOFT."""
-    s = _fold(s.replace("\r\n", "\n"))
+    s = fold(s.replace("\r\n", "\n"))
     s = re.sub(r"-[ \t]*\n[ \t\f]*", SOFT, s)
     return re.sub(r"\s+", " ", s)
 
 
-def normalise_quote(q):
-    return re.sub(r"\s+", " ", _fold(q)).strip()
+def normalise_quote(q, fold=_fold):
+    return re.sub(r"\s+", " ", fold(q)).strip()
 
 
 def quote_regex(q):
@@ -187,24 +199,163 @@ def quote_regex(q):
     return re.compile(("%s?" % SOFT).join(parts))
 
 
-def find_quote(text, quote):
-    """(page or None, context) of ``quote`` in extraction ``text``, or None."""
-    q = normalise_quote(quote)
+def find_quote(text, quote, narrow=False):
+    """(page or None, context) of ``quote`` in extraction ``text``, or None. ``narrow``: the
+    fold for a human's text (``_fold_narrow``), not NFKC."""
+    fold = _fold_narrow if narrow else _fold
+    q = normalise_quote(quote, fold)
     if not q:
         return None
     rx = quote_regex(q)
     pages = text.split("\f")
     for n, page in enumerate(pages, 1):
-        m = rx.search(normalise_text(page))
+        m = rx.search(normalise_text(page, fold))
         if m:
-            t = normalise_text(page)
+            t = normalise_text(page, fold)
             return (n if len(pages) > 1 else None,
                     t[max(0, m.start() - 80):m.end() + 80].replace(SOFT, "-"))
-    t = normalise_text(text)
+    t = normalise_text(text, fold)
     m = rx.search(t)
     if m:
         return (None, t[max(0, m.start() - 80):m.end() + 80].replace(SOFT, "-"))
     return None
+
+
+# ----------------------------------------------------------------------------
+# What a human supplied (#108): a source no session could read, read by a human
+# ----------------------------------------------------------------------------
+#
+# ``<key>.human.md`` is the register of the hand-backs of ``key`` (written by the Expert's
+# ``handback.py record``), in document order:
+#   a text the human pasted, verbatim between its marker lines, with its digest:
+#     <!-- hand-back begin ticket="T-1" date="..." pinpoint="..." hash="sha256:..." -->
+#     <the text>
+#     <!-- hand-back end -->
+#   a file the human supplied, copied into ``<key>.human/``, with the digest of its bytes and
+#   of the text extracted from it (a PDF's text layer), when there is one:
+#     <!-- hand-back file ticket="T-1" ... path="<key>.human/x.pdf" sha256="sha256:..."
+#          text="<key>.human/x.txt" text_sha256="sha256:..." -->   (one line)
+# A record's id is its digest (``hash``, or ``sha256`` for a file); a card names the records
+# it quotes (``handback:``). A record whose digest does not match what is on disk is not
+# used, and a file in ``<key>.human/`` that no record names is ignored. A quote is checked
+# against each record's text on its own, with the narrow fold.
+
+HUMAN_MD = ".human.md"
+HUMAN_DIR = ".human"
+HUMAN_TEXT_EXT = (".txt", ".md")
+HANDBACK_END = "<!-- hand-back end -->"
+RE_HANDBACK = re.compile(r"^<!-- hand-back begin(?P<attrs>[^\n]*?)-->\n(?P<text>.*?)\n"
+                         + re.escape(HANDBACK_END) + r"[ \t]*$"
+                         r"|^<!-- hand-back file(?P<fattrs>[^\n]*?)-->[ \t]*$", re.M | re.S)
+RE_HANDBACK_ATTR = re.compile(r'(\w+)="((?:[^"\\]|\\.)*)"')
+
+
+def normalise_handback(text):
+    """A pasted text as recorded: LF line ends, blanks around it (spaces, tabs, newlines) removed."""
+    return str(text).replace("\r\n", "\n").replace("\r", "\n").strip(" \t\n")
+
+
+def text_digest(text):
+    """``sha256:<hex>`` of a hand-back text's UTF-8 bytes, normalised (cite.js computes the same)."""
+    data = normalise_handback(text).encode("utf-8", "surrogatepass")
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def file_digest(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 16), b""):
+            h.update(chunk)
+    return "sha256:" + h.hexdigest()
+
+
+def _attrs(raw):
+    return {k: re.sub(r"\\(.)", r"\1", v) for k, v in RE_HANDBACK_ATTR.findall(raw or "")}
+
+
+def parse_handbacks(text):
+    """The records of a ``<key>.human.md``, in order: ``{"kind": "text", "attrs", "text"}``
+    (the text verbatim) or ``{"kind": "file", "attrs"}``."""
+    out = []
+    for m in RE_HANDBACK.finditer(text.replace("\r\n", "\n")):
+        if m.group("fattrs") is not None:
+            out.append({"kind": "file", "attrs": _attrs(m.group("fattrs"))})
+        else:
+            out.append({"kind": "text", "attrs": _attrs(m.group("attrs")), "text": m.group("text")})
+    return out
+
+
+def _recorded_path(home, key, rel):
+    """``rel`` when it names a file of ``<key>.human/`` (no escape from it), else None."""
+    rel = str(rel or "").replace("\\", "/")
+    parts = rel.split("/")
+    if len(parts) != 2 or parts[0] != key + HUMAN_DIR or parts[1] in ("", ".", "..") \
+            or parts[1].startswith("."):
+        return None
+    return os.path.join(home, key + HUMAN_DIR, parts[1])
+
+
+def handback_records(home, key):
+    """Every record of ``<key>.human.md``, checked against its digest: ``{"kind", "id",
+    "attrs", "ok", "problem", "label", "text" (or None), "files"}``."""
+    md = os.path.join(home, key + HUMAN_MD)
+    if not os.path.isfile(md):
+        return []
+    out = []
+    for n, e in enumerate(parse_handbacks(_read(md)), 1):
+        a = e["attrs"]
+        what = ", ".join(x for x in (a.get("ticket"), a.get("date"), a.get("pinpoint")) if x)
+        rec = {"kind": e["kind"], "attrs": a, "ok": True, "problem": "", "text": None, "files": []}
+        if e["kind"] == "text":
+            rec["id"] = a.get("hash") or ""
+            rec["label"] = "%s%s entry %d (human-supplied%s)" % (key, HUMAN_MD, n, ", " + what if what else "")
+            rec["files"] = [key + HUMAN_MD]
+            if not rec["id"]:
+                rec.update(ok=False, problem="entry %d has no hash" % n)
+            elif text_digest(e["text"]) != rec["id"]:
+                rec.update(ok=False, problem="entry %d does not match its hash (edited after it was recorded)" % n)
+            else:
+                rec["text"] = e["text"]
+        else:
+            rec["id"] = a.get("sha256") or ""
+            path = _recorded_path(home, key, a.get("path"))
+            rec["label"] = "%s (human-supplied%s)" % (a.get("path"), ", " + what if what else "")
+            if not path or not rec["id"]:
+                rec.update(ok=False, problem="record %d names no file of %s%s/ with its sha256" % (n, key, HUMAN_DIR))
+            elif not os.path.isfile(path):
+                rec.update(ok=False, problem="%s is missing" % a.get("path"))
+            elif file_digest(path) != rec["id"]:
+                rec.update(ok=False, problem="%s does not match its sha256 (replaced after it was recorded)" % a.get("path"))
+            else:
+                rec["files"] = [a["path"]]
+                if a.get("text"):
+                    tpath = _recorded_path(home, key, a["text"])
+                    if not tpath or not os.path.isfile(tpath) or file_digest(tpath) != a.get("text_sha256"):
+                        rec.update(ok=False, problem="%s does not match its text_sha256" % a.get("text"))
+                    else:
+                        if a["text"] not in rec["files"]:
+                            rec["files"].append(a["text"])
+                        rec["text"] = _read(tpath)
+                        rec["label"] = "%s (human-supplied, from %s%s)" % (a["text"], a["path"], ", " + what if what else "")
+        out.append(rec)
+    return out
+
+
+def human_files(home, key):
+    """Home-relative paths of what a human supplied for ``key``: the register, then the
+    files its sound records name."""
+    out = [key + HUMAN_MD] if os.path.isfile(os.path.join(home, key + HUMAN_MD)) else []
+    for r in handback_records(home, key):
+        if r["ok"] and r["kind"] == "file":
+            out += [f for f in r["files"] if f not in out]
+    return out
+
+
+def human_texts(home, key, ids=None):
+    """``[(label, text)]`` of the sound records of ``key`` that have a text (``ids``: only
+    those records)."""
+    return [(r["label"], r["text"]) for r in handback_records(home, key)
+            if r["ok"] and r["text"] is not None and (ids is None or r["id"] in ids)]
 
 
 # ----------------------------------------------------------------------------
@@ -336,7 +487,8 @@ def _lookup(ctx, a):
                                 if f.endswith(".tex"))[:50]
     cards = os.path.join(home, "cards", key)
     out["cards"] = sorted(os.listdir(cards)) if os.path.isdir(cards) else []
-    if not rows and not any(files.values()):
+    out["human"] = human_files(home, key)
+    if not rows and not any(files.values()) and not out["human"]:
         out["note"] = "not in the library (no index row, no cached file)"
     log_access(ctx, home, "library_lookup", key)
     return out
@@ -392,17 +544,23 @@ def _verify_quote(ctx, a):
     if not normalise_quote(quote):
         raise ToolError("quote is required")
     path = os.path.join(home, key + ".txt")
-    if not os.path.isfile(path):
-        raise ToolError("%s.txt is not cached in %s; nothing to verify against" % (key, home))
-    hit = find_quote(_read(path), quote)
+    targets = [("%s.txt (extraction)" % key, _read(path))] if os.path.isfile(path) else []
+    n_txt = len(targets)
+    targets += human_texts(home, key)       # what a human supplied (#108)
+    if not targets:
+        raise ToolError("%s.txt is not cached in %s and no text a human supplied is recorded "
+                        "(%s%s, %s%s/); nothing to verify against" % (key, home, key, HUMAN_MD, key, HUMAN_DIR))
     log_access(ctx, home, "library_verify_quote", key)
-    res = {"key": key, "match": hit is not None, "source": "%s.txt (extraction)" % key,
+    res = {"key": key, "match": False, "source": "; ".join(t[0] for t in targets),
            "normalised_quote": normalise_quote(quote)}
-    if hit:
-        res["page"], res["context"] = hit
-    else:
-        res["note"] = ("no whitespace/hyphenation-normalised match in the extraction; "
-                       "the quote is not verified")
+    for n, (label, text) in enumerate(targets):
+        hit = find_quote(text, quote, narrow=n >= n_txt)      # a human's text: the narrow fold
+        if hit:
+            res.update(match=True, source=label)
+            res["page"], res["context"] = hit
+            return res
+    res["note"] = ("no whitespace/hyphenation-normalised match in %s; the quote is not verified"
+                   % ("the extraction" if len(targets) == 1 and os.path.isfile(path) else "any of them"))
     return res
 
 
@@ -454,7 +612,8 @@ TOOLS = [
          obj({"query": S, "limit": I, "kind": {"type": "string",
                                                "enum": ["text", "index", "card"]},
               "key": S, "raw": B}, ["query"]), _search),
-    Tool("library_verify_quote", "Check that a quote occurs in <key>.txt, normalising "
+    Tool("library_verify_quote", "Check that a quote occurs in <key>.txt or in what a human "
+         "supplied for it (<key>.human.md, <key>.human/), normalising "
          "whitespace, line-end hyphenation, ligatures and typographic quotes/dashes "
          "(case-sensitive). Access-logged.",
          obj({"key": S, "quote": S}, ["key", "quote"]), _verify_quote),

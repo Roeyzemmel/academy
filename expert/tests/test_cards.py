@@ -138,6 +138,205 @@ class CardTests(unittest.TestCase):
         self.assertEqual(out["cards"][0]["quote"], "verified")
 
 
+HUMAN_TEXT = "Lemma 4.1. Let P be a rational polygon with n² sides. Then every\ngeneralized diagonal is finite."
+QUOTE = "Let P be a rational polygon with n² sides. Then every generalized diagonal is finite."
+
+
+class HumanSuppliedCardTests(unittest.TestCase):
+    """#108: ``read_from: human-supplied``: the card of a source no session could read, written
+    from what a human handed back (handback.py's records); its quote must be verbatim from
+    the record it names. Stricter than the other reads, and for these cards only."""
+
+    def setUp(self):
+        self.sb = fixtures.Sandbox()
+        self.home = self.sb.lib
+        import handback
+        self.hb = handback
+
+    def tearDown(self):
+        self.sb.close()
+
+    def text(self, text=HUMAN_TEXT, ticket="T-0904"):
+        r = self.hb.record_text(self.home, "HU95", ticket, text, expect=self.hb.text_hash(text), pinpoint="Lemma 4.1")
+        self.assertTrue(r["ok"], r)
+        return r["id"]
+
+    def image(self, name="p808.png", ticket="T-0904"):
+        src = self.sb.write("scratch/" + name, "image bytes of " + name)
+        r = self.hb.record_file(self.home, "HU95", ticket, src, pinpoint="Lemma 4.1")
+        self.assertTrue(r["ok"], r)
+        return r["id"]
+
+    def check(self, quote=QUOTE, handback=None, rel="papers/cards/HU95/lemma-4-1.md", **extra):
+        if handback is not None:
+            extra["handback"] = handback
+        p = self.sb.write(rel, fixtures.card_text(key="HU95", pinpoint="Lemma 4.1", quote=quote,
+                                                  read_from="human-supplied", **extra))
+        return cards.validate_path(p, self.home)
+
+    def test_the_value_is_in_the_schema(self):
+        self.assertIn("human-supplied", cards.READ_FROM)
+        self.assertIn("handback", cards.CARD_KEYS)
+
+    def test_a_quote_from_the_named_record_is_verified(self):
+        errs, warns, q = self.check(handback=[self.text()])
+        self.assertEqual((errs, warns), ([], []))
+        self.assertEqual(q["status"], "verified")
+        self.assertIn("HU95.human.md entry 1", q["against"])
+
+    def test_a_quote_not_in_the_human_text_is_an_error(self):
+        errs, warns, q = self.check("Let P be a rational polygon. Then every saddle connection is finite.",
+                                    handback=[self.text()])
+        self.assertTrue(any("not verbatim from what the human handed back" in e for e in errs), errs)
+
+    def test_a_fabricated_short_tail_is_caught(self):
+        # review 1: fragments under 12 characters were dropped; for these cards every one counts
+        errs, warns, q = self.check("Let P be a rational polygon ... xx yy zz", handback=[self.text()])
+        self.assertEqual(q["status"], "partial")
+        self.assertTrue(any("not verbatim" in e and "xx yy zz" in e for e in errs), errs)
+
+    def test_n_squared_is_not_n2(self):
+        # review 2: NFKC folds n² to n2; a human's text is matched with the narrow fold
+        errs, warns, q = self.check(QUOTE.replace("n²", "n2"), handback=[self.text()])
+        self.assertTrue(errs)
+        self.assertEqual(q["status"], "not-found")
+
+    def test_a_tampered_entry_is_an_error(self):
+        rid = self.text()
+        md = self.sb.read("papers/HU95.human.md")
+        self.sb.write("papers/HU95.human.md", md.replace("generalized diagonal is finite", "generalized diagonal is short"))
+        errs, warns, q = self.check(QUOTE.replace("finite", "short"), handback=[rid])
+        self.assertEqual(q["status"], "bad-handback")
+        self.assertTrue(any("does not match its hash" in e for e in errs), errs)
+
+    def test_a_stray_text_in_the_folder_is_ignored(self):
+        rid = self.image()
+        self.sb.write("papers/HU95.human/stray.txt", HUMAN_TEXT)
+        errs, warns, q = self.check(handback=[rid])
+        self.assertEqual(q["status"], "unchecked")              # the stray text is no record
+
+    def test_only_the_named_record_counts(self):
+        # review 5: an image handed back after an earlier text entry: the card quoting the image
+        # is not verified by the text
+        self.text(ticket="T-0001")
+        rid = self.image()
+        errs, warns, q = self.check(handback=[rid])
+        self.assertEqual(q["status"], "unchecked")
+        self.assertTrue(any("status: unverified" in e for e in errs), errs)
+
+    def test_an_image_quote_must_be_said_unverified(self):
+        rid = self.image()
+        errs, warns, q = self.check(handback=[rid], status="unverified",
+                                    status_reason="transcribed from the page image; not checked by script")
+        self.assertEqual(errs, [])
+        self.assertTrue(any("transcribed from" in w and "p808.png" in w for w in warns), warns)
+
+    def test_no_record_named_or_an_unknown_one_is_an_error(self):
+        self.text()
+        errs, warns, q = self.check()
+        self.assertTrue(any("names the hand-back it quotes" in e for e in errs), errs)
+        errs, warns, q = self.check(handback=["sha256:" + "0" * 64])
+        self.assertTrue(any("no record sha256:000" in e for e in errs), errs)
+
+    def test_nothing_handed_back_is_an_error(self):
+        errs, warns, q = self.check(handback=["sha256:" + "0" * 64])
+        self.assertTrue(any("nothing a human handed back is recorded for HU95" in e for e in errs), errs)
+
+    def test_a_human_card_needs_a_quote(self):
+        errs, warns, q = self.check("", handback=[self.text()])
+        self.assertTrue(any("no verbatim quote" in e for e in errs), errs)
+
+    def test_text_extracted_from_a_supplied_pdf_is_checked(self):
+        src = self.sb.write("scratch/scan.pdf", "%PDF")
+
+        def fake(pdf, txt):
+            with open(txt, "w", encoding="utf-8") as fh:
+                fh.write("Lemma 4.1. Let P be a ratio-\nnal polygon.\n")
+            return True
+        from unittest import mock
+        with mock.patch.object(self.hb, "extract_pdf", fake):
+            r = self.hb.record_file(self.home, "HU95", "T-0904", src)
+        errs, warns, q = self.check("Let P be a rational polygon.", handback=[r["id"]])
+        self.assertEqual(errs, [])
+        self.assertEqual(q["status"], "verified")
+
+    def test_other_reads_are_unchanged(self):
+        # the short-fragment rule and NFKC still hold for an extraction
+        errs, warns, q = cards.validate_path(self.sb.write("papers/cards/ABC21/lemma-2-1.md", fixtures.card_text(
+            quote="Let M be a translation surface ... xx")), self.home)
+        self.assertEqual(q["status"], "verified")
+
+    def test_validate_can_require_the_read(self):
+        rid = self.text()
+        p = self.sb.write("papers/cards/HU95/lemma-4-1.md", fixtures.card_text(
+            key="HU95", pinpoint="Lemma 4.1", read_from="human-supplied", quote=QUOTE, handback=[rid]))
+        args = ["validate", p, "--home", self.home, "--expect-read-from", "human-supplied"]
+        code, out, err = fixtures.run_script("cards.py", None, args)
+        self.assertEqual(code, 0, (out, err))
+        q = self.sb.write("papers/cards/ABC21/lemma-2-1.md", fixtures.card_text())
+        code, out, err = fixtures.run_script("cards.py", None, ["validate", q, "--home", self.home,
+                                                                "--expect-read-from", "human-supplied"])
+        self.assertEqual(code, 1)
+        self.assertIn("read_from is extraction, not human-supplied", out)
+
+    def test_a_quote_of_elisions_only_is_an_error(self):
+        # round 2, 1: no fragment left must not verify vacuously
+        rid = self.text()
+        for quote in ("...", "[...]", "... ...", "\u2026", " ... ; ... "):
+            errs, warns, q = self.check(quote, handback=[rid])
+            self.assertEqual(q["status"], "no-quote", quote)
+            self.assertTrue(any("nothing but elisions" in e for e in errs), (quote, errs))
+
+    def test_validate_ties_the_card_to_the_records_this_run_made(self):
+        # round 2, 2: a forged record with a correct digest of a fabricated sentence passes the
+        # digest check; --expect-handback admits only the ids the record stage returned
+        rid = self.text()
+        lib = ex.library()
+        forged = "Lemma 4.1. Every polygon is a square."
+        md = self.sb.read("papers/HU95.human.md")
+        self.sb.write("papers/HU95.human.md", md + '\n<!-- hand-back begin ticket="T-0904" pinpoint="Lemma 4.1" hash="%s" -->\n'
+                      "%s\n<!-- hand-back end -->\n" % (lib.text_digest(forged), forged))
+        fid = lib.text_digest(forged)
+        p = self.sb.write("papers/cards/HU95/lemma-4-1.md", fixtures.card_text(
+            key="HU95", pinpoint="Lemma 4.1", read_from="human-supplied", quote="Every polygon is a square.",
+            handback=[fid]))
+        base = ["validate", p, "--home", self.home, "--expect-read-from", "human-supplied"]
+        code, out, err = fixtures.run_script("cards.py", None, base)
+        self.assertEqual(code, 0, (out, err))                      # the digest alone cannot tell
+        code, out, err = fixtures.run_script("cards.py", None, base + ["--expect-handback", rid])
+        self.assertEqual(code, 1, (out, err))
+        self.assertIn("not recorded by this run", out)
+        # the honest card passes; a card naming nothing fails
+        self.sb.write("papers/cards/HU95/lemma-4-1.md", fixtures.card_text(
+            key="HU95", pinpoint="Lemma 4.1", read_from="human-supplied", quote=QUOTE, handback=[rid]))
+        code, out, err = fixtures.run_script("cards.py", None, base + ["--expect-handback", rid])
+        self.assertEqual(code, 0, (out, err))
+        self.sb.write("papers/cards/HU95/lemma-4-1.md", fixtures.card_text(
+            key="HU95", pinpoint="Lemma 4.1", read_from="human-supplied", quote=QUOTE))
+        code, out, err = fixtures.run_script("cards.py", None, base + ["--expect-handback", rid])
+        self.assertEqual(code, 1, (out, err))
+        self.assertIn("names no hand-back", out)
+
+    def test_cards_new_writes_the_handback_and_status(self):
+        rid = self.image()
+        qf = self.sb.write("scratch/q.txt", QUOTE)
+        code, out, err = fixtures.run_script("cards.py", None, [
+            "new", "HU95", "Lemma 4.1", "--version", "human-supplied page", "--read-from", "human-supplied",
+            "--quote-file", qf, "--handback", rid, "--status", "unverified", "--status-reason", "transcribed",
+            "--statement", "s", "--hypotheses", "h", "--home", self.home])
+        self.assertEqual(code, 0, (out, err))
+        meta, _ = cards.read_card(os.path.join(self.home, "cards", "HU95", "lemma-4-1.md"))
+        self.assertEqual((meta["handback"], meta["status"]), ([rid], "unverified"))
+
+    def test_a_base_plugin_without_the_register_is_a_clear_exit(self):
+        import types
+        from unittest import mock
+        with mock.patch.object(ex, "library", lambda: types.SimpleNamespace()):
+            with self.assertRaises(SystemExit) as cm:
+                cards.check_quote(self.home, "HU95", QUOTE, "human-supplied", handback=["x"])
+        self.assertIn("predates the hand-back register", str(cm.exception))
+
+
 BIB = """@article{ABC21,
   author = {Able, A.},
   title = {A paper},

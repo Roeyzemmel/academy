@@ -141,7 +141,7 @@ class CiteTests(unittest.TestCase):
         self.assertEqual(labels, ["start", "librarian", "librarian (retry)", "duplicates", "validate", "packet", "deliver"])
         dup = next(c for c in calls if c["label"] == "duplicates")
         self.assertEqual(dup["agentType"], "academy:inbox-clerk")
-        self.assertIn('cards.py dups SW10 "Thm 2" --bib "author@t:references.bib" --ref "10.1000/xyz" --json', dup["prompt"])
+        self.assertIn("cards.py dups SW10 'Thm 2' --bib 'author@t:references.bib' --ref '10.1000/xyz' --json", dup["prompt"])
         self.assertEqual(dup["schema"]["required"], ["exit"])
         self.assertEqual(res["outcome"], "cited")
 
@@ -202,6 +202,248 @@ class CiteTests(unittest.TestCase):
         self.assertIn("deliver", labels)
         self.assertIsNone(res["packet"])
         self.assertIn("packet was not filed", " ".join(res["notes"]))
+
+
+# ---- #108: the human's hand-back of an unreachable source --------------------------------
+
+import sys  # noqa: E402
+
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
+import fixtures  # noqa: E402
+import handback  # noqa: E402
+
+
+def setUpModule():
+    unittest.addModuleCleanup(fixtures.pin_academy_root().stop)    # handback.text_hash: this checkout's library
+
+REASON = ("source unreachable from this session: HU95; a human with access reads Lemma 4.1 "
+          "for paper:lem:x")
+PARKED = dict(ASK, ref="Hu, A rational polygon (1995)", pinpoint="Lemma 4.1", kind="cite", status="blocked",
+              waiting_on=["human"], park_reason=REASON)
+HUMAN_TEXT = "Lemma 4.1. Soit P un polygone rationnel; alors\nevery generalized diagonal is finite (\u00e9, \U0001d4ab)."
+
+
+def rec(ok=True, recorded=("HU95.human.md",), texts=("HU95.human.md entry 1 (human-supplied, T-0904)",),
+        problems=(), notes=(), text=None, rid=None):
+    """handback.py record's JSON line; ``text``: a text record, whose digest is that text's."""
+    j = {"ok": ok, "key": "HU95", "ticket": "T-0904", "recorded": list(recorded), "texts": list(texts),
+         "already": False, "problems": list(problems), "notes": list(notes)}
+    if ok:
+        j["id"] = rid or (handback.text_hash(text if text is not None else HUMAN_TEXT))
+        if text is not None or rid is None:
+            j["hash"] = j["id"]
+    return {"exit": 0 if ok else 1, "output": json.dumps(j)}
+
+
+FILE_ID = "sha256:" + "ab" * 32
+
+
+def hcard(found=True, verdict="match", missing=""):
+    c = {"key": "HU95", "pinpoint": "Lemma 4.1", "card": "cards/HU95/lemma-4-1.md" if found else "none written",
+         "verdict": verdict, "found": found, "bib_changed": False, "note": ""}
+    if missing:
+        c["missing"] = missing
+    return c
+
+
+NOTE = {"ok": True, "status": "blocked"}
+
+
+@unittest.skipUnless(NODE, "node is not installed")
+class FromHumanTests(unittest.TestCase):
+    """/expert:cite --from-human <ticket> <file|text>: a cite ticket parked on the human because its
+    source was unreachable is resumed with what the human read: the material recorded by script,
+    the card written from it (read_from human-supplied) and validated, the ticket unparked and
+    delivered; material without the pinpoint leaves it parked with what is still missing."""
+    run_wf = CiteTests.run_wf
+
+    def plan(self, **over):
+        p = {"start": [PARKED], "record text": [rec()], "librarian": [hcard()], "validate": [OK],
+             "packet": [{"packet": "P-0400", "error": ""}], "unpark": [NOTE], "deliver": [MOVE]}
+        p.update(over)
+        return p
+
+    def test_a_text_is_recorded_by_script_then_the_card_then_the_delivery(self):
+        res, labels, calls = self.run_wf(self.plan(), ticket="T-0904", from_human={"text": HUMAN_TEXT}, root="/acad")
+        self.assertEqual(labels, ["start", "record text", "librarian", "validate", "packet", "unpark", "deliver"])
+        start = calls[0]["prompt"]
+        self.assertIn("move nothing", start)
+        r = calls[1]
+        self.assertEqual(r["agentType"], "expert:librarian")      # it writes the text file: a clerk has no Write
+        self.assertIn(HUMAN_TEXT, r["prompt"])                       # the human's words, unaltered
+        self.assertIn("byte for byte", r["prompt"])
+        self.assertIn("py /acad/expert/scripts/handback.py record HU95 --ticket T-0904 --pinpoint 'Lemma 4.1'", r["prompt"])
+        self.assertIn("--expect " + handback.text_hash(HUMAN_TEXT), r["prompt"])   # the same hash in JS and Python
+        self.assertEqual(r["schema"]["required"], ["exit"])
+        lib = calls[2]["prompt"]
+        self.assertIn("human-supplied", lib)
+        self.assertIn("HU95.human.md entry 1", lib)
+        self.assertIn("fetch no text of the source", lib)
+        self.assertIn("found false", lib)
+        self.assertIn("--handback " + handback.text_hash(HUMAN_TEXT), lib)
+        self.assertIn("--expect-read-from human-supplied --expect-handback " + handback.text_hash(HUMAN_TEXT), calls[3]["prompt"])
+        up = calls[5]["prompt"]
+        self.assertIn("waiting_on []", up)
+        self.assertIn("in-progress", up)
+        dl = calls[6]["prompt"]
+        self.assertIn("deliver: true", dl)
+        self.assertIn("HU95, Lemma 4.1, verdict match, card cards/HU95/lemma-4-1.md", dl)
+        self.assertEqual(res["outcome"], "cited (human-supplied)")
+        self.assertTrue(res["ticket_delivered"])
+        self.assertEqual(res["handback"]["files"], ["HU95.human.md"])
+
+    def test_the_hash_matches_python_on_hard_text(self):
+        texts = ("", "a", "abc", "  x\r\ny\n", "\u00e9\u2014\U0001d4ab $\\alpha$ \"q\" `b`", "x" * 55, "y" * 56, "z" * 64,
+                 "n\u00b2 " * 400)                     # the padding edges, and a text of several blocks
+        for text in texts:
+            res, labels, calls = self.run_wf(self.plan(**{"record text": [rec(text=text)]}), ticket="T-0904",
+                                             from_human={"text": text or " "})
+            if not text:
+                continue
+            r = next(c for c in calls if c["label"] == "record text")["prompt"]
+            self.assertIn("--expect " + handback.text_hash(text) + " ", r, text[:20])
+            self.assertEqual(res["outcome"], "cited (human-supplied)", text[:20])
+
+    def test_a_record_whose_digest_is_not_the_texts_is_not_taken(self):
+        # review 3: ok alone is not enough: the script's digest of what it wrote must be the human text's
+        other = rec(text="something the agent wrote instead")
+        res, labels, calls = self.run_wf(self.plan(**{"record text": [other], "record text (retry)": [other],
+                                                      "still parked": [NOTE]}), ticket="T-0904", from_human={"text": HUMAN_TEXT})
+        self.assertEqual(labels, ["start", "record text", "record text (retry)", "still parked"])
+        self.assertIn("is not the hand-back's", calls[2]["prompt"])
+        self.assertEqual(res["outcome"], "not-recorded (on the human)")
+
+    def test_a_file_is_recorded_by_the_clerk(self):
+        plan = self.plan(**{"record file": [rec(recorded=["HU95.human/2026-11-21-t-0904-p808.png"], texts=[],
+                                                notes=["p808.png is an image"], rid=FILE_ID)]})
+        del plan["record text"]
+        res, labels, calls = self.run_wf(plan, ticket="T-0904", from_human={"file": "/ws/scratch/p 808's.png"})
+        self.assertEqual(labels, ["start", "record file", "librarian", "validate", "packet", "unpark", "deliver"])
+        f = calls[1]
+        self.assertEqual(f["agentType"], "academy:inbox-clerk")
+        self.assertIn("handback.py record HU95 --ticket T-0904 --pinpoint 'Lemma 4.1' --file '/ws/scratch/p 808'\\''s.png' --json", f["prompt"])
+        self.assertIn("read the pages as images", calls[2]["prompt"])
+        self.assertIn("--handback " + FILE_ID, calls[2]["prompt"])
+        self.assertIn("--status unverified", calls[2]["prompt"])
+        self.assertIn("--expect-handback " + FILE_ID + " ", calls[3]["prompt"])      # the file record's id
+        self.assertIn("p808.png is an image", " ".join(res["notes"]))
+
+    def test_a_ticket_not_parked_on_the_human_is_not_started(self):
+        for st in (dict(PARKED, status="in-progress", waiting_on=[]), dict(PARKED, waiting_on=["T-0001"])):
+            res, labels, _ = self.run_wf({"start": [st]}, ticket="T-0904", from_human={"text": HUMAN_TEXT})
+            self.assertEqual(labels, ["start"])
+            self.assertEqual(res["outcome"], "not-started")
+            self.assertIn("not parked on the human", res["reason"])
+
+    def test_a_blocked_on_human_ticket_of_another_kind_or_park_is_not_started(self):
+        # review 4: only a cite ticket parked by cite for an unreachable source
+        for st, why in ((dict(PARKED, kind="verify"), "verify ticket"),
+                        (dict(PARKED, park_reason="waiting for the human to decide the notation"), "not by cite")):
+            res, labels, _ = self.run_wf({"start": [st]}, ticket="T-0904", from_human={"text": HUMAN_TEXT})
+            self.assertEqual((labels, res["outcome"]), (["start"], "not-started"))
+            self.assertIn(why, res["reason"])
+
+    def test_a_ref_that_is_not_the_parked_key_is_refused(self):
+        res, labels, _ = self.run_wf({"start": [PARKED]}, ticket="T-0904", from_human={"text": HUMAN_TEXT}, ref="Ot99")
+        self.assertEqual(res["outcome"], "not-started")
+        self.assertIn("not the key T-0904 was parked for (HU95)", res["reason"])
+
+    def test_dollar_and_backtick_in_a_pinpoint_stay_inert(self):
+        # review 6: single quotes, a quote inside as '\''
+        st = dict(PARKED, pinpoint="Lemma `id` $HOME it's")
+        res, labels, calls = self.run_wf(self.plan(start=[st]), ticket="T-0904", from_human={"text": HUMAN_TEXT})
+        self.assertIn("--pinpoint 'Lemma `id` $HOME it'\\''s' ", calls[1]["prompt"])
+
+    def test_unpark_ok_and_deliver_failing_is_said(self):
+        # review 7
+        res, labels, calls = self.run_wf(self.plan(deliver=[{"ok": False, "status": "in-progress", "detail": "refused"}],
+                                                   **{"deliver failed note": [NOTE]}), ticket="T-0904", from_human={"text": HUMAN_TEXT})
+        self.assertEqual(labels[-3:], ["unpark", "deliver", "deliver failed note"])
+        self.assertEqual(res["outcome"], "cited, ticket not delivered")
+        self.assertFalse(res["ticket_delivered"])
+        self.assertIn("the delivery failed (refused)", calls[-1]["prompt"])
+        res, labels, _ = self.run_wf(self.plan(unpark=[{"ok": False, "status": "blocked"}]), ticket="T-0904",
+                                     from_human={"text": HUMAN_TEXT})
+        self.assertEqual(labels[-1], "unpark")
+        self.assertEqual(res["outcome"], "cited, ticket not unparked")
+
+    def test_the_key_comes_from_the_park_reason_or_a_given_ref(self):
+        st = dict(PARKED, park_reason="source unreachable from this session: Ot99; a human with access reads x for y")
+        res, labels, calls = self.run_wf(self.plan(start=[st], **{"record text": [rec(text="x")]}), ticket="T-0904",
+                                         from_human={"text": "x"}, ref="Ot99")
+        self.assertIn("record Ot99 ", calls[1]["prompt"])
+        st = dict(PARKED, park_reason="source unreachable from this session: 10.1000/xyz; a human with access reads x for y")
+        res, labels, _ = self.run_wf({"start": [st]}, ticket="T-0904", from_human={"text": "x"})
+        self.assertEqual(res["outcome"], "not-started")
+        self.assertIn("no bibliography key", res["reason"])
+
+    def test_material_without_the_pinpoint_leaves_the_ticket_parked_and_says_what_is_missing(self):
+        miss = "the page shows Lemma 4.2 and the start of its proof; Lemma 4.1 is on the page before (p. 807)"
+        res, labels, calls = self.run_wf({"start": [PARKED], "record text": [rec()],
+                                          "librarian": [hcard(False, "n/a", miss)], "still parked": [NOTE]},
+                                         ticket="T-0904", from_human={"text": HUMAN_TEXT})
+        self.assertEqual(labels, ["start", "record text", "librarian", "still parked"])
+        note = calls[-1]["prompt"]
+        self.assertIn("note: append to the thread", note)
+        self.assertIn(miss, note)
+        self.assertIn("stays parked on the human", note)
+        self.assertIn("move nothing", note)
+        self.assertEqual(res["outcome"], "still missing (on the human)")
+        self.assertFalse(res["ticket_delivered"])
+        self.assertEqual(res["gate"]["missing"], miss)
+
+    def test_a_text_that_does_not_hash_is_written_again_once_then_left_parked(self):
+        bad = rec(False, recorded=[], texts=[], problems=["the text received differs from the text handed back"])
+        res, labels, calls = self.run_wf({"start": [PARKED], "record text": [bad], "record text (retry)": [bad],
+                                          "still parked": [NOTE]}, ticket="T-0904", from_human={"text": HUMAN_TEXT})
+        self.assertEqual(labels, ["start", "record text", "record text (retry)", "still parked"])
+        self.assertIn("differs from the text handed back", calls[2]["prompt"])
+        self.assertEqual(res["outcome"], "not-recorded (on the human)")
+        self.assertNotIn("librarian", labels)
+        res, labels, _ = self.run_wf(self.plan(**{"record text": [bad], "record text (retry)": [rec()]}),
+                                     ticket="T-0904", from_human={"text": HUMAN_TEXT})
+        self.assertEqual(res["outcome"], "cited (human-supplied)")
+
+    def test_a_card_that_fails_validation_twice_is_not_delivered(self):
+        res, labels, calls = self.run_wf(self.plan(**{"validate": [BAD], "librarian (fix)": [hcard()],
+                                                      "validate again": [BAD], "still parked": [NOTE]}),
+                                         ticket="T-0904", from_human={"text": HUMAN_TEXT})
+        self.assertEqual(labels, ["start", "record text", "librarian", "validate", "librarian (fix)",
+                                  "validate again", "still parked"])
+        self.assertEqual(res["outcome"], "unfinished (on the human)")
+        self.assertIn("quote not found", calls[-1]["prompt"])
+        self.assertNotIn("unpark", labels)
+
+    def test_a_lost_librarian_is_lost_and_the_ticket_stays_parked(self):
+        res, labels, calls = self.run_wf({"start": [PARKED], "record text": [rec()], "librarian": [None],
+                                          "librarian (retry)": [None], "lost note": [NOTE]},
+                                         ticket="T-0904", from_human={"text": HUMAN_TEXT})
+        self.assertEqual(res["outcome"], "lost")
+        self.assertNotIn("unpark", labels)
+
+    def test_bad_arguments_throw(self):
+        for args in ({"from_human": {"text": "x"}, "ref": "HU95"}, {"ticket": "T-0904", "from_human": {}},
+                     {"ticket": "T-0904", "from_human": "a text"}, {"ticket": "T-1; rm -rf x", "from_human": {"text": "x"}}):
+            d = tempfile.mkdtemp(prefix="acad-ct-")
+            self.addCleanup(shutil.rmtree, d, True)
+            h = os.path.join(d, "h.js")
+            with open(h, "w", encoding="utf-8") as fh:
+                fh.write(HARNESS)
+            p = subprocess.run([NODE, h, SCRIPT, json.dumps({"__args": args})], capture_output=True, text=True, timeout=60)
+            out = json.loads(p.stdout.strip().splitlines()[-1])
+            self.assertIn("from_human", out.get("error", ""), args)
+
+    def test_standalone_the_delivered_ticket_ships_and_a_parked_one_does_not(self):
+        res, labels, _ = self.run_wf(self.plan(ship=[shipped("T-0904")]), ticket="T-0904",
+                                     from_human={"text": HUMAN_TEXT}, nested=False)
+        self.assertEqual(labels[-1], "ship")
+        self.assertEqual(res["ship"]["status"], "pushed")
+        res, labels, _ = self.run_wf({"start": [PARKED], "record text": [rec()],
+                                      "librarian": [hcard(False, "n/a", "p. 807")], "still parked": [NOTE]},
+                                     ticket="T-0904", from_human={"text": HUMAN_TEXT}, nested=False)
+        self.assertNotIn("ship", labels)
+        self.assertEqual(res["ship"]["status"], "not-run")
 
 
 def shipped(t, line="library 2026-11-13/t-0904/expert @ abc1234 (2 files) pushed"):
