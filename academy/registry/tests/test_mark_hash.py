@@ -10,7 +10,6 @@ fallback) and the Author's ``pinned.statement_hash`` agree on a marked statement
 unmarked current text. Nothing else is ignored (#136 item 3 is the human's to decide).
 """
 import importlib.util
-import json
 import sys
 import unittest
 from pathlib import Path
