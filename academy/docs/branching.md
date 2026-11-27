@@ -207,6 +207,14 @@ everything but the board and the submodules; never a submodule pointer; not part
   (`push` prints it; `merge` prints the `main` tip to publish); a command with a different
   tip is refused. If auto mode denies the prompt, the human runs it in the session as
   `! py scripts/ship.py merge ...`.
+- **A merge during a workflow run** (#97): an inbox or workplan run reads its scripts and
+  nested workflows from a worktree pinned at the commit it started on
+  (`<checkout>/.worktrees/run-<sha12>`, `academy/scripts/run_pin.py`), so `merge` and
+  `publish` no longer wait for it. They warn when a run is live on the repo (its marker
+  under `.worktrees/live/`, stale after 12 hours or when its session process is gone),
+  because the agent definitions, hooks and skills of a plugin loaded from that checkout
+  still change under it; a finished run still listed is cleared with `py
+  <academy>/academy/scripts/run_pin.py end --run <run>`. `docs/workflows.md`, "Pinned code".
 - `accept-baseline <sub>` (Author homes) rewrites the commit gate's baseline after its
   findings were reviewed.
 - `ship`/`commit` accept `--no-gate`, which skips the Author commit gate without a

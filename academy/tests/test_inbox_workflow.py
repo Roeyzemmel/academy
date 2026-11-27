@@ -79,8 +79,9 @@ def child(cid, parent, frm, to, kind, final_to):
 @unittest.skipUnless(NODE, "node is not installed")
 class InboxWorkflowTests(unittest.TestCase):
     def run_wf(self, plan, **args):
-        # as the skills pass it; models=None: not given; snapshot: the #101 tests turn it on
-        a = {"root": "/academy", "models": {}, "snapshot": False}
+        # as the skills pass it; models=None: not given; snapshot: the #101 tests turn it on;
+        # pin: the code pin (#97) has its own tests (test_workflow_code_pin.py)
+        a = {"root": "/academy", "models": {}, "snapshot": False, "pin": False}
         a.update(args)
         plan = dict(plan, __args=a)
         d = tempfile.mkdtemp(prefix="acad-inwf-")
