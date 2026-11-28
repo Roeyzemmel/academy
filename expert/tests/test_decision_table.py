@@ -594,21 +594,80 @@ class RewordTableTests(unittest.TestCase):
         r = dt.decide_reword(rwrec(), a, b, established=["paper:lem:a"])
         self.assertTrue(r["recolour"])
 
-    def test_exceeds_or_gap_falls_back_to_a_full_blind_pass(self):
-        for kw in ({"scope": "exceeds"},
-                   {"verdict": "GAP", "scope": "exceeds",
+    def test_exceeds_without_a_gap_falls_back_to_a_full_blind_pass(self):
+        # #147: the ruling names gaps only; CONFIRMED with scope exceeds keeps the blind pass
+        a, b = self.base()
+        r = dt.decide_reword(rwrec(scope="exceeds"), a, b)
+        self.assertEqual(r["outcome"], "full-pass-needed")
+        self.assertTrue(r["launch_full_pass"])
+        self.assertIsNone(r["proposed_status"])
+        self.assertFalse(r["recolour"])
+        self.assertEqual(r["file_items"], [])
+        self.assertIn("fresh blind", r["summary"])
+        self.assertIn("next: open a fresh blind pass", dt._text(r))
+
+    def test_a_reword_gap_is_repaired_then_reworded_against_the_same_base(self):
+        """#147 (the human's ruling, 2026-11-28): a GAP in a reword review counts as a
+        reword too, against the last verified statement: the blocking step goes to the
+        producer as a repair (routed as a blind GAP's), and the next pass is a reword on
+        the same base pass, never a fresh blind pass."""
+        for kw in ({"verdict": "GAP", "scope": "exceeds",
                     "blocking": "the new wording drops compactness, which step 3 uses"},
-                   {"verdict": "GAP", "scope": "none", "blocking": "step 3"}):
-            a, b = self.base()
-            r = dt.decide_reword(rwrec(**kw), a, b)
-            self.assertEqual(r["outcome"], "full-pass-needed", kw)
-            self.assertTrue(r["launch_full_pass"])
-            self.assertIsNone(r["proposed_status"])
-            self.assertFalse(r["recolour"])
-            self.assertEqual(r["file_items"], [])
-            self.assertIn("fresh blind", r["summary"])
+                   {"verdict": "GAP", "scope": "none", "blocking": "step 3 needs x > 0"},
+                   {"verdict": "GAP", "scope": "equivalent", "blocking": "step 3"}):
+            with self.subTest(**kw):
+                a, b = self.base()
+                r = dt.decide_reword(rwrec(**kw), a, b)
+                self.assertEqual(r["outcome"], "reword-gap")
+                self.assertFalse(r["launch_full_pass"])
+                self.assertFalse(r["launch_b"])
+                self.assertIsNone(r["proposed_status"])
+                self.assertFalse(r["recolour"])
+                self.assertEqual(r["base_pass"], "2026-09-28-T-0007")
+                self.assertEqual(r["reword_finding"], kw["blocking"])
+                self.assertEqual([(i["kind"], i["run"], i["text"]) for i in r["file_items"]],
+                                 [("repair", "R", kw["blocking"])])
+                # routed exactly as the blind GAP's repair of the same finding
+                blind = dt.decide(rec("GAP", blocking=kw["blocking"]))
+                self.assertEqual(blind["outcome"], "single-negative")
+                self.assertEqual(r["file_items"][0]["route"], blind["file_items"][0]["route"])
+                self.assertEqual(r["file_items"][0]["gap_class"],
+                                 blind["file_items"][0]["gap_class"])
+                self.assertIn("2026-09-28-T-0007", r["summary"])
+                self.assertIn("reword", r["summary"])
+                self.assertNotIn("open a fresh blind", r["summary"])
+                txt = dt._text(r)
+                self.assertIn("next: after the repair, a reword pass against "
+                              "2026-09-28-T-0007", txt)
+                self.assertNotIn("next: open a fresh blind", txt)
         self.assertIn("compactness", dt.decide_reword(
             rwrec(verdict="GAP", blocking="drops compactness"), *self.base())["summary"])
+
+    def test_a_reword_gap_repair_goes_to_the_producer(self):
+        # the producer from producer_role_for (an override wins, as for a blind GAP); a lab
+        # claim's repair goes through the Researcher to the Scientist
+        a, b = self.base()
+        r = dt.decide_reword(rwrec(verdict="GAP", blocking="rephrase: say 'of M'"), a, b,
+                             producer_role="author")
+        r2 = dt.decide(rec("GAP", blocking="rephrase: say 'of M'"), producer_role="author")
+        self.assertEqual(r["file_items"][0]["route"], r2["file_items"][0]["route"])
+        r = dt.decide_reword(rwrec(verdict="GAP", blocking="step 3"), a, b,
+                             producer_role="scientist")
+        self.assertEqual((r["file_items"][0]["route"]["to_role"],
+                          r["file_items"][0]["route"]["final_to"]),
+                         ("researcher", "scientist"))
+        # with no blocking step the repair says where to look
+        r = dt.decide_reword(rwrec(verdict="GAP"), a, b)
+        self.assertEqual(r["outcome"], "reword-gap")
+        self.assertEqual(len(r["file_items"]), 1)
+        self.assertIn("report", r["file_items"][0]["text"])
+
+    def test_a_reword_gap_through_the_cli(self):
+        # decide() dispatches a reword record to the reword table: the same outcome
+        a, b = self.base()
+        r = dt.decide(rwrec(verdict="GAP", blocking="step 3"), None, base=(a, b))
+        self.assertEqual((r["outcome"], r["launch_full_pass"]), ("reword-gap", False))
+        self.assertEqual([i["kind"] for i in r["file_items"]], ["repair"])
 
     def test_disproved_goes_to_the_human(self):
         r = dt.decide_reword(rwrec(verdict="DISPROVED", blocking="the square torus"),
@@ -650,7 +709,7 @@ class RewordTableTests(unittest.TestCase):
         self.assertTrue(any("reword" in x for x in r["anomalies"]))
 
     def test_every_new_outcome_is_known(self):
-        for o in ("full-pass-needed", "invalid-base"):
+        for o in ("full-pass-needed", "invalid-base", "reword-gap"):
             self.assertIn(o, dt.OUTCOMES)
 
     def test_cli_finds_the_base_pass_beside_the_reword_pass(self):

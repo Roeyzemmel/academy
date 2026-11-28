@@ -197,11 +197,21 @@ def _outcome(res):
 _WORDS = ("confirmed-settled", "confirmed-modulo", "confirmed", "settle-dependencies",
           "disagreement", "single-negative", "disproved", "degraded", "invalid-base",
           "invalid-pair", "invalid-amend", "incomplete", "awaiting-amendment", "awaiting-b",
-          "full-pass-needed", "no-change", "new-pass-after-amendment")
+          "full-pass-needed", "reword-gap", "no-change", "new-pass-after-amendment")
 #: the outcome a decision.md records, in its spellings ("- outcome: `confirmed`",
 #: "Outcome (decision_table.py): confirmed-modulo", "## Outcome" then "`confirmed`;")
 RE_RECORDED = re.compile(r"outcome\W{0,6}(?:\(decision_table\.py[^)\n]*\)\W{0,4})?\s*`?(%s)\b"
                          % "|".join(re.escape(w) for w in _WORDS), re.I)
+
+
+def recorded_outcome(d):
+    """The last outcome word the pass's decision.md records ('' when none or no file)."""
+    try:
+        text = (Path(d) / "decision.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    found = [m.group(1).lower() for m in RE_RECORDED.finditer(text)]
+    return found[-1] if found else ""
 
 
 def recorded_confirmed(d):
@@ -244,11 +254,13 @@ def settled(d, table):
 
 
 def read_pass(d):
-    """What the pass folder ``d`` says: ``{"pass", "decided", "abandoned", "hashes"}``
-    (``hashes``: the statement hashes of its latest records)."""
+    """What the pass folder ``d`` says: ``{"pass", "decided", "abandoned", "hashes",
+    "outcome"}`` (``hashes``: the statement hashes of its latest records; ``outcome``: the
+    outcome its decision.md records, ``recorded_outcome``)."""
     d = Path(d)
     info = {"pass": d.name, "decided": (d / "decision.md").is_file(),
-            "abandoned": (d / "abandoned.md").is_file(), "hashes": set()}
+            "abandoned": (d / "abandoned.md").is_file(), "hashes": set(),
+            "outcome": recorded_outcome(d)}
     if d.is_dir() and decision_table() is not None:
         info["hashes"] = {r.get("statement_hash") for _p, r in latest_records(d).values()
                           if r.get("statement_hash")}
@@ -386,17 +398,22 @@ def find(store, root, only=None):
             continue
         last["pass"] = ps[k].name
         hold = []
+        # #127: the next reword stands on the last positive pass itself, blind or reword
+        base = last["pass"]
         for p in map(read_pass, ps[k + 1:]):
             if p["abandoned"]:
                 continue
             if not p["decided"]:
                 hold.append("the pass %s is still open" % p["pass"])
+            elif h in p["hashes"] and p["outcome"] == "reword-gap":
+                # #147: a gap in a reword review is repaired, then reworded on the same base
+                hold.append("the later reword pass %s found a gap in the current statement "
+                            "(reword-gap): its repair goes to the producer first; then a "
+                            "reword against %s" % (p["pass"], base))
             elif h in p["hashes"]:
                 hold.append("the later pass %s reviewed the current statement and is not "
                             "positive: the human decides (a repair or a blind pass), not "
                             "a reword" % p["pass"])
-        # #127: the next reword stands on the last positive pass itself, blind or reword
-        base = last["pass"]
         if not RE_BASE_PASS.match(base):
             hold.append("the base pass %r is no name the inbox reads as a reword base: "
                         "file a blind verify" % base)

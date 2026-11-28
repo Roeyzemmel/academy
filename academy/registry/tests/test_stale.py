@@ -284,6 +284,41 @@ class TestFind(StaleHomes):
                          scope="exceeds")
         self.assertEqual([i["pass"] for i in self.found()], ["2026-11-01-T-0001"])
 
+    def test_a_reword_gap_pass_is_not_positive_and_the_base_stays(self):
+        """#147: a reword pass whose R is GAP (outcome reword-gap) confirms nothing: the
+        base stays the last confirmed pass; while it holds the current statement the
+        repair goes first, and once the repair changed the statement the next reword
+        stands on that same base."""
+        self.claim("prop:foo")
+        h0 = self.hash_of("prop:foo")
+        self.blind_pass("prop:foo", "2026-11-01-T-0001", h0)
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        h1 = self.hash_of("prop:foo")
+        d = self.run_record("prop:foo", "2026-11-03-T-0005-reword", "R", h1, verdict="GAP",
+                            extra="mode: reword\nbase_pass: 2026-11-01-T-0001\n"
+                                  "base_hash: %s\nreword_scope: exceeds\n" % h0)
+        write(d / "decision.md", "# decision\n\n- outcome: `reword-gap`\n")
+        self.assertIsNone(stale.positive(d))
+        self.assertIn("reword-gap", stale._WORDS)
+        self.assertEqual(stale.recorded_outcome(d), "reword-gap")
+        self.assertFalse(stale.recorded_confirmed(d))
+        items = self.found()
+        self.assertEqual([(i["pass"], i["base_pass"]) for i in items],
+                         [("2026-11-01-T-0001", "2026-11-01-T-0001")])
+        # held on the GAP'd statement: the repair first, then a reword on the same base
+        hold = items[0]["hold"]
+        self.assertIn("2026-11-03-T-0005-reword", hold)
+        self.assertIn("reword-gap", hold)
+        self.assertIn("repair", hold)
+        self.assertIn("a reword against 2026-11-01-T-0001", hold)
+        self.assertNotIn("blind pass", hold)
+        # the repair reworded the statement: the next reword stands on the same base
+        self.tex["a.tex"] = self.tex["a.tex"].replace("very fine", "quite fine")
+        self._write_tex()
+        items = self.found()
+        self.assertEqual([(i["pass"], i["base_pass"], i["hold"]) for i in items],
+                         [("2026-11-01-T-0001", "2026-11-01-T-0001", "")])
+
     def test_an_unregistered_copy_is_never_compared(self):
         # a home outside the workspace map with the paper's ns: the library's passes are
         # about the registered home's records, not this copy's

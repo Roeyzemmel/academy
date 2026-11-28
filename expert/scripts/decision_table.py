@@ -33,8 +33,12 @@ exceeds). Given as run A, it is decided by ``decide_reword`` against the base pa
 A and B (found beside the reword pass, or ``--base-dir``): R CONFIRMED with scope
 equivalent / weaker / covered on a base the table confirms on ``base_hash`` gives
 ``confirmed`` / ``confirmed-modulo`` (the base's modulo plus R's), with grounds of
-``mode: reword``; R GAP or ``exceeds`` gives ``full-pass-needed`` (no status; a fresh
-blind pass); a missing, abandoned or unconfirmed base, another hash, subject or pass, a
+``mode: reword``; R GAP gives ``reword-gap`` (#147, the human's ruling of 2026-11-28: "gaps
+in reword reviews - this counts as a reword as well, compared to the last verified
+statement": no status; R's blocking step is the repair item, routed as a blind GAP's,
+and the next pass is a reword against the same base pass once the repair lands);
+CONFIRMED with ``exceeds`` gives ``full-pass-needed`` (no status; a fresh blind pass); a
+missing, abandoned or unconfirmed base, another hash, subject or pass, a
 shared run id or an unchanged statement gives ``invalid-base``. A reword record given as
 run B is an ``invalid-pair``: it is never half of a blind pair.
 
@@ -193,7 +197,7 @@ RE_NS = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 OUTCOMES = ("awaiting-b", "confirmed", "confirmed-modulo", "disagreement", "disproved",
             "single-negative", "degraded", "invalid-pair", "no-change", "incomplete",
             "full-pass-needed", "invalid-base", "awaiting-amendment", "invalid-amend",
-            "new-pass-after-amendment", "settle-dependencies", "per-item")
+            "new-pass-after-amendment", "settle-dependencies", "per-item", "reword-gap")
 
 
 # ----------------------------------------------------------------------------
@@ -2136,7 +2140,8 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
     |---|---|---|
     | DISPROVED | any | ``disproved``: the counterexample to the new wording goes to the human |
     | PLAUSIBLE (or CONFIRMED on a non-primary) | any | ``degraded``: re-run R on a primary |
-    | GAP, or CONFIRMED with ``reword_scope: exceeds`` | any | ``full-pass-needed``: no status; open a fresh blind pass (run A) on the new statement |
+    | GAP (any ``reword_scope``, ``exceeds`` included) | any | ``reword-gap`` (#147): no status, no recolour, no blind pass; R's blocking step is one ``repair`` item to the producer, routed as a blind GAP's; the next pass is a reword against the same ``base_pass`` (the last verified statement) once the repair lands |
+    | CONFIRMED with ``reword_scope: exceeds`` | any | ``full-pass-needed``: no status; open a fresh blind pass (run A) on the new statement (the ruling of #147 names gaps only) |
     | CONFIRMED with no ``reword_scope`` | any | ``incomplete``: relaunch R |
     | CONFIRMED, scope equivalent / weaker / covered | missing, abandoned, not CONFIRMED x2, other hash / subject / pass, shared run id, or an unchanged statement | ``invalid-base``: no status |
     | CONFIRMED, scope equivalent / weaker / covered | CONFIRMED x2 on base_hash (modulo X) | ``confirmed`` / ``confirmed-modulo`` on X plus R's modulo: propose proved / proved-modulo; recolour as the normal table |
@@ -2184,15 +2189,32 @@ def decide_reword(rec_r, base_a=None, base_b=None, established=(), primary=None,
                           "never counts; re-run it on a primary model (%s)"
                           % ", ".join(_primaries(primary)))
         return res
-    if eff == "GAP" or scope == "exceeds":
+    if eff == "GAP":
+        # #147 (the human's ruling, 2026-11-28): a gap in a reword review counts as a
+        # reword too, against the last verified statement: the gap goes back to the
+        # producer as a repair, and the next pass is again a reword on the same base
+        res["outcome"] = "reword-gap"
+        res["reword_finding"] = rec_r.get("blocking") or ""
+        res["file_items"] = [{"run": rec_r.get("run") or "R", "kind": "repair",
+                              "text": res["reword_finding"] or "see the reword run's report"}]
+        res["summary"] = ("the reword run is GAP: the new wording is %s (%s); no status "
+                          "change; file R's blocking step to the producer as a repair; once "
+                          "it lands, the next pass is a reword against the same base pass %s "
+                          "(the last verified statement), not a fresh blind pass"
+                          % ("beyond what the proof as reviewed gives" if scope == "exceeds"
+                             else "not covered by the proof as reviewed",
+                             res["reword_finding"] or "see its report",
+                             res["base_pass"] or "(none named)"))
+        _route_items(res, rec_r, None, producer_role)
+        return res
+    if scope == "exceeds":
         res["outcome"] = "full-pass-needed"
         res["launch_full_pass"] = True
         res["reword_finding"] = rec_r.get("blocking") or ""
-        res["summary"] = ("the reword run finds the new wording %s (%s): no status change; "
-                          "open a fresh blind pass (run A) on the new statement"
-                          % ("claims more than the proof as reviewed gives"
-                             if scope == "exceeds" else "not covered by the proof as "
-                             "reviewed", res["reword_finding"] or "see its report"))
+        res["summary"] = ("the reword run finds the new wording claims more than the proof "
+                          "as reviewed gives (%s): no status change; open a fresh blind pass "
+                          "(run A) on the new statement"
+                          % (res["reword_finding"] or "see its report"))
         return res
     if scope not in REWORD_CARRIES:
         res["outcome"] = "incomplete"
@@ -2557,6 +2579,9 @@ def _text(res):
                       ", ".join(res.get("added_dependencies") or []) or "none"))
     if res.get("launch_full_pass"):
         out.append("next: open a fresh blind pass (run A) on the new statement")
+    if res["outcome"] == "reword-gap":
+        out.append("next: after the repair, a reword pass against %s"
+                   % (res.get("base_pass") or "the base pass"))
     if res["proposed_status"]:
         out.append("propose: %s" % res["proposed_status"])
     out.append("recolour: %s" % ("yes" if res["recolour"] else "no"))

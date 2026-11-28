@@ -842,7 +842,7 @@ const done = await launch(STAGE('conclude', [
   MODEL_FALLBACKS.length ? `A reviewer run fell back to a lighter model (${MODEL_FALLBACKS.join(', ')}): say so in the record, the ticket result and its thread.` : '',
   '',
   MODE === 'reword'
-    ? 'conclude.md section 7 steps 6-7, then sections 4-6.'
+    ? 'conclude.md section 7 steps 6-7, then sections 4-6. On reword-gap (R is GAP, #147): no status, no recolour, no blind pass and no falsifier; file the table\'s one repair item exactly as it routes it, and say the next pass is a reword against the same base_pass once the repair lands.'
     : counterexample
       ? `conclude.md section 1a, "A counterexample": the falsifier (${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}) found a counterexample: ${falsifier.evidence}. ` +
         'Run B was not launched. Return outcome falsifier-counterexample and proposed_status none: never claims_propose_status, no status changes. ' +

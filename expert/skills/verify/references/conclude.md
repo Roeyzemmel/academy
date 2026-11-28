@@ -445,7 +445,8 @@ unchanged or changed only in wording. Typically: a wording finding, a notation p
 restatement that drops a redundant hypothesis. **Not** when the proof changed in
 substance, when the base pass was anything but confirmed, or when the rewording
 answers a hypothesis / statement / proof finding: those take a full blind pass
-(sections 0-6).
+(sections 0-6). The one exception is the repair of a **reword GAP** (`reword-gap`,
+step 6): it is a reword again, against the same base pass (#147).
 
 **The base is the last confirmed pass** (#127, the human's ruling of 2026-11-27, verbatim:
 "Rewording in general should have the previous confirmed statement as reference"): a
@@ -512,9 +513,22 @@ GAP or `exceeds` link, or a hash that does not match refuses).
      with none left the proposal is `proved` with no modulo. Never re-add a dropped
      input by hand, and never propose `proved-modulo` on a claim that is already
      `proved` when the script proposes `proved`.
-   - `full-pass-needed` (R is GAP, or `reword_scope: exceeds`): no status. Write the
-     record, then open a **fresh blind pass** on the new statement (section 0, a new
-     `new-pass` without `--reword-of`); its brief says nothing of R.
+   - `reword-gap` (R is GAP, whatever its `reword_scope`, `exceeds` included; #147, the
+     human's ruling of 2026-11-28, verbatim: "As for gaps in reword reviews - this counts
+     as a reword as well, compared to the last verified statement. The following should
+     apply in general."): no status, no recolour. Write the record, then file the
+     script's one `repair` item (R's blocking step) **exactly as the script routes it**
+     (`file_items[0].route`, as a blind GAP's repair, section 4.3: to the producer,
+     `producer_role_for`), naming this pass and its `base_pass`. The ask says the next
+     pass is a **reword against the same base pass** (the last verified statement, the
+     one the script names in `next:`), filed once the repair lands as
+     `Verify <id> (reword of <base pass>)`. Never open a fresh blind pass for a reword
+     GAP, and file no falsifier (section 1a: a reword pass files none). The GAP'd pass
+     confirms nothing, so `registry.py stale` keeps naming the same base.
+   - `full-pass-needed` (R is CONFIRMED with `reword_scope: exceeds`, no GAP; the ruling
+     of #147 names gaps only): no status. Write the record, then open a **fresh blind
+     pass** on the new statement (section 0, a new `new-pass` without `--reword-of`); its
+     brief says nothing of R.
    - `disproved`: the counterexample to the human at once, as in section 4.
    - `degraded`: re-run R on a primary. `incomplete`: relaunch R once.
    - `invalid-base`: no status; the anomalies say why (base missing or not confirmed, a

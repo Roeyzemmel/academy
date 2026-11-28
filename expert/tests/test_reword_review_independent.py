@@ -1,7 +1,8 @@
 """T-0347, the reword pass, tested by test-engineer from the ticket's rule (not from the
 code's output): one informed run R; R CONFIRMED (scope equivalent / weaker / covered) on
-a base pass CONFIRMED x2 on ``base_hash`` => confirmed, propose proved, recolour; R GAP or
-``exceeds`` => a full blind pass; anything else carries nothing. Since #127 (the human's
+a base pass CONFIRMED x2 on ``base_hash`` => confirmed, propose proved, recolour; R GAP
+=> a repair, then a reword on the same base (#147); ``exceeds`` without a GAP => a full
+blind pass; anything else carries nothing. Since #127 (the human's
 ruling, 2026-11-27) the base may also be a confirmed reword pass, whose R's wording is
 then the old statement. Hashes are computed here
 independently (sha256 of the whitespace-collapsed text, first 16 hex digits, as the
@@ -142,13 +143,44 @@ class RewordTable(Base):
         self.put("2026-09-28-T-0007", "abandoned.md", "relaunched\n")
         self.assertEqual(self.table(reword())["outcome"], "invalid-base")
 
-    def test_wording_beyond_the_proof_takes_a_full_blind_pass(self):
+    def test_wording_beyond_the_proof_without_a_gap_takes_a_full_blind_pass(self):
         self.base_pass()
-        for v, s in (("GAP", "exceeds"), ("CONFIRMED", "exceeds"), ("GAP", "equivalent")):
-            res = self.table(reword(verdict=v, scope=s))
-            self.assertEqual((res["outcome"], res["proposed_status"], res["launch_b"],
-                              res["launch_full_pass"]),
-                             ("full-pass-needed", None, False, True), (v, s))
+        res = self.table(reword(verdict="CONFIRMED", scope="exceeds"))
+        self.assertEqual((res["outcome"], res["proposed_status"], res["launch_b"],
+                          res["launch_full_pass"], res["file_items"]),
+                         ("full-pass-needed", None, False, True, []))
+
+    def test_a_gap_in_a_reword_review_is_repaired_and_reworded_on_the_same_base(self):
+        """#147 (the human's ruling, 2026-11-28): "gaps in reword reviews - this counts as a
+        reword as well, compared to the last verified statement". R GAP: no status, no
+        blind pass, one repair item, and the next pass a reword on the same base pass."""
+        self.base_pass()
+        for s in ("exceeds", "equivalent", "covered"):
+            res = self.table(reword(verdict="GAP", scope=s))
+            self.assertEqual((res["outcome"], res["proposed_status"], res["recolour"],
+                              res["launch_b"], res["launch_full_pass"], res["base_pass"]),
+                             ("reword-gap", None, False, False, False,
+                              "2026-09-28-T-0007"), s)
+            self.assertEqual([i["kind"] for i in res["file_items"]], ["repair"], s)
+            self.assertTrue(res["file_items"][0].get("route"), s)
+            self.assertIn("next: after the repair, a reword pass against 2026-09-28-T-0007",
+                          dt._text(res))
+
+    def test_after_a_reword_gap_the_base_is_still_the_last_confirmed_pass(self):
+        """A reword-gap pass confirms nothing: a reword on it is refused, and the next
+        reword stands on the base the GAP'd pass used."""
+        self.base_pass()
+        self.put("2026-10-12-T-0347-reword", "R.md", reword(verdict="GAP", scope="equivalent"))
+        self.put("2026-10-12-T-0347-reword", "decision.md", "outcome: reword-gap\n")
+        third = "Let $M$ be a compact translation surface; every point of $M$ is lit."
+        res = self.table(reword(base_pass="2026-10-12-T-0347-reword", base_hash=H_NEW,
+                                h=h16(third), run_id="rv-R2"),
+                         pass_="2026-10-20-T-0400-reword")
+        self.assertEqual((res["outcome"], res["proposed_status"]), ("invalid-base", None))
+        res = self.table(reword(base_pass="2026-09-28-T-0007", base_hash=H_OLD,
+                                h=h16(third), run_id="rv-R2"),
+                         pass_="2026-10-20-T-0400-reword")
+        self.assertEqual((res["outcome"], res["proposed_status"]), ("confirmed", "proved"))
 
     def test_base_modulo_is_carried_over(self):
         self.base_pass(a=blind("A", modulo="[paper:lem:a]"), b=blind("B", modulo="[paper:lem:a]"))

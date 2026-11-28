@@ -135,8 +135,9 @@ the base pass.
    - `covered`: the new wording claims more than the old statement, but only what the
      reviewed proof already establishes (name the steps that give it);
    - `exceeds`: it claims more than the proof gives. Then the verdict is **GAP** and
-     `blocking` names exactly what the new wording claims beyond the proof; the
-     statement goes to a fresh blind pass.
+     `blocking` names exactly what the new wording claims beyond the proof; that step
+     goes back to the producer as a repair, and the next pass is a reword against the
+     same base pass (#147).
 5. The verdict words keep their meaning: **CONFIRMED** (with `equivalent`, `weaker` or
    `covered`) means the proof as reviewed proves the new statement, modulo the base
    pass's inputs and any you add to `modulo`; **GAP** means it does not (scope
