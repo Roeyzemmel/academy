@@ -70,8 +70,10 @@ half-proved statements."
   or in classical theory, may be used silently or stated as an unproved Fact; a statement
   the human calls trivial is used without proof. Easy steps of the text's own arguments
   are not folklore: they are clauses of the proof that uses them (rules 3 and 7). A writer
-  who thinks a statement is folklore or trivial asks the human; it never drops a proof on
-  its own judgement.
+  may propose a routine one-line fact as trivial or folklore (the human, 2026-11-28): it
+  omits it, or makes it an "equivalently" clause (rule 2), and marks each such call with a
+  machine check note for the human's confirmation. Confirmed calls are recorded in the
+  paper file. Reviewers flag only an omission with no such note.
 - **Uncertainty is marked, never written around.** In the paper, the draft colour or a
   machine margin note (the home's `author.noteMacros.machine`); in the notebook, the
   attempt's *Gaps* list. A speculation ("the bound can likely be improved by …") is a
@@ -96,8 +98,10 @@ that would create a second statement, proof or recollection of the same thing.
   merely quotes, or an item that copies a lemma (rule 3).
 - **A statement holds only what it adds.** Delete an item, remark or corollary that is a
   special case of another statement, contained in one, or immediate from the statements it
-  rests on (a trivial corollary becomes a sentence citing them), and cite those statements
-  where it was used. Fold a remark that extends a statement into that statement; likewise
+  rests on, and cite those statements where it was used. A special or trivial case is not a
+  statement of its own (the mirror of rule 10, "One working setting"): it is a sentence, a
+  remark (rule 6) or an "equivalently" clause (below). Fold a remark that extends a
+  statement into that statement; likewise
   a requested generalization goes into the statement it generalizes (drop the hypothesis,
   give the proof or its adaptation there), not into a separate remark (`paper-method`).
 - **Economy of statements** (`aesthetic-vision`, item 2). Prefer the clean general
@@ -105,6 +109,10 @@ that would create a second statement, proof or recollection of the same thing.
   hypothesis that is used over one that is carried along. A case split follows the
   structure of the objects, and an uninteresting case goes to a remark rather than into
   the statement (the human, margin note of 2026-09).
+- **Trivial consequences of a definition** (the human, 2026-11-28). A consequence immediate
+  from a definition (one line a graduate reader supplies) is an "equivalently, …" clause of
+  the definition, with no proof. Anything that needs an argument is its own statement. (A
+  trivial corollary of other statements becomes a sentence citing them.)
 - **One proof per statement** (the human: "Default to deleting alternative proofs"). Keep the
   shorter one that reuses a result already in the text; the other is deleted, not kept as a
   Remark.
@@ -112,6 +120,17 @@ that would create a second statement, proof or recollection of the same thing.
   even within one paragraph. No idle repetition (the human, PR 7, 2026-10-10: repetitions
   without a specific intention behind them "bloat the article and make it difficult to
   read").
+- **No spoilers** (the human, 2026-11-28). No sentence says where something is proved,
+  compared or discussed later when the reader does not need it at that point ("the
+  properties it needs are proved where first needed …", "compared with it in one paragraph
+  after …"). A pointer stands where the thing is used. **These are not spoilers**, and this
+  bullet does not override the rules that ask for them:
+  - the pointer from a theorem stated in the introduction to its proof (rule 13);
+  - the one-sentence-per-section outline (rule 12);
+  - a section's one or two sentences on what it produces (rule 12);
+  - the plan of a composite proof or chain, placed right before it (rule 5);
+  - the one-sentence list of omitted elementary properties (below), which names and does
+    not point.
 - **Do not recall a definition**, its working form or a convention at the start of each proof
   that uses it: give it once, before the group of results, and cite it. An item that holds
   by definition is proved by the words "by definition", with the definition cited.
@@ -133,6 +152,14 @@ that would create a second statement, proof or recollection of the same thing.
   (where: rule 9); the special case (the unfolding) gets only what is not a special case of
   it, collected in one statement ("Properties of the unfolding") that says which known
   discussions it generalises.
+- **One go-to object** (the human, 2026-11-28). When a classical construction and the
+  paper's own describe the same object, the classical one is given once, with a pinpoint
+  citation, followed at once by one statement identifying it with the paper's object. That
+  statement is proved, cited, or folklore on the human's word. From then on, results are
+  stated for the paper's object and proved through whichever model is convenient, citing
+  the identification and inheriting its status (rule 1). No result is stated once per
+  model. If the classical model's symbol is no longer used, it is dropped and the prose
+  names the construction.
 
 ## 3. Short statements in a chain, not one long proof
 
@@ -200,7 +227,8 @@ that would create a second statement, proof or recollection of the same thing.
   of the whole paper (rule 3). Within the freedom dependency leaves ("Dependency order
   precedes difficulty"), go from the easiest and shortest to the hardest and longest, and
   place an elementary example that needs no heavy setup early.
-- **The environment marks the role** (the human, 2026-11-14): the result a section exists for
+- **The environment marks the role** (the human, 2026-11-14), unless the paper file assigns
+  roles: the result a section exists for
   is a Theorem; a subsection's main result a Proposition; statements proved to feed it are
   Lemmas; what follows in a few lines a Corollary; a folklore input a Fact (rule 1). Split a
   trailing "so …" conclusion off as its Corollary (unless rule 2 makes it a sentence), and
@@ -249,7 +277,8 @@ that would create a second statement, proof or recollection of the same thing.
 - **Figures.** A diagram or figure is added where it carries the idea: a commutative diagram
   for the maps, a picture of the surface or the cylinders for the geometry. Every
   counterexample, and every example or remark describing concrete configurations, gets a
-  figure showing the situation that makes it work (the human, 2026-11-14). A schematic figure
+  figure showing the situation that makes it work (the human, 2026-11-14); where the paper
+  file lists where a figure is required, that list governs. A schematic figure
   says that it is schematic and what it does not show. How a figure is drawn and captioned:
   rule 15.
 
@@ -352,9 +381,14 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 
 ## 10. Settings and symbols
 
-- **One working setting** (the human, 2026-11-14): fix the setting whose structure is
-  nicest and prove in it. Pass to another only where a result needs it, through the
-  reductions below, never re-derived in each proof.
+- **One working setting** (the human, 2026-11-14; replaced 2026-11-28). Work in the most
+  general setting that is still nice and contains every statement the results use; state
+  and prove the results there. A definition describes the object in its natural
+  generality. An assumption that only some results need (a discrete marked set,
+  compactness) is a hypothesis of those results, or of a local Setting or notation clause
+  before a group of them (rule 4). It is never part of the object's definition. Pass to
+  another setting only through the stated reductions. The mirror rule, that a special or
+  trivial case is not a statement of its own, is rule 2.
 - **Nested settings: reduce, do not restate** (the human, 2026-11-20). When the paper has a
   base setting and wider or special ones (flat structures, dihedral flat structures,
   billiard tables), the plan is: state the basic properties in the base setting; define
@@ -408,17 +442,22 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
   paper. The arc of a given paper is its `Drafts/vision.md`.
 - **Abstract**: the result in one or two sentences, precise enough to be useful and plain
   enough for someone one field over. Not a table of contents.
-- **Introduction**, the largest investment: context, then the main theorems stated in full
-  (labelled Theorem A, B, … so they can be restated verbatim where proved, and the reader
-  never pages back), then what is new, then a paragraph of proof strategy giving the *idea*
-  rather than the details, then related work, then a short section outline last.
+- **Introduction**, the largest investment: the main theorems stated in full (labelled
+  Theorem A, B, … so they can be restated verbatim where proved), then what is new, then a
+  paragraph of proof strategy giving the *idea* rather than the details, then related work.
+  The introduction gives the essence of the important results, the discussion around them
+  and their history; it is not an inventory of the paper (the human, 2026-11-28). A
+  definition or construction appears there only if a main result needs it to be stated.
+  **The exception is one short Notation subsection for notation used across sections**
+  (rule 4). The outline is one sentence per section.
 - **The introduction's promise kept** (`aesthetic-vision`, item 6). Every result the
   introduction announces is proved (or cited) in the body, in the form announced; the body
   proves nothing the introduction should have announced and did not.
 - **Preliminaries**: only what is actually used; cite instead of reproducing a textbook
   chapter, stating precisely the form used (rule 9).
-- **Body**: one idea per section, each opening with what it will produce, within the
-  statement ceiling of rule 2 and the reductions of rule 10.
+- **Body**: one idea per section, within the statement ceiling of rule 2 and the reductions
+  of rule 10. A section opens with what it produces in a sentence or two, never a list of
+  what each subsection does (the human, 2026-11-28).
 - **Appendices**: long computations and routine verifications a reader skips but a referee
   needs, general theory (rule 9), and the less trivial proofs of elementary properties the
   body names in one sentence (rule 2); moving the paper's own material there is the human's
@@ -485,7 +524,8 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 
 - **A figure earns its place** (rule 5 and rule 12 say where one is owed). A
   textbook-standard picture (the unfolding of a billiard, a polygon with its glued sides) is
-  cited from the book or article, not redrawn (the Author's PR reviews, 2026-11).
+  cited from the book or article, not redrawn (the Author's PR reviews, 2026-11). The paper
+  file may override "cite, not redraw" (the human, 2026-11-28).
 - **Legible and plain**: no table and no running text inside a figure; every label legible
   at the printed width (judge the rendered page at the real width, not zoomed); several
   small panels become a grid of large ones (2x2) with bare symbols only; legible in
@@ -529,10 +569,12 @@ guide, or of the paper file by its section), and never change the verdict. The f
 matter most, in the rules' order:
 
 - a missing piece passed off as routine, a proof dropped as folklore without the human's
-  word, or a statement resting on an unverified input without the unverified colour (rule 1);
+  word or a check note, or a statement resting on an unverified input without the unverified colour (rule 1);
 - a duplicate: an item copying a lemma, a statement another contains, a second proof, a
   restated fact or a recalled definition; a section past about 30 statements (examples
-  and remarks included), or an elementary property given its own lemma (rule 2);
+  and remarks included) unless the paper file exempts the section, or an elementary
+  property given its own lemma (rule 2); a spoiler (rule 2); a result stated once per
+  model (rule 2, One go-to object);
 - a step used elsewhere left inside another proof, a lemma a graduate reader supplies at
   once, or a proof over about 15 output lines (rule 3);
 - a statement out of dependency order, in the wrong environment for its role, holding
