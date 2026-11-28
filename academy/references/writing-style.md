@@ -109,10 +109,11 @@ that would create a second statement, proof or recollection of the same thing.
   hypothesis that is used over one that is carried along. A case split follows the
   structure of the objects, and an uninteresting case goes to a remark rather than into
   the statement (the human, margin note of 2026-09).
-- **Trivial consequences of a definition** (the human, 2026-11-28). A consequence immediate
-  from a definition (one line a graduate reader supplies) is an "equivalently, …" clause of
-  the definition, with no proof. Anything that needs an argument is its own statement. (A
-  trivial corollary of other statements becomes a sentence citing them.)
+- **Trivial consequences of a definition** (the human, 2026-11-28). A consequence of a
+  definition that is immediate, or follows with a short check given right after the
+  definition (a paragraph, not a numbered statement), is an "equivalently, …" clause of the
+  definition. Anything that needs more of an argument is its own statement. (A trivial
+  corollary of other statements becomes a sentence citing them.)
 - **One proof per statement** (the human: "Default to deleting alternative proofs"). Keep the
   shorter one that reuses a result already in the text; the other is deleted, not kept as a
   Remark.
@@ -127,8 +128,12 @@ that would create a second statement, proof or recollection of the same thing.
   bullet does not override the rules that ask for them:
   - the pointer from a theorem stated in the introduction to its proof (rule 13);
   - the one-sentence-per-section outline (rule 12);
-  - a section's one or two sentences on what it produces (rule 12);
-  - the plan of a composite proof or chain, placed right before it (rule 5);
+  - a division's opening narrative (rule 12), which may preview a result the division
+    proves; only a pointer saying where something is proved is a spoiler (the human,
+    2026-11-28);
+  - the plan of a composite proof or chain, placed right before it (rule 5): it names the
+    steps and lemmas in order and gives the idea, and states none of their conclusions
+    (the human, 2026-11-28);
   - the one-sentence list of omitted elementary properties (below), which names and does
     not point.
 - **Do not recall a definition**, its working form or a convention at the start of each proof
@@ -154,8 +159,11 @@ that would create a second statement, proof or recollection of the same thing.
   discussions it generalises.
 - **One go-to object** (the human, 2026-11-28). When a classical construction and the
   paper's own describe the same object, the classical one is given once, with a pinpoint
-  citation, followed at once by one statement identifying it with the paper's object. That
-  statement is proved, cited, or folklore on the human's word. From then on, results are
+  citation. When a result is proved through the classical model, the classical model is
+  followed at once by one statement identifying it with the paper's object; models that
+  are only mentioned (history, comparison) stay in prose with their citation and get no
+  identifying statement. That statement is proved, cited, or folklore on the human's word.
+  From then on, results are
   stated for the paper's object and proved through whichever model is convenient, citing
   the identification and inheriting its status (rule 1). No result is stated once per
   model. If the classical model's symbol is no longer used, it is dropped and the prose
@@ -220,7 +228,10 @@ that would create a second statement, proof or recollection of the same thing.
 - **Shared hypotheses and notation are given once before the statements** (the human,
   2026-11-14): a "Setting" definition, a sentence of standing assumptions or a run-in
   *Notation.* paragraph, which each statement cites. A statement never defines notation in
-  passing; notation used across sections is defined once in the introduction. A section may
+  passing; notation used across sections is defined once in the introduction. A statement
+  cites the definition or Setting for the letters defined there and introduces only its new
+  letters; a definition may serve as a notation environment, fixing notation that later
+  statements cite (the human, 2026-11-28). A section may
   open with a "Setup and notation" subsection when its shared setting needs one.
 - **Statements come in constructive order** (the human, 2026-11-14): supporting statements
   before what uses them; main theorems may also appear in the introduction of the section or
@@ -456,8 +467,9 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
 - **Preliminaries**: only what is actually used; cite instead of reproducing a textbook
   chapter, stating precisely the form used (rule 9).
 - **Body**: one idea per section, within the statement ceiling of rule 2 and the reductions
-  of rule 10. A section opens with what it produces in a sentence or two, never a list of
-  what each subsection does (the human, 2026-11-28).
+  of rule 10. A division opens with its narrative: what it studies and why, its history,
+  examples (the human, 2026-11-28: "Section openings may be longer"). The narrative may be
+  longer than a sentence or two, but it is never a list of what each subdivision does.
 - **Appendices**: long computations and routine verifications a reader skips but a referee
   needs, general theory (rule 9), and the less trivial proofs of elementary properties the
   body names in one sentence (rule 2); moving the paper's own material there is the human's
