@@ -71,7 +71,11 @@ structured result the stage asks for.
   once, as the stage gives it, and return the bundle's path (or the refusal verbatim).
 - **conclude**: conclude.md sections 2-6 (blind) or section 7 steps 6-7 and sections 4-6
   (reword), over the runs the workflow lists, copying its process notes into the
-  record's process note; then list the pass folder's files. After a counterexample on
+  record's process note; then list the pass folder's files. On a reword pass's
+  `reword-gap` (R is GAP, #147): no status and no blind pass; file the table's one
+  `repair` item as it routes it, the next pass a reword against the claim's last
+  confirmed pass, the base `registry.py stale` names (not the table's `next:` line).
+  After a counterexample on
   record (section 1a): no B, no status proposal, the counterexample to the human
   as a `decision` ticket (the one rule for a counterexample, section 4.3).
 - **ship** (a standalone run of `workflows/verify.js`): run the `inbox.py --check` command the stage gives

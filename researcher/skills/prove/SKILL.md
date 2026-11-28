@@ -102,6 +102,8 @@ The inbox runs the same script for a `prove` ticket. The script:
      follows the next complete attempt (`record_stale`). Unchanged, the result says why no
      ticket is needed; a comparison that could not be made files nothing and says how to
      check. The result line says "nothing filed for review" only when nothing was. A complete repair's own verify ticket reviews the new text: no second ticket.
+     **After a reword GAP** (#147; newest decided pass `reword-gap` in `reviews.py list`): a reword
+     on the confirmed pass, `Verify <claim> (reword of <pass>)`, even for a rewritten proof.
      The result: `record_change`, `record_verify`, `record_verify_why`.
 
    On a ticket, the result line names the verify ticket and the dependencies, or the gaps

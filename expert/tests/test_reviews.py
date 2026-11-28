@@ -114,6 +114,73 @@ class RewordPassTests(unittest.TestCase):
         with self.assertRaises(reviews.Refused):
             reviews.open_pass(self.sb.lib, "paper:lem:fresh", None, now=day2)
 
+    def test_list_shows_each_pass_recorded_outcome(self):
+        """#147: the prove workflow reads whether a repair answers a reword-gap pass from
+        the outcome each pass's decision.md records, which list prints (and abandoned)."""
+        d = os.path.join(self.sb.lib, "reviews", "paper", "lem-strip-bound",
+                         "2026-11-27-T-0500-reword")
+        os.makedirs(d)
+        with open(os.path.join(d, "decision.md"), "w", encoding="utf-8") as fh:
+            fh.write("# decision\n\n- outcome: `reword-gap`\n- base_outcome: `confirmed`\n")
+        a = os.path.join(self.sb.lib, "reviews", "paper", "lem-strip-bound", "2026-11-28-x")
+        os.makedirs(a)
+        with open(os.path.join(a, "abandoned.md"), "w", encoding="utf-8") as fh:
+            fh.write("relaunched\n")
+        code, out, err = self.run_cli("list", SUBJ, "--json")
+        self.assertEqual(code, 0, err)
+        rows = {r["pass"]: r for r in (out if isinstance(out, list) else json.loads(out))}
+        self.assertEqual((rows[self.base]["outcome"], rows[self.base]["abandoned"]),
+                         ("confirmed", False))
+        self.assertEqual(rows["2026-11-27-T-0500-reword"]["outcome"], "reword-gap")
+        self.assertEqual((rows["2026-11-28-x"]["outcome"], rows["2026-11-28-x"]["abandoned"]),
+                         ("", True))
+        code, out, err = self.run_cli("list", SUBJ)
+        self.assertEqual(code, 0, err)
+        lines = {ln.split("\t")[0]: ln for ln in out.splitlines()}
+        self.assertIn("[outcome reword-gap]", lines["2026-11-27-T-0500-reword"])
+        self.assertIn("[outcome confirmed]", lines[self.base])
+        self.assertIn("[abandoned]", lines["2026-11-28-x"])
+
+    def test_reword_brief_tells_r_the_proof_changed(self):
+        """#147 (the human's ruling, 2026-11-28: after a reword GAP the next review is a reword against the
+        last confirmed statement, even if the proof was rewritten): the brief inlines the
+        proof now and the proof the base pass reviewed, and says the proof changed."""
+        code, name, err = self.run_cli("new-pass", SUBJ, "--ticket", "T-0600",
+                                       "--reword-of", self.base)
+        self.assertEqual(code, 0, err)
+        scratch = os.path.join(self.sb.lib, "scratch")
+        os.makedirs(scratch)
+        newp, oldp = os.path.join(scratch, "attempt-2.md"), os.path.join(scratch, "attempt-1.md")
+        with open(newp, "w", encoding="utf-8") as fh:
+            fh.write("Step 2 now uses the systole bound instead of compactness.\n")
+        with open(oldp, "w", encoding="utf-8") as fh:
+            fh.write("Step 2 uses compactness.\n")
+        code, out, err = self.run_cli("reword-brief", SUBJ, name, "--old-text", OLD,
+                                      "--new-text", NEW, "--proof-file", newp,
+                                      "--base-proof-file", oldp)
+        self.assertEqual(code, 0, err)
+        self.assertIn("The proof changed since the base pass", out)
+        self.assertIn("## The proof now", out)
+        self.assertIn("systole bound instead of compactness", out)
+        self.assertIn("## The proof as the base pass reviewed it", out)
+        self.assertIn("Step 2 uses compactness.", out)
+        self.assertLess(out.index("## The proof now"), out.index("## The base pass's decision"))
+        # without --proof-file the brief is as before: nothing about a changed proof
+        code, out, err = self.run_cli("reword-brief", SUBJ, name, "--old-text", OLD,
+                                      "--new-text", NEW)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("The proof changed", out)
+        self.assertNotIn("## The proof now", out)
+        # a base proof without the proof now is refused: there is nothing to compare
+        code, out, err = self.run_cli("reword-brief", SUBJ, name, "--old-text", OLD,
+                                      "--new-text", NEW, "--base-proof-file", oldp)
+        self.assertEqual(code, 1)
+        self.assertIn("--proof-file", err)
+        # a named proof file that is missing is refused, not shown as missing
+        code, out, err = self.run_cli("reword-brief", SUBJ, name, "--old-text", OLD,
+                                      "--new-text", NEW, "--proof-file", newp + ".nope")
+        self.assertEqual(code, 1)
+
     def test_reword_pass_refused_without_a_confirmed_base(self):
         code, out, err = self.run_cli("new-pass", SUBJ, "--reword-of", "2026-01-01-none")
         self.assertEqual(code, 1)

@@ -428,7 +428,7 @@ def _read(path):
 
 
 def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), ticket=None,
-                 current=None):
+                 current=None, proof_file=None, base_proof_file=None):
     """The reword run's brief bundle (Markdown). Raises Refused when ``pass_name`` is not
     a reword pass, its base is not CONFIRMED x2, the old statement's hash is not the base
     pass's, or the statement did not change.
@@ -438,7 +438,19 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
     None takes its text, and a given ``new_text`` must hash like it, since the reword
     verdict's ``statement_hash`` is checked against that hash when a status is set.
     Without ``current``, or when it cannot read ``subject``, a given text is taken as
-    is."""
+    is.
+
+    ``proof_file`` (#147, the human's ruling of 2026-11-28: after a reword GAP the next review is a reword
+    against the last confirmed statement, even if the proof was rewritten): the proof as it
+    stands, when it changed since the base pass; it is inlined with ``base_proof_file``
+    (the proof the base pass reviewed, when it exists), and R is told the proof changed. A
+    named file that is missing, or a base proof without the proof now, is refused."""
+    for what, f in (("--proof-file", proof_file), ("--base-proof-file", base_proof_file)):
+        if f and not os.path.isfile(f):
+            raise Refused("%s %s is not a file" % (what, f))
+    if base_proof_file and not proof_file:
+        raise Refused("--base-proof-file needs --proof-file: the base pass's proof is given "
+                      "only to compare with the proof as it stands")
     note = pass_note(home, subject, pass_name)
     base = note.get("reword_of")
     if not base:
@@ -505,6 +517,22 @@ def reword_brief(home, subject, pass_name, old_text, new_text, findings=(), tick
             "## The statement now (statement_hash %s)" % new_h, "", str(new_text).strip(),
             "", "## The change, word by word ([-removed-] {+added+})", "",
             word_diff(old_text, new_text), ""]
+    if proof_file:
+        out += ["The proof changed since the base pass (#147: after a reword GAP the next "
+                "review is a reword against the last confirmed statement, even if the proof "
+                "was rewritten). The base runs below reviewed the earlier proof: use them as "
+                "a map, and review every step of the proof now that differs from the one "
+                "they reviewed in full, as a blind reviewer would (rigor-reviewer, \"Reword "
+                "mode\").", "",
+                "## The proof now (`%s`)" % str(proof_file).replace("\\", "/"), "",
+                _read(proof_file).strip(), ""]
+        if base_proof_file:
+            out += ["## The proof as the base pass reviewed it (`%s`)"
+                    % str(base_proof_file).replace("\\", "/"), "",
+                    _read(base_proof_file).strip(), ""]
+        else:
+            out += ["## The proof as the base pass reviewed it", "",
+                    "(not given: compare with the base runs' reports)", ""]
     sections = [("The base pass's decision", dec)] + \
         [("The base pass's run %s" % r.get("run"), r.get("file")) for r in (a, b)
          if r is not None]
@@ -598,7 +626,23 @@ def abandon_pass(home, subject, pass_name, reason, now=None):
     return path
 
 
+def recorded_outcome(d):
+    """The outcome the pass folder ``d``'s decision.md records ('' when none): the registry
+    engine's reading (``registry.core.stale.recorded_outcome``), so this and ``registry.py
+    stale`` never read a decision differently; '' when the engine cannot be found."""
+    try:
+        plugin = os.path.join(ex.ac.repo_root(), "academy")
+        if plugin not in sys.path:
+            sys.path.insert(0, plugin)
+        from registry.core import stale
+        return stale.recorded_outcome(d)
+    except Exception:        # noqa: BLE001 -- no engine: nothing recorded is read
+        return ""
+
+
 def list_passes(home, subject):
+    """Every pass folder of ``subject``, oldest first: ``{"pass", "dir", "files",
+    "outcome", "abandoned"}`` (``outcome``: what its decision.md records, #147)."""
     d = subject_dir(home, subject)
     out = []
     if not os.path.isdir(d):
@@ -606,8 +650,10 @@ def list_passes(home, subject):
     for p in sorted(os.listdir(d)):
         full = os.path.join(d, p)
         if os.path.isdir(full):
-            out.append({"pass": p, "dir": full.replace("\\", "/"),
-                        "files": sorted(os.listdir(full))})
+            files = sorted(os.listdir(full))
+            out.append({"pass": p, "dir": full.replace("\\", "/"), "files": files,
+                        "outcome": recorded_outcome(full),
+                        "abandoned": "abandoned.md" in files})
     return out
 
 
@@ -671,6 +717,10 @@ def main(argv=None):
     rb.add_argument("--findings", action="append", default=[],
                     help="a file (inlined) or a line of text; repeatable")
     rb.add_argument("--ticket")
+    rb.add_argument("--proof-file", help="the proof as it stands, when it changed since the "
+                                         "base pass (#147): inlined, and R is told so")
+    rb.add_argument("--base-proof-file", help="with --proof-file: the proof the base pass "
+                                              "reviewed, inlined for comparison")
     rb.add_argument("--out", help="write the bundle here (outside reviews/) instead of "
                                   "printing it")
     rb.add_argument("--home")
@@ -760,7 +810,9 @@ def main(argv=None):
         new = _read(args.new_file) if args.new_file else args.new_text
         try:
             text = reword_brief(home, args.subject, args.pass_name, old, new,
-                                args.findings, args.ticket, current=registry_statement)
+                                args.findings, args.ticket, current=registry_statement,
+                                proof_file=args.proof_file,
+                                base_proof_file=args.base_proof_file)
         except Refused as exc:
             sys.stderr.write("reviews: refused: %s\n" % exc)
             return 1
@@ -803,7 +855,9 @@ def main(argv=None):
         print(json.dumps(rows, indent=2))
     else:
         for r in rows:
-            print("%s\t%s" % (r["pass"], ", ".join(r["files"])))
+            print("%s\t%s%s%s" % (r["pass"], ", ".join(r["files"]),
+                                   "\t[outcome %s]" % r["outcome"] if r["outcome"] else "",
+                                   "\t[abandoned]" if r["abandoned"] else ""))
         if not rows:
             print("no review passes for %s" % args.subject)
     return 0

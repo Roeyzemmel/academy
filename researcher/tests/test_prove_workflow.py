@@ -830,6 +830,91 @@ class RepairRecordTests(unittest.TestCase):
         self.assertNotIn("file record verify", labels)
         self.assertIn("the verify ticket T-0020 reviews the new attempt", res["record_verify_why"])
 
+    # ---- #147 (the human's ruling, 2026-11-28, "Reword question- I choose (a)"): after a reword GAP the next
+    # review is always a reword against the last confirmed statement, even if the proof was
+    # rewritten. The signal: the claim's newest decided, not abandoned pass records reword-gap
+    # (reviews.py list prints each pass's recorded outcome), read by the repair-before clerk.
+    GAP_PASS = "2026-11-27-T-0090-reword"
+    BEFORE_GAP = dict(REPAIR_BEFORE, last_pass="2026-11-27-T-0090-reword", last_outcome="reword-gap")
+    REWORD_CHECK = {"found": True, "to": "expert@t", "kind": "verify", "refs": ["flat:GEO-3"],
+                    "title": "Verify flat:GEO-3 (reword of 2026-11-01-T-0007)"}
+
+    def test_the_repair_before_clerk_reports_the_newest_pass_and_its_outcome(self):
+        res, labels, calls = self.run_wf(self.plan())
+        before = calls[labels.index("repair before")]
+        self.assertIn("last_pass", before["prompt"])
+        self.assertIn("last_outcome", before["prompt"])
+        self.assertIn("[outcome", before["prompt"])               # what reviews.py list prints
+        for k in ("last_pass", "last_outcome"):
+            self.assertIn(k, before["schema"]["properties"])
+
+    def test_a_complete_repair_after_a_reword_gap_files_a_reword_verify(self):
+        """The proof was rewritten (a new complete attempt): still a reword on the last
+        confirmed pass, never the blind verify, and the ask says the proof changed."""
+        plan = dict(ProveTests.COMPLETE, state=[state(status="proved", repair=True)],
+                    **{"repair before": [self.BEFORE_GAP], "check verify": [self.REWORD_CHECK]})
+        res, labels, calls = self.run_wf(plan)
+        self.assertEqual(res["outcome"], "verify-filed")
+        f = calls[labels.index("file verify")]["prompt"]
+        for s in ("Verify flat:GEO-3 (reword of 2026-11-01-T-0007)", "mode reword",
+                  "base_pass 2026-11-01-T-0007", self.GAP_PASS, "reword-gap",
+                  "the proof changed", "proofs/GEO-3/attempt-2.md", "proofs/GEO-3/attempt-1.md", "#147"):
+            self.assertIn(s, f)
+        self.assertNotIn('title "Verify flat:GEO-3",', f)
+        self.assertEqual(res["record_verify"], {"ticket": "T-0020", "mode": "reword", "base_pass": self.PASS})
+        self.assertIn("reword-gap", res["record_verify_why"])
+        self.assertNotIn("ANOMALY", " ".join(res["notes"]))
+        # the check reads the marker the inbox needs: a title without it is an anomaly
+        plan["check verify"] = [dict(self.REWORD_CHECK, title="Verify flat:GEO-3")]
+        res, _l, _c = self.run_wf(plan)
+        self.assertIn("ANOMALY", " ".join(res["notes"]))
+
+    def test_a_complete_repair_after_another_outcome_keeps_the_blind_verify(self):
+        for last in ("single-negative", "full-pass-needed", "confirmed", "", "reword-gap-ish"):
+            plan = dict(ProveTests.COMPLETE, state=[state(status="proved", repair=True)],
+                        **{"repair before": [dict(REPAIR_BEFORE, last_pass=self.GAP_PASS, last_outcome=last)]})
+            res, labels, calls = self.run_wf(plan)
+            f = calls[labels.index("file verify")]["prompt"]
+            self.assertIn('title "Verify flat:GEO-3",', f, last)
+            self.assertNotIn("(reword of", f, last)
+            self.assertIsNone(res["record_verify"], last)
+
+    def test_a_reword_gap_with_no_confirmed_pass_keeps_the_blind_verify(self):
+        plan = dict(ProveTests.COMPLETE, state=[state(status="proved", repair=True)],
+                    **{"repair before": [dict(self.BEFORE_GAP, confirmed_pass="")]})
+        res, labels, calls = self.run_wf(plan)
+        f = calls[labels.index("file verify")]["prompt"]
+        self.assertNotIn("(reword of", f)
+        self.assertIn("no confirmed pass", " ".join(res["notes"]))
+
+    def test_an_incomplete_repair_after_a_reword_gap_rewords_even_without_a_proof_comparison(self):
+        """recheckRecord: the statement moved and the reviewed proof could not be compared
+        (a blind pass today): after a reword GAP it is a reword on the last confirmed pass."""
+        after = dict(self.SAME, statement_hash="fedcba9876543210")
+        before = dict(self.BEFORE_GAP, reviewed_proof="", reviewed_proof_hash="", proof="")
+        res, labels, calls = self.run_wf(self.plan(dict(after, proof=""), before=before, **{
+            "file record verify": [self.FILED], "check record verify": [self.CHECK]}))
+        self.assertEqual(res["record_change"]["proof"], "unknown")
+        f = calls[labels.index("file record verify")]["prompt"]
+        self.assertIn("Verify flat:GEO-3 (reword of 2026-11-01-T-0007)", f)
+        self.assertIn(self.GAP_PASS, f)
+        self.assertEqual(res["record_verify"]["mode"], "reword")
+        # without the reword GAP the same comparison stays the blind pass
+        before = dict(REPAIR_BEFORE, reviewed_proof="", reviewed_proof_hash="", proof="")
+        res, labels, calls = self.run_wf(self.plan(dict(after, proof=""), before=before, **{
+            "file record verify": [self.FILED], "check record verify": [dict(self.CHECK, title="Verify flat:GEO-3")]}))
+        self.assertEqual(res["record_verify"]["mode"], "blind")
+
+    def test_an_incomplete_repair_that_changed_the_proof_after_a_reword_gap_files_nothing_yet(self):
+        """An incomplete attempt is reviewed by nobody: the next complete attempt files the
+        reword (the result says so)."""
+        res, labels, calls = self.run_wf(self.plan(dict(self.SAME, proof="proofs/GEO-3/attempt-2.md"),
+                                                   before=self.BEFORE_GAP))
+        self.assertNotIn("file record verify", labels)
+        self.assertTrue(res["record_stale"])
+        self.assertIn("reword", res["record_verify_why"])
+        self.assertIn("2026-11-01-T-0007", res["record_verify_why"])
+
     def test_not_a_repair_runs_no_record_check(self):
         res, labels, _c = self.run_wf(dict(ProveTests.COMPLETE))
         self.assertNotIn("repair before", labels)

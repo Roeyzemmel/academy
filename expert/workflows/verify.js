@@ -129,7 +129,7 @@ const REVIEWER = 'expert:rigor-reviewer'
 const SETTLER = 'expert:dependency-settler'
 const ROOT = A.root ? A.root.replace(/[\\/]+$/, '') : null
 const AR = ROOT || '<academy repo>'
-const SCRIPTS = `Scripts: reviews.py is \`py ${AR}/expert/scripts/reviews.py\`, decision_table.py is \`py ${AR}/expert/scripts/decision_table.py\`, statement.py (the Author plugin's) is \`py ${AR}/author/scripts/statement.py\` (python3 where there is no py)` +
+const SCRIPTS = `Scripts: reviews.py is \`py ${AR}/expert/scripts/reviews.py\`, decision_table.py is \`py ${AR}/expert/scripts/decision_table.py\`, statement.py (the Author plugin's) is \`py ${AR}/author/scripts/statement.py\`, registry.py (the base plugin's) is \`py ${AR}/academy/scripts/registry.py\` (python3 where there is no py)` +
   (ROOT ? '.\n' : '; <academy repo> is academy.root of the MCP tool workspace_get (academy.scripts.expert is the scripts folder).\n')
 const RE_PASS = /^\d{4}-\d{2}-\d{2}(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?$/
 const RE_HASH = /^[0-9a-f]{6,}$/
@@ -358,7 +358,7 @@ const prep = await launch(STAGE('prepare', [
   A.findings ? `findings for the bundle: ${A.findings}` : '',
   '',
   MODE === 'reword'
-    ? `conclude.md section 7 steps 1-4: take the ticket, recover old.txt, check the old hash (for a reword base pass: the wording its R confirmed, #127), \`reviews.py new-pass <id> --reword-of <base pass>\` (with --base-subject when given), write the bundle with \`reviews.py reword-brief\` (no --new-file: it takes the registry's statement). statement_hash is the NEW statement's hash, the registry engine's: \`reviews.py hash --claim ${A.claim}\` (T-0464).`
+    ? `conclude.md section 7 steps 1-4: take the ticket, recover old.txt, check the old hash (for a reword base pass: the wording its R confirmed, #127), \`reviews.py new-pass <id> --reword-of <base pass>\` (with --base-subject when given), write the bundle with \`reviews.py reword-brief\` (no --new-file: it takes the registry's statement); when the ticket's ask says the proof changed since the base pass (a repair after a reword GAP, #147: still a reword, even with the proof rewritten), add --proof-file <the attempt it names as the proof now> and --base-proof-file <the proof the base pass reviewed, when that file exists>, both absolute paths in the claim's home. statement_hash is the NEW statement's hash, the registry engine's: \`reviews.py hash --claim ${A.claim}\` (T-0464).`
     : `conclude.md section 0: take the ticket (its budget field gates nothing: never block it for budget), pin and hash the statement with \`reviews.py hash --claim ${A.claim}\` (the registry engine's statement text, the hash claims_set_status checks; never a hand-copied extract, T-0464), open the pass (\`reviews.py new-pass\`, \`reviews.py dir\`). For a statement that lives in a tex file, location is the output line of \`statement.py <label> --where --home <that Author home>\` (the file and the line ranges of the statement and its proof): a section file is too large to read whole, and the reviewer has no shell to find the lines. Write nothing in the pass folder. ` +
       'new-pass returns the open pass of this same ticket when one is open (a rerun, #89): then list in landed the run files already in its folder (A.md, B.md) with the statement_hash of each one\'s frontmatter. ' +
       'Report the claim\'s falsifier on record (falsifier; conclude.md section 0, the sources prove.js accepts, #117): one that attacked this claim; or one recorded on a declared input, or on the parent lead or direction item, whose class or statement covers it, saying how; ' +
@@ -842,7 +842,7 @@ const done = await launch(STAGE('conclude', [
   MODEL_FALLBACKS.length ? `A reviewer run fell back to a lighter model (${MODEL_FALLBACKS.join(', ')}): say so in the record, the ticket result and its thread.` : '',
   '',
   MODE === 'reword'
-    ? 'conclude.md section 7 steps 6-7, then sections 4-6.'
+    ? 'conclude.md section 7 steps 6-7, then sections 4-6. On reword-gap (R is GAP, #147): no status, no recolour, no blind pass and no falsifier; file the table\'s one repair item exactly as it routes it, and say the next pass is a reword against the claim\'s last confirmed pass once the repair lands, the base taken from registry.py stale (its base_pass for the claim), never from the table\'s next: line or R\'s base_pass.'
     : counterexample
       ? `conclude.md section 1a, "A counterexample": the falsifier (${falsifier.source}${falsifier.on ? ' ' + falsifier.on : ''}) found a counterexample: ${falsifier.evidence}. ` +
         'Run B was not launched. Return outcome falsifier-counterexample and proposed_status none: never claims_propose_status, no status changes. ' +

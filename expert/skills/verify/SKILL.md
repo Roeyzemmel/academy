@@ -46,7 +46,15 @@ in reword mode with that `base_pass`; the inbox does this from the title. The sa
 filed by `registry.py stale --file-reword` (#109): one ticket per proved / proved-modulo claim
 whose statement hash moved off its last positive pass, which `registry.py check` flags and the
 views show as `proved (stale)` until the reword pass lands. A rewording that answers a hypothesis, statement or proof
-finding, or a changed proof, takes the blind pass.
+finding, or a changed proof, takes the blind pass, except the repair of a reword GAP
+(`reword-gap`, #147: "gaps in reword reviews - this counts as a reword as well, compared to
+the last verified statement"): its next pass is a reword against the claim's last confirmed
+pass, the base `registry.py stale` names (not R's `base_pass`, which may be older), whether
+the repair changed the statement, the proof or both. This is the one exception to "a changed
+proof takes the blind pass" (#147, the human's ruling of 2026-11-28: "after a reword GAP, the next review is
+always a reword against the last confirmed statement, even if the proof was rewritten"); the
+bundle then carries the proof now and the proof the base pass reviewed
+(`reword-brief --proof-file`, `--base-proof-file`).
 
 **By hand**, only when the Workflow tool cannot run: the human sets
 `ACADEMY_ALLOW_MANUAL_REVIEW=1`, and this seat follows `references/conclude.md` section 1
@@ -72,6 +80,12 @@ report says the pass ran by hand.
   the attempt is not the one A reviewed, and each dependency is declared with its pinpoint.
 - **`new-pass-after-amendment`** (in the table): a blind B, not A, suggested a dependency.
   No status; the dependency goes to the producer as a repair, and a new pass follows it.
+- **`reword-gap`** (reword mode, #147): run R is GAP. No status, no blind pass; R's blocking
+  step went to the producer as a repair (routed as a blind GAP's), and once it lands the
+  next pass is a reword against the claim's last confirmed pass, as `registry.py stale`
+  names it, even if the proof was rewritten (#147, the human's ruling of 2026-11-28). `full-pass-needed` is now only
+  R CONFIRMED with `reword_scope: exceeds` (a malformed record, kept as a defensive
+  route): a fresh blind pass.
 - **`falsifier-counterexample`**: a falsifier on record broke the claim. No B, no status; the
   counterexample went to the human as a `decision` ticket (the one rule for a
   counterexample, `references/conclude.md` section 4.3) and is in the packet.

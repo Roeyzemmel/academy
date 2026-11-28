@@ -111,7 +111,7 @@ Your brief says `run: R` and `mode: reword` and names a **bundle file** (written
 `reviews.py reword-brief`). The statement was reviewed and decided CONFIRMED x2, or
 confirmed by an earlier reword pass chained to such a pass (the **base pass**: the last
 confirmed one, #127), and then its wording changed; the proof did not, or changed only in
-wording. The human's rule (2026-10-12, T-0347): such a statement gets one informed reader,
+wording, or (after a reword GAP, #147) the proof was rewritten. The human's rule (2026-10-12, T-0347): such a statement gets one informed reader,
 not a new proof check from scratch. You are that reader, and you are **not blind** to
 the base pass.
 
@@ -128,6 +128,12 @@ the base pass.
    used, which inputs it rests on), not as a verdict on the new text. Check every
    point where the diff touches something the proof uses: a hypothesis dropped that
    a step needs is a gap however the base runs read it.
+   **When the bundle says the proof changed** (#147, the human's ruling of 2026-11-28:
+   after a reword GAP the next review is a reword even if the proof was rewritten), it
+   inlines the proof now and, when it exists, the proof the base pass reviewed. Judge the
+   coverage on the proof now: review every step that differs from the reviewed one in
+   full, as in a blind pass (the procedure above), and the unchanged steps as in this
+   step, with the base reports as the map. A broken or unsupported new step is a GAP.
 4. Give `reword_scope`:
    - `equivalent`: the same mathematical content, said differently;
    - `weaker`: the new statement follows from the old one (fewer conclusions, more
@@ -135,10 +141,12 @@ the base pass.
    - `covered`: the new wording claims more than the old statement, but only what the
      reviewed proof already establishes (name the steps that give it);
    - `exceeds`: it claims more than the proof gives. Then the verdict is **GAP** and
-     `blocking` names exactly what the new wording claims beyond the proof; the
-     statement goes to a fresh blind pass.
+     `blocking` names exactly what the new wording claims beyond the proof; that step
+     goes back to the producer as a repair, and the next pass is a reword against the
+     claim's last confirmed pass (#147).
 5. The verdict words keep their meaning: **CONFIRMED** (with `equivalent`, `weaker` or
-   `covered`) means the proof as reviewed proves the new statement, modulo the base
+   `covered`) means the proof as reviewed (the proof now, when the bundle says it
+   changed) proves the new statement, modulo the base
    pass's inputs and any you add to `modulo`; **GAP** means it does not (scope
    `exceeds`, or a step the change breaks); **DISPROVED** only with an explicit
    counterexample to the new wording. Do not re-review steps the change does not touch;
