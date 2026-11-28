@@ -634,14 +634,52 @@ class RewordTableTests(unittest.TestCase):
                 self.assertEqual(r["file_items"][0]["gap_class"],
                                  blind["file_items"][0]["gap_class"])
                 self.assertIn("2026-09-28-T-0007", r["summary"])
-                self.assertIn("reword", r["summary"])
+                self.assertIn("the last confirmed pass", r["summary"])
+                self.assertIn("registry.py stale", r["summary"])
+                # a confirmed base: no base anomaly
+                self.assertFalse([x for x in r["anomalies"] if "base" in x], r["anomalies"])
                 self.assertNotIn("open a fresh blind", r["summary"])
                 txt = dt._text(r)
-                self.assertIn("next: after the repair, a reword pass against "
-                              "2026-09-28-T-0007", txt)
+                # R's base is named as R's; the next reword's base is the last confirmed
+                # pass, which registry.py stale names (the table cannot see later passes)
+                self.assertIn("next: after the repair, a reword pass against the last "
+                              "confirmed pass (registry.py stale names it; R's base pass "
+                              "was 2026-09-28-T-0007)", txt)
+                self.assertNotIn("the last verified statement", txt)
                 self.assertNotIn("next: open a fresh blind", txt)
         self.assertIn("compactness", dt.decide_reword(
             rwrec(verdict="GAP", blocking="drops compactness"), *self.base())["summary"])
+
+    def test_a_reword_gap_never_names_rs_base_as_the_next_base(self):
+        """#147 review (finding 1): R may name an older base than the last confirmed pass
+        (prop:unfolding-lift: R named 2026-11-21-T-1815, the last confirmed pass was
+        2026-11-25-T-1988-reword); the table names R's base as R's only."""
+        a, b = self.base()
+        r = dt.decide_reword(rwrec(verdict="GAP", blocking="step 3",
+                                   base_pass="2026-11-21-T-1815"), a, b)
+        txt = dt._text(r)
+        self.assertNotIn("reword pass against 2026-11-21-T-1815", txt)
+        self.assertNotIn("same base pass 2026-11-21-T-1815", r["summary"])
+        self.assertIn("R's base pass was 2026-11-21-T-1815", txt)
+        self.assertNotIn("the last verified statement", r["summary"])
+
+    def test_a_reword_gap_on_a_base_that_does_not_confirm_says_so(self):
+        """#147 review (finding 3): the base is checked as for a CONFIRMED R; a base that
+        cannot be confirmed is an anomaly and the summary says the next base is unsure,
+        the outcome staying reword-gap (R's gap stands whatever its base)."""
+        for why, (ba, bb) in (("missing", (None, None)),
+                              ("not confirmed", self.base(b="GAP"))):
+            with self.subTest(why=why):
+                r = dt.decide_reword(rwrec(verdict="GAP", blocking="step 3"), ba, bb)
+                self.assertEqual(r["outcome"], "reword-gap")
+                self.assertIsNone(r["proposed_status"])
+                self.assertFalse(r["launch_full_pass"])
+                self.assertEqual([i["kind"] for i in r["file_items"]], ["repair"])
+                self.assertTrue(any(why in x for x in r["anomalies"]), r["anomalies"])
+                self.assertTrue(any("cannot be confirmed" in x for x in r["anomalies"]),
+                                r["anomalies"])
+                self.assertIn("is not a confirmed pass", r["summary"])
+                self.assertIn("registry.py stale", r["summary"])
 
     def test_a_reword_gap_repair_goes_to_the_producer(self):
         # the producer from producer_role_for (an override wins, as for a blind GAP); a lab

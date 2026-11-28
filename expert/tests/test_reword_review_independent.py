@@ -163,8 +163,10 @@ class RewordTable(Base):
                               "2026-09-28-T-0007"), s)
             self.assertEqual([i["kind"] for i in res["file_items"]], ["repair"], s)
             self.assertTrue(res["file_items"][0].get("route"), s)
-            self.assertIn("next: after the repair, a reword pass against 2026-09-28-T-0007",
-                          dt._text(res))
+            self.assertIn("next: after the repair, a reword pass against the last confirmed "
+                          "pass (registry.py stale names it; R's base pass was "
+                          "2026-09-28-T-0007)", dt._text(res))
+            self.assertFalse([x for x in res["anomalies"] if "cannot be confirmed" in x])
 
     def test_after_a_reword_gap_the_base_is_still_the_last_confirmed_pass(self):
         """A reword-gap pass confirms nothing: a reword on it is refused, and the next

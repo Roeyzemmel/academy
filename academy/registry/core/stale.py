@@ -199,8 +199,9 @@ _WORDS = ("confirmed-settled", "confirmed-modulo", "confirmed", "settle-dependen
           "invalid-pair", "invalid-amend", "incomplete", "awaiting-amendment", "awaiting-b",
           "full-pass-needed", "reword-gap", "no-change", "new-pass-after-amendment")
 #: the outcome a decision.md records, in its spellings ("- outcome: `confirmed`",
-#: "Outcome (decision_table.py): confirmed-modulo", "## Outcome" then "`confirmed`;")
-RE_RECORDED = re.compile(r"outcome\W{0,6}(?:\(decision_table\.py[^)\n]*\)\W{0,4})?\s*`?(%s)\b"
+#: "Outcome (decision_table.py): confirmed-modulo", "## Outcome" then "`confirmed`;"); never
+#: the tail of another field's name, e.g. ``base_outcome: `confirmed``` (review of 18a47db)
+RE_RECORDED = re.compile(r"(?<![A-Za-z_])outcome\W{0,6}(?:\(decision_table\.py[^)\n]*\)\W{0,4})?\s*`?(%s)\b"
                          % "|".join(re.escape(w) for w in _WORDS), re.I)
 
 
@@ -406,10 +407,13 @@ def find(store, root, only=None):
             if not p["decided"]:
                 hold.append("the pass %s is still open" % p["pass"])
             elif h in p["hashes"] and p["outcome"] == "reword-gap":
-                # #147: a gap in a reword review is repaired, then reworded on the same base
+                # #147 (the human's ruling, 2026-11-28): a gap in a reword review is
+                # repaired, then reworded on the last confirmed pass, even if the proof was
+                # rewritten
                 hold.append("the later reword pass %s found a gap in the current statement "
-                            "(reword-gap): its repair goes to the producer first; then a "
-                            "reword against %s" % (p["pass"], base))
+                            "(reword-gap): its repair goes to the producer first; once the "
+                            "repair lands (the statement or the proof changed), the next pass "
+                            "is a reword against %s (#147)" % (p["pass"], base))
             elif h in p["hashes"]:
                 hold.append("the later pass %s reviewed the current statement and is not "
                             "positive: the human decides (a repair or a blind pass), not "

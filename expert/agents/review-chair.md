@@ -73,7 +73,8 @@ structured result the stage asks for.
   (reword), over the runs the workflow lists, copying its process notes into the
   record's process note; then list the pass folder's files. On a reword pass's
   `reword-gap` (R is GAP, #147): no status and no blind pass; file the table's one
-  `repair` item as it routes it, the next pass a reword against the same base pass.
+  `repair` item as it routes it, the next pass a reword against the claim's last
+  confirmed pass, the base `registry.py stale` names (not the table's `next:` line).
   After a counterexample on
   record (section 1a): no B, no status proposal, the counterexample to the human
   as a `decision` ticket (the one rule for a counterexample, section 4.3).

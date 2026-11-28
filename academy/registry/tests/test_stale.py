@@ -311,13 +311,53 @@ class TestFind(StaleHomes):
         self.assertIn("reword-gap", hold)
         self.assertIn("repair", hold)
         self.assertIn("a reword against 2026-11-01-T-0001", hold)
-        self.assertNotIn("blind pass", hold)
+        # #147 (the human's ruling, 2026-11-28): a reword whether the repair changes the statement or the
+        # proof; the hold names no blind pass
+        self.assertIn("once the repair lands (the statement or the proof changed)", hold)
+        self.assertNotIn("blind", hold)
         # the repair reworded the statement: the next reword stands on the same base
         self.tex["a.tex"] = self.tex["a.tex"].replace("very fine", "quite fine")
         self._write_tex()
         items = self.found()
         self.assertEqual([(i["pass"], i["base_pass"], i["hold"]) for i in items],
                          [("2026-11-01-T-0001", "2026-11-01-T-0001", "")])
+
+    def test_a_reword_gap_naming_an_older_base_still_leaves_the_last_confirmed_one(self):
+        """#147 review: the case in hand (prop:unfolding-lift). R of the GAP'd pass named the
+        blind pass as its base although a confirmed reword pass stood between; the registry's
+        next reword (and the hold's wording) stand on that last confirmed reword pass, the
+        base #127 prescribes, not on the base R happened to name."""
+        self.claim("prop:foo")
+        h0 = self.hash_of("prop:foo")
+        self.blind_pass("prop:foo", "2026-11-01-T-0001", h0)
+        self.reword_text("prop:foo", "Every $x$ is very fine.")
+        h1 = self.hash_of("prop:foo")
+        self.reword_pass("prop:foo", "2026-11-03-T-0005-reword", "2026-11-01-T-0001", h0, h1)
+        self.tex["a.tex"] = self.tex["a.tex"].replace("very fine", "quite fine")
+        self._write_tex()
+        h2 = self.hash_of("prop:foo")
+        d = self.run_record("prop:foo", "2026-11-05-T-0007-reword", "R", h2, verdict="GAP",
+                            extra="mode: reword\nbase_pass: 2026-11-01-T-0001\n"
+                                  "base_hash: %s\nreword_scope: covered\n" % h0,
+                            run_id="rv-20261105-000001-r2")
+        write(d / "decision.md", "# decision\n\n- outcome: `reword-gap`\n")
+        items = self.found()
+        self.assertEqual([(i["pass"], i["base_pass"]) for i in items],
+                         [("2026-11-03-T-0005-reword", "2026-11-03-T-0005-reword")])
+        self.assertIn("a reword against 2026-11-03-T-0005-reword", items[0]["hold"])
+        self.assertNotIn("2026-11-01-T-0001", items[0]["hold"])
+
+    def test_recorded_outcome_ignores_a_later_base_outcome_mention(self):
+        """#147 review: a decision.md that records reword-gap and then copies the table's
+        ``base_outcome`` field (as real reword decisions do, e.g. lem-normaliser-O2
+        2026-11-27-1051-reword) must still read reword-gap; the regex also matches the
+        tail of ``base_outcome: `confirmed```."""
+        self.claim("prop:foo")
+        h0 = self.hash_of("prop:foo")
+        d = self.blind_pass("prop:foo", "2026-11-01-T-0001", h0)
+        write(d / "decision.md", "- outcome: `reword-gap`\n- launch_full_pass: false; "
+                                 "base_outcome: `confirmed`\n")
+        self.assertEqual(stale.recorded_outcome(d), "reword-gap")
 
     def test_an_unregistered_copy_is_never_compared(self):
         # a home outside the workspace map with the paper's ns: the library's passes are

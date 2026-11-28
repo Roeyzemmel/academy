@@ -214,7 +214,9 @@ const RECORD_BEFORE = { type: 'object', properties: {
   confirmed_pass: { type: 'string', description: 'the claim\'s last pass (blind or -reword, #127) whose decision.md records confirmed or confirmed-modulo (reviews.py list <claim>), its name verbatim; else empty' },
   reviewed_proof: { type: 'string', description: 'the proof the claim\'s status rests on: the one that pass reviewed (its decision.md heading names it), else the record\'s proof: field; a path relative to the home' },
   reviewed_proof_hash: { type: 'string', description: 'the output of reviews.py hash --file <that file>, verbatim; empty when there is no such file' },
-  proof: { type: 'string', description: 'the record\'s proof: field now, verbatim; else empty' } },
+  proof: { type: 'string', description: 'the record\'s proof: field now, verbatim; else empty' },
+  last_pass: { type: 'string', description: 'the claim\'s newest pass that reviews.py list prints with a decision.md and without [abandoned], its name verbatim; else empty' },
+  last_outcome: { type: 'string', description: 'the word of that pass\'s [outcome <word>] column in reviews.py list, verbatim; else empty' } },
   required: [] }
 const RECORD_AFTER = { type: 'object', properties: {
   statement_hash: { type: 'string', description: 'the claim\'s statement hash now (reviews.py hash --claim <id>), verbatim' },
@@ -547,7 +549,8 @@ if (recordCheck) {
     `This repair may edit the record of ${A.claim}: record what its status rests on now. Run \`${REVIEWS} list ${A.claim}\` (add --home <the library home, workspace_get> when it finds no reviews) ` +
     'and read each pass\'s decision.md: confirmed_pass is the last pass (a -reword pass included: a reword stands on the last confirmed pass, #127) that records confirmed or confirmed-modulo (else empty). ' +
     'reviewed_proof is the proof that pass reviewed (its decision.md heading names it), else the record\'s proof: field, as a path relative to the home; ' +
-    `reviewed_proof_hash is the output of \`${REVIEWS} hash --file <home>/<reviewed_proof>\` (empty when there is no such file); proof is the record's proof: field now. Write nothing.`,
+    `reviewed_proof_hash is the output of \`${REVIEWS} hash --file <home>/<reviewed_proof>\` (empty when there is no such file); proof is the record's proof: field now. ` +
+    'last_pass is the newest pass that list prints with decision.md among its files and without [abandoned]; last_outcome is the word of its [outcome <word>] column, verbatim (empty when it has none). Write nothing.',
   ]), { label: 'repair before', phase: 'Attempt', agentType: CLERK, schema: RECORD_BEFORE, effort: 'low' })
   if (!recBefore) out.notes.push('the repair-before stage returned nothing: whether this repair changes the record is not checked')
 }
@@ -744,6 +747,22 @@ const falsLine = id => id ? `; falsifier filed: ${id}` : ''
 // needed; unknown: it says how to check. A confirmed pass that names no reviewed proof compares
 // nothing: unknown, never untouched. Returns {clause, ticket, note} for the delivered result.
 const RE_PASS = /^\d{4}-\d{2}-\d{2}(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?$/
+// #147 (the human's ruling, 2026-11-28, "Reword question- I choose (a)"): after a reword GAP the next review is
+// always a reword against the last confirmed statement, even if the proof was rewritten. The
+// signal is the claim's newest decided, not abandoned pass recording reword-gap in its
+// decision.md (reviews.py list prints the outcome the registry engine reads there), not the
+// repair ticket's wording: it holds whoever filed the repair and however its ask reads. The base
+// is the last confirmed pass the same stage reports. Every other repair is as before.
+let rewordGapMemo
+function rewordGap() {
+  if (rewordGapMemo !== undefined) return rewordGapMemo
+  const pass = recBefore && String(recBefore.last_outcome || '').trim() === 'reword-gap' ? String(recBefore.last_pass || '').trim() : ''
+  const cp = pass ? String(recBefore.confirmed_pass || '').trim() : ''
+  const base = RE_PASS.test(cp) ? cp : ''
+  if (pass && !base) out.notes.push(`the newest pass ${pass} records reword-gap, but no confirmed pass is reported to reword from: no reword base (the verify as for any repair)`)
+  rewordGapMemo = pass && base ? { pass, base } : null
+  return rewordGapMemo
+}
 const isHash = x => /^[0-9a-f]{6,}$/.test(String(x || '').trim())
 async function recheckRecord() {
   const none = (why, needed) => {
@@ -787,12 +806,17 @@ async function recheckRecord() {
   }
   if (proof === 'changed') {
     out.record_stale = true
+    const rg = rewordGap()
     const why = `the record changed (${what}) after an incomplete attempt: the ${st.status} status no longer stands on the reviewed text` +
-      `${base ? ' (pass ' + base + ')' : ''}; a verify follows the next complete attempt (a blind pass on an attempt reported incomplete would add nothing)`
+      `${base ? ' (pass ' + base + ')' : ''}; a verify follows the next complete attempt (a blind pass on an attempt reported incomplete would add nothing)` +
+      (rg ? `; after the reword GAP of ${rg.pass} that verify is a reword against the last confirmed pass ${rg.base} (#147)` : '')
     out.notes.push(why)
     return Object.assign(none(why), { note: why })
   }
-  const reword = stmt === 'changed' && proof === 'same' && !!base
+  const rg = rewordGap()
+  // #147: after a reword GAP a proof that could not be compared still takes the reword
+  const rgUnknown = !!rg && stmt === 'changed' && proof === 'unknown' && !!base
+  const reword = (stmt === 'changed' && proof === 'same' && !!base) || rgUnknown
   const whyBlind = reword ? ''
     : proof === 'unknown' ? 'the reviewed proof could not be compared, and a reword pass needs it unchanged'
     : 'no confirmed pass to reword from (a reword pass needs a CONFIRMED x2 base)'
@@ -800,7 +824,9 @@ async function recheckRecord() {
   const title = reword ? `Verify ${A.claim} ${marker}` : `Verify ${A.claim}`
   const ask = reword
     ? `Reword review of ${A.claim} (mode reword, base_pass ${base}): the repair${T ? ' ' + T : ''} changed its statement (statement hash ${hashNow} -> ${hAfter}); ` +
-      `the proof that pass reviewed (${reviewed || 'its proof'}) is untouched. Does it still prove the new wording?`
+      (rgUnknown
+        ? `the proof that pass reviewed could not be compared, and the repair answers the reword GAP of ${rg.pass} (reword-gap; #147: after a reword GAP the next review is a reword against the last confirmed statement, even if the proof was rewritten). Does the proof as it stands prove the new wording?`
+        : `the proof that pass reviewed (${reviewed || 'its proof'}) is untouched. Does it still prove the new wording?`)
     : `Review ${A.claim}: the repair${T ? ' ' + T : ''} changed its record (${what}), and its status (${st.status}${base ? ', pass ' + base : ''}) stands on a review of the old text. ` +
       `Is the argument in ${pAfter || reviewed || 'its proof'} valid from its stated inputs for the statement as it stands? A blind pass, not a reword: ${whyBlind}.`
   const proofRef = reword ? reviewed : (pAfter || reviewed)
@@ -824,7 +850,8 @@ async function recheckRecord() {
       (reword ? ` with "${marker}" in its title (what the inbox reads as reword mode)` : ''))
   }
   out.record_verify = { ticket: r.ticket, mode: reword ? 'reword' : 'blind', base_pass: reword ? base : null }
-  out.record_verify_why = reword ? `the statement changed (${what}) over the confirmed pass ${base}, the reviewed proof untouched` : whyBlind
+  out.record_verify_why = reword ? `the statement changed (${what}) over the confirmed pass ${base}, ` +
+    (rgUnknown ? `after the reword GAP of ${rg.pass} (reword-gap, #147: a reword even with the proof not comparable)` : 'the reviewed proof untouched') : whyBlind
   return { ticket: r.ticket, clause: `; ${reword ? 'reword' : 'blind'} verify ticket ${r.ticket} for the changed record (${what}${reword ? ', base pass ' + base : ''})` }
 }
 
@@ -861,9 +888,19 @@ if (!completeNoGaps(o) || depGaps.length) {
 }
 const depAsk = (deps.length ? `dependencies: ${deps.join('; ')}` : 'dependencies: none declared') +
   (out.inputs_to_settle ? `; complete modulo the unreviewed inputs ${out.inputs_to_settle.join(', ')} (the attempt's Gaps rest only on them)` : '')
+// #147: a complete repair answering a reword GAP files the reword on the last confirmed pass, the
+// proof rewritten or not (the human's ruling, 2026-11-28); any other complete attempt files the blind verify
+const rgDone = recordCheck ? rewordGap() : null
+const rgMarker = rgDone ? `(reword of ${rgDone.base})` : ''
+const rgReviewed = recBefore ? String(recBefore.reviewed_proof || '').trim() : ''
+const verifyTitle = rgDone ? `Verify ${A.claim} ${rgMarker}` : `Verify ${A.claim}`
+const verifyAsk = rgDone
+  ? `Reword review of ${A.claim} (mode reword, base_pass ${rgDone.base}): the repair${T ? ' ' + T : ''} answers the reword GAP of pass ${rgDone.pass} (reword-gap; #147, the human's ruling of 2026-11-28: after a reword GAP the next review is a reword against the last confirmed statement, even if the proof was rewritten). ` +
+    `the proof changed: the attempt ${p.path} is the proof now; the base pass reviewed ${rgReviewed || 'the proof its decision.md names'} (give both to reword-brief: --proof-file, --base-proof-file). ` +
+    `Is the argument in ${p.path} valid from its stated inputs for the statement as it stands? ${depAsk}. ${falsifierLine}.`
+  : `Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?${repair ? ' (a repair of the ' + st.status + ' claim)' : ''} ${depAsk}. ${falsifierLine}.`
 const f = await launchMax(`Your attempt ${p.path} on ${A.claim} is complete. File exactly one verify ticket to the Expert instance (tickets_create: kind verify, ` +
-  `title "Verify ${A.claim}", ask "${oneLine(`Review ${A.claim}: is the argument in ${p.path} valid from its stated inputs?${repair ? ' (a repair of the ' + st.status + ' claim)' : ''} ` +
-    `${depAsk}. ${falsifierLine}.`, 4000)}", deliverable "A verification packet with two verdicts, or one negative verdict.", ` +
+  `title "${verifyTitle}", ask "${oneLine(verifyAsk, 4000)}", deliverable "${rgDone ? 'A verification packet with the reword run\'s verdict.' : 'A verification packet with two verdicts, or one negative verdict.'}", ` +
   `refs [${[A.claim, 'file:<instance>/' + p.path].concat(deps).join(', ')}]${T ? ', parent ' + T : ''}). ` +
   (/^open$/.test(st.status) ? `Then propose sketch (claims_propose_status, grounds note "complete attempt ${p.path}"). ` : '') +
   'Return the ticket id and the proposal ticket; a refusal verbatim.',
@@ -877,12 +914,16 @@ if (!f || !f.ticket) {
 // #85: the complete repair's own blind verify reviews the new attempt on the statement as it
 // stands, so a changed record needs no second ticket
 if (recordCheck) {
-  out.record_verify = null
-  out.record_verify_why = `the verify ticket ${f.ticket} reviews the new attempt and the statement as it stands: no second ticket for the record`
+  out.record_verify = rgDone ? { ticket: f.ticket, mode: 'reword', base_pass: rgDone.base } : null
+  out.record_verify_why = rgDone
+    ? `the repair answers the reword GAP of ${rgDone.pass} (reword-gap): the verify ticket ${f.ticket} is a reword against the last confirmed pass ${rgDone.base}, the proof changed (#147)`
+    : `the verify ticket ${f.ticket} reviews the new attempt and the statement as it stands: no second ticket for the record`
 }
-const chk = await launch(STAGE('get', [`tickets_get ${f.ticket} and return its to, kind and refs.`]), { label: 'check verify', phase: 'File', agentType: CLERK, schema: TICKET, effort: 'low' })
-const bad = !chk || !chk.found || !/^expert@/.test(chk.to) || chk.kind !== 'verify' || !(chk.refs || []).includes(A.claim)
-if (bad) out.notes.push(`ANOMALY: the verify ticket ${f.ticket} is not a verify ticket to the Expert naming ${A.claim}`)
+const chk = await launch(STAGE('get', [`tickets_get ${f.ticket} and return its to, kind and refs${rgDone ? ' and title' : ''}.`]), { label: 'check verify', phase: 'File', agentType: CLERK, schema: TICKET, effort: 'low' })
+const bad = !chk || !chk.found || !/^expert@/.test(chk.to) || chk.kind !== 'verify' || !(chk.refs || []).includes(A.claim) ||
+  (!!rgDone && !String(chk.title || '').includes(rgMarker))
+if (bad) out.notes.push(`ANOMALY: the verify ticket ${f.ticket} is not a verify ticket to the Expert naming ${A.claim}` +
+  (rgDone ? ` with "${rgMarker}" in its title (what the inbox reads as reword mode)` : ''))
 const missingRefs = chk && chk.found ? deps.filter(d => !(chk.refs || []).some(r => sameRef(String(r).trim(), d))) : []
 if (missingRefs.length) out.notes.push(`ANOMALY: the verify ticket ${f.ticket} does not name the dependencies ${missingRefs.join(', ')} in its refs`)
 out.verify_ticket = f.ticket

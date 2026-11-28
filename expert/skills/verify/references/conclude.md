@@ -445,8 +445,12 @@ unchanged or changed only in wording. Typically: a wording finding, a notation p
 restatement that drops a redundant hypothesis. **Not** when the proof changed in
 substance, when the base pass was anything but confirmed, or when the rewording
 answers a hypothesis / statement / proof finding: those take a full blind pass
-(sections 0-6). The one exception is the repair of a **reword GAP** (`reword-gap`,
-step 6): it is a reword again, against the same base pass (#147).
+(sections 0-6). **The one exception is the repair of a reword GAP** (`reword-gap`,
+step 6; #147, the human's ruling of 2026-11-28, "Reword question- I choose (a)": "after a reword GAP, the
+next review is always a reword against the last confirmed statement, even if the proof
+was rewritten"): after it, the next pass is a reword against the claim's last confirmed
+pass, whether the repair changed the statement, the proof or both. It is the one
+exception to "a changed proof takes the blind pass".
 
 **The base is the last confirmed pass** (#127, the human's ruling of 2026-11-27, verbatim:
 "Rewording in general should have the previous confirmed statement as reference"): a
@@ -479,7 +483,10 @@ GAP or `exceeds` link, or a hash that does not match refuses).
    <scratch>/bundle.md`. It refuses when `old.txt` is not the reviewed statement or the
    statement did not change. A `--new-file`/`--new-text` is still accepted (when the
    registry cannot read the record), but refused when it does not hash like the
-   registry's statement.
+   registry's statement. When the ticket says the proof changed since the base pass (a
+   repair after a reword GAP, #147), add `--proof-file <the proof now>` and, when it
+   exists, `--base-proof-file <the proof the base pass reviewed>`: the bundle inlines
+   both and tells R the proof changed, and R reviews every changed step in full.
 5. Launch `rigor-reviewer` once, with the brief:
 
    > Reword review of `<id>` (reword mode, run R): read the bundle `<scratch>/bundle.md`
@@ -519,14 +526,22 @@ GAP or `exceeds` link, or a hash that does not match refuses).
      apply in general."): no status, no recolour. Write the record, then file the
      script's one `repair` item (R's blocking step) **exactly as the script routes it**
      (`file_items[0].route`, as a blind GAP's repair, section 4.3: to the producer,
-     `producer_role_for`), naming this pass and its `base_pass`. The ask says the next
-     pass is a **reword against the same base pass** (the last verified statement, the
-     one the script names in `next:`), filed once the repair lands as
-     `Verify <id> (reword of <base pass>)`. Never open a fresh blind pass for a reword
-     GAP, and file no falsifier (section 1a: a reword pass files none). The GAP'd pass
-     confirms nothing, so `registry.py stale` keeps naming the same base.
+     `producer_role_for`), naming this pass. The ask says the next pass is a **reword
+     against the claim's last confirmed pass**, filed once the repair lands as
+     `Verify <id> (reword of <base pass>)`, whether the repair changes the statement, the
+     proof or both (#147, the human's ruling of 2026-11-28; the producer's prove run files it, reading
+     this pass's recorded `reword-gap`). Take that base from `registry.py stale` (its
+     `base_pass` for the claim; for a claim it does not list, the newest pass whose
+     decision.md records `confirmed` / `confirmed-modulo`: `reviews.py list <id>` prints
+     each pass's recorded outcome), **not** from the table's `next:` line or R's
+     `base_pass`: R may name an older base than the last confirmed pass, and the table
+     sees no later pass. The GAP'd pass confirms nothing, so it is never that base. An
+     anomaly saying R's base cannot be confirmed goes into the record and the packet.
+     Never open a fresh blind pass for a reword GAP, and file no falsifier (section 1a: a
+     reword pass files none).
    - `full-pass-needed` (R is CONFIRMED with `reword_scope: exceeds`, no GAP; the ruling
-     of #147 names gaps only): no status. Write the record, then open a **fresh blind
+     of #147 names gaps only; a defensive route, since rigor-reviewer.md makes `exceeds`
+     a GAP): no status. Write the record, then open a **fresh blind
      pass** on the new statement (section 0, a new `new-pass` without `--reword-of`); its
      brief says nothing of R.
    - `disproved`: the counterexample to the human at once, as in section 4.
