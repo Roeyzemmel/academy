@@ -283,7 +283,7 @@ that would create a second statement, proof or recollection of the same thing.
 - Discussion that **clarifies a main idea** of a step is welcome here, and only here (rule 6).
 - **A chain gets its plan before it** (the human, 2026-11-14): when one long proof becomes a
   chain, a short paragraph before the chain gives the idea and names the lemmas in the order
-  they are used. Where the text turns from the general case to a special family, a narrative
+  they are used. It states none of their conclusions (the human, 2026-11-28; rule 2, No spoilers). Where the text turns from the general case to a special family, a narrative
   paragraph says why it is treated; a long group gets its own subsection.
 - **Figures.** A diagram or figure is added where it carries the idea: a commutative diagram
   for the maps, a picture of the surface or the cylinders for the geometry. Every
@@ -407,7 +407,10 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
   reductions between the classes, once; then state each shared property once, for the
   wider setting. Where the list makes the reduction, the proof is the base case plus one
   sentence citing the list; where it does not, the proof has two steps inside one proof
-  (the base case, then the reduction). Never one lemma per setting, since the statements
+  (the base case, then the reduction). A base setting that is not literally a special case of
+  the wider one, but an intrinsic property of it (flat structures inside dihedral ones), is
+  covered by the same single statement: the base case first, and the wider reading as one
+  sentence when the reduction is easy (the human, 2026-11-28). Never one lemma per setting, since the statements
   would be almost the same. A special setting is given as an explicit example of the
   general one, and only what does not follow from the general setting alone is stated for
   it; that list is short, and the writer asks the human about each item on it.
@@ -470,6 +473,7 @@ SW08's way (the human, 2026-11-14; earlier: "Way too much discussion").
   of rule 10. A division opens with its narrative: what it studies and why, its history,
   examples (the human, 2026-11-28: "Section openings may be longer"). The narrative may be
   longer than a sentence or two, but it is never a list of what each subdivision does.
+  Appendices open the same way (the human, 2026-11-28).
 - **Appendices**: long computations and routine verifications a reader skips but a referee
   needs, general theory (rule 9), and the less trivial proofs of elementary properties the
   body names in one sentence (rule 2); moving the paper's own material there is the human's
